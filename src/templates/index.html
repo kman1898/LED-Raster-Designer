@@ -1,0 +1,1345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LED Raster Designer v0.6.1.32</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div id="app">
+        <div id="menu-bar">
+            <div class="menu-item" data-menu="file">File</div>
+            <div class="menu-item" data-menu="edit">Edit</div>
+            <div class="menu-item" data-menu="view">View</div>
+        </div>
+
+        <div id="menu-file" class="menu-dropdown">
+            <div class="menu-option" data-action="new" data-label="New" data-shortcut-mac="Cmd+N" data-shortcut-win="Ctrl+N"></div>
+            <div class="menu-option" data-action="open" data-label="Open" data-shortcut-mac="Cmd+O" data-shortcut-win="Ctrl+O"></div>
+            <div class="menu-option" data-action="save" data-label="Save" data-shortcut-mac="Cmd+S" data-shortcut-win="Ctrl+S"></div>
+            <div class="menu-divider"></div>
+            <div class="menu-option" data-action="export-png" data-label="Export PNG" data-shortcut-mac="Option+S" data-shortcut-win="Alt+S"></div>
+            <div class="menu-option" data-action="export-psd" data-label="Export PSD" data-shortcut-mac="Cmd+Option+S" data-shortcut-win="Ctrl+Alt+S"></div>
+            <div class="menu-divider"></div>
+            <div class="menu-option" data-action="preferences" data-label="Preferences" data-shortcut-mac="Cmd+," data-shortcut-win="Ctrl+,"></div>
+        </div>
+
+        <div id="menu-edit" class="menu-dropdown">
+            <div class="menu-option" data-action="undo" data-label="Undo" data-shortcut-mac="Cmd+Z" data-shortcut-win="Ctrl+Z"></div>
+            <div class="menu-option" data-action="redo" data-label="Redo" data-shortcut-mac="Cmd+Shift+Z" data-shortcut-win="Ctrl+Shift+Z"></div>
+            <div class="menu-divider"></div>
+            <div class="menu-option" data-action="copy" data-label="Copy" data-shortcut-mac="Cmd+C" data-shortcut-win="Ctrl+C"></div>
+            <div class="menu-option" data-action="paste" data-label="Paste" data-shortcut-mac="Cmd+V" data-shortcut-win="Ctrl+V"></div>
+            <div class="menu-option" data-action="duplicate" data-label="Duplicate" data-shortcut-mac="Cmd+J" data-shortcut-win="Ctrl+J"></div>
+            <div class="menu-divider"></div>
+            <div class="menu-option" data-action="prev-port" data-label="Previous Port" data-shortcut-mac="Shift+B" data-shortcut-win="Shift+B"></div>
+            <div class="menu-option" data-action="next-port" data-label="Next Port" data-shortcut-mac="Shift+N" data-shortcut-win="Shift+N"></div>
+        </div>
+
+        <div id="menu-view" class="menu-dropdown">
+            <div class="menu-option" data-action="fit" data-label="Fit to View" data-shortcut-mac="F" data-shortcut-win="F"></div>
+            <div class="menu-option" data-action="actual-size" data-label="Actual Size" data-shortcut-mac="1:1" data-shortcut-win="1:1"></div>
+        </div>
+
+        <div id="context-menu" class="context-menu">
+            <div class="menu-option" data-action="undo" data-label="Undo" data-shortcut-mac="Cmd+Z" data-shortcut-win="Ctrl+Z"></div>
+            <div class="menu-option" data-action="redo" data-label="Redo" data-shortcut-mac="Cmd+Shift+Z" data-shortcut-win="Ctrl+Shift+Z"></div>
+            <div class="menu-divider"></div>
+            <div class="menu-option" data-action="copy" data-label="Copy" data-shortcut-mac="Cmd+C" data-shortcut-win="Ctrl+C"></div>
+            <div class="menu-option" data-action="paste" data-label="Paste" data-shortcut-mac="Cmd+V" data-shortcut-win="Ctrl+V"></div>
+            <div class="menu-option" data-action="duplicate" data-label="Duplicate" data-shortcut-mac="Cmd+J" data-shortcut-win="Ctrl+J"></div>
+            <div class="menu-option" data-action="delete" data-label="Delete Layer" data-shortcut-mac="Del" data-shortcut-win="Del"></div>
+            <div class="menu-divider"></div>
+            <div class="menu-option" data-action="prev-port" data-label="Previous Port" data-shortcut-mac="Shift+B" data-shortcut-win="Shift+B"></div>
+            <div class="menu-option" data-action="next-port" data-label="Next Port" data-shortcut-mac="Shift+N" data-shortcut-win="Shift+N"></div>
+        </div>
+
+        <div id="toolbar">
+            <div class="toolbar-section toolbar-project">
+                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.6.1.32</span></h1>
+                <input type="text" id="project-name" value="Untitled Project" class="editable-project-name">
+            </div>
+            <div class="toolbar-section toolbar-actions">
+                <button id="btn-new" class="btn">New</button>
+                <button id="btn-open" class="btn">Open</button>
+                <button id="btn-save" class="btn">Save</button>
+                <button id="btn-export" class="btn">Export</button>
+            </div>
+        </div>
+
+        <div id="view-tabs">
+            <button class="view-tab active" data-mode="pixel-map">Pixel Map</button>
+            <button class="view-tab" data-mode="cabinet-id">Cabinet ID</button>
+            <button class="view-tab" data-mode="data-flow">Data</button>
+            <button class="view-tab" data-mode="power">Power</button>
+        </div>
+
+        <div id="main-container">
+            <div id="left-sidebar">
+                <!-- Pixel Map Controls -->
+                <div class="panel tab-panel" data-tab="pixel-map">
+                    <div class="panel-header">
+                        <h2>Screen Info</h2>
+                    </div>
+                    <div class="panel-content">
+                        <div class="info-row screen-only">
+                            <label>Offset X</label>
+                            <input type="text" id="offset-x" value="0">
+                        </div>
+                        <div class="info-row screen-only">
+                            <label>Offset Y</label>
+                            <input type="text" id="offset-y" value="0">
+                        </div>
+                        <div id="screen-grid-settings" class="screen-only">
+                            <div class="info-row">
+                                <label>Cabinet Width (px)</label>
+                                <input type="text" id="cabinet-width" value="128">
+                            </div>
+                            <div class="info-row">
+                                <label>Cabinet Height (px)</label>
+                                <input type="text" id="cabinet-height" value="128">
+                            </div>
+                            <div class="info-row">
+                                <label>Columns</label>
+                                <input type="text" id="screen-columns" value="8">
+                            </div>
+                            <div class="info-row">
+                                <label>Rows</label>
+                                <input type="text" id="screen-rows" value="5">
+                            </div>
+                            <div class="info-row checkbox-row">
+                                <input type="checkbox" id="half-first-column">
+                                <label for="half-first-column">Half First Column</label>
+                            </div>
+                            <div class="info-row checkbox-row">
+                                <input type="checkbox" id="half-last-column">
+                                <label for="half-last-column">Half Last Column</label>
+                            </div>
+                            <div class="info-row checkbox-row">
+                                <input type="checkbox" id="half-first-row">
+                                <label for="half-first-row">Half First Row</label>
+                            </div>
+                            <div class="info-row checkbox-row">
+                                <input type="checkbox" id="half-last-row">
+                                <label for="half-last-row">Half Last Row</label>
+                            </div>
+                            <div class="info-row">
+                                <label>Panel Width (mm)</label>
+                                <input type="number" id="panel-width-mm" value="500" step="0.1" autocomplete="off" style="width: 70px;">
+                            </div>
+                            <div class="info-row">
+                                <label>Panel Height (mm)</label>
+                                <input type="number" id="panel-height-mm" value="500" step="0.1" autocomplete="off" style="width: 70px;">
+                            </div>
+                            <div class="info-row">
+                                <label>Weight per Panel</label>
+                                <div style="display: flex; gap: 6px; align-items: center;">
+                                    <input type="number" id="panel-weight-kg" value="20" step="0.1" autocomplete="off" style="width: 70px;">
+                                    <select id="panel-weight-unit" class="info-select" style="width: 64px;">
+                                        <option value="kg">kg</option>
+                                        <option value="lb">lb</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="image-layer-section" style="display: none;">
+                            <div class="info-row" style="margin-top: 8px;">
+                                <label>Image/Logo</label>
+                                <button id="btn-replace-image" class="btn btn-secondary" style="width: 100%;">Replace Image</button>
+                            </div>
+                            <div class="info-row">
+                                <label>Image Size</label>
+                                <div id="image-size-display" style="color:#aaa; font-size: 12px;">—</div>
+                            </div>
+                            <div class="info-row">
+                                <label>Scale (%)</label>
+                                <input type="number" id="image-scale" value="100" min="1" max="500" step="1" autocomplete="off" style="width: 70px;">
+                            </div>
+                            <div class="info-row">
+                                <input type="range" id="image-scale-range" min="10" max="500" value="100" step="1" style="width: 100%;">
+                            </div>
+                        </div>
+                        <div class="info-row checkbox-row screen-only">
+                            <input type="checkbox" id="show-panel-borders">
+                            <label for="show-panel-borders">Border</label>
+                        </div>
+                        <div class="info-row checkbox-row screen-only">
+                            <input type="checkbox" id="show-circle-with-x">
+                            <label for="show-circle-with-x">Circle with X</label>
+                        </div>
+                        <div class="info-row screen-only">
+                            <label>Border Color</label>
+                            <div style="display: flex; gap: 5px; align-items: center;">
+                                <input type="color" id="border-color" value="#ffffff">
+                                <button class="color-swatch" id="border-color-swatch" aria-label="Border Color"></button>
+                                <input type="text" id="border-color-hex" value="#FFFFFF" maxlength="7" style="width: 70px; font-family: monospace;">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Offsets Section -->
+                <div class="panel tab-panel screen-only" data-tab="pixel-map">
+                    <div class="panel-header">
+                        <h2>Offsets</h2>
+                    </div>
+                    <div class="panel-content">
+                        <div class="info-row checkbox-row">
+                            <input type="checkbox" id="show-offset-tl">
+                            <label for="show-offset-tl">Top Left</label>
+                        </div>
+                        <div class="info-row checkbox-row">
+                            <input type="checkbox" id="show-offset-tr">
+                            <label for="show-offset-tr">Top Right</label>
+                        </div>
+                        <div class="info-row checkbox-row">
+                            <input type="checkbox" id="show-offset-bl">
+                            <label for="show-offset-bl">Bottom Left</label>
+                        </div>
+                        <div class="info-row checkbox-row">
+                            <input type="checkbox" id="show-offset-br">
+                            <label for="show-offset-br">Bottom Right</label>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Labels Section -->
+                <div class="panel tab-panel screen-only" data-tab="pixel-map">
+                    <div class="panel-header">
+                        <h2>Labels</h2>
+                    </div>
+                    <div class="panel-content">
+                        <div class="info-row checkbox-row">
+                            <input type="checkbox" id="show-label-name" checked>
+                            <label for="show-label-name">Screen Name</label>
+                        </div>
+                        <div class="info-row checkbox-row">
+                            <input type="checkbox" id="show-label-size-px">
+                            <label for="show-label-size-px">Layer Size (px)</label>
+                        </div>
+                        <div class="info-row checkbox-row">
+                            <input type="checkbox" id="show-label-size-m">
+                            <label for="show-label-size-m">Layer Size (m)</label>
+                        </div>
+                        <div class="info-row checkbox-row">
+                            <input type="checkbox" id="show-label-size-ft">
+                            <label for="show-label-size-ft">Layer Size (ft)</label>
+                            <label style="margin-left: 10px; font-size: 11px; color: #888;">
+                                <input type="checkbox" id="use-fractional-inches">
+                                Fractions
+                            </label>
+                        </div>
+                        <div class="info-row checkbox-row">
+                            <input type="checkbox" id="show-label-weight">
+                            <label for="show-label-weight">Panel Weight</label>
+                        </div>
+                        <div class="info-row checkbox-row">
+                            <input type="checkbox" id="show-label-info">
+                            <label for="show-label-info">Info</label>
+                            <input type="number" id="info-label-size" min="8" max="200" value="14" autocomplete="off" style="margin-left: auto; width: 64px;">
+                        </div>
+                        <div class="info-row">
+                            <label>Labels Color</label>
+                            <div style="display: flex; gap: 5px; align-items: center;">
+                                <input type="color" id="labels-color" value="#ffffff">
+                                <button class="color-swatch" id="labels-color-swatch" aria-label="Labels Color"></button>
+                                <input type="text" id="labels-color-hex" value="#FFFFFF" maxlength="7" style="width: 70px; font-family: monospace;">
+                            </div>
+                        </div>
+                        <div class="info-row">
+                            <label>Labels Font Size</label>
+                            <input type="number" id="labels-fontsize" value="30" min="8" max="200" autocomplete="off" style="width: 60px;">
+                        </div>
+                    </div>
+                </div>
+
+                
+                <!-- Cabinet ID Controls -->
+                <div class="panel tab-panel screen-only" data-tab="cabinet-id" style="display: none;">
+                    <div class="panel-header">
+                        <h2>Cabinet ID Settings</h2>
+                    </div>
+                    <div class="panel-content">
+                        <div class="info-row checkbox-row">
+                            <input type="checkbox" id="show-label-name-cabinet" checked>
+                            <label for="show-label-name-cabinet">Screen Name</label>
+                        </div>
+                        
+                        <div class="info-row">
+                            <label>Screen Name Size</label>
+                            <input type="number" id="screen-name-size-cabinet" value="30" min="8" max="200" autocomplete="off" style="width: 60px;">
+                        </div>
+                        
+                        <p style="font-size: 11px; color: #888; margin: 4px 0 12px 0;">Shift+drag screen name to reposition</p>
+                        
+                        <div class="info-row checkbox-row">
+                            <input type="checkbox" id="show-numbers" checked>
+                            <label for="show-numbers">Show Cabinet ID</label>
+                        </div>
+                        
+                        <div class="info-row" style="margin-top: 15px;">
+                            <label style="font-weight: 600; margin-bottom: 8px; display: block;">Numbering Style</label>
+                            <div style="display: flex; flex-direction: column; gap: 8px;">
+                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                    <input type="radio" name="cabinet-id-style" value="column-row" checked>
+                                    <span>A1, B1, C1</span>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                    <input type="radio" name="cabinet-id-style" value="row-column">
+                                    <span>A1, A2, A3</span>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                    <input type="radio" name="cabinet-id-style" value="row-col">
+                                    <span>1,1  1,2  1,3</span>
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <div class="info-row" style="margin-top: 15px;">
+                            <label style="font-weight: 600; margin-bottom: 8px; display: block;">Label Position</label>
+                            <div style="display: flex; flex-direction: column; gap: 8px;">
+                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                    <input type="radio" name="cabinet-id-position" value="top-left">
+                                    <span>Top-Left</span>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                    <input type="radio" name="cabinet-id-position" value="center" checked>
+                                    <span>Center</span>
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <div class="info-row">
+                            <label>Font Size (px)</label>
+                            <input type="number" id="number-size" value="30" min="8" max="200" autocomplete="off" style="width: 60px;">
+                        </div>
+                        
+                        <div class="info-row">
+                            <label>Label Color</label>
+                            <div style="display: flex; gap: 5px; align-items: center;">
+                                <input type="color" id="cabinet-id-color" value="#ffffff">
+                                <button class="color-swatch" id="cabinet-id-color-swatch" aria-label="Cabinet ID Color"></button>
+                                <input type="text" id="cabinet-id-color-hex" value="#FFFFFF" maxlength="7" style="width: 70px; font-family: monospace;">
+                            </div>
+                        </div>
+                        
+                        <hr style="border: none; border-top: 1px solid #3a3a3a; margin: 12px 0;">
+                        
+                        <div class="info-row checkbox-row">
+                            <input type="checkbox" id="show-panel-borders-cabinet" checked>
+                            <label for="show-panel-borders-cabinet">Border</label>
+                        </div>
+                        <div class="info-row">
+                            <label>Border Color</label>
+                            <div style="display: flex; gap: 5px; align-items: center;">
+                                <input type="color" id="border-color-cabinet" value="#ffffff">
+                                <button class="color-swatch" id="border-color-cabinet-swatch" aria-label="Cabinet Border Color"></button>
+                                <input type="text" id="border-color-cabinet-hex" value="#FFFFFF" maxlength="7" style="width: 70px; font-family: monospace;">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel tab-panel image-only" data-tab="cabinet-id" style="display: none;">
+                    <div class="panel-header">
+                        <h2>Image Layer</h2>
+                    </div>
+                    <div class="panel-content">
+                        <div style="color:#aaa; font-size: 12px;">
+                            Image layers do not use Cabinet ID settings.
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Data Controls -->
+                <div class="panel tab-panel screen-only" data-tab="data-flow" style="display: none;">
+                    <div class="panel-header">
+                        <h2>Data Settings</h2>
+                    </div>
+                    <div class="panel-content">
+                        <div class="info-row checkbox-row">
+                            <input type="checkbox" id="show-label-name-data" checked>
+                            <label for="show-label-name-data">Screen Name</label>
+                        </div>
+                        
+                        <div class="info-row">
+                            <label>Screen Name Size</label>
+                            <input type="number" id="screen-name-size" value="30" min="8" max="200" autocomplete="off" style="width: 60px;">
+                        </div>
+                        <div class="info-row checkbox-row">
+                            <input type="checkbox" id="show-data-flow-port-info">
+                            <label for="show-data-flow-port-info">Show Port Info</label>
+                        </div>
+                        
+                        <p style="font-size: 11px; color: #888; margin: 4px 0 12px 0;">Shift+drag screen name to reposition</p>
+                        
+                        <!-- Port Capacity Settings -->
+                        <div style="margin-top: 15px; padding: 12px; background: #1a1a1a; border-radius: 6px; border: 1px solid #333;">
+                            <label style="font-weight: 600; margin-bottom: 10px; display: block; color: #4A90E2;">Port Capacity</label>
+                            
+                            <div class="info-row" style="margin-bottom: 8px;">
+                                <label>Processing</label>
+                                <select id="processor-type" class="info-select" style="width: 100%;">
+                                    <option value="novastar-armor">NovaStar (Legacy)</option>
+                                    <option value="novastar-coex-1g">NovaStar COEX A10s/A8s (1G)</option>
+                                    <option value="novastar-5g">NovaStar COEX CX40 (5G)</option>
+                                    <option value="brompton">Brompton Tessera</option>
+                                    <option value="brompton-ull">Brompton Tessera (ULL)</option>
+                                    <option value="megapixel-1g">Megapixel HELIOS (1G)</option>
+                                    <option value="megapixel-2.5g">Megapixel HELIOS (2.5G)</option>
+                                </select>
+                            </div>
+                            
+                            <div class="info-row" style="margin-bottom: 8px;">
+                                <label>Bit Depth</label>
+                                <select id="bit-depth" class="info-select" style="width: 100%;">
+                                    <option value="8">8-bit</option>
+                                    <option value="10">10-bit</option>
+                                    <option value="12">12-bit</option>
+                                </select>
+                            </div>
+                            
+                            <div class="info-row" style="margin-bottom: 8px;">
+                                <label>Frame Rate</label>
+                                <select id="frame-rate" class="info-select" style="width: 100%;">
+                                    <option value="23.976">23.976 Hz</option>
+                                    <option value="24">24 Hz</option>
+                                    <option value="25">25 Hz</option>
+                                    <option value="29.97">29.97 Hz</option>
+                                    <option value="30">30 Hz</option>
+                                    <option value="48">48 Hz</option>
+                                    <option value="50">50 Hz</option>
+                                    <option value="59.94">59.94 Hz</option>
+                                    <option value="60" selected>60 Hz</option>
+                                    <option value="72">72 Hz</option>
+                                    <option value="100">100 Hz</option>
+                                    <option value="120">120 Hz</option>
+                                    <option value="144">144 Hz</option>
+                                    <option value="150">150 Hz</option>
+                                    <option value="180">180 Hz</option>
+                                    <option value="192">192 Hz</option>
+                                    <option value="200">200 Hz</option>
+                                    <option value="240">240 Hz</option>
+                                    <option value="250">250 Hz</option>
+                                </select>
+                            </div>
+                            
+                            <div class="info-row" style="margin-bottom: 8px;">
+                                <label>Port Mapping</label>
+                                <div style="display: flex; gap: 4px; width: 100%;">
+                                    <button type="button" id="mapping-organized" class="mapping-mode-btn active" 
+                                        style="flex: 1; padding: 5px 8px; font-size: 11px; border: 1px solid #555; border-radius: 4px; cursor: pointer; background: #4A90E2; color: #fff; transition: all 0.15s;"
+                                        title="Ports fill complete rows or columns only - clean rectangular port regions">
+                                        Organized
+                                    </button>
+                                    <button type="button" id="mapping-max-capacity" class="mapping-mode-btn"
+                                        style="flex: 1; padding: 5px 8px; font-size: 11px; border: 1px solid #555; border-radius: 4px; cursor: pointer; background: #333; color: #ccc; transition: all 0.15s;"
+                                        title="Ports fill to maximum pixel capacity - may split mid-row/column">
+                                        Max Capacity
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div style="margin-top: 10px; padding: 8px; background: #252525; border-radius: 4px;">
+                                <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px;">
+                                    <span style="color: #888;">Pixels/Port:</span>
+                                    <span id="port-capacity" style="color: #4A90E2; font-weight: 600;">659,722</span>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px;">
+                                    <span style="color: #888;">Panels/Port:</span>
+                                    <span id="panels-per-port" style="color: #4A90E2; font-weight: 600;">--</span>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; font-size: 12px;">
+                                    <span style="color: #888;">Ports Required:</span>
+                                    <span id="ports-required" style="color: #00cc00; font-weight: 600;">--</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="info-row" style="margin-top: 15px;">
+                            <label style="font-weight: 600; margin-bottom: 12px; display: block;">Flow Pattern</label>
+                            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;">
+                                <!-- Row 1: Top start patterns -->
+                                <!-- 1. Top-left start, horizontal-first serpentine (Z-shape) -->
+                                <button type="button" class="flow-pattern-btn" data-pattern="tl-h" title="Top-left, horizontal first">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="4" cy="4" r="3" fill="#00cc00"/>
+                                        <path d="M 4 4 L 28 4 L 28 16 L 4 16 L 4 28 L 22 28" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="28,28 22,24 22,32" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                
+                                <!-- 2. Top-left start, vertical-first serpentine -->
+                                <button type="button" class="flow-pattern-btn" data-pattern="tl-v" title="Top-left, vertical first">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="4" cy="4" r="3" fill="#00cc00"/>
+                                        <path d="M 4 4 L 4 28 L 16 28 L 16 4 L 28 4 L 28 22" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="28,28 24,22 32,22" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                
+                                <!-- 3. Top-right start, horizontal-first serpentine (reversed Z) -->
+                                <button type="button" class="flow-pattern-btn" data-pattern="tr-h" title="Top-right, horizontal first">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="28" cy="4" r="3" fill="#00cc00"/>
+                                        <path d="M 28 4 L 4 4 L 4 16 L 28 16 L 28 28 L 10 28" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="4,28 10,24 10,32" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                
+                                <!-- 4. Top-right start, vertical-first serpentine -->
+                                <button type="button" class="flow-pattern-btn active" data-pattern="tr-v" title="Top-right, vertical first">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="28" cy="4" r="3" fill="#00cc00"/>
+                                        <path d="M 28 4 L 28 28 L 16 28 L 16 4 L 4 4 L 4 22" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="4,28 0,22 8,22" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                
+                                <!-- Row 2: Bottom start patterns -->
+                                <!-- 5. Bottom-left start, horizontal-first serpentine -->
+                                <button type="button" class="flow-pattern-btn" data-pattern="bl-h" title="Bottom-left, horizontal first">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="4" cy="28" r="3" fill="#00cc00"/>
+                                        <path d="M 4 28 L 28 28 L 28 16 L 4 16 L 4 4 L 22 4" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="28,4 22,0 22,8" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                
+                                <!-- 6. Bottom-left start, vertical-first serpentine -->
+                                <button type="button" class="flow-pattern-btn" data-pattern="bl-v" title="Bottom-left, vertical first">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="4" cy="28" r="3" fill="#00cc00"/>
+                                        <path d="M 4 28 L 4 4 L 16 4 L 16 28 L 28 28 L 28 10" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="28,4 24,10 32,10" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                
+                                <!-- 7. Bottom-right start, horizontal-first serpentine -->
+                                <button type="button" class="flow-pattern-btn" data-pattern="br-h" title="Bottom-right, horizontal first">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="28" cy="28" r="3" fill="#00cc00"/>
+                                        <path d="M 28 28 L 4 28 L 4 16 L 28 16 L 28 4 L 10 4" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="4,4 10,0 10,8" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                
+                                <!-- 8. Bottom-right start, vertical-first serpentine -->
+                                <button type="button" class="flow-pattern-btn" data-pattern="br-v" title="Bottom-right, vertical first">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="28" cy="28" r="3" fill="#00cc00"/>
+                                        <path d="M 28 28 L 28 4 L 16 4 L 16 28 L 4 28 L 4 10" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="4,4 0,10 8,10" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                            </div>
+                            
+                            <div style="display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 6px 8px; background: #1a1a1a; border-radius: 4px;">
+                                <input type="checkbox" id="random-colors" style="margin: 0;">
+                                <label for="random-colors" style="margin: 0; font-size: 12px;">Random Colors</label>
+                            </div>
+                        </div>
+                        
+                        <div class="info-row" style="margin-top: 15px;">
+                            <label style="font-weight: 600; margin-bottom: 8px; display: block;">Custom Path Mode</label>
+                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                                <input type="checkbox" id="custom-flow-toggle" style="margin: 0;">
+                                <label for="custom-flow-toggle" style="margin: 0; font-size: 12px;">Enable Custom Mode</label>
+                            </div>
+                            <div id="custom-flow-controls" style="display: none; background: #111; border: 1px solid #333; border-radius: 4px; padding: 8px;">
+                                <div style="display: grid; grid-template-columns: 1fr auto auto; gap: 6px; align-items: end; margin-bottom: 8px;">
+                                    <div>
+                                        <label style="font-size: 11px; color: #888;">Active Port</label>
+                                        <input type="number" id="custom-active-port-input" value="1" min="1" step="1" style="width: 100%; padding: 6px; background: #111; border: 1px solid #333; color: #fff; border-radius: 4px;">
+                                    </div>
+                                    <button id="custom-prev-port" class="btn" style="padding: 6px 10px;">Prev</button>
+                                    <button id="custom-next-port" class="btn" style="padding: 6px 10px;">Next</button>
+                                </div>
+                                <div style="display: flex; gap: 6px; margin-bottom: 8px;">
+                                    <button id="custom-clear-port" class="btn" style="flex: 1; padding: 6px 8px; background: #333;">Clear Port</button>
+                                    <button id="custom-clear-all" class="btn" style="flex: 1; padding: 6px 8px; background: #333;">Clear All</button>
+                                </div>
+                                <div style="display: flex; gap: 6px; margin-bottom: 6px;">
+                                    <button id="custom-clear-selection" class="btn" style="flex: 1; padding: 6px 8px; background: #333;">Clear Selection</button>
+                                </div>
+                                <p style="font-size: 11px; color: #888; margin: 0;">Click/drag to select panels. Click panels or use arrow keys to draw. Pattern buttons apply to selection.</p>
+                            </div>
+                        </div>
+
+                        <div class="info-row" style="margin-top: 15px;">
+                            <label style="font-weight: 600; margin-bottom: 8px; display: block;">Port Labels</label>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px;">
+                                <div>
+                                    <label style="font-size: 11px; color: #888;">Primary Template</label>
+                                    <input type="text" id="port-label-template-primary" value="P#" style="width: 100%; padding: 6px; background: #111; border: 1px solid #333; color: #fff; border-radius: 4px; font-family: monospace;">
+                                </div>
+                                <div>
+                                    <label style="font-size: 11px; color: #888;">Return Template</label>
+                                    <input type="text" id="port-label-template-return" value="R#" style="width: 100%; padding: 6px; background: #111; border: 1px solid #333; color: #fff; border-radius: 4px; font-family: monospace;">
+                                </div>
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; align-items: end; margin-bottom: 6px;">
+                                <div>
+                                    <label style="font-size: 11px; color: #888;">Apply Style (Primary)</label>
+                                    <input type="text" id="port-label-bulk-primary" placeholder="#A" style="width: 100%; padding: 6px; background: #111; border: 1px solid #333; color: #fff; border-radius: 4px; font-family: monospace;">
+                                </div>
+                                <div>
+                                    <label style="font-size: 11px; color: #888;">Apply Style (Return)</label>
+                                    <input type="text" id="port-label-bulk-return" placeholder="#B" style="width: 100%; padding: 6px; background: #111; border: 1px solid #333; color: #fff; border-radius: 4px; font-family: monospace;">
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 6px; margin-bottom: 8px;">
+                                <button id="port-label-apply-selected" class="btn" style="flex: 1; padding: 6px 10px;">Apply</button>
+                                <button id="port-label-clear-selected" class="btn" style="flex: 1; padding: 6px 10px; background: #333;">Clear</button>
+                            </div>
+                            <div style="display: flex; gap: 6px; margin-bottom: 8px;">
+                                <button id="port-label-select-all" class="btn" style="flex: 1; padding: 6px 10px; background: #222;">Select All</button>
+                                <button id="port-label-deselect-all" class="btn" style="flex: 1; padding: 6px 10px; background: #222;">Deselect All</button>
+                            </div>
+                            <div id="port-label-list" style="display: grid; gap: 6px; max-height: 160px; overflow: auto; padding: 6px; background: #111; border: 1px solid #333; border-radius: 4px;"></div>
+                            <p style="font-size: 11px; color: #888; margin: 6px 0 0;">Use # for port number. Overrides apply per port.</p>
+                        </div>
+                        
+                        <div class="info-row">
+                            <label>Line Color</label>
+                            <div style="display: flex; gap: 5px; align-items: center;">
+                                <input type="color" id="data-flow-color" value="#FFFFFF">
+                                <button class="color-swatch" id="data-flow-color-swatch" aria-label="Data Flow Line Color"></button>
+                                <input type="text" id="data-flow-color-hex" value="#FFFFFF" maxlength="7" style="width: 70px; font-family: monospace;">
+                            </div>
+                        </div>
+                        
+                        <div class="info-row">
+                            <label>Arrow Color</label>
+                            <div style="display: flex; gap: 5px; align-items: center;">
+                                <input type="color" id="arrow-color" value="#0042AA">
+                                <button class="color-swatch" id="arrow-color-swatch" aria-label="Arrow Color"></button>
+                                <input type="text" id="arrow-color-hex" value="#0042AA" maxlength="7" style="width: 70px; font-family: monospace;">
+                            </div>
+                        </div>
+                        
+                        <div class="info-row">
+                            <label>Line Width</label>
+                            <input type="number" id="arrow-line-width" value="6" min="1" max="10" autocomplete="off" style="width: 60px;">
+                        </div>
+                        
+                        <div class="info-row">
+                            <label>Label Size</label>
+                            <input type="number" id="label-size" value="30" min="6" max="200" autocomplete="off" style="width: 60px;">
+                        </div>
+                        
+                        <div class="info-row">
+                            <label>Primary</label>
+                            <div style="display: flex; gap: 5px; align-items: center;">
+                                <input type="color" id="primary-color" value="#00FF00">
+                                <button class="color-swatch" id="primary-color-swatch" aria-label="Primary Color"></button>
+                                <input type="text" id="primary-color-hex" value="#00FF00" maxlength="7" style="width: 70px; font-family: monospace;">
+                            </div>
+                        </div>
+                        <div class="info-row">
+                            <label>Primary Text</label>
+                            <div style="display: flex; gap: 5px; align-items: center;">
+                                <input type="color" id="primary-text-color" value="#000000">
+                                <button class="color-swatch" id="primary-text-color-swatch" aria-label="Primary Label Text Color"></button>
+                                <input type="text" id="primary-text-color-hex" value="#000000" maxlength="7" style="width: 70px; font-family: monospace;">
+                            </div>
+                        </div>
+                        
+                        <div class="info-row">
+                            <label>Redundancy</label>
+                            <div style="display: flex; gap: 5px; align-items: center;">
+                                <input type="color" id="backup-color" value="#FF0000">
+                                <button class="color-swatch" id="backup-color-swatch" aria-label="Backup Color"></button>
+                                <input type="text" id="backup-color-hex" value="#FF0000" maxlength="7" style="width: 70px; font-family: monospace;">
+                            </div>
+                        </div>
+                        <div class="info-row">
+                            <label>Redundancy Text</label>
+                            <div style="display: flex; gap: 5px; align-items: center;">
+                                <input type="color" id="backup-text-color" value="#FFFFFF">
+                                <button class="color-swatch" id="backup-text-color-swatch" aria-label="Redundancy Label Text Color"></button>
+                                <input type="text" id="backup-text-color-hex" value="#FFFFFF" maxlength="7" style="width: 70px; font-family: monospace;">
+                            </div>
+                        </div>
+                        
+                        <hr style="border: none; border-top: 1px solid #3a3a3a; margin: 12px 0;">
+                        
+                        <div class="info-row checkbox-row">
+                            <input type="checkbox" id="show-panel-borders-data" checked>
+                            <label for="show-panel-borders-data">Border</label>
+                        </div>
+                        <div class="info-row">
+                            <label>Border Color</label>
+                            <div style="display: flex; gap: 5px; align-items: center;">
+                                <input type="color" id="border-color-data" value="#ffffff">
+                                <button class="color-swatch" id="border-color-data-swatch" aria-label="Data Flow Border Color"></button>
+                                <input type="text" id="border-color-data-hex" value="#FFFFFF" maxlength="7" style="width: 70px; font-family: monospace;">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel tab-panel image-only" data-tab="data-flow" style="display: none;">
+                    <div class="panel-header">
+                        <h2>Image Layer</h2>
+                    </div>
+                    <div class="panel-content">
+                        <div style="color:#aaa; font-size: 12px;">
+                            Image layers do not use Data settings.
+                        </div>
+                    </div>
+                </div>
+                
+                <style>
+                .flow-pattern-btn {
+                    background: #1a1a1a;
+                    border: 1px solid #3a3a3a;
+                    border-radius: 3px;
+                    padding: 4px;
+                    cursor: pointer;
+                    transition: all 0.15s;
+                    color: #e0e0e0;
+                    min-height: 44px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+                
+                .flow-pattern-btn:hover {
+                    background: #2a2a2a;
+                    border-color: #4A90E2;
+                }
+                
+                .flow-pattern-btn.active {
+                    background: #2a2a2a;
+                    border-color: #4A90E2;
+                    box-shadow: inset 0 0 0 1px #4A90E2;
+                }
+                
+                .flow-pattern-btn.active svg path {
+                    stroke: #fff;
+                }
+                </style>
+                
+                <!-- Power Controls -->
+                <div class="panel tab-panel screen-only" data-tab="power" style="display: none;">
+                    <div class="panel-header">
+                        <h2>Power Settings</h2>
+                    </div>
+                    <div class="panel-content">
+                        <div class="info-row checkbox-row">
+                            <input type="checkbox" id="show-label-name-power" checked>
+                            <label for="show-label-name-power">Screen Name</label>
+                        </div>
+                        
+                        <div class="info-row">
+                            <label>Screen Name Size</label>
+                            <input type="number" id="screen-name-size-power" value="30" min="8" max="200" autocomplete="off" style="width: 60px;">
+                        </div>
+                        <div class="info-row checkbox-row">
+                            <input type="checkbox" id="show-power-circuit-info">
+                            <label for="show-power-circuit-info">Show Circuit Info</label>
+                        </div>
+                        
+                        <p style="font-size: 11px; color: #888; margin: 4px 0 12px 0;">Shift+drag screen name to reposition</p>
+
+                        <div class="info-row">
+                            <label>Voltage (V)</label>
+                            <div style="display: flex; gap: 6px; align-items: center;">
+                                <select id="power-voltage-select" class="info-select" style="width: auto;">
+                                    <option value="110">110V</option>
+                                    <option value="208">208V</option>
+                                    <option value="220">220V</option>
+                                    <option value="230">230V</option>
+                                    <option value="240">240V</option>
+                                    <option value="custom">Custom</option>
+                                </select>
+                                <input type="number" id="power-voltage-custom" value="110" min="0" autocomplete="off" style="width: 70px; display: none;">
+                            </div>
+                        </div>
+                        <div class="info-row">
+                            <label>Amperage (A)</label>
+                            <div style="display: flex; gap: 6px; align-items: center;">
+                                <select id="power-amperage-select" class="info-select" style="width: auto;">
+                                    <option value="15">15A</option>
+                                    <option value="20">20A</option>
+                                    <option value="custom">Custom</option>
+                                </select>
+                                <input type="number" id="power-amperage-custom" value="15" min="0" step="0.1" autocomplete="off" style="width: 70px; display: none;">
+                            </div>
+                        </div>
+                        <div class="info-row">
+                            <label>Watts per Panel</label>
+                            <input type="number" id="power-panel-watts" value="200" min="0" step="1" autocomplete="off" style="width: 80px;">
+                        </div>
+
+                        <div style="padding: 8px; background: #111; border: 1px solid #333; border-radius: 4px; font-size: 12px; color: #ccc; margin-bottom: 12px;">
+                            <div>Watts/Circuit: <span id="power-watts-per-circuit">0</span></div>
+                            <div>Panels/Circuit: <span id="power-panels-per-circuit">0</span></div>
+                            <div>Circuits Required: <span id="power-circuits-required">0</span></div>
+                            <div>Total Amps (1φ): <span id="power-total-amps-1ph">0</span></div>
+                            <div>Total Amps (3φ): <span id="power-total-amps-3ph">0</span></div>
+                        </div>
+
+                        <div style="margin-bottom: 12px;">
+                            <label style="font-weight: 600; margin-bottom: 8px; display: block;">Flow Pattern</label>
+                            <div class="flow-pattern-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;">
+                                <button type="button" class="flow-pattern-btn power-flow-pattern-btn" data-pattern="tl-h" title="Top-left, horizontal first">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="4" cy="4" r="3" fill="#00cc00"/>
+                                        <path d="M 4 4 L 28 4 L 28 16 L 4 16 L 4 28 L 22 28" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="28,28 22,24 22,32" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                <button type="button" class="flow-pattern-btn power-flow-pattern-btn" data-pattern="tl-v" title="Top-left, vertical first">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="4" cy="4" r="3" fill="#00cc00"/>
+                                        <path d="M 4 4 L 4 28 L 16 28 L 16 4 L 28 4 L 28 22" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="28,28 24,22 32,22" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                <button type="button" class="flow-pattern-btn power-flow-pattern-btn" data-pattern="tr-h" title="Top-right, horizontal first">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="28" cy="4" r="3" fill="#00cc00"/>
+                                        <path d="M 28 4 L 4 4 L 4 16 L 28 16 L 28 28 L 10 28" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="4,28 10,24 10,32" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                <button type="button" class="flow-pattern-btn power-flow-pattern-btn" data-pattern="tr-v" title="Top-right, vertical first">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="28" cy="4" r="3" fill="#00cc00"/>
+                                        <path d="M 28 4 L 28 28 L 16 28 L 16 4 L 4 4 L 4 22" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="4,28 0,22 8,22" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                <button type="button" class="flow-pattern-btn power-flow-pattern-btn" data-pattern="bl-h" title="Bottom-left, horizontal first">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="4" cy="28" r="3" fill="#00cc00"/>
+                                        <path d="M 4 28 L 28 28 L 28 16 L 4 16 L 4 4 L 22 4" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="28,4 22,0 22,8" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                <button type="button" class="flow-pattern-btn power-flow-pattern-btn" data-pattern="bl-v" title="Bottom-left, vertical first">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="4" cy="28" r="3" fill="#00cc00"/>
+                                        <path d="M 4 28 L 4 4 L 16 4 L 16 28 L 28 28 L 28 10" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="28,4 24,10 32,10" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                <button type="button" class="flow-pattern-btn power-flow-pattern-btn" data-pattern="br-h" title="Bottom-right, horizontal first">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="28" cy="28" r="3" fill="#00cc00"/>
+                                        <path d="M 28 28 L 4 28 L 4 16 L 28 16 L 28 4 L 10 4" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="4,4 10,0 10,8" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                <button type="button" class="flow-pattern-btn power-flow-pattern-btn" data-pattern="br-v" title="Bottom-right, vertical first">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="28" cy="28" r="3" fill="#00cc00"/>
+                                        <path d="M 28 28 L 28 4 L 16 4 L 16 28 L 4 28 L 4 10" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="4,4 0,10 8,10" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 6px 8px; background: #1a1a1a; border-radius: 4px;">
+                                <input type="checkbox" id="power-random-colors" style="margin: 0;">
+                                <label for="power-random-colors" style="margin: 0; font-size: 12px;">Random Colors</label>
+                            </div>
+                            <div class="info-row checkbox-row" style="margin-top: 8px;">
+                                <input type="checkbox" id="power-color-coded-view">
+                                <label for="power-color-coded-view">Circuit Color View</label>
+                            </div>
+                            <div id="power-circuit-color-section" style="display: none; margin-top: 8px; padding: 8px; background: #111; border: 1px solid #333; border-radius: 4px;">
+                                <label style="font-weight: 600; margin-bottom: 8px; display: block;">Circuit Colors</label>
+                                <div style="display: flex; gap: 6px; margin-bottom: 8px;">
+                                    <button id="power-circuit-color-select-all" class="btn" style="flex: 1; padding: 6px 8px; background: #222;">Select All</button>
+                                    <button id="power-circuit-color-deselect-all" class="btn" style="flex: 1; padding: 6px 8px; background: #222;">Deselect All</button>
+                                </div>
+                                <div id="power-circuit-color-list" style="display: grid; gap: 6px; max-height: 150px; overflow: auto; margin-bottom: 8px;"></div>
+                                <div style="display: grid; grid-template-columns: 1fr auto; gap: 6px; margin-bottom: 6px;">
+                                    <select id="power-circuit-color-preset" class="info-select" style="width: 100%;">
+                                        <option value="#BC382F">Red</option>
+                                        <option value="#CC6B30">Orange</option>
+                                        <option value="#D2E94D">Yellow</option>
+                                        <option value="#2CF82B">Green</option>
+                                        <option value="#2145DC">Blue</option>
+                                        <option value="#7414F5">Purple</option>
+                                        <option value="#FF1493">Pink</option>
+                                        <option value="#00CED1">Cyan</option>
+                                        <option value="#FFFFFF">White</option>
+                                        <option value="#808080">Gray</option>
+                                        <option value="custom">Custom Hex…</option>
+                                    </select>
+                                    <button id="power-circuit-color-apply" class="btn" style="padding: 6px 10px;">Apply</button>
+                                </div>
+                                <div style="display: flex; gap: 6px; align-items: center;">
+                                    <input type="color" id="power-circuit-color-custom" value="#BC382F">
+                                    <button class="color-swatch" id="power-circuit-color-custom-swatch" aria-label="Custom Circuit Color"></button>
+                                    <input type="text" id="power-circuit-color-custom-hex" value="#BC382F" maxlength="7" style="width: 80px; font-family: monospace;">
+                                </div>
+                            </div>
+                            <div class="info-row checkbox-row" style="margin-top: 8px;">
+                                <input type="checkbox" id="power-maximize">
+                                <label for="power-maximize">Maximize Power Use</label>
+                            </div>
+                            <div class="info-row checkbox-row">
+                                <input type="checkbox" id="power-organized" checked>
+                                <label for="power-organized">Organized</label>
+                            </div>
+                            <div style="margin-top: 12px;">
+                                <label style="font-weight: 600; margin-bottom: 8px; display: block;">Custom Power Path</label>
+                                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                                    <input type="checkbox" id="power-custom-toggle" style="margin: 0;">
+                                    <label for="power-custom-toggle" style="margin: 0; font-size: 12px;">Enable Custom Mode</label>
+                                </div>
+                                <div id="power-custom-controls" style="display: none; background: #111; border: 1px solid #333; border-radius: 4px; padding: 8px;">
+                                    <div style="display: grid; grid-template-columns: 1fr auto auto; gap: 6px; align-items: end; margin-bottom: 8px;">
+                                        <div>
+                                            <label style="font-size: 11px; color: #888;">Active Circuit</label>
+                                            <input type="number" id="power-custom-active" value="1" min="1" step="1" style="width: 100%; padding: 6px; background: #111; border: 1px solid #333; color: #fff; border-radius: 4px;">
+                                        </div>
+                                        <button id="power-custom-prev" class="btn" style="padding: 6px 10px;">Prev</button>
+                                        <button id="power-custom-next" class="btn" style="padding: 6px 10px;">Next</button>
+                                    </div>
+                                    <div style="display: flex; gap: 6px; margin-bottom: 8px;">
+                                        <button id="power-custom-clear-circuit" class="btn" style="flex: 1; padding: 6px 8px; background: #333;">Clear Circuit</button>
+                                        <button id="power-custom-clear-all" class="btn" style="flex: 1; padding: 6px 8px; background: #333;">Clear All</button>
+                                    </div>
+                                    <div style="display: flex; gap: 6px; margin-bottom: 6px;">
+                                        <button id="power-custom-clear-selection" class="btn" style="flex: 1; padding: 6px 8px; background: #333;">Clear Selection</button>
+                                    </div>
+                                    <p style="font-size: 11px; color: #888; margin: 0;">Click/drag to select panels. Click panels or use arrow keys to draw. Pattern buttons apply to selection.</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style="margin-bottom: 12px;">
+                            <label style="font-weight: 600; margin-bottom: 8px; display: block;">Circuit Labels</label>
+                            <div style="display: grid; grid-template-columns: 1fr; gap: 6px; margin-bottom: 8px;">
+                                <div>
+                                    <label style="font-size: 11px; color: #888;">Template</label>
+                                    <input type="text" id="power-label-template" value="S1-#" style="width: 100%; padding: 6px; background: #111; border: 1px solid #333; color: #fff; border-radius: 4px; font-family: monospace;">
+                                </div>
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr; gap: 6px; align-items: end; margin-bottom: 6px;">
+                                <div>
+                                    <label style="font-size: 11px; color: #888;">Apply Style</label>
+                                    <input type="text" id="power-label-bulk" placeholder="S1-#" style="width: 100%; padding: 6px; background: #111; border: 1px solid #333; color: #fff; border-radius: 4px; font-family: monospace;">
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 6px; margin-bottom: 8px;">
+                                <button id="power-label-apply-selected" class="btn" style="flex: 1; padding: 6px 10px;">Apply</button>
+                                <button id="power-label-clear-selected" class="btn" style="flex: 1; padding: 6px 10px; background: #333;">Clear</button>
+                            </div>
+                            <div style="display: flex; gap: 6px; margin-bottom: 8px;">
+                                <button id="power-label-select-all" class="btn" style="flex: 1; padding: 6px 10px; background: #222;">Select All</button>
+                                <button id="power-label-deselect-all" class="btn" style="flex: 1; padding: 6px 10px; background: #222;">Deselect All</button>
+                            </div>
+                            <div id="power-label-list" style="display: grid; gap: 6px; max-height: 160px; overflow: auto; padding: 6px; background: #111; border: 1px solid #333; border-radius: 4px;"></div>
+                            <p style="font-size: 11px; color: #888; margin: 6px 0 0;">Use # for circuit number. Overrides apply per circuit.</p>
+                        </div>
+
+                        <hr style="border: none; border-top: 1px solid #3a3a3a; margin: 12px 0;">
+
+                        <div class="info-row">
+                            <label>Line Width</label>
+                            <input type="number" id="power-line-width" value="8" min="1" max="16" autocomplete="off" style="width: 60px;">
+                        </div>
+                        <div class="info-row">
+                            <label>Line Color</label>
+                            <div style="display: flex; gap: 5px; align-items: center;">
+                                <input type="color" id="power-line-color" value="#FF0000">
+                                <button class="color-swatch" id="power-line-color-swatch" aria-label="Power Line Color"></button>
+                                <input type="text" id="power-line-color-hex" value="#FF0000" maxlength="7" style="width: 70px; font-family: monospace;">
+                            </div>
+                        </div>
+                        <div class="info-row">
+                            <label>Arrow Color</label>
+                            <div style="display: flex; gap: 5px; align-items: center;">
+                                <input type="color" id="power-arrow-color" value="#0042AA">
+                                <button class="color-swatch" id="power-arrow-color-swatch" aria-label="Power Arrow Color"></button>
+                                <input type="text" id="power-arrow-color-hex" value="#0042AA" maxlength="7" style="width: 70px; font-family: monospace;">
+                            </div>
+                        </div>
+                        <div class="info-row">
+                            <label>Label Size</label>
+                            <input type="number" id="power-label-size" value="14" min="8" max="200" autocomplete="off" style="width: 60px;">
+                        </div>
+                        <div class="info-row">
+                            <label>Label Background</label>
+                            <div style="display: flex; gap: 5px; align-items: center;">
+                                <input type="color" id="power-label-bg-color" value="#D95000">
+                                <button class="color-swatch" id="power-label-bg-color-swatch" aria-label="Power Label Background Color"></button>
+                                <input type="text" id="power-label-bg-color-hex" value="#D95000" maxlength="7" style="width: 70px; font-family: monospace;">
+                            </div>
+                        </div>
+                        <div class="info-row">
+                            <label>Label Text</label>
+                            <div style="display: flex; gap: 5px; align-items: center;">
+                                <input type="color" id="power-label-text-color" value="#000000">
+                                <button class="color-swatch" id="power-label-text-color-swatch" aria-label="Power Label Text Color"></button>
+                                <input type="text" id="power-label-text-color-hex" value="#000000" maxlength="7" style="width: 70px; font-family: monospace;">
+                            </div>
+                        </div>
+                        
+                        <div class="info-row checkbox-row">
+                            <input type="checkbox" id="show-panel-borders-power" checked>
+                            <label for="show-panel-borders-power">Border</label>
+                        </div>
+                        <div class="info-row">
+                            <label>Border Color</label>
+                            <div style="display: flex; gap: 5px; align-items: center;">
+                                <input type="color" id="border-color-power" value="#ffffff">
+                                <button class="color-swatch" id="border-color-power-swatch" aria-label="Power Border Color"></button>
+                                <input type="text" id="border-color-power-hex" value="#FFFFFF" maxlength="7" style="width: 70px; font-family: monospace;">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel tab-panel image-only" data-tab="power" style="display: none;">
+                    <div class="panel-header">
+                        <h2>Image Layer</h2>
+                    </div>
+                    <div class="panel-content">
+                        <div style="color:#aaa; font-size: 12px;">
+                            Image layers do not use Power settings.
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Colors panel - only for Pixel Map -->
+                <div class="panel tab-panel screen-only" data-tab="pixel-map">
+                    <div class="panel-header">
+                        <h2>Colors</h2>
+                    </div>
+                    <div class="panel-content">
+                        <div class="info-row">
+                            <label>Color 1</label>
+                            <div style="display: flex; gap: 5px; align-items: center;">
+                                <input type="color" id="color1-picker" value="#404680">
+                                <button class="color-swatch" id="color1-picker-swatch" aria-label="Checkerboard Color 1"></button>
+                                <input type="text" id="color1-hex" value="#404680" maxlength="7" style="width: 70px; font-family: monospace;">
+                            </div>
+                        </div>
+                        <div class="info-row">
+                            <label>Color 2</label>
+                            <div style="display: flex; gap: 5px; align-items: center;">
+                                <input type="color" id="color2-picker" value="#959CB8">
+                                <button class="color-swatch" id="color2-picker-swatch" aria-label="Checkerboard Color 2"></button>
+                                <input type="text" id="color2-hex" value="#959CB8" maxlength="7" style="width: 70px; font-family: monospace;">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="canvas-container">
+                <div id="canvas-controls">
+                    <span class="toolbar-label">Raster:</span>
+                    <input type="text" id="toolbar-raster-width" value="1920" class="canvas-raster-input">
+                    <span class="toolbar-label">×</span>
+                    <input type="text" id="toolbar-raster-height" value="1080" class="canvas-raster-input">
+                    <button id="btn-zoom-out">-</button>
+                    <input type="text" id="zoom-level" value="100%" style="width: 60px; text-align: center; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px; padding: 2px 4px;">
+                    <button id="btn-zoom-in">+</button>
+                    <button id="btn-fit">Fit</button>
+                    <button id="btn-zoom-actual">1:1</button>
+                    <label class="magnet-toggle" style="margin-left: 15px;">
+                        <input type="checkbox" id="magnetic-snap" checked>
+                        <span>🧲 Snap</span>
+                    </label>
+                </div>
+                <div id="canvas-wrapper">
+                    <canvas id="main-canvas"></canvas>
+                </div>
+            </div>
+
+            <div id="right-sidebar">
+                <div class="panel">
+                    <div class="panel-header">
+                        <h2>Screens</h2>
+                    </div>
+                    <div class="panel-content">
+                        <div class="info-row" style="gap: 8px; margin-bottom: 8px; align-items: center;">
+                            <button id="toggle-lock-selected" class="btn btn-secondary" title="Toggle Lock Selected">🔒</button>
+                            <span style="color:#888; font-size:12px;">Lock Selected</span>
+                        </div>
+                        <div id="layers-list"></div>
+                        <div id="layer-order-controls" class="layer-order-controls">
+                            <div class="layer-order-label">Layer Order</div>
+                            <div class="layer-order-buttons">
+                                <button id="btn-layer-up" class="btn btn-secondary">Move Up</button>
+                                <button id="btn-layer-down" class="btn btn-secondary">Move Down</button>
+                            </div>
+                        </div>
+                        <button id="btn-add-layer" class="btn btn-primary full-width">+ Add Screen</button>
+                        <button id="btn-add-image" class="btn btn-secondary full-width" style="margin-top: 8px;">+ Add Image/Logo</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="status-bar">
+            <span id="status-message">Ready</span>
+            <span id="cursor-position">X: 0, Y: 0</span>
+        </div>
+    </div>
+
+    <input type="file" id="add-image-input" accept="image/*" style="display:none;">
+
+    <!-- Export Modal -->
+    <div id="export-modal" class="modal" style="display: none;">
+        <div class="modal-content" style="background: #252525; border-radius: 8px; padding: 24px; max-width: 450px; margin: 60px auto; border: 1px solid #3a3a3a;">
+            <h2 style="margin-top: 0; color: #fff; margin-bottom: 20px;">Export Project</h2>
+            
+            <!-- Project Name -->
+            <div style="margin-bottom: 18px;">
+                <label style="display: block; margin-bottom: 6px; color: #ccc; font-size: 13px;">Project Name:</label>
+                <input type="text" id="export-name" placeholder="Enter project name" style="width: 100%; padding: 10px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 4px; box-sizing: border-box;">
+            </div>
+            
+            <!-- Views to Export -->
+            <div style="margin-bottom: 18px;">
+                <label style="display: block; margin-bottom: 8px; color: #ccc; font-size: 13px;">Views to Export:</label>
+                <div class="export-views">
+                    <div class="export-view-row">
+                        <label class="export-view-label">
+                            <input type="checkbox" id="export-pixel-map" checked>
+                            Pixel Map
+                        </label>
+                        <input type="text" id="export-suffix-pixel-map" placeholder="Pixel Map">
+                    </div>
+                    <div class="export-view-row">
+                        <label class="export-view-label">
+                            <input type="checkbox" id="export-cabinet-id">
+                            Cabinet Map
+                        </label>
+                        <input type="text" id="export-suffix-cabinet-id" placeholder="Cabinet Map">
+                    </div>
+                    <div class="export-view-row">
+                        <label class="export-view-label">
+                            <input type="checkbox" id="export-data-flow">
+                            Data Map
+                        </label>
+                        <input type="text" id="export-suffix-data-flow" placeholder="Data Map">
+                    </div>
+                    <div class="export-view-row">
+                        <label class="export-view-label">
+                            <input type="checkbox" id="export-power">
+                            Power Map
+                        </label>
+                        <input type="text" id="export-suffix-power" placeholder="Power Map">
+                    </div>
+                </div>
+                <div style="margin-top: 6px; font-size: 11px; color: #777;">Suffixes are saved as defaults for next time.</div>
+            </div>
+            
+            <!-- Export Format -->
+            <div style="margin-bottom: 18px;">
+                <label style="display: block; margin-bottom: 6px; color: #ccc; font-size: 13px;">Export Format:</label>
+                <select id="export-format" style="width: 100%; padding: 10px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 4px;">
+                    <option value="png">PNG (Separate files per view)</option>
+                    <option value="psd">PSD (Layered Photoshop - screens as layers)</option>
+                    <option value="pdf">PDF (All views combined)</option>
+                </select>
+            </div>
+            
+            <!-- File naming preview -->
+            <div style="margin-bottom: 18px; background: #1a1a1a; padding: 12px; border-radius: 4px; border: 1px solid #3a3a3a;">
+                <label style="display: block; margin-bottom: 6px; color: #888; font-size: 12px;">File names preview:</label>
+                <div id="export-preview" style="color: #4A90E2; font-size: 12px; font-family: monospace;">
+                    Project - Pixel Map.png
+                </div>
+            </div>
+            
+            <!-- Buttons -->
+            <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+                <button id="export-cancel" class="btn" style="background: #3a3a3a; padding: 10px 20px;">Cancel</button>
+                <button id="export-confirm" class="btn" style="background: #4A90E2; padding: 10px 20px;">Export</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="preferences-modal" class="modal" style="display: none;">
+        <div class="modal-content" style="background: #252525; border-radius: 8px; padding: 24px; max-width: 520px; margin: 60px auto; border: 1px solid #3a3a3a;">
+            <h2 style="margin-top: 0; color: #fff; margin-bottom: 20px;">Preferences</h2>
+            <div class="prefs-grid">
+                <div class="prefs-group">
+                    <label>Default Raster Size</label>
+                    <div class="prefs-row">
+                        <input type="text" id="pref-raster-width" placeholder="1920">
+                        <span>×</span>
+                        <input type="text" id="pref-raster-height" placeholder="1080">
+                    </div>
+                </div>
+                <div class="prefs-group">
+                    <label>Default Grid</label>
+                    <div class="prefs-row">
+                        <input type="text" id="pref-columns" placeholder="8">
+                        <span>Cols</span>
+                        <input type="text" id="pref-rows" placeholder="5">
+                        <span>Rows</span>
+                    </div>
+                </div>
+                <div class="prefs-group">
+                    <label>Default Panel Size (px)</label>
+                    <div class="prefs-row">
+                        <input type="text" id="pref-panel-width" placeholder="128">
+                        <span>×</span>
+                        <input type="text" id="pref-panel-height" placeholder="128">
+                    </div>
+                </div>
+                <div class="prefs-group">
+                    <label>Default Panel Size (mm)</label>
+                    <div class="prefs-row">
+                        <input type="text" id="pref-panel-width-mm" placeholder="500">
+                        <span>×</span>
+                        <input type="text" id="pref-panel-height-mm" placeholder="500">
+                    </div>
+                </div>
+                <div class="prefs-group">
+                    <label>Default Panel Weight</label>
+                    <div class="prefs-row">
+                        <input type="text" id="pref-panel-weight" placeholder="20">
+                        <select id="pref-weight-unit">
+                            <option value="kg">kg</option>
+                            <option value="lb">lb</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="prefs-group">
+                    <label>Default Cabinet ID Font Size</label>
+                    <div class="prefs-row">
+                        <input type="text" id="pref-cabinet-font-size" placeholder="30">
+                        <span>px</span>
+                    </div>
+                </div>
+                <div class="prefs-group">
+                    <label>Default Pixel Map Label Font Size</label>
+                    <div class="prefs-row">
+                        <input type="text" id="pref-label-font-size" placeholder="30">
+                        <span>px</span>
+                    </div>
+                </div>
+                <div class="prefs-group">
+                    <label>Default Colors</label>
+                    <div class="prefs-row">
+                        <input type="color" id="pref-color1">
+                        <input type="color" id="pref-color2">
+                        <input type="color" id="pref-border-color">
+                    </div>
+                </div>
+                <div class="prefs-group">
+                    <label>Default Data Pattern</label>
+                    <div id="pref-data-flow-pattern-grid" class="prefs-flow-grid"></div>
+                </div>
+                <div class="prefs-group">
+                    <label>Default Power Flow Pattern</label>
+                    <div id="pref-power-flow-pattern-grid" class="prefs-flow-grid"></div>
+                </div>
+                <div class="prefs-group">
+                    <label>Default Line Widths</label>
+                    <div class="prefs-row">
+                        <input type="text" id="pref-data-line-width" placeholder="6">
+                        <span>Data</span>
+                        <input type="text" id="pref-power-line-width" placeholder="8">
+                        <span>Power</span>
+                    </div>
+                </div>
+                <div class="prefs-group">
+                    <label>Default Label Sizes</label>
+                    <div class="prefs-row">
+                        <input type="text" id="pref-data-label-size" placeholder="30">
+                        <span>Data</span>
+                        <input type="text" id="pref-power-label-size" placeholder="14">
+                        <span>Power</span>
+                    </div>
+                </div>
+                <div class="prefs-group">
+                    <label>Default Processing (Data)</label>
+                    <select id="pref-processor-type">
+                        <option value="novastar-armor">NovaStar (Legacy)</option>
+                        <option value="novastar-coex-1g">NovaStar COEX A10s/A8s (1G)</option>
+                        <option value="novastar-5g">NovaStar COEX CX40 (5G)</option>
+                        <option value="brompton">Brompton Tessera</option>
+                        <option value="brompton-ull">Brompton Tessera (ULL)</option>
+                        <option value="megapixel-1g">Megapixel HELIOS (1G)</option>
+                        <option value="megapixel-2.5g">Megapixel HELIOS (2.5G)</option>
+                    </select>
+                </div>
+                <div class="prefs-group">
+                    <label>Default Bit Depth / Frame Rate</label>
+                    <div class="prefs-row">
+                        <select id="pref-bit-depth">
+                            <option value="8">8-bit</option>
+                            <option value="10">10-bit</option>
+                            <option value="12">12-bit</option>
+                        </select>
+                        <select id="pref-frame-rate">
+                            <option value="24">24 Hz</option>
+                            <option value="25">25 Hz</option>
+                            <option value="30">30 Hz</option>
+                            <option value="50">50 Hz</option>
+                            <option value="60">60 Hz</option>
+                            <option value="120">120 Hz</option>
+                            <option value="144">144 Hz</option>
+                            <option value="240">240 Hz</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="prefs-group">
+                    <label>Default Power (V / A / W)</label>
+                    <div class="prefs-row">
+                        <select id="pref-power-voltage-select">
+                            <option value="110">110V</option>
+                            <option value="208">208V</option>
+                            <option value="220">220V</option>
+                            <option value="230">230V</option>
+                            <option value="240">240V</option>
+                            <option value="custom">Custom</option>
+                        </select>
+                        <input type="text" id="pref-power-voltage-custom" placeholder="Custom V" style="display:none;">
+                        <select id="pref-power-amperage-select">
+                            <option value="15">15A</option>
+                            <option value="20">20A</option>
+                            <option value="custom">Custom</option>
+                        </select>
+                        <input type="text" id="pref-power-amperage-custom" placeholder="Custom A" style="display:none;">
+                        <input type="text" id="pref-power-watts" placeholder="200">
+                        <span>W</span>
+                    </div>
+                </div>
+            </div>
+            <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+                <button id="preferences-reset" class="btn" style="background: #2f2f2f; padding: 10px 20px; margin-right: auto;">Reset Defaults</button>
+                <button id="preferences-cancel" class="btn" style="background: #3a3a3a; padding: 10px 20px;">Cancel</button>
+                <button id="preferences-save" class="btn" style="background: #4A90E2; padding: 10px 20px;">Save</button>
+            </div>
+        </div>
+    </div>
+    
+    <style>
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+            overflow-y: auto;
+        }
+        .modal-content input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+        }
+    </style>
+
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="/static/js/canvas.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

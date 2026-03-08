@@ -1,0 +1,73 @@
+LED RASTER DESIGNER - TODO LIST
+================================
+
+Purpose:
+- Keep this file focused on CURRENT open work only.
+- Completed items are tracked in VERSION.txt and README version history.
+
+Recent completed (v0.6.1.35):
+- Fixed undo/redo coverage for layer rename actions (history state now saved).
+- Fixed undo/redo coverage for Shift+drag screen-name moves in Data/Power/Cabinet tabs.
+- Fixed workflow where undo could jump to unrelated older action after duplicate+rename+shift-drag.
+
+
+CURRENT PRIORITIES
+------------------
+
+🔴 Cross-Platform Color Picker QA (Final Pass)
+- Validate all picker flows on:
+  - macOS: Safari, Chrome, Firefox
+  - Windows: Chrome, Edge, Firefox
+- Confirm no clipped/off-screen picker UI near viewport edges.
+- Confirm eyedropper behavior is stable and consistent.
+- Confirm chosen colors always apply to canvas objects immediately.
+
+🔴 Save/Export Regression Check
+- Re-verify Save and Export cancel behavior:
+  - Cancel must not auto-download fallback files.
+- Re-verify single and multi export path selection behavior on macOS + Windows.
+
+
+MEDIUM PRIORITY
+---------------
+
+🟡 Preferences Expansion / Hardening
+- Add any missing defaults needed for image/logo layers once implemented.
+- Continue validating default-application rules:
+  - Defaults apply at startup/new default project
+  - Defaults do NOT unexpectedly mutate loaded active projects
+- Investigate raster size reverting to 1920x1080 after non-raster actions; raster should only change via explicit user input.
+
+🟡 Power Color View Follow-Ups
+- Add optional global palette presets for common power distro workflows.
+- Add optional "apply palette to selected layers only" preset shortcuts.
+
+🟡 Logging UX
+- Keep current 20 MB x 3 rotation.
+- Add a simple in-app “Open Logs Folder” helper (optional).
+- Keep log noise controlled while preserving diagnostics value.
+- Expand logging coverage for critical UI actions (selection, layer moves, modal changes).
+
+
+BACKLOG / FUTURE
+----------------
+
+🟢 Layer grouping
+- Group layers, collapse/expand groups, move groups together.
+
+🟢 Alignment tools
+- Align selected layers: left/right/top/bottom/center.
+- Distribute selected layers horizontally/vertically.
+
+🟢 Pixel-level zoom tools
+- Optional pixel grid overlay at very high zoom.
+
+🟢 Additional import/export helpers
+- CSV import/export for layer/panel metadata.
+- Wiring/report exports as needed.
+
+
+NOTES
+-----
+- Do not duplicate completed items here; use VERSION.txt for completed release history.
+- Any new feature/fix should be added here only if still open.

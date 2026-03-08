@@ -1,0 +1,2405 @@
+LED RASTER DESIGNER - VERSION HISTORY
+=====================================
+
+v0.6.1.35 - February 28, 2026
+----------------------------
+ - Fixed undo coverage for layer rename actions (rename now writes history state before change).
+ - Fixed undo coverage for Shift+drag screen-name moves in Cabinet/Data/Power (screen-name move now writes history state).
+ - Prevented undo from jumping back to unrelated older actions in rename + shift-drag workflows.
+
+v0.6.1.34 - February 27, 2026
+----------------------------
+ - Fixed Data start labels to render centered on first/last panel again (no left-edge offset behavior).
+ - Fixed intermittent missing Power summary info on stacked/multi-screen layouts by always rendering Data/Power summary labels for each layer.
+ - Kept corrected Power multi math (`ceil(circuits / 6)`) from v0.6.1.33.
+
+v0.6.1.33 - February 27, 2026
+----------------------------
+ - Fixed Power info summary math to show correct multi count (`ceil(circuits / 6)`), so 10 circuits now shows `2 Multi`.
+ - Hardened layer input loading to safely normalize `color1/color2` values and prevent `c1.r` runtime errors from interrupting UI updates.
+ - Fixed Data start-label clipping at raster edges by clamping P/R label circles inside the raster bounds.
+ - Improved Power info robustness by recalculating per-layer circuit/amp values at render time when cached values are missing.
+
+v0.6.1.32 - February 24, 2026
+----------------------------
+ - Right-click on layer list now opens the context menu.
+ - Global lock control is now a toggle icon; locked layers show a lock badge.
+ - Removed per-layer duplicate/delete buttons; Delete is available in context menu.
+
+v0.6.1.31 - February 24, 2026
+----------------------------
+ - Lock controls moved to a global “Lock Selected / Unlock Selected” toolbar.
+ - Removed per-layer duplicate/delete buttons; moved Delete to right-click menu.
+ - Selection rectangle now clears on any mouseup (reduces stuck multi-select boxes).
+
+v0.6.1.30 - February 24, 2026
+----------------------------
+ - Added layer lock toggle (prevents position changes for locked layers).
+ - Locked layers are excluded from drag moves and offset input changes.
+ - Extra safety clears layer selection rectangle if state desyncs mid-render.
+
+v0.6.1.29 - February 24, 2026
+----------------------------
+ - Layer selection/drag box now force-clears if selection state desyncs (prevents stuck rectangle).
+ - Added selection logging (start/end/box) to improve diagnostics.
+
+v0.6.1.28 - February 24, 2026
+----------------------------
+ - Pixel Map hides screen-only panels when an image layer is selected (image controls only).
+ - Canvas click now prioritizes topmost layer selection (image layers no longer select underlying screens).
+ - Added client logs for raster size changes (helps diagnose unexpected 1920x1080 resets).
+
+v0.6.1.27 - February 24, 2026
+----------------------------
+ - Restored Pixel Map sidebar visibility for image layers.
+ - Prevented layer selection box from sticking when mouseup occurs off-canvas.
+
+v0.6.1.26 - February 24, 2026
+----------------------------
+ - Image layers now show correct sidebar controls (no blank panel).
+ - Image alpha PNGs render with transparency intact.
+
+v0.6.1.25 - February 24, 2026
+----------------------------
+ - Image layers hide non-relevant controls in the left sidebar.
+
+v0.6.1.24 - February 24, 2026
+----------------------------
+ - Image layers render immediately on add and scale live while dragging the slider.
+ - Fixed right sidebar clipping in the Screens list.
+
+v0.6.1.23 - February 24, 2026
+----------------------------
+ - Added Image/Logo layer type with scale control and canvas rendering.
+ - Image layers support add/replace, reorder, save/load, and undo/redo.
+
+v0.6.1.22 - February 22, 2026
+----------------------------
+ - Prevented horizontal scrolling in the screen layer list (always fully visible).
+
+v0.6.1.21 - February 17, 2026
+----------------------------
+ - Documentation corrections (README accuracy pass).
+ - Reordered Power controls again for workflow clarity:
+   - `Custom Power Path` now sits below `Maximize Power Use` and `Organized`
+   - `Custom Power Path` remains above the `Circuit Labels` section
+
+v0.6.1.20 - February 17, 2026
+----------------------------
+ - Reordered Power sidebar sections:
+   - Moved Voltage/Amperage/Watts and computed power stats directly under `Show Circuit Info`.
+   - Moved `Custom Power Path` directly under `Circuit Color View`.
+ - Kept all existing control IDs/behavior intact so current logic and undo/redo flows continue to work.
+
+v0.6.1.19 - February 17, 2026
+----------------------------
+ - Fixed Power circuit color class behavior so circuit color edits apply across the whole screen by circuit slot (1-6), not just the first multi.
+ - Updated Power circuit color editor labels from `Circuit A-F` to `Circuit 1-6`.
+ - Updated Circuit 4 default color to `#2CF82B`.
+ - Added migration so older default Circuit 4 color `#79FC4C` is automatically normalized to `#2CF82B`.
+
+v0.6.1.18 - February 17, 2026
+----------------------------
+ - Investigated intermittent Power label-size edit UI shift from logs:
+   - No raster/zoom/project state mutation observed at the event time; only normal `power-label-size` update actions.
+ - Added stable scrollbar gutters to prevent layout jitter when side-panel/list scrollbars appear/disappear:
+   - left/right sidebars
+   - layers list
+   - data/power label editor lists
+
+v0.6.1.17 - February 17, 2026
+----------------------------
+ - Added Data label color controls:
+   - `Primary Text` color
+   - `Redundancy Text` color
+ - Added Power label color controls:
+   - `Label Background` color
+   - `Label Text` color
+ - Data and Power start-label rendering now uses these configurable label background/text colors.
+ - Added persistence for new label color fields across save/load, duplicate, paste, and layer updates.
+
+v0.6.1.16 - February 17, 2026
+----------------------------
+ - Reverted Power circuit label color customization changes from v0.6.1.15.
+ - Restored Power start label rendering to fixed default style/color.
+ - Moved top toolbar actions (`New`, `Open`, `Save`, `Export`) to the right side of the project name area.
+
+v0.6.1.14 - February 17, 2026
+----------------------------
+ - Fixed tab border color coupling: Pixel Map, Cabinet ID, Data, and Power now use independent border colors.
+ - Changing border color in one tab no longer changes border colors in other tabs.
+ - Added client-side persistence for per-tab border colors across layer updates, save/load, duplicate, and paste.
+
+v0.6.1.13 - February 17, 2026
+----------------------------
+ - Fixed Power `Circuit Color View` start labels to render horizontal (no rotation).
+ - Fixed color mode labeling to show only one start label per circuit (no per-panel ID text).
+ - Color mode start labels now use standard Power circuit label text (`S1-#` + overrides) for consistency with serpentine mode.
+
+v0.6.1.12 - February 15, 2026
+----------------------------
+ - Enhanced Power `Circuit Color View` to match documentation workflow:
+   - Added circuit start labels in color mode (`A1`, `B1`, etc.) with gray box + directional pointer.
+   - Kept per-panel identifiers (`A1...`, `B1...`) centered in each panel.
+ - Added customizable circuit color mapping (`A`-`F`) with multi-select apply UI in Power sidebar.
+ - Removed Power export legend extension so exports now capture exactly what is on canvas in color mode.
+ - Added persistent `powerCircuitColors` layer property across client/server save/load/update paths.
+
+v0.6.1.11 - February 15, 2026
+----------------------------
+ - Added Power tab `Circuit Color View` toggle for color-coded panel fills by circuit assignment.
+ - Added panel-level color-mode power labels (`A1/A2/B1...`) with per-circuit numbering restart and contrast-aware text.
+ - Added Power export legend layout (left-side circuit swatch legend) when color-coded view is enabled.
+ - Export pipeline now carries per-view image dimensions for PDF/PSD generation to support legend-extended power exports.
+
+v0.6.1.10 - February 15, 2026
+----------------------------
+ - Fixed refresh fallback to 1920x1080 for untitled startup project by consistently reapplying startup defaults on load.
+ - Preserved non-untitled project protection so external loaded files are not overridden by startup defaults.
+ - Improved file-open input handling (DOM-attached file input + explicit open/cancel logging) for more reliable JSON load behavior.
+
+v0.6.1.9 - February 15, 2026
+---------------------------
+ - File-load fallback now uses Data flow pattern when `powerFlowPattern` is missing/blank in project JSON.
+ - Cleared transient computed fields (`_powerError`, `_powerCircuits`, `_capacityError`, etc.) when loading files so stale values cannot trigger incorrect first render.
+ - Reduced first-load inconsistency where power/data state corrected only after changing settings.
+
+v0.6.1.8 - February 15, 2026
+---------------------------
+ - Fixed startup raster default regression by applying preference raster size during startup default project initialization.
+ - Tightened startup preference enforcement in client property load path to true factory-default untitled project only.
+ - Prevented loaded untitled single-layer files from being overwritten by startup preference enforcement.
+
+v0.6.1.7 - February 15, 2026
+---------------------------
+ - Fixed loaded-project refresh regression where startup defaults were being reapplied to some non-default single-layer files.
+ - Tightened startup-default detection so preference auto-apply only runs for a true factory default layer.
+ - Restricted local id-based client property restore to startup default project only, preventing cross-project load contamination.
+
+v0.6.1.6 - February 15, 2026
+---------------------------
+ - Fixed organized Data/Power path sequencing so each new port/circuit starts from the expected side for the selected flow pattern.
+ - Fixed project-refresh raster regression by applying server project raster size on load and websocket project sync.
+ - Added explicit raster sync to toolbar/canvas when restoring project data.
+
+v0.6.1.5 - February 12, 2026
+---------------------------
+ - Documentation consistency pass completed across README/TODO/VERSION and developer handoff docs.
+ - Added explicit source-of-truth guidance in historical handoff docs to reduce stale-reference confusion.
+ - Standardized user-facing wording to `Data` where applicable.
+
+v0.6.1.4 - February 12, 2026
+---------------------------
+ - Moved Raster width/height controls to the canvas control bar (top-left of canvas area).
+ - Raster controls now appear directly left of zoom controls for faster workflow access.
+ - Added roadmap item for image/logo layer type with dedicated settings and Shift+drag movement behavior.
+
+v0.6.1.3 - February 12, 2026
+---------------------------
+ - Preferences Save/Reset now only apply defaults to the startup default untitled project layer.
+ - Open non-default projects no longer have raster/defaults overwritten when updating Preferences.
+ - Added preference save/reset diagnostics (`preferences_saved`, `preferences_reset`) including whether defaults were applied to current project.
+ - Completed focused formula verification for `lb` unit + half-row/half-column behavior in Data/Power/Weight calculations.
+
+v0.6.1.2 - February 12, 2026
+---------------------------
+ - Save/Export native dialog cancel now exits cleanly without fallback auto-download to Downloads.
+ - Pixel Map Info label size control changed to numeric input (beside Info toggle).
+ - Increased label-size input caps to 200 in Pixel Map/Cabinet/Data/Power controls.
+ - Release zip policy: logs excluded so distributed builds start with empty logs.
+
+v0.6.1.1 - February 12, 2026
+---------------------------
+ - Renamed the Data Flow tab label to Data for simpler UI language.
+ - Added panel weight unit support (`kg`/`lb`) with Preferences defaults.
+ - Added independent Pixel Map Info label size slider (per-layer).
+ - Added Preferences defaults for Data label size and Power label size.
+ - Preserved `panel_weight`, `weight_unit`, and `infoLabelSize` across single/multi layer update round-trips.
+ - Updated Pixel Map weight labels/info to convert correctly when panel weight unit is `lb`.
+ - Log pruning now removes legacy log files and enforces configured archive retention.
+
+v0.6.1.0 - February 12, 2026
+---------------------------
+ - Logging policy updated to a persistent active file `logs/led_raster_designer.log` (not per-session files).
+ - Rotation still uses 20 MB x 3 files total; when rotated, archives are timestamped (`led_raster_designer_YYYYMMDD_HHMMSS.log`) and oldest archives are pruned.
+ - Added half-cabinet geometry controls per screen layer:
+   - Half First/Last Column
+   - Half First/Last Row
+ - Half-cabinet geometry now updates panel generation and layer bounds in server/client rendering paths.
+ - Data port capacity/assignment now uses per-panel pixel area (supports half rows/columns).
+ - Power capacity now uses 65% load for half cabinets (via area-based factor), including total amps and circuits required.
+ - Panel weight labels now use the same half-cabinet load factor as power (65% for half cabinet).
+
+v0.6.0.0 - February 12, 2026
+---------------------------
+ - V6 milestone release.
+ - Added new Pixel Map label toggle: `Panel Weight`.
+ - Panel weight label uses active panels only (`!hidden && !blank`) so hidden/deleted panels are excluded from total weight calculation.
+ - Logs now write to `logs/` as timestamped session files and rotate at 20 MB x 3 files.
+
+v0.5.6.42 - February 12, 2026
+---------------------------
+ - Log output now writes to `/logs` with timestamped session files (`led_raster_designer_YYYYMMDD_HHMMSS.log`) so newest sessions sort naturally.
+ - Kept 20 MB x 3-file rotation active per session log file.
+ - Fixed data-port bulk rename reversion by preserving port-label templates/overrides/custom paths during websocket layer updates.
+ - Improved multi-layer editing persistence for screen-name toggles and Data/Power info toggles by updating all selected layers to server state.
+
+v0.5.6.41 - February 12, 2026
+---------------------------
+ - Removed blocking Save/Export warning/error alert popups and replaced them with diagnostic log events + status updates.
+ - Confirmed log rotation policy remains 20 MB per file with 3 total files (`led_raster_designer.log`, `.1`, `.2`).
+ - Retained native Save/Export write diagnostics for path/size verification.
+
+v0.5.6.40 - February 12, 2026
+---------------------------
+ - Preferences now use visual 8-pattern snake selectors for Data Flow and Power Flow defaults.
+ - Added persistent power flow pattern preference (`powerFlowPattern`) and applied it to new/default layers.
+ - Save/Export native fallback now writes multi-export files one-by-one with per-file diagnostics to avoid silent failures on large payloads.
+ - Added more native dialog server logs (start/cancel/validation/write verification) for Save/Export troubleshooting.
+
+v0.5.6.39 - February 12, 2026
+---------------------------
+ - Fixed layer-update property preservation so Data defaults (processing, bit depth, frame rate) no longer revert after layer interactions.
+ - Preserved full Data/Power client-side fields during single-layer updates to prevent unintended fallback values.
+ - Kept subprocess native dialog export/save flow in place for stable non-download fallback behavior.
+
+v0.5.6.38 - February 12, 2026
+---------------------------
+ - Startup load now force-applies Preferences defaults to untitled default project layer before first interaction.
+ - Replaced native dialog backend from `tkinter` to subprocess-based OS dialogs (macOS `osascript`, Windows PowerShell, Linux `zenity` fallback) to avoid Flask-thread GUI crashes.
+ - Save/Export native fallback now uses stable OS dialogs without terminating Python process.
+
+v0.5.6.37 - February 12, 2026
+---------------------------
+ - Layer select now logs before/after processor/bit-depth/frame-rate values and enforces Preferences for startup untitled single-layer project.
+ - Added native OS save-file fallback via Python (`tkinter`) when browser file picker APIs are unavailable.
+ - Added native OS folder picker + multi-file write fallback for exports when browser directory/file picker APIs are unavailable.
+ - Save/Export can now target user-selected paths even in browsers that force normal downloads.
+
+v0.5.6.36 - February 12, 2026
+---------------------------
+ - Startup untitled/default project now enforces saved Preferences for processor, bit depth, frame rate, and power defaults every launch.
+ - Added capability logging for Save/Export file picker APIs to simplify browser-specific diagnostics.
+ - Added one-time user warning when browser lacks in-app file picker APIs (downloads fallback behavior).
+
+v0.5.6.35 - February 12, 2026
+---------------------------
+ - Preferences and Export modals now close only on true backdrop click (press+release on backdrop), fixing drag-select text close bugs.
+ - Save Project now awaits file picker flow so user-selected save location is honored when picker APIs are available.
+ - Preferences save now reapplies defaults to the active default layer and persists client-side properties.
+ - Startup default-layer preference application no longer depends on hard-coded geometry checks.
+ - Multi-export non-FSA fallback now staggers file downloads to improve reliability when browsers block simultaneous downloads.
+
+v0.5.6.34 - February 11, 2026
+---------------------------
+ - Multi-export now falls back to sequential save dialogs when directory picker is unavailable (prevents single-file-only behavior).
+ - New layer defaults now use Preferences for processing type, bit depth, frame rate, voltage, amperage, and watts.
+ - Data Flow processor/bit-depth/frame-rate input fallbacks now use Preferences defaults.
+ - Power circuit labels are centered on the start panel to match Data Flow label centering.
+
+v0.5.6.33 - February 10, 2026
+---------------------------
+ - Windows color modal now includes RGB/HSB/Gray/CMYK/Spectrum modes.
+ - Color modal adds mode bar and slider UI for macOS-style modes.
+
+v0.5.6.32 - February 10, 2026
+---------------------------
+ - Windows color popover now clamps inside viewport (no cut-off picker).
+ - Custom color modal no longer closes on drag-release outside.
+
+v0.5.6.31 - February 10, 2026
+---------------------------
+ - Preferences modal no longer closes when mouse drag ends outside the dialog.
+ - Preferences now include power dropdowns (Voltage/Amperage) and panel size in mm.
+
+v0.5.6.30 - February 10, 2026
+---------------------------
+ - Preferences now include defaults for processing type, bit depth, frame rate, voltage, amperage, and watts.
+
+v0.5.6.29 - February 10, 2026
+---------------------------
+ - Power over-capacity now suppresses circuit lines and arrows (error overlay only).
+ - Power label circles now auto-size to fit text.
+
+v0.5.6.28 - February 10, 2026
+---------------------------
+ - Project save now uses file picker for JSON and persists raster size in the JSON.
+ - Power circuit labels now use the same circular style as data labels.
+
+v0.5.6.27 - February 10, 2026
+---------------------------
+ - Raster size now stored on project updates and when applying preferences.
+ - JSON load uses PUT /api/project to restore full project data.
+ - Drag reorder indicator now shows an insertion line between layers.
+
+v0.5.6.26 - February 10, 2026
+---------------------------
+ - Preferences raster size now re-applies after client-props version resets.
+ - Layer drag reorder now works from header/info areas (Safari-friendly).
+
+v0.5.6.25 - February 10, 2026
+---------------------------
+ - Preferences-based raster size now applies on app open after server restart.
+ - JSON load now renders immediately and logs start/success/failure; server sync failures no longer block load.
+
+v0.5.6.24 - February 10, 2026
+---------------------------
+ - Layer reorder arrows moved to a dedicated control (no layer-list horizontal scroll).
+ - Canvas render now guards against missing project layers to prevent crash on load.
+ - JSON load now validates server response before applying to the UI.
+
+v0.5.6.23 - February 10, 2026
+---------------------------
+ - Menu shortcuts now show platform-appropriate keys (Cmd on macOS, Ctrl on Windows).
+ - Power info line no longer zeros out when changing flow pattern.
+ - Data/Power start labels are offset from lines and render above arrows.
+ - Preferences now apply checkerboard colors correctly on new projects.
+ - Data Flow pattern changes re-run capacity/label calculations after save.
+ - Data/Power labels now recalc on every UI refresh to avoid zeroed info.
+ - Preferences apply + input sync prevents circle/X toggle reset.
+ - Preferences now include cabinet font size and pixel-map label font size.
+ - New layers include power defaults so power diagram renders without manual watt change.
+ - Preferences reset button added; defaults apply on app open to the default layer.
+ - Removed internal archive folder; moved old zips to main Archive.
+ - Power info label now uses “Multi” instead of “SOCA”.
+ - Data/Power info labels follow screen name size.
+ - Loading JSON now syncs server project and applies missing power defaults.
+ - Layer list now supports drag reorder and up/down arrows.
+
+v0.5.6.17 - February 10, 2026
+---------------------------
+ - Export: multi-view PNG/PSD now saves as separate files (no zip) with editable suffixes.
+ - Export: filename suffixes are saved as defaults; Cabinet/Data/Power rename to Map naming.
+ - Export: folder/file picker used when browser supports it (directory for multi, save dialog for single).
+ - Added File/Edit/View menu bar and right-click context menu with shortcuts.
+ - Preferences modal added for default raster, grid, colors, flow pattern, and line widths.
+
+v0.5.6.16 - February 10, 2026
+---------------------------
+- Power info line now stays visible when voltage/amperage change (shows 0 values if needed).
+
+v0.5.6.15 - February 10, 2026
+---------------------------
+- Data/Power info line now anchors under screen name and shows amps for power.
+
+v0.5.6.7 - February 10, 2026
+---------------------------
+- macOS: force-hide all swatch buttons (native picker only).
+
+v0.5.6.6 - February 10, 2026
+---------------------------
+- macOS: removed redundant swatch (native picker only).
+- Windows/Linux: swatch retained for custom picker.
+
+v0.5.6.2 - February 9, 2026
+---------------------------
+- Power tab: fixed circuit rendering after changing flow patterns.
+- Power tab: custom mode moved near flow pattern, grid layout normalized.
+- Power tab: Maximize and Organized now mutually exclusive.
+
+v0.5.6.0 - February 9, 2026
+---------------------------
+- Power tab overhaul: circuit-based serpentine routing, voltage/amperage/watts inputs.
+- Calculated power display with total amps for 1φ and 3φ.
+- Power custom path mode and flow pattern support.
+
+v0.5.5.42 - February 6, 2026
+---------------------------
+- Updated default screen colors to #404680 and #959CB8.
+
+v0.5.5.41 - February 6, 2026
+---------------------------
+- Fixed checkerboard color pickers to use the custom/native picker pipeline.
+
+v0.5.5.40 - February 6, 2026
+---------------------------
+- Custom picker: corrected macOS swatch order and layout.
+- Added "no color" swatch styling in the popover (non-destructive).
+- Custom picker eyedropper now uses icon button.
+- macOS native color input styled to match swatch sizing.
+
+v0.5.5.39 - February 6, 2026
+---------------------------
+- macOS: use native system color picker; Windows/Linux: custom macOS-style picker.
+- Added EyeDropper support in custom picker where browser supports it.
+- Swatch order updated to match macOS layout.
+
+v0.5.5.38 - February 6, 2026
+---------------------------
+- Custom macOS-style color picker (swatches + modal) replacing native pickers.
+- README: updated to current version and noted custom color picker.
+
+v0.5.5.37 - February 6, 2026
+---------------------------
+- README: rewritten install section with Windows/Mac/Linux instructions.
+- Canvas: clicking empty space no longer deselects the current layer.
+- Port label bulk apply now restarts numbering from 1 for each selected group.
+
+v0.5.5.36 - February 6, 2026
+---------------------------
+- README updated to document all current features and usage.
+
+v0.5.5.35 - February 6, 2026
+---------------------------
+- Layer name editing: double-click now enters edit; single click stays selection.
+
+v0.5.5.34 - February 6, 2026
+---------------------------
+- Layer list: name field no longer focuses on single-click; double-click to edit.
+- Selected layers now show per-layer bounding boxes (Photoshop-style).
+
+v0.5.5.33 - February 6, 2026
+---------------------------
+- Layer list: single-click selects without entering edit; double-click to rename.
+- Canvas drag-select now shows a selection box and darkens intersected layers.
+- Added visual distinction for primary selected layer in the list.
+
+v0.5.5.32 - February 6, 2026
+---------------------------
+- Photoshop-style multi-select: Shift+click range + Cmd/Ctrl toggle in layer list.
+- Canvas drag-select to multi-select layers; Cmd/Ctrl toggle on canvas click.
+- Sidebar edits now apply to all selected layers, with mixed-value display.
+
+v0.5.5.31 - February 6, 2026
+---------------------------
+- Data Flow: port label list now updates immediately when processor/bit depth/frame rate/mapping/pattern change.
+
+v0.5.5.30 - February 6, 2026
+---------------------------
+- Custom Data Flow: when no custom paths exist, port count now falls back to capacity-based ports.
+
+v0.5.5.29 - February 6, 2026
+---------------------------
+- Data Flow tab now performs a deferred port list refresh to fix initial list underpopulation.
+- Port label editor debug now logs rendered row count.
+
+v0.5.5.28 - February 6, 2026
+---------------------------
+- Added debug logging for port capacity + port label list to help diagnose startup port list issue.
+
+v0.5.5.27 - February 6, 2026
+---------------------------
+- Port label list now recalculates ports on Data Flow entry to avoid showing only Port 1.
+
+v0.5.5.26 - February 6, 2026
+---------------------------
+- Data Flow tab now refreshes port capacity + port label list on entry.
+
+v0.5.5.25 - February 6, 2026
+---------------------------
+- Port Labels panel: added Select All and Deselect All for bulk renaming.
+
+v0.5.5.24 - February 6, 2026
+---------------------------
+- README updated with current features, shortcuts, processors, and custom mode notes.
+
+v0.5.5.23 - February 6, 2026
+---------------------------
+- Custom mode now clears any capacity error overlay when enabled.
+- Custom path edits now persist to localStorage after add/clear/pattern actions.
+- Custom selection highlight darkened for clearer visibility.
+- Custom pattern debug logging now includes first/last panel and grid size.
+
+v0.5.5.22 - February 5, 2026
+---------------------------
+DATA FLOW: Selection UX + shift-drag precedence
+
+**Completed:**
+- ✅ Custom selection no longer participates in undo/redo history
+- ✅ Selection highlight now darkens panels for visibility
+- ✅ Shift+drag screen-name move supersedes custom selection
+
+
+v0.5.5.21 - February 5, 2026
+---------------------------
+DATA FLOW: Space+drag pan overrides selection
+
+**Completed:**
+- ✅ Space+click now pans instead of starting selection in custom mode
+
+
+v0.5.5.20 - February 5, 2026
+---------------------------
+DATA FLOW: Custom selection undo support
+
+**Completed:**
+- ✅ Custom selection state is now part of undo/redo history
+- ✅ Selection changes are captured on mouse-up
+
+
+v0.5.5.19 - February 5, 2026
+---------------------------
+DATA FLOW: Selection locks path editing
+
+**Completed:**
+- ✅ Clicking while selection exists now clears selection instead of adding panels
+- ✅ Custom path clicks are ignored when a selection is active
+
+
+v0.5.5.18 - February 5, 2026
+---------------------------
+DATA FLOW: Active port badge in canvas corner
+
+**Completed:**
+- ✅ Active port badge now renders in top-left of canvas (screen space)
+
+
+v0.5.5.17 - February 5, 2026
+---------------------------
+DATA FLOW: Single-panel port label order
+
+**Completed:**
+- ✅ In custom flow, single-panel ports now show Primary label on top
+
+
+v0.5.5.16 - February 5, 2026
+---------------------------
+DATA FLOW: Custom mode shortcuts + port badge position
+
+**Completed:**
+- ✅ Shift+N for next port, Shift+B for previous
+- ✅ Active port badge now anchored to top-left of canvas
+
+
+v0.5.5.15 - February 5, 2026
+---------------------------
+FIX: Custom flow label rendering crash
+
+**Completed:**
+- ✅ Fixed circleRadius scope error in custom flow rendering
+
+
+v0.5.5.14 - February 5, 2026
+---------------------------
+DATA FLOW: Custom mode fixes (labels, selection, persistence)
+
+**Completed:**
+- ✅ Custom data saved/restored via client-side props
+- ✅ Drag selection uses panel intersection (not full containment)
+- ✅ Added debug toggle for custom mode console logging
+
+
+v0.5.5.13 - February 5, 2026
+---------------------------
+DATA FLOW: Custom mode stability + shortcut change
+
+**Completed:**
+- ✅ Added Cmd/Ctrl+N for next custom port
+- ✅ Prevented selection from flooding undo history
+
+
+v0.5.5.12 - February 5, 2026
+---------------------------
+DATA FLOW: Custom path UX fixes + undo/redo support
+
+**Completed:**
+- ✅ Click to add panels in custom mode now works; drag selects panels automatically
+- ✅ Added editable Active Port with prev/next buttons and [ / ] shortcuts
+- ✅ Added large on-screen active port badge in custom mode
+- ✅ Custom path actions now save to undo/redo history
+
+
+v0.5.5.11 - February 5, 2026
+---------------------------
+DATA FLOW: Custom Path mode (manual + pattern on selection)
+
+**Completed:**
+- ✅ Added Custom Path mode toggle with per-port paths
+- ✅ Click panels or use arrow keys to build port paths (skips hidden)
+- ✅ Select panels and apply built-in patterns to the selection
+
+
+v0.5.5.10 - February 5, 2026
+---------------------------
+UI: Processing label and NovaStar legacy naming
+
+**Completed:**
+- ✅ Renamed "Processor" label to "Processing"
+- ✅ Renamed first NovaStar option to "NovaStar (Legacy)"
+
+
+v0.5.5.9 - February 5, 2026
+---------------------------
+DATA FLOW: Port label token simplified
+
+**Completed:**
+- ✅ Replaced {n} with # for port number templating
+- ✅ Renamed "Bulk Override" UI to "Apply Style"
+
+
+v0.5.5.8 - February 5, 2026
+---------------------------
+DATA FLOW: Editable port labels (template + per-port overrides)
+
+**Completed:**
+- ✅ Added Port Labels editor in Data Flow panel (template + per-port overrides)
+- ✅ Port label text now supports {n} templating and overrides in render
+
+
+v0.5.5.7 - February 5, 2026
+---------------------------
+DEFAULTS: NovaStar Armor set as default processor
+
+**Completed:**
+- ✅ Default processor set to NovaStar Armor (legacy 1G)
+
+
+v0.5.5.6 - February 5, 2026
+---------------------------
+CAPACITY: Legacy NovaStar Armor capped at 120 Hz
+
+**Completed:**
+- ✅ Armor (MSD/MRV) table capped at 120 Hz
+- ✅ Frame-rate dropdown now limits Armor to 120 Hz max
+
+
+v0.5.5.5 - February 5, 2026
+---------------------------
+CAPACITY: Split NovaStar systems (Armor vs COEX 1G)
+
+**Completed:**
+- ✅ Added NovaStar Armor (MSD/MRV) processor key with rectangle constraint
+- ✅ Renamed NovaStar COEX 1G key to `novastar-coex-1g` and migrated old `novastar-1g`
+- ✅ Updated UI labels and defaults to match the three NovaStar systems
+
+
+v0.5.5.4 - February 5, 2026
+---------------------------
+CAPACITY: Added NovaStar Armor (Other 1G) receiving cards
+
+**Completed:**
+- ✅ Added NovaStar Armor (Other 1G) processor option and lookup table
+- ✅ Applied rectangle-constraint rules to Armor (same as NovaStar 1G)
+
+
+v0.5.5.3 - February 5, 2026
+---------------------------
+EXPORT: Crisper pixel-to-pixel output (no UI change)
+
+**Completed:**
+- ✅ Export rendering now snaps key draw positions to whole pixels (export mode only)
+- ✅ Data flow line widths snap to whole pixels in export mode for cleaner edges
+- ✅ Label backgrounds and text positions snap during export to reduce soft edges
+
+
+v0.3.9.6 - January 28, 2026
+---------------------------
+DATA FLOW TAB: Complete serpentine arrow rendering
+
+**Completed:**
+- ✅ Updated flow pattern button icons to match Pixel Perfect Pro style
+  - 2x2 grid preview with green start dot and red end arrow
+  - 8 patterns: all corner starts × horizontal/vertical-first
+- ✅ Implemented serpentine path rendering on canvas
+  - Lines connect panel centers following selected pattern
+  - Directional arrows at midpoints between panels
+- ✅ P1 (Primary) label with green circle at flow start
+- ✅ R1 (Return) label with red circle at flow end
+- ✅ Flow pattern selection UI with active state indication
+- ✅ Configurable: Line width, arrow size, P1 color, R1 color, line color
+- ✅ Random Colors checkbox and Color picker for data lines
+
+**Pattern Reference:**
+Row 1: TL-H, TL-V, TR-H, TR-V (top start patterns)
+Row 2: BL-H, BL-V, BR-H, BR-V (bottom start patterns)
+Where: H=horizontal-first serpentine, V=vertical-first serpentine
+
+
+v0.3.9.5 - January 28, 2026
+---------------------------
+CHECKPOINT: Data Flow UI in progress - continue in new thread
+
+**Status:**
+- ✅ Cabinet ID tab COMPLETE and working (3 numbering styles, 2 positions)
+- 🔄 Data Flow tab UI created but SVG patterns need correction
+- ⏸️ Power tab not started
+
+**What's Done:**
+- Data Flow controls added (line width, arrow size, colors)
+- 8 pattern buttons created (need visual correction)
+- Backend storage for all Data Flow settings
+- Settings preserved on duplicate/paste
+
+**Next Thread Tasks:**
+1. Fix the 8 SVG pattern buttons to match Pixel Perfect Pro reference
+2. Wire up button click handlers in JavaScript
+3. Implement rendering logic for:
+   - Arrows between panels based on flow pattern
+   - Green P1 label at primary start
+   - Red R1 label at backup end
+   - Serpentine path visualization
+4. Move to Power tab implementation
+
+**Token Usage:** 75% - Starting fresh thread for cleaner implementation
+
+**Reference Images Provided:**
+- Pixel Perfect Pro data flow diagrams showing 8 serpentine patterns
+- Each pattern has: Green arrow (start), white curved path, Red arrow (end)
+
+
+v0.3.9.4 - January 28, 2026
+---------------------------
+SIMPLIFICATION: Just S-shapes in 8 orientations
+
+**User Feedback:**
+"It's literally an S oriented in different ways. One side has a dot at the start, then a flow arrow, and an arrow at the end."
+
+**Changes:**
+- ✅ Simplified to basic S-shapes (serpentine patterns)
+- ✅ Dot at start (white circle)
+- ✅ S-shaped path
+- ✅ Arrow at end
+
+**8 Orientations:**
+1. Top-left S going right-down
+2. Top-center vertical S down
+3. Top-right S going left-down  
+4. Top-right reversed S down-up
+5. Middle-left horizontal
+6. Bottom-center vertical up
+7. Middle-right horizontal left
+8. Bottom-right S up
+
+Much simpler and clearer!
+
+
+v0.3.9.3 - January 28, 2026
+---------------------------
+FIX: Corrected flow pattern SVG diagrams to match reference
+
+**What Was Wrong:**
+My SVGs were way too complex with serpentine paths. The actual patterns are much simpler!
+
+**Corrected 8 Patterns:**
+Row 1:
+1. Top-Left L-shape (down then right)
+2. Top center vertical down  
+3. Top-Right reverse L (down then left)
+4. Top-Right U-shape down (goes down, across, back up)
+
+Row 2:
+5. Middle-Left horizontal right
+6. Bottom center vertical up
+7. Middle-Right horizontal left
+8. Bottom-Right U-shape up (goes up, across, down)
+
+Each pattern now correctly shows:
+- White dot/circle at START
+- Simple line path
+- Arrow at END (or circle for endpoints)
+
+
+v0.3.9.2 - January 28, 2026
+---------------------------
+UI: Visual flow pattern diagrams with SVG icons
+
+**Changes:**
+- ✅ Replaced text icons with proper SVG diagrams
+- ✅ Each button shows: dot at start, lines with arrows, final arrow at end
+- ✅ 8 patterns match Pixel Perfect Pro style
+
+**Pattern Descriptions:**
+Row 1:
+1. Horizontal L→R Serpentine (Z-pattern left start)
+2. Vertical T→B Serpentine (columns, left to right)
+3. Horizontal R→L Serpentine (Z-pattern right start)
+4. Vertical B→T Serpentine (columns bottom-up)
+
+Row 2:
+5. Horizontal L→R Serpentine Alt (starts middle)
+6. Vertical T→B Serpentine Alt (columns, right to left)
+7. Horizontal R→L Serpentine Alt (starts middle)
+8. Vertical B→T Serpentine Alt (columns, starts right)
+
+**Next Step:** Wire up button click handlers and implement rendering logic
+
+
+v0.3.9.1 - January 28, 2026
+---------------------------
+UX IMPROVEMENT: Simplified Data Flow UI to match Pixel Perfect Pro
+
+**Changes Based on Feedback:**
+- ✅ Removed "Show Data Flow" checkbox (redundant on Data Flow tab)
+- ✅ Removed "Start Position" radio buttons (handled by flow pattern)
+- ✅ Removed "Show Backup Input" checkbox (redundancy always shown)
+- ✅ Replaced dropdown with **visual button grid** (4x2 = 8 patterns)
+- ✅ Added **Line Width** control
+- ✅ Simplified color labels: "Primary Color" and "Backup Color"
+- ✅ Pattern buttons show visual icons (arrows)
+
+**8 Flow Patterns (Button Grid):**
+Row 1 (Top-Left start): Horizontal Serpentine, Vertical Serpentine, Horizontal Straight, Vertical Straight
+Row 2 (Top-Right start): Horizontal Serpentine, Vertical Serpentine, Horizontal Straight, Vertical Straight
+
+**Controls:**
+- Line Width (1-8px)
+- Arrow Size (6-24px)
+- Arrow Color
+- Primary Color (green P1 label)
+- Backup Color (red R1 label)
+
+**Next Step:** Implement rendering logic for arrows and P1/R1 labels
+
+
+v0.3.9 - January 28, 2026
+-------------------------
+FEATURE: Data Flow Tab UI (Part 1 - UI Only)
+
+**New Data Flow Controls:**
+- ✅ Show Data Flow checkbox
+- ✅ Flow Pattern dropdown (8 patterns):
+  - Horizontal L→R (Serpentine)
+  - Horizontal R→L (Serpentine)
+  - Vertical T→B (Serpentine)
+  - Vertical B→T (Serpentine)
+  - Horizontal L→R (Straight)
+  - Horizontal R→L (Straight)
+  - Vertical T→B (Straight)
+  - Vertical B→T (Straight)
+- ✅ Start Position radio buttons (Top-Left, Top-Right, Bottom-Left, Bottom-Right)
+- ✅ Show Backup Input checkbox (for R1 label)
+- ✅ Arrow Size control
+- ✅ Arrow Color picker
+- ✅ Primary Label Color (green P1)
+- ✅ Backup Label Color (red R1)
+- ✅ Backend layer model updated with all settings
+- ✅ Settings preserved on duplicate/paste
+
+**Next Step (v0.3.10):**
+Implement rendering logic for arrows, P1/R1 labels, and flow visualization
+
+
+v0.3.8.4 - January 28, 2026
+---------------------------
+BUG FIX: Cabinet ID numbers now clipped to raster bounds
+
+**What Was Wrong:**
+Cabinet ID numbers were rendering outside the raster box (the red dashed boundary).
+
+**This Fix:**
+- ✅ Added `ctx.save()` / `ctx.clip()` / `ctx.restore()` to renderCabinetIDNumbers
+- ✅ Numbers now clip to raster bounds, just like other elements (borders, circle with X, etc.)
+- ✅ Consistent with existing rendering behavior
+
+
+v0.3.8.3 - January 28, 2026
+---------------------------
+BUG FIX: Duplicate/Paste ACTUALLY fixed now (backend issue)
+
+**What Was Wrong:**
+The frontend was sending all the settings, but the backend `add_layer` endpoint 
+was ignoring them! It only copied basic geometry (columns, rows, size, offset).
+
+**This Fix:**
+- ✅ Backend now accepts ALL optional fields from POST request
+- ✅ Cabinet ID settings, label settings, offset settings all preserved
+- ✅ Duplicate and paste now truly copy everything
+
+**Root Cause:**
+The `add_layer` endpoint needs to handle two cases:
+1. New blank layer (use defaults)
+2. Duplicate/paste layer (use provided settings)
+
+Now it checks the request data and applies any provided settings.
+
+
+v0.3.8.2 - January 28, 2026
+---------------------------
+BUG FIX: Duplicate/Paste now preserves Cabinet ID settings
+
+**Changes:**
+- ✅ Fixed duplicate layer - now copies Cabinet ID style, position, and color
+- ✅ Fixed paste layer - now copies Cabinet ID style, position, and color
+- ✅ Simplified position labels: "Top Left" and "Center" (no size hints)
+
+**What Was Broken:**
+When duplicating or pasting a layer, the Cabinet ID settings would revert to default instead of copying from the source layer.
+
+
+v0.3.8.1 - January 28, 2026
+---------------------------
+UI POLISH: Shortened labels, Colors panel fixed
+
+**Changes:**
+- ✅ Shortened numbering style labels for clarity:
+  - "A1, B1, C1" (was "Column-Row (A1, B1, C1...)")
+  - "A1, A2, A3" (was "Row-Column (A1, A2, A3...)")
+  - "1,1  1,2  1,3" (was "Row,Col (1,1  1,2  1,3...)")
+- ✅ Fixed Colors panel - now ONLY shows on Pixel Map tab
+- ✅ Cabinet ID, Data Flow, Power tabs have no Colors section
+
+
+v0.3.8 - January 28, 2026
+-------------------------
+FEATURE: Cabinet ID Numbering System
+
+**New Cabinet ID Options:**
+1. **Column-Row** (A1, B1, C1...) - Pixel Perfect Pro style
+   - Reads top-to-bottom by columns
+   - A1, A2, A3 down first column, then B1, B2, B3...
+
+2. **Row-Column** (A1, A2, A3...) - Pixel Perfect Pro style
+   - Reads left-to-right by rows
+   - A1, A2, A3 across first row, then B1, B2, B3...
+
+3. **Row,Col** (1,1  1,2  1,3...) - Video Walrus style
+   - Comma notation: row number, column number
+   - 1,1  1,2  1,3 across first row, then 2,1  2,2  2,3...
+
+**Label Position Options:**
+- **Top-Left (small)**: Compact labels in corner
+- **Center (large)**: Centered labels (default)
+
+**Per-Layer Settings:**
+- Numbering style selection (radio buttons)
+- Position selection (radio buttons)
+- Font size control
+- Label color picker
+- Screen name toggle
+
+**UI Cleanup:**
+- Removed Colors section from Cabinet ID tab
+- Removed Colors section from Data Flow tab
+- Removed Colors section from Power tab
+- Colors only visible on Pixel Map tab
+
+**Future Feature Planned:**
+Transform Mode - Resize screens by dragging corners
+- ALL 4 corners controllable (just like offset display - TL, TR, BL, BR)
+- Each corner controls resize with proper anchor point
+- Live overlay showing "16x9 panels" during resize
+- Activation: Cmd/Ctrl + Shift + click any corner
+- Optional: Toggle button "Transform" at top toolbar with `T` shortcut
+- Cursor changes per corner (nwse-resize, nesw-resize)
+
+
+v0.3.7 - January 28, 2026
+-------------------------
+UX IMPROVEMENT: Default label settings
+
+**Changes:**
+- New layers now have "Size (px)" label enabled by default
+- Shows pixel dimensions on startup (e.g., "1024x640")
+- Provides immediate visual feedback on screen resolution
+
+**Future Feature Planned:**
+Transform Mode - Resize screens by dragging corners
+- ALL 4 corners controllable (just like offset display - TL, TR, BL, BR)
+- Each corner controls resize with proper anchor point
+- Live overlay showing "16x9 panels" during resize
+- Activation: Cmd/Ctrl + Shift + click any corner
+- Optional: Toggle button "Transform" at top toolbar with `T` shortcut
+- Cursor changes per corner (nwse-resize, nesw-resize)
+
+
+v0.3.6 - January 28, 2026
+-------------------------
+CLEANUP: Removed all debug logging
+
+**Changes:**
+- Removed 76 console.log statements from app.js
+- Removed 18 console.log statements from canvas.js
+- Kept console.error for actual error handling
+- Clean console output for production use
+
+**Total Removed:** 94 debug statements
+
+**Summary of v0.3.x Series:**
+- v0.3.0-0.3.2: Fixed critical undo/redo bugs
+- v0.3.3: Removed delete confirmation dialogs
+- v0.3.4: Fixed DELETE endpoint to return full project
+- v0.3.5: Photoshop-style layer ordering (newest on top)
+- v0.3.5.4: Selection bounding box during Shift+Drag only
+- v0.3.6: Debug cleanup (this version)
+
+
+v0.3.5.4 - January 28, 2026
+---------------------------
+UX IMPROVEMENT: Bounding box only during Shift+Drag
+
+**User Feedback:**
+"I only want the bounding selection box to show up when I hold shift to move the screen. not all the time."
+
+**Changes:**
+- Bounding box now ONLY visible during Shift+Drag operations
+- Uses `this.isDraggingLayer` flag to control visibility
+- Clean canvas when not actively moving layers
+
+**Test:**
+1. Select a layer → no blue box ✅
+2. Hold Shift + Drag layer → blue box appears ✅
+3. Release mouse → blue box disappears ✅
+
+
+v0.3.5.3 - January 28, 2026
+---------------------------
+FIXED: Corrected zoom reference bug
+
+**What Was Wrong in v0.3.5.2:**
+Used `this.camera.zoom` but this codebase uses `this.zoom` directly!
+
+**This Version (v0.3.5.3):**
+- ✅ CORRECTED zoom reference: `this.zoom` (not `this.camera.zoom`)
+- ✅ Delete button selects layer below
+- ✅ Selection bounding box (blue outline)
+- ✅ Render works perfectly
+
+**Changes:**
+1. **Fixed Bounding Box** - Uses correct `this.zoom` reference
+2. **Delete Button Fix** - Selects layer below (same as Delete key)
+
+**Test:**
+1. ✅ Can see raster (red border)
+2. ✅ Can see screen layers
+3. ✅ Delete button selects layer below
+4. ✅ Blue box highlights selected layer
+5. ✅ No TypeError on render
+
+
+v0.3.5.2 - January 28, 2026 [BROKEN - zoom reference bug]
+---------------------------
+Used wrong zoom reference (this.camera.zoom instead of this.zoom).
+
+
+v0.3.5.1 - January 28, 2026 [BROKEN - sed destroyed code]
+---------------------------
+Render broken by sed command.
+
+
+v0.3.5 - January 28, 2026
+-------------------------
+PHOTOSHOP-STYLE LAYERS & DELETE BEHAVIOR
+
+**Fix 1: Auto-Select Layer After Delete (Photoshop Behavior)**
+When deleting with Delete key:
+- Now selects the layer below the deleted one
+- If deleting the bottom layer, selects the one above
+- Uses same index position logic as Photoshop
+- No more "nothing selected" after delete!
+
+Code change:
+```javascript
+// Find index before delete, then select same index (or one above if at end)
+const currentIndex = this.project.layers.findIndex(l => l.id === layerId);
+// After delete:
+const newIndex = Math.min(currentIndex, this.project.layers.length - 1);
+this.currentLayer = this.project.layers[newIndex];
+```
+
+**Fix 2: Reverse Layer Order - Photoshop Style** 🎨
+- Newest layers now appear at the TOP
+- Just like Photoshop layers panel
+- Makes more sense visually
+- Backend array order unchanged (for Z-order consistency)
+
+Code change:
+```javascript
+const reversedLayers = [...this.project.layers].reverse();
+reversedLayers.forEach(layer => { /* render */ });
+```
+
+**Test:**
+1. ✅ Create 3 layers → Newest appears at top of list
+2. ✅ Delete middle layer with Delete key → Layer below auto-selects
+3. ✅ Delete bottom layer → Top layer auto-selects
+
+**Note:** Screens panel will move to bottom-right in future for preset system!
+
+
+v0.3.4 - January 28, 2026
+-------------------------
+THE REAL FIX - Backend DELETE Endpoint
+
+**Root Cause Found from Debug Logs:**
+```
+[Log] Project keys: – ["status"] (1)
+[Log] Project.layers: – undefined
+```
+
+The DELETE layer endpoint was returning `{status: "success"}` instead of the full project!
+
+**Fixes Applied:**
+1. **Backend DELETE /api/layer/<id>**: Now returns full project
+   ```python
+   return jsonify(current_project)  # Not {status: 'success'}
+   ```
+
+2. **Frontend deleteLayer()**: Now uses returned project
+   ```javascript
+   .then(res => res.json())
+   .then(project => {
+     this.project = project;  // Use returned project
+   ```
+
+3. **Frontend deleteCurrentLayer()**: Already fixed in v0.3.2
+
+**Why This Fixes Everything:**
+- Delete key: ✅ Gets full project back, layers render correctly
+- Trash button: ✅ Gets full project back, layers render correctly  
+- No more `{status: "success"}` breaking the UI
+- Undo/redo: ✅ Already working perfectly
+
+**Test:**
+1. Press Delete key → Layer deleted, UI updates ✅
+2. Click trash button → Layer deleted, UI updates ✅
+3. Press Cmd+Z → Deletion undone ✅
+
+This should be THE fix!
+
+
+v0.3.3.1 DEBUG - January 27, 2026
+----------------------------------
+DEBUG BUILD - Delete Key Issue Investigation
+
+Added extensive console logging to track down the delete key freeze issue:
+
+**Debug Logging Added:**
+- `deleteCurrentLayer()`: Full lifecycle tracking
+  - Entry conditions
+  - Layer ID being deleted
+  - API response details
+  - Project structure after delete
+  - State save completion
+  - Error handling
+  
+- `updateUI()`: Execution flow tracking
+  - Project state verification
+  - renderLayers call
+  - Canvas render call
+  
+- `renderLayers()`: Project validation
+  - this.project existence
+  - this.project.layers array
+  - Layer count
+
+**Issue to Debug:**
+- Delete key removes layers from UI
+- Layers remain visible in canvas
+- UI freezes until Cmd+Z
+- Need to see what the DELETE API is returning
+
+**Test Instructions:**
+1. Open browser console
+2. Select a layer
+3. Press Delete key
+4. Send ALL console output from "=== DELETE CURRENT LAYER ===" onwards
+
+
+v0.3.3 - January 27, 2026
+-------------------------
+REMOVED DELETE CONFIRMATIONS - Undo/Redo Makes Them Unnecessary
+
+Since undo/redo is working perfectly, confirmation dialogs are no longer needed!
+
+Changes:
+- **Removed delete confirmation dialogs** from both:
+  - Delete key (Delete/Backspace)
+  - Trash button on layers
+- **Just press Delete and undo if needed!**
+- Much faster workflow
+- Still protects against deleting last layer
+
+Benefits:
+- Faster deletion (no dialog interruption)
+- Photoshop-style workflow
+- Trust undo/redo system
+- Cleaner user experience
+
+Test:
+1. ✅ Press Delete → Layer deleted immediately
+2. ✅ Press Cmd+Z → Layer restored
+3. ✅ Click trash button → Layer deleted immediately
+4. ✅ Try to delete last layer → Shows alert (still protected)
+
+
+v0.3.2 - January 27, 2026
+-------------------------
+CRITICAL FIXES - All Three Bugs
+
+**Bug 1: Move Layer Now Saves to History** ✅
+Problem: Moving a layer didn't call saveState(), so undo had nothing to undo
+Fix: Modified updateLayer() to accept saveHistory parameter
+- canvas.js now calls: `updateLayer(true, 'Move Layer')`
+- Saves state BEFORE layer move is sent to backend
+- Now you can undo/redo layer moves!
+
+**Bug 2: Backend Returns Full Project** ✅
+Problem: PUT /api/project returned `{status: "success"}` instead of project
+- Frontend tried to use `data.layers` but data was just `{status}`
+- Caused: `TypeError: undefined is not an object (evaluating 'this.project.layers.forEach')`
+Fix: Backend now returns full project:
+```python
+return jsonify(current_project)  # Not {status: 'success'}
+```
+
+**Bug 3: Delete + Enter Fixed with Flag** ✅
+Problem: Pressing Enter in delete dialog might retrigger delete handler
+Fix: Added `deletionInProgress` flag
+- Set to `true` when delete starts
+- Prevents re-entry: `if (!this.currentLayer || this.deletionInProgress) return`
+- Cleared in `.finally()` block after delete completes
+
+**Test All Three:**
+1. ✅ Move a layer (Shift+Drag), then Undo - layer should move back
+2. ✅ Duplicate twice, Undo once - only ONE duplicate removed
+3. ✅ Press Delete, then Enter - layer deletes correctly
+
+Debugging logs still active for troubleshooting!
+
+
+v0.3.1 - January 27, 2026
+-------------------------
+CRITICAL FIX: Undo/Redo Timing
+
+**Problem Found:**
+Your log showed:
+```
+Duplicate #1: saves 1 layer
+Duplicate #2: saves 2 layers  
+Undo once: restores 1 layer (BOTH duplicates gone!)
+```
+
+**Root Cause:**
+`saveState()` was called BEFORE async operations completed!
+
+Flow was:
+```javascript
+// WRONG:
+duplicateLayer() {
+  saveState('Duplicate');  // Saves OLD state (1 layer)
+  fetch().then(() => {
+    this.project.layers.push(newLayer);  // Now 2 layers
+  });
+}
+
+// Result: Saved state has 1 layer, current has 2
+// Undo restores 1 layer = both duplicates gone!
+```
+
+**The Fix:**
+Move `saveState()` to AFTER async operations complete:
+
+```javascript
+// CORRECT:
+duplicateLayer() {
+  fetch().then(() => {
+    this.project.layers.push(newLayer);  // Now 2 layers
+    saveState('Duplicate');  // Saves NEW state (2 layers)
+  });
+}
+
+// Result: Saved state has 2 layers
+// Undo restores 2 layers = only last duplicate removed!
+```
+
+**Changes:**
+- `duplicateLayer()`: saveState moved to end of .then()
+- `pasteLayer()`: saveState moved to end of .then()
+- `deleteCurrentLayer()`: saveState moved to end of .then()
+
+**Test Flow:**
+```
+Start: 1 layer [history: initial(1)]
+Duplicate: 2 layers [history: initial(1), dup1(2)]
+Duplicate: 3 layers [history: initial(1), dup1(2), dup2(3)]
+Undo: 2 layers [restores dup1(2)] ✅
+Undo: 1 layer [restores initial(1)] ✅
+Redo: 2 layers [restores dup1(2)] ✅
+Redo: 3 layers [restores dup2(3)] ✅
+```
+
+
+v0.3.0 - January 27, 2026
+-------------------------
+MAJOR BUG FIXES - Undo/Redo & Delete
+
+**Bug 1: Undo/Redo Now Working** ✅
+Problem: historyIndex started at -1, so after first action (index 0), couldn't undo because we need index > 0
+
+Root Cause:
+```
+Initial: historyIndex = -1, history = []
+After paste: historyIndex = 0, history = [paste]
+Try undo: Need historyIndex > 0... but it's 0! ❌
+```
+
+Solution:
+- Save initial project state when app loads
+- Now we have: history = [initial, action]
+- Can undo from action back to initial ✅
+
+Flow:
+```
+On load: historyIndex = 0, history = [initial]
+After paste: historyIndex = 1, history = [initial, paste]
+Press undo: historyIndex = 0, restore [initial] ✅
+Press redo: historyIndex = 1, restore [paste] ✅
+```
+
+**Bug 2: Delete + Enter Fixed** ✅
+Problem: Pressing Delete key, then Enter in confirmation dialog caused screen layer list to clear but layers stayed on canvas
+
+Root Cause:
+- Delete key handler triggers while confirmation dialog is open
+- Enter key might re-trigger handler or cause race condition
+- currentLayer still set during confirmation
+
+Solution:
+- Clear currentLayer BEFORE showing confirmation dialog
+- Prevents re-trigger during confirmation
+- Restore currentLayer if user clicks Cancel
+- Only clears if user confirms
+
+Code Changes:
+```javascript
+// Before:
+if (confirm("Delete?")) {
+  delete layer; // currentLayer still set during dialog!
+}
+
+// After:
+const temp = currentLayer;
+currentLayer = null; // Clear BEFORE dialog
+if (confirm("Delete?")) {
+  delete layer;
+} else {
+  currentLayer = temp; // Restore if cancelled
+}
+```
+
+Debug Logging:
+- Kept all console logging from v0.2.9.1
+- Helps diagnose future undo/redo issues
+- Shows saveState, undo, redo with full details
+
+Test:
+1. ✅ Load app - should see "Saving initial project state"
+2. ✅ Duplicate layer (Cmd+J)
+3. ✅ Undo (Cmd+Z) - duplicate disappears
+4. ✅ Redo (Cmd+Shift+Z) - duplicate reappears
+5. ✅ Press Delete, then Enter - layer deleted correctly
+
+
+v0.2.9.1 - January 27, 2026
+---------------------------
+DEBUG BUILD - Undo/Redo Troubleshooting
+
+Added extensive console logging to diagnose undo/redo issues:
+
+**saveState() logging:**
+- Action name
+- Current historyIndex
+- History length (before/after)
+- Number of layers in saved state
+- Whether future states were removed
+
+**undo() logging:**
+- Current historyIndex
+- History length
+- Can undo? (boolean check)
+- Target index being restored
+- Action being restored
+- Number of layers in restored state
+- Current layer name after restore
+- Backend sync status and response
+- Error messages if sync fails
+
+**redo() logging:**
+- Current historyIndex
+- History length
+- Can redo? (boolean check)
+- Target index being restored
+- Action being restored
+- Number of layers in restored state
+- Current layer name after restore
+- Backend sync status and response
+- Error messages if sync fails
+
+**How to debug:**
+1. Open browser console (F12)
+2. Perform an action (duplicate, delete, etc.)
+3. Look for "=== SAVE STATE ===" in console
+4. Press Cmd+Z to undo
+5. Look for "=== UNDO CALLED ===" in console
+6. Share the console output so we can see what's happening!
+
+**What to look for:**
+- Does saveState get called?
+- What's the historyIndex before/after?
+- Does undo/redo get triggered?
+- Are there any errors in backend sync?
+- How many layers are in the restored state?
+
+
+v0.2.9 - January 27, 2026
+-------------------------
+CRITICAL FIX: Undo/Redo Now Working
+
+Fixes:
+- **Undo/Redo now syncs with backend**
+- Problem: Undo/redo only restored frontend state, backend kept old state
+- Fix: Added PUT /api/project endpoint to restore full project state
+- Both undo() and redo() now call backend to sync
+
+What Was Wrong:
+```javascript
+// OLD (broken):
+this.project = restored_state;
+this.updateUI(); // Only updates display, backend unchanged
+
+// NEW (working):
+this.project = restored_state;
+fetch('/api/project', { method: 'PUT', body: this.project })
+  .then(() => this.updateUI()); // Backend synced!
+```
+
+Backend Changes:
+- Added `PUT /api/project`: Restores entire project state
+- Emits `project_updated` via WebSocket
+- Used exclusively by undo/redo operations
+
+Test:
+1. Create a layer
+2. Duplicate it (Cmd+J)
+3. Undo (Cmd+Z) - layer should disappear ✅
+4. Redo (Cmd+Shift+Z) - layer should reappear ✅
+
+
+v0.2.8 - January 27, 2026
+-------------------------
+PHOTOSHOP-STANDARD SHORTCUTS
+
+Changes:
+- **Cmd+J / Ctrl+J**: Duplicate layer (Photoshop standard)
+- **Removed Cmd+D**: Was non-standard, now uses Cmd+J
+- **Removed Cmd+R**: Was non-standard for redo
+
+Now 100% Photoshop-Compatible:
+- **Cmd+Z / Ctrl+Z**: Undo ✅
+- **Cmd+Shift+Z / Ctrl+Shift+Z**: Redo ✅
+- **Cmd+C / Ctrl+C**: Copy ✅
+- **Cmd+V / Ctrl+V**: Paste ✅
+- **Cmd+J / Ctrl+J**: Duplicate layer ✅
+- **Delete/Backspace**: Delete ✅
+- **Space+Drag**: Pan (Hand tool) ✅
+
+Complete Shortcut List (Mac):
+- **Cmd+Z**: Undo
+- **Cmd+Shift+Z**: Redo
+- **Cmd+C**: Copy layer (not when typing)
+- **Cmd+V**: Paste layer (not when typing)
+- **Cmd+J**: Duplicate layer (not when typing)
+- **Delete/Backspace**: Delete layer (not when typing)
+- **Space+Drag**: Pan canvas (not when typing)
+- **Alt+Click**: Hide/unhide panel
+- **Shift+Drag**: Move layer
+
+Complete Shortcut List (Windows/Linux):
+- **Ctrl+Z**: Undo
+- **Ctrl+Shift+Z**: Redo
+- **Ctrl+C**: Copy layer (not when typing)
+- **Ctrl+V**: Paste layer (not when typing)
+- **Ctrl+J**: Duplicate layer (not when typing)
+- **Delete/Backspace**: Delete layer (not when typing)
+- **Space+Drag**: Pan canvas (not when typing)
+- **Alt+Click**: Hide/unhide panel
+- **Shift+Drag**: Move layer
+
+Photoshop Muscle Memory:
+If you're a Photoshop user, all shortcuts will feel natural!
+
+
+v0.2.7 - January 27, 2026
+-------------------------
+KEYBOARD SHORTCUTS ENHANCED
+
+New Shortcuts:
+- **Cmd+D / Ctrl+D**: Duplicate current layer
+- **Cmd+R / Ctrl+R**: Redo (alternative to Cmd+Shift+Z)
+
+Browser Default Prevention:
+- **Cmd+D**: Prevents "Add Bookmark" dialog
+- **Cmd+R**: Prevents page reload
+- All shortcuts use `e.preventDefault()` to block browser actions
+
+Complete Shortcut List (Mac):
+- **Cmd+Z**: Undo
+- **Cmd+Shift+Z**: Redo
+- **Cmd+R**: Redo (alternative)
+- **Cmd+C**: Copy layer (not when typing)
+- **Cmd+V**: Paste layer (not when typing)
+- **Cmd+D**: Duplicate layer (not when typing)
+- **Delete/Backspace**: Delete layer (not when typing)
+- **Space+Drag**: Pan canvas (not when typing)
+- **Alt+Click**: Hide/unhide panel
+- **Shift+Drag**: Move layer
+
+Complete Shortcut List (Windows/Linux):
+- **Ctrl+Z**: Undo
+- **Ctrl+Shift+Z**: Redo
+- **Ctrl+R**: Redo (alternative)
+- **Ctrl+C**: Copy layer (not when typing)
+- **Ctrl+V**: Paste layer (not when typing)
+- **Ctrl+D**: Duplicate layer (not when typing)
+- **Delete/Backspace**: Delete layer (not when typing)
+- **Space+Drag**: Pan canvas (not when typing)
+- **Alt+Click**: Hide/unhide panel
+- **Shift+Drag**: Move layer
+
+Technical:
+- All shortcuts check `e.metaKey || e.ctrlKey` for cross-platform
+- Cmd on Mac = metaKey, Ctrl on Windows/Linux = ctrlKey
+- `isTyping` check prevents shortcuts when in text fields
+- `e.preventDefault()` blocks browser defaults
+
+
+v0.2.6 - January 27, 2026
+-------------------------
+UI & NAMING IMPROVEMENTS
+
+Fixes:
+- **Layer buttons now visible without scrolling**
+- Reduced layer name input width: 120px → 80px
+- Icons (👁 📋 🗑) now fit in visible area
+- No more horizontal scrolling needed
+
+- **Smart duplicate naming**
+- Increments numbers instead of adding "(Copy)"
+- Examples:
+  - "Screen1" → "Screen2"
+  - "Screen12" → "Screen13"
+  - "Nvidia" → "Nvidia 1"
+  - "Nvidia 5" → "Nvidia 6"
+
+Logic:
+- If name ends with number: increment it
+- If name has no number: add " 1"
+- Works for both duplicate button and copy/paste
+
+Examples:
+```
+Screen1 → duplicate → Screen2
+Screen2 → duplicate → Screen3
+Nvidia → duplicate → Nvidia 1
+Nvidia 1 → duplicate → Nvidia 2
+Main12 → duplicate → Main13
+Test → copy/paste → Test 1
+```
+
+
+v0.2.5 - January 27, 2026
+-------------------------
+BUG FIXES
+
+Fixes:
+- **Fixed duplicate layer button** (📋)
+- Changed endpoint from `/api/layer` to `/api/layer/add`
+- Duplicate now works correctly
+
+- **Fixed copy/paste** (Ctrl+C / Ctrl+V)
+- Changed endpoint from `/api/layer` to `/api/layer/add`
+- Copy/paste now works correctly
+- Console logs "Copied layer: [name]"
+
+- **All center labels now centered together**
+- Screen name + other labels centered as a group
+- Previously: Only other labels were centered, screen name above
+- Now: All labels (screen name + dimensions/sizes) centered together
+- Info label still at bottom (unchanged)
+
+Visual Improvement:
+- Labels now look properly grouped and centered
+- Screen name and dimension labels form a cohesive unit
+- Better visual hierarchy
+
+Note:
+- Trash can (🗑) already present in layer list (was never removed)
+
+
+v0.2.4 - January 27, 2026
+-------------------------
+NEW FEATURE: Decimal/Fractional Inches Toggle
+
+Features:
+- **Decimal inches by default**: e.g., "2' 2.5""
+- **Fractional toggle checkbox**: "Fractions" next to "Layer Size (ft)"
+- **Fractional mode**: e.g., "2' 2 1/2"" or "2' 2 7/8""
+
+Fractional Precision:
+- Rounds to nearest 1/16th inch
+- Auto-simplifies common fractions:
+  - 1/2, 1/4, 3/4
+  - 1/8, 3/8, 5/8, 7/8
+  - Shows as "/16" for others (e.g., 5/16, 9/16)
+- Omits fractions smaller than 1/16"
+
+Examples:
+- Decimal: "W 2' 2.5" X H 3' 10.8""
+- Fractional: "W 2' 2 1/2" X H 3' 10 7/8""
+
+UI Changes:
+- Added "Fractions" checkbox next to "Layer Size (ft)"
+- Checkbox styled smaller (11px gray)
+- Per-layer setting (saved with layer)
+
+Technical:
+- New property: `useFractionalInches` (boolean)
+- Added to backend layer update keys
+- Frontend toggles between decimal (toFixed(1)) and fraction conversion
+- Fraction conversion function handles all common fractions
+
+
+v0.2.3 - January 27, 2026
+-------------------------
+BUG FIXES
+
+Fixes:
+- **Zoom sensitivity reduced another 50%**
+- Now 2.5% per scroll (was 5%, originally 10%)
+- Zoom factor: 1.025/0.975 (was 1.05/0.95)
+- Much smoother, gentler zoom control
+
+- **Fixed negative feet/inches calculation**
+- Bug: Complex nested calculation caused negative fractional inches
+- Example bug: "12.-41"" instead of "12.59""
+- Root cause: `Math.round((((widthFt - widthFtIn) * 12) - widthIn) * 100)`
+  - When widthIn was rounded up, the subtraction went negative
+
+New Calculation (Simplified):
+```javascript
+const widthFtTotal = Math.floor(widthFt);           // e.g., 2
+const widthInchesDecimal = (widthFt - widthFtTotal) * 12;  // e.g., 2.456
+const widthInTotal = Math.floor(widthInchesDecimal); // e.g., 2
+const widthInFraction = Math.round((widthInchesDecimal - widthInTotal) * 100); // e.g., 46
+// Result: "2' 2.46""
+```
+
+Test Case (84px × 84px, 8col × 14row):
+- Total: 672px × 1176px
+- Meters: 0.672m × 1.176m
+- Feet: 2.20ft × 3.86ft
+- ✅ Now shows: "W 2' 2.46" X H 3' 10.31""
+- ❌ Was showing: "W 2' 2.-41" X H 3' 10.-69""
+
+
+v0.2.2 - January 27, 2026
+-------------------------
+IMPROVEMENTS
+
+Fixes:
+- **Raster width/height inputs now support math expressions**
+- Changed toolbar raster inputs from `type="number"` to `type="text"`
+- Can now type "1920*2" or "1080+400" in raster fields
+
+- **Labels now clipped to raster bounds**
+- Added canvas clipping to renderLayerLabels (same as CircleWithX)
+- Labels no longer render outside the raster boundary
+- Cleaner visual presentation
+
+- **Zoom sensitivity reduced by 50%**
+- Changed from 10% per scroll to 5% per scroll
+- Zoom factor: 1.1/0.9 → 1.05/0.95
+- Much smoother, less jarring trackpad zoom
+
+Technical Changes:
+- renderLayerLabels() now uses ctx.save(), ctx.clip(), ctx.restore()
+- Clips to rect(0, 0, rasterWidth, rasterHeight) before rendering
+- Zoom factor reduced from ±10% to ±5%
+
+
+v0.2.1 - January 27, 2026
+-------------------------
+MATH EXPRESSIONS FIXED
+
+Root Cause Found:
+- **Input fields were `type="number"` which blocks asterisk (*) character!**
+- HTML number inputs only allow: digits, decimal point, minus sign
+- Math operators like *, +, /, () are blocked by the browser
+
+The Fix:
+- Changed to `type="text"` for fields that support math expressions:
+  - Columns
+  - Rows
+  - Offset X
+  - Offset Y
+  - Cabinet Width
+  - Cabinet Height
+
+Now Working:
+- ✅ Type "2*3" → evaluates to 6
+- ✅ Type "10+5" → evaluates to 15
+- ✅ Type "100/2" → evaluates to 50
+- ✅ Type "128*4" → evaluates to 512
+
+Kept as `type="number"` (no math needed):
+- Raster width/height
+- Panel dimensions (mm)
+- Panel weight
+- Font sizes
+- Power settings
+
+Removed:
+- Debug logging from v0.2.0.3
+
+
+v0.2.0.3 - January 27, 2026
+---------------------------
+DEBUG BUILD
+
+Added:
+- **Debug logging for asterisk (*) key**
+- Console will log when you press * or Shift+8
+- Shows: key, code, shiftKey, isTyping, activeElement, defaultPrevented
+
+How to Debug:
+1. Open browser console (F12)
+2. Click in a text input field (like Columns)
+3. Press Shift+8 (asterisk)
+4. Check console output
+5. Share the output so we can fix it!
+
+Expected Output:
+```
+Asterisk key pressed: {
+  key: "*",
+  code: "Digit8",
+  shiftKey: true,
+  isTyping: true,
+  activeElement: "INPUT",
+  defaultPrevented: false
+}
+```
+
+If `defaultPrevented: true`, something else is blocking it!
+
+
+v0.2.0.2 - January 27, 2026
+---------------------------
+CRITICAL FIX
+
+Fixes:
+- **Delete/Backspace now only deletes layers when NOT typing in text fields**
+- **Asterisk (*) and other keys now work in input fields**
+- Keyboard shortcuts now check if user is typing before triggering
+
+What Was Wrong:
+- handleKeyDown was attached to `document` (global)
+- Fired on ALL keyboard events, even when typing
+- `e.preventDefault()` blocked asterisk from appearing in inputs
+
+The Fix:
+```javascript
+const isTyping = document.activeElement.tagName === 'INPUT' || 
+                document.activeElement.tagName === 'TEXTAREA' ||
+                document.activeElement.isContentEditable;
+```
+
+Behavior Now:
+- **Delete/Backspace**: Only deletes layer when NOT in text field ✅
+- **Space**: Only pans canvas when NOT in text field ✅
+- **Ctrl/Cmd+C/V**: Only copies/pastes layers when NOT in text field ✅
+- **Ctrl/Cmd+Z**: Undo works everywhere (including text fields) ✅
+- **Asterisk (*)**: Works normally in all text inputs ✅
+
+
+v0.2.0.1 - January 27, 2026
+---------------------------
+CRITICAL FIX
+
+Fixes:
+- **Syntax error fixed in canvas.js**
+- Removed leftover duplicate code from handleKeyDown function
+- App now loads correctly (raster and screen visible again)
+
+What Was Wrong:
+- Lines 276-278 had orphaned code from incomplete edit
+- Caused JavaScript parsing error
+- Prevented entire app from loading
+
+Math Expressions:
+- Multiplication (e.g., "2*3") works correctly
+- Function tested and verified working
+- If you're seeing issues, please provide specific example
+
+
+v0.2.0 - January 27, 2026
+-------------------------
+MAJOR FEATURE UPDATE
+
+NEW FEATURES:
+
+✅ Delete Key Functionality
+- Press Delete or Backspace to remove selected layer
+- Confirmation dialog: "Delete layer [name]?"
+- Keyboard shortcut works when layer is selected
+
+✅ Duplicate Layer Button
+- New 📋 button in SCREENS panel next to visibility and delete
+- Creates copy with "(Copy)" appended to name
+- Duplicate placed at +50px offset from original
+- All properties copied: colors, labels, settings, panels
+
+✅ Undo/Redo System
+- Ctrl+Z / Cmd+Z: Undo last action
+- Ctrl+Shift+Z / Cmd+Shift+Z: Redo
+- Tracks: Add Layer, Delete Layer, Duplicate Layer, Paste Layer
+- History limit: 50 actions
+- Console logs action name on undo/redo
+
+✅ Copy/Paste Functionality
+- Ctrl+C / Cmd+C: Copy selected layer to clipboard
+- Ctrl+V / Cmd+V: Paste layer with "(Copy)" suffix
+- Pasted layer offset by +50px from original
+- Console logs "Copied layer: [name]"
+
+TECHNICAL IMPLEMENTATION:
+
+History System:
+- `history[]` array stores project snapshots
+- `historyIndex` tracks current position
+- `saveState(action)` called before modifications
+- Deep clones project state with JSON.parse/stringify
+- Restores layer references on undo/redo
+
+Keyboard Handlers (canvas.js):
+- Delete/Backspace → `deleteCurrentLayer()`
+- Ctrl/Cmd+Z → `undo()`
+- Ctrl/Cmd+Shift+Z → `redo()`
+- Ctrl/Cmd+C → `copyLayer()`
+- Ctrl/Cmd+V → `pasteLayer()`
+
+Clipboard:
+- Stores complete layer data as JSON
+- Preserved across operations until overwritten
+
+UI Changes:
+- Added duplicate button (📋) to layer controls
+- Added tooltips to all layer control buttons
+- Layer control buttons: 👁 (visibility), 📋 (duplicate), 🗑 (delete)
+
+
+v0.1.8 - January 27, 2026
+-------------------------
+FEATURE IMPROVEMENT
+
+Features:
+- **Labels Fontsize max increased from 48 to 100**
+- You can now make main labels much larger for big displays
+- Info label stays at 14px (unaffected)
+
+Updated TODO List:
+- Added "QOL Features" section for quality of life improvements
+- Info Label Font Size Slider (future feature)
+- Top Menu Bar (future feature)
+- Right-Click Context Menu (future feature)
+
+Changes:
+- Updated HTML input max="48" to max="100"
+- TODO.txt reorganized with completed items and QOL section
+
+
+v0.1.7.3 - January 27, 2026
+---------------------------
+BUG FIX (Corrected Understanding)
+
+Fixes:
+- **Info label now ACTUALLY independent of "Labels Fontsize" slider**
+- Info label locked to 14px (does NOT change when you adjust the slider)
+- Main labels (Screen Name, dimensions) still use the slider value
+
+What User Actually Meant:
+- NOT about zoom scaling (that was my misunderstanding in v0.1.7.2)
+- About the "Labels Fontsize" slider in the UI
+- When user changes slider 14→20, main labels should grow but info stays 14px
+
+The Correct Fix:
+```javascript
+const fontSize = layer.labelsFontSize || 14;  // From slider
+const infoFontSize = 14;                       // Always 14px
+```
+
+Reverted v0.1.7.2 Changes:
+- Removed incorrect zoom compensation (14 / this.zoom)
+- That was solving the wrong problem
+- Info label now just uses constant 14, ignores slider
+
+
+v0.1.7.2 - January 27, 2026
+---------------------------
+BUG FIX
+
+Fixes:
+- **Info label NOW ACTUALLY fixed to 14px screen size**
+- Info label no longer scales with zoom
+- Info label remains constant 14px regardless of zoom level
+
+What Was Wrong in v0.1.7.1:
+- Set infoFontSize = 14, but it was still inside the zoom transform
+- Everything drawn inside `ctx.save()` / `ctx.restore()` scales with zoom
+- Font size 14px at 100% zoom becomes 28px at 200% zoom
+
+The Real Fix:
+- **Compensate for zoom**: `infoFontSize = 14 / this.zoom`
+- At 100% zoom: 14 / 1.0 = 14px world size → 14px screen size ✅
+- At 200% zoom: 14 / 2.0 = 7px world size → 14px screen size ✅
+- At 50% zoom: 14 / 0.5 = 28px world size → 14px screen size ✅
+
+Technical:
+- Info font: `const infoFontSize = 14 / this.zoom;`
+- Info line height: `const infoLineHeight = infoFontSize + 4;`
+- Updated all info label rendering to use these constants
+
+
+v0.1.7.1 - January 27, 2026
+---------------------------
+CRITICAL FIX
+
+Fixes:
+- **Info label now locked to 14px font size**
+- Info label no longer affected by "Labels Fontsize" slider
+- Main labels (Screen Name, dimensions) use the slider value
+- Info label (bottom text with stats) always uses 14px
+
+- **Hidden panels no longer restored when moving layers**
+- Root cause: offset_x/offset_y changes were regenerating ALL panels
+- This wiped out hidden/blank states
+- Now: offset changes only update panel positions
+- Grid/size changes preserve hidden/blank states from old panels
+
+What Was Happening:
+1. User hides panels with Alt+click ✅
+2. User moves layer with Shift+drag ✅
+3. Backend receives offset_x/offset_y update ✅
+4. Backend regenerates ALL panels (line 169) ❌
+5. All panels reset to hidden=false ❌
+6. Hidden panels reappear! ❌
+
+Now Fixed:
+- **offset_x/offset_y**: Only updates panel x/y positions (preserves states)
+- **columns/rows/cabinet_width/cabinet_height**: Regenerates panels but preserves states
+- Saves old_panel_states before regenerating
+- Restores hidden/blank states after regenerating
+
+Technical:
+- Added separate `infoFontSize = 14` constant
+- Added separate `infoLineHeight = infoFontSize + 4`
+- Split update logic: offset-only vs full regeneration
+- Preserve states using old_panel_states dictionary
+
+
+v0.1.7 - January 27, 2026
+-------------------------
+IMPROVEMENTS & DEBUG
+
+Features:
+- **Aspect Ratio added to info label**
+- Shows as "Aspect Ratio: 1.60 : 1" format
+- Info label now shows: Columns/Rows • Cabinets • Resolution • Aspect Ratio • Weight
+
+Debug:
+- Added console logging for Ctrl+Shift+Click behavior
+- Logs keyboard modifiers when Ctrl, Meta (Cmd), or Shift are pressed with click
+- Check browser console (F12) to see what's happening with the hidden panel restoration
+
+Changes:
+- Info label format: "8 Columns X 5 Rows • 40 Cabinets Total / Resolution: 1024 X 640 • Aspect Ratio: 1.60 : 1 • Weight: 800.0 kg / 1763.7 lb"
+- Aspect ratio calculated as: layerWidth / layerHeight
+- Formatted to 2 decimal places
+
+Notes for Future:
+- Right-click context menu planned with: Duplicate, Copy, Paste, Unhide All
+- Top menu bar planned with various functions
+- Ctrl+Shift+Click currently restoring hidden panels - investigating cause
+
+
+v0.1.6 - January 27, 2026
+-------------------------
+NEW FEATURE - Default Layer on Startup
+
+Feature:
+- **App now opens with a default layer already added and selected**
+- No need to click "Add Screen" to start working
+- Default layer: "Screen1", 8x5 grid, 128px panels, at (0,0)
+
+Changes:
+- Added `initialize_default_layer()` function in app.py
+- Called on page load (index route) if project has no layers
+- Called when creating new project
+- Frontend auto-selects first layer on load
+- Both `loadProject()` and `createNewProject()` now auto-select first layer
+
+Behavior:
+- First time opening app: Screen1 already present and selected
+- Click "New": Creates new project with Screen1 already present and selected
+- Start editing immediately without clicking "Add Screen"
+
+
+v0.1.5.3 - January 27, 2026
+---------------------------
+CRITICAL FIX
+
+Circle with X Toggle - FINALLY FIXED:
+- **Root cause found**: Backend wasn't saving `show_circle_with_x` property
+- Added `'show_circle_with_x'` to allowed update keys in app.py line 142
+- Backend now properly persists the toggle state
+- Toggle should now work perfectly!
+
+What was happening:
+1. Frontend set `show_circle_with_x = false` ✅
+2. Frontend called immediate render (circle disappeared) ✅
+3. Frontend sent update to backend ✅
+4. Backend received it but IGNORED it (not in allowed keys list) ❌
+5. Backend sent layer back WITHOUT the property ❌
+6. Frontend received layer, saw undefined, defaulted to TRUE ❌
+7. Circle reappeared! ❌
+
+Now fixed:
+- Backend now accepts and saves `show_circle_with_x` in the update
+- Toggle state persists properly
+
+
+v0.1.5.2 - January 27, 2026
+---------------------------
+MAJOR FIXES
+
+Panel Modes Simplified:
+- **Removed "blank" mode** - No more grey/dimmed panels
+- **Only two states now**: Normal (colored) and Hidden (ghost outline with Alt+click)
+- Right-click/Ctrl+click no longer toggles blank mode
+
+Circle with X Toggle Fixed:
+- **Added immediate render** after updating layer properties
+- Toggle now works instantly without waiting for server response
+- `window.canvasRenderer.render()` called immediately after saving
+
+Right-Click Behavior Changed:
+- Right-click now shows console message: "Context menu coming soon"
+- Prepared for future context menu with: Duplicate, Copy, Paste
+- No longer toggles blank mode
+
+Changes:
+- Removed all `if (panel.blank)` checks from rendering functions
+- All panels now render with normal checkerboard colors
+- renderPixelMap, renderCabinetID, renderDataFlow, renderPower updated
+- Cabinet ID numbers no longer skip blank panels (only hidden)
+- handleContextMenu() now placeholder for future menu
+
+Debug Notes:
+- Console logs confirmed toggle saves correctly (true/false)
+- Issue was lack of immediate render - now fixed
+- Blank mode completely removed from codebase
+
+
+v0.1.5.1 - January 27, 2026
+---------------------------
+BUG FIXES & DEBUG
+
+Fixes:
+- **Screen name now renders ON TOP of Circle/X** - Moved circle rendering before labels
+- Added debug logging for Circle with X toggle (console.log statements)
+- Investigating why toggle doesn't work despite correct code structure
+
+Debug Info:
+- Added console logging: "updateLayerFromInputs - showCircleWithX: [value]"
+- Added console logging: "Saved to layer - show_circle_with_x: [value]"
+- Check browser console (F12) when toggling checkbox
+
+Mac-Specific Behavior Noted:
+- Ctrl+click on Mac = right-click (context menu) = toggles panel blank/active
+- This is browser default behavior, not a bug
+- User reported: Shift+Ctrl restores hidden panels (investigating)
+- User wants: Shift+Option for restore instead
+
+Changes:
+- Circle/X renders BEFORE labels (line 297-300 moved to before line 304)
+- Labels now appear on top of test pattern
+
+Still investigating:
+- Why Circle/X toggle doesn't hide/show despite correct event listeners
+- Shift+Ctrl behavior (may be browser default on Mac)
+
+
+v0.1.5 - January 27, 2026
+-------------------------
+BUG FIXES
+
+Critical Fixes:
+- **Borders and Circle with X now default to ON** - Fixed checkbox logic that was defaulting to unchecked
+- **Circle size reduced** to 40% of smaller dimension (matches Pixel Perfect Pro reference)
+- **Circle and X clipped to raster bounds** - No longer draws outside the red raster rectangle
+- **Toggle now works properly** - Unchecking Circle with X immediately hides it
+
+Root Cause:
+- Checkbox loading used `|| false` which made undefined values default to unchecked
+- Changed to: `!== undefined ? value : true` so new layers default to checked
+
+Changes:
+- Circle radius: `Math.min(layerWidth, layerHeight) * 0.40` (was 0.50)
+- Added clipping region: `ctx.rect(0, 0, rasterWidth, rasterHeight)` with `ctx.clip()`
+- Used `ctx.save()` and `ctx.restore()` to isolate clipping region
+- Both checkboxes now properly reflect backend default values (true)
+
+Technical Details:
+- loadLayerToInputs() now handles undefined with ternary operator
+- renderCircleWithX() wraps drawing in save/clip/restore for bounds enforcement
+- Clipping prevents any part of circle or X from appearing outside raster
+
+
+v0.1.4 - January 27, 2026
+-------------------------
+FEATURES & IMPROVEMENTS
+
+New Features:
+- **Screen Name Label Styling**: Screen name now displays with WHITE background and BLACK text, positioned separately above other labels
+- **Circle with X Test Pattern**: Test pattern overlay showing ONE circle and ONE X across the ENTIRE layer (not per panel)
+- **Borders Default ON**: New layers now have panel borders enabled by default
+
+Circle with X Details:
+- **Purpose**: Aspect ratio test pattern (like Pixel Perfect Pro)
+- **ONE circle** centered on the layer, radius = min(width, height) / 2
+- **ONE X** drawn corner-to-corner of entire layer (diagonal lines)
+- Perfect circle maintains aspect ratio regardless of layer dimensions
+- Only visible in Pixel Map view mode
+- Default: ON for new layers
+
+Changes:
+- Screen name (layer name) renders separately from other labels with distinctive white background
+- Screen name positioned 5px above other center labels when both are present
+- Circle with X rendered after all panels and labels (on top)
+- Uses same border color and lineWidth as panel borders
+- Removed debug console.log statements from Alt+click handler
+
+UI Updates:
+- Added "Circle with X" checkbox in Pixel Map tab below "Show Panel Borders"
+- Screen name uses bold font, white background (rgba(255,255,255,0.9)), black text
+
+Technical:
+- Added `show_circle_with_x` property to layer data structure
+- New `renderCircleWithX(layer)` function renders test pattern for entire layer
+- Circle uses `ctx.arc()` with radius based on smallest layer dimension
+- X draws from (offset_x, offset_y) to (offset_x + width, offset_y + height) and opposite corners
+- Default values in create_layer(): `show_panel_borders: True`, `show_circle_with_x: True`
+
+
+v0.1.3 - January 27, 2026
+-------------------------
+CRITICAL FIXES
+
+Fixes:
+- Hidden panels now render as clickable ghost outlines (dashed semi-transparent border)
+- **Alt+click on ghost outline now works - toggles panel back to visible**
+- Fixed `getPanelAt()` to include hidden panels in click detection (was skipping them)
+- **Panel borders now scale WITH zoom (like text) - not constant screen size**
+- At 100% zoom: 2px borders; at 200% zoom: 4px borders; at 10% zoom: 0.2px borders (nearly invisible)
+- Fixed Data Flow arrows to render in world space (was using screen coordinates incorrectly)
+- Fixed Power lightning bolts to render in world space
+
+Bug Fix:
+- **Root cause**: `getPanelAt()` had `if (panel.hidden) continue;` which prevented hidden panels from being detected on click
+- **Solution**: Removed the filter so hidden panels are clickable
+- Added debug logging to Alt+click handler to verify toggle behavior
+
+Changes:
+- All render functions (renderPixelMap, renderCabinetID, renderDataFlow, renderPower) now check for hidden panels first
+- Hidden panels render with: `strokeStyle: rgba(255,255,255,0.3)`, `lineWidth: 1`, dashed pattern `[5, 5]`
+- Arrow and lightning bolt symbols now use world coordinates and scale properly
+- **Border lineWidth changed from `2 / this.zoom` to `2` - borders now scale with content like text does**
+- Raster boundary also scales with zoom: `lineWidth: 2`, `setLineDash: [10, 5]` (no division by zoom)
+
+Technical:
+- Removed `if (panel.hidden) return;` filter in render loops - all panels render now
+- Removed `if (panel.hidden) continue;` filter in getPanelAt() - all panels clickable now
+- Ghost outline: semi-transparent white dashed border that scales with zoom
+- Symbols (arrows, lightning) positioned at world coordinates (panel.x + width/2)
+- All lineWidth values now use absolute numbers (2, 1) instead of divided by zoom
+- This makes borders "painted onto" the content, scaling proportionally like text
+
+
+v0.1.2 - January 27, 2026
+-------------------------
+IMPROVEMENTS & FIXES
+
+Features:
+- Info label now displays as single row for more compact display
+- Alt+click now properly toggles panel visibility (hide/unhide)
+- New button now creates a fresh blank project instead of reloading
+
+Fixes:
+- New button properly clears project and resets UI
+- Panel borders maintain constant 2px screen width regardless of zoom
+- Border rendering uses correct inverse zoom calculation (2 / zoom)
+
+Changes:
+- Info label consolidated from 2 rows to 1 row: "8 Columns X 5 Rows • 40 Cabinets Total / Resolution: 1024 X 640 • Weight: 800.0 kg / 1763.7 lb"
+- Added /api/project/new endpoint for creating new projects
+- Added createNewProject() method in frontend
+
+
+v0.1.1 - January 27, 2026
+-------------------------
+BUG FIX RELEASE
+
+Fixes:
+- Fixed text scaling to work like professional LED software (Pixel Perfect Pro)
+- Text now scales proportionally with zoom level (maintains visual relationship to panels)
+- At 100% zoom (1:1), text renders at exact pixel size specified (e.g., 14px)
+- At 200% zoom, text scales to 28px on screen; at 50% zoom, scales to 7px
+- All labels, numbers, and offsets now render in world space (inside transform)
+- Text appears "painted onto" the LED wall rather than floating above it
+
+How it works:
+- Labels, offsets, and cabinet IDs render BEFORE ctx.restore() 
+- Canvas transform (zoom + pan) applied to all text rendering
+- Text coordinates use world space (no screen space conversion)
+- Result: Text scales proportionally with content like in Pixel Perfect Pro
+
+Technical changes:
+- Moved renderLayerLabels(), renderLayerOffsets(), renderCabinetIDNumbers() before ctx.restore()
+- Changed all text coordinates from screen space (x * zoom + panX) to world space (x)
+- Text now scales with zoom transform matrix automatically
+
+
+v0.1 - January 27, 2026
+-----------------------
+BASELINE RELEASE
+
+Features:
+- Layer-based LED panel layout system
+- Grid-based panel generation
+- Magnetic snapping to edges and other layers (20px threshold)
+- Multiple view modes: Pixel Map, Data Flow, Power, Test Pattern
+- Spacebar-based canvas panning
+- Zoom controls (mouse wheel)
+- Layer visibility toggle
+- Panel operations: hide (Alt+click), blank (right-click)
+- Customizable labels per layer (name, size in px/m/ft, info)
+- Corner offset display (TL, TR, BL, BR)
+- Project save/load functionality
+- Export capabilities
+
+Fixes in v0.1:
+- Fixed magnetic snapping on mouse release (elements no longer jump after drag)
+- Fixed offset coordinate math to account for zero-indexed pixels
+  (e.g., 1024px wide screen now shows 0-1023 instead of 0-1024)
+
+Technical:
+- Python Flask backend
+- HTML5 Canvas frontend
+- WebSocket real-time communication
+- Grid-based architecture for LED panels
+
+Version Numbering:
+- Major releases: 1.0, 2.0, 3.0
+- Major incremental: 1.1, 1.2, 1.3
+- Minor fixes: 1.1.1, 1.1.2, 1.1.3
+
+-------------------------
+CRITICAL FIXES
+
+Fixes:
+- Hidden panels now render as clickable ghost outlines (dashed semi-transparent border)
+- **Alt+click on ghost outline now works - toggles panel back to visible**
+- Fixed `getPanelAt()` to include hidden panels in click detection (was skipping them)
+- **Panel borders now scale WITH zoom (like text) - not constant screen size**
+- At 100% zoom: 2px borders; at 200% zoom: 4px borders; at 10% zoom: 0.2px borders (nearly invisible)
+- Fixed Data Flow arrows to render in world space (was using screen coordinates incorrectly)
+- Fixed Power lightning bolts to render in world space
+
+Bug Fix:
+- **Root cause**: `getPanelAt()` had `if (panel.hidden) continue;` which prevented hidden panels from being detected on click
+- **Solution**: Removed the filter so hidden panels are clickable
+- Added debug logging to Alt+click handler to verify toggle behavior
+
+Changes:
+- All render functions (renderPixelMap, renderCabinetID, renderDataFlow, renderPower) now check for hidden panels first
+- Hidden panels render with: `strokeStyle: rgba(255,255,255,0.3)`, `lineWidth: 1`, dashed pattern `[5, 5]`
+- Arrow and lightning bolt symbols now use world coordinates and scale properly
+- **Border lineWidth changed from `2 / this.zoom` to `2` - borders now scale with content like text does**
+- Raster boundary also scales with zoom: `lineWidth: 2`, `setLineDash: [10, 5]` (no division by zoom)
+
+Technical:
+- Removed `if (panel.hidden) return;` filter in render loops - all panels render now
+- Removed `if (panel.hidden) continue;` filter in getPanelAt() - all panels clickable now
+- Ghost outline: semi-transparent white dashed border that scales with zoom
+- Symbols (arrows, lightning) positioned at world coordinates (panel.x + width/2)
+- All lineWidth values now use absolute numbers (2, 1) instead of divided by zoom
+- This makes borders "painted onto" the content, scaling proportionally like text
+
+
+v0.1.2 - January 27, 2026
+-------------------------
+IMPROVEMENTS & FIXES
+
+Features:
+- Info label now displays as single row for more compact display
+- Alt+click now properly toggles panel visibility (hide/unhide)
+- New button now creates a fresh blank project instead of reloading
+
+Fixes:
+- New button properly clears project and resets UI
+- Panel borders maintain constant 2px screen width regardless of zoom
+- Border rendering uses correct inverse zoom calculation (2 / zoom)
+
+Changes:
+- Info label consolidated from 2 rows to 1 row: "8 Columns X 5 Rows • 40 Cabinets Total / Resolution: 1024 X 640 • Weight: 800.0 kg / 1763.7 lb"
+- Added /api/project/new endpoint for creating new projects
+- Added createNewProject() method in frontend
+
+
+v0.1.1 - January 27, 2026
+-------------------------
+BUG FIX RELEASE
+
+Fixes:
+- Fixed text scaling to work like professional LED software (Pixel Perfect Pro)
+- Text now scales proportionally with zoom level (maintains visual relationship to panels)
+- At 100% zoom (1:1), text renders at exact pixel size specified (e.g., 14px)
+- At 200% zoom, text scales to 28px on screen; at 50% zoom, scales to 7px
+- All labels, numbers, and offsets now render in world space (inside transform)
+- Text appears "painted onto" the LED wall rather than floating above it
+
+How it works:
+- Labels, offsets, and cabinet IDs render BEFORE ctx.restore() 
+- Canvas transform (zoom + pan) applied to all text rendering
+- Text coordinates use world space (no screen space conversion)
+- Result: Text scales proportionally with content like in Pixel Perfect Pro
+
+Technical changes:
+- Moved renderLayerLabels(), renderLayerOffsets(), renderCabinetIDNumbers() before ctx.restore()
+- Changed all text coordinates from screen space (x * zoom + panX) to world space (x)
+- Text now scales with zoom transform matrix automatically
+
+
+v0.1 - January 27, 2026
+-----------------------
+BASELINE RELEASE
+
+Features:
+- Layer-based LED panel layout system
+- Grid-based panel generation
+- Magnetic snapping to edges and other layers (20px threshold)
+- Multiple view modes: Pixel Map, Data Flow, Power, Test Pattern
+- Spacebar-based canvas panning
+- Zoom controls (mouse wheel)
+- Layer visibility toggle
+- Panel operations: hide (Alt+click), blank (right-click)
+- Customizable labels per layer (name, size in px/m/ft, info)
+- Corner offset display (TL, TR, BL, BR)
+- Project save/load functionality
+- Export capabilities
+
+Fixes in v0.1:
+- Fixed magnetic snapping on mouse release (elements no longer jump after drag)
+- Fixed offset coordinate math to account for zero-indexed pixels
+  (e.g., 1024px wide screen now shows 0-1023 instead of 0-1024)
+
+Technical:
+- Python Flask backend
+- HTML5 Canvas frontend
+- WebSocket real-time communication
+- Grid-based architecture for LED panels
+
+Version Numbering:
+- Major releases: 1.0, 2.0, 3.0
+- Major incremental: 1.1, 1.2, 1.3
+- Minor fixes: 1.1.1, 1.1.2, 1.1.3
