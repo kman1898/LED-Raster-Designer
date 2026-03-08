@@ -13,7 +13,7 @@ A professional LED video wall layout designer for live events, concerts, and ins
 2. Open **Terminal** and run:
    ```
    cd "/path/to/LED Raster Designer"
-   make install-mac
+   make mac
    ```
 3. When it finishes, double-click **LED Raster Designer.app** in the folder
 4. Your browser opens automatically — start designing
@@ -24,7 +24,7 @@ A professional LED video wall layout designer for live events, concerts, and ins
 2. Open **Command Prompt** and run:
    ```
    cd "C:\path\to\LED Raster Designer"
-   make install-pc
+   make windows
    ```
    If you don't have `make`, run these instead:
    ```
