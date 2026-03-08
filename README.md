@@ -2,7 +2,19 @@
 
 A professional LED video wall layout designer for live events, concerts, and installations. Design LED cabinet layouts, configure data flow paths, plan power distribution, and export production documentation.
 
-## Install & Run
+## Download
+
+Download the latest release — no coding required:
+
+**[Download for Mac](../../releases/latest)** — Unzip, double-click **LED Raster Designer.app**, done.
+
+A 💡 icon appears in your menu bar to reopen the browser or quit the app.
+
+---
+
+## Build from Source
+
+If you prefer to build it yourself:
 
 ### Prerequisites
 - **Python 3.10+** — Download from [python.org](https://www.python.org/downloads/)
