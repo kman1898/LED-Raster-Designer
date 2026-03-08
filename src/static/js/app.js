@@ -1606,6 +1606,11 @@ class LEDRasterApp {
                 });
                 
                 window.canvasRenderer.setViewMode(mode);
+                sendClientLog('tab_switch', {
+                    tab: mode,
+                    currentLayer: this.currentLayer ? { id: this.currentLayer.id, name: this.currentLayer.name } : null,
+                    selectedLayers: this.selectedLayerIds ? [...this.selectedLayerIds] : []
+                });
                 this.updateLayerPanelVisibility(!!this.currentLayer && (this.currentLayer.type || 'screen') === 'image');
                 this.loadLayerToInputs();
                 if (mode === 'data-flow' && this.currentLayer) {
@@ -3228,7 +3233,13 @@ class LEDRasterApp {
         })
         .then(res => res.json())
         .then(layer => {
-            sendClientLog('add_layer', { id: layer.id, name: layer.name });
+            sendClientLog('add_layer', {
+                id: layer.id, name: layer.name,
+                columns: layer.columns, rows: layer.rows,
+                cabinet_width: layer.cabinet_width, cabinet_height: layer.cabinet_height,
+                offset_x: layer.offset_x, offset_y: layer.offset_y,
+                totalLayers: this.project.layers ? this.project.layers.length + 1 : 1
+            });
             // Initialize client-side defaults for new layer
             this.initializeLayerDefaults(layer);
             
@@ -3835,9 +3846,18 @@ class LEDRasterApp {
 
         sendClientLog('select_layer_after_defaults', {
             layerId: this.currentLayer.id,
+            layerName: this.currentLayer.name,
+            type: this.currentLayer.type || 'screen',
+            columns: this.currentLayer.columns,
+            rows: this.currentLayer.rows,
             processorType: this.currentLayer.processorType,
             bitDepth: this.currentLayer.bitDepth,
-            frameRate: this.currentLayer.frameRate
+            frameRate: this.currentLayer.frameRate,
+            tab: window.canvasRenderer ? window.canvasRenderer.viewMode : '?',
+            selectedLayerIds: this.selectedLayerIds ? [...this.selectedLayerIds] : [],
+            showLabelName: this.currentLayer.showLabelName,
+            showDataFlowPortInfo: this.currentLayer.showDataFlowPortInfo,
+            showPowerCircuitInfo: this.currentLayer.showPowerCircuitInfo
         });
         
         console.log('SELECT LAYER - after defaults:', {
@@ -3918,6 +3938,11 @@ class LEDRasterApp {
         const layer = this.project.layers.find(l => l.id === layerId);
         if (layer) {
             layer.visible = !layer.visible;
+            sendClientLog('toggle_visibility', {
+                id: layer.id,
+                name: layer.name,
+                visible: layer.visible
+            });
             window.canvasRenderer.render();
             this.renderLayers();
         }
@@ -3990,6 +4015,11 @@ class LEDRasterApp {
                 const panelIndex = layer.panels.findIndex(p => p.id === panelId);
                 if (panelIndex >= 0) {
                     layer.panels[panelIndex] = panel;
+                    sendClientLog('toggle_panel_hidden', {
+                        layerId, layerName: layer.name,
+                        panelId, row: panel.row, col: panel.col,
+                        hidden: panel.hidden
+                    });
                     window.canvasRenderer.render();
                 }
             }
@@ -4115,7 +4145,19 @@ class LEDRasterApp {
         if (saveHistory) {
             this.saveState(historyAction);
         }
-        sendClientLog('update_layers', { count: layers.length, action: historyAction });
+        sendClientLog('update_layers', {
+            count: layers.length,
+            action: historyAction,
+            tab: window.canvasRenderer ? window.canvasRenderer.viewMode : '?',
+            layers: layers.map(l => ({
+                id: l.id, name: l.name,
+                columns: l.columns, rows: l.rows,
+                offset_x: l.offset_x, offset_y: l.offset_y,
+                showLabelName: l.showLabelName,
+                showDataFlowPortInfo: l.showDataFlowPortInfo,
+                showPowerCircuitInfo: l.showPowerCircuitInfo
+            }))
+        });
 
         const requests = layers.map(layer => {
             const preservedProps = {
@@ -7327,6 +7369,10 @@ class LEDRasterApp {
         const layerMap = new Map(this.project.layers.map(l => [l.id, l]));
         const newDisplay = displayIds.map(id => layerMap.get(id)).filter(Boolean);
         const newOrder = [...newDisplay].reverse();
+        sendClientLog('reorder_layers', {
+            action: historyAction,
+            newOrder: newOrder.map(l => ({ id: l.id, name: l.name }))
+        });
         this.saveState(historyAction);
         this.project.layers = newOrder;
         this.updateUI();
@@ -7609,7 +7655,15 @@ class LEDRasterApp {
         } else {
             this.historyIndex++;
         }
-        sendClientLog('save_state', { action });
+        sendClientLog('save_state', {
+            action,
+            historyIndex: this.historyIndex,
+            historyLength: this.history.length,
+            layers: this.project.layers ? this.project.layers.length : 0,
+            tab: window.canvasRenderer ? window.canvasRenderer.viewMode : '?',
+            selectedLayers: this.selectedLayerIds ? [...this.selectedLayerIds] : [],
+            currentLayerId: this.currentLayer ? this.currentLayer.id : null
+        });
         
     }
     
@@ -7622,7 +7676,13 @@ class LEDRasterApp {
             
             this.project = JSON.parse(JSON.stringify(state.project));
             this.dedupeProjectLayers('undo_restore');
-            sendClientLog('undo', { action: state.action });
+            sendClientLog('undo', {
+                action: state.action,
+                historyIndex: this.historyIndex,
+                historyLength: this.history.length,
+                layers: this.project.layers ? this.project.layers.length : 0,
+                layerNames: this.project.layers ? this.project.layers.map(l => l.name) : []
+            });
             
             // Update current layer reference
             if (this.currentLayer) {
@@ -7658,7 +7718,13 @@ class LEDRasterApp {
             
             this.project = JSON.parse(JSON.stringify(state.project));
             this.dedupeProjectLayers('redo_restore');
-            sendClientLog('redo', { action: state.action });
+            sendClientLog('redo', {
+                action: state.action,
+                historyIndex: this.historyIndex,
+                historyLength: this.history.length,
+                layers: this.project.layers ? this.project.layers.length : 0,
+                layerNames: this.project.layers ? this.project.layers.map(l => l.name) : []
+            });
             
             // Update current layer reference
             if (this.currentLayer) {
@@ -7942,6 +8008,13 @@ class LEDRasterApp {
             // Copy client-side properties to new layer
             Object.assign(newLayer, clientProps);
             
+            sendClientLog('duplicate_layer', {
+                sourceId: layer.id, sourceName: layer.name,
+                newId: newLayer.id, newName: newLayer.name,
+                columns: newLayer.columns, rows: newLayer.rows,
+                offset_x: newLayer.offset_x, offset_y: newLayer.offset_y
+            });
+            
             this.upsertProjectLayer(newLayer);
             this.selectLayer(newLayer);
             this.updateUI();
@@ -7960,6 +8033,11 @@ class LEDRasterApp {
         if (!this.currentLayer) return;
         
         this.clipboard = JSON.parse(JSON.stringify(this.currentLayer));
+        sendClientLog('copy_layer', {
+            id: this.currentLayer.id,
+            name: this.currentLayer.name,
+            type: this.currentLayer.type || 'screen'
+        });
     }
     
     pasteLayer() {
@@ -8084,6 +8162,12 @@ class LEDRasterApp {
         .then(res => res.json())
         .then(newLayer => {
             Object.assign(newLayer, pasteClientProps);
+            sendClientLog('paste_layer', {
+                sourceId: this.clipboard.id, sourceName: this.clipboard.name,
+                newId: newLayer.id, newName: newLayer.name,
+                columns: newLayer.columns, rows: newLayer.rows,
+                offset_x: newLayer.offset_x, offset_y: newLayer.offset_y
+            });
             this.upsertProjectLayer(newLayer);
             this.selectLayer(newLayer);
             this.updateUI();

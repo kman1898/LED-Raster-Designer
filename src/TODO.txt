@@ -5,7 +5,7 @@ Purpose:
 - Keep this file focused on CURRENT open work only.
 - Completed items are tracked in VERSION.txt and README version history.
 
-Recent completed (v0.6.1.35):
+Recent completed (v0.6.2.0):
 - Fixed undo/redo coverage for layer rename actions (history state now saved).
 - Fixed undo/redo coverage for Shift+drag screen-name moves in Data/Power/Cabinet tabs.
 - Fixed workflow where undo could jump to unrelated older action after duplicate+rename+shift-drag.

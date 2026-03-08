@@ -1,6 +1,23 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.6.2.0 - March 8, 2026
+----------------------------
+ - Added Mac .app bundle with menu bar icon (💡) for launch/quit control.
+ - Added Windows system tray launcher with lightbulb icon.
+ - Restructured project into src/ folder with Makefile build system (make mac / make windows / make clean).
+ - Fixed logging path for bundled .app so logs appear next to the app, not buried inside the bundle.
+ - Fixed Data tab port info not showing on file load (added fallback recalculation in canvas renderer).
+ - Fixed file load not syncing all layer properties to server (added updateLayers for all layers on load).
+ - Fixed labels overflowing layer bounds on all tabs (labels now clip to screen edges).
+ - Fixed labels showing through higher layers (occlusion check on all tabs).
+ - Fixed Data tab screen names disappearing on narrow columns (reset offset when outside layer bounds).
+ - Fixed multi-select delete only removing one layer (now deletes all selected layers).
+ - Fixed save filename using underscores instead of spaces.
+ - Enhanced logging: removed HTTP noise, added tab/selection state to save_state, added copy/paste/visibility/reorder/panel toggle logging.
+ - Updated README with correct build instructions (make mac / make windows).
+ - Pushed to GitHub: github.com/kman1898/LED-Raster-Designer
+
 v0.6.1.35 - February 28, 2026
 ----------------------------
  - Fixed undo coverage for layer rename actions (rename now writes history state before change).

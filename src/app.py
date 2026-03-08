@@ -189,12 +189,15 @@ def log_event(action, details=None, source='server'):
 @app.before_request
 def log_request():
     try:
-        if request.path == '/' or request.path.startswith('/api/'):
+        # Skip logging static files, the log endpoint, and routine API calls to reduce noise
+        # The individual API handlers log their own meaningful events
+        if request.path == '/api/log' or request.path.startswith('/static/'):
+            return
+        if request.path == '/' :
             log_event('http_request', {
                 'method': request.method,
                 'path': request.path,
-                'remote_addr': request.remote_addr,
-                'user_agent': request.headers.get('User-Agent', '')
+                'remote_addr': request.remote_addr
             })
     except Exception:
         pass
@@ -444,7 +447,11 @@ def restore_project():
     data = request.json
     current_project = data
     sync_next_layer_id()
-    log_event('restore_project')
+    log_event('restore_project', {
+        'name': current_project.get('name', '?'),
+        'layers': len(current_project.get('layers', [])),
+        'layer_names': [l.get('name', '?') for l in current_project.get('layers', [])]
+    })
     socketio.emit('project_updated', current_project)
     return jsonify(current_project)
 
@@ -485,7 +492,14 @@ def add_layer():
     for field in optional_fields:
         if field in data:
             layer[field] = data[field]
-    log_event('add_layer', {'name': layer.get('name'), 'id': layer.get('id')})
+    log_event('add_layer', {
+        'name': layer.get('name'), 'id': layer.get('id'),
+        'type': layer.get('type', 'screen'),
+        'columns': layer.get('columns'), 'rows': layer.get('rows'),
+        'cabinet_width': layer.get('cabinet_width'), 'cabinet_height': layer.get('cabinet_height'),
+        'offset_x': layer.get('offset_x'), 'offset_y': layer.get('offset_y'),
+        'total_layers': len(current_project['layers'])
+    })
     
     # Apply hidden panels (for duplicate)
     if 'hiddenPanels' in data and data['hiddenPanels']:
@@ -547,7 +561,21 @@ def update_layer(layer_id):
         if key in data:
             layer[key] = data[key]
 
-    log_event('update_layer', {'id': layer_id, 'keys': list(data.keys())})
+    # Log with actual changed values (exclude large arrays for readability)
+    changed_values = {}
+    for key in data.keys():
+        val = data[key]
+        if key == 'panels':
+            changed_values[key] = f'{len(val)} panels' if isinstance(val, list) else str(val)[:50]
+        elif key == 'customPortPaths' or key == 'powerCustomPaths':
+            changed_values[key] = f'{len(val)} paths' if isinstance(val, dict) else str(val)[:50]
+        elif key == 'imageData':
+            changed_values[key] = f'{len(str(val))} chars'
+        elif isinstance(val, (list, dict)) and len(str(val)) > 200:
+            changed_values[key] = f'{type(val).__name__}({len(val)} items)'
+        else:
+            changed_values[key] = val
+    log_event('update_layer', {'id': layer_id, 'name': layer.get('name', '?'), 'changed': changed_values})
     
     # Only regenerate panels if grid size or cabinet size changes (not offset)
     if layer.get('type') != 'image' and (
@@ -580,8 +608,13 @@ def update_layer(layer_id):
 @app.route('/api/layer/<int:layer_id>', methods=['DELETE'])
 def delete_layer(layer_id):
     global current_project
+    deleted_name = None
+    for l in current_project['layers']:
+        if l['id'] == layer_id:
+            deleted_name = l.get('name', '?')
+            break
     current_project['layers'] = [l for l in current_project['layers'] if l['id'] != layer_id]
-    log_event('delete_layer', {'id': layer_id})
+    log_event('delete_layer', {'id': layer_id, 'name': deleted_name, 'remaining_layers': len(current_project['layers'])})
     socketio.emit('layer_deleted', {'id': layer_id})
     return jsonify(current_project)
 
