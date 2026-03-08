@@ -2530,6 +2530,14 @@ class CanvasRenderer {
                 // Apply tab-specific screen name offset (relative to center)
                 screenNameX = centerX + screenNameOffsetX;
                 screenNameY = centerY + screenNameOffsetY;
+                
+                // If offset pushes label outside layer bounds, reset to center
+                if (screenNameX < bounds.x || screenNameX > bounds.x + layerWidth) {
+                    screenNameX = centerX;
+                }
+                if (screenNameY < bounds.y || screenNameY > bounds.y + layerHeight) {
+                    screenNameY = centerY;
+                }
             } else {
                 // Pixel map mode - keep original center position
                 screenNameY = currentY + screenNameHeight / 2;
@@ -2546,8 +2554,22 @@ class CanvasRenderer {
             const nameX = screenNameX - nameWidth / 2;
             const nameY = screenNameY - nameHeight / 2;
             
-            // Only render if not occluded by higher layers
-            if (!isOccludedByHigherLayer(nameX, nameY, nameWidth, nameHeight)) {
+            // Clip to layer bounds so labels don't overflow the screen edge
+            // Only skip if the layer center point itself is fully inside a higher layer
+            // (meaning this layer is completely behind another at its center)
+            const layerCenterOccluded = layer._higherLayerBounds && layer._higherLayerBounds.some(hb => {
+                return centerX >= hb.x && centerX <= hb.x + hb.width &&
+                       centerY >= hb.y && centerY <= hb.y + hb.height;
+            });
+            // For non-pixel-map tabs, always show labels (clipping handles overflow)
+            const skipName = this.viewMode === 'pixel-map' && layerCenterOccluded;
+            
+            if (!skipName) {
+                this.ctx.save();
+                this.ctx.beginPath();
+                this.ctx.rect(bounds.x, bounds.y, layerWidth, layerHeight);
+                this.ctx.clip();
+                
                 // Draw WHITE background
                 this.ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
                 const snappedNameRect = this.snapRect(nameX, nameY, nameWidth, nameHeight);
@@ -2556,6 +2578,8 @@ class CanvasRenderer {
                 // Draw BLACK text
                 this.ctx.fillStyle = '#000000';
                 this.ctx.fillText(screenName, this.snap(screenNameX), this.snap(screenNameY));
+                
+                this.ctx.restore();
             }
             
             // Reset font for other labels
@@ -2587,10 +2611,18 @@ class CanvasRenderer {
             const bgX = centerX - bgWidth / 2;
             const bgY = this.viewMode === 'pixel-map' ? currentY : (infoAnchorY ?? currentY);
             
-            // Data/Power summary labels should always render for that layer.
-            // Pixel-map center labels keep higher-layer occlusion behavior.
-            const shouldCheckOcclusion = this.viewMode === 'pixel-map';
-            if (!shouldCheckOcclusion || !isOccludedByHigherLayer(bgX, bgY, bgWidth, bgHeight)) {
+            // Clip to layer bounds; only skip if fully inside a higher layer
+            const centerFullyOccluded = layer._higherLayerBounds && layer._higherLayerBounds.some(hb => {
+                return bgX >= hb.x && bgX + bgWidth <= hb.x + hb.width &&
+                       bgY >= hb.y && bgY + bgHeight <= hb.y + hb.height;
+            });
+            
+            if (!centerFullyOccluded) {
+                this.ctx.save();
+                this.ctx.beginPath();
+                this.ctx.rect(bounds.x, bounds.y, layerWidth, layerHeight);
+                this.ctx.clip();
+                
                 // Draw dark background
                 this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
                 const snappedBgRect = this.snapRect(bgX, bgY, bgWidth, bgHeight);
@@ -2603,6 +2635,8 @@ class CanvasRenderer {
                     this.ctx.fillText(line, this.snap(centerX), this.snap(yPos));
                     yPos += lineHeight;
                 });
+                
+                this.ctx.restore();
             }
         }
         

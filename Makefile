@@ -1,15 +1,15 @@
 # LED Raster Designer - Build System
 # 
-# macOS:   Open Terminal, cd to this folder, type: make install-mac
-# Windows: Open Command Prompt, cd to this folder, type: make install-pc
+# macOS:   Open Terminal, cd to this folder, type: make mac
+# Windows: Open Command Prompt, cd to this folder, type: make windows
 
-.PHONY: deps install-mac install-pc clean
+.PHONY: deps mac windows clean
 
 deps:
 	cd src && python3 -m pip install -r requirements.txt
 	python3 -m pip install pyinstaller
 
-install-mac: deps
+mac: deps
 	python3 -m pip install rumps
 	@echo "============================================================"
 	@echo "Building LED Raster Designer for macOS..."
@@ -23,7 +23,7 @@ install-mac: deps
 	@echo "DONE! Double-click LED Raster Designer.app to launch."
 	@echo "============================================================"
 
-install-pc: deps
+windows: deps
 	python3 -m pip install pystray
 	@echo ============================================================
 	@echo Building LED Raster Designer for Windows...

@@ -7362,7 +7362,7 @@ class LEDRasterApp {
         }
         const projectData = JSON.stringify(this.project, null, 2);
         const blob = new Blob([projectData], { type: 'application/json' });
-        await this.saveBlobWithPicker(blob, `${this.project.name.replace(/\s+/g, '_')}.json`, 'application/json');
+        await this.saveBlobWithPicker(blob, `${this.project.name}.json`, 'application/json');
         
         document.getElementById('status-message').textContent = 'Project saved to file';
         setTimeout(() => {
@@ -7692,55 +7692,73 @@ class LEDRasterApp {
         if (!this.currentLayer || this.deletionInProgress) {
             return;
         }
-        sendClientLog('delete_layer', { id: this.currentLayer.id, name: this.currentLayer.name });
         
-        // Set flag to prevent re-entry
+        // Collect all selected layer IDs to delete
+        const idsToDelete = this.selectedLayerIds && this.selectedLayerIds.size > 1
+            ? [...this.selectedLayerIds]
+            : [this.currentLayer.id];
+        
+        // Don't delete if it would remove ALL layers
+        if (idsToDelete.length >= this.project.layers.length) {
+            // Keep at least one layer
+            if (this.project.layers.length <= 1) return;
+            idsToDelete.pop(); // Remove last one from delete list to keep it
+        }
+        
         this.deletionInProgress = true;
+        this.saveState('Delete Layer');
         
-        const layerId = this.currentLayer.id;
-        const currentIndex = this.project.layers.findIndex(l => l.id === layerId);
-        
+        // Find index of current layer for post-delete selection
+        const currentIndex = this.project.layers.findIndex(l => l.id === this.currentLayer.id);
         this.currentLayer = null;
         
-        fetch(`/api/layer/${layerId}`, {
-            method: 'DELETE'
-        })
-        .then(res => {
-            return res.json();
-        })
-        .then(project => {
-            
-            this.project = project;
-            this.dedupeProjectLayers('delete_layer');
-            
-            // Select the layer below (or above if we deleted the last one)
-            // Photoshop behavior: select layer at same index, or one above if at end
-            if (this.project.layers.length > 0) {
-                const newIndex = Math.min(currentIndex, this.project.layers.length - 1);
-                this.currentLayer = this.project.layers[newIndex];
-                this.selectedLayerIds = new Set([this.currentLayer.id]);
-                this.lastSelectedLayerId = this.currentLayer.id;
-                this.selectionAnchorLayerId = this.currentLayer.id;
-            } else {
-                this.currentLayer = null;
-                this.selectedLayerIds = new Set();
-                this.lastSelectedLayerId = null;
-                this.selectionAnchorLayerId = null;
+        // Delete all selected layers sequentially
+        const deleteNext = (ids) => {
+            if (ids.length === 0) {
+                // All deletes done - refresh project
+                fetch('/api/project')
+                    .then(res => res.json())
+                    .then(project => {
+                        this.project = project;
+                        this.dedupeProjectLayers('delete_layer');
+                        
+                        if (this.project.layers.length > 0) {
+                            const newIndex = Math.min(currentIndex, this.project.layers.length - 1);
+                            this.currentLayer = this.project.layers[newIndex];
+                            this.selectedLayerIds = new Set([this.currentLayer.id]);
+                            this.lastSelectedLayerId = this.currentLayer.id;
+                            this.selectionAnchorLayerId = this.currentLayer.id;
+                        } else {
+                            this.currentLayer = null;
+                            this.selectedLayerIds = new Set();
+                            this.lastSelectedLayerId = null;
+                            this.selectionAnchorLayerId = null;
+                        }
+                        
+                        this.updateUI();
+                    })
+                    .finally(() => {
+                        this.deletionInProgress = false;
+                    });
+                return;
             }
             
-            this.updateUI();
+            const id = ids.shift();
+            sendClientLog('delete_layer', { id: id, name: (this.project.layers.find(l => l.id === id) || {}).name });
             
-            // Save state AFTER delete completes
-            this.saveState('Delete Layer');
-        })
-        .catch(error => {
-            console.error('DELETE failed:', error);
-            console.error('Error stack:', error.stack);
-        })
-        .finally(() => {
-            // Clear flag when done
-            this.deletionInProgress = false;
-        });
+            fetch(`/api/layer/${id}`, { method: 'DELETE' })
+                .then(res => res.json())
+                .then(project => {
+                    this.project = project;
+                    deleteNext(ids);
+                })
+                .catch(error => {
+                    console.error('DELETE failed:', error);
+                    deleteNext(ids); // Continue with remaining deletes
+                });
+        };
+        
+        deleteNext([...idsToDelete]);
     }
     
     // ===== DUPLICATE LAYER =====
