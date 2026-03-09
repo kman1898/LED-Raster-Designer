@@ -16,7 +16,7 @@ Design LED cabinet layouts, configure data flow paths, plan power distribution, 
 5. Look for the 💡 in your menu bar to reopen the browser or quit
 
 ### Windows
-1. **[Download the latest Windows release](../../releases/latest)** *(coming soon)*
+1. **[Download the latest Windows release](../../releases/latest)**
 2. Unzip the file
 3. Double-click **LED Raster Designer.exe**
 4. Your browser opens automatically — start designing
