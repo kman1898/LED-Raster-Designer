@@ -1,56 +1,29 @@
 # LED Raster Designer v0.6.2.0
 
-A professional LED video wall layout designer for live events, concerts, and installations. Design LED cabinet layouts, configure data flow paths, plan power distribution, and export production documentation.
+A professional LED video wall layout designer for live events, concerts, and installations.
 
-## Download
-
-Download the latest release — no coding required:
-
-**[Download for Mac](../../releases/latest)** — Unzip, double-click **LED Raster Designer.app**, done.
-
-A 💡 icon appears in your menu bar to reopen the browser or quit the app.
+Design LED cabinet layouts, configure data flow paths, plan power distribution, and export production documentation.
 
 ---
 
-## Build from Source
-
-If you prefer to build it yourself:
-
-### Prerequisites
-- **Python 3.10+** — Download from [python.org](https://www.python.org/downloads/)
-- **Windows users:** During Python install, CHECK the box **"Add Python to PATH"**
+## Getting Started
 
 ### Mac
-1. Download or clone this repo
-2. Open **Terminal** and run:
-   ```
-   cd "/path/to/LED Raster Designer"
-   make mac
-   ```
-3. When it finishes, double-click **LED Raster Designer.app** in the folder
+1. **[Download the latest Mac release](../../releases/latest)**
+2. Unzip the file
+3. Double-click **LED Raster Designer.app**
 4. Your browser opens automatically — start designing
-5. A 💡 icon appears in your menu bar — click it to reopen the browser or quit
+5. Look for the 💡 in your menu bar to reopen the browser or quit
 
 ### Windows
-1. Download or clone this repo
-2. Open **Command Prompt** and run:
-   ```
-   cd "C:\path\to\LED Raster Designer"
-   make windows
-   ```
-   If you don't have `make`, run these instead:
-   ```
-   cd src
-   python -m pip install -r requirements.txt
-   python -m pip install pyinstaller pystray
-   python -m PyInstaller led_raster_designer.spec --noconfirm
-   ```
-3. When it finishes, double-click **LED Raster Designer.exe** in the folder
+1. **[Download the latest Windows release](../../releases/latest)** *(coming soon)*
+2. Unzip the file
+3. Double-click **LED Raster Designer.exe**
 4. Your browser opens automatically — start designing
-5. A lightbulb icon appears in your system tray — right-click it to reopen the browser or quit
+5. Look for the lightbulb in your system tray (bottom-right) to reopen the browser or quit
 
 ### Network Access
-Other devices on your network can connect to the app at `http://[your-ip]:8050` (shown on startup).
+Other devices on your local network can also use the app by going to `http://[your-ip]:8050` in their browser (the exact address is shown when the app starts).
 
 ---
 
@@ -58,11 +31,11 @@ Other devices on your network can connect to the app at `http://[your-ip]:8050` 
 
 ### Four View Modes
 
-| Tab | Purpose |
-|-----|---------|
+| Tab | What it does |
+|-----|-------------|
 | **Pixel Map** | Layout view with checkerboard pattern, panel borders, circle test pattern, and screen labels |
 | **Cabinet ID** | Cabinet numbering with customizable styles (A1, 1,1, 01, etc.) |
-| **Data** | Data routing visualization with serpentine patterns and port assignments |
+| **Data** | Data routing visualization with serpentine flow patterns and port assignments |
 | **Power** | Power distribution planning with circuit routing and color-coded visualization |
 
 ### Screen Management
@@ -70,12 +43,12 @@ Other devices on your network can connect to the app at `http://[your-ip]:8050` 
 - Add image/logo layers with scale control
 - Multi-select screens (Shift+click range, Cmd/Ctrl+click toggle, drag-select on canvas)
 - Layer locking, visibility toggle, and drag reorder
-- Double-click layer name to rename
+- Double-click a layer name to rename it
 
 ### Canvas Controls
 
-| Control | Action |
-|---------|--------|
+| Control | What it does |
+|---------|-------------|
 | **Spacebar + Drag** | Pan the canvas |
 | **Scroll Wheel** | Zoom in/out |
 | **Shift + Drag** | Move selected screen |
@@ -85,8 +58,8 @@ Other devices on your network can connect to the app at `http://[your-ip]:8050` 
 
 ### Keyboard Shortcuts
 
-| Shortcut | Action |
-|----------|--------|
+| Shortcut | What it does |
+|----------|-------------|
 | **Cmd/Ctrl + Z** | Undo |
 | **Cmd/Ctrl + Shift + Z** | Redo |
 | **Cmd/Ctrl + C** | Copy layer |
@@ -123,11 +96,33 @@ Other devices on your network can connect to the app at `http://[your-ip]:8050` 
 
 ---
 
-## Building from Source
+## For Developers — Building from Source
 
-If you want to build the app yourself instead of using the pre-built releases, see [BUILD.md](BUILD.md).
+If you want to build the app yourself instead of downloading the release:
 
-Requires Python 3.10+. Source code is in the `src/` folder.
+### Prerequisites
+- **Python 3.10+** — Download from [python.org](https://www.python.org/downloads/)
+- **Windows users:** During Python install, CHECK the box **"Add Python to PATH"**
+
+### Mac
+1. Clone or download this repo
+2. Open **Terminal** and run:
+   ```
+   cd "/path/to/LED Raster Designer"
+   make mac
+   ```
+3. The app appears in the folder — double-click **LED Raster Designer.app**
+
+### Windows
+1. Clone or download this repo
+2. Double-click **Build Windows.bat**
+3. The app appears in the folder — double-click **LED Raster Designer App\LED Raster Designer.exe**
+
+### Cleaning Build Files
+- **Mac:** `make clean`
+- **Windows:** `Build Windows.bat clean` (from Command Prompt)
+
+Source code is in the `src/` folder. See [BUILD.md](BUILD.md) for more details.
 
 ---
 
