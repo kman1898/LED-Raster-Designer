@@ -1725,7 +1725,9 @@ class LEDRasterApp {
             if (input) {
                 input.addEventListener('change', () => {
                     if (this.currentLayer) {
+                        this._lastChangedInputId = id;
                         this.updateLayerFromInputs();
+                        this._lastChangedInputId = null;
                     }
                 });
             }
@@ -4288,6 +4290,13 @@ class LEDRasterApp {
 
         const offsetXVal = readNumber('offset-x').value;
         const offsetYVal = readNumber('offset-y').value;
+        
+        // For multi-select: only apply the offset field that was actually changed by the user.
+        // This prevents typing in Y from overwriting all layers' X values (or vice versa).
+        const multiSelected = targetLayers.length > 1;
+        const lastChanged = this._lastChangedInputId || null;
+        const applyOffsetX = offsetXVal !== null && (!multiSelected || lastChanged === 'offset-x');
+        const applyOffsetY = offsetYVal !== null && (!multiSelected || lastChanged === 'offset-y');
         const cabinetWidthVal = readNumber('cabinet-width').value;
         const cabinetHeightVal = readNumber('cabinet-height').value;
         const columnsVal = readNumber('screen-columns').value;
@@ -4374,8 +4383,8 @@ class LEDRasterApp {
         targetLayers.forEach(layer => {
             const isImage = (layer.type || 'screen') === 'image';
             if (!layer.locked) {
-                if (offsetXVal !== null) layer.offset_x = offsetXVal;
-                if (offsetYVal !== null) layer.offset_y = offsetYVal;
+                if (applyOffsetX) layer.offset_x = offsetXVal;
+                if (applyOffsetY) layer.offset_y = offsetYVal;
             }
             if (isImage) {
                 if (imageScaleVal !== null && !Number.isNaN(imageScaleVal)) {

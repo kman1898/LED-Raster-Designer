@@ -625,9 +625,13 @@ class CanvasRenderer {
                     });
                 });
                 
-                // Update Screen Info inputs to reflect current layer position
-                document.getElementById('offset-x').value = window.app.currentLayer.offset_x;
-                document.getElementById('offset-y').value = window.app.currentLayer.offset_y;
+                // Update Screen Info inputs to reflect current positions (respects mixed values)
+                if (window.app.loadLayerToInputs) {
+                    window.app.loadLayerToInputs();
+                } else {
+                    document.getElementById('offset-x').value = window.app.currentLayer.offset_x;
+                    document.getElementById('offset-y').value = window.app.currentLayer.offset_y;
+                }
                 
                 const toUpdate = window.app.getSelectedLayers ? window.app.getSelectedLayers() : [window.app.currentLayer];
                 window.app.updateLayers(toUpdate, true, 'Move Layers');

@@ -52,6 +52,16 @@ MEDIUM PRIORITY
 BACKLOG / FUTURE
 ----------------
 
+🟢 Multi-Project Tabs
+- Allow multiple projects open simultaneously in a tab system.
+- Implementation considerations:
+  - Server currently holds a single `current_project` in memory — needs to support a project registry (dict of project_id → project_data).
+  - Each tab in the UI would have its own project_id, independent undo/redo history, and layer state.
+  - Tab bar at the top of the app with project name on each tab, close button, and "+" to open/create.
+  - WebSocket events need to be scoped per project_id so updates don't cross tabs.
+  - Save/Load needs to track which tab is active.
+  - Consider: browser tab approach (open multiple browser tabs on different ports) vs. in-app tab bar.
+
 🟢 Layer grouping
 - Group layers, collapse/expand groups, move groups together.
 
