@@ -1,6 +1,12 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.6.2.1 - March 8, 2026
+----------------------------
+ - Fixed multi-select offset fields overwriting each other on drag release and manual input.
+ - After drag-moving multiple layers, offset inputs now properly show mixed-value indicator.
+ - Added multi-project tabs feature to TODO backlog.
+
 v0.6.2.0 - March 8, 2026
 ----------------------------
  - Added Mac .app bundle with menu bar icon (💡) for launch/quit control.
