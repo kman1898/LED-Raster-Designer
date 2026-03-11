@@ -1554,7 +1554,7 @@ def api_check_update():
         result = check_for_update(force=force)
         return jsonify(result)
     except Exception as e:
-        logger.exception("Update check endpoint failed")
+        app.logger.exception("Update check endpoint failed")
         return jsonify({
             "available": False,
             "current_version": get_current_version(),
