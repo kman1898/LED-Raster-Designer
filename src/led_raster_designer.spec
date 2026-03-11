@@ -27,6 +27,7 @@ a = Analysis(
     datas=[
         ('templates', 'templates'),
         ('static', 'static'),
+        ('VERSION.txt', '.'),
     ],
     hiddenimports=[
         'flask',
@@ -43,6 +44,7 @@ a = Analysis(
         'reportlab.lib.pagesizes',
         'reportlab.pdfgen',
         'reportlab.pdfgen.canvas',
+        'certifi',
     ] + (['rumps'] if IS_MAC else [])
       + (['pystray', 'pystray._win32'] if sys.platform == 'win32' else []),
     hookspath=[],
@@ -92,8 +94,8 @@ if IS_MAC:
         info_plist={
             'CFBundleName': 'LED Raster Designer',
             'CFBundleDisplayName': 'LED Raster Designer',
-            'CFBundleShortVersionString': '0.6.2.1',
-            'CFBundleVersion': '0.6.2.1',
+            'CFBundleShortVersionString': '0.6.3',
+            'CFBundleVersion': '0.6.3',
             'NSHighResolutionCapable': True,
             'LSUIElement': True,  # Menu bar only — no Dock icon
         },
