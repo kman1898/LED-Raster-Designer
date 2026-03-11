@@ -1530,7 +1530,7 @@ class LEDRasterApp {
         );
     }
 
-    shouldApplyStartupPreferences(force = false) {
+    shouldApplyStartupPreferences() {
         if (!this.project || !this.project.layers || this.project.layers.length !== 1) return false;
         if (!this.currentLayer) return false;
         if (this.project.name !== 'Untitled Project') return false;
@@ -1545,7 +1545,7 @@ class LEDRasterApp {
     }
 
     applyPreferencesToDefaultLayerIfMatch(force = false) {
-        if (!this.shouldApplyStartupPreferences(force)) return;
+        if (!this.shouldApplyStartupPreferences()) return;
         const prefs = this.getPreferences();
         sendClientLog('apply_preferences_to_default_layer', {
             force: !!force,
@@ -4588,8 +4588,6 @@ class LEDRasterApp {
         const borderColorCabinet = getCommon(l => l.border_color_cabinet || l.border_color || '#ffffff');
         const borderColorData = getCommon(l => l.border_color_data || l.border_color || '#ffffff');
         const borderColorPower = getCommon(l => l.border_color_power || l.border_color || '#ffffff');
-        const borderWidth = primary.border_width || 2;
-        
         ['show-panel-borders', 'show-panel-borders-cabinet', 'show-panel-borders-data', 'show-panel-borders-power'].forEach(id => {
             const el = document.getElementById(id);
             if (!el) return;
@@ -5173,7 +5171,6 @@ class LEDRasterApp {
         layer._autoPortsRequired = 0;
         if (portCapacity <= 0 || fullPanelPixels <= 0) return [];
 
-        const orderedVisible = this.getOrderedPanelsByPattern(layer, pattern, false);
         const orderedForCapacity = this.getOrderedPanelsByPattern(layer, pattern, usesRectangle);
         if (orderedForCapacity.length === 0) return [];
 
@@ -5378,10 +5375,8 @@ class LEDRasterApp {
         const rasterWidth = window.canvasRenderer.rasterWidth;
         const rasterHeight = window.canvasRenderer.rasterHeight;
         
-        // Store original canvas size
+        // Store original canvas reference
         const mainCanvas = window.canvasRenderer.canvas;
-        const originalCanvasWidth = mainCanvas.width;
-        const originalCanvasHeight = mainCanvas.height;
         const originalCtx = window.canvasRenderer.ctx;
         
         // Create a fresh offscreen canvas at exact raster size
@@ -5946,9 +5941,7 @@ class LEDRasterApp {
             return el && el.value ? el.value : fallback;
         };
         const voltageSelect = document.getElementById('pref-power-voltage-select');
-        const voltageCustom = document.getElementById('pref-power-voltage-custom');
         const amperageSelect = document.getElementById('pref-power-amperage-select');
-        const amperageCustom = document.getElementById('pref-power-amperage-custom');
         const prefDataPatternActive = document.querySelector('.pref-data-flow-pattern-btn.active');
         const prefPowerPatternActive = document.querySelector('.pref-power-flow-pattern-btn.active');
         const voltageVal = voltageSelect && voltageSelect.value !== 'custom'
@@ -7708,7 +7701,7 @@ class LEDRasterApp {
             .then(response => {
                 return response.json();
             })
-            .then(data => {
+            .then(() => {
                 this.updateUI();
             })
             .catch(error => {
@@ -7750,7 +7743,7 @@ class LEDRasterApp {
             .then(response => {
                 return response.json();
             })
-            .then(data => {
+            .then(() => {
                 this.updateUI();
             })
             .catch(error => {

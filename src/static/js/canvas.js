@@ -55,7 +55,7 @@ class CanvasRenderer {
         this.canvas.addEventListener('contextmenu', this.handleContextMenu.bind(this));
         document.addEventListener('keydown', this.handleKeyDown.bind(this));
         document.addEventListener('keyup', this.handleKeyUp.bind(this));
-        window.addEventListener('mouseup', (e) => {
+        window.addEventListener('mouseup', () => {
             const hadLayerRect = !!this.layerSelectionRect;
             const hadPanelRect = !!this.selectionRect;
             if (!this.isSelectingLayers && !this.isSelectingPanels && !hadLayerRect && !hadPanelRect) return;
