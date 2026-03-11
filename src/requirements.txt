@@ -5,3 +5,4 @@ Pillow>=10.1.0
 numpy>=1.24.0
 pytoshop>=1.2.0
 reportlab>=4.0.0
+certifi>=2024.2.2

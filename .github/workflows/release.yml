@@ -188,6 +188,12 @@ jobs:
         with:
           path: artifacts
 
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          sha256sum macos-build/*.zip windows-build/*.zip > checksums.txt
+          cat checksums.txt
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -197,3 +203,4 @@ jobs:
           files: |
             artifacts/macos-build/*.zip
             artifacts/windows-build/*.zip
+            artifacts/checksums.txt

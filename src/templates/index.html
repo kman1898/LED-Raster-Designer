@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED Raster Designer v0.6.2.1</title>
+    <title>LED Raster Designer v0.6.3</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -12,6 +12,7 @@
             <div class="menu-item" data-menu="file">File</div>
             <div class="menu-item" data-menu="edit">Edit</div>
             <div class="menu-item" data-menu="view">View</div>
+            <div class="menu-item" data-menu="help">Help</div>
         </div>
 
         <div id="menu-file" class="menu-dropdown">
@@ -42,6 +43,12 @@
             <div class="menu-option" data-action="actual-size" data-label="Actual Size" data-shortcut-mac="1:1" data-shortcut-win="1:1"></div>
         </div>
 
+        <div id="menu-help" class="menu-dropdown">
+            <div class="menu-option" data-action="check-updates" data-label="Check for Updates…"></div>
+            <div class="menu-divider"></div>
+            <div class="menu-option" data-action="about" data-label="About LED Raster Designer"></div>
+        </div>
+
         <div id="context-menu" class="context-menu">
             <div class="menu-option" data-action="undo" data-label="Undo" data-shortcut-mac="Cmd+Z" data-shortcut-win="Ctrl+Z"></div>
             <div class="menu-option" data-action="redo" data-label="Redo" data-shortcut-mac="Cmd+Shift+Z" data-shortcut-win="Ctrl+Shift+Z"></div>
@@ -57,7 +64,7 @@
 
         <div id="toolbar">
             <div class="toolbar-section toolbar-project">
-                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.6.2.1</span></h1>
+                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.6.3</span></h1>
                 <input type="text" id="project-name" value="Untitled Project" class="editable-project-name">
             </div>
             <div class="toolbar-section toolbar-actions">
@@ -1085,6 +1092,12 @@
             <span id="status-message">Ready</span>
             <span id="cursor-position">X: 0, Y: 0</span>
         </div>
+
+        <div id="update-banner" style="display:none;">
+            <span id="update-banner-text"></span>
+            <a id="update-banner-link" href="#" target="_blank" rel="noopener noreferrer">Download</a>
+            <button id="update-banner-dismiss" title="Dismiss">&times;</button>
+        </div>
     </div>
 
     <input type="file" id="add-image-input" accept="image/*" style="display:none;">
@@ -1341,5 +1354,6 @@
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
     <script src="/static/js/canvas.js"></script>
     <script src="/static/js/app.js"></script>
+    <script src="/static/js/updater.js"></script>
 </body>
 </html>

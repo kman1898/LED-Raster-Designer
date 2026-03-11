@@ -1,6 +1,46 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.6.3 - March 11, 2026
+----------------------------
+ NEW FEATURES:
+ - Added automatic update checker — app checks GitHub Releases on startup for newer versions.
+ - Added "Help" menu with "Check for Updates" button for manual update checks.
+ - Added dismissable update notification banner with direct download link.
+ - Update checker uses secure HTTPS with TLS 1.2+ and certificate pinning (certifi).
+ - Added /api/update/check and /api/version API endpoints.
+
+ CI/CD & TESTING:
+ - Added CI workflow (ci.yml): flake8 lint, ESLint, pytest across Python 3.10/3.11/3.12.
+ - Added Release workflow (release.yml): builds macOS .app and Windows .exe via PyInstaller
+   with optional code signing/notarization, creates draft GitHub Release with SHA-256 checksums.
+ - Added comprehensive test suite (573 lines across 5 test files):
+   test_helpers.py, test_layers.py, test_panels.py, test_export.py, test_project.py, conftest.py.
+ - Added requirements-dev.txt for development dependencies.
+
+ BUG FIXES:
+ - Fixed float-to-int conversion bug in render_layer_to_image — fractional pixel
+   coordinates now correctly convert to integers before drawing.
+ - Removed unused global declarations in save_project and delete_layer.
+ - Fixed undo/redo for inline layer rename (double-click rename).
+ - Fixed undo/redo for toggle panel blank.
+ - Fixed undo/redo for toggle panel hidden (Alt+click).
+ - Fixed undo/redo for layer visibility toggle.
+ - Fixed undo/redo for layer lock toggle.
+ - Fixed undo/redo not working for raster size changes.
+ - Fixed multi-select offset fields overwriting each other on drag release and manual input.
+ - After drag-moving multiple layers, offset inputs now properly show mixed-value indicator.
+
+ ENHANCEMENTS:
+ - Comprehensive undo/redo coverage for all layer property changes: colors, sizes,
+   flow patterns, power settings, labels, borders, and all sidebar properties.
+ - Changed updateLayers default to always save history.
+
+ DOCUMENTATION & LEGAL:
+ - Added professional README header with CI status badges.
+ - Added proprietary LICENSE file for MeshTech Systems LLC.
+ - Added multi-project tabs feature to TODO backlog.
+
 v0.6.2.1 - March 8, 2026
 ----------------------------
  - Fixed multi-select offset fields overwriting each other on drag release and manual input.

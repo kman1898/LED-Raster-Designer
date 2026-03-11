@@ -1543,6 +1543,22 @@ def export_psd_zip_from_images():
         return jsonify({'error': f'PSD export failed: {str(e)}'}), 500
 
 
+# ── Update Checker ──────────────────────────────────────────────────
+from updater import check_for_update, get_current_version
+
+@app.route('/api/update/check', methods=['GET'])
+def api_check_update():
+    """Check for a newer release on GitHub."""
+    force = request.args.get('force', '').lower() in ('1', 'true', 'yes')
+    result = check_for_update(force=force)
+    return jsonify(result)
+
+@app.route('/api/version', methods=['GET'])
+def api_version():
+    """Return the current app version."""
+    return jsonify({"version": get_current_version()})
+
+
 @socketio.on('connect')
 def handle_connect():
     print('Client connected')
