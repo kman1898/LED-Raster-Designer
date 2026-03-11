@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install flake8
+
+      - name: Run flake8
+        run: |
+          # Stop on syntax errors or undefined names
+          flake8 src/app.py --count --select=E9,F63,F7,F82 --show-source --statistics
+          # Warnings as advisory (don't fail the build)
+          flake8 src/app.py --count --exit-zero --max-complexity=15 --max-line-length=150 --statistics
+
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          pip install -r src/requirements.txt
+          pip install pytest pytest-cov
+
+      - name: Run tests
+        run: |
+          python -m pytest tests/ -v --tb=short --cov=src --cov-report=term-missing
+
+  js-lint:
+    name: JS Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install ESLint
+        run: npm install eslint@8
+
+      - name: Lint JavaScript
+        run: |
+          npx eslint src/static/js/*.js --no-eslintrc \
+            --rule '{"no-undef": "off", "no-unused-vars": "warn"}' \
+            --env browser,es2021 \
+            --parser-options ecmaVersion:2022 \
+            || true  # Advisory only for now
