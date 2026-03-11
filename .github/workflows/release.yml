@@ -1,0 +1,199 @@
+name: Release Build
+
+on:
+  push:
+    tags:
+      - "v*"  # Trigger on version tags like v0.6.2.5
+
+  # Allow manual trigger from Actions tab
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version number (e.g. 0.6.3.0)"
+        required: true
+
+jobs:
+  # ──────────────────────────────────────────────
+  # Run tests first - fail fast before building
+  # ──────────────────────────────────────────────
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          pip install -r src/requirements.txt
+          pip install pytest
+      - name: Run tests
+        run: python -m pytest tests/ -v --tb=short
+
+  # ──────────────────────────────────────────────
+  # macOS Build
+  # ──────────────────────────────────────────────
+  build-macos:
+    name: Build macOS
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r src/requirements.txt
+          pip install pyinstaller rumps
+
+      - name: Build app
+        run: |
+          cd src && python -m PyInstaller led_raster_designer.spec --noconfirm
+          cp -R "dist/LED Raster Designer.app" "../LED Raster Designer.app"
+
+      # ── Code Signing (requires Apple Developer cert in secrets) ──
+      - name: Import code signing certificate
+        if: env.MACOS_CERTIFICATE != ''
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
+          KEYCHAIN_PWD: ${{ secrets.KEYCHAIN_PWD }}
+        run: |
+          echo "$MACOS_CERTIFICATE" | base64 --decode > certificate.p12
+          security create-keychain -p "$KEYCHAIN_PWD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PWD" build.keychain
+          security import certificate.p12 -k build.keychain -P "$MACOS_CERTIFICATE_PWD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PWD" build.keychain
+
+      - name: Sign app bundle
+        if: env.MACOS_CERTIFICATE != ''
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+        run: |
+          codesign --force --deep --sign "$SIGNING_IDENTITY" \
+            --options runtime \
+            --entitlements /dev/null \
+            "LED Raster Designer.app"
+
+      - name: Notarize app
+        if: env.MACOS_NOTARIZE_APPLE_ID != ''
+        env:
+          MACOS_NOTARIZE_APPLE_ID: ${{ secrets.MACOS_NOTARIZE_APPLE_ID }}
+          MACOS_NOTARIZE_PASSWORD: ${{ secrets.MACOS_NOTARIZE_PASSWORD }}
+          MACOS_NOTARIZE_TEAM_ID: ${{ secrets.MACOS_NOTARIZE_TEAM_ID }}
+        run: |
+          # Create ZIP for notarization
+          ditto -c -k --keepParent "LED Raster Designer.app" "LRD-notarize.zip"
+          xcrun notarytool submit "LRD-notarize.zip" \
+            --apple-id "$MACOS_NOTARIZE_APPLE_ID" \
+            --password "$MACOS_NOTARIZE_PASSWORD" \
+            --team-id "$MACOS_NOTARIZE_TEAM_ID" \
+            --wait
+          xcrun stapler staple "LED Raster Designer.app"
+
+      - name: Create release ZIP
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [ -z "$VERSION" ] || [ "$VERSION" = "$GITHUB_REF_NAME" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          fi
+          ditto -c -k --keepParent "LED Raster Designer.app" \
+            "led_raster_designer_v${VERSION}_macos.zip"
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-build
+          path: led_raster_designer_v*_macos.zip
+
+  # ──────────────────────────────────────────────
+  # Windows Build
+  # ──────────────────────────────────────────────
+  build-windows:
+    name: Build Windows
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r src/requirements.txt
+          pip install pyinstaller pystray
+
+      - name: Build executable
+        run: |
+          cd src
+          python -m PyInstaller led_raster_designer.spec --noconfirm
+          Copy-Item -Recurse -Force "dist\LED Raster Designer" "..\LED Raster Designer App"
+
+      # ── Code Signing (requires certificate in secrets) ──
+      - name: Sign executable
+        if: env.WINDOWS_CERTIFICATE != ''
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PWD: ${{ secrets.WINDOWS_CERTIFICATE_PWD }}
+        run: |
+          $cert = [System.Convert]::FromBase64String("$env:WINDOWS_CERTIFICATE")
+          [System.IO.File]::WriteAllBytes("certificate.pfx", $cert)
+          & 'C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\signtool.exe' sign `
+            /f certificate.pfx `
+            /p "$env:WINDOWS_CERTIFICATE_PWD" `
+            /tr http://timestamp.digicert.com `
+            /td sha256 `
+            /fd sha256 `
+            "LED Raster Designer App\LED Raster Designer.exe"
+          Remove-Item certificate.pfx
+
+      - name: Create release ZIP
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          if (-not $version -or $version -eq "${{ github.ref_name }}") {
+            $version = "${{ github.event.inputs.version }}"
+          }
+          Compress-Archive -Path "LED Raster Designer App" `
+            -DestinationPath "led_raster_designer_v${version}_windows.zip"
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: led_raster_designer_v*_windows.zip
+
+  # ──────────────────────────────────────────────
+  # Create GitHub Release & Upload Assets
+  # ──────────────────────────────────────────────
+  release:
+    name: Create Release
+    needs: [build-macos, build-windows]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "LED Raster Designer ${{ github.ref_name }}"
+          draft: true
+          generate_release_notes: true
+          files: |
+            artifacts/macos-build/*.zip
+            artifacts/windows-build/*.zip
