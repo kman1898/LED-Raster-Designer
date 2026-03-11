@@ -37,7 +37,13 @@ _cache_lock = threading.Lock()
 
 def _get_ssl_context():
     """Create a strict SSL context pinned to certifi's CA bundle."""
-    ctx = ssl.create_default_context(cafile=certifi.where())
+    try:
+        ctx = ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        # Fallback: use system default CA certificates (e.g. if certifi
+        # data file is missing in a frozen build)
+        logger.warning("certifi CA bundle not found, using system defaults")
+        ctx = ssl.create_default_context()
     ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     ctx.check_hostname = True
     ctx.verify_mode = ssl.CERT_REQUIRED

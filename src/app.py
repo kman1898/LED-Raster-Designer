@@ -1549,9 +1549,21 @@ from updater import check_for_update, get_current_version
 @app.route('/api/update/check', methods=['GET'])
 def api_check_update():
     """Check for a newer release on GitHub."""
-    force = request.args.get('force', '').lower() in ('1', 'true', 'yes')
-    result = check_for_update(force=force)
-    return jsonify(result)
+    try:
+        force = request.args.get('force', '').lower() in ('1', 'true', 'yes')
+        result = check_for_update(force=force)
+        return jsonify(result)
+    except Exception as e:
+        logger.exception("Update check endpoint failed")
+        return jsonify({
+            "available": False,
+            "current_version": get_current_version(),
+            "latest_version": None,
+            "download_url": None,
+            "release_notes": None,
+            "checksums": None,
+            "error": f"Internal error: {e}",
+        })
 
 @app.route('/api/version', methods=['GET'])
 def api_version():
