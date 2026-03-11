@@ -433,7 +433,6 @@ def new_project():
 
 @app.route('/api/project', methods=['POST'])
 def save_project():
-    global current_project
     data = request.json
     current_project.update(data)
     sync_next_layer_id()
@@ -607,7 +606,6 @@ def update_layer(layer_id):
 
 @app.route('/api/layer/<int:layer_id>', methods=['DELETE'])
 def delete_layer(layer_id):
-    global current_project
     deleted_name = None
     for l in current_project['layers']:
         if l['id'] == layer_id:
@@ -684,10 +682,10 @@ def render_layer_to_image(layer, raster_width, raster_height, include_borders=Tr
         if panel.get('hidden', False):
             continue
             
-        px = panel['x']
-        py = panel['y']
-        pw = panel['width']
-        ph = panel['height']
+        px = int(panel['x'])
+        py = int(panel['y'])
+        pw = int(panel['width'])
+        ph = int(panel['height'])
         
         # Get panel color
         color = color1 if panel.get('is_color1', True) else color2
