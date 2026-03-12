@@ -7,7 +7,8 @@ import pytest
 # Add src/ to path so we can import app
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from app import app, socketio, current_project, initialize_default_layer
+import app as app_module
+from app import app, socketio, initialize_default_layer
 
 
 @pytest.fixture()
@@ -15,14 +16,16 @@ def client():
     """Create a Flask test client with a fresh project state."""
     app.config['TESTING'] = True
 
-    # Reset project state before each test
-    current_project.clear()
-    current_project.update({
+    # Reset project state before each test.
+    # Must set on the module directly because some endpoints reassign
+    # the global (e.g. new_project, restore_project).
+    app_module.current_project = {
         'name': 'Untitled Project',
         'raster_width': 1920,
         'raster_height': 1080,
         'layers': []
-    })
+    }
+    app_module.next_layer_id = 1
 
     with app.test_client() as client:
         yield client

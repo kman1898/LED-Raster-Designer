@@ -8,6 +8,8 @@
 import os
 import sys
 
+import certifi
+
 block_cipher = None
 BASE_DIR = os.path.abspath('.')
 IS_MAC = sys.platform == 'darwin'
@@ -27,6 +29,8 @@ a = Analysis(
     datas=[
         ('templates', 'templates'),
         ('static', 'static'),
+        ('VERSION.txt', '.'),
+        (certifi.where(), 'certifi'),
     ],
     hiddenimports=[
         'flask',
