@@ -837,9 +837,10 @@ class LEDRasterApp {
         // Prevent double-delete
         this.deletionInProgress = false;
 
-        // Track whether startup preferences have already been applied this session.
-        // Prevents reconnect after sleep from re-applying preferences over a loaded project.
-        this._preferencesApplied = false;
+        // Track whether the initial loadProject() has completed.
+        // When true, socket project_data events are reconnects (skip preference enforcement).
+        // When false, it's a cold start (allow preferences to apply).
+        this._initialLoadComplete = false;
 
         this.init();
     }
@@ -918,8 +919,10 @@ class LEDRasterApp {
                 this.saveRasterSize();
             }
             
-            // Restore client-side properties OR load from localStorage and apply defaults
-            this.loadClientSideProperties();
+            // Restore client-side properties and layer defaults.
+            // On reconnect (after sleep), skip preference enforcement — the project
+            // already has the correct state from before the disconnect.
+            this.loadClientSideProperties({ skipPreferences: this._initialLoadComplete });
             
             // Also restore any in-memory props we had
             if (this.project && this.project.layers) {
@@ -1072,7 +1075,11 @@ class LEDRasterApp {
                 
                 // Save initial state for undo/redo
                 this.resetHistory('Initial State');
-                
+
+                // Mark initial load complete — subsequent socket project_data
+                // events are reconnects and should not re-apply preferences.
+                this._initialLoadComplete = true;
+
                 // Default to Fit view on load
                 setTimeout(() => {
                     window.canvasRenderer.fitToView();
@@ -1081,7 +1088,7 @@ class LEDRasterApp {
     }
     
     // Load client-side properties from localStorage
-    loadClientSideProperties() {
+    loadClientSideProperties({ skipPreferences = false } = {}) {
         if (!this.project || !this.project.layers) return;
         const prefs = this.getPreferences();
         
@@ -1255,7 +1262,7 @@ class LEDRasterApp {
         // Use server-side is_pristine flag to distinguish a true fresh default project from a
         // loaded project that happens to be named "Untitled Project".
         const startupDefaultMatch =
-            !this._preferencesApplied &&
+            !skipPreferences &&
             this.project &&
             this.project.is_pristine === true &&
             this.project.name === 'Untitled Project' &&
@@ -1301,7 +1308,6 @@ class LEDRasterApp {
                 rasterWidth: this.project.raster_width,
                 rasterHeight: this.project.raster_height
             });
-            this._preferencesApplied = true;
         }
 
         console.log('LOADED CLIENT PROPS - first layer:', {
@@ -1541,7 +1547,6 @@ class LEDRasterApp {
     }
 
     shouldApplyStartupPreferences() {
-        if (this._preferencesApplied) return false;
         if (!this.project || !this.project.layers || this.project.layers.length !== 1) return false;
         if (!this.currentLayer) return false;
         if (this.project.is_pristine !== true) return false;
