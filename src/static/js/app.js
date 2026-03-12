@@ -2313,8 +2313,8 @@ class LEDRasterApp {
             customPrevPortBtn.addEventListener('click', () => {
                 if (!this.currentLayer) return;
                 this.ensureCustomFlowState(this.currentLayer);
-                this.saveState('Custom Port Change');
                 this.currentLayer.customPortIndex = Math.max(1, (this.currentLayer.customPortIndex || 1) - 1);
+                this.saveState('Custom Port Change');
                 this.saveClientSideProperties();
                 this.updateCustomFlowUI();
                 this.updatePortLabelEditor();
@@ -2325,8 +2325,8 @@ class LEDRasterApp {
             customNextPortBtn.addEventListener('click', () => {
                 if (!this.currentLayer) return;
                 this.ensureCustomFlowState(this.currentLayer);
-                this.saveState('Custom Port Change');
                 this.currentLayer.customPortIndex = (this.currentLayer.customPortIndex || 1) + 1;
+                this.saveState('Custom Port Change');
                 this.saveClientSideProperties();
                 this.updateCustomFlowUI();
                 this.updatePortLabelEditor();
@@ -2337,9 +2337,9 @@ class LEDRasterApp {
             customClearPortBtn.addEventListener('click', () => {
                 if (!this.currentLayer) return;
                 this.ensureCustomFlowState(this.currentLayer);
-                this.saveState('Custom Clear Port');
                 const portNum = this.currentLayer.customPortIndex || 1;
                 this.currentLayer.customPortPaths[portNum] = [];
+                this.saveState('Custom Clear Port');
                 this.saveClientSideProperties();
                 this.updateCustomFlowUI();
                 this.updatePortLabelEditor();
@@ -2350,10 +2350,10 @@ class LEDRasterApp {
             customClearAllBtn.addEventListener('click', () => {
                 if (!this.currentLayer) return;
                 this.ensureCustomFlowState(this.currentLayer);
-                this.saveState('Custom Clear All');
                 this.currentLayer.customPortPaths = {};
                 this.currentLayer.customPortIndex = 1;
                 this.customSelection.clear();
+                this.saveState('Custom Clear All');
                 this.saveClientSideProperties();
                 this.updateCustomFlowUI();
                 this.updatePortLabelEditor();
@@ -2373,8 +2373,8 @@ class LEDRasterApp {
                 this.ensureCustomFlowState(this.currentLayer);
                 const nextVal = parseInt(customActivePortInput.value, 10);
                 if (Number.isFinite(nextVal) && nextVal >= 1) {
-                    this.saveState('Custom Port Change');
                     this.currentLayer.customPortIndex = nextVal;
+                    this.saveState('Custom Port Change');
                     this.saveClientSideProperties();
                     this.updateCustomFlowUI();
                     this.updatePortLabelEditor();
@@ -2817,8 +2817,8 @@ class LEDRasterApp {
             powerCustomPrev.addEventListener('click', () => {
                 if (!this.currentLayer) return;
                 this.ensureCustomPowerState(this.currentLayer);
-                this.saveState('Power Custom Circuit Change');
                 this.currentLayer.powerCustomIndex = Math.max(1, (this.currentLayer.powerCustomIndex || 1) - 1);
+                this.saveState('Power Custom Circuit Change');
                 this.saveClientSideProperties();
                 this.updateCustomPowerUI();
                 window.canvasRenderer.render();
@@ -2828,8 +2828,8 @@ class LEDRasterApp {
             powerCustomNext.addEventListener('click', () => {
                 if (!this.currentLayer) return;
                 this.ensureCustomPowerState(this.currentLayer);
-                this.saveState('Power Custom Circuit Change');
                 this.currentLayer.powerCustomIndex = (this.currentLayer.powerCustomIndex || 1) + 1;
+                this.saveState('Power Custom Circuit Change');
                 this.saveClientSideProperties();
                 this.updateCustomPowerUI();
                 window.canvasRenderer.render();
@@ -2839,9 +2839,9 @@ class LEDRasterApp {
             powerCustomClearCircuit.addEventListener('click', () => {
                 if (!this.currentLayer) return;
                 this.ensureCustomPowerState(this.currentLayer);
-                this.saveState('Power Custom Clear Circuit');
                 const circuitNum = this.currentLayer.powerCustomIndex || 1;
                 this.currentLayer.powerCustomPaths[circuitNum] = [];
+                this.saveState('Power Custom Clear Circuit');
                 this.saveClientSideProperties();
                 this.updateCustomPowerUI();
                 window.canvasRenderer.render();
@@ -2851,10 +2851,10 @@ class LEDRasterApp {
             powerCustomClearAll.addEventListener('click', () => {
                 if (!this.currentLayer) return;
                 this.ensureCustomPowerState(this.currentLayer);
-                this.saveState('Power Custom Clear All');
                 this.currentLayer.powerCustomPaths = {};
                 this.currentLayer.powerCustomIndex = 1;
                 this.powerCustomSelection.clear();
+                this.saveState('Power Custom Clear All');
                 this.saveClientSideProperties();
                 this.updateCustomPowerUI();
                 window.canvasRenderer.render();
@@ -2873,8 +2873,8 @@ class LEDRasterApp {
                 this.ensureCustomPowerState(this.currentLayer);
                 const nextVal = parseInt(powerCustomActive.value, 10);
                 if (Number.isFinite(nextVal) && nextVal >= 1) {
-                    this.saveState('Power Custom Circuit Change');
                     this.currentLayer.powerCustomIndex = nextVal;
+                    this.saveState('Power Custom Circuit Change');
                     this.saveClientSideProperties();
                     this.updateCustomPowerUI();
                     window.canvasRenderer.render();
@@ -6190,16 +6190,16 @@ class LEDRasterApp {
         const view = window.canvasRenderer.viewMode;
         if (view === 'data-flow' && this.isCustomFlow(this.currentLayer)) {
             this.ensureCustomFlowState(this.currentLayer);
-            this.saveState('Custom Port Change');
             this.currentLayer.customPortIndex = Math.max(1, (this.currentLayer.customPortIndex || 1) + delta);
+            this.saveState('Custom Port Change');
             this.saveClientSideProperties();
             this.updateCustomFlowUI();
             this.updatePortLabelEditor();
             window.canvasRenderer.render();
         } else if (view === 'power' && this.isCustomPower(this.currentLayer)) {
             this.ensureCustomPowerState(this.currentLayer);
-            this.saveState('Power Custom Circuit Change');
             this.currentLayer.powerCustomIndex = Math.max(1, (this.currentLayer.powerCustomIndex || 1) + delta);
+            this.saveState('Power Custom Circuit Change');
             this.saveClientSideProperties();
             this.updateCustomPowerUI();
             window.canvasRenderer.render();
@@ -6784,7 +6784,6 @@ class LEDRasterApp {
 
     toggleCustomFlowMode(enabled) {
         if (!this.currentLayer) return;
-        this.saveState('Custom Mode Toggle');
         if (enabled) {
             if (this.currentLayer.flowPattern && this.currentLayer.flowPattern !== 'custom') {
                 this.currentLayer.lastFlowPattern = this.currentLayer.flowPattern;
@@ -6796,6 +6795,7 @@ class LEDRasterApp {
             this.customSelectMode = false;
             this.customSelection.clear();
         }
+        this.saveState('Custom Mode Toggle');
         this.saveClientSideProperties();
         this.updatePortCapacityDisplay();
         this.updateCustomFlowUI();
@@ -6834,7 +6834,6 @@ class LEDRasterApp {
 
     toggleCustomPowerMode(enabled) {
         if (!this.currentLayer) return;
-        this.saveState('Power Custom Mode Toggle');
         if (enabled) {
             if (this.currentLayer.powerFlowPattern && this.currentLayer.powerFlowPattern !== 'custom') {
                 this.currentLayer.lastPowerFlowPattern = this.currentLayer.powerFlowPattern;
@@ -6847,6 +6846,7 @@ class LEDRasterApp {
             this.currentLayer.powerCustomPath = false;
             this.powerCustomSelection.clear();
         }
+        this.saveState('Power Custom Mode Toggle');
         this.saveClientSideProperties();
         this.updatePowerCapacityDisplay();
         this.updateCustomPowerUI();
@@ -6946,8 +6946,8 @@ class LEDRasterApp {
         const key = this.getPanelKey(panel);
         const exists = this.currentLayer.customPortPaths[portNum].some(p => `${p.row},${p.col}` === key);
         if (!exists) {
-            this.saveState('Custom Path Edit');
             this.currentLayer.customPortPaths[portNum].push({ row: panel.row, col: panel.col });
+            this.saveState('Custom Path Edit');
             this.saveClientSideProperties();
             if (this.customDebug) {
                 console.log('[CustomFlow] Add panel', { portNum, row: panel.row, col: panel.col });
@@ -6967,8 +6967,8 @@ class LEDRasterApp {
         const key = this.getPanelKey(panel);
         const exists = this.currentLayer.powerCustomPaths[circuitNum].some(p => `${p.row},${p.col}` === key);
         if (!exists) {
-            this.saveState('Power Custom Path Edit');
             this.currentLayer.powerCustomPaths[circuitNum].push({ row: panel.row, col: panel.col });
+            this.saveState('Power Custom Path Edit');
             this.saveClientSideProperties();
             if (this.powerCustomDebug) {
                 console.log('[CustomPower] Add panel', { circuitNum, row: panel.row, col: panel.col });
@@ -8012,11 +8012,20 @@ class LEDRasterApp {
             powerCustomPaths: JSON.parse(JSON.stringify(layer.powerCustomPaths || {})),
             powerCustomIndex: layer.powerCustomIndex,
             showPowerCircuitInfo: !!layer.showPowerCircuitInfo,
+            showDataFlowPortInfo: !!layer.showDataFlowPortInfo,
             weight_unit: layer.weight_unit,
             panel_weight: layer.panel_weight,
-            infoLabelSize: layer.infoLabelSize
+            infoLabelSize: layer.infoLabelSize,
+            portLabelTemplatePrimary: layer.portLabelTemplatePrimary,
+            portLabelTemplateReturn: layer.portLabelTemplateReturn,
+            portLabelOverridesPrimary: JSON.parse(JSON.stringify(layer.portLabelOverridesPrimary || {})),
+            portLabelOverridesReturn: JSON.parse(JSON.stringify(layer.portLabelOverridesReturn || {})),
+            customPortPaths: JSON.parse(JSON.stringify(layer.customPortPaths || {})),
+            customPortIndex: layer.customPortIndex,
+            randomDataColors: !!layer.randomDataColors,
+            arrowSize: layer.arrowSize
         };
-        
+
         fetch('/api/layer/add', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -8160,7 +8169,16 @@ class LEDRasterApp {
             powerLabelTemplate: this.clipboard.powerLabelTemplate,
             powerLabelOverrides: JSON.parse(JSON.stringify(this.clipboard.powerLabelOverrides || {})),
             powerCustomPaths: JSON.parse(JSON.stringify(this.clipboard.powerCustomPaths || {})),
-            powerCustomIndex: this.clipboard.powerCustomIndex
+            powerCustomIndex: this.clipboard.powerCustomIndex,
+            showDataFlowPortInfo: !!this.clipboard.showDataFlowPortInfo,
+            portLabelTemplatePrimary: this.clipboard.portLabelTemplatePrimary,
+            portLabelTemplateReturn: this.clipboard.portLabelTemplateReturn,
+            portLabelOverridesPrimary: JSON.parse(JSON.stringify(this.clipboard.portLabelOverridesPrimary || {})),
+            portLabelOverridesReturn: JSON.parse(JSON.stringify(this.clipboard.portLabelOverridesReturn || {})),
+            customPortPaths: JSON.parse(JSON.stringify(this.clipboard.customPortPaths || {})),
+            customPortIndex: this.clipboard.customPortIndex,
+            randomDataColors: !!this.clipboard.randomDataColors,
+            arrowSize: this.clipboard.arrowSize
         };
         const pasteClientProps = {
             border_color_pixel: this.clipboard.border_color_pixel,
