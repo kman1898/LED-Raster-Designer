@@ -1,6 +1,14 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.6.3.1 - March 12, 2026
+----------------------------
+ BUG FIX:
+ - Fixed startup preferences overwriting loaded projects on WebSocket reconnect after sleep.
+ - Added server-side is_pristine flag to distinguish fresh default projects from loaded files
+   named "Untitled Project", preventing preference enforcement on page refresh.
+ - Added client-side _preferencesApplied flag to block duplicate preference application.
+
 v0.6.3 - March 11, 2026
 ----------------------------
  NEW FEATURES:
