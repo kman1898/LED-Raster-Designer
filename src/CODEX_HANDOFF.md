@@ -184,12 +184,12 @@
 
 This application is developed collaboratively between a human developer (Matt) and **two AI coding assistants working in tandem:**
 
-- **Claude (Anthropic)** — Primary development partner since project inception. All architecture decisions, core rendering, UI layout, export pipeline, and feature implementation to date have been done through Claude conversations. Claude has full project memory and context.
+- **AI Assistant** — Primary development partner since project inception. All architecture decisions, core rendering, UI layout, export pipeline, and feature implementation to date have been done through AI-assisted conversations.
 - **Codex (OpenAI)** — Joining development as of v0.5.5.2 for expanded feature work, refactoring, and parallel development tasks.
 
 ### Workflow Rules
 
-1. **Either AI may receive tasks at any time.** Matt works back and forth between Claude and Codex depending on context and availability.
+1. **Either AI may receive tasks at any time.** Matt works back and forth between AI assistants depending on context and availability.
 2. **This document is the single source of truth** for project state. When either AI makes significant changes, this doc should be updated.
 3. **VERSION.txt tracks granular changes.** Check it for detailed per-version changelogs.
 4. **TODO.txt tracks the roadmap.** Check it before starting new features to avoid conflicts.
@@ -472,4 +472,4 @@ See `TODO.txt` for the full prioritized list. Key upcoming areas:
 
 ---
 
-*This document should be updated whenever significant architectural changes are made. Both Claude and Codex should read this file at the start of any session involving this project.*
+*This document should be updated whenever significant architectural changes are made. All AI assistants should read this file at the start of any session involving this project.*
