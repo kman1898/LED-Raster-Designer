@@ -202,6 +202,33 @@ def log_request():
     except Exception:
         pass
 
+
+@app.errorhandler(Exception)
+def handle_unhandled_exception(e):
+    """Catch all unhandled exceptions and log them to the log file."""
+    import traceback
+    error_detail = traceback.format_exc()
+    log_event('unhandled_exception', {
+        'error': str(e),
+        'type': type(e).__name__,
+        'path': request.path if request else 'unknown',
+        'method': request.method if request else 'unknown',
+        'traceback': error_detail,
+    })
+    return jsonify({'error': f'Internal server error: {type(e).__name__}'}), 500
+
+
+@app.errorhandler(404)
+def handle_not_found(e):
+    """Log 404s for API routes (helps catch typos in client code)."""
+    if request.path.startswith('/api/'):
+        log_event('api_not_found', {
+            'path': request.path,
+            'method': request.method,
+        })
+        return jsonify({'error': f'Not found: {request.path}'}), 404
+    return e
+
 # Unique session ID generated on server start - changes each time server restarts
 SERVER_SESSION_ID = str(uuid.uuid4())
 SERVER_START_TIME = int(time.time() * 1000)  # milliseconds
@@ -556,7 +583,7 @@ def update_layer(layer_id):
                 'powerLineColor', 'powerArrowColor', 'powerRandomColors', 'powerColorCodedView', 'powerCircuitColors', 'powerLabelSize', 'powerLabelBgColor', 'powerLabelTextColor',
                 'powerLabelTemplate', 'powerLabelOverrides', 'powerCustomPaths', 'powerCustomIndex',
                 'lastPowerFlowPattern', 'type', 'imageData', 'imageWidth', 'imageHeight', 'imageScale',
-                'locked']:
+                'locked', 'screenNameSizeCabinet', 'screenNameSizeDataFlow', 'screenNameSizePower']:
         if key in data:
             layer[key] = data[key]
 
