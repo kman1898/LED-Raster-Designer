@@ -240,7 +240,8 @@ current_project = {
     'name': 'Untitled Project',
     'raster_width': 1920,
     'raster_height': 1080,
-    'layers': []
+    'layers': [],
+    'is_pristine': True
 }
 
 # Add a default layer on startup
@@ -450,7 +451,8 @@ def new_project():
         'name': 'Untitled Project',
         'raster_width': 1920,
         'raster_height': 1080,
-        'layers': []
+        'layers': [],
+        'is_pristine': True
     }
     # Add default layer to new projects
     initialize_default_layer()
@@ -462,16 +464,18 @@ def new_project():
 def save_project():
     data = request.json
     current_project.update(data)
+    current_project['is_pristine'] = False
     sync_next_layer_id()
     log_event('save_project', {'name': current_project.get('name')})
     return jsonify({'status': 'success'})
 
 @app.route('/api/project', methods=['PUT'])
 def restore_project():
-    """Restore entire project state (used by undo/redo)"""
+    """Restore entire project state (used by undo/redo and file load)"""
     global current_project
     data = request.json
     current_project = data
+    current_project['is_pristine'] = False
     sync_next_layer_id()
     log_event('restore_project', {
         'name': current_project.get('name', '?'),
@@ -535,6 +539,7 @@ def add_layer():
                 panel['hidden'] = True
     
     current_project['layers'].append(layer)
+    current_project['is_pristine'] = False
     socketio.emit('layer_added', layer)
     return jsonify(layer)
 
@@ -553,6 +558,7 @@ def add_image_layer():
         layer['imageScale'] = data['imageScale']
     log_event('add_image_layer', {'name': layer.get('name'), 'id': layer.get('id')})
     current_project['layers'].append(layer)
+    current_project['is_pristine'] = False
     socketio.emit('layer_added', layer)
     return jsonify(layer)
 
@@ -628,6 +634,7 @@ def update_layer(layer_id):
                 panel['x'] = panel.get('x', 0) + dx
                 panel['y'] = panel.get('y', 0) + dy
     
+    current_project['is_pristine'] = False
     socketio.emit('layer_updated', layer)
     return jsonify(layer)
 
@@ -639,6 +646,7 @@ def delete_layer(layer_id):
             deleted_name = l.get('name', '?')
             break
     current_project['layers'] = [l for l in current_project['layers'] if l['id'] != layer_id]
+    current_project['is_pristine'] = False
     log_event('delete_layer', {'id': layer_id, 'name': deleted_name, 'remaining_layers': len(current_project['layers'])})
     socketio.emit('layer_deleted', {'id': layer_id})
     return jsonify(current_project)
