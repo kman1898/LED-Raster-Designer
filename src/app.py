@@ -516,12 +516,23 @@ def add_layer():
         'powerCircuitColors',
         'showLabelName', 'showLabelSizePx', 'showLabelSizeM', 'showLabelSizeFt', 'showLabelWeight',
         'showLabelInfo', 'labelsColor', 'labelsFontSize', 'useFractionalInches',
-        'showOffsetTL', 'showOffsetTR', 'showOffsetBL', 'showOffsetBR'
+        'showOffsetTL', 'showOffsetTR', 'showOffsetBL', 'showOffsetBR',
+        'showDataFlowPortInfo',
+        'portLabelTemplatePrimary', 'portLabelTemplateReturn',
+        'portLabelOverridesPrimary', 'portLabelOverridesReturn',
+        'customPortPaths', 'customPortIndex',
+        'randomDataColors'
     ]
     
+    half_fields = {'halfFirstColumn', 'halfLastColumn', 'halfFirstRow', 'halfLastRow'}
+    needs_rebuild = False
     for field in optional_fields:
         if field in data:
             layer[field] = data[field]
+            if field in half_fields:
+                needs_rebuild = True
+    if needs_rebuild:
+        layer['panels'] = _build_panels(layer)
     log_event('add_layer', {
         'name': layer.get('name'), 'id': layer.get('id'),
         'type': layer.get('type', 'screen'),
