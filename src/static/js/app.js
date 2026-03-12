@@ -1252,15 +1252,15 @@ class LEDRasterApp {
 
         // For startup factory-default project only, enforce saved preference defaults.
         // Skip if preferences were already applied this session (e.g. socket reconnect after sleep).
-        // Also verify the layer still has factory-default geometry to avoid overwriting loaded projects
-        // that happen to be named "Untitled Project".
+        // Use server-side is_pristine flag to distinguish a true fresh default project from a
+        // loaded project that happens to be named "Untitled Project".
         const startupDefaultMatch =
             !this._preferencesApplied &&
             this.project &&
+            this.project.is_pristine === true &&
             this.project.name === 'Untitled Project' &&
             this.project.layers &&
-            this.project.layers.length === 1 &&
-            this.isFactoryDefaultLayer(this.project.layers[0]);
+            this.project.layers.length === 1;
         if (startupDefaultMatch) {
             const layer = this.project.layers[0];
             layer.processorType = prefs.processorType;
@@ -1544,8 +1544,8 @@ class LEDRasterApp {
         if (this._preferencesApplied) return false;
         if (!this.project || !this.project.layers || this.project.layers.length !== 1) return false;
         if (!this.currentLayer) return false;
+        if (this.project.is_pristine !== true) return false;
         if (this.project.name !== 'Untitled Project') return false;
-        if (!this.isFactoryDefaultLayer(this.currentLayer)) return false;
         return true;
     }
 
