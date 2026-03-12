@@ -18,7 +18,8 @@ def socketio_client():
         'name': 'Untitled Project',
         'raster_width': 1920,
         'raster_height': 1080,
-        'layers': []
+        'layers': [],
+        'is_pristine': True
     }
     app_module.next_layer_id = 1
     client = socketio.test_client(app)
