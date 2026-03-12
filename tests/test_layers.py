@@ -174,3 +174,81 @@ def test_duplicate_layer_with_hidden_panels(client):
     dup = resp.get_json()
     hidden = [p for p in dup['panels'] if p['hidden']]
     assert len(hidden) == 2
+
+
+def test_duplicate_layer_with_half_rows_builds_correct_panels(client):
+    """Duplicating a layer with halfFirstRow should produce half-height panels
+    in the first row immediately, without requiring a subsequent update."""
+    resp = client.post('/api/layer/add', json={
+        'name': 'HalfRowDup',
+        'columns': 3,
+        'rows': 2,
+        'cabinet_width': 100,
+        'cabinet_height': 100,
+        'halfFirstRow': True,
+    })
+    assert resp.status_code == 200
+    layer = resp.get_json()
+    first_row = [p for p in layer['panels'] if p['row'] == 0]
+    second_row = [p for p in layer['panels'] if p['row'] == 1]
+    # First row should be half height
+    for p in first_row:
+        assert p['height'] == 50, f"First row panel height should be 50, got {p['height']}"
+    # Second row should be full height
+    for p in second_row:
+        assert p['height'] == 100, f"Second row panel height should be 100, got {p['height']}"
+
+
+def test_duplicate_layer_with_half_columns_builds_correct_panels(client):
+    """Duplicating a layer with halfFirstColumn and halfLastColumn should
+    produce half-width panels in first and last columns immediately."""
+    resp = client.post('/api/layer/add', json={
+        'name': 'HalfColDup',
+        'columns': 4,
+        'rows': 2,
+        'cabinet_width': 120,
+        'cabinet_height': 80,
+        'halfFirstColumn': True,
+        'halfLastColumn': True,
+    })
+    assert resp.status_code == 200
+    layer = resp.get_json()
+    first_col = [p for p in layer['panels'] if p['col'] == 0]
+    last_col = [p for p in layer['panels'] if p['col'] == 3]
+    middle_col = [p for p in layer['panels'] if p['col'] == 1]
+    for p in first_col:
+        assert p['width'] == 60, f"First col panel width should be 60, got {p['width']}"
+    for p in last_col:
+        assert p['width'] == 60, f"Last col panel width should be 60, got {p['width']}"
+    for p in middle_col:
+        assert p['width'] == 120, f"Middle col panel width should be 120, got {p['width']}"
+
+
+def test_duplicate_layer_preserves_data_label_properties(client):
+    """Duplicating a layer should preserve data tab label properties
+    (portLabelTemplatePrimary, portLabelTemplateReturn, etc.)."""
+    resp = client.post('/api/layer/add', json={
+        'name': 'LabelSource',
+        'columns': 4,
+        'rows': 3,
+        'cabinet_width': 128,
+        'cabinet_height': 128,
+        'portLabelTemplatePrimary': 'OUT#',
+        'portLabelTemplateReturn': 'IN#',
+        'portLabelOverridesPrimary': {'1': 'MainOut', '2': 'AuxOut'},
+        'portLabelOverridesReturn': {'1': 'MainIn'},
+        'showDataFlowPortInfo': True,
+        'customPortPaths': {'1': [{'row': 0, 'col': 0}, {'row': 0, 'col': 1}]},
+        'customPortIndex': 2,
+        'randomDataColors': True,
+    })
+    assert resp.status_code == 200
+    layer = resp.get_json()
+    assert layer['portLabelTemplatePrimary'] == 'OUT#'
+    assert layer['portLabelTemplateReturn'] == 'IN#'
+    assert layer['portLabelOverridesPrimary'] == {'1': 'MainOut', '2': 'AuxOut'}
+    assert layer['portLabelOverridesReturn'] == {'1': 'MainIn'}
+    assert layer['showDataFlowPortInfo'] is True
+    assert layer['customPortPaths'] == {'1': [{'row': 0, 'col': 0}, {'row': 0, 'col': 1}]}
+    assert layer['customPortIndex'] == 2
+    assert layer['randomDataColors'] is True

@@ -1,13 +1,17 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
-v0.6.3.1 - March 12, 2026
+v0.6.3.2 - March 12, 2026
 ----------------------------
- BUG FIX:
+ BUG FIXES:
+ - Fixed custom path undo removing 2 panels per undo instead of 1 (saveState ordering).
+ - Fixed duplicate layer not applying halfFirstRow/halfLastRow until layer is moved.
+ - Fixed duplicate/paste layer not copying data tab labels (port label templates, overrides,
+   custom port paths, data flow port info, random colors).
  - Fixed startup preferences overwriting loaded projects on WebSocket reconnect after sleep.
  - Added server-side is_pristine flag to distinguish fresh default projects from loaded files
    named "Untitled Project", preventing preference enforcement on page refresh.
- - Added client-side _preferencesApplied flag to block duplicate preference application.
+ - Added client-side _initialLoadComplete flag to block preference application on reconnect.
 
 v0.6.3 - March 11, 2026
 ----------------------------
