@@ -883,13 +883,13 @@ def create_psd_for_view(view_mode, project_name, include_borders):
     """Create a PSD file for a specific view with screen layers"""
     import pytoshop
     from pytoshop import layers as psd_layers
-    from pytoshop.enums import ColorMode
+    from pytoshop.enums import ColorMode, Compression
     
     raster_width = current_project.get('raster_width', 1920)
     raster_height = current_project.get('raster_height', 1080)
     
     # Create PSD
-    psd = pytoshop.PSDImage(num_channels=3, height=raster_height, width=raster_width, color_mode=ColorMode.rgb)
+    psd = pytoshop.PsdFile(num_channels=3, height=raster_height, width=raster_width, color_mode=ColorMode.rgb)
     
     layer_records = []
     
@@ -905,22 +905,22 @@ def create_psd_for_view(view_mode, project_name, include_borders):
         layer_width = bounds['width']
         layer_height = bounds['height']
         
-        # Clamp to raster bounds
-        left = max(0, offset_x)
-        top = max(0, offset_y)
-        right = min(raster_width, offset_x + layer_width)
-        bottom = min(raster_height, offset_y + layer_height)
-        
+        # Clamp to raster bounds (int() ensures native Python ints for pytoshop)
+        left = int(max(0, offset_x))
+        top = int(max(0, offset_y))
+        right = int(min(raster_width, offset_x + layer_width))
+        bottom = int(min(raster_height, offset_y + layer_height))
+
         if right <= left or bottom <= top:
             continue
-        
+
         # Crop to content bounds
         cropped_img = layer_img.crop((left, top, right, bottom))
         img_array = np.array(cropped_img.convert('RGB'))
-        
+
         # Layer name from screen name
         layer_name = layer.get('name', f"Screen {layer['id']}")
-        
+
         # Create layer record
         layer_record = psd_layers.LayerRecord(
             name=layer_name,
@@ -930,19 +930,19 @@ def create_psd_for_view(view_mode, project_name, include_borders):
             right=right,
             opacity=255 if layer.get('visible', True) else 0,
             channels={
-                0: img_array[:, :, 0],
-                1: img_array[:, :, 1],
-                2: img_array[:, :, 2],
+                0: psd_layers.ChannelImageData(image=img_array[:, :, 0].copy(), compression=Compression.raw),
+                1: psd_layers.ChannelImageData(image=img_array[:, :, 1].copy(), compression=Compression.raw),
+                2: psd_layers.ChannelImageData(image=img_array[:, :, 2].copy(), compression=Compression.raw),
             }
         )
         layer_records.append(layer_record)
-    
+
     psd.layer_and_mask_info.layer_info.layer_records = layer_records
-    
+
     psd_bytes = io.BytesIO()
     psd.write(psd_bytes)
     psd_bytes.seek(0)
-    
+
     return psd_bytes
 
 
@@ -993,13 +993,13 @@ def export_psd():
     try:
         import pytoshop
         from pytoshop import layers as psd_layers
-        from pytoshop.enums import ColorMode
+        from pytoshop.enums import ColorMode, Compression
     except ImportError:
         # Fall back to creating a ZIP of individual layer PNGs
         return export_layers_as_zip(include_borders, raster_width, raster_height)
     
     # Create PSD using pytoshop
-    psd = pytoshop.PSDImage(num_channels=3, height=raster_height, width=raster_width, color_mode=ColorMode.rgb)
+    psd = pytoshop.PsdFile(num_channels=3, height=raster_height, width=raster_width, color_mode=ColorMode.rgb)
     
     # We need to build layer list
     layer_records = []
@@ -1017,11 +1017,11 @@ def export_psd():
         layer_height = bounds['height']
         
         # Crop to just the layer content area for efficiency
-        # But clamp to raster bounds
-        left = max(0, offset_x)
-        top = max(0, offset_y)
-        right = min(raster_width, offset_x + layer_width)
-        bottom = min(raster_height, offset_y + layer_height)
+        # But clamp to raster bounds (int() ensures native Python ints for pytoshop)
+        left = int(max(0, offset_x))
+        top = int(max(0, offset_y))
+        right = int(min(raster_width, offset_x + layer_width))
+        bottom = int(min(raster_height, offset_y + layer_height))
         
         if right <= left or bottom <= top:
             continue  # Layer is completely outside raster
@@ -1044,9 +1044,9 @@ def export_psd():
             right=right,
             opacity=255 if layer.get('visible', True) else 0,
             channels={
-                0: img_array[:, :, 0],  # Red
-                1: img_array[:, :, 1],  # Green
-                2: img_array[:, :, 2],  # Blue
+                0: psd_layers.ChannelImageData(image=img_array[:, :, 0].copy(), compression=Compression.raw),
+                1: psd_layers.ChannelImageData(image=img_array[:, :, 1].copy(), compression=Compression.raw),
+                2: psd_layers.ChannelImageData(image=img_array[:, :, 2].copy(), compression=Compression.raw),
             }
         )
         layer_records.append(layer_record)

@@ -18,10 +18,14 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install flake8
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install flake8
 
       - name: Run flake8
         run: |
+          source .venv/bin/activate
           # Stop on syntax errors or undefined names
           flake8 src/app.py --count --select=E9,F63,F7,F82 --show-source --statistics
           # Warnings as advisory (don't fail the build)
@@ -42,11 +46,14 @@ jobs:
 
       - name: Install dependencies
         run: |
+          python -m venv .venv
+          source .venv/bin/activate
           pip install -r src/requirements.txt
           pip install pytest pytest-cov
 
       - name: Run tests
         run: |
+          source .venv/bin/activate
           python -m pytest tests/ -v --tb=short --cov=src --cov-report=term-missing
 
   js-lint:
