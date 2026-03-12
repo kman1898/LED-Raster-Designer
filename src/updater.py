@@ -37,7 +37,13 @@ _cache_lock = threading.Lock()
 
 def _get_ssl_context():
     """Create a strict SSL context pinned to certifi's CA bundle."""
-    ctx = ssl.create_default_context(cafile=certifi.where())
+    try:
+        ctx = ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        # Fallback: use system default CA certificates (e.g. if certifi
+        # data file is missing in a frozen build)
+        logger.warning("certifi CA bundle not found, using system defaults")
+        ctx = ssl.create_default_context()
     ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     ctx.check_hostname = True
     ctx.verify_mode = ssl.CERT_REQUIRED
@@ -53,7 +59,7 @@ def _read_version_file():
 
     version_path = os.path.join(base, 'VERSION.txt')
     try:
-        with open(version_path, 'r') as f:
+        with open(version_path, 'r', encoding='utf-8', errors='ignore') as f:
             for line in f:
                 m = re.match(r'^v?(\d+\.\d+\.\d+(?:\.\d+)?)', line.strip())
                 if m:
@@ -140,12 +146,14 @@ def check_for_update(force=False):
 
     except HTTPError as e:
         if e.code == 404:
-            result["error"] = "No releases found"
+            # No published releases yet — not an error, just nothing to update to
+            logger.debug("No published releases found (404)")
         elif e.code == 403:
             result["error"] = "Rate limited — try again later"
+            logger.warning("Update check HTTP error: %s", e)
         else:
             result["error"] = f"GitHub API error: {e.code}"
-        logger.warning("Update check HTTP error: %s", e)
+            logger.warning("Update check HTTP error: %s", e)
     except (URLError, OSError) as e:
         result["error"] = f"Network error: {e}"
         logger.warning("Update check network error: %s", e)

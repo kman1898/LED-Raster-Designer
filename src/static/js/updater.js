@@ -52,7 +52,12 @@
         if (opts.force) url += '?force=1';
 
         fetch(url)
-            .then(function (r) { return r.json(); })
+            .then(function (r) {
+                if (!r.ok) {
+                    throw new Error('Server returned HTTP ' + r.status);
+                }
+                return r.json();
+            })
             .then(function (data) {
                 if (data.error && opts.userInitiated) {
                     alert('Update check failed: ' + data.error);
@@ -70,7 +75,7 @@
             })
             .catch(function (err) {
                 if (opts.userInitiated) {
-                    alert('Could not reach update server.');
+                    alert('Could not reach update server.\n\n' + (err.message || err));
                 }
                 console.warn('Update check failed:', err);
             });
