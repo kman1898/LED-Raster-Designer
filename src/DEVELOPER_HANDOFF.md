@@ -180,7 +180,7 @@ See `TODO.txt` for full list. Key upcoming items:
 
 ## Questions?
 
-This project is being developed iteratively with Claude AI assistance. Check the conversation transcripts in `/mnt/transcripts/` for detailed context on past decisions and implementations.
+This project is being developed iteratively with AI assistance. Check the conversation transcripts in `/mnt/transcripts/` for detailed context on past decisions and implementations.
 
 ---
 
