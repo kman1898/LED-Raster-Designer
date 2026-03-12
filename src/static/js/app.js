@@ -836,7 +836,11 @@ class LEDRasterApp {
         
         // Prevent double-delete
         this.deletionInProgress = false;
-        
+
+        // Track whether startup preferences have already been applied this session.
+        // Prevents reconnect after sleep from re-applying preferences over a loaded project.
+        this._preferencesApplied = false;
+
         this.init();
     }
     
@@ -1247,11 +1251,16 @@ class LEDRasterApp {
         });
 
         // For startup factory-default project only, enforce saved preference defaults.
+        // Skip if preferences were already applied this session (e.g. socket reconnect after sleep).
+        // Also verify the layer still has factory-default geometry to avoid overwriting loaded projects
+        // that happen to be named "Untitled Project".
         const startupDefaultMatch =
+            !this._preferencesApplied &&
             this.project &&
             this.project.name === 'Untitled Project' &&
             this.project.layers &&
-            this.project.layers.length === 1;
+            this.project.layers.length === 1 &&
+            this.isFactoryDefaultLayer(this.project.layers[0]);
         if (startupDefaultMatch) {
             const layer = this.project.layers[0];
             layer.processorType = prefs.processorType;
@@ -1292,8 +1301,9 @@ class LEDRasterApp {
                 rasterWidth: this.project.raster_width,
                 rasterHeight: this.project.raster_height
             });
+            this._preferencesApplied = true;
         }
-        
+
         console.log('LOADED CLIENT PROPS - first layer:', {
             arrowLineWidth: this.project.layers[0]?.arrowLineWidth,
             arrowColor: this.project.layers[0]?.arrowColor,
@@ -1531,9 +1541,11 @@ class LEDRasterApp {
     }
 
     shouldApplyStartupPreferences() {
+        if (this._preferencesApplied) return false;
         if (!this.project || !this.project.layers || this.project.layers.length !== 1) return false;
         if (!this.currentLayer) return false;
         if (this.project.name !== 'Untitled Project') return false;
+        if (!this.isFactoryDefaultLayer(this.currentLayer)) return false;
         return true;
     }
 
