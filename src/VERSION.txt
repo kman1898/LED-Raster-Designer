@@ -1,6 +1,15 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.6.3.3 - March 13, 2026
+----------------------------
+ BUG FIXES:
+ - Fixed raster size preferences not applying on startup — socket project_data event
+   was overwriting preference-applied raster with server default (1920x1080).
+ - Socket reconnect now preserves current raster size instead of resetting to server default.
+ - Preference enforcement now syncs raster size to server so subsequent socket events
+   return the correct values.
+
 v0.6.3.2 - March 12, 2026
 ----------------------------
  BUG FIXES:

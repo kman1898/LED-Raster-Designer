@@ -907,6 +907,13 @@ class LEDRasterApp {
                 });
             }
             
+            // On reconnect, preserve the current raster size (it may have been
+            // set by preferences or user action). Only apply the server's raster
+            // on cold start when no preference override will follow.
+            const preserveRaster = this._initialLoadComplete;
+            const prevRasterW = preserveRaster ? window.canvasRenderer.rasterWidth : null;
+            const prevRasterH = preserveRaster ? window.canvasRenderer.rasterHeight : null;
+
             this.project = data;
             this.dedupeProjectLayers('socket_project_data');
             if (data && data.raster_width && data.raster_height) {
@@ -918,7 +925,20 @@ class LEDRasterApp {
                 if (rh) rh.value = data.raster_height;
                 this.saveRasterSize();
             }
-            
+
+            // On reconnect, restore the raster size we had before the server
+            // overwrote it with its default.
+            if (preserveRaster && prevRasterW && prevRasterH) {
+                this.project.raster_width = prevRasterW;
+                this.project.raster_height = prevRasterH;
+                window.canvasRenderer.rasterWidth = prevRasterW;
+                window.canvasRenderer.rasterHeight = prevRasterH;
+                const rw = document.getElementById('toolbar-raster-width');
+                const rh = document.getElementById('toolbar-raster-height');
+                if (rw) rw.value = prevRasterW;
+                if (rh) rh.value = prevRasterH;
+            }
+
             // Restore client-side properties and layer defaults.
             // On reconnect (after sleep), skip preference enforcement — the project
             // already has the correct state from before the disconnect.
@@ -1298,6 +1318,16 @@ class LEDRasterApp {
             if (rw) rw.value = prefs.rasterWidth;
             if (rh) rh.value = prefs.rasterHeight;
             this.saveRasterSize();
+            // Sync raster size to server so subsequent socket project_data
+            // echoes return the preference values, not the server default.
+            fetch('/api/project', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    raster_width: prefs.rasterWidth,
+                    raster_height: prefs.rasterHeight
+                })
+            });
             sendClientLog('startup_preferences_enforced', {
                 processorType: layer.processorType,
                 bitDepth: layer.bitDepth,
