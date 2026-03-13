@@ -96,8 +96,8 @@ if IS_MAC:
         info_plist={
             'CFBundleName': 'LED Raster Designer',
             'CFBundleDisplayName': 'LED Raster Designer',
-            'CFBundleShortVersionString': '0.6.3.3',
-            'CFBundleVersion': '0.6.3.3',
+            'CFBundleShortVersionString': '0.6.3.2',
+            'CFBundleVersion': '0.6.3.2',
             'NSHighResolutionCapable': True,
             'LSUIElement': True,  # Menu bar only — no Dock icon
         },

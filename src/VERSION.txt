@@ -1,16 +1,6 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
-v0.6.3.3 - March 13, 2026
-----------------------------
- TESTING & CI:
- - Added 16 color property tests covering all 21 color fields (create, update,
-   duplicate, save/restore, hex case preservation, isolation).
- - Added Playwright browser E2E tests for Chromium, Firefox, and WebKit (page load,
-   canvas, color pickers, hex input accuracy, view tab switching).
- - CI now runs full test matrix: 3 OS (ubuntu, macOS, Windows) x 3 Python versions
-   (3.10, 3.11, 3.12) + 3 browser engines on every push.
-
 v0.6.3.2 - March 12, 2026
 ----------------------------
  BUG FIXES:
