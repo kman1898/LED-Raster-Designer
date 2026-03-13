@@ -7,6 +7,14 @@ import pytest
 # Add src/ to path so we can import app
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
+
+def pytest_addoption(parser):
+    """Add --browser CLI option for Playwright browser tests."""
+    parser.addoption(
+        "--browser", action="store", default="chromium",
+        help="Browser engine for E2E tests: chromium, firefox, or webkit"
+    )
+
 import app as app_module
 from app import app, socketio, initialize_default_layer
 
