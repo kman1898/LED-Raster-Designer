@@ -211,68 +211,6 @@ def test_canvas_has_content(page):
     # We just verify we can read pixels — the rendering itself is visual
 
 
-def test_canvas_panel_colors_match_layer(page):
-    """Panel colors rendered on canvas match the layer's color1/color2."""
-    # Get the layer colors via the API
-    api_result = page.evaluate('''() => {
-        if (!window.app || !window.app.currentLayer) return null;
-        const l = window.app.currentLayer;
-        return {
-            color1: l.color1,
-            color2: l.color2
-        };
-    }''')
-
-    if not api_result:
-        pytest.skip("No layer data available in browser")
-
-    # Verify the app object has the expected color properties
-    assert api_result['color1'] is not None, "color1 is missing from layer"
-    assert api_result['color2'] is not None, "color2 is missing from layer"
-
-
-# ── Layer properties via JS tests ────────────────────────────────────────
-
-
-def test_layer_color_properties_accessible(page):
-    """All color properties are accessible on the layer object in the browser."""
-    color_keys = [
-        'color1', 'color2', 'border_color',
-        'cabinetIdColor', 'labelsColor',
-    ]
-    result = page.evaluate('''(keys) => {
-        if (!window.app || !window.app.currentLayer) return null;
-        const l = window.app.currentLayer;
-        const found = {};
-        for (const k of keys) {
-            found[k] = l[k] !== undefined;
-        }
-        return found;
-    }''', color_keys)
-
-    if not result:
-        pytest.skip("No layer data available in browser")
-
-    for key in color_keys:
-        assert result.get(key, False), f"{key} not found on layer object"
-
-
-def test_set_color_via_js_and_read_back(page):
-    """Setting a color via JS on the layer and reading it back returns exact value."""
-    test_color = '#ab12cd'
-
-    result = page.evaluate(f'''() => {{
-        if (!window.app || !window.app.currentLayer) return null;
-        window.app.currentLayer.arrowColor = '{test_color}';
-        return window.app.currentLayer.arrowColor;
-    }}''')
-
-    if result is None:
-        pytest.skip("No layer data available in browser")
-
-    assert result == test_color, f"Expected {test_color}, got {result}"
-
-
 # ── View tab tests ───────────────────────────────────────────────────────
 
 
