@@ -11,6 +11,28 @@ permissions:
   contents: read
 
 jobs:
+  version-check:
+    name: Version Consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install -r src/requirements.txt
+          pip install pytest
+
+      - name: Check version consistency
+        run: |
+          source .venv/bin/activate
+          python -m pytest tests/test_version.py -v --tb=short -k "version_sources_match or version_txt_is_four_part or updater_reads_correct or api_version_matches"
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
