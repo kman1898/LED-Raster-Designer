@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED Raster Designer v0.6.3.7</title>
+    <title>LED Raster Designer v0.6.3.8</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -64,7 +64,7 @@
 
         <div id="toolbar">
             <div class="toolbar-section toolbar-project">
-                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.6.3.7</span></h1>
+                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.6.3.8</span></h1>
                 <input type="text" id="project-name" value="Untitled Project" class="editable-project-name">
             </div>
             <div class="toolbar-section toolbar-actions">
@@ -1333,6 +1333,40 @@
         </div>
     </div>
     
+    <!-- About Modal -->
+    <div id="about-modal" class="modal" style="display: none;">
+        <div class="modal-content" style="background: #252525; border-radius: 8px; padding: 32px; max-width: 420px; margin: 80px auto; border: 1px solid #3a3a3a; text-align: center;">
+            <h2 style="margin-top: 0; color: #fff; margin-bottom: 4px; font-size: 20px;">LED Raster Designer</h2>
+            <div id="about-version" style="color: #888; font-size: 13px; margin-bottom: 20px;"></div>
+
+            <div style="text-align: left; margin-bottom: 20px;">
+                <h3 style="color: #ccc; font-size: 13px; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 1px;">Keyboard Shortcuts</h3>
+                <table style="width: 100%; font-size: 12px; color: #aaa; border-collapse: collapse;">
+                    <tr><td style="padding: 3px 0;">Undo</td><td style="padding: 3px 0; text-align: right; color: #666;">Ctrl/Cmd + Z</td></tr>
+                    <tr><td style="padding: 3px 0;">Redo</td><td style="padding: 3px 0; text-align: right; color: #666;">Ctrl/Cmd + Shift + Z</td></tr>
+                    <tr><td style="padding: 3px 0;">Copy / Paste</td><td style="padding: 3px 0; text-align: right; color: #666;">Ctrl/Cmd + C / V</td></tr>
+                    <tr><td style="padding: 3px 0;">Duplicate</td><td style="padding: 3px 0; text-align: right; color: #666;">Ctrl/Cmd + J</td></tr>
+                    <tr><td style="padding: 3px 0;">Delete Layer</td><td style="padding: 3px 0; text-align: right; color: #666;">Delete / Backspace</td></tr>
+                    <tr><td style="padding: 3px 0;">Pan Canvas</td><td style="padding: 3px 0; text-align: right; color: #666;">Space + Drag</td></tr>
+                    <tr><td style="padding: 3px 0;">Zoom</td><td style="padding: 3px 0; text-align: right; color: #666;">Scroll Wheel</td></tr>
+                    <tr><td style="padding: 3px 0;">Move Layer</td><td style="padding: 3px 0; text-align: right; color: #666;">Shift + Drag</td></tr>
+                    <tr><td style="padding: 3px 0;">Toggle Panel</td><td style="padding: 3px 0; text-align: right; color: #666;">Alt + Click</td></tr>
+                    <tr><td style="padding: 3px 0;">Export PNG</td><td style="padding: 3px 0; text-align: right; color: #666;">Alt + S</td></tr>
+                    <tr><td style="padding: 3px 0;">Export PSD</td><td style="padding: 3px 0; text-align: right; color: #666;">Ctrl/Cmd + Alt + S</td></tr>
+                    <tr><td style="padding: 3px 0;">Prev / Next Port</td><td style="padding: 3px 0; text-align: right; color: #666;">Shift + B / N</td></tr>
+                </table>
+            </div>
+
+            <div style="border-top: 1px solid #3a3a3a; padding-top: 16px; margin-bottom: 16px;">
+                <div style="color: #888; font-size: 12px; margin-bottom: 8px;">Created by Matt Kman</div>
+                <a href="https://github.com/kman1898/LED-Raster-Designer" target="_blank" rel="noopener"
+                   style="color: #4A90E2; font-size: 12px; text-decoration: none;">github.com/kman1898/LED-Raster-Designer</a>
+            </div>
+
+            <button id="about-close" class="btn" style="background: #3a3a3a; padding: 8px 24px; margin-top: 4px;">Close</button>
+        </div>
+    </div>
+
     <style>
         .modal {
             position: fixed;

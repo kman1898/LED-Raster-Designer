@@ -6177,9 +6177,32 @@ class LEDRasterApp {
                     window.canvasRenderer.render();
                 }
                 break;
+            case 'about':
+                this.openAboutModal();
+                break;
             default:
                 break;
         }
+    }
+
+    openAboutModal() {
+        var modal = document.getElementById('about-modal');
+        if (!modal) return;
+        var versionEl = document.getElementById('about-version');
+        if (versionEl) {
+            fetch('/api/version')
+                .then(function(r) { return r.json(); })
+                .then(function(d) { versionEl.textContent = 'v' + (d.version || ''); })
+                .catch(function() { versionEl.textContent = ''; });
+        }
+        modal.style.display = 'block';
+        var closeBtn = document.getElementById('about-close');
+        if (closeBtn) {
+            closeBtn.onclick = function() { modal.style.display = 'none'; };
+        }
+        modal.onclick = function(e) {
+            if (e.target === modal) modal.style.display = 'none';
+        };
     }
 
     openExportModalWithFormat(format) {
