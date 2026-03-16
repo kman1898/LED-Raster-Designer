@@ -1,6 +1,13 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.6.3.4 - March 16, 2026
+----------------------------
+ BUG FIXES:
+ - Fixed PNG export including selection overlays — layer selection borders, drag
+   highlights, multi-select rectangles, custom path selection overlays, and active
+   port/circuit badges are now suppressed during export via the existing exportMode flag.
+
 v0.6.3.3 - March 13, 2026
 ----------------------------
  BUG FIXES:
