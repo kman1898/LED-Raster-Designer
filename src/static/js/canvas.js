@@ -1000,33 +1000,20 @@ class CanvasRenderer {
                 }
             });
             
-            if (this.viewMode === 'data-flow') {
+            if (!this.exportMode && this.viewMode === 'data-flow') {
                 this.renderCustomSelectionOverlay();
                 this.renderCustomActivePortBadge();
             }
-            if (this.viewMode === 'power') {
+            if (!this.exportMode && this.viewMode === 'power') {
                 this.renderPowerSelectionOverlay();
                 this.renderPowerActiveCircuitBadge();
             }
             
-            // Second pass: render all labels ON TOP of panels but occluded by higher layers
-            // Layers are rendered in order, so later layers are "on top"
+            // Second pass: render all labels ON TOP of panels, clipped to layer bounds
             const visibleLayers = window.app.project.layers.filter(l => l.visible);
-            
-            visibleLayers.forEach((layer, layerIndex) => {
-                // Get all layers that are above this one (rendered later = on top)
-                const higherLayers = visibleLayers.slice(layerIndex + 1);
-                
-                // Store higher layer bounds for occlusion checking
-                layer._higherLayerBounds = higherLayers.map(hl => {
-                    const b = this.getLayerBounds(hl);
-                    return { x: b.x, y: b.y, width: b.width, height: b.height };
-                });
-                
+
+            visibleLayers.forEach((layer) => {
                 this.renderLayerLabels(layer);
-                
-                // Clean up
-                delete layer._higherLayerBounds;
             });
             
             // Third pass: render capacity error overlays ON TOP of labels (Data Flow mode only)
@@ -1045,8 +1032,8 @@ class CanvasRenderer {
                 });
             }
             
-            // Draw bounding boxes around selected layers
-            if (window.app && window.app.selectedLayerIds && window.app.selectedLayerIds.size > 0) {
+            // Draw bounding boxes around selected layers (skip during export)
+            if (!this.exportMode && window.app && window.app.selectedLayerIds && window.app.selectedLayerIds.size > 0) {
                 const selectedIds = window.app.selectedLayerIds;
                 window.app.project.layers.forEach(layer => {
                     if (!layer.visible) return;
@@ -1062,8 +1049,8 @@ class CanvasRenderer {
                 });
             }
 
-            // Draw bounding box around selected layer ONLY during Shift+Drag
-            if (this.isDraggingLayer && window.app && window.app.currentLayer) {
+            // Draw bounding box around selected layer ONLY during Shift+Drag (skip during export)
+            if (!this.exportMode && this.isDraggingLayer && window.app && window.app.currentLayer) {
                 const selectedLayer = window.app.currentLayer;
                 if (selectedLayer.visible) {
                     const bounds = this.getLayerBounds(selectedLayer);
@@ -1083,8 +1070,8 @@ class CanvasRenderer {
                 }
             }
 
-            // Draw selection rectangle + highlight for layer multi-select
-            if (this.isSelectingLayers && this.layerSelectionRect) {
+            // Draw selection rectangle + highlight for layer multi-select (skip during export)
+            if (!this.exportMode && this.isSelectingLayers && this.layerSelectionRect) {
                 const minX = Math.min(this.layerSelectionRect.x1, this.layerSelectionRect.x2);
                 const maxX = Math.max(this.layerSelectionRect.x1, this.layerSelectionRect.x2);
                 const minY = Math.min(this.layerSelectionRect.y1, this.layerSelectionRect.y2);
@@ -2511,17 +2498,7 @@ class CanvasRenderer {
         // Start Y position so that ALL labels are centered vertically
         let currentY = centerY - totalCenterHeight / 2;
         
-        // Helper to check if a rect overlaps with any higher layer
-        const isOccludedByHigherLayer = (x, y, w, h) => {
-            if (!layer._higherLayerBounds) return false;
-            return layer._higherLayerBounds.some(bounds => {
-                // Check if rectangles overlap
-                return !(x + w < bounds.x || 
-                        x > bounds.x + bounds.width || 
-                        y + h < bounds.y || 
-                        y > bounds.y + bounds.height);
-            });
-        };
+
         
         // Render Screen Name with WHITE background and BLACK text
         let infoAnchorY = null;
@@ -2559,32 +2536,21 @@ class CanvasRenderer {
             const nameY = screenNameY - nameHeight / 2;
             
             // Clip to layer bounds so labels don't overflow the screen edge
-            // Only skip if the layer center point itself is fully inside a higher layer
-            // (meaning this layer is completely behind another at its center)
-            const layerCenterOccluded = layer._higherLayerBounds && layer._higherLayerBounds.some(hb => {
-                return centerX >= hb.x && centerX <= hb.x + hb.width &&
-                       centerY >= hb.y && centerY <= hb.y + hb.height;
-            });
-            // For non-pixel-map tabs, always show labels (clipping handles overflow)
-            const skipName = this.viewMode === 'pixel-map' && layerCenterOccluded;
-            
-            if (!skipName) {
-                this.ctx.save();
-                this.ctx.beginPath();
-                this.ctx.rect(bounds.x, bounds.y, layerWidth, layerHeight);
-                this.ctx.clip();
-                
-                // Draw WHITE background
-                this.ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-                const snappedNameRect = this.snapRect(nameX, nameY, nameWidth, nameHeight);
-                this.ctx.fillRect(snappedNameRect.x, snappedNameRect.y, snappedNameRect.width, snappedNameRect.height);
-                
-                // Draw BLACK text
-                this.ctx.fillStyle = '#000000';
-                this.ctx.fillText(screenName, this.snap(screenNameX), this.snap(screenNameY));
-                
-                this.ctx.restore();
-            }
+            this.ctx.save();
+            this.ctx.beginPath();
+            this.ctx.rect(bounds.x, bounds.y, layerWidth, layerHeight);
+            this.ctx.clip();
+
+            // Draw WHITE background
+            this.ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            const snappedNameRect = this.snapRect(nameX, nameY, nameWidth, nameHeight);
+            this.ctx.fillRect(snappedNameRect.x, snappedNameRect.y, snappedNameRect.width, snappedNameRect.height);
+
+            // Draw BLACK text
+            this.ctx.fillStyle = '#000000';
+            this.ctx.fillText(screenName, this.snap(screenNameX), this.snap(screenNameY));
+
+            this.ctx.restore();
             
             // Reset font for other labels
             this.ctx.font = `bold ${fontSize}px Arial`;
@@ -2615,33 +2581,26 @@ class CanvasRenderer {
             const bgX = centerX - bgWidth / 2;
             const bgY = this.viewMode === 'pixel-map' ? currentY : (infoAnchorY ?? currentY);
             
-            // Clip to layer bounds; only skip if fully inside a higher layer
-            const centerFullyOccluded = layer._higherLayerBounds && layer._higherLayerBounds.some(hb => {
-                return bgX >= hb.x && bgX + bgWidth <= hb.x + hb.width &&
-                       bgY >= hb.y && bgY + bgHeight <= hb.y + hb.height;
+            // Clip to layer bounds so labels don't bleed through higher layers
+            this.ctx.save();
+            this.ctx.beginPath();
+            this.ctx.rect(bounds.x, bounds.y, layerWidth, layerHeight);
+            this.ctx.clip();
+
+            // Draw dark background
+            this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            const snappedBgRect = this.snapRect(bgX, bgY, bgWidth, bgHeight);
+            this.ctx.fillRect(snappedBgRect.x, snappedBgRect.y, snappedBgRect.width, snappedBgRect.height);
+
+            // Draw white text
+            this.ctx.fillStyle = layer.labelsColor || '#ffffff';
+            let yPos = bgY + padding + lineHeight / 2;
+            centerLines.forEach(line => {
+                this.ctx.fillText(line, this.snap(centerX), this.snap(yPos));
+                yPos += lineHeight;
             });
-            
-            if (!centerFullyOccluded) {
-                this.ctx.save();
-                this.ctx.beginPath();
-                this.ctx.rect(bounds.x, bounds.y, layerWidth, layerHeight);
-                this.ctx.clip();
-                
-                // Draw dark background
-                this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-                const snappedBgRect = this.snapRect(bgX, bgY, bgWidth, bgHeight);
-                this.ctx.fillRect(snappedBgRect.x, snappedBgRect.y, snappedBgRect.width, snappedBgRect.height);
-                
-                // Draw white text
-                this.ctx.fillStyle = layer.labelsColor || '#ffffff';
-                let yPos = bgY + padding + lineHeight / 2;
-                centerLines.forEach(line => {
-                    this.ctx.fillText(line, this.snap(centerX), this.snap(yPos));
-                    yPos += lineHeight;
-                });
-                
-                this.ctx.restore();
-            }
+
+            this.ctx.restore();
         }
         
         // Render Info label at bottom with background (fixed 14px screen size)
@@ -2663,21 +2622,18 @@ class CanvasRenderer {
             const bgX = centerX - bgWidth / 2;
             const bgY = bottomY - bgHeight - padding;
             
-            // Only render if not occluded by higher layers
-            if (!isOccludedByHigherLayer(bgX, bgY, bgWidth, bgHeight)) {
-                // Draw background
-                this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-                const snappedInfoRect = this.snapRect(bgX, bgY, bgWidth, bgHeight);
-                this.ctx.fillRect(snappedInfoRect.x, snappedInfoRect.y, snappedInfoRect.width, snappedInfoRect.height);
-                
-                // Draw text
-                this.ctx.fillStyle = layer.labelsColor || '#ffffff';
-                let yPos = bgY + padding + infoLineHeight;
-                infoLines.forEach(line => {
-                    this.ctx.fillText(line, this.snap(centerX), this.snap(yPos));
-                    yPos += infoLineHeight;
-                });
-            }
+            // Draw background
+            this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            const snappedInfoRect = this.snapRect(bgX, bgY, bgWidth, bgHeight);
+            this.ctx.fillRect(snappedInfoRect.x, snappedInfoRect.y, snappedInfoRect.width, snappedInfoRect.height);
+
+            // Draw text
+            this.ctx.fillStyle = layer.labelsColor || '#ffffff';
+            let yPos = bgY + padding + infoLineHeight;
+            infoLines.forEach(line => {
+                this.ctx.fillText(line, this.snap(centerX), this.snap(yPos));
+                yPos += infoLineHeight;
+            });
         }
         
         // Restore context (remove clipping)
