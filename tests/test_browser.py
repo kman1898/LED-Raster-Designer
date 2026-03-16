@@ -80,7 +80,7 @@ def page(server, browser_name):
         browser = launcher.launch(headless=True)
         context = browser.new_context()
         pg = context.new_page()
-        pg.goto(server, wait_until='networkidle')
+        pg.goto(server, wait_until='domcontentloaded')
         # Give SocketIO time to connect and initialize app
         pg.wait_for_timeout(2000)
         yield pg
