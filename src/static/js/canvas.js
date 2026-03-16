@@ -1000,11 +1000,11 @@ class CanvasRenderer {
                 }
             });
             
-            if (this.viewMode === 'data-flow') {
+            if (!this.exportMode && this.viewMode === 'data-flow') {
                 this.renderCustomSelectionOverlay();
                 this.renderCustomActivePortBadge();
             }
-            if (this.viewMode === 'power') {
+            if (!this.exportMode && this.viewMode === 'power') {
                 this.renderPowerSelectionOverlay();
                 this.renderPowerActiveCircuitBadge();
             }
@@ -1045,8 +1045,8 @@ class CanvasRenderer {
                 });
             }
             
-            // Draw bounding boxes around selected layers
-            if (window.app && window.app.selectedLayerIds && window.app.selectedLayerIds.size > 0) {
+            // Draw bounding boxes around selected layers (skip during export)
+            if (!this.exportMode && window.app && window.app.selectedLayerIds && window.app.selectedLayerIds.size > 0) {
                 const selectedIds = window.app.selectedLayerIds;
                 window.app.project.layers.forEach(layer => {
                     if (!layer.visible) return;
@@ -1062,8 +1062,8 @@ class CanvasRenderer {
                 });
             }
 
-            // Draw bounding box around selected layer ONLY during Shift+Drag
-            if (this.isDraggingLayer && window.app && window.app.currentLayer) {
+            // Draw bounding box around selected layer ONLY during Shift+Drag (skip during export)
+            if (!this.exportMode && this.isDraggingLayer && window.app && window.app.currentLayer) {
                 const selectedLayer = window.app.currentLayer;
                 if (selectedLayer.visible) {
                     const bounds = this.getLayerBounds(selectedLayer);
@@ -1083,8 +1083,8 @@ class CanvasRenderer {
                 }
             }
 
-            // Draw selection rectangle + highlight for layer multi-select
-            if (this.isSelectingLayers && this.layerSelectionRect) {
+            // Draw selection rectangle + highlight for layer multi-select (skip during export)
+            if (!this.exportMode && this.isSelectingLayers && this.layerSelectionRect) {
                 const minX = Math.min(this.layerSelectionRect.x1, this.layerSelectionRect.x2);
                 const maxX = Math.max(this.layerSelectionRect.x1, this.layerSelectionRect.x2);
                 const minY = Math.min(this.layerSelectionRect.y1, this.layerSelectionRect.y2);
