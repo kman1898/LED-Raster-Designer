@@ -20,12 +20,11 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 .btn:hover { background: #4a4a4a; }
 .btn-primary { background: #4A90E2; border-color: #4A90E2; color: white; }
 .btn-primary:hover { background: #357ABD; }
-.btn-icon { background: transparent; border: 1px solid transparent; color: #888; font-size: 18px; padding: 4px 8px; cursor: pointer; line-height: 1; }
-.btn-icon:hover { color: #e0e0e0; background: #3a3a3a; border-color: #4a4a4a; }
 .full-width { width: 100%; }
 #main-container { display: flex; flex: 1; overflow: hidden; }
 #left-sidebar, #right-sidebar { background: #252525; width: 260px; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; padding: 10px; border-right: 1px solid #3a3a3a; box-sizing: border-box; }
-#right-sidebar { border-right: none; border-left: 1px solid #3a3a3a; }
+#right-sidebar { border-right: none; border-left: 1px solid #3a3a3a; display: flex; flex-direction: column; overflow: hidden; padding: 0; }
+#right-sidebar > .panel { margin: 10px 10px 0 10px; flex: 1; overflow-y: auto; min-height: 0; }
 .panel { background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 6px; margin-bottom: 10px; }
 .panel-header { padding: 12px; border-bottom: 1px solid #3a3a3a; }
 .panel-header h2 { font-size: 12px; color: #4A90E2; text-transform: uppercase; margin: 0; }
@@ -329,6 +328,44 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 #canvas-wrapper { flex: 1; overflow: hidden; position: relative; background: #0a0a0a; }
 #main-canvas { position: absolute; cursor: default; }
 #status-bar { background: #2a2a2a; border-top: 1px solid #3a3a3a; padding: 6px 20px; display: flex; justify-content: space-between; font-size: 11px; color: #888; height: 28px; }
+#help-tooltip-panel {
+    background: #1e1e1e;
+    border-top: 1px solid #3a3a3a;
+    width: 260px;
+    min-height: 120px;
+    max-height: 200px;
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+}
+#help-tooltip-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid #3a3a3a;
+    font-size: 13px;
+    font-weight: 600;
+    color: #ccc;
+}
+#help-tooltip-header button {
+    background: none;
+    border: none;
+    color: #888;
+    font-size: 16px;
+    cursor: pointer;
+    padding: 0 4px;
+    line-height: 1;
+}
+#help-tooltip-header button:hover { color: #fff; }
+#help-tooltip-body {
+    padding: 10px 12px;
+    font-size: 12px;
+    color: #999;
+    line-height: 1.5;
+    overflow-y: auto;
+    flex: 1;
+}
 #update-banner { position: fixed; top: 0; left: 0; right: 0; z-index: 10000; background: #1a5fb4; color: #fff; padding: 8px 20px; font-size: 13px; display: flex; align-items: center; gap: 12px; }
 #update-banner a { color: #fff; font-weight: bold; text-decoration: underline; }
 #update-banner button { background: none; border: none; color: #fff; font-size: 18px; cursor: pointer; margin-left: auto; padding: 0 4px; opacity: 0.8; }

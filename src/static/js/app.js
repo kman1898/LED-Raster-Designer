@@ -337,6 +337,15 @@ function closeColorPopover() {
     }
 }
 
+function hexToRgbLocal(hex) {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result ? {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16)
+    } : { r: 255, g: 0, b: 0 };
+}
+
 function openColorModal(onPick) {
     if (!colorPickerState.modal) {
         const backdrop = document.createElement('div');
@@ -6211,6 +6220,12 @@ class LEDRasterApp {
             case 'keyboard-shortcuts':
                 this.openShortcutsModal();
                 break;
+            case 'show-help-tooltip':
+                {
+                    const hp = document.getElementById('help-tooltip-panel');
+                    if (hp) hp.style.display = 'flex';
+                }
+                break;
             case 'about':
                 this.openAboutModal();
                 break;
@@ -8349,18 +8364,28 @@ document.addEventListener('DOMContentLoaded', () => {
     sendClientLog('client_ready', { ua: navigator.userAgent });
     window.app = new LEDRasterApp();
 
-    // Resolume-style status bar tooltips
-    const statusMsg = document.getElementById('status-message');
-    document.addEventListener('mouseover', (e) => {
-        const tip = e.target.closest('[data-tooltip]');
-        if (tip && statusMsg) {
-            statusMsg.textContent = tip.dataset.tooltip;
-        }
-    });
-    document.addEventListener('mouseout', (e) => {
-        const tip = e.target.closest('[data-tooltip]');
-        if (tip && statusMsg) {
-            statusMsg.textContent = 'Ready';
-        }
-    });
+    // Resolume-style help tooltip panel
+    const helpBody = document.getElementById('help-tooltip-body');
+    const helpPanel = document.getElementById('help-tooltip-panel');
+    const helpDefaultText = 'Move your mouse over the interface element that you would like more info about.';
+    if (helpBody) {
+        document.addEventListener('mouseover', (e) => {
+            const tip = e.target.closest('[data-tooltip]');
+            if (tip) {
+                helpBody.textContent = tip.dataset.tooltip;
+            }
+        });
+        document.addEventListener('mouseout', (e) => {
+            const tip = e.target.closest('[data-tooltip]');
+            if (tip) {
+                helpBody.textContent = helpDefaultText;
+            }
+        });
+    }
+    const helpClose = document.getElementById('help-tooltip-close');
+    if (helpClose && helpPanel) {
+        helpClose.addEventListener('click', () => {
+            helpPanel.style.display = 'none';
+        });
+    }
 });
