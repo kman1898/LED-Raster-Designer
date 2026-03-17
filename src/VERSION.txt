@@ -1,6 +1,11 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.6.5.1 - March 17, 2026
+----------------------------
+- Fix: Add Screen now auto-increments name based on highest existing screen number
+- Fix: Drag-and-drop layer reordering now works when clicking on the layer name text (Issue #5)
+
 v0.6.5 - March 17, 2026
 ----------------------------
  CHANGES:

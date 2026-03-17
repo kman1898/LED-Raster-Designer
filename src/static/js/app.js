@@ -3384,6 +3384,20 @@ class LEDRasterApp {
         this.setupPreferences();
     }
     
+    getNextScreenName() {
+        let maxNum = 0;
+        if (this.project && this.project.layers) {
+            for (const l of this.project.layers) {
+                const m = (l.name || '').match(/^Screen(\d+)$/i);
+                if (m) {
+                    const n = parseInt(m[1], 10);
+                    if (n > maxNum) maxNum = n;
+                }
+            }
+        }
+        return `Screen${maxNum + 1}`;
+    }
+
     addLayer() {
         const prefs = this.getPreferences();
         const columns = prefs.columns;
@@ -3401,7 +3415,7 @@ class LEDRasterApp {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                name: 'Screen1',  // Always "Screen1" for new screens (duplicate increments)
+                name: this.getNextScreenName(),
                 columns,
                 rows,
                 cabinet_width: cabinetWidth,
@@ -7537,6 +7551,8 @@ class LEDRasterApp {
             // Handle name input changes
             const nameInput = layerDiv.querySelector('.layer-name-input');
             nameInput.readOnly = true;
+            nameInput.draggable = true;
+            nameInput.addEventListener('dragstart', handleDragStart);
             nameInput.addEventListener('focus', () => {
                 if (nameInput.readOnly) {
                     nameInput.blur();
@@ -7550,6 +7566,7 @@ class LEDRasterApp {
             nameInput.addEventListener('dblclick', (e) => {
                 e.stopPropagation();
                 nameInput.readOnly = false;
+                nameInput.draggable = false;
                 nameInput.style.border = '1px solid #4A90E2';
                 nameInput.style.background = '#1a1a1a';
                 nameInput.focus();
@@ -7557,6 +7574,7 @@ class LEDRasterApp {
             });
             nameInput.addEventListener('blur', () => {
                 nameInput.readOnly = true;
+                nameInput.draggable = true;
                 nameInput.style.border = '1px solid transparent';
                 nameInput.style.background = 'transparent';
                 const newName = nameInput.value.trim() || layer.name;
