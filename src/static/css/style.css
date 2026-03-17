@@ -336,8 +336,8 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     background: #1e1e1e;
     border-top: 1px solid #3a3a3a;
     width: 260px;
-    min-height: 120px;
-    max-height: 200px;
+    min-height: 200px;
+    max-height: 280px;
     display: flex;
     flex-direction: column;
     flex-shrink: 0;

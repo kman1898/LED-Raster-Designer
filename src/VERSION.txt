@@ -1,6 +1,18 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.6.4.9 - March 17, 2026
+----------------------------
+ FEATURES:
+ - Preferences are now stored server-side and shared across all connected
+   clients (Mac/Windows). No more per-browser localStorage divergence.
+ - Color picker modal is now draggable by its header. Canvas remains
+   pannable/zoomable while the color picker is open.
+ - Increased help tooltip panel height for better readability.
+ - Added zoom level tooltip to help panel.
+ BUG FIXES:
+ - Fixed "Fit" button tooltip saying "canvas" instead of "raster".
+
 v0.6.4.8 - March 17, 2026
 ----------------------------
  BUG FIXES:

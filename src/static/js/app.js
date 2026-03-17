@@ -510,6 +510,32 @@ function openColorModal(onPick) {
         colorPickerState.sliderSection = sliderSection;
         colorPickerState.sliderRows = { rgb: rgbRows, hsb: hsbRows, gray: grayRow, cmyk: cmykRows };
 
+        // Make the color modal draggable by its header
+        header.style.cursor = 'grab';
+        let dragOffsetX = 0, dragOffsetY = 0, isDragging = false;
+        header.addEventListener('mousedown', (e) => {
+            if (e.target === close) return; // don't drag when clicking close
+            isDragging = true;
+            header.style.cursor = 'grabbing';
+            const rect = modal.getBoundingClientRect();
+            dragOffsetX = e.clientX - rect.left;
+            dragOffsetY = e.clientY - rect.top;
+            e.preventDefault();
+        });
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            // Remove centering transform, use absolute positioning
+            modal.style.transform = 'none';
+            modal.style.left = `${e.clientX - dragOffsetX}px`;
+            modal.style.top = `${e.clientY - dragOffsetY}px`;
+        });
+        document.addEventListener('mouseup', () => {
+            if (isDragging) {
+                isDragging = false;
+                header.style.cursor = 'grab';
+            }
+        });
+
         drawHueWheel(colorPickerState.wheelCtx, wheel.width, wheel.height);
         drawSpectrum(colorPickerState.spectrumCtx, spectrum.width, spectrum.height);
 
@@ -926,12 +952,13 @@ class LEDRasterApp {
     }
     
     // Check if server has restarted - if so, clear localStorage
+    // Also fetch server-side preferences so all clients share the same config
     async checkServerSession() {
         try {
             const response = await fetch('/api/server-session');
             const data = await response.json();
             const savedSessionId = localStorage.getItem('ledRasterServerSession');
-            
+
             if (savedSessionId !== data.session_id) {
                 // Server has restarted - clear all localStorage and use defaults
                 console.log('Server restarted - clearing localStorage and using defaults');
@@ -950,6 +977,32 @@ class LEDRasterApp {
             console.error('Error checking server session:', e);
             // On error, just load from localStorage
             this.loadRasterSize();
+        }
+
+        // Fetch server-side preferences (shared across all clients)
+        try {
+            const prefResp = await fetch('/api/preferences');
+            const serverPrefs = await prefResp.json();
+            if (serverPrefs && Object.keys(serverPrefs).length > 0) {
+                // Server has preferences — use them (overrides localStorage)
+                this._serverPreferences = serverPrefs;
+                console.log('Loaded server-side preferences:', Object.keys(serverPrefs));
+            } else {
+                // No server prefs yet — seed from localStorage if available
+                const localPrefs = this.getLocalPreferences();
+                if (Object.keys(localPrefs).length > 0) {
+                    this._serverPreferences = localPrefs;
+                    // Push local prefs to server so other clients pick them up
+                    fetch('/api/preferences', {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(localPrefs)
+                    });
+                    console.log('Seeded server preferences from localStorage');
+                }
+            }
+        } catch (e) {
+            console.error('Error fetching server preferences:', e);
         }
     }
     
@@ -1065,8 +1118,12 @@ class LEDRasterApp {
                 this.updateUI();
             }
         });
+        this.socket.on('preferences_updated', (prefs) => {
+            console.log('WEBSOCKET preferences_updated received');
+            this._serverPreferences = prefs;
+        });
     }
-    
+
     // Extract client-side only properties from a layer
     extractClientSideProps(layer) {
         return {
@@ -5847,14 +5904,23 @@ class LEDRasterApp {
         };
     }
 
-    getPreferences() {
-        const defaults = this.getPreferencesDefaults();
+    getLocalPreferences() {
         let saved = {};
         try {
             saved = JSON.parse(localStorage.getItem('appPreferences') || '{}');
         } catch (e) {
             saved = {};
         }
+        return saved;
+    }
+
+    getPreferences() {
+        const defaults = this.getPreferencesDefaults();
+        // Server preferences take priority (shared across all clients),
+        // fall back to localStorage for backwards compatibility
+        const saved = (this._serverPreferences && Object.keys(this._serverPreferences).length > 0)
+            ? this._serverPreferences
+            : this.getLocalPreferences();
         return { ...defaults, ...saved };
     }
 
@@ -5934,6 +6000,13 @@ class LEDRasterApp {
             saveBtn.addEventListener('click', () => {
                 const prefs = this.readPreferencesFromUI();
                 localStorage.setItem('appPreferences', JSON.stringify(prefs));
+                // Save to server so all clients share the same preferences
+                this._serverPreferences = prefs;
+                fetch('/api/preferences', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(prefs)
+                });
                 sendClientLog('preferences_saved', {
                     projectName: this.project ? this.project.name : null,
                     layers: this.project && this.project.layers ? this.project.layers.length : 0,
@@ -5955,6 +6028,13 @@ class LEDRasterApp {
             resetBtn.addEventListener('click', () => {
                 const defaults = this.getPreferencesDefaults();
                 localStorage.setItem('appPreferences', JSON.stringify(defaults));
+                // Sync reset to server
+                this._serverPreferences = defaults;
+                fetch('/api/preferences', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(defaults)
+                });
                 sendClientLog('preferences_reset', {
                     projectName: this.project ? this.project.name : null,
                     layers: this.project && this.project.layers ? this.project.layers.length : 0,
