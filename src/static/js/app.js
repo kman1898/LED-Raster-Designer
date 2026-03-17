@@ -4691,7 +4691,8 @@ class LEDRasterApp {
         // Load per-layer label settings (with proper defaults)
         // show-label-name always reflects the pixel-map property (showLabelName).
         // Per-tab checkboxes (show-label-name-cabinet etc.) are set separately below.
-        const _getLabelNameForTab = (l, prop) => l[prop] !== undefined ? l[prop] : (l.showLabelName !== undefined ? l.showLabelName : true);
+        // Helper: read per-tab property, falling back to global showLabelName → true
+        const _tabLabel = (l, prop) => l[prop] !== undefined ? l[prop] : (l.showLabelName !== undefined ? l.showLabelName : true);
         setCheckbox('show-label-name', getCommon(l => l.showLabelName !== undefined ? l.showLabelName : true));
         setCheckbox('show-label-size-px', getCommon(l => l.showLabelSizePx || false));
         setCheckbox('show-label-size-m', getCommon(l => l.showLabelSizeM || false));
@@ -4725,19 +4726,13 @@ class LEDRasterApp {
         // Update Screen Name checkboxes on other tabs — each reads its own per-tab property
         // with fallback to global showLabelName → true (backwards compat with old project files)
         if (document.getElementById('show-label-name-cabinet')) {
-            setCheckbox('show-label-name-cabinet', getCommon(l =>
-                l.showLabelNameCabinet !== undefined ? l.showLabelNameCabinet
-                : (l.showLabelName !== undefined ? l.showLabelName : true)));
+            setCheckbox('show-label-name-cabinet', getCommon(l => _tabLabel(l, 'showLabelNameCabinet')));
         }
         if (document.getElementById('show-label-name-data')) {
-            setCheckbox('show-label-name-data', getCommon(l =>
-                l.showLabelNameDataFlow !== undefined ? l.showLabelNameDataFlow
-                : (l.showLabelName !== undefined ? l.showLabelName : true)));
+            setCheckbox('show-label-name-data', getCommon(l => _tabLabel(l, 'showLabelNameDataFlow')));
         }
         if (document.getElementById('show-label-name-power')) {
-            setCheckbox('show-label-name-power', getCommon(l =>
-                l.showLabelNamePower !== undefined ? l.showLabelNamePower
-                : (l.showLabelName !== undefined ? l.showLabelName : true)));
+            setCheckbox('show-label-name-power', getCommon(l => _tabLabel(l, 'showLabelNamePower')));
         }
         
         // Load Data Flow settings - with hex fields
