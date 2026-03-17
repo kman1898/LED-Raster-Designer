@@ -631,18 +631,26 @@ function openColorModal(onPick) {
             const rgb = cmykToRgb(parseInt(cmykRows.c.range.value, 10), parseInt(cmykRows.m.range.value, 10), parseInt(cmykRows.y.range.value, 10), parseInt(cmykRows.k.range.value, 10));
             setColorFromHex(rgbToHex(rgb.r, rgb.g, rgb.b));
         });
-        let pointerDownInside = false;
-        backdrop.addEventListener('mousedown', (e) => {
-            pointerDownInside = modal.contains(e.target);
+        // Make color modal draggable by its header
+        header.style.cursor = 'move';
+        header.addEventListener('mousedown', (e) => {
+            if (e.target === close) return;
+            const rect = modal.getBoundingClientRect();
+            const dragOffsetX = e.clientX - rect.left;
+            const dragOffsetY = e.clientY - rect.top;
+            const onMove = (ev) => {
+                modal.style.left = (ev.clientX - dragOffsetX) + 'px';
+                modal.style.top = (ev.clientY - dragOffsetY) + 'px';
+                modal.style.transform = 'none';
+            };
+            const onUp = () => {
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+            };
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+            e.preventDefault();
         });
-        backdrop.addEventListener('mouseup', (e) => {
-            if (!pointerDownInside && e.target === backdrop) {
-                closeColorModal();
-            }
-            pointerDownInside = false;
-        });
-        modal.addEventListener('mousedown', (e) => e.stopPropagation());
-        modal.addEventListener('click', (e) => e.stopPropagation());
         setColorFromHex(colorPickerState.recent[0] || '#FFFFFF');
     }
 
@@ -3156,6 +3164,10 @@ class LEDRasterApp {
             this.saveProjectToFile();
         });
         
+        document.getElementById('btn-preferences').addEventListener('click', () => {
+            this.openPreferencesModal();
+        });
+
         document.getElementById('btn-export').addEventListener('click', () => {
             // Show export modal
             document.getElementById('export-modal').style.display = 'block';
@@ -6196,12 +6208,28 @@ class LEDRasterApp {
                     window.canvasRenderer.render();
                 }
                 break;
+            case 'keyboard-shortcuts':
+                this.openShortcutsModal();
+                break;
             case 'about':
                 this.openAboutModal();
                 break;
             default:
                 break;
         }
+    }
+
+    openShortcutsModal() {
+        var modal = document.getElementById('shortcuts-modal');
+        if (!modal) return;
+        modal.style.display = 'block';
+        var closeBtn = document.getElementById('shortcuts-close');
+        if (closeBtn) {
+            closeBtn.onclick = function() { modal.style.display = 'none'; };
+        }
+        modal.onclick = function(e) {
+            if (e.target === modal) modal.style.display = 'none';
+        };
     }
 
     openAboutModal() {
@@ -8320,4 +8348,19 @@ document.addEventListener('DOMContentLoaded', () => {
     registerGlobalClientLogging();
     sendClientLog('client_ready', { ua: navigator.userAgent });
     window.app = new LEDRasterApp();
+
+    // Resolume-style status bar tooltips
+    const statusMsg = document.getElementById('status-message');
+    document.addEventListener('mouseover', (e) => {
+        const tip = e.target.closest('[data-tooltip]');
+        if (tip && statusMsg) {
+            statusMsg.textContent = tip.dataset.tooltip;
+        }
+    });
+    document.addEventListener('mouseout', (e) => {
+        const tip = e.target.closest('[data-tooltip]');
+        if (tip && statusMsg) {
+            statusMsg.textContent = 'Ready';
+        }
+    });
 });

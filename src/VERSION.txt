@@ -1,6 +1,26 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.6.4.4 - March 17, 2026
+----------------------------
+ UI IMPROVEMENTS:
+ - Added Resolume-style contextual tooltips — hover any button or control to
+   see a description in the status bar (bottom of window).
+ - Added gear icon (top-right toolbar) for quick access to Preferences.
+ - Moved Offset Labels into the Labels panel, removing the separate Offsets
+   section for a cleaner sidebar.
+ - Color picker is now non-blocking — canvas can be panned and zoomed while
+   the color picker is open. The color picker is also draggable by its header.
+
+v0.6.4.3 - March 17, 2026
+----------------------------
+ UI IMPROVEMENTS:
+ - Moved keyboard shortcuts and mouse controls out of the About dialog into
+   their own dedicated modal accessible via Help > Keyboard Shortcuts.
+ - About dialog now shows only version, author credit, and GitHub link.
+ - Added "Mouse & Trackpad" section documenting pan, zoom, move, and toggle
+   controls alongside keyboard shortcuts.
+
 v0.6.4.2 - March 17, 2026
 ----------------------------
  BUG FIXES:

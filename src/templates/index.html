@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED Raster Designer v0.6.4.2</title>
+    <title>LED Raster Designer v0.6.4.4</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -44,6 +44,8 @@
         </div>
 
         <div id="menu-help" class="menu-dropdown">
+            <div class="menu-option" data-action="keyboard-shortcuts" data-label="Keyboard Shortcuts"></div>
+            <div class="menu-divider"></div>
             <div class="menu-option" data-action="check-updates" data-label="Check for Updates…"></div>
             <div class="menu-divider"></div>
             <div class="menu-option" data-action="about" data-label="About LED Raster Designer"></div>
@@ -64,22 +66,25 @@
 
         <div id="toolbar">
             <div class="toolbar-section toolbar-project">
-                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.6.4.2</span></h1>
+                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.6.4.4</span></h1>
                 <input type="text" id="project-name" value="Untitled Project" class="editable-project-name">
             </div>
             <div class="toolbar-section toolbar-actions">
-                <button id="btn-new" class="btn">New</button>
-                <button id="btn-open" class="btn">Open</button>
-                <button id="btn-save" class="btn">Save</button>
-                <button id="btn-export" class="btn">Export</button>
+                <button id="btn-new" class="btn" data-tooltip="Create a new project">New</button>
+                <button id="btn-open" class="btn" data-tooltip="Open a saved project">Open</button>
+                <button id="btn-save" class="btn" data-tooltip="Save current project">Save</button>
+                <button id="btn-export" class="btn" data-tooltip="Export project as PNG or PSD">Export</button>
+            </div>
+            <div class="toolbar-section" style="margin-left: auto;">
+                <button id="btn-preferences" class="btn btn-icon" data-tooltip="Open Preferences (Cmd/Ctrl+,)">&#9881;</button>
             </div>
         </div>
 
         <div id="view-tabs">
-            <button class="view-tab active" data-mode="pixel-map">Pixel Map</button>
-            <button class="view-tab" data-mode="cabinet-id">Cabinet ID</button>
-            <button class="view-tab" data-mode="data-flow">Data</button>
-            <button class="view-tab" data-mode="power">Power</button>
+            <button class="view-tab active" data-mode="pixel-map" data-tooltip="Pixel map view — layout and positioning">Pixel Map</button>
+            <button class="view-tab" data-mode="cabinet-id" data-tooltip="Cabinet ID view — label and identify panels">Cabinet ID</button>
+            <button class="view-tab" data-mode="data-flow" data-tooltip="Data flow view — signal routing and ports">Data</button>
+            <button class="view-tab" data-mode="power" data-tooltip="Power view — electrical distribution">Power</button>
         </div>
 
         <div id="main-container">
@@ -186,31 +191,6 @@
                     </div>
                 </div>
                 
-                <!-- Offsets Section -->
-                <div class="panel tab-panel screen-only" data-tab="pixel-map">
-                    <div class="panel-header">
-                        <h2>Offsets</h2>
-                    </div>
-                    <div class="panel-content">
-                        <div class="info-row checkbox-row">
-                            <input type="checkbox" id="show-offset-tl">
-                            <label for="show-offset-tl">Top Left</label>
-                        </div>
-                        <div class="info-row checkbox-row">
-                            <input type="checkbox" id="show-offset-tr">
-                            <label for="show-offset-tr">Top Right</label>
-                        </div>
-                        <div class="info-row checkbox-row">
-                            <input type="checkbox" id="show-offset-bl">
-                            <label for="show-offset-bl">Bottom Left</label>
-                        </div>
-                        <div class="info-row checkbox-row">
-                            <input type="checkbox" id="show-offset-br">
-                            <label for="show-offset-br">Bottom Right</label>
-                        </div>
-                    </div>
-                </div>
-                
                 <!-- Labels Section -->
                 <div class="panel tab-panel screen-only" data-tab="pixel-map">
                     <div class="panel-header">
@@ -245,6 +225,23 @@
                             <input type="checkbox" id="show-label-info">
                             <label for="show-label-info">Info</label>
                             <input type="number" id="info-label-size" min="8" max="200" value="14" autocomplete="off" style="margin-left: auto; width: 64px;">
+                        </div>
+                        <div style="margin-top: 10px; margin-bottom: 6px; color: #666; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;">Offset Labels</div>
+                        <div class="info-row checkbox-row">
+                            <input type="checkbox" id="show-offset-tl">
+                            <label for="show-offset-tl">Top Left</label>
+                        </div>
+                        <div class="info-row checkbox-row">
+                            <input type="checkbox" id="show-offset-tr">
+                            <label for="show-offset-tr">Top Right</label>
+                        </div>
+                        <div class="info-row checkbox-row">
+                            <input type="checkbox" id="show-offset-bl">
+                            <label for="show-offset-bl">Bottom Left</label>
+                        </div>
+                        <div class="info-row checkbox-row">
+                            <input type="checkbox" id="show-offset-br">
+                            <label for="show-offset-br">Bottom Right</label>
                         </div>
                         <div class="info-row">
                             <label>Labels Color</label>
@@ -1048,12 +1045,12 @@
                     <input type="text" id="toolbar-raster-width" value="1920" class="canvas-raster-input">
                     <span class="toolbar-label">×</span>
                     <input type="text" id="toolbar-raster-height" value="1080" class="canvas-raster-input">
-                    <button id="btn-zoom-out">-</button>
+                    <button id="btn-zoom-out" data-tooltip="Zoom out">-</button>
                     <input type="text" id="zoom-level" value="100%" style="width: 60px; text-align: center; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px; padding: 2px 4px;">
-                    <button id="btn-zoom-in">+</button>
-                    <button id="btn-fit">Fit</button>
-                    <button id="btn-zoom-actual">1:1</button>
-                    <label class="magnet-toggle" style="margin-left: 15px;">
+                    <button id="btn-zoom-in" data-tooltip="Zoom in">+</button>
+                    <button id="btn-fit" data-tooltip="Fit canvas to view">Fit</button>
+                    <button id="btn-zoom-actual" data-tooltip="Actual pixel size (1:1)">1:1</button>
+                    <label class="magnet-toggle" style="margin-left: 15px;" data-tooltip="Snap layers to grid when dragging">
                         <input type="checkbox" id="magnetic-snap" checked>
                         <span>🧲 Snap</span>
                     </label>
@@ -1070,19 +1067,19 @@
                     </div>
                     <div class="panel-content">
                         <div class="info-row" style="gap: 8px; margin-bottom: 8px; align-items: center;">
-                            <button id="toggle-lock-selected" class="btn btn-secondary" title="Toggle Lock Selected">🔒</button>
+                            <button id="toggle-lock-selected" class="btn btn-secondary" title="Toggle Lock Selected" data-tooltip="Lock or unlock the selected layer">🔒</button>
                             <span style="color:#888; font-size:12px;">Lock Selected</span>
                         </div>
                         <div id="layers-list"></div>
                         <div id="layer-order-controls" class="layer-order-controls">
                             <div class="layer-order-label">Layer Order</div>
                             <div class="layer-order-buttons">
-                                <button id="btn-layer-up" class="btn btn-secondary">Move Up</button>
-                                <button id="btn-layer-down" class="btn btn-secondary">Move Down</button>
+                                <button id="btn-layer-up" class="btn btn-secondary" data-tooltip="Move selected layer up in draw order">Move Up</button>
+                                <button id="btn-layer-down" class="btn btn-secondary" data-tooltip="Move selected layer down in draw order">Move Down</button>
                             </div>
                         </div>
-                        <button id="btn-add-layer" class="btn btn-primary full-width">+ Add Screen</button>
-                        <button id="btn-add-image" class="btn btn-secondary full-width" style="margin-top: 8px;">+ Add Image/Logo</button>
+                        <button id="btn-add-layer" class="btn btn-primary full-width" data-tooltip="Add a new LED screen layer">+ Add Screen</button>
+                        <button id="btn-add-image" class="btn btn-secondary full-width" style="margin-top: 8px;" data-tooltip="Add an image or logo layer">+ Add Image/Logo</button>
                     </div>
                 </div>
             </div>
@@ -1333,29 +1330,48 @@
         </div>
     </div>
     
+    <!-- Keyboard Shortcuts Modal -->
+    <div id="shortcuts-modal" class="modal" style="display: none;">
+        <div class="modal-content" style="background: #252525; border-radius: 8px; padding: 32px; max-width: 480px; margin: 60px auto; border: 1px solid #3a3a3a;">
+            <h2 style="margin-top: 0; color: #fff; margin-bottom: 20px; font-size: 20px; text-align: center;">Keyboard Shortcuts &amp; Controls</h2>
+
+            <div style="margin-bottom: 16px;">
+                <h3 style="color: #ccc; font-size: 13px; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 1px;">Keyboard Shortcuts</h3>
+                <table style="width: 100%; font-size: 12px; color: #aaa; border-collapse: collapse;">
+                    <tr><td style="padding: 4px 0;">Undo</td><td style="padding: 4px 0; text-align: right; color: #666;">Ctrl/Cmd + Z</td></tr>
+                    <tr><td style="padding: 4px 0;">Redo</td><td style="padding: 4px 0; text-align: right; color: #666;">Ctrl/Cmd + Shift + Z</td></tr>
+                    <tr><td style="padding: 4px 0;">Copy</td><td style="padding: 4px 0; text-align: right; color: #666;">Ctrl/Cmd + C</td></tr>
+                    <tr><td style="padding: 4px 0;">Paste</td><td style="padding: 4px 0; text-align: right; color: #666;">Ctrl/Cmd + V</td></tr>
+                    <tr><td style="padding: 4px 0;">Duplicate</td><td style="padding: 4px 0; text-align: right; color: #666;">Ctrl/Cmd + J</td></tr>
+                    <tr><td style="padding: 4px 0;">Delete Layer</td><td style="padding: 4px 0; text-align: right; color: #666;">Delete / Backspace</td></tr>
+                    <tr><td style="padding: 4px 0;">Select All</td><td style="padding: 4px 0; text-align: right; color: #666;">Ctrl/Cmd + A</td></tr>
+                    <tr><td style="padding: 4px 0;">Export PNG</td><td style="padding: 4px 0; text-align: right; color: #666;">Alt + S</td></tr>
+                    <tr><td style="padding: 4px 0;">Export PSD</td><td style="padding: 4px 0; text-align: right; color: #666;">Ctrl/Cmd + Alt + S</td></tr>
+                    <tr><td style="padding: 4px 0;">Prev / Next Port</td><td style="padding: 4px 0; text-align: right; color: #666;">Shift + B / N</td></tr>
+                </table>
+            </div>
+
+            <div style="margin-bottom: 20px;">
+                <h3 style="color: #ccc; font-size: 13px; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 1px;">Mouse &amp; Trackpad</h3>
+                <table style="width: 100%; font-size: 12px; color: #aaa; border-collapse: collapse;">
+                    <tr><td style="padding: 4px 0;">Pan Canvas</td><td style="padding: 4px 0; text-align: right; color: #666;">Space + Drag</td></tr>
+                    <tr><td style="padding: 4px 0;">Zoom In / Out</td><td style="padding: 4px 0; text-align: right; color: #666;">Scroll Wheel</td></tr>
+                    <tr><td style="padding: 4px 0;">Move Layer</td><td style="padding: 4px 0; text-align: right; color: #666;">Shift + Drag</td></tr>
+                    <tr><td style="padding: 4px 0;">Toggle Panel</td><td style="padding: 4px 0; text-align: right; color: #666;">Alt + Click</td></tr>
+                </table>
+            </div>
+
+            <div style="text-align: center;">
+                <button id="shortcuts-close" class="btn" style="background: #3a3a3a; padding: 8px 24px;">Close</button>
+            </div>
+        </div>
+    </div>
+
     <!-- About Modal -->
     <div id="about-modal" class="modal" style="display: none;">
         <div class="modal-content" style="background: #252525; border-radius: 8px; padding: 32px; max-width: 420px; margin: 80px auto; border: 1px solid #3a3a3a; text-align: center;">
             <h2 style="margin-top: 0; color: #fff; margin-bottom: 4px; font-size: 20px;">LED Raster Designer</h2>
             <div id="about-version" style="color: #888; font-size: 13px; margin-bottom: 20px;"></div>
-
-            <div style="text-align: left; margin-bottom: 20px;">
-                <h3 style="color: #ccc; font-size: 13px; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 1px;">Keyboard Shortcuts</h3>
-                <table style="width: 100%; font-size: 12px; color: #aaa; border-collapse: collapse;">
-                    <tr><td style="padding: 3px 0;">Undo</td><td style="padding: 3px 0; text-align: right; color: #666;">Ctrl/Cmd + Z</td></tr>
-                    <tr><td style="padding: 3px 0;">Redo</td><td style="padding: 3px 0; text-align: right; color: #666;">Ctrl/Cmd + Shift + Z</td></tr>
-                    <tr><td style="padding: 3px 0;">Copy / Paste</td><td style="padding: 3px 0; text-align: right; color: #666;">Ctrl/Cmd + C / V</td></tr>
-                    <tr><td style="padding: 3px 0;">Duplicate</td><td style="padding: 3px 0; text-align: right; color: #666;">Ctrl/Cmd + J</td></tr>
-                    <tr><td style="padding: 3px 0;">Delete Layer</td><td style="padding: 3px 0; text-align: right; color: #666;">Delete / Backspace</td></tr>
-                    <tr><td style="padding: 3px 0;">Pan Canvas</td><td style="padding: 3px 0; text-align: right; color: #666;">Space + Drag</td></tr>
-                    <tr><td style="padding: 3px 0;">Zoom</td><td style="padding: 3px 0; text-align: right; color: #666;">Scroll Wheel</td></tr>
-                    <tr><td style="padding: 3px 0;">Move Layer</td><td style="padding: 3px 0; text-align: right; color: #666;">Shift + Drag</td></tr>
-                    <tr><td style="padding: 3px 0;">Toggle Panel</td><td style="padding: 3px 0; text-align: right; color: #666;">Alt + Click</td></tr>
-                    <tr><td style="padding: 3px 0;">Export PNG</td><td style="padding: 3px 0; text-align: right; color: #666;">Alt + S</td></tr>
-                    <tr><td style="padding: 3px 0;">Export PSD</td><td style="padding: 3px 0; text-align: right; color: #666;">Ctrl/Cmd + Alt + S</td></tr>
-                    <tr><td style="padding: 3px 0;">Prev / Next Port</td><td style="padding: 3px 0; text-align: right; color: #666;">Shift + B / N</td></tr>
-                </table>
-            </div>
 
             <div style="border-top: 1px solid #3a3a3a; padding-top: 16px; margin-bottom: 16px;">
                 <div style="color: #888; font-size: 12px; margin-bottom: 8px;">Created by Matt Knotts</div>

@@ -20,6 +20,8 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 .btn:hover { background: #4a4a4a; }
 .btn-primary { background: #4A90E2; border-color: #4A90E2; color: white; }
 .btn-primary:hover { background: #357ABD; }
+.btn-icon { background: transparent; border: 1px solid transparent; color: #888; font-size: 18px; padding: 4px 8px; cursor: pointer; line-height: 1; }
+.btn-icon:hover { color: #e0e0e0; background: #3a3a3a; border-color: #4a4a4a; }
 .full-width { width: 100%; }
 #main-container { display: flex; flex: 1; overflow: hidden; }
 #left-sidebar, #right-sidebar { background: #252525; width: 260px; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; padding: 10px; border-right: 1px solid #3a3a3a; box-sizing: border-box; }
@@ -158,9 +160,10 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 .color-modal-backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(0,0,0,0.5);
+    background: transparent;
     z-index: 10000;
     display: none;
+    pointer-events: none;
 }
 .color-modal {
     position: fixed;
@@ -176,6 +179,7 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     display: none;
     padding: 16px;
     color: #eaeaea;
+    pointer-events: auto;
 }
 .color-modal .modal-header {
     display: flex;

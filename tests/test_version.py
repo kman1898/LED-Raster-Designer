@@ -177,13 +177,13 @@ def test_all_version_sources_match():
     """All four version locations must report the same version string."""
     version_txt = _read_version_from_file('src/VERSION.txt')
     index_title = _read_version_from_file('src/templates/index.html', line_number=6)
-    index_h1 = _read_version_from_file('src/templates/index.html', line_number=67)
+    index_h1 = _read_version_from_file('src/templates/index.html', line_number=69)
     readme = _read_version_from_file('README.md', line_number=1)
 
     sources = {
         'src/VERSION.txt': version_txt,
         'index.html <title> (line 6)': index_title,
-        'index.html <h1> (line 67)': index_h1,
+        'index.html <h1> (line 69)': index_h1,
         'README.md (line 1)': readme,
     }
 
