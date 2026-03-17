@@ -1,12 +1,18 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
-v0.6.4.4 - March 17, 2026
+v0.6.4.5 - March 17, 2026
 ----------------------------
+ BUG FIXES:
+ - Fixed color picker crash on Windows (hexToRgbLocal not defined).
+
  UI IMPROVEMENTS:
- - Added Resolume-style contextual tooltips — hover any button or control to
-   see a description in the status bar (bottom of window).
- - Added gear icon (top-right toolbar) for quick access to Preferences.
+ - Added Resolume-style help tooltip panel in the bottom-right corner below
+   the Screens panel. Hover any control to see contextual help. Closeable
+   with X button, re-openable via Help > Show Help Tooltip.
+ - Added comprehensive tooltips to all sidebar panels, toolbar buttons,
+   view tabs, canvas controls, and input fields.
+ - Replaced gear icon with a standard Preferences button next to Export.
  - Moved Offset Labels into the Labels panel, removing the separate Offsets
    section for a cleaner sidebar.
  - Color picker is now non-blocking — canvas can be panned and zoomed while
