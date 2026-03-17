@@ -253,10 +253,14 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     background: #111;
 }
 .color-modal .slider {
-    writing-mode: bt-lr;
+    appearance: slider-vertical;
     -webkit-appearance: slider-vertical;
+    writing-mode: vertical-lr;
+    direction: rtl;
     width: 24px;
     height: 300px;
+    cursor: pointer;
+    accent-color: #4A90E2;
 }
 .color-modal .recent-swatches {
     margin-top: 12px;

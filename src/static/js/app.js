@@ -536,10 +536,8 @@ function openColorModal(onPick) {
         });
         setMode('wheel');
 
-        const setColorFromHex = (hex) => {
+        const updateColorUI = (hex) => {
             if (!hex) return;
-            onPick(hex);
-            renderRecentSwatches(onPick);
             if (colorPickerState.currentSwatch) colorPickerState.currentSwatch.style.background = hex;
             const rgb = hexToRgbLocal(hex);
             if (!rgb) return;
@@ -559,12 +557,48 @@ function openColorModal(onPick) {
             cmykRows.k.range.value = cmyk.k; cmykRows.k.val.value = cmyk.k;
         };
 
+        const setColorFromHex = (hex) => {
+            if (!hex) return;
+            onPick(hex);
+            pushRecentColor(hex);
+            renderRecentSwatches(onPick);
+            updateColorUI(hex);
+        };
+
+        // Selection marker state
+        let markerX = -1, markerY = -1;
+        const drawMarker = () => {
+            // Redraw wheel then overlay marker
+            drawHueWheel(colorPickerState.wheelCtx, wheel.width, wheel.height);
+            if (markerX >= 0 && markerY >= 0) {
+                const ctx = colorPickerState.wheelCtx;
+                ctx.beginPath();
+                ctx.arc(markerX, markerY, 8, 0, 2 * Math.PI);
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.arc(markerX, markerY, 9.5, 0, 2 * Math.PI);
+                ctx.strokeStyle = '#000000';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+            }
+        };
+
         const pickFromWheel = (e) => {
             const rect = wheel.getBoundingClientRect();
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
+            // Check if within wheel radius
+            const cx = wheel.width / 2, cy = wheel.height / 2;
+            const r = Math.min(cx, cy) - 2;
+            const dx = x - cx, dy = y - cy;
+            if (Math.sqrt(dx * dx + dy * dy) > r) return;
             const color = getWheelColor(colorPickerState.wheelCtx, x, y, parseInt(slider.value, 10) / 100);
             if (color) {
+                markerX = x;
+                markerY = y;
+                drawMarker();
                 setColorFromHex(color);
             }
         };
@@ -574,9 +608,15 @@ function openColorModal(onPick) {
         window.addEventListener('mousemove', (e) => { if (dragging) pickFromWheel(e); });
         window.addEventListener('mouseup', () => { dragging = false; });
         slider.addEventListener('input', () => {
-            const hex = colorPickerState.recent[0];
-            if (hex) setColorFromHex(hex);
-            renderRecentSwatches(onPick);
+            if (markerX >= 0 && markerY >= 0) {
+                // Re-pick color at current marker position with new brightness
+                drawHueWheel(colorPickerState.wheelCtx, wheel.width, wheel.height);
+                const color = getWheelColor(colorPickerState.wheelCtx, markerX, markerY, parseInt(slider.value, 10) / 100);
+                if (color) {
+                    setColorFromHex(color);
+                }
+                drawMarker();
+            }
         });
 
         const spectrumPick = (e) => {
@@ -660,7 +700,7 @@ function openColorModal(onPick) {
             document.addEventListener('mouseup', onUp);
             e.preventDefault();
         });
-        setColorFromHex(colorPickerState.recent[0] || '#FFFFFF');
+        updateColorUI(colorPickerState.recent[0] || '#FFFFFF');
     }
 
     renderRecentSwatches(onPick);

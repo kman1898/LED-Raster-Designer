@@ -1,12 +1,20 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
-v0.6.4.5 - March 17, 2026
+v0.6.4.6 - March 17, 2026
 ----------------------------
  BUG FIXES:
  - Fixed color picker crash on Windows (hexToRgbLocal not defined).
+ - Fixed color picker auto-applying color when opening "Show Colors" modal
+   on Windows — no longer changes the layer color until user picks one.
+ - Fixed vertical brightness slider not working on Windows/Chrome/Edge by
+   using cross-browser vertical slider CSS.
+ - Fixed help tooltip panel appearing in wrong position — now correctly
+   sits at the bottom of the right sidebar below the Screens panel.
 
  UI IMPROVEMENTS:
+ - Added selection marker ring on the color wheel showing the currently
+   picked position. Brightness slider now updates the color at the marker.
  - Added Resolume-style help tooltip panel in the bottom-right corner below
    the Screens panel. Hover any control to see contextual help. Closeable
    with X button, re-openable via Help > Show Help Tooltip.
