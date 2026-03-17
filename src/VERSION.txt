@@ -1,10 +1,12 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
-v0.6.4.6 - March 17, 2026
+v0.6.4.7 - March 17, 2026
 ----------------------------
  BUG FIXES:
  - Fixed color picker crash on Windows (hexToRgbLocal not defined).
+ - Fixed clicking on the selection marker ring picking white/black instead of
+   the underlying wheel color — wheel is now redrawn clean before reading.
  - Fixed color picker auto-applying color when opening "Show Colors" modal
    on Windows — no longer changes the layer color until user picks one.
  - Fixed vertical brightness slider not working on Windows/Chrome/Edge by

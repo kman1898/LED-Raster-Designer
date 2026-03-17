@@ -594,6 +594,8 @@ function openColorModal(onPick) {
             const r = Math.min(cx, cy) - 2;
             const dx = x - cx, dy = y - cy;
             if (Math.sqrt(dx * dx + dy * dy) > r) return;
+            // Redraw clean wheel first so we read the actual color, not the marker
+            drawHueWheel(colorPickerState.wheelCtx, wheel.width, wheel.height);
             const color = getWheelColor(colorPickerState.wheelCtx, x, y, parseInt(slider.value, 10) / 100);
             if (color) {
                 markerX = x;
