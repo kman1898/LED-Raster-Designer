@@ -6351,12 +6351,6 @@ class LEDRasterApp {
             case 'keyboard-shortcuts':
                 this.openShortcutsModal();
                 break;
-            case 'show-help-tooltip':
-                {
-                    const hp = document.getElementById('help-tooltip-panel');
-                    if (hp) hp.style.display = 'flex';
-                }
-                break;
             case 'about':
                 this.openAboutModal();
                 break;
@@ -8511,12 +8505,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (tip) {
                 helpBody.textContent = helpDefaultText;
             }
-        });
-    }
-    const helpClose = document.getElementById('help-tooltip-close');
-    if (helpClose && helpPanel) {
-        helpClose.addEventListener('click', () => {
-            helpPanel.style.display = 'none';
         });
     }
 });

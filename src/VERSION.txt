@@ -1,6 +1,12 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.6.5 - March 17, 2026
+----------------------------
+ CHANGES:
+ - Help tooltip panel is now permanently visible (removed close button).
+ - Removed "Show Help Tooltip" menu item from Help menu (no longer needed).
+
 v0.6.4.9 - March 17, 2026
 ----------------------------
  FEATURES:

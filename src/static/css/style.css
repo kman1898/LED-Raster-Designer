@@ -352,16 +352,6 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     font-weight: 600;
     color: #ccc;
 }
-#help-tooltip-header button {
-    background: none;
-    border: none;
-    color: #888;
-    font-size: 16px;
-    cursor: pointer;
-    padding: 0 4px;
-    line-height: 1;
-}
-#help-tooltip-header button:hover { color: #fff; }
 #help-tooltip-body {
     padding: 10px 12px;
     font-size: 12px;
