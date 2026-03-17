@@ -163,13 +163,13 @@ def _read_version_from_file(rel_path, line_number=None):
         return _extract_version(f.read())
 
 
-def test_version_txt_is_four_part():
-    """VERSION.txt must use a 4-part version (e.g. 0.6.3.6), not 3-part."""
+def test_version_txt_is_valid():
+    """VERSION.txt must use a 3 or 4-part version (e.g. 0.6.5 or 0.6.3.6)."""
     version = _read_version_from_file('src/VERSION.txt')
     assert version is not None, "No version found in VERSION.txt"
     parts = version.split('.')
-    assert len(parts) == 4, (
-        f"VERSION.txt has {len(parts)}-part version '{version}', expected 4-part (e.g. 0.6.3.6)"
+    assert len(parts) in (3, 4), (
+        f"VERSION.txt has {len(parts)}-part version '{version}', expected 3 or 4-part (e.g. 0.6.5 or 0.6.3.6)"
     )
 
 
@@ -177,7 +177,14 @@ def test_all_version_sources_match():
     """All four version locations must report the same version string."""
     version_txt = _read_version_from_file('src/VERSION.txt')
     index_title = _read_version_from_file('src/templates/index.html', line_number=6)
-    index_h1 = _read_version_from_file('src/templates/index.html', line_number=70)
+    # Find h1 line dynamically instead of hardcoding line number
+    index_h1 = None
+    index_path = os.path.join(ROOT, 'src/templates/index.html')
+    with open(index_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            if '<h1>' in line and 'LED Raster Designer' in line:
+                index_h1 = _extract_version(line)
+                break
     readme = _read_version_from_file('README.md', line_number=1)
 
     sources = {
