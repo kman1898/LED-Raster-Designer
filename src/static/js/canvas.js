@@ -2320,7 +2320,12 @@ class CanvasRenderer {
         const totalWeightLb = totalWeightKg * 2.20462;
         
         // Build labels - Screen Name is separate with white background
-        const showLabelName = layer.showLabelName !== undefined ? layer.showLabelName : true;
+        // Per-tab property with fallback to global showLabelName, then true (backwards compat)
+        let showLabelName;
+        if (this.viewMode === 'cabinet-id') showLabelName = layer.showLabelNameCabinet !== undefined ? layer.showLabelNameCabinet : (layer.showLabelName !== undefined ? layer.showLabelName : true);
+        else if (this.viewMode === 'data-flow') showLabelName = layer.showLabelNameDataFlow !== undefined ? layer.showLabelNameDataFlow : (layer.showLabelName !== undefined ? layer.showLabelName : true);
+        else if (this.viewMode === 'power') showLabelName = layer.showLabelNamePower !== undefined ? layer.showLabelNamePower : (layer.showLabelName !== undefined ? layer.showLabelName : true);
+        else showLabelName = layer.showLabelName !== undefined ? layer.showLabelName : true;
         const screenName = showLabelName ? layer.name : null;
         
         // Other center labels (regular style)

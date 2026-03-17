@@ -1475,6 +1475,7 @@ class LEDRasterApp {
     }
     
     createNewProject() {
+        this.resetApplicationState();
         fetch('/api/project/new', {
             method: 'POST'
         })
@@ -1484,7 +1485,7 @@ class LEDRasterApp {
                 this.dedupeProjectLayers('new_project');
                 sendClientLog('new_project');
                 this.updateUI();
-                
+
                 // Auto-select first layer if available
                 if (this.project.layers && this.project.layers.length > 0) {
                     this.selectLayer(this.project.layers[0]);
@@ -1493,28 +1494,22 @@ class LEDRasterApp {
                 } else {
                     this.currentLayer = null;
                 }
-                
+
                 // Reset raster dimensions to defaults
                 const prefs = this.getPreferences();
                 window.canvasRenderer.rasterWidth = prefs.rasterWidth;
                 window.canvasRenderer.rasterHeight = prefs.rasterHeight;
                 document.getElementById('toolbar-raster-width').value = prefs.rasterWidth;
                 document.getElementById('toolbar-raster-height').value = prefs.rasterHeight;
-                
+
                 // Save the default raster size to localStorage
                 // This way refresh after "New" will show defaults
                 this.saveRasterSize();
-                
-                // Clear client props for the new project
-                localStorage.removeItem('ledRasterClientProps');
-                
+
                 // Fit to view
                 setTimeout(() => {
                     window.canvasRenderer.fitToView();
                 }, 100);
-
-                // New project starts a fresh undo/redo chain
-                this.resetHistory('Initial State');
             });
     }
 
@@ -2036,22 +2031,19 @@ class LEDRasterApp {
             }
         });
         
-        // Screen Name checkboxes on other tabs
-        ['show-label-name-cabinet', 'show-label-name-data', 'show-label-name-power'].forEach(id => {
+        // Screen Name checkboxes on other tabs — each writes its own per-tab property
+        const tabLabelMap = {
+            'show-label-name-cabinet': 'showLabelNameCabinet',
+            'show-label-name-data': 'showLabelNameDataFlow',
+            'show-label-name-power': 'showLabelNamePower'
+        };
+        Object.entries(tabLabelMap).forEach(([id, prop]) => {
             const checkbox = document.getElementById(id);
             if (checkbox) {
                 checkbox.addEventListener('change', () => {
                     if (this.currentLayer) {
                         this.applyToSelectedLayers(layer => {
-                            layer.showLabelName = checkbox.checked;
-                        });
-                        // Update all Screen Name checkboxes to match
-                        document.getElementById('show-label-name').checked = checkbox.checked;
-                        const others = ['show-label-name-cabinet', 'show-label-name-data', 'show-label-name-power'];
-                        others.forEach(otherId => {
-                            if (otherId !== id && document.getElementById(otherId)) {
-                                document.getElementById(otherId).checked = checkbox.checked;
-                            }
+                            layer[prop] = checkbox.checked;
                         });
                         this.updateLayers(this.getSelectedLayers());
                         window.canvasRenderer.render();
@@ -4464,7 +4456,13 @@ class LEDRasterApp {
             if (powerLabelBgColorVal !== null) layer.powerLabelBgColor = powerLabelBgColorVal;
             if (powerLabelTextColorVal !== null) layer.powerLabelTextColor = powerLabelTextColorVal;
 
-            if (showLabelNameVal !== null) layer.showLabelName = showLabelNameVal;
+            if (showLabelNameVal !== null) {
+                const vm = window.canvasRenderer ? window.canvasRenderer.viewMode : 'pixel-map';
+                if (vm === 'cabinet-id') layer.showLabelNameCabinet = showLabelNameVal;
+                else if (vm === 'data-flow') layer.showLabelNameDataFlow = showLabelNameVal;
+                else if (vm === 'power') layer.showLabelNamePower = showLabelNameVal;
+                else layer.showLabelName = showLabelNameVal;
+            }
             if (showLabelSizePxVal !== null) layer.showLabelSizePx = showLabelSizePxVal;
             if (showLabelSizeMVal !== null) layer.showLabelSizeM = showLabelSizeMVal;
             if (showLabelSizeFtVal !== null) layer.showLabelSizeFt = showLabelSizeFtVal;
@@ -4674,7 +4672,14 @@ class LEDRasterApp {
         }
         
         // Load per-layer label settings (with proper defaults)
-        const showLabelName = getCommon(l => l.showLabelName !== undefined ? l.showLabelName : true);
+        // Each tab reads its own per-tab property, falling back to global showLabelName, then true
+        const _getLabelNameForTab = (l, prop) => l[prop] !== undefined ? l[prop] : (l.showLabelName !== undefined ? l.showLabelName : true);
+        const vm = window.canvasRenderer ? window.canvasRenderer.viewMode : 'pixel-map';
+        let showLabelName;
+        if (vm === 'cabinet-id') showLabelName = getCommon(l => _getLabelNameForTab(l, 'showLabelNameCabinet'));
+        else if (vm === 'data-flow') showLabelName = getCommon(l => _getLabelNameForTab(l, 'showLabelNameDataFlow'));
+        else if (vm === 'power') showLabelName = getCommon(l => _getLabelNameForTab(l, 'showLabelNamePower'));
+        else showLabelName = getCommon(l => l.showLabelName !== undefined ? l.showLabelName : true);
         setCheckbox('show-label-name', showLabelName);
         setCheckbox('show-label-size-px', getCommon(l => l.showLabelSizePx || false));
         setCheckbox('show-label-size-m', getCommon(l => l.showLabelSizeM || false));
@@ -4705,15 +4710,15 @@ class LEDRasterApp {
         setCheckbox('show-offset-bl', getCommon(l => l.showOffsetBL || false));
         setCheckbox('show-offset-br', getCommon(l => l.showOffsetBR || false));
         
-        // Update Screen Name checkboxes on all tabs
+        // Update Screen Name checkboxes on all tabs — each reads its own per-tab property
         if (document.getElementById('show-label-name-cabinet')) {
-            setCheckbox('show-label-name-cabinet', showLabelName);
+            setCheckbox('show-label-name-cabinet', getCommon(l => _getLabelNameForTab(l, 'showLabelNameCabinet')));
         }
         if (document.getElementById('show-label-name-data')) {
-            setCheckbox('show-label-name-data', showLabelName);
+            setCheckbox('show-label-name-data', getCommon(l => _getLabelNameForTab(l, 'showLabelNameDataFlow')));
         }
         if (document.getElementById('show-label-name-power')) {
-            setCheckbox('show-label-name-power', showLabelName);
+            setCheckbox('show-label-name-power', getCommon(l => _getLabelNameForTab(l, 'showLabelNamePower')));
         }
         
         // Load Data Flow settings - with hex fields
@@ -7503,9 +7508,7 @@ class LEDRasterApp {
                     try {
                         const projectData = JSON.parse(event.target.result);
                         sendClientLog('load_project_file_start', { name: projectData.name || 'Unnamed', layers: projectData.layers ? projectData.layers.length : 0 });
-                        // Prevent previous project's id-based client-props from contaminating
-                        // freshly loaded external files.
-                        localStorage.removeItem('ledRasterClientProps');
+                        this.resetApplicationState();
                         this.project = projectData;
                         if (this.project.layers) {
                             this.project.layers.forEach(layer => {
@@ -7523,8 +7526,10 @@ class LEDRasterApp {
                         }
 
                         // Show locally right away (even if server sync fails)
-                        this.currentLayer = this.project.layers ? this.project.layers[0] : null;
                         this.updateUI();
+                        if (this.project.layers && this.project.layers.length > 0) {
+                            this.selectLayer(this.project.layers[0]);
+                        }
                         this.saveClientSideProperties();
                         window.canvasRenderer.fitToView();
 
@@ -7546,8 +7551,10 @@ class LEDRasterApp {
                                         this.normalizeLoadedPowerFlowPattern(layer);
                                     });
                                 }
-                                this.currentLayer = this.project.layers[0] || null;
                                 this.updateUI();
+                                if (this.project.layers && this.project.layers.length > 0) {
+                                    this.selectLayer(this.project.layers[0]);
+                                }
                                 this.saveClientSideProperties();
                                 window.canvasRenderer.fitToView();
                                 // Push all layers to server so client-side properties
@@ -7581,6 +7588,13 @@ class LEDRasterApp {
             if (input.parentNode) input.parentNode.removeChild(input);
         };
         input.click();
+    }
+
+    resetApplicationState() {
+        this.selectedLayerIds = new Set();
+        this.currentLayer = null;
+        localStorage.removeItem('ledRasterClientProps');
+        this.resetHistory('Initial State');
     }
 
     applyMissingLayerDefaults(layer) {
@@ -7976,6 +7990,9 @@ class LEDRasterApp {
             cabinetIdPosition: layer.cabinetIdPosition,
             cabinetIdColor: layer.cabinetIdColor,
             showLabelName: layer.showLabelName,
+            showLabelNameCabinet: layer.showLabelNameCabinet,
+            showLabelNameDataFlow: layer.showLabelNameDataFlow,
+            showLabelNamePower: layer.showLabelNamePower,
             showLabelSizePx: layer.showLabelSizePx,
             showLabelSizeM: layer.showLabelSizeM,
             showLabelSizeFt: layer.showLabelSizeFt,
@@ -8188,6 +8205,9 @@ class LEDRasterApp {
             cabinetIdPosition: this.clipboard.cabinetIdPosition,
             cabinetIdColor: this.clipboard.cabinetIdColor,
             showLabelName: this.clipboard.showLabelName,
+            showLabelNameCabinet: this.clipboard.showLabelNameCabinet,
+            showLabelNameDataFlow: this.clipboard.showLabelNameDataFlow,
+            showLabelNamePower: this.clipboard.showLabelNamePower,
             showLabelSizePx: this.clipboard.showLabelSizePx,
             showLabelSizeM: this.clipboard.showLabelSizeM,
             showLabelSizeFt: this.clipboard.showLabelSizeFt,
