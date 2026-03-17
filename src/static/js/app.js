@@ -4689,15 +4689,10 @@ class LEDRasterApp {
         }
         
         // Load per-layer label settings (with proper defaults)
-        // Each tab reads its own per-tab property, falling back to global showLabelName, then true
+        // show-label-name always reflects the pixel-map property (showLabelName).
+        // Per-tab checkboxes (show-label-name-cabinet etc.) are set separately below.
         const _getLabelNameForTab = (l, prop) => l[prop] !== undefined ? l[prop] : (l.showLabelName !== undefined ? l.showLabelName : true);
-        const vm = window.canvasRenderer ? window.canvasRenderer.viewMode : 'pixel-map';
-        let showLabelName;
-        if (vm === 'cabinet-id') showLabelName = getCommon(l => _getLabelNameForTab(l, 'showLabelNameCabinet'));
-        else if (vm === 'data-flow') showLabelName = getCommon(l => _getLabelNameForTab(l, 'showLabelNameDataFlow'));
-        else if (vm === 'power') showLabelName = getCommon(l => _getLabelNameForTab(l, 'showLabelNamePower'));
-        else showLabelName = getCommon(l => l.showLabelName !== undefined ? l.showLabelName : true);
-        setCheckbox('show-label-name', showLabelName);
+        setCheckbox('show-label-name', getCommon(l => l.showLabelName !== undefined ? l.showLabelName : true));
         setCheckbox('show-label-size-px', getCommon(l => l.showLabelSizePx || false));
         setCheckbox('show-label-size-m', getCommon(l => l.showLabelSizeM || false));
         setCheckbox('show-label-size-ft', getCommon(l => l.showLabelSizeFt || false));
