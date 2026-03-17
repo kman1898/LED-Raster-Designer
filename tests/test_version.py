@@ -148,8 +148,14 @@ def test_api_update_check_force(client):
 # ── Version consistency across all sources ────────────────────────
 
 def _extract_version(text):
-    """Extract a version like 1.0, 0.6.5, or 0.6.3.6 from text (with or without v prefix)."""
-    m = re.search(r'v?(\d+\.\d+(?:\.\d+){0,2})', text)
+    """Extract a version like 1.0, 0.6.5, or 0.6.3.6 from text (with or without v prefix).
+    Tries v-prefixed first (most reliable), then falls back to 3+ part versions."""
+    # Try v-prefixed version first (e.g. v0.6.5, v1.0)
+    m = re.search(r'v(\d+\.\d+(?:\.\d+){0,2})', text)
+    if m:
+        return m.group(1)
+    # Fall back to non-prefixed 3+ part versions to avoid matching CSS like "0.6em"
+    m = re.search(r'(\d+\.\d+\.\d+(?:\.\d+)?)', text)
     return m.group(1) if m else None
 
 
