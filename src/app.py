@@ -443,8 +443,27 @@ def get_server_session():
         'start_time': SERVER_START_TIME
     })
 
-# ── Server-side preferences (shared across all clients) ──
-server_preferences = {}
+# ── Server-side preferences (shared across all clients, persisted to disk) ──
+PREFERENCES_FILE = os.path.join(LOG_DIR_PATH, 'preferences.json')
+
+def _load_preferences_from_disk():
+    try:
+        if os.path.isfile(PREFERENCES_FILE):
+            with open(PREFERENCES_FILE, 'r') as f:
+                return json.load(f)
+    except Exception as e:
+        print(f'[Preferences] Error loading {PREFERENCES_FILE}: {e}')
+    return {}
+
+def _save_preferences_to_disk(prefs):
+    try:
+        os.makedirs(os.path.dirname(PREFERENCES_FILE), exist_ok=True)
+        with open(PREFERENCES_FILE, 'w') as f:
+            json.dump(prefs, f, indent=2)
+    except Exception as e:
+        print(f'[Preferences] Error saving {PREFERENCES_FILE}: {e}')
+
+server_preferences = _load_preferences_from_disk()
 
 @app.route('/api/preferences', methods=['GET'])
 def get_preferences():
@@ -456,6 +475,7 @@ def save_preferences():
     global server_preferences
     data = request.json or {}
     server_preferences = data
+    _save_preferences_to_disk(data)
     log_event('save_preferences', {'keys': list(data.keys())})
     socketio.emit('preferences_updated', server_preferences)
     return jsonify({'status': 'success'})
