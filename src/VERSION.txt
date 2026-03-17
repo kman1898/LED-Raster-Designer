@@ -1,6 +1,11 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.6.4.1 - March 17, 2026
+----------------------------
+ CHANGES:
+ - Version bump for continued development on dev/draft branch.
+
 v0.6.4.0 - March 16, 2026
 ----------------------------
  BUG FIXES:
