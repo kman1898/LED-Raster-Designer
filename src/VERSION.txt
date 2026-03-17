@@ -1,6 +1,84 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.6.5 - March 17, 2026
+----------------------------
+ CHANGES:
+ - Help tooltip panel is now permanently visible (removed close button).
+ - Removed "Show Help Tooltip" menu item from Help menu (no longer needed).
+ - Panel weight and preferences now support decimal values (e.g. 18.8 kg).
+
+v0.6.4.9 - March 17, 2026
+----------------------------
+ FEATURES:
+ - Preferences are now stored server-side and shared across all connected
+   clients (Mac/Windows). No more per-browser localStorage divergence.
+ - Color picker modal is now draggable by its header. Canvas remains
+   pannable/zoomable while the color picker is open.
+ - Increased help tooltip panel height for better readability.
+ - Added zoom level tooltip to help panel.
+ BUG FIXES:
+ - Fixed "Fit" button tooltip saying "canvas" instead of "raster".
+
+v0.6.4.8 - March 17, 2026
+----------------------------
+ BUG FIXES:
+ - Fixed color picker on Windows targeting wrong color when opening for the
+   second color swatch. The picker callback was captured at creation time and
+   never updated; now uses dynamic callback reference so each swatch click
+   correctly targets color1 or color2.
+
+v0.6.4.7 - March 17, 2026
+----------------------------
+ BUG FIXES:
+ - Fixed color picker crash on Windows (hexToRgbLocal not defined).
+ - Fixed clicking on the selection marker ring picking white/black instead of
+   the underlying wheel color — wheel is now redrawn clean before reading.
+ - Fixed color picker auto-applying color when opening "Show Colors" modal
+   on Windows — no longer changes the layer color until user picks one.
+ - Fixed vertical brightness slider not working on Windows/Chrome/Edge by
+   using cross-browser vertical slider CSS.
+ - Fixed help tooltip panel appearing in wrong position — now correctly
+   sits at the bottom of the right sidebar below the Screens panel.
+
+ UI IMPROVEMENTS:
+ - Added selection marker ring on the color wheel showing the currently
+   picked position. Brightness slider now updates the color at the marker.
+ - Added Resolume-style help tooltip panel in the bottom-right corner below
+   the Screens panel. Hover any control to see contextual help. Closeable
+   with X button, re-openable via Help > Show Help Tooltip.
+ - Added comprehensive tooltips to all sidebar panels, toolbar buttons,
+   view tabs, canvas controls, and input fields.
+ - Replaced gear icon with a standard Preferences button next to Export.
+ - Moved Offset Labels into the Labels panel, removing the separate Offsets
+   section for a cleaner sidebar.
+ - Color picker is now non-blocking — canvas can be panned and zoomed while
+   the color picker is open. The color picker is also draggable by its header.
+
+v0.6.4.3 - March 17, 2026
+----------------------------
+ UI IMPROVEMENTS:
+ - Moved keyboard shortcuts and mouse controls out of the About dialog into
+   their own dedicated modal accessible via Help > Keyboard Shortcuts.
+ - About dialog now shows only version, author credit, and GitHub link.
+ - Added "Mouse & Trackpad" section documenting pan, zoom, move, and toggle
+   controls alongside keyboard shortcuts.
+
+v0.6.4.2 - March 17, 2026
+----------------------------
+ BUG FIXES:
+ - Fixed per-tab Screen Name checkbox cross-contamination — unchecking Screen Name
+   on one tab (e.g. Pixel Map) no longer affects other tabs (Cabinet ID, Data Flow,
+   Power). Each tab's Screen Name toggle now operates independently.
+ - Root cause: loadLayerToInputs() was overwriting the pixel-map checkbox with the
+   current tab's value, so updateLayerFromInputs() would write that value back to
+   showLabelName, corrupting the pixel-map setting.
+
+v0.6.4.1 - March 17, 2026
+----------------------------
+ CHANGES:
+ - Version bump for continued development on dev/draft branch.
+
 v0.6.4.0 - March 16, 2026
 ----------------------------
  BUG FIXES:

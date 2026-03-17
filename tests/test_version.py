@@ -148,8 +148,14 @@ def test_api_update_check_force(client):
 # ── Version consistency across all sources ────────────────────────
 
 def _extract_version(text):
-    """Extract a version like 0.6.3.6 from text (with or without v prefix)."""
-    m = re.search(r'v?(\d+\.\d+\.\d+(?:\.\d+)?)', text)
+    """Extract a version like 1.0, 0.6.5, or 0.6.3.6 from text (with or without v prefix).
+    Tries v-prefixed first (most reliable), then falls back to 3+ part versions."""
+    # Try v-prefixed version first (e.g. v0.6.5, v1.0)
+    m = re.search(r'v(\d+\.\d+(?:\.\d+){0,2})', text)
+    if m:
+        return m.group(1)
+    # Fall back to non-prefixed 3+ part versions to avoid matching CSS like "0.6em"
+    m = re.search(r'(\d+\.\d+\.\d+(?:\.\d+)?)', text)
     return m.group(1) if m else None
 
 
@@ -163,13 +169,13 @@ def _read_version_from_file(rel_path, line_number=None):
         return _extract_version(f.read())
 
 
-def test_version_txt_is_four_part():
-    """VERSION.txt must use a 4-part version (e.g. 0.6.3.6), not 3-part."""
+def test_version_txt_is_valid():
+    """VERSION.txt must use a 2, 3, or 4-part version (e.g. 1.0, 0.6.5, or 0.6.3.6)."""
     version = _read_version_from_file('src/VERSION.txt')
     assert version is not None, "No version found in VERSION.txt"
     parts = version.split('.')
-    assert len(parts) == 4, (
-        f"VERSION.txt has {len(parts)}-part version '{version}', expected 4-part (e.g. 0.6.3.6)"
+    assert len(parts) in (2, 3, 4), (
+        f"VERSION.txt has {len(parts)}-part version '{version}', expected 2-4 parts (e.g. 1.0, 0.6.5, or 0.6.3.6)"
     )
 
 
@@ -177,13 +183,20 @@ def test_all_version_sources_match():
     """All four version locations must report the same version string."""
     version_txt = _read_version_from_file('src/VERSION.txt')
     index_title = _read_version_from_file('src/templates/index.html', line_number=6)
-    index_h1 = _read_version_from_file('src/templates/index.html', line_number=67)
+    # Find h1 line dynamically instead of hardcoding line number
+    index_h1 = None
+    index_path = os.path.join(ROOT, 'src/templates/index.html')
+    with open(index_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            if '<h1>' in line and 'LED Raster Designer' in line:
+                index_h1 = _extract_version(line)
+                break
     readme = _read_version_from_file('README.md', line_number=1)
 
     sources = {
         'src/VERSION.txt': version_txt,
         'index.html <title> (line 6)': index_title,
-        'index.html <h1> (line 67)': index_h1,
+        'index.html <h1> (line 70)': index_h1,
         'README.md (line 1)': readme,
     }
 

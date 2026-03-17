@@ -443,6 +443,23 @@ def get_server_session():
         'start_time': SERVER_START_TIME
     })
 
+# ── Server-side preferences (shared across all clients) ──
+server_preferences = {}
+
+@app.route('/api/preferences', methods=['GET'])
+def get_preferences():
+    log_event('get_preferences')
+    return jsonify(server_preferences)
+
+@app.route('/api/preferences', methods=['PUT'])
+def save_preferences():
+    global server_preferences
+    data = request.json or {}
+    server_preferences = data
+    log_event('save_preferences', {'keys': list(data.keys())})
+    socketio.emit('preferences_updated', server_preferences)
+    return jsonify({'status': 'success'})
+
 @app.route('/api/project/new', methods=['POST'])
 def new_project():
     global current_project, next_layer_id
@@ -514,7 +531,8 @@ def add_layer():
         'powerCustomPaths', 'powerCustomIndex', 'showPowerCircuitInfo',
         'powerColorCodedView',
         'powerCircuitColors',
-        'showLabelName', 'showLabelSizePx', 'showLabelSizeM', 'showLabelSizeFt', 'showLabelWeight',
+        'showLabelName', 'showLabelNameCabinet', 'showLabelNameDataFlow', 'showLabelNamePower',
+        'showLabelSizePx', 'showLabelSizeM', 'showLabelSizeFt', 'showLabelWeight',
         'showLabelInfo', 'labelsColor', 'labelsFontSize', 'useFractionalInches',
         'showOffsetTL', 'showOffsetTR', 'showOffsetBL', 'showOffsetBR',
         'showDataFlowPortInfo',
@@ -592,7 +610,8 @@ def update_layer(layer_id):
                 'border_color_pixel', 'border_color_cabinet', 'border_color_data', 'border_color_power',
                 'cabinetIdStyle', 'cabinetIdPosition', 'cabinetIdColor',
                 'dataFlowPattern', 'arrowLineWidth', 'arrowSize', 'arrowColor', 'primaryColor', 'primaryTextColor', 'backupColor', 'backupTextColor',
-                'showLabelName', 'showLabelSizePx', 'showLabelSizeM', 'showLabelSizeFt', 'showLabelWeight', 'showLabelInfo',
+                'showLabelName', 'showLabelNameCabinet', 'showLabelNameDataFlow', 'showLabelNamePower',
+                'showLabelSizePx', 'showLabelSizeM', 'showLabelSizeFt', 'showLabelWeight', 'showLabelInfo',
                 'labelsColor', 'labelsFontSize', 'infoLabelSize', 'useFractionalInches',
                 'showOffsetTL', 'showOffsetTR', 'showOffsetBL', 'showOffsetBR',
                 'powerVoltage', 'powerVoltageCustom', 'powerAmperage', 'powerAmperageCustom', 'panelWatts',

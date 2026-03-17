@@ -265,6 +265,10 @@ function pushRecentColor(hex) {
 }
 
 function openColorPopover(anchor, onPick, onShowColors) {
+    // Always update the current callbacks so re-opens target the right color
+    colorPickerState.popoverOnPick = onPick;
+    colorPickerState.popoverOnShowColors = onShowColors;
+
     if (!colorPickerState.popover) {
         const pop = document.createElement('div');
         pop.className = 'color-popover';
@@ -280,8 +284,8 @@ function openColorPopover(anchor, onPick, onShowColors) {
                     sw.style.background = color;
                 }
                 sw.addEventListener('click', () => {
-                    if (color) {
-                        onPick(color);
+                    if (color && colorPickerState.popoverOnPick) {
+                        colorPickerState.popoverOnPick(color);
                     }
                     closeColorPopover();
                 });
@@ -293,7 +297,7 @@ function openColorPopover(anchor, onPick, onShowColors) {
         showBtn.textContent = 'Show Colors...';
         showBtn.addEventListener('click', () => {
             closeColorPopover();
-            onShowColors();
+            if (colorPickerState.popoverOnShowColors) colorPickerState.popoverOnShowColors();
         });
         pop.appendChild(grid);
         pop.appendChild(showBtn);
@@ -337,7 +341,19 @@ function closeColorPopover() {
     }
 }
 
+function hexToRgbLocal(hex) {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result ? {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16)
+    } : { r: 255, g: 0, b: 0 };
+}
+
 function openColorModal(onPick) {
+    // Always update the current callback so re-opens target the right color
+    colorPickerState.modalOnPick = onPick;
+
     if (!colorPickerState.modal) {
         const backdrop = document.createElement('div');
         backdrop.className = 'color-modal-backdrop';
@@ -457,7 +473,7 @@ function openColorModal(onPick) {
                     const eye = new EyeDropper();
                     const result = await eye.open();
                     if (result && result.sRGBHex) {
-                        onPick(result.sRGBHex);
+                        if (colorPickerState.modalOnPick) colorPickerState.modalOnPick(result.sRGBHex);
                         currentSwatch.style.background = result.sRGBHex;
                     }
                     return;
@@ -466,7 +482,7 @@ function openColorModal(onPick) {
                     return;
                 }
             }
-            startCanvasEyedropper(onPick, currentSwatch);
+            startCanvasEyedropper(colorPickerState.modalOnPick, currentSwatch);
         });
         bottomRow.appendChild(currentSwatch);
         bottomRow.appendChild(dropper);
@@ -493,6 +509,32 @@ function openColorModal(onPick) {
         colorPickerState.spectrumCtx = spectrum.getContext('2d');
         colorPickerState.sliderSection = sliderSection;
         colorPickerState.sliderRows = { rgb: rgbRows, hsb: hsbRows, gray: grayRow, cmyk: cmykRows };
+
+        // Make the color modal draggable by its header
+        header.style.cursor = 'grab';
+        let dragOffsetX = 0, dragOffsetY = 0, isDragging = false;
+        header.addEventListener('mousedown', (e) => {
+            if (e.target === close) return; // don't drag when clicking close
+            isDragging = true;
+            header.style.cursor = 'grabbing';
+            const rect = modal.getBoundingClientRect();
+            dragOffsetX = e.clientX - rect.left;
+            dragOffsetY = e.clientY - rect.top;
+            e.preventDefault();
+        });
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            // Remove centering transform, use absolute positioning
+            modal.style.transform = 'none';
+            modal.style.left = `${e.clientX - dragOffsetX}px`;
+            modal.style.top = `${e.clientY - dragOffsetY}px`;
+        });
+        document.addEventListener('mouseup', () => {
+            if (isDragging) {
+                isDragging = false;
+                header.style.cursor = 'grab';
+            }
+        });
 
         drawHueWheel(colorPickerState.wheelCtx, wheel.width, wheel.height);
         drawSpectrum(colorPickerState.spectrumCtx, spectrum.width, spectrum.height);
@@ -527,10 +569,8 @@ function openColorModal(onPick) {
         });
         setMode('wheel');
 
-        const setColorFromHex = (hex) => {
+        const updateColorUI = (hex) => {
             if (!hex) return;
-            onPick(hex);
-            renderRecentSwatches(onPick);
             if (colorPickerState.currentSwatch) colorPickerState.currentSwatch.style.background = hex;
             const rgb = hexToRgbLocal(hex);
             if (!rgb) return;
@@ -550,12 +590,50 @@ function openColorModal(onPick) {
             cmykRows.k.range.value = cmyk.k; cmykRows.k.val.value = cmyk.k;
         };
 
+        const setColorFromHex = (hex) => {
+            if (!hex) return;
+            if (colorPickerState.modalOnPick) colorPickerState.modalOnPick(hex);
+            pushRecentColor(hex);
+            renderRecentSwatches();
+            updateColorUI(hex);
+        };
+
+        // Selection marker state
+        let markerX = -1, markerY = -1;
+        const drawMarker = () => {
+            // Redraw wheel then overlay marker
+            drawHueWheel(colorPickerState.wheelCtx, wheel.width, wheel.height);
+            if (markerX >= 0 && markerY >= 0) {
+                const ctx = colorPickerState.wheelCtx;
+                ctx.beginPath();
+                ctx.arc(markerX, markerY, 8, 0, 2 * Math.PI);
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.arc(markerX, markerY, 9.5, 0, 2 * Math.PI);
+                ctx.strokeStyle = '#000000';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+            }
+        };
+
         const pickFromWheel = (e) => {
             const rect = wheel.getBoundingClientRect();
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
+            // Check if within wheel radius
+            const cx = wheel.width / 2, cy = wheel.height / 2;
+            const r = Math.min(cx, cy) - 2;
+            const dx = x - cx, dy = y - cy;
+            if (Math.sqrt(dx * dx + dy * dy) > r) return;
+            // Redraw clean wheel first so we read the actual color, not the marker
+            drawHueWheel(colorPickerState.wheelCtx, wheel.width, wheel.height);
             const color = getWheelColor(colorPickerState.wheelCtx, x, y, parseInt(slider.value, 10) / 100);
             if (color) {
+                markerX = x;
+                markerY = y;
+                drawMarker();
                 setColorFromHex(color);
             }
         };
@@ -565,9 +643,15 @@ function openColorModal(onPick) {
         window.addEventListener('mousemove', (e) => { if (dragging) pickFromWheel(e); });
         window.addEventListener('mouseup', () => { dragging = false; });
         slider.addEventListener('input', () => {
-            const hex = colorPickerState.recent[0];
-            if (hex) setColorFromHex(hex);
-            renderRecentSwatches(onPick);
+            if (markerX >= 0 && markerY >= 0) {
+                // Re-pick color at current marker position with new brightness
+                drawHueWheel(colorPickerState.wheelCtx, wheel.width, wheel.height);
+                const color = getWheelColor(colorPickerState.wheelCtx, markerX, markerY, parseInt(slider.value, 10) / 100);
+                if (color) {
+                    setColorFromHex(color);
+                }
+                drawMarker();
+            }
         });
 
         const spectrumPick = (e) => {
@@ -631,22 +715,30 @@ function openColorModal(onPick) {
             const rgb = cmykToRgb(parseInt(cmykRows.c.range.value, 10), parseInt(cmykRows.m.range.value, 10), parseInt(cmykRows.y.range.value, 10), parseInt(cmykRows.k.range.value, 10));
             setColorFromHex(rgbToHex(rgb.r, rgb.g, rgb.b));
         });
-        let pointerDownInside = false;
-        backdrop.addEventListener('mousedown', (e) => {
-            pointerDownInside = modal.contains(e.target);
+        // Make color modal draggable by its header
+        header.style.cursor = 'move';
+        header.addEventListener('mousedown', (e) => {
+            if (e.target === close) return;
+            const rect = modal.getBoundingClientRect();
+            const dragOffsetX = e.clientX - rect.left;
+            const dragOffsetY = e.clientY - rect.top;
+            const onMove = (ev) => {
+                modal.style.left = (ev.clientX - dragOffsetX) + 'px';
+                modal.style.top = (ev.clientY - dragOffsetY) + 'px';
+                modal.style.transform = 'none';
+            };
+            const onUp = () => {
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+            };
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+            e.preventDefault();
         });
-        backdrop.addEventListener('mouseup', (e) => {
-            if (!pointerDownInside && e.target === backdrop) {
-                closeColorModal();
-            }
-            pointerDownInside = false;
-        });
-        modal.addEventListener('mousedown', (e) => e.stopPropagation());
-        modal.addEventListener('click', (e) => e.stopPropagation());
-        setColorFromHex(colorPickerState.recent[0] || '#FFFFFF');
+        updateColorUI(colorPickerState.recent[0] || '#FFFFFF');
     }
 
-    renderRecentSwatches(onPick);
+    renderRecentSwatches();
     if (colorPickerState.currentSwatch && colorPickerState.recent[0]) {
         colorPickerState.currentSwatch.style.background = colorPickerState.recent[0];
     }
@@ -786,7 +878,7 @@ function rgbToHex(r, g, b) {
     return `#${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase();
 }
 
-function renderRecentSwatches(onPick) {
+function renderRecentSwatches() {
     const container = colorPickerState.modal?.querySelector('.recent-swatches');
     if (!container) return;
     container.innerHTML = '';
@@ -794,7 +886,9 @@ function renderRecentSwatches(onPick) {
         const sw = document.createElement('div');
         sw.className = 'recent-swatch';
         sw.style.background = color;
-        sw.addEventListener('click', () => onPick(color));
+        sw.addEventListener('click', () => {
+            if (colorPickerState.modalOnPick) colorPickerState.modalOnPick(color);
+        });
         container.appendChild(sw);
     });
 }
@@ -858,12 +952,13 @@ class LEDRasterApp {
     }
     
     // Check if server has restarted - if so, clear localStorage
+    // Also fetch server-side preferences so all clients share the same config
     async checkServerSession() {
         try {
             const response = await fetch('/api/server-session');
             const data = await response.json();
             const savedSessionId = localStorage.getItem('ledRasterServerSession');
-            
+
             if (savedSessionId !== data.session_id) {
                 // Server has restarted - clear all localStorage and use defaults
                 console.log('Server restarted - clearing localStorage and using defaults');
@@ -882,6 +977,32 @@ class LEDRasterApp {
             console.error('Error checking server session:', e);
             // On error, just load from localStorage
             this.loadRasterSize();
+        }
+
+        // Fetch server-side preferences (shared across all clients)
+        try {
+            const prefResp = await fetch('/api/preferences');
+            const serverPrefs = await prefResp.json();
+            if (serverPrefs && Object.keys(serverPrefs).length > 0) {
+                // Server has preferences — use them (overrides localStorage)
+                this._serverPreferences = serverPrefs;
+                console.log('Loaded server-side preferences:', Object.keys(serverPrefs));
+            } else {
+                // No server prefs yet — seed from localStorage if available
+                const localPrefs = this.getLocalPreferences();
+                if (Object.keys(localPrefs).length > 0) {
+                    this._serverPreferences = localPrefs;
+                    // Push local prefs to server so other clients pick them up
+                    fetch('/api/preferences', {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(localPrefs)
+                    });
+                    console.log('Seeded server preferences from localStorage');
+                }
+            }
+        } catch (e) {
+            console.error('Error fetching server preferences:', e);
         }
     }
     
@@ -997,8 +1118,12 @@ class LEDRasterApp {
                 this.updateUI();
             }
         });
+        this.socket.on('preferences_updated', (prefs) => {
+            console.log('WEBSOCKET preferences_updated received');
+            this._serverPreferences = prefs;
+        });
     }
-    
+
     // Extract client-side only properties from a layer
     extractClientSideProps(layer) {
         return {
@@ -1474,7 +1599,22 @@ class LEDRasterApp {
         }
     }
     
+    /**
+     * Clean-slate reset before loading a new project or creating a new one.
+     * Clears selection state, stale client props, and undo history so that
+     * sidebar inputs cannot leak old values into the incoming project.
+     */
+    resetApplicationState() {
+        this.selectedLayerIds = new Set();
+        this.currentLayer = null;
+        this.lastSelectedLayerId = null;
+        this.selectionAnchorLayerId = null;
+        localStorage.removeItem('ledRasterClientProps');
+        this.resetHistory('Initial State');
+    }
+
     createNewProject() {
+        this.resetApplicationState();
         fetch('/api/project/new', {
             method: 'POST'
         })
@@ -1484,7 +1624,7 @@ class LEDRasterApp {
                 this.dedupeProjectLayers('new_project');
                 sendClientLog('new_project');
                 this.updateUI();
-                
+
                 // Auto-select first layer if available
                 if (this.project.layers && this.project.layers.length > 0) {
                     this.selectLayer(this.project.layers[0]);
@@ -1493,28 +1633,22 @@ class LEDRasterApp {
                 } else {
                     this.currentLayer = null;
                 }
-                
+
                 // Reset raster dimensions to defaults
                 const prefs = this.getPreferences();
                 window.canvasRenderer.rasterWidth = prefs.rasterWidth;
                 window.canvasRenderer.rasterHeight = prefs.rasterHeight;
                 document.getElementById('toolbar-raster-width').value = prefs.rasterWidth;
                 document.getElementById('toolbar-raster-height').value = prefs.rasterHeight;
-                
+
                 // Save the default raster size to localStorage
                 // This way refresh after "New" will show defaults
                 this.saveRasterSize();
-                
-                // Clear client props for the new project
-                localStorage.removeItem('ledRasterClientProps');
-                
+
                 // Fit to view
                 setTimeout(() => {
                     window.canvasRenderer.fitToView();
                 }, 100);
-
-                // New project starts a fresh undo/redo chain
-                this.resetHistory('Initial State');
             });
     }
 
@@ -2036,22 +2170,19 @@ class LEDRasterApp {
             }
         });
         
-        // Screen Name checkboxes on other tabs
-        ['show-label-name-cabinet', 'show-label-name-data', 'show-label-name-power'].forEach(id => {
+        // Screen Name checkboxes on other tabs — each writes its own per-tab property
+        const tabLabelMap = {
+            'show-label-name-cabinet': 'showLabelNameCabinet',
+            'show-label-name-data': 'showLabelNameDataFlow',
+            'show-label-name-power': 'showLabelNamePower'
+        };
+        Object.entries(tabLabelMap).forEach(([id, prop]) => {
             const checkbox = document.getElementById(id);
             if (checkbox) {
                 checkbox.addEventListener('change', () => {
                     if (this.currentLayer) {
                         this.applyToSelectedLayers(layer => {
-                            layer.showLabelName = checkbox.checked;
-                        });
-                        // Update all Screen Name checkboxes to match
-                        document.getElementById('show-label-name').checked = checkbox.checked;
-                        const others = ['show-label-name-cabinet', 'show-label-name-data', 'show-label-name-power'];
-                        others.forEach(otherId => {
-                            if (otherId !== id && document.getElementById(otherId)) {
-                                document.getElementById(otherId).checked = checkbox.checked;
-                            }
+                            layer[prop] = checkbox.checked;
                         });
                         this.updateLayers(this.getSelectedLayers());
                         window.canvasRenderer.render();
@@ -3150,6 +3281,10 @@ class LEDRasterApp {
             this.saveProjectToFile();
         });
         
+        document.getElementById('btn-preferences').addEventListener('click', () => {
+            this.openPreferencesModal();
+        });
+
         document.getElementById('btn-export').addEventListener('click', () => {
             // Show export modal
             document.getElementById('export-modal').style.display = 'block';
@@ -4392,6 +4527,9 @@ class LEDRasterApp {
         
         // Per-layer label settings
         const showLabelNameEl = document.getElementById('show-label-name');
+        const showLabelNameCabinetEl = document.getElementById('show-label-name-cabinet');
+        const showLabelNameDataEl = document.getElementById('show-label-name-data');
+        const showLabelNamePowerEl = document.getElementById('show-label-name-power');
         const showLabelSizePxEl = document.getElementById('show-label-size-px');
         const showLabelSizeMEl = document.getElementById('show-label-size-m');
         const showLabelSizeFtEl = document.getElementById('show-label-size-ft');
@@ -4402,6 +4540,9 @@ class LEDRasterApp {
         const useFractionalInchesEl = document.getElementById('use-fractional-inches');
 
         const showLabelNameVal = showLabelNameEl && !showLabelNameEl.indeterminate ? showLabelNameEl.checked : null;
+        const showLabelNameCabinetVal = showLabelNameCabinetEl && !showLabelNameCabinetEl.indeterminate ? showLabelNameCabinetEl.checked : null;
+        const showLabelNameDataVal = showLabelNameDataEl && !showLabelNameDataEl.indeterminate ? showLabelNameDataEl.checked : null;
+        const showLabelNamePowerVal = showLabelNamePowerEl && !showLabelNamePowerEl.indeterminate ? showLabelNamePowerEl.checked : null;
         const showLabelSizePxVal = showLabelSizePxEl && !showLabelSizePxEl.indeterminate ? showLabelSizePxEl.checked : null;
         const showLabelSizeMVal = showLabelSizeMEl && !showLabelSizeMEl.indeterminate ? showLabelSizeMEl.checked : null;
         const showLabelSizeFtVal = showLabelSizeFtEl && !showLabelSizeFtEl.indeterminate ? showLabelSizeFtEl.checked : null;
@@ -4465,6 +4606,9 @@ class LEDRasterApp {
             if (powerLabelTextColorVal !== null) layer.powerLabelTextColor = powerLabelTextColorVal;
 
             if (showLabelNameVal !== null) layer.showLabelName = showLabelNameVal;
+            if (showLabelNameCabinetVal !== null) layer.showLabelNameCabinet = showLabelNameCabinetVal;
+            if (showLabelNameDataVal !== null) layer.showLabelNameDataFlow = showLabelNameDataVal;
+            if (showLabelNamePowerVal !== null) layer.showLabelNamePower = showLabelNamePowerVal;
             if (showLabelSizePxVal !== null) layer.showLabelSizePx = showLabelSizePxVal;
             if (showLabelSizeMVal !== null) layer.showLabelSizeM = showLabelSizeMVal;
             if (showLabelSizeFtVal !== null) layer.showLabelSizeFt = showLabelSizeFtVal;
@@ -4674,8 +4818,11 @@ class LEDRasterApp {
         }
         
         // Load per-layer label settings (with proper defaults)
-        const showLabelName = getCommon(l => l.showLabelName !== undefined ? l.showLabelName : true);
-        setCheckbox('show-label-name', showLabelName);
+        // show-label-name always reflects the pixel-map property (showLabelName).
+        // Per-tab checkboxes (show-label-name-cabinet etc.) are set separately below.
+        // Helper: read per-tab property, falling back to global showLabelName → true
+        const _tabLabel = (l, prop) => l[prop] !== undefined ? l[prop] : (l.showLabelName !== undefined ? l.showLabelName : true);
+        setCheckbox('show-label-name', getCommon(l => l.showLabelName !== undefined ? l.showLabelName : true));
         setCheckbox('show-label-size-px', getCommon(l => l.showLabelSizePx || false));
         setCheckbox('show-label-size-m', getCommon(l => l.showLabelSizeM || false));
         setCheckbox('show-label-size-ft', getCommon(l => l.showLabelSizeFt || false));
@@ -4705,15 +4852,16 @@ class LEDRasterApp {
         setCheckbox('show-offset-bl', getCommon(l => l.showOffsetBL || false));
         setCheckbox('show-offset-br', getCommon(l => l.showOffsetBR || false));
         
-        // Update Screen Name checkboxes on all tabs
+        // Update Screen Name checkboxes on other tabs — each reads its own per-tab property
+        // with fallback to global showLabelName → true (backwards compat with old project files)
         if (document.getElementById('show-label-name-cabinet')) {
-            setCheckbox('show-label-name-cabinet', showLabelName);
+            setCheckbox('show-label-name-cabinet', getCommon(l => _tabLabel(l, 'showLabelNameCabinet')));
         }
         if (document.getElementById('show-label-name-data')) {
-            setCheckbox('show-label-name-data', showLabelName);
+            setCheckbox('show-label-name-data', getCommon(l => _tabLabel(l, 'showLabelNameDataFlow')));
         }
         if (document.getElementById('show-label-name-power')) {
-            setCheckbox('show-label-name-power', showLabelName);
+            setCheckbox('show-label-name-power', getCommon(l => _tabLabel(l, 'showLabelNamePower')));
         }
         
         // Load Data Flow settings - with hex fields
@@ -5756,14 +5904,23 @@ class LEDRasterApp {
         };
     }
 
-    getPreferences() {
-        const defaults = this.getPreferencesDefaults();
+    getLocalPreferences() {
         let saved = {};
         try {
             saved = JSON.parse(localStorage.getItem('appPreferences') || '{}');
         } catch (e) {
             saved = {};
         }
+        return saved;
+    }
+
+    getPreferences() {
+        const defaults = this.getPreferencesDefaults();
+        // Server preferences take priority (shared across all clients),
+        // fall back to localStorage for backwards compatibility
+        const saved = (this._serverPreferences && Object.keys(this._serverPreferences).length > 0)
+            ? this._serverPreferences
+            : this.getLocalPreferences();
         return { ...defaults, ...saved };
     }
 
@@ -5843,6 +6000,13 @@ class LEDRasterApp {
             saveBtn.addEventListener('click', () => {
                 const prefs = this.readPreferencesFromUI();
                 localStorage.setItem('appPreferences', JSON.stringify(prefs));
+                // Save to server so all clients share the same preferences
+                this._serverPreferences = prefs;
+                fetch('/api/preferences', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(prefs)
+                });
                 sendClientLog('preferences_saved', {
                     projectName: this.project ? this.project.name : null,
                     layers: this.project && this.project.layers ? this.project.layers.length : 0,
@@ -5864,6 +6028,13 @@ class LEDRasterApp {
             resetBtn.addEventListener('click', () => {
                 const defaults = this.getPreferencesDefaults();
                 localStorage.setItem('appPreferences', JSON.stringify(defaults));
+                // Sync reset to server
+                this._serverPreferences = defaults;
+                fetch('/api/preferences', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(defaults)
+                });
                 sendClientLog('preferences_reset', {
                     projectName: this.project ? this.project.name : null,
                     layers: this.project && this.project.layers ? this.project.layers.length : 0,
@@ -5980,7 +6151,7 @@ class LEDRasterApp {
         const readNum = (id, fallback) => {
             const el = document.getElementById(id);
             if (!el) return fallback;
-            const val = parseInt(el.value, 10);
+            const val = parseFloat(el.value);
             return Number.isFinite(val) && val > 0 ? val : fallback;
         };
         const readStr = (id, fallback) => {
@@ -6177,12 +6348,28 @@ class LEDRasterApp {
                     window.canvasRenderer.render();
                 }
                 break;
+            case 'keyboard-shortcuts':
+                this.openShortcutsModal();
+                break;
             case 'about':
                 this.openAboutModal();
                 break;
             default:
                 break;
         }
+    }
+
+    openShortcutsModal() {
+        var modal = document.getElementById('shortcuts-modal');
+        if (!modal) return;
+        modal.style.display = 'block';
+        var closeBtn = document.getElementById('shortcuts-close');
+        if (closeBtn) {
+            closeBtn.onclick = function() { modal.style.display = 'none'; };
+        }
+        modal.onclick = function(e) {
+            if (e.target === modal) modal.style.display = 'none';
+        };
     }
 
     openAboutModal() {
@@ -7503,9 +7690,8 @@ class LEDRasterApp {
                     try {
                         const projectData = JSON.parse(event.target.result);
                         sendClientLog('load_project_file_start', { name: projectData.name || 'Unnamed', layers: projectData.layers ? projectData.layers.length : 0 });
-                        // Prevent previous project's id-based client-props from contaminating
-                        // freshly loaded external files.
-                        localStorage.removeItem('ledRasterClientProps');
+                        // Clean-slate reset so stale sidebar values can't leak into new project
+                        this.resetApplicationState();
                         this.project = projectData;
                         if (this.project.layers) {
                             this.project.layers.forEach(layer => {
@@ -7523,8 +7709,10 @@ class LEDRasterApp {
                         }
 
                         // Show locally right away (even if server sync fails)
-                        this.currentLayer = this.project.layers ? this.project.layers[0] : null;
                         this.updateUI();
+                        if (this.project.layers && this.project.layers.length > 0) {
+                            this.selectLayer(this.project.layers[0]);
+                        }
                         this.saveClientSideProperties();
                         window.canvasRenderer.fitToView();
 
@@ -7546,8 +7734,10 @@ class LEDRasterApp {
                                         this.normalizeLoadedPowerFlowPattern(layer);
                                     });
                                 }
-                                this.currentLayer = this.project.layers[0] || null;
                                 this.updateUI();
+                                if (this.project.layers && this.project.layers.length > 0) {
+                                    this.selectLayer(this.project.layers[0]);
+                                }
                                 this.saveClientSideProperties();
                                 window.canvasRenderer.fitToView();
                                 // Push all layers to server so client-side properties
@@ -7581,6 +7771,13 @@ class LEDRasterApp {
             if (input.parentNode) input.parentNode.removeChild(input);
         };
         input.click();
+    }
+
+    resetApplicationState() {
+        this.selectedLayerIds = new Set();
+        this.currentLayer = null;
+        localStorage.removeItem('ledRasterClientProps');
+        this.resetHistory('Initial State');
     }
 
     applyMissingLayerDefaults(layer) {
@@ -7976,6 +8173,9 @@ class LEDRasterApp {
             cabinetIdPosition: layer.cabinetIdPosition,
             cabinetIdColor: layer.cabinetIdColor,
             showLabelName: layer.showLabelName,
+            showLabelNameCabinet: layer.showLabelNameCabinet,
+            showLabelNameDataFlow: layer.showLabelNameDataFlow,
+            showLabelNamePower: layer.showLabelNamePower,
             showLabelSizePx: layer.showLabelSizePx,
             showLabelSizeM: layer.showLabelSizeM,
             showLabelSizeFt: layer.showLabelSizeFt,
@@ -8188,6 +8388,9 @@ class LEDRasterApp {
             cabinetIdPosition: this.clipboard.cabinetIdPosition,
             cabinetIdColor: this.clipboard.cabinetIdColor,
             showLabelName: this.clipboard.showLabelName,
+            showLabelNameCabinet: this.clipboard.showLabelNameCabinet,
+            showLabelNameDataFlow: this.clipboard.showLabelNameDataFlow,
+            showLabelNamePower: this.clipboard.showLabelNamePower,
             showLabelSizePx: this.clipboard.showLabelSizePx,
             showLabelSizeM: this.clipboard.showLabelSizeM,
             showLabelSizeFt: this.clipboard.showLabelSizeFt,
@@ -8285,4 +8488,23 @@ document.addEventListener('DOMContentLoaded', () => {
     registerGlobalClientLogging();
     sendClientLog('client_ready', { ua: navigator.userAgent });
     window.app = new LEDRasterApp();
+
+    // Resolume-style help tooltip panel
+    const helpBody = document.getElementById('help-tooltip-body');
+    const helpPanel = document.getElementById('help-tooltip-panel');
+    const helpDefaultText = 'Move your mouse over the interface element that you would like more info about.';
+    if (helpBody) {
+        document.addEventListener('mouseover', (e) => {
+            const tip = e.target.closest('[data-tooltip]');
+            if (tip) {
+                helpBody.textContent = tip.dataset.tooltip;
+            }
+        });
+        document.addEventListener('mouseout', (e) => {
+            const tip = e.target.closest('[data-tooltip]');
+            if (tip) {
+                helpBody.textContent = helpDefaultText;
+            }
+        });
+    }
 });
