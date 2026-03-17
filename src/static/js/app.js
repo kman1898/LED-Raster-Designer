@@ -6151,7 +6151,7 @@ class LEDRasterApp {
         const readNum = (id, fallback) => {
             const el = document.getElementById(id);
             if (!el) return fallback;
-            const val = parseInt(el.value, 10);
+            const val = parseFloat(el.value);
             return Number.isFinite(val) && val > 0 ? val : fallback;
         };
         const readStr = (id, fallback) => {
