@@ -1,6 +1,14 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.6.4.8 - March 17, 2026
+----------------------------
+ BUG FIXES:
+ - Fixed color picker on Windows targeting wrong color when opening for the
+   second color swatch. The picker callback was captured at creation time and
+   never updated; now uses dynamic callback reference so each swatch click
+   correctly targets color1 or color2.
+
 v0.6.4.7 - March 17, 2026
 ----------------------------
  BUG FIXES:

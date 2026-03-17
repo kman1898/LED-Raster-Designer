@@ -265,6 +265,10 @@ function pushRecentColor(hex) {
 }
 
 function openColorPopover(anchor, onPick, onShowColors) {
+    // Always update the current callbacks so re-opens target the right color
+    colorPickerState.popoverOnPick = onPick;
+    colorPickerState.popoverOnShowColors = onShowColors;
+
     if (!colorPickerState.popover) {
         const pop = document.createElement('div');
         pop.className = 'color-popover';
@@ -280,8 +284,8 @@ function openColorPopover(anchor, onPick, onShowColors) {
                     sw.style.background = color;
                 }
                 sw.addEventListener('click', () => {
-                    if (color) {
-                        onPick(color);
+                    if (color && colorPickerState.popoverOnPick) {
+                        colorPickerState.popoverOnPick(color);
                     }
                     closeColorPopover();
                 });
@@ -293,7 +297,7 @@ function openColorPopover(anchor, onPick, onShowColors) {
         showBtn.textContent = 'Show Colors...';
         showBtn.addEventListener('click', () => {
             closeColorPopover();
-            onShowColors();
+            if (colorPickerState.popoverOnShowColors) colorPickerState.popoverOnShowColors();
         });
         pop.appendChild(grid);
         pop.appendChild(showBtn);
@@ -347,6 +351,9 @@ function hexToRgbLocal(hex) {
 }
 
 function openColorModal(onPick) {
+    // Always update the current callback so re-opens target the right color
+    colorPickerState.modalOnPick = onPick;
+
     if (!colorPickerState.modal) {
         const backdrop = document.createElement('div');
         backdrop.className = 'color-modal-backdrop';
@@ -466,7 +473,7 @@ function openColorModal(onPick) {
                     const eye = new EyeDropper();
                     const result = await eye.open();
                     if (result && result.sRGBHex) {
-                        onPick(result.sRGBHex);
+                        if (colorPickerState.modalOnPick) colorPickerState.modalOnPick(result.sRGBHex);
                         currentSwatch.style.background = result.sRGBHex;
                     }
                     return;
@@ -475,7 +482,7 @@ function openColorModal(onPick) {
                     return;
                 }
             }
-            startCanvasEyedropper(onPick, currentSwatch);
+            startCanvasEyedropper(colorPickerState.modalOnPick, currentSwatch);
         });
         bottomRow.appendChild(currentSwatch);
         bottomRow.appendChild(dropper);
@@ -559,9 +566,9 @@ function openColorModal(onPick) {
 
         const setColorFromHex = (hex) => {
             if (!hex) return;
-            onPick(hex);
+            if (colorPickerState.modalOnPick) colorPickerState.modalOnPick(hex);
             pushRecentColor(hex);
-            renderRecentSwatches(onPick);
+            renderRecentSwatches();
             updateColorUI(hex);
         };
 
@@ -705,7 +712,7 @@ function openColorModal(onPick) {
         updateColorUI(colorPickerState.recent[0] || '#FFFFFF');
     }
 
-    renderRecentSwatches(onPick);
+    renderRecentSwatches();
     if (colorPickerState.currentSwatch && colorPickerState.recent[0]) {
         colorPickerState.currentSwatch.style.background = colorPickerState.recent[0];
     }
@@ -845,7 +852,7 @@ function rgbToHex(r, g, b) {
     return `#${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase();
 }
 
-function renderRecentSwatches(onPick) {
+function renderRecentSwatches() {
     const container = colorPickerState.modal?.querySelector('.recent-swatches');
     if (!container) return;
     container.innerHTML = '';
@@ -853,7 +860,9 @@ function renderRecentSwatches(onPick) {
         const sw = document.createElement('div');
         sw.className = 'recent-swatch';
         sw.style.background = color;
-        sw.addEventListener('click', () => onPick(color));
+        sw.addEventListener('click', () => {
+            if (colorPickerState.modalOnPick) colorPickerState.modalOnPick(color);
+        });
         container.appendChild(sw);
     });
 }
