@@ -1,6 +1,14 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.6.5.4 - March 18, 2026
+----------------------------
+- Add: Keyboard shortcut Ctrl/Cmd+0 for Fit to View (Photoshop standard)
+- Add: Keyboard shortcut Ctrl/Cmd+1 for Actual Size 1:1 (Photoshop standard)
+- Add: Keyboard shortcut Ctrl/Cmd+; for Toggle Snap (Photoshop standard)
+- Add: Toggle Snap option in View menu
+- Update: Tooltips and Help > Keyboard Shortcuts modal with new shortcuts
+
 v0.6.5.3 - March 17, 2026
 ----------------------------
 - Fix: Canvas not re-rendering after server response on pixel-map and cabinet-id tabs

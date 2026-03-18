@@ -6366,6 +6366,13 @@ class LEDRasterApp {
                     window.canvasRenderer.render();
                 }
                 break;
+            case 'toggle-snap':
+                if (window.canvasRenderer) {
+                    window.canvasRenderer.magneticSnap = !window.canvasRenderer.magneticSnap;
+                    const snapCb = document.getElementById('magnetic-snap');
+                    if (snapCb) snapCb.checked = window.canvasRenderer.magneticSnap;
+                }
+                break;
             case 'keyboard-shortcuts':
                 this.openShortcutsModal();
                 break;
