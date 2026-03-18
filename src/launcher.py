@@ -1,6 +1,8 @@
 """
 LED Raster Designer - Unified Launcher
-Companion-style Tkinter window + pystray system tray for macOS and Windows.
+Companion-style Tkinter window + menu bar icon (rumps on macOS, pystray on Windows).
+On macOS, rumps runs on the main thread (required by NSApplication).
+Tkinter window runs on a background thread.
 """
 import sys
 import os
@@ -55,11 +57,10 @@ class LauncherWindow:
         self._start_server()
 
         # Handle window close button (X) = Hide
-        self.root.protocol('WM_DELETE_WINDOW', self._hide_to_tray)
+        self.root.protocol('WM_DELETE_WINDOW', self._hide_window)
 
         if self.settings.get('start_minimized', False):
             self.root.withdraw()
-            self._start_tray()
 
     # ------------------------------------------------------------------
     # UI Construction
@@ -205,7 +206,7 @@ class LauncherWindow:
             bg='#444444', fg='#ffffff', relief='solid', bd=1,
             padx=15, pady=8, activebackground='#555', activeforeground='#ffffff',
             highlightbackground='#666666',
-            command=self._hide_to_tray
+            command=self._hide_window
         )
         self.hide_btn.pack(side='left', expand=True, fill='x', padx=(5, 5))
 
@@ -250,15 +251,12 @@ class LauncherWindow:
         self._update_status(restarting=True)
 
         def do_restart():
-            # Stop the current server
             try:
                 from app import socketio
                 socketio.stop()
             except Exception:
                 pass
             time.sleep(0.5)
-
-            # Start again with new settings
             self.root.after(0, self._start_server)
 
         threading.Thread(target=do_restart, daemon=True).start()
@@ -278,8 +276,7 @@ class LauncherWindow:
         host = self.settings.get('interface', '127.0.0.1')
         port = self.settings.get('port', 8050)
         display_host = host if host != '0.0.0.0' else '127.0.0.1'
-        url = f'http://{display_host}:{port}'
-        self.url_label.config(text=url)
+        self.url_label.config(text=f'http://{display_host}:{port}')
 
     def _get_url(self):
         """Get the current server URL."""
@@ -293,7 +290,6 @@ class LauncherWindow:
     # ------------------------------------------------------------------
 
     def _on_interface_change(self, event=None):
-        """Handle interface dropdown change."""
         selected_label = self.iface_var.get()
         for ip, label in self.interfaces:
             if label == selected_label:
@@ -303,7 +299,6 @@ class LauncherWindow:
         self._restart_server()
 
     def _on_port_change(self):
-        """Handle port change button click."""
         try:
             new_port = int(self.port_var.get())
             if new_port < 1024 or new_port > 65535:
@@ -326,24 +321,17 @@ class LauncherWindow:
         set_run_at_login(enabled)
 
     def _launch_gui(self):
-        """Open the web app in the default browser."""
         webbrowser.open(self._get_url())
 
-    def _hide_to_tray(self):
-        """Hide the launcher window. On macOS, the app stays in the Dock.
-        On Windows/Linux, start a tray icon if available."""
+    def _hide_window(self):
         self.root.withdraw()
-        if sys.platform != 'darwin' and not self.tray_icon:
-            self._start_tray()
 
     def _show_window(self, event=None):
-        """Show the launcher window."""
         self.root.deiconify()
         self.root.lift()
         self.root.focus_force()
 
     def _quit(self):
-        """Save settings and exit."""
         save_settings(self.settings)
         if self.tray_icon:
             try:
@@ -353,16 +341,16 @@ class LauncherWindow:
         os._exit(0)
 
     # ------------------------------------------------------------------
-    # System Tray
+    # System Tray (Windows/Linux only)
     # ------------------------------------------------------------------
 
     def _start_tray(self):
-        """Start the system tray icon using pystray."""
+        """Start the system tray icon using pystray (Windows/Linux only)."""
         try:
             import pystray
             from pystray import MenuItem, Menu
         except ImportError:
-            return  # pystray not available
+            return
 
         icon_image = self._create_tray_icon()
 
@@ -392,30 +380,21 @@ class LauncherWindow:
                 MenuItem('Quit LED Raster Designer', quit_app),
             )
         )
-
         threading.Thread(target=self.tray_icon.run, daemon=True).start()
 
     def _create_tray_icon(self):
-        """Create a lightbulb tray icon programmatically."""
         from PIL import Image, ImageDraw
-
         img = Image.new('RGBA', (64, 64), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
-
-        # Bulb (yellow circle)
         draw.ellipse([16, 4, 48, 36], fill='#FFD700', outline='#FFA500', width=2)
-        # Base (gray rectangle)
         draw.rectangle([22, 34, 42, 44], fill='#808080', outline='#606060', width=1)
         draw.rectangle([24, 44, 40, 48], fill='#707070', outline='#606060', width=1)
-        # Screw tip
         draw.polygon([(28, 48), (36, 48), (32, 56)], fill='#606060')
-        # Light rays
         draw.line([32, 0, 32, 4], fill='#FFD700', width=2)
         draw.line([8, 20, 14, 20], fill='#FFD700', width=2)
         draw.line([50, 20, 56, 20], fill='#FFD700', width=2)
         draw.line([14, 8, 18, 12], fill='#FFD700', width=2)
         draw.line([50, 8, 46, 12], fill='#FFD700', width=2)
-
         return img
 
     # ------------------------------------------------------------------
@@ -423,13 +402,11 @@ class LauncherWindow:
     # ------------------------------------------------------------------
 
     def _get_version(self):
-        """Read the app version from VERSION.txt."""
         try:
             from updater import get_current_version
             return get_current_version()
         except Exception:
             pass
-        # Fallback: read VERSION.txt directly
         try:
             vpath = os.path.join(BASE_DIR, 'VERSION.txt')
             with open(vpath, 'r') as f:
@@ -442,14 +419,65 @@ class LauncherWindow:
         return '0.0.0'
 
 
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
 def main():
+    if sys.platform == 'darwin':
+        _main_mac()
+    else:
+        _main_other()
+
+
+def _main_mac():
+    """macOS: rumps menu bar on main thread, Tkinter window on background thread."""
+    import rumps
+
+    # Create shared settings / state
+    settings = load_settings()
+
+    # -- Build and start the Tkinter window on a background thread --
     root = tk.Tk()
     launcher = LauncherWindow(root)
 
-    # On macOS, handle Dock icon click to show window
-    if sys.platform == 'darwin':
-        root.createcommand('::tk::mac::ReopenApplication', launcher._show_window)
+    tk_thread = threading.Thread(target=root.mainloop, daemon=True)
+    tk_thread.start()
 
+    # -- rumps menu bar icon on main thread (required by macOS) --
+    class LEDMenuBar(rumps.App):
+        def __init__(self):
+            super().__init__(
+                name='LED Raster Designer',
+                title='💡',
+                quit_button=None,
+            )
+            self.menu = [
+                rumps.MenuItem('Open in Browser', callback=self._open_browser),
+                rumps.MenuItem('Show Launcher', callback=self._show_launcher),
+                None,  # separator
+                rumps.MenuItem('Quit LED Raster Designer', callback=self._quit_app),
+            ]
+
+        def _open_browser(self, _):
+            launcher._launch_gui()
+
+        def _show_launcher(self, _):
+            launcher.root.after(0, launcher._show_window)
+
+        def _quit_app(self, _):
+            rumps.quit_application()
+            launcher._quit()
+
+    menu_bar = LEDMenuBar()
+    menu_bar.run()
+
+
+def _main_other():
+    """Windows/Linux: Tkinter on main thread, pystray on background thread."""
+    root = tk.Tk()
+    launcher = LauncherWindow(root)
+    launcher._start_tray()
     root.mainloop()
 
 
