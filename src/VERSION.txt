@@ -1,23 +1,19 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
-v0.6.5.11 - March 18, 2026
+v0.6.5.12 - March 18, 2026
 ----------------------------
-- NEW: Companion-style launcher window (Tkinter) with dark theme
-- NEW: Network interface selector (default 127.0.0.1, option for All Interfaces)
-- NEW: Configurable port with live restart (no state loss)
-- NEW: Start Minimized option — launch straight to system tray
-- NEW: Run at Login option (macOS LaunchAgent / Windows registry)
-- NEW: Unified launcher replaces separate Mac/Windows launchers
-- NEW: Menu bar options: Open in Browser, Show Launcher, Quit (rumps on macOS)
-- NEW: Clicking Dock icon reopens launcher window on macOS
+- CHANGED: Reverted to separate launcher_mac.py (rumps) and launcher_pc.py (pystray)
+- CHANGED: Removed Tkinter launcher window — caused NSApplication crashes on macOS
+- NEW: rumps menu bar with full settings: network interface, port, start minimized, run at login
+- NEW: pystray system tray with same settings on Windows/Linux
+- NEW: Network interface submenu with checkmarks for current selection
+- NEW: Port change dialog (rumps window on macOS)
+- NEW: Start Minimized toggle — skips auto-open browser on launch
+- NEW: Run at Login toggle (macOS LaunchAgent / Windows registry)
 - NEW: 22 launcher settings tests (persistence, network detection, Run at Login)
-- FIX: macOS crash on Hide — restored rumps menu bar icon on main thread
 - FIX: Slow macOS CI — cached get_network_interfaces() across test class
-- CHANGED: macOS uses rumps for menu bar (main thread), Tkinter on background thread
-- CHANGED: Windows/Linux uses pystray for system tray, Tkinter on main thread
 - CHANGED: Settings persisted to JSON in platform config directory
-- IMPROVED: Hide/Quit buttons more readable with borders and white text
 
 v0.6.5.5 - March 18, 2026
 ----------------------------
