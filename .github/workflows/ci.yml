@@ -49,10 +49,12 @@ jobs:
           source .venv/bin/activate
           pip install flake8
 
-      - name: Run flake8
+      - name: Run flake8 on all Python files
         run: |
           source .venv/bin/activate
-          flake8 src/app.py --count --select=E9,F63,F7,F82 --show-source --statistics
+          # Fatal errors (syntax, undefined names) — must pass
+          flake8 src/app.py src/updater.py src/launcher_settings.py --count --select=E9,F63,F7,F82 --show-source --statistics
+          # Style warnings — advisory
           flake8 src/app.py --count --exit-zero --max-complexity=15 --max-line-length=150 --statistics
 
   test:
@@ -125,30 +127,117 @@ jobs:
           python -m pytest tests/test_browser.py -v --tb=short --browser chromium
 
   build-check:
-    name: Build Check
+    name: Build Integrity
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
 
-      - name: Verify PyInstaller spec references exist
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
         run: |
-          echo "Checking that all files referenced in spec exist..."
-          # Extract entry scripts from spec
-          for f in launcher_mac.py launcher_pc.py app.py launcher_settings.py; do
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install -r src/requirements.txt
+
+      - name: Verify all source files referenced in spec exist
+        run: |
+          echo "=== Checking PyInstaller spec file references ==="
+          for f in launcher_mac.py launcher_pc.py app.py launcher_settings.py updater.py; do
             if [ ! -f "src/$f" ]; then
-              echo "ERROR: src/$f referenced in spec but does not exist!"
+              echo "FAIL: src/$f referenced in spec but does not exist!"
               exit 1
             fi
+            echo "  OK: src/$f"
           done
-          echo "All spec references valid."
 
-      - name: Verify launcher files exist
+      - name: Verify spec version matches VERSION.txt
         run: |
-          # Ensure both platform launchers exist
-          test -f src/launcher_mac.py || { echo "ERROR: src/launcher_mac.py missing"; exit 1; }
-          test -f src/launcher_pc.py || { echo "ERROR: src/launcher_pc.py missing"; exit 1; }
-          test -f src/launcher_settings.py || { echo "ERROR: src/launcher_settings.py missing"; exit 1; }
-          echo "All launcher files present."
+          echo "=== Checking spec version matches VERSION.txt ==="
+          VER_TXT=$(head -20 src/VERSION.txt | grep -oE 'v[0-9]+\.[0-9]+(\.[0-9]+)*' | head -1 | sed 's/^v//')
+          VER_SPEC=$(grep -oE "CFBundleShortVersionString.*'[0-9]+\.[0-9]+[^']*'" src/led_raster_designer.spec | grep -oE "[0-9]+\.[0-9]+[^']*")
+          echo "  VERSION.txt: $VER_TXT"
+          echo "  Spec file:   $VER_SPEC"
+          if [ "$VER_TXT" != "$VER_SPEC" ]; then
+            echo "FAIL: Version mismatch! VERSION.txt=$VER_TXT but spec=$VER_SPEC"
+            exit 1
+          fi
+          echo "  OK: Versions match"
+
+      - name: Compile all Python source files
+        run: |
+          echo "=== Compiling all Python files ==="
+          source .venv/bin/activate
+          ERRORS=0
+          for f in src/*.py; do
+            if python -m py_compile "$f" 2>&1; then
+              echo "  OK: $f"
+            else
+              echo "  FAIL: $f"
+              ERRORS=$((ERRORS + 1))
+            fi
+          done
+          if [ $ERRORS -gt 0 ]; then
+            echo "FAIL: $ERRORS files failed to compile"
+            exit 1
+          fi
+
+      - name: Verify static assets referenced in HTML exist
+        run: |
+          echo "=== Checking static file references ==="
+          ERRORS=0
+          # Check CSS references
+          for ref in $(grep -oE 'href="/static/[^"]*"' src/templates/index.html | sed 's/href="\/static\///;s/"//'); do
+            if [ ! -f "src/static/$ref" ]; then
+              echo "  FAIL: src/static/$ref referenced in HTML but missing"
+              ERRORS=$((ERRORS + 1))
+            else
+              echo "  OK: src/static/$ref"
+            fi
+          done
+          # Check JS references
+          for ref in $(grep -oE 'src="/static/[^"]*"' src/templates/index.html | sed 's/src="\/static\///;s/"//'); do
+            if [ ! -f "src/static/$ref" ]; then
+              echo "  FAIL: src/static/$ref referenced in HTML but missing"
+              ERRORS=$((ERRORS + 1))
+            else
+              echo "  OK: src/static/$ref"
+            fi
+          done
+          if [ $ERRORS -gt 0 ]; then
+            echo "FAIL: $ERRORS static files missing"
+            exit 1
+          fi
+
+      - name: Verify template files exist
+        run: |
+          echo "=== Checking template files ==="
+          test -f src/templates/index.html || { echo "FAIL: index.html missing"; exit 1; }
+          echo "  OK: src/templates/index.html"
+
+      - name: Verify VERSION.txt bundled data exists
+        run: |
+          echo "=== Checking bundled data files ==="
+          test -f src/VERSION.txt || { echo "FAIL: VERSION.txt missing"; exit 1; }
+          echo "  OK: src/VERSION.txt"
+          # Verify it has a parseable version
+          grep -qE '^v[0-9]+\.[0-9]+' src/VERSION.txt || { echo "FAIL: VERSION.txt has no valid version line"; exit 1; }
+          echo "  OK: VERSION.txt has valid version"
+
+      - name: Verify Python imports resolve
+        run: |
+          echo "=== Checking critical imports ==="
+          source .venv/bin/activate
+          python -c "import flask; print(f'  OK: flask {flask.__version__}')"
+          python -c "import flask_socketio; print('  OK: flask_socketio')"
+          python -c "from PIL import Image; print('  OK: PIL/Pillow')"
+          python -c "import numpy; print(f'  OK: numpy {numpy.__version__}')"
+          python -c "import certifi; print('  OK: certifi')"
+          python -c "import reportlab; print('  OK: reportlab')"
+          # launcher_settings should import cleanly on any platform
+          python -c "from src.launcher_settings import load_settings, get_network_interfaces; print('  OK: launcher_settings')"
 
   js-lint:
     name: JS Lint
