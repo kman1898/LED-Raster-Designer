@@ -4465,12 +4465,12 @@ class LEDRasterApp {
             if (window.canvasRenderer) {
                 if (window.canvasRenderer.viewMode === 'power') {
                     this.updatePowerCapacityDisplay();
-                    window.canvasRenderer.render();
                 } else if (window.canvasRenderer.viewMode === 'data-flow') {
                     this.updatePortCapacityDisplay();
                     this.updatePortLabelEditor();
-                    window.canvasRenderer.render();
                 }
+                // Always re-render after server response to reflect final state
+                window.canvasRenderer.render();
             }
         });
     }

@@ -1,6 +1,11 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.6.5.3 - March 17, 2026
+----------------------------
+- Fix: Canvas not re-rendering after server response on pixel-map and cabinet-id tabs
+- Render was only called for power/data-flow modes after server update, causing visual changes to not appear
+
 v0.6.5.2 - March 17, 2026
 ----------------------------
 - Fix: Add Screen naming handles "Screen 1", "Screen_1" variants and uses layer count as minimum
