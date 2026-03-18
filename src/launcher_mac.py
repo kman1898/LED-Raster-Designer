@@ -91,9 +91,6 @@ def run_menubar(settings):
             status_item.set_callback(None)
 
             # Toggles
-            start_min = rumps.MenuItem('Start Minimized', callback=self._toggle_start_minimized)
-            start_min.state = 1 if self.settings.get('start_minimized', False) else 0
-
             run_login = rumps.MenuItem('Run at Login', callback=self._toggle_run_at_login)
             run_login.state = 1 if self.settings.get('run_at_login', False) else 0
 
@@ -106,7 +103,6 @@ def run_menubar(settings):
                 None,  # separator
                 status_item,
                 None,  # separator
-                start_min,
                 run_login,
                 None,  # separator
                 rumps.MenuItem('Quit LED Raster Designer', callback=self._quit_app),
@@ -167,11 +163,6 @@ def run_menubar(settings):
                         'Please enter a valid number.',
                     )
 
-        def _toggle_start_minimized(self, sender):
-            sender.state = not sender.state
-            self.settings['start_minimized'] = bool(sender.state)
-            save_settings(self.settings)
-
         def _toggle_run_at_login(self, sender):
             sender.state = not sender.state
             enabled = bool(sender.state)
@@ -197,9 +188,8 @@ def main():
     # Give the server a moment to start
     time.sleep(1.0)
 
-    # Auto-open browser (unless start minimized)
-    if not settings.get('start_minimized', False):
-        webbrowser.open(get_display_url(settings))
+    # Auto-open browser on launch
+    webbrowser.open(get_display_url(settings))
 
     # Run the menu bar app (blocks on main thread — required by macOS)
     run_menubar(settings)

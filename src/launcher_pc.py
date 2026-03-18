@@ -113,13 +113,6 @@ def run_tray(settings):
     display_host = host if host != '0.0.0.0' else '127.0.0.1'
 
     # Toggle callbacks
-    def toggle_start_minimized(icon, item):
-        settings['start_minimized'] = not settings.get('start_minimized', False)
-        save_settings(settings)
-
-    def start_minimized_checked(item):
-        return settings.get('start_minimized', False)
-
     def toggle_run_at_login(icon, item):
         enabled = not settings.get('run_at_login', False)
         settings['run_at_login'] = enabled
@@ -141,8 +134,6 @@ def run_tray(settings):
             Menu.SEPARATOR,
             MenuItem(f'Running on {display_host}:{port}', None, enabled=False),
             Menu.SEPARATOR,
-            MenuItem('Start Minimized', toggle_start_minimized,
-                     checked=start_minimized_checked),
             MenuItem('Run at Login', toggle_run_at_login,
                      checked=run_at_login_checked),
             Menu.SEPARATOR,
@@ -164,9 +155,8 @@ def main():
     # Give the server a moment to start
     time.sleep(1.5)
 
-    # Auto-open browser (unless start minimized)
-    if not settings.get('start_minimized', False):
-        webbrowser.open(get_display_url(settings))
+    # Auto-open browser on launch
+    webbrowser.open(get_display_url(settings))
 
     # Run the system tray (blocks main thread)
     run_tray(settings)

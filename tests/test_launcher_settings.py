@@ -35,7 +35,6 @@ class TestLoadSaveSettings:
         settings = launcher_settings.load_settings()
         assert settings['port'] == 8050
         assert settings['interface'] == '127.0.0.1'
-        assert settings['start_minimized'] is False
         assert settings['run_at_login'] is False
 
     def test_save_and_load_roundtrip(self, tmp_path, monkeypatch):
@@ -43,14 +42,12 @@ class TestLoadSaveSettings:
         settings = {
             'port': 9090,
             'interface': '192.168.1.100',
-            'start_minimized': True,
             'run_at_login': False,
         }
         launcher_settings.save_settings(settings)
         loaded = launcher_settings.load_settings()
         assert loaded['port'] == 9090
         assert loaded['interface'] == '192.168.1.100'
-        assert loaded['start_minimized'] is True
         assert loaded['run_at_login'] is False
 
     def test_load_handles_corrupted_json(self, tmp_path, monkeypatch):
@@ -72,7 +69,6 @@ class TestLoadSaveSettings:
         assert loaded['port'] == 1234
         # Other fields should have defaults
         assert loaded['interface'] == '127.0.0.1'
-        assert loaded['start_minimized'] is False
 
     def test_save_creates_valid_json(self, tmp_path, monkeypatch):
         monkeypatch.setattr(launcher_settings, 'get_config_dir', lambda: str(tmp_path))
@@ -132,9 +128,6 @@ class TestDefaults:
 
     def test_default_interface(self):
         assert launcher_settings.DEFAULTS['interface'] == '127.0.0.1'
-
-    def test_default_start_minimized(self):
-        assert launcher_settings.DEFAULTS['start_minimized'] is False
 
     def test_default_run_at_login(self):
         assert launcher_settings.DEFAULTS['run_at_login'] is False

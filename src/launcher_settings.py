@@ -11,7 +11,6 @@ import platform
 DEFAULTS = {
     'port': 8050,
     'interface': '127.0.0.1',
-    'start_minimized': False,
     'run_at_login': False,
 }
 
