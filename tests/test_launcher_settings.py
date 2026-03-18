@@ -85,41 +85,42 @@ class TestLoadSaveSettings:
 
 
 class TestGetNetworkInterfaces:
-    """Tests for network interface detection."""
+    """Tests for network interface detection.
 
-    def test_returns_list(self):
-        result = launcher_settings.get_network_interfaces()
-        assert isinstance(result, list)
+    Uses a class-level fixture to call get_network_interfaces() only once,
+    since socket.getaddrinfo can be very slow (~35s) on macOS CI runners.
+    """
 
-    def test_always_includes_localhost(self):
-        result = launcher_settings.get_network_interfaces()
-        ips = [ip for ip, _ in result]
+    @pytest.fixture(scope='class')
+    def interfaces(self):
+        return launcher_settings.get_network_interfaces()
+
+    def test_returns_list(self, interfaces):
+        assert isinstance(interfaces, list)
+
+    def test_always_includes_localhost(self, interfaces):
+        ips = [ip for ip, _ in interfaces]
         assert '127.0.0.1' in ips
 
-    def test_always_includes_all_interfaces(self):
-        result = launcher_settings.get_network_interfaces()
-        ips = [ip for ip, _ in result]
+    def test_always_includes_all_interfaces(self, interfaces):
+        ips = [ip for ip, _ in interfaces]
         assert '0.0.0.0' in ips
 
-    def test_localhost_is_first(self):
-        result = launcher_settings.get_network_interfaces()
-        assert result[0][0] == '127.0.0.1'
+    def test_localhost_is_first(self, interfaces):
+        assert interfaces[0][0] == '127.0.0.1'
 
-    def test_all_interfaces_is_second(self):
-        result = launcher_settings.get_network_interfaces()
-        assert result[1][0] == '0.0.0.0'
+    def test_all_interfaces_is_second(self, interfaces):
+        assert interfaces[1][0] == '0.0.0.0'
 
-    def test_returns_tuples_of_ip_and_label(self):
-        result = launcher_settings.get_network_interfaces()
-        for item in result:
+    def test_returns_tuples_of_ip_and_label(self, interfaces):
+        for item in interfaces:
             assert len(item) == 2
             ip, label = item
             assert isinstance(ip, str)
             assert isinstance(label, str)
 
-    def test_no_duplicate_ips(self):
-        result = launcher_settings.get_network_interfaces()
-        ips = [ip for ip, _ in result]
+    def test_no_duplicate_ips(self, interfaces):
+        ips = [ip for ip, _ in interfaces]
         assert len(ips) == len(set(ips))
 
 
