@@ -17,7 +17,7 @@ deps: $(VENV)
 	$(PIP) install pyinstaller
 
 mac: deps
-	$(PIP) install rumps
+	$(PIP) install pystray
 	@echo "============================================================"
 	@echo "Building LED Raster Designer for macOS..."
 	@echo "============================================================"

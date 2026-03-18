@@ -14,16 +14,11 @@ block_cipher = None
 BASE_DIR = os.path.abspath('.')
 IS_MAC = sys.platform == 'darwin'
 
-# macOS uses menu bar launcher; Windows uses system tray launcher; Linux uses app.py directly
-if IS_MAC:
-    entry_script = 'launcher_mac.py'
-elif sys.platform == 'win32':
-    entry_script = 'launcher_pc.py'
-else:
-    entry_script = 'app.py'
+# Unified launcher for all platforms (Tkinter + pystray)
+entry_script = 'launcher.py'
 
 a = Analysis(
-    [entry_script, 'app.py'],  # Analyze both launcher AND app.py for proper import tracing
+    [entry_script, 'app.py', 'launcher_settings.py'],  # Analyze launcher, settings, AND app.py
     pathex=[BASE_DIR],
     binaries=[],
     datas=[
@@ -47,8 +42,9 @@ a = Analysis(
         'reportlab.lib.pagesizes',
         'reportlab.pdfgen',
         'reportlab.pdfgen.canvas',
-    ] + (['rumps'] if IS_MAC else [])
-      + (['pystray', 'pystray._win32'] if sys.platform == 'win32' else []),
+        'pystray',
+    ] + (['pystray._darwin'] if IS_MAC else [])
+      + (['pystray._win32'] if sys.platform == 'win32' else []),
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -96,8 +92,8 @@ if IS_MAC:
         info_plist={
             'CFBundleName': 'LED Raster Designer',
             'CFBundleDisplayName': 'LED Raster Designer',
-            'CFBundleShortVersionString': '0.6.3.3',
-            'CFBundleVersion': '0.6.3.3',
+            'CFBundleShortVersionString': '0.6.6',
+            'CFBundleVersion': '0.6.6',
             'NSHighResolutionCapable': True,
             'LSUIElement': True,  # Menu bar only — no Dock icon
         },

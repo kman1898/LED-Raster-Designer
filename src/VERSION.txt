@@ -1,6 +1,17 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.6.6 - March 18, 2026
+----------------------------
+- NEW: Companion-style launcher window (Tkinter) with dark theme
+- NEW: Network interface selector (default 127.0.0.1, option for All Interfaces)
+- NEW: Configurable port with live restart (no state loss)
+- NEW: Start Minimized option — launch straight to system tray
+- NEW: Run at Login option (macOS LaunchAgent / Windows registry)
+- NEW: Unified launcher replaces separate Mac/Windows launchers
+- CHANGED: Replaced rumps (macOS-only) with pystray (cross-platform)
+- CHANGED: Settings persisted to JSON in platform config directory
+
 v0.6.5.5 - March 18, 2026
 ----------------------------
 - Change: Reorder numbering style options: A1,A2,A3 first, then 1,1 1,2 1,3, then A1,B1,C1

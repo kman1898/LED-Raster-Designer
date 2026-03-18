@@ -1660,34 +1660,39 @@ def handle_connect():
 def handle_disconnect():
     print('Client disconnected')
 
+def run_server(host='127.0.0.1', port=8050):
+    """Start the Flask-SocketIO server. Called by the launcher or __main__."""
+    socketio.run(app, host=host, port=port, debug=not getattr(sys, 'frozen', False), allow_unsafe_werkzeug=True)
+
+
 if __name__ == '__main__':
-    import socket
-    
+    import socket as _socket
+
     # Get local IP address for display
     def get_local_ip():
         try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
             s.connect(('8.8.8.8', 80))
             ip = s.getsockname()[0]
             s.close()
             return ip
         except:
             return 'unknown'
-    
+
     local_ip = get_local_ip()
-    
+
     print('=' * 60)
     print('LED RASTER DESIGNER')
     print('=' * 60)
     print('Server starting...')
-    print(f'Local access:   http://localhost:8050')
+    print(f'Local access:   http://127.0.0.1:8050')
     print(f'Network access: http://{local_ip}:8050')
     print('=' * 60)
-    
+
     # Auto-open browser when running as bundled executable
     if getattr(sys, 'frozen', False):
         import webbrowser
         import threading
-        threading.Timer(1.5, lambda: webbrowser.open('http://localhost:8050')).start()
-    
-    socketio.run(app, host='0.0.0.0', port=8050, debug=not getattr(sys, 'frozen', False), allow_unsafe_werkzeug=True)
+        threading.Timer(1.5, lambda: webbrowser.open('http://127.0.0.1:8050')).start()
+
+    run_server(host='0.0.0.0', port=8050)
