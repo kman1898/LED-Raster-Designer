@@ -202,16 +202,18 @@ class LauncherWindow:
 
         self.hide_btn = tk.Button(
             btn_frame, text='Hide', font=('Arial', 12),
-            bg=BTN_BG, fg=BTN_FG, relief='flat', bd=0,
-            padx=15, pady=8, activebackground='#444', activeforeground=FG,
+            bg='#444444', fg='#ffffff', relief='solid', bd=1,
+            padx=15, pady=8, activebackground='#555', activeforeground='#ffffff',
+            highlightbackground='#666666',
             command=self._hide_to_tray
         )
         self.hide_btn.pack(side='left', expand=True, fill='x', padx=(5, 5))
 
         self.quit_btn = tk.Button(
             btn_frame, text='Quit', font=('Arial', 12),
-            bg=BTN_BG, fg=BTN_FG, relief='flat', bd=0,
-            padx=15, pady=8, activebackground='#444', activeforeground=FG,
+            bg='#444444', fg='#ffffff', relief='solid', bd=1,
+            padx=15, pady=8, activebackground='#555', activeforeground='#ffffff',
+            highlightbackground='#666666',
             command=self._quit
         )
         self.quit_btn.pack(side='left', expand=True, fill='x', padx=(5, 0))
@@ -328,12 +330,13 @@ class LauncherWindow:
         webbrowser.open(self._get_url())
 
     def _hide_to_tray(self):
-        """Hide the launcher window and show the tray icon."""
+        """Hide the launcher window. On macOS, the app stays in the Dock.
+        On Windows/Linux, start a tray icon if available."""
         self.root.withdraw()
-        if not self.tray_icon:
+        if sys.platform != 'darwin' and not self.tray_icon:
             self._start_tray()
 
-    def _show_window(self):
+    def _show_window(self, event=None):
         """Show the launcher window."""
         self.root.deiconify()
         self.root.lift()
@@ -441,7 +444,12 @@ class LauncherWindow:
 
 def main():
     root = tk.Tk()
-    app = LauncherWindow(root)
+    launcher = LauncherWindow(root)
+
+    # On macOS, handle Dock icon click to show window
+    if sys.platform == 'darwin':
+        root.createcommand('::tk::mac::ReopenApplication', launcher._show_window)
+
     root.mainloop()
 
 
