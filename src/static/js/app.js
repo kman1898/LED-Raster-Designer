@@ -3388,13 +3388,17 @@ class LEDRasterApp {
         let maxNum = 0;
         if (this.project && this.project.layers) {
             for (const l of this.project.layers) {
-                const m = (l.name || '').match(/^Screen(\d+)$/i);
+                // Match "Screen1", "Screen 1", "Screen_1", "screen 12", etc.
+                const m = (l.name || '').match(/^Screen[\s_]*(\d+)$/i);
                 if (m) {
                     const n = parseInt(m[1], 10);
                     if (n > maxNum) maxNum = n;
                 }
             }
         }
+        // Also ensure we don't collide with the total layer count
+        const layerCount = this.project && this.project.layers ? this.project.layers.length : 0;
+        if (layerCount > maxNum) maxNum = layerCount;
         return `Screen${maxNum + 1}`;
     }
 
@@ -7551,30 +7555,33 @@ class LEDRasterApp {
             // Handle name input changes
             const nameInput = layerDiv.querySelector('.layer-name-input');
             nameInput.readOnly = true;
-            nameInput.draggable = true;
-            nameInput.addEventListener('dragstart', handleDragStart);
-            nameInput.addEventListener('focus', () => {
-                if (nameInput.readOnly) {
-                    nameInput.blur();
+            // When read-only, disable pointer events so the parent div handles drag
+            nameInput.style.pointerEvents = 'none';
+            nameInput.style.userSelect = 'none';
+
+            // Single click on the layer-header name area selects the layer (handled by layerDiv click)
+            // Double-click enables editing
+            layerDiv.addEventListener('dblclick', (e) => {
+                // Only activate edit if clicking on the name input area
+                const inputRect = nameInput.getBoundingClientRect();
+                if (e.clientX >= inputRect.left && e.clientX <= inputRect.right &&
+                    e.clientY >= inputRect.top && e.clientY <= inputRect.bottom) {
+                    e.stopPropagation();
+                    nameInput.readOnly = false;
+                    nameInput.draggable = false;
+                    nameInput.style.pointerEvents = 'auto';
+                    nameInput.style.userSelect = 'auto';
+                    nameInput.style.border = '1px solid #4A90E2';
+                    nameInput.style.background = '#1a1a1a';
+                    nameInput.focus();
+                    nameInput.select();
                 }
-            });
-            nameInput.addEventListener('mousedown', (e) => {
-                if (nameInput.readOnly) {
-                    e.preventDefault();
-                }
-            });
-            nameInput.addEventListener('dblclick', (e) => {
-                e.stopPropagation();
-                nameInput.readOnly = false;
-                nameInput.draggable = false;
-                nameInput.style.border = '1px solid #4A90E2';
-                nameInput.style.background = '#1a1a1a';
-                nameInput.focus();
-                nameInput.select();
             });
             nameInput.addEventListener('blur', () => {
                 nameInput.readOnly = true;
-                nameInput.draggable = true;
+                nameInput.draggable = false;
+                nameInput.style.pointerEvents = 'none';
+                nameInput.style.userSelect = 'none';
                 nameInput.style.border = '1px solid transparent';
                 nameInput.style.background = 'transparent';
                 const newName = nameInput.value.trim() || layer.name;
