@@ -858,8 +858,8 @@ class CanvasRenderer {
             this.zoomActual();
         }
 
-        // Cmd/Ctrl+; - Toggle snap (Photoshop standard)
-        if ((e.metaKey || e.ctrlKey) && e.code === 'Semicolon' && !isTyping) {
+        // Cmd/Ctrl+Shift+' - Toggle snap (Photoshop standard: Snap to Grid)
+        if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.code === 'Quote' && !isTyping) {
             e.preventDefault();
             this.magneticSnap = !this.magneticSnap;
             const snapCheckbox = document.getElementById('magnetic-snap');
