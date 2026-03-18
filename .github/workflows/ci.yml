@@ -119,7 +119,18 @@ jobs:
           source .venv/bin/activate
           pip install -r src/requirements.txt
           pip install pytest playwright
-          playwright install --with-deps chromium
+
+      - name: Install Chromium browser
+        run: |
+          source .venv/bin/activate
+          playwright install chromium
+        timeout-minutes: 3
+
+      - name: Install Chromium system deps
+        run: |
+          source .venv/bin/activate
+          playwright install-deps chromium
+        timeout-minutes: 3
 
       - name: Run browser tests
         run: |
