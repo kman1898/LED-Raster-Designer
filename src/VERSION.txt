@@ -1,18 +1,21 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
-v0.6.5.12 - March 18, 2026
+v0.6.5.13 - March 18, 2026
 ----------------------------
 - CHANGED: Reverted to separate launcher_mac.py (rumps) and launcher_pc.py (pystray)
 - CHANGED: Removed Tkinter launcher window — caused NSApplication crashes on macOS
-- NEW: rumps menu bar with full settings: network interface, port, start minimized, run at login
+- CHANGED: Removed Start Minimized option — tray/menu bar apps are always minimized
+- CHANGED: Default network interface is localhost (127.0.0.1) — opt-in for network access
+- NEW: rumps menu bar with settings: network interface, port, run at login
 - NEW: pystray system tray with same settings on Windows/Linux
 - NEW: Network interface submenu with checkmarks for current selection
 - NEW: Port change dialog (rumps window on macOS)
-- NEW: Start Minimized toggle — skips auto-open browser on launch
 - NEW: Run at Login toggle (macOS LaunchAgent / Windows registry)
-- NEW: 22 launcher settings tests (persistence, network detection, Run at Login)
+- NEW: Comprehensive CI build integrity checks (spec refs, version match, imports, static assets)
+- NEW: 21 launcher settings tests (persistence, network detection, Run at Login)
 - FIX: Slow macOS CI — cached get_network_interfaces() across test class
+- FIX: PyInstaller spec references restored for separate launchers
 - CHANGED: Settings persisted to JSON in platform config directory
 
 v0.6.5.5 - March 18, 2026
