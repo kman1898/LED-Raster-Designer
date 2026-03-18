@@ -8523,7 +8523,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Resolume-style help tooltip panel
     const helpBody = document.getElementById('help-tooltip-body');
-    const helpPanel = document.getElementById('help-tooltip-panel');
     const helpDefaultText = 'Move your mouse over the interface element that you would like more info about.';
     if (helpBody) {
         document.addEventListener('mouseover', (e) => {

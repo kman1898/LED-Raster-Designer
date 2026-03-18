@@ -846,14 +846,14 @@ class CanvasRenderer {
             }
         }
 
-        // Cmd/Ctrl+0 - Fit to view (Photoshop standard)
-        if ((e.metaKey || e.ctrlKey) && e.code === 'Digit0' && !isTyping) {
+        // Cmd/Ctrl+Shift+1 - Fit to view
+        if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.code === 'Digit1' && !isTyping) {
             e.preventDefault();
             this.fitToView();
         }
 
-        // Cmd/Ctrl+1 - Actual size 1:1 (Photoshop standard)
-        if ((e.metaKey || e.ctrlKey) && e.code === 'Digit1' && !isTyping) {
+        // Cmd/Ctrl+Shift+2 - Zoom to selection (actual size 1:1)
+        if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.code === 'Digit2' && !isTyping) {
             e.preventDefault();
             this.zoomActual();
         }
