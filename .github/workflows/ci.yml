@@ -124,6 +124,32 @@ jobs:
           source .venv/bin/activate
           python -m pytest tests/test_browser.py -v --tb=short --browser chromium
 
+  build-check:
+    name: Build Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Verify PyInstaller spec references exist
+        run: |
+          echo "Checking that all files referenced in spec exist..."
+          # Extract entry scripts from spec
+          for f in launcher_mac.py launcher_pc.py app.py launcher_settings.py; do
+            if [ ! -f "src/$f" ]; then
+              echo "ERROR: src/$f referenced in spec but does not exist!"
+              exit 1
+            fi
+          done
+          echo "All spec references valid."
+
+      - name: Verify launcher files exist
+        run: |
+          # Ensure both platform launchers exist
+          test -f src/launcher_mac.py || { echo "ERROR: src/launcher_mac.py missing"; exit 1; }
+          test -f src/launcher_pc.py || { echo "ERROR: src/launcher_pc.py missing"; exit 1; }
+          test -f src/launcher_settings.py || { echo "ERROR: src/launcher_settings.py missing"; exit 1; }
+          echo "All launcher files present."
+
   js-lint:
     name: JS Lint
     runs-on: ubuntu-latest
