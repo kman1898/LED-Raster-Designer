@@ -1,6 +1,11 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.6.5.5 - March 18, 2026
+----------------------------
+- Change: Reorder numbering style options: A1,A2,A3 first, then 1,1 1,2 1,3, then A1,B1,C1
+- Change: Default numbering style is now row-column (A1, A2, A3)
+
 v0.6.5.4 - March 18, 2026
 ----------------------------
 - Add: Keyboard shortcut Ctrl/Cmd+0 for Fit to View (Photoshop standard)
