@@ -1,6 +1,34 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.6.5.5 - March 18, 2026
+----------------------------
+- Change: Reorder numbering style options: A1,A2,A3 first, then 1,1 1,2 1,3, then A1,B1,C1
+- Change: Default numbering style is now row-column (A1, A2, A3)
+
+v0.6.5.4 - March 18, 2026
+----------------------------
+- Add: Keyboard shortcut Ctrl/Cmd+0 for Fit to View (Photoshop standard)
+- Add: Keyboard shortcut Ctrl/Cmd+1 for Actual Size 1:1 (Photoshop standard)
+- Add: Keyboard shortcut Ctrl/Cmd+Shift+' for Toggle Snap (Photoshop standard)
+- Add: Toggle Snap option in View menu
+- Update: Tooltips and Help > Keyboard Shortcuts modal with new shortcuts
+
+v0.6.5.3 - March 17, 2026
+----------------------------
+- Fix: Canvas not re-rendering after server response on pixel-map and cabinet-id tabs
+- Render was only called for power/data-flow modes after server update, causing visual changes to not appear
+
+v0.6.5.2 - March 17, 2026
+----------------------------
+- Fix: Add Screen naming handles "Screen 1", "Screen_1" variants and uses layer count as minimum
+- Fix: Drag-and-drop layer reordering works reliably on layer name text using pointer-events (Issue #5)
+
+v0.6.5.1 - March 17, 2026
+----------------------------
+- Fix: Add Screen now auto-increments name based on highest existing screen number
+- Fix: Drag-and-drop layer reordering now works when clicking on the layer name text (Issue #5)
+
 v0.6.5 - March 17, 2026
 ----------------------------
  CHANGES:

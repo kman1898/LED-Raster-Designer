@@ -3384,6 +3384,24 @@ class LEDRasterApp {
         this.setupPreferences();
     }
     
+    getNextScreenName() {
+        let maxNum = 0;
+        if (this.project && this.project.layers) {
+            for (const l of this.project.layers) {
+                // Match "Screen1", "Screen 1", "Screen_1", "screen 12", etc.
+                const m = (l.name || '').match(/^Screen[\s_]*(\d+)$/i);
+                if (m) {
+                    const n = parseInt(m[1], 10);
+                    if (n > maxNum) maxNum = n;
+                }
+            }
+        }
+        // Also ensure we don't collide with the total layer count
+        const layerCount = this.project && this.project.layers ? this.project.layers.length : 0;
+        if (layerCount > maxNum) maxNum = layerCount;
+        return `Screen${maxNum + 1}`;
+    }
+
     addLayer() {
         const prefs = this.getPreferences();
         const columns = prefs.columns;
@@ -3401,7 +3419,7 @@ class LEDRasterApp {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                name: 'Screen1',  // Always "Screen1" for new screens (duplicate increments)
+                name: this.getNextScreenName(),
                 columns,
                 rows,
                 cabinet_width: cabinetWidth,
@@ -4447,12 +4465,12 @@ class LEDRasterApp {
             if (window.canvasRenderer) {
                 if (window.canvasRenderer.viewMode === 'power') {
                     this.updatePowerCapacityDisplay();
-                    window.canvasRenderer.render();
                 } else if (window.canvasRenderer.viewMode === 'data-flow') {
                     this.updatePortCapacityDisplay();
                     this.updatePortLabelEditor();
-                    window.canvasRenderer.render();
                 }
+                // Always re-render after server response to reflect final state
+                window.canvasRenderer.render();
             }
         });
     }
@@ -6348,6 +6366,13 @@ class LEDRasterApp {
                     window.canvasRenderer.render();
                 }
                 break;
+            case 'toggle-snap':
+                if (window.canvasRenderer) {
+                    window.canvasRenderer.magneticSnap = !window.canvasRenderer.magneticSnap;
+                    const snapCb = document.getElementById('magnetic-snap');
+                    if (snapCb) snapCb.checked = window.canvasRenderer.magneticSnap;
+                }
+                break;
             case 'keyboard-shortcuts':
                 this.openShortcutsModal();
                 break;
@@ -7537,26 +7562,33 @@ class LEDRasterApp {
             // Handle name input changes
             const nameInput = layerDiv.querySelector('.layer-name-input');
             nameInput.readOnly = true;
-            nameInput.addEventListener('focus', () => {
-                if (nameInput.readOnly) {
-                    nameInput.blur();
+            // When read-only, disable pointer events so the parent div handles drag
+            nameInput.style.pointerEvents = 'none';
+            nameInput.style.userSelect = 'none';
+
+            // Single click on the layer-header name area selects the layer (handled by layerDiv click)
+            // Double-click enables editing
+            layerDiv.addEventListener('dblclick', (e) => {
+                // Only activate edit if clicking on the name input area
+                const inputRect = nameInput.getBoundingClientRect();
+                if (e.clientX >= inputRect.left && e.clientX <= inputRect.right &&
+                    e.clientY >= inputRect.top && e.clientY <= inputRect.bottom) {
+                    e.stopPropagation();
+                    nameInput.readOnly = false;
+                    nameInput.draggable = false;
+                    nameInput.style.pointerEvents = 'auto';
+                    nameInput.style.userSelect = 'auto';
+                    nameInput.style.border = '1px solid #4A90E2';
+                    nameInput.style.background = '#1a1a1a';
+                    nameInput.focus();
+                    nameInput.select();
                 }
-            });
-            nameInput.addEventListener('mousedown', (e) => {
-                if (nameInput.readOnly) {
-                    e.preventDefault();
-                }
-            });
-            nameInput.addEventListener('dblclick', (e) => {
-                e.stopPropagation();
-                nameInput.readOnly = false;
-                nameInput.style.border = '1px solid #4A90E2';
-                nameInput.style.background = '#1a1a1a';
-                nameInput.focus();
-                nameInput.select();
             });
             nameInput.addEventListener('blur', () => {
                 nameInput.readOnly = true;
+                nameInput.draggable = false;
+                nameInput.style.pointerEvents = 'none';
+                nameInput.style.userSelect = 'none';
                 nameInput.style.border = '1px solid transparent';
                 nameInput.style.background = 'transparent';
                 const newName = nameInput.value.trim() || layer.name;
@@ -8491,7 +8523,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Resolume-style help tooltip panel
     const helpBody = document.getElementById('help-tooltip-body');
-    const helpPanel = document.getElementById('help-tooltip-panel');
     const helpDefaultText = 'Move your mouse over the interface element that you would like more info about.';
     if (helpBody) {
         document.addEventListener('mouseover', (e) => {

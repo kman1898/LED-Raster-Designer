@@ -845,8 +845,28 @@ class CanvasRenderer {
                 }
             }
         }
+
+        // Cmd/Ctrl+Shift+1 - Fit to view
+        if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.code === 'Digit1' && !isTyping) {
+            e.preventDefault();
+            this.fitToView();
+        }
+
+        // Cmd/Ctrl+Shift+2 - Zoom to selection (actual size 1:1)
+        if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.code === 'Digit2' && !isTyping) {
+            e.preventDefault();
+            this.zoomActual();
+        }
+
+        // Cmd/Ctrl+Shift+' - Toggle snap (Photoshop standard: Snap to Grid)
+        if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.code === 'Quote' && !isTyping) {
+            e.preventDefault();
+            this.magneticSnap = !this.magneticSnap;
+            const snapCheckbox = document.getElementById('magnetic-snap');
+            if (snapCheckbox) snapCheckbox.checked = this.magneticSnap;
+        }
     }
-    
+
     handleKeyUp(e) {
         if (e.code === 'Space') {
             this.spacePressed = false;

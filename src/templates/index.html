@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED Raster Designer v0.6.5</title>
+    <title>LED Raster Designer v0.6.5.5</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -39,8 +39,9 @@
         </div>
 
         <div id="menu-view" class="menu-dropdown">
-            <div class="menu-option" data-action="fit" data-label="Fit to View" data-shortcut-mac="F" data-shortcut-win="F"></div>
-            <div class="menu-option" data-action="actual-size" data-label="Actual Size" data-shortcut-mac="1:1" data-shortcut-win="1:1"></div>
+            <div class="menu-option" data-action="fit" data-label="Fit to View" data-shortcut-mac="Cmd+Shift+1" data-shortcut-win="Ctrl+Shift+1"></div>
+            <div class="menu-option" data-action="actual-size" data-label="Zoom to Selection" data-shortcut-mac="Cmd+Shift+2" data-shortcut-win="Ctrl+Shift+2"></div>
+            <div class="menu-option" data-action="toggle-snap" data-label="Toggle Snap" data-shortcut-mac="Cmd+Shift+'" data-shortcut-win="Ctrl+Shift+'"></div>
         </div>
 
         <div id="menu-help" class="menu-dropdown">
@@ -65,7 +66,7 @@
 
         <div id="toolbar">
             <div class="toolbar-section toolbar-project">
-                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.6.5</span></h1>
+                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.6.5.5</span></h1>
                 <input type="text" id="project-name" value="Untitled Project" class="editable-project-name">
             </div>
             <div class="toolbar-section toolbar-actions">
@@ -283,16 +284,16 @@
                             <label style="font-weight: 600; margin-bottom: 8px; display: block;">Numbering Style</label>
                             <div style="display: flex; flex-direction: column; gap: 8px;">
                                 <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                                    <input type="radio" name="cabinet-id-style" value="column-row" checked>
-                                    <span>A1, B1, C1</span>
-                                </label>
-                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                                    <input type="radio" name="cabinet-id-style" value="row-column">
+                                    <input type="radio" name="cabinet-id-style" value="row-column" checked>
                                     <span>A1, A2, A3</span>
                                 </label>
                                 <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
                                     <input type="radio" name="cabinet-id-style" value="row-col">
                                     <span>1,1  1,2  1,3</span>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                    <input type="radio" name="cabinet-id-style" value="column-row">
+                                    <span>A1, B1, C1</span>
                                 </label>
                             </div>
                         </div>
@@ -1045,9 +1046,9 @@
                     <button id="btn-zoom-out" data-tooltip="Zoom out">-</button>
                     <input type="text" id="zoom-level" value="100%" style="width: 60px; text-align: center; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px; padding: 2px 4px;" data-tooltip="Zoom Level — Current zoom percentage. Type a value or use +/- buttons. Scroll wheel to zoom on canvas.">
                     <button id="btn-zoom-in" data-tooltip="Zoom in">+</button>
-                    <button id="btn-fit" data-tooltip="Fit raster to view">Fit</button>
-                    <button id="btn-zoom-actual" data-tooltip="Actual pixel size (1:1)">1:1</button>
-                    <label class="magnet-toggle" style="margin-left: 15px;" data-tooltip="Snap layers to grid when dragging">
+                    <button id="btn-fit" data-tooltip="Fit raster to view (Ctrl/Cmd+Shift+1)">Fit</button>
+                    <button id="btn-zoom-actual" data-tooltip="Zoom to Selection — Zoom to fit the selected screen layer at actual size (Ctrl/Cmd+Shift+2)">1:1</button>
+                    <label class="magnet-toggle" style="margin-left: 15px;" data-tooltip="Snap layers to grid when dragging (Ctrl/Cmd+Shift+')">
                         <input type="checkbox" id="magnetic-snap" checked>
                         <span>🧲 Snap</span>
                     </label>
@@ -1354,6 +1355,9 @@
                     <tr><td style="padding: 4px 0;">Select All</td><td style="padding: 4px 0; text-align: right; color: #666;">Ctrl/Cmd + A</td></tr>
                     <tr><td style="padding: 4px 0;">Export PNG</td><td style="padding: 4px 0; text-align: right; color: #666;">Alt + S</td></tr>
                     <tr><td style="padding: 4px 0;">Export PSD</td><td style="padding: 4px 0; text-align: right; color: #666;">Ctrl/Cmd + Alt + S</td></tr>
+                    <tr><td style="padding: 4px 0;">Fit to View</td><td style="padding: 4px 0; text-align: right; color: #666;">Ctrl/Cmd + Shift + 1</td></tr>
+                    <tr><td style="padding: 4px 0;">Zoom to Selection (1:1)</td><td style="padding: 4px 0; text-align: right; color: #666;">Ctrl/Cmd + Shift + 2</td></tr>
+                    <tr><td style="padding: 4px 0;">Toggle Snap</td><td style="padding: 4px 0; text-align: right; color: #666;">Ctrl/Cmd + Shift + '</td></tr>
                     <tr><td style="padding: 4px 0;">Prev / Next Port</td><td style="padding: 4px 0; text-align: right; color: #666;">Shift + B / N</td></tr>
                 </table>
             </div>
