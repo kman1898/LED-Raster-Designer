@@ -1,18 +1,7 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
-v0.6.6.1 - March 18, 2026
-----------------------------
-- FIX: macOS crash on Hide — restored rumps menu bar icon on main thread
-- FIX: Slow macOS CI — cached get_network_interfaces() across test class
-- CHANGED: macOS uses rumps for menu bar (main thread), Tkinter window on background thread
-- CHANGED: Windows/Linux uses pystray for system tray, Tkinter on main thread
-- NEW: Menu bar options: Open in Browser, Show Launcher, Quit
-- NEW: Clicking Dock icon reopens launcher window on macOS
-- IMPROVED: Hide/Quit buttons more readable with borders and white text
-- NEW: 22 launcher settings tests (persistence, network detection, Run at Login)
-
-v0.6.6 - March 18, 2026
+v0.6.5.11 - March 18, 2026
 ----------------------------
 - NEW: Companion-style launcher window (Tkinter) with dark theme
 - NEW: Network interface selector (default 127.0.0.1, option for All Interfaces)
@@ -20,8 +9,15 @@ v0.6.6 - March 18, 2026
 - NEW: Start Minimized option — launch straight to system tray
 - NEW: Run at Login option (macOS LaunchAgent / Windows registry)
 - NEW: Unified launcher replaces separate Mac/Windows launchers
-- CHANGED: Replaced rumps (macOS-only) with pystray (cross-platform)
+- NEW: Menu bar options: Open in Browser, Show Launcher, Quit (rumps on macOS)
+- NEW: Clicking Dock icon reopens launcher window on macOS
+- NEW: 22 launcher settings tests (persistence, network detection, Run at Login)
+- FIX: macOS crash on Hide — restored rumps menu bar icon on main thread
+- FIX: Slow macOS CI — cached get_network_interfaces() across test class
+- CHANGED: macOS uses rumps for menu bar (main thread), Tkinter on background thread
+- CHANGED: Windows/Linux uses pystray for system tray, Tkinter on main thread
 - CHANGED: Settings persisted to JSON in platform config directory
+- IMPROVED: Hide/Quit buttons more readable with borders and white text
 
 v0.6.5.5 - March 18, 2026
 ----------------------------
