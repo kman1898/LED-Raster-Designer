@@ -1,12 +1,13 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
-v0.6.5.15 - March 21, 2026
+v0.6.5.16 - March 21, 2026
 ----------------------------
 - NEW: Resolume Arena Advanced Output XML export — directly generates slice configuration from screen layers
 - Each screen layer maps to a Resolume Slice with matching name, position, and pixel dimensions
 - Export available in Export modal under "Resolume XML (Advanced Output)" format
 - View checkboxes hidden when Resolume XML selected (geometry only, no rendered images)
+- FIX: Resolume XML export now triggers browser Save As / download on all browsers (Safari, Chrome, Firefox)
 - 7 new tests for Resolume XML export
 
 v0.6.5.14 - March 21, 2026
