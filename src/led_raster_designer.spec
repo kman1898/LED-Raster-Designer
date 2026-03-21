@@ -3,7 +3,7 @@
 # Build with: python3 -m PyInstaller led_raster_designer.spec
 #
 # macOS:   produces LED Raster Designer.app with menu bar icon
-# Windows: produces LED Raster Designer.exe with console
+# Windows: produces LED Raster Designer.exe with system tray
 
 import os
 import sys
@@ -14,7 +14,7 @@ block_cipher = None
 BASE_DIR = os.path.abspath('.')
 IS_MAC = sys.platform == 'darwin'
 
-# macOS uses menu bar launcher; Windows uses system tray launcher; Linux uses app.py directly
+# macOS uses rumps menu bar launcher; Windows uses pystray system tray; Linux uses app.py directly
 if IS_MAC:
     entry_script = 'launcher_mac.py'
 elif sys.platform == 'win32':
@@ -23,7 +23,7 @@ else:
     entry_script = 'app.py'
 
 a = Analysis(
-    [entry_script, 'app.py'],  # Analyze both launcher AND app.py for proper import tracing
+    [entry_script, 'app.py', 'launcher_settings.py'],  # Analyze launcher, settings, AND app.py
     pathex=[BASE_DIR],
     binaries=[],
     datas=[
@@ -96,8 +96,8 @@ if IS_MAC:
         info_plist={
             'CFBundleName': 'LED Raster Designer',
             'CFBundleDisplayName': 'LED Raster Designer',
-            'CFBundleShortVersionString': '0.6.3.3',
-            'CFBundleVersion': '0.6.3.3',
+            'CFBundleShortVersionString': '0.6.5.17',
+            'CFBundleVersion': '0.6.5.17',
             'NSHighResolutionCapable': True,
             'LSUIElement': True,  # Menu bar only — no Dock icon
         },

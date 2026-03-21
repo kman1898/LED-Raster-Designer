@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED Raster Designer v0.6.5.5</title>
+    <title>LED Raster Designer v0.6.5.17</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -66,7 +66,7 @@
 
         <div id="toolbar">
             <div class="toolbar-section toolbar-project">
-                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.6.5.5</span></h1>
+                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.6.5.17</span></h1>
                 <input type="text" id="project-name" value="Untitled Project" class="editable-project-name">
             </div>
             <div class="toolbar-section toolbar-actions">
@@ -1119,7 +1119,7 @@
             </div>
             
             <!-- Views to Export -->
-            <div style="margin-bottom: 18px;">
+            <div id="export-views-section" style="margin-bottom: 18px;">
                 <label style="display: block; margin-bottom: 8px; color: #ccc; font-size: 13px;">Views to Export:</label>
                 <div class="export-views">
                     <div class="export-view-row">
@@ -1161,6 +1161,7 @@
                     <option value="png">PNG (Separate files per view)</option>
                     <option value="psd">PSD (Layered Photoshop - screens as layers)</option>
                     <option value="pdf">PDF (All views combined)</option>
+                    <option value="resolume-xml">Resolume XML (Advanced Output)</option>
                 </select>
             </div>
             

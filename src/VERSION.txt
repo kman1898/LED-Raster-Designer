@@ -1,6 +1,36 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.6.5.17 - March 21, 2026
+----------------------------
+- NEW: Resolume Arena Advanced Output XML export — directly generates slice configuration from screen layers
+- Each screen layer maps to a Resolume Slice with matching name, position, and pixel dimensions
+- Export available in Export modal under "Resolume XML (Advanced Output)" format
+- View checkboxes hidden when Resolume XML selected (geometry only, no rendered images)
+- FIX: Resolume XML export now triggers browser Save As / download on all browsers (Safari, Chrome, Firefox)
+- 7 new tests for Resolume XML export
+
+v0.6.5.14 - March 21, 2026
+----------------------------
+- FIX: Layer name editing — double-click to edit name, single-click/drag for reorder
+
+v0.6.5.13 - March 18, 2026
+----------------------------
+- CHANGED: Reverted to separate launcher_mac.py (rumps) and launcher_pc.py (pystray)
+- CHANGED: Removed Tkinter launcher window — caused NSApplication crashes on macOS
+- CHANGED: Removed Start Minimized option — tray/menu bar apps are always minimized
+- CHANGED: Default network interface is localhost (127.0.0.1) — opt-in for network access
+- NEW: rumps menu bar with settings: network interface, port, run at login
+- NEW: pystray system tray with same settings on Windows/Linux
+- NEW: Network interface submenu with checkmarks for current selection
+- NEW: Port change dialog (rumps window on macOS)
+- NEW: Run at Login toggle (macOS LaunchAgent / Windows registry)
+- NEW: Comprehensive CI build integrity checks (spec refs, version match, imports, static assets)
+- NEW: 21 launcher settings tests (persistence, network detection, Run at Login)
+- FIX: Slow macOS CI — cached get_network_interfaces() across test class
+- FIX: PyInstaller spec references restored for separate launchers
+- CHANGED: Settings persisted to JSON in platform config directory
+
 v0.6.5.5 - March 18, 2026
 ----------------------------
 - Change: Reorder numbering style options: A1,A2,A3 first, then 1,1 1,2 1,3, then A1,B1,C1
