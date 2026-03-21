@@ -5603,8 +5603,8 @@ class LEDRasterApp {
     
     // Export Resolume Arena Advanced Output XML
     async exportResolumeXml(projectName) {
-        const rasterW = parseInt(document.getElementById('raster-width').value) || 3840;
-        const rasterH = parseInt(document.getElementById('raster-height').value) || 2160;
+        const rasterW = parseInt(document.getElementById('toolbar-raster-width').value) || 3840;
+        const rasterH = parseInt(document.getElementById('toolbar-raster-height').value) || 2160;
 
         const response = await fetch('/api/export/resolume', {
             method: 'POST',
