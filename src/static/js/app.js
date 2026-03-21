@@ -7559,36 +7559,27 @@ class LEDRasterApp {
                 this.reorderLayersByDrag(draggedId, targetId, insertAfter);
             });
             
-            // Handle name input changes
+            // Handle name input: single-click selects layer, double-click edits name
             const nameInput = layerDiv.querySelector('.layer-name-input');
             nameInput.readOnly = true;
-            // When read-only, disable pointer events so the parent div handles drag
-            nameInput.style.pointerEvents = 'none';
-            nameInput.style.userSelect = 'none';
+            nameInput.draggable = true;
+            nameInput.style.cursor = 'default';
+            nameInput.addEventListener('dragstart', handleDragStart);
 
-            // Single click on the layer-header name area selects the layer (handled by layerDiv click)
-            // Double-click enables editing
-            layerDiv.addEventListener('dblclick', (e) => {
-                // Only activate edit if clicking on the name input area
-                const inputRect = nameInput.getBoundingClientRect();
-                if (e.clientX >= inputRect.left && e.clientX <= inputRect.right &&
-                    e.clientY >= inputRect.top && e.clientY <= inputRect.bottom) {
-                    e.stopPropagation();
-                    nameInput.readOnly = false;
-                    nameInput.draggable = false;
-                    nameInput.style.pointerEvents = 'auto';
-                    nameInput.style.userSelect = 'auto';
-                    nameInput.style.border = '1px solid #4A90E2';
-                    nameInput.style.background = '#1a1a1a';
-                    nameInput.focus();
-                    nameInput.select();
-                }
-            });
-            nameInput.addEventListener('blur', () => {
-                nameInput.readOnly = true;
+            const enterEditMode = () => {
+                nameInput.readOnly = false;
                 nameInput.draggable = false;
-                nameInput.style.pointerEvents = 'none';
-                nameInput.style.userSelect = 'none';
+                nameInput.style.cursor = 'text';
+                nameInput.style.border = '1px solid #4A90E2';
+                nameInput.style.background = '#1a1a1a';
+                nameInput.focus();
+                nameInput.select();
+            };
+
+            const exitEditMode = () => {
+                nameInput.readOnly = true;
+                nameInput.draggable = true;
+                nameInput.style.cursor = 'default';
                 nameInput.style.border = '1px solid transparent';
                 nameInput.style.background = 'transparent';
                 const newName = nameInput.value.trim() || layer.name;
@@ -7600,16 +7591,18 @@ class LEDRasterApp {
                         body: JSON.stringify({ name: newName })
                     });
                 }
+            };
+
+            nameInput.addEventListener('dblclick', (e) => {
+                e.stopPropagation();
+                enterEditMode();
             });
+            nameInput.addEventListener('blur', exitEditMode);
             nameInput.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter') {
                     nameInput.blur();
                 }
-                e.stopPropagation();
-            });
-            nameInput.addEventListener('click', (e) => {
-                // single click should select, not edit
-                e.stopPropagation();
+                if (!nameInput.readOnly) e.stopPropagation();
             });
             
             container.appendChild(layerDiv);

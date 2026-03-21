@@ -1,6 +1,10 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.6.5.14 - March 21, 2026
+----------------------------
+- FIX: Layer name editing — double-click to edit name, single-click/drag for reorder
+
 v0.6.5.13 - March 18, 2026
 ----------------------------
 - CHANGED: Reverted to separate launcher_mac.py (rumps) and launcher_pc.py (pystray)
