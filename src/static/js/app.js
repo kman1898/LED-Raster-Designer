@@ -3619,20 +3619,7 @@ class LEDRasterApp {
         if (!this.project || !this.project.layers) return [];
         this.dedupeProjectLayers('get_selected_layers');
         if (!this.selectedLayerIds || this.selectedLayerIds.size === 0) {
-            if (this.currentLayer) return [this.currentLayer];
-            // Auto-select the first layer if none selected (prevents silent no-ops on tab changes)
-            if (this.project.layers.length > 0) {
-                this.currentLayer = this.project.layers[0];
-                this.selectedLayerIds = new Set([this.currentLayer.id]);
-                sendClientLog('auto_select_layer', {
-                    layerId: this.currentLayer.id,
-                    layerName: this.currentLayer.name,
-                    reason: 'no_selection_fallback'
-                });
-                this.renderLayerList();
-                return [this.currentLayer];
-            }
-            return [];
+            return this.currentLayer ? [this.currentLayer] : [];
         }
         return this.project.layers.filter(l => this.selectedLayerIds.has(l.id));
     }

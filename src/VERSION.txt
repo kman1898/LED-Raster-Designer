@@ -1,12 +1,6 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
-v0.6.5.18 - March 21, 2026
-----------------------------
-- FIX: Changes on non-pixel-map tabs (Cabinet ID, Data, Power) were silently lost when layer was deselected
-- FIX: Auto-select first layer when no layers selected to prevent silent no-ops
-- NEW: Added auto_select_layer log event for debugging selection issues
-
 v0.6.5.17 - March 21, 2026
 ----------------------------
 - NEW: Resolume Arena Advanced Output XML export — directly generates slice configuration from screen layers
