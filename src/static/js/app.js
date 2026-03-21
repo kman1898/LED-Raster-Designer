@@ -5606,28 +5606,21 @@ class LEDRasterApp {
         const rasterW = parseInt(document.getElementById('raster-width').value) || 3840;
         const rasterH = parseInt(document.getElementById('raster-height').value) || 2160;
 
-        // Use a hidden form submission — works reliably on Safari, Chrome, and Firefox
-        const form = document.createElement('form');
-        form.method = 'POST';
-        form.action = '/api/export/resolume';
-        form.style.display = 'none';
-
-        const addField = (name, value) => {
-            const input = document.createElement('input');
-            input.type = 'hidden';
-            input.name = name;
-            input.value = value;
-            form.appendChild(input);
-        };
-
-        addField('project_name', projectName);
-        addField('raster_width', rasterW);
-        addField('raster_height', rasterH);
-
-        document.body.appendChild(form);
-        form.submit();
-        document.body.removeChild(form);
-
+        const response = await fetch('/api/export/resolume', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                project_name: projectName,
+                raster_width: rasterW,
+                raster_height: rasterH
+            })
+        });
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.error || 'Resolume export failed');
+        }
+        const blob = await response.blob();
+        await this.saveBlobWithPicker(blob, `${projectName}.xml`, 'application/xml');
         sendClientLog('export_resolume_complete', { projectName, rasterW, rasterH });
     }
 

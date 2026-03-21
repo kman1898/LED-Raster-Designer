@@ -1842,11 +1842,7 @@ def generate_resolume_xml(project, project_name, raster_w, raster_h):
 def export_resolume_xml():
     """Export project as Resolume Arena Advanced Output XML."""
     try:
-        # Accept both JSON (API/tests) and form data (browser form submit)
-        if request.is_json:
-            data = request.get_json() or {}
-        else:
-            data = request.form.to_dict()
+        data = request.get_json() or {}
         project_name = data.get('project_name', current_project.get('name', 'Untitled Project'))
         raster_w = int(data.get('raster_width', current_project.get('raster_width', 3840)))
         raster_h = int(data.get('raster_height', current_project.get('raster_height', 2160)))
