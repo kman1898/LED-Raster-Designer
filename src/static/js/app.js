@@ -5619,6 +5619,28 @@ class LEDRasterApp {
             throw new Error(err.error || 'Resolume export failed');
         }
         const blob = await response.blob();
+
+        if (window.showSaveFilePicker) {
+            try {
+                const handle = await window.showSaveFilePicker({
+                    suggestedName: `${projectName}.xml`,
+                    types: [{
+                        description: 'Resolume Advanced Output XML',
+                        accept: { 'application/xml': ['.xml'] }
+                    }]
+                });
+                const writable = await handle.createWritable();
+                await writable.write(blob);
+                await writable.close();
+                sendClientLog('export_resolume_complete', { projectName, rasterW, rasterH, method: 'filePicker' });
+                return;
+            } catch (e) {
+                if (e.name === 'AbortError') return; // User cancelled
+                console.warn('Save picker failed, falling back to download:', e);
+            }
+        }
+
+        // Fallback: auto-download
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -5627,7 +5649,7 @@ class LEDRasterApp {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-        sendClientLog('export_resolume_complete', { projectName, rasterW, rasterH });
+        sendClientLog('export_resolume_complete', { projectName, rasterW, rasterH, method: 'download' });
     }
 
     // Perform export using client-side canvas capture at 1:1 pixel scale
