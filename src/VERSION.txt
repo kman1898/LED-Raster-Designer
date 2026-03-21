@@ -1,6 +1,11 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.6.5.18 - March 21, 2026
+----------------------------
+- FIX: Novastar Legacy port capacity now calculates using bounding rectangle instead of sum of visible panel pixels
+- FIX: Non-rectangular layouts (stair-step, L-shape) now correctly account for the full rectangle the processor reserves
+
 v0.6.5.17 - March 21, 2026
 ----------------------------
 - NEW: Resolume Arena Advanced Output XML export — directly generates slice configuration from screen layers

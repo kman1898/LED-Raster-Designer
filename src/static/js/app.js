@@ -5410,13 +5410,45 @@ class LEDRasterApp {
                 ? [...Array(layer.rows).keys()].map(i => (startsTop ? i : (layer.rows - 1 - i)))
                 : [...Array(layer.columns).keys()].map(i => (startsLeft ? i : (layer.columns - 1 - i)));
 
+            // For rectangle-constraint processors (Novastar Legacy), calculate load
+            // using the bounding rectangle of all panels in the port, not sum of pixels.
+            // The processor reserves the full rectangle even if some panels are hidden.
+            const getUnitSpan = (unitIdx) => {
+                const panels = orderedForCapacity.filter(p => (isHorizontalFirst ? p.row === unitIdx : p.col === unitIdx));
+                if (panels.length === 0) return 0;
+                return isHorizontalFirst
+                    ? panels.length  // number of columns in this row
+                    : panels.length; // number of rows in this column
+            };
+
+            const calcBoundingRectLoad = (unitIdxList) => {
+                if (!usesRectangle) {
+                    // Non-rectangle processors: sum actual pixel areas
+                    return unitIdxList.reduce((total, idx) => {
+                        const panels = orderedForCapacity.filter(p => (isHorizontalFirst ? p.row === idx : p.col === idx));
+                        return total + panels.reduce((sum, p) => sum + this.getPanelPixelArea(p), 0);
+                    }, 0);
+                }
+                // Rectangle constraint: bounding rect = widest_span × num_units × panel_pixels
+                let maxSpan = 0;
+                unitIdxList.forEach(idx => {
+                    const span = getUnitSpan(idx);
+                    if (span > maxSpan) maxSpan = span;
+                });
+                return maxSpan * unitIdxList.length * fullPanelPixels;
+            };
+
             let current = { unitIndices: [], load: 0 };
 
             unitIndices.forEach(unitIdx => {
                 const unitPanelsAll = orderedForCapacity.filter(p => (isHorizontalFirst ? p.row === unitIdx : p.col === unitIdx));
-                const unitLoad = unitPanelsAll.reduce((sum, p) => sum + this.getPanelPixelArea(p), 0);
-                if (unitLoad <= 0) return;
-                if (unitLoad > portCapacity) {
+                if (unitPanelsAll.length === 0) return;
+
+                // Check if this single unit exceeds port capacity
+                const singleUnitLoad = usesRectangle
+                    ? unitPanelsAll.length * fullPanelPixels
+                    : unitPanelsAll.reduce((sum, p) => sum + this.getPanelPixelArea(p), 0);
+                if (singleUnitLoad > portCapacity) {
                     layer._capacityError = {
                         isHorizontalFirst,
                         cols: layer.columns,
@@ -5429,12 +5461,20 @@ class LEDRasterApp {
                     };
                     return;
                 }
-                if (current.load > 0 && current.load + unitLoad > portCapacity) {
+
+                // Calculate what the bounding rect load would be if we add this unit
+                const candidateIndices = [...current.unitIndices, unitIdx];
+                const candidateLoad = calcBoundingRectLoad(candidateIndices);
+
+                if (current.unitIndices.length > 0 && candidateLoad > portCapacity) {
+                    // Adding this unit would exceed capacity — start new port
+                    current.load = calcBoundingRectLoad(current.unitIndices);
                     ports.push(current);
-                    current = { unitIndices: [], load: 0 };
+                    current = { unitIndices: [unitIdx], load: singleUnitLoad };
+                } else {
+                    current.unitIndices.push(unitIdx);
+                    current.load = candidateLoad;
                 }
-                current.unitIndices.push(unitIdx);
-                current.load += unitLoad;
             });
 
             if (layer._capacityError) return [];
