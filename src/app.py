@@ -1608,6 +1608,266 @@ def export_psd_zip_from_images():
         return jsonify({'error': f'PSD export failed: {str(e)}'}), 500
 
 
+# ── Resolume Advanced Output XML Export ─────────────────────────────
+
+def _resolume_param_range(name, default="0", value="0", min_val="-1", max_val="1", alt_name=None):
+    """Generate a Resolume ParamRange XML block."""
+    alt = f' altName="{alt_name}"' if alt_name else ''
+    return (
+        f'\t\t\t\t\t\t\t<ParamRange name="{name}"{alt} T="DOUBLE" default="{default}" value="{value}">\n'
+        f'\t\t\t\t\t\t\t\t<PhaseSourceStatic name="PhaseSourceStatic"/>\n'
+        f'\t\t\t\t\t\t\t\t<BehaviourDouble name="BehaviourDouble"/>\n'
+        f'\t\t\t\t\t\t\t\t<ValueRange name="defaultRange" min="{min_val}" max="{max_val}"/>\n'
+        f'\t\t\t\t\t\t\t\t<ValueRange name="minMax" min="{min_val}" max="{max_val}"/>\n'
+        f'\t\t\t\t\t\t\t\t<ValueRange name="startStop" min="{min_val}" max="{max_val}"/>\n'
+        f'\t\t\t\t\t\t\t</ParamRange>\n'
+    )
+
+def _resolume_slice(layer, unique_id):
+    """Generate a Resolume Slice XML block for a layer."""
+    bounds = _layer_bounds(layer)
+    x1 = float(bounds['x'])
+    y1 = float(bounds['y'])
+    x2 = x1 + float(bounds['width'])
+    y2 = y1 + float(bounds['height'])
+    name = layer.get('name', 'Layer')
+    w = x2 - x1
+    h = y2 - y1
+
+    # Output params block (Brightness, Contrast, RGB, etc.)
+    output_params = (
+        _resolume_param_range("Brightness") +
+        _resolume_param_range("Contrast") +
+        _resolume_param_range("Red") +
+        _resolume_param_range("Green") +
+        _resolume_param_range("Blue") +
+        f'\t\t\t\t\t\t\t<Param name="Is Key" T="BOOL" default="0" value="0"/>\n'
+        f'\t\t\t\t\t\t\t<Param name="Black BG" T="BOOL" default="0" value="0"/>\n' +
+        _resolume_param_range("BRed", alt_name="Red", min_val="0", max_val="0.4000000000000000222") +
+        _resolume_param_range("BGreen", alt_name="Green", min_val="0", max_val="0.4000000000000000222") +
+        _resolume_param_range("BBlue", alt_name="Blue", min_val="0", max_val="0.4000000000000000222")
+    )
+
+    # 4x4 BezierWarper grid (linear, 3 divisions)
+    bezier_verts = ""
+    for ry in range(4):
+        for rx in range(4):
+            bx = x1 + (w * rx / 3.0)
+            by = y1 + (h * ry / 3.0)
+            bezier_verts += f'\t\t\t\t\t\t\t\t\t<v x="{bx}" y="{by}"/>\n'
+
+    return (
+        f'\t\t\t\t\t<Slice uniqueId="{unique_id}">\n'
+        f'\t\t\t\t\t\t<Params name="Common">\n'
+        f'\t\t\t\t\t\t\t<Param name="Name" T="STRING" default="Layer" value="{name}"/>\n'
+        f'\t\t\t\t\t\t\t<Param name="Enabled" T="BOOL" default="1" value="1"/>\n'
+        f'\t\t\t\t\t\t</Params>\n'
+        f'\t\t\t\t\t\t<Params name="Input">\n'
+        f'\t\t\t\t\t\t\t<ParamChoice name="Input Source" default="0:1" value="0:1" storeChoices="0"/>\n'
+        f'\t\t\t\t\t\t\t<Param name="Input Opacity" T="BOOL" default="1" value="1"/>\n'
+        f'\t\t\t\t\t\t\t<Param name="Input Bypass/Solo" T="BOOL" default="1" value="1"/>\n'
+        f'\t\t\t\t\t\t\t<Param name="SoftEdgeEnable" T="BOOL" default="0" value="0"/>\n'
+        f'\t\t\t\t\t\t</Params>\n'
+        f'\t\t\t\t\t\t<Params name="Output">\n'
+        f'\t\t\t\t\t\t\t<Param name="Flip" T="UINT8" default="0" value="0"/>\n'
+        f'{output_params}'
+        f'\t\t\t\t\t\t</Params>\n'
+        f'\t\t\t\t\t\t<InputRect orientation="0">\n'
+        f'\t\t\t\t\t\t\t<v x="{x1}" y="{y1}"/>\n'
+        f'\t\t\t\t\t\t\t<v x="{x2}" y="{y1}"/>\n'
+        f'\t\t\t\t\t\t\t<v x="{x2}" y="{y2}"/>\n'
+        f'\t\t\t\t\t\t\t<v x="{x1}" y="{y2}"/>\n'
+        f'\t\t\t\t\t\t</InputRect>\n'
+        f'\t\t\t\t\t\t<OutputRect orientation="0">\n'
+        f'\t\t\t\t\t\t\t<v x="{x1}" y="{y1}"/>\n'
+        f'\t\t\t\t\t\t\t<v x="{x2}" y="{y1}"/>\n'
+        f'\t\t\t\t\t\t\t<v x="{x2}" y="{y2}"/>\n'
+        f'\t\t\t\t\t\t\t<v x="{x1}" y="{y2}"/>\n'
+        f'\t\t\t\t\t\t</OutputRect>\n'
+        f'\t\t\t\t\t\t<Warper>\n'
+        f'\t\t\t\t\t\t\t<Params name="Warper">\n'
+        f'\t\t\t\t\t\t\t\t<ParamChoice name="Point Mode" default="PM_LINEAR" value="PM_LINEAR" storeChoices="0"/>\n'
+        f'\t\t\t\t\t\t\t\t<Param name="Flip" T="UINT8" default="0" value="0"/>\n'
+        f'\t\t\t\t\t\t\t</Params>\n'
+        f'\t\t\t\t\t\t\t<BezierWarper controlWidth="4" controlHeight="4">\n'
+        f'\t\t\t\t\t\t\t\t<vertices>\n'
+        f'{bezier_verts}'
+        f'\t\t\t\t\t\t\t\t</vertices>\n'
+        f'\t\t\t\t\t\t\t</BezierWarper>\n'
+        f'\t\t\t\t\t\t\t<Homography>\n'
+        f'\t\t\t\t\t\t\t\t<src>\n'
+        f'\t\t\t\t\t\t\t\t\t<v x="{x1}" y="{y1}"/>\n'
+        f'\t\t\t\t\t\t\t\t\t<v x="{x2}" y="{y1}"/>\n'
+        f'\t\t\t\t\t\t\t\t\t<v x="{x2}" y="{y2}"/>\n'
+        f'\t\t\t\t\t\t\t\t\t<v x="{x1}" y="{y2}"/>\n'
+        f'\t\t\t\t\t\t\t\t</src>\n'
+        f'\t\t\t\t\t\t\t\t<dst>\n'
+        f'\t\t\t\t\t\t\t\t\t<v x="{x1}" y="{y1}"/>\n'
+        f'\t\t\t\t\t\t\t\t\t<v x="{x2}" y="{y1}"/>\n'
+        f'\t\t\t\t\t\t\t\t\t<v x="{x2}" y="{y2}"/>\n'
+        f'\t\t\t\t\t\t\t\t\t<v x="{x1}" y="{y2}"/>\n'
+        f'\t\t\t\t\t\t\t\t</dst>\n'
+        f'\t\t\t\t\t\t\t</Homography>\n'
+        f'\t\t\t\t\t\t</Warper>\n'
+        f'\t\t\t\t\t</Slice>\n'
+    )
+
+def generate_resolume_xml(project, project_name, raster_w, raster_h):
+    """Generate Resolume Arena Advanced Output XML from project layers."""
+    import random
+    screen_id = random.randint(1000000000000, 9999999999999)
+
+    layers = project.get('layers', [])
+    # Filter to visible screen layers only
+    screen_layers = [l for l in layers if l.get('type') == 'screen' and l.get('visible', True)]
+
+    # Build panels for layers that don't have them
+    for layer in screen_layers:
+        if not layer.get('panels'):
+            layer['panels'] = _build_panels(layer)
+
+    slices_xml = ""
+    for layer in screen_layers:
+        slice_id = random.randint(1000000000000, 9999999999999)
+        slices_xml += _resolume_slice(layer, slice_id)
+
+    # Screen-level output params
+    def screen_param_range(name, default="0", value="0", min_val="-1", max_val="1"):
+        return (
+            f'\t\t\t\t\t<ParamRange name="{name}" T="DOUBLE" default="{default}" value="{value}">\n'
+            f'\t\t\t\t\t\t<PhaseSourceStatic name="PhaseSourceStatic"/>\n'
+            f'\t\t\t\t\t\t<BehaviourDouble name="BehaviourDouble"/>\n'
+            f'\t\t\t\t\t\t<ValueRange name="defaultRange" min="{min_val}" max="{max_val}"/>\n'
+            f'\t\t\t\t\t\t<ValueRange name="minMax" min="{min_val}" max="{max_val}"/>\n'
+            f'\t\t\t\t\t\t<ValueRange name="startStop" min="{min_val}" max="{max_val}"/>\n'
+            f'\t\t\t\t\t</ParamRange>\n'
+        )
+
+    screen_output = (
+        screen_param_range("Opacity", "1", "1", "0", "1") +
+        screen_param_range("Brightness") +
+        screen_param_range("Contrast") +
+        screen_param_range("Red") +
+        screen_param_range("Green") +
+        screen_param_range("Blue")
+    )
+
+    # Virtual output device params
+    def device_param_range(name, default, value, max_val="16384"):
+        return (
+            f'\t\t\t\t\t\t<ParamRange name="{name}" T="DOUBLE" default="{default}" value="{value}">\n'
+            f'\t\t\t\t\t\t\t<PhaseSourceStatic name="PhaseSourceStatic"/>\n'
+            f'\t\t\t\t\t\t\t<BehaviourDouble name="BehaviourDouble"/>\n'
+            f'\t\t\t\t\t\t\t<ValueRange name="defaultRange" min="1" max="{max_val}"/>\n'
+            f'\t\t\t\t\t\t\t<ValueRange name="minMax" min="1" max="{max_val}"/>\n'
+            f'\t\t\t\t\t\t\t<ValueRange name="startStop" min="1" max="{max_val}"/>\n'
+            f'\t\t\t\t\t\t</ParamRange>\n'
+        )
+
+    device_hash = random.randint(1000000000000000000, 9999999999999999999)
+
+    # SoftEdging params
+    def soft_edge_param(name, default, value, min_val, max_val):
+        return (
+            f'\t\t\t<ParamRange name="{name}" T="DOUBLE" default="{default}" value="{value}">\n'
+            f'\t\t\t\t<PhaseSourceStatic name="PhaseSourceStatic"/>\n'
+            f'\t\t\t\t<BehaviourDouble name="BehaviourDouble"/>\n'
+            f'\t\t\t\t<ValueRange name="defaultRange" min="{min_val}" max="{max_val}"/>\n'
+            f'\t\t\t\t<ValueRange name="minMax" min="{min_val}" max="{max_val}"/>\n'
+            f'\t\t\t\t<ValueRange name="startStop" min="{min_val}" max="{max_val}"/>\n'
+            f'\t\t\t</ParamRange>\n'
+        )
+
+    xml = (
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        f'<XmlState name="{project_name}">\n'
+        f'\t<versionInfo name="Resolume Arena" majorVersion="7" minorVersion="24" microVersion="3" revision="63742"/>\n'
+        f'\t<ScreenSetup name="ScreenSetup">\n'
+        f'\t\t<Params name="ScreenSetupParams"/>\n'
+        f'\t\t<CurrentCompositionTextureSize width="{raster_w}" height="{raster_h}"/>\n'
+        f'\t\t<screens>\n'
+        f'\t\t\t<Screen name="Screen 1" uniqueId="{screen_id}">\n'
+        f'\t\t\t\t<Params name="Params">\n'
+        f'\t\t\t\t\t<Param name="Name" T="STRING" default="" value="Screen 1"/>\n'
+        f'\t\t\t\t\t<Param name="Enabled" T="BOOL" default="1" value="1"/>\n'
+        f'\t\t\t\t\t<Param name="Hidden" T="BOOL" default="0" value="0"/>\n'
+        f'\t\t\t\t</Params>\n'
+        f'\t\t\t\t<Params name="Output">\n'
+        f'{screen_output}'
+        f'\t\t\t\t</Params>\n'
+        f'\t\t\t\t<guides>\n'
+        f'\t\t\t\t\t<ScreenGuide name="ScreenGuide" type="0">\n'
+        f'\t\t\t\t\t\t<Params name="Params">\n'
+        f'\t\t\t\t\t\t\t<ParamPixels name="Image"/>\n'
+        f'\t\t\t\t\t\t\t<ParamRange name="Opacity" T="DOUBLE" default="0.25" value="0.25">\n'
+        f'\t\t\t\t\t\t\t\t<PhaseSourceStatic name="PhaseSourceStatic"/>\n'
+        f'\t\t\t\t\t\t\t\t<BehaviourDouble name="BehaviourDouble"/>\n'
+        f'\t\t\t\t\t\t\t\t<ValueRange name="defaultRange" min="0" max="1"/>\n'
+        f'\t\t\t\t\t\t\t\t<ValueRange name="minMax" min="0" max="1"/>\n'
+        f'\t\t\t\t\t\t\t\t<ValueRange name="startStop" min="0" max="1"/>\n'
+        f'\t\t\t\t\t\t\t</ParamRange>\n'
+        f'\t\t\t\t\t\t</Params>\n'
+        f'\t\t\t\t\t</ScreenGuide>\n'
+        f'\t\t\t\t</guides>\n'
+        f'\t\t\t\t<layers>\n'
+        f'{slices_xml}'
+        f'\t\t\t\t</layers>\n'
+        f'\t\t\t\t<OutputDevice>\n'
+        f'\t\t\t\t\t<OutputDeviceVirtual name="Screen 1" deviceId="VirtualScreen 1" idHash="{device_hash}" width="{raster_w}" height="{raster_h}">\n'
+        f'\t\t\t\t\t\t<Params name="Params">\n'
+        f'{device_param_range("Width", "800", str(raster_w))}'
+        f'{device_param_range("Height", "600", str(raster_h))}'
+        f'\t\t\t\t\t\t</Params>\n'
+        f'\t\t\t\t\t</OutputDeviceVirtual>\n'
+        f'\t\t\t\t</OutputDevice>\n'
+        f'\t\t\t</Screen>\n'
+        f'\t\t</screens>\n'
+        f'\t\t<SoftEdging>\n'
+        f'\t\t\t<Params name="Soft Edge">\n'
+        f'{soft_edge_param("Gamma Red", "2", "2", "1", "3")}'
+        f'{soft_edge_param("Gamma Green", "2", "2", "1", "3")}'
+        f'{soft_edge_param("Gamma Blue", "2", "2", "1", "3")}'
+        f'{soft_edge_param("Gamma", "1", "1", "0", "1")}'
+        f'{soft_edge_param("Luminance", "0.5", "0.5", "0", "1")}'
+        f'{soft_edge_param("Power", "2", "1.999999999999999778", "0.10000000000000000555", "7")}'
+        f'\t\t\t</Params>\n'
+        f'\t\t</SoftEdging>\n'
+        f'\t</ScreenSetup>\n'
+        f'</XmlState>\n'
+    )
+    return xml
+
+
+@app.route('/api/export/resolume', methods=['POST'])
+def export_resolume_xml():
+    """Export project as Resolume Arena Advanced Output XML."""
+    try:
+        data = request.get_json() or {}
+        project_name = data.get('project_name', current_project.get('name', 'Untitled Project'))
+        raster_w = int(data.get('raster_width', current_project.get('raster_width', 3840)))
+        raster_h = int(data.get('raster_height', current_project.get('raster_height', 2160)))
+
+        xml_content = generate_resolume_xml(current_project, project_name, raster_w, raster_h)
+
+        log_event('export_resolume', {
+            'project_name': project_name,
+            'raster': f'{raster_w}x{raster_h}',
+            'layers': len([l for l in current_project.get('layers', []) if l.get('type') == 'screen' and l.get('visible', True)])
+        })
+
+        return send_file(
+            io.BytesIO(xml_content.encode('utf-8')),
+            mimetype='application/xml',
+            as_attachment=True,
+            download_name=f"{project_name}.xml"
+        )
+    except Exception as e:
+        print(f"Resolume export error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Resolume export failed: {str(e)}'}), 500
+
+
 # ── Update Checker ──────────────────────────────────────────────────
 from updater import check_for_update, get_current_version
 

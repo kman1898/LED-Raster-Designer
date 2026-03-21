@@ -3324,13 +3324,29 @@ class LEDRasterApp {
                 format
             });
             
+            // Resolume XML export — no views needed, just geometry
+            if (format === 'resolume-xml') {
+                document.getElementById('export-modal').style.display = 'none';
+                document.getElementById('status-message').textContent = 'Exporting Resolume XML...';
+                try {
+                    await this.exportResolumeXml(projectName);
+                    document.getElementById('status-message').textContent = 'Export complete!';
+                    setTimeout(() => { document.getElementById('status-message').textContent = 'Ready'; }, 3000);
+                } catch (error) {
+                    console.error('Resolume export error:', error);
+                    document.getElementById('status-message').textContent = 'Export failed!';
+                    sendClientLog('export_failed', { message: error.message, format: 'resolume-xml' });
+                }
+                return;
+            }
+
             // Get selected views
             const views = [];
             if (document.getElementById('export-pixel-map').checked) views.push('pixel-map');
             if (document.getElementById('export-cabinet-id').checked) views.push('cabinet-id');
             if (document.getElementById('export-data-flow').checked) views.push('data-flow');
             if (document.getElementById('export-power').checked) views.push('power');
-            
+
             if (views.length === 0) {
                 alert('Please select at least one view to export.');
                 return;
@@ -3340,10 +3356,10 @@ class LEDRasterApp {
                 this._warnedNoFilePickerExport = true;
                 sendClientLog('export_picker_apis_unavailable_warning', {});
             }
-            
+
             document.getElementById('export-modal').style.display = 'none';
             document.getElementById('status-message').textContent = 'Exporting...';
-            
+
             try {
                 await this.performExport(projectName, format, views);
                 
@@ -5473,15 +5489,27 @@ class LEDRasterApp {
         if (document.getElementById('export-power').checked) views.push('power');
         
         const preview = document.getElementById('export-preview');
-        
+
+        // Hide view checkboxes for Resolume XML (geometry only, no rendered views)
+        const viewSection = document.getElementById('export-views-section');
+        if (viewSection) {
+            viewSection.style.display = format === 'resolume-xml' ? 'none' : '';
+        }
+
+        if (format === 'resolume-xml') {
+            preview.style.color = '#4A90E2';
+            preview.textContent = `${projectName}.xml`;
+            return;
+        }
+
         if (views.length === 0) {
             preview.textContent = '(Select at least one view)';
             preview.style.color = '#ff6b6b';
             return;
         }
-        
+
         preview.style.color = '#4A90E2';
-        
+
         if (format === 'pdf') {
             // PDF combines all views
             preview.textContent = `${projectName}.pdf (${views.length} page${views.length > 1 ? 's' : ''})`;
@@ -5573,6 +5601,35 @@ class LEDRasterApp {
         return raw || viewNames[view];
     }
     
+    // Export Resolume Arena Advanced Output XML
+    async exportResolumeXml(projectName) {
+        const rasterW = parseInt(document.getElementById('raster-width').value) || 3840;
+        const rasterH = parseInt(document.getElementById('raster-height').value) || 2160;
+        const response = await fetch('/api/export/resolume', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                project_name: projectName,
+                raster_width: rasterW,
+                raster_height: rasterH
+            })
+        });
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.error || 'Resolume export failed');
+        }
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${projectName}.xml`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        sendClientLog('export_resolume_complete', { projectName, rasterW, rasterH });
+    }
+
     // Perform export using client-side canvas capture at 1:1 pixel scale
     async performExport(projectName, format, views) {
         const viewNames = this.getExportViewNames();
