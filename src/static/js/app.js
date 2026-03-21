@@ -5411,14 +5411,19 @@ class LEDRasterApp {
                 : [...Array(layer.columns).keys()].map(i => (startsLeft ? i : (layer.columns - 1 - i)));
 
             // For rectangle-constraint processors (Novastar Legacy), calculate load
-            // using the bounding rectangle of all panels in the port, not sum of pixels.
-            // The processor reserves the full rectangle even if some panels are hidden.
-            const getUnitSpan = (unitIdx) => {
-                const panels = orderedForCapacity.filter(p => (isHorizontalFirst ? p.row === unitIdx : p.col === unitIdx));
-                if (panels.length === 0) return 0;
-                return isHorizontalFirst
-                    ? panels.length  // number of columns in this row
-                    : panels.length; // number of rows in this column
+            // using the bounding rectangle of VISIBLE panels in the port.
+            // The processor reserves the full rectangle from min to max visible panel position.
+            // Hidden panels outside that range don't count, but hidden panels within the
+            // bounding rect of visible panels DO count (the processor sees the whole rectangle).
+            const getUnitVisibleRange = (unitIdx) => {
+                // Get only non-hidden panels in this row/column
+                const allPanels = orderedForCapacity.filter(p => (isHorizontalFirst ? p.row === unitIdx : p.col === unitIdx));
+                const visible = allPanels.filter(p => !p.hidden);
+                if (visible.length === 0) return { min: -1, max: -1, span: 0 };
+                const positions = visible.map(p => isHorizontalFirst ? p.col : p.row);
+                const min = Math.min(...positions);
+                const max = Math.max(...positions);
+                return { min, max, span: max - min + 1 };
             };
 
             const calcBoundingRectLoad = (unitIdxList) => {
@@ -5429,13 +5434,22 @@ class LEDRasterApp {
                         return total + panels.reduce((sum, p) => sum + this.getPanelPixelArea(p), 0);
                     }, 0);
                 }
-                // Rectangle constraint: bounding rect = widest_span × num_units × panel_pixels
-                let maxSpan = 0;
+                // Rectangle constraint: bounding rect based on visible panel extent
+                // Find the overall min and max positions across all units in this port
+                let overallMin = Infinity, overallMax = -Infinity;
+                let hasVisible = false;
                 unitIdxList.forEach(idx => {
-                    const span = getUnitSpan(idx);
-                    if (span > maxSpan) maxSpan = span;
+                    const range = getUnitVisibleRange(idx);
+                    if (range.span > 0) {
+                        hasVisible = true;
+                        if (range.min < overallMin) overallMin = range.min;
+                        if (range.max > overallMax) overallMax = range.max;
+                    }
                 });
-                return maxSpan * unitIdxList.length * fullPanelPixels;
+                if (!hasVisible) return 0;
+                const rectWidth = overallMax - overallMin + 1; // columns spanned
+                const rectHeight = unitIdxList.length;          // rows in port
+                return rectWidth * rectHeight * fullPanelPixels;
             };
 
             let current = { unitIndices: [], load: 0 };
@@ -5443,10 +5457,13 @@ class LEDRasterApp {
             unitIndices.forEach(unitIdx => {
                 const unitPanelsAll = orderedForCapacity.filter(p => (isHorizontalFirst ? p.row === unitIdx : p.col === unitIdx));
                 if (unitPanelsAll.length === 0) return;
+                // Skip rows/columns with no visible panels
+                const visibleInUnit = unitPanelsAll.filter(p => !p.hidden);
+                if (visibleInUnit.length === 0) return;
 
                 // Check if this single unit exceeds port capacity
                 const singleUnitLoad = usesRectangle
-                    ? unitPanelsAll.length * fullPanelPixels
+                    ? getUnitVisibleRange(unitIdx).span * fullPanelPixels
                     : unitPanelsAll.reduce((sum, p) => sum + this.getPanelPixelArea(p), 0);
                 if (singleUnitLoad > portCapacity) {
                     layer._capacityError = {
