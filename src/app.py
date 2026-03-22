@@ -1673,9 +1673,9 @@ def _compute_panel_contour(layer):
     # We trace edges between visible and non-visible cells.
 
     # Build ordered contour by walking the boundary clockwise.
-    # Strategy: for each row, find the leftmost and rightmost visible columns,
-    # then build the contour by sweeping top-to-bottom on the right edge
-    # and bottom-to-top on the left edge.
+    # Start at top-right, go down the right edge, across the bottom,
+    # up the left edge, and across the top. Only add vertices where the
+    # boundary changes direction (no intermediate points on straight edges).
 
     rows = sorted(set(r for r, c in visible))
     if not rows:
@@ -1687,69 +1687,52 @@ def _compute_panel_contour(layer):
         cols_in_row = sorted(c for r, c in visible if r == row)
         row_ranges[row] = (min(cols_in_row), max(cols_in_row))
 
-    # Build right edge (top to bottom): trace the right boundary
-    # Start from top-right corner of the first row
     contour = []
 
-    # Right side: go down
+    # === RIGHT SIDE (top to bottom) ===
+    # Start at top-right corner of first row
+    first_right = panel_x(row_ranges[rows[0]][1] + 1)
+    contour.append((first_right, panel_y(rows[0])))
+
     for i, row in enumerate(rows):
-        min_c, max_c = row_ranges[row]
-        right_x = panel_x(max_c + 1)  # right edge of rightmost panel
-        top_y = panel_y(row)
-        bottom_y = panel_y(row + 1)
+        right_x = panel_x(row_ranges[row][1] + 1)
+        is_last = (i == len(rows) - 1)
+        next_right = panel_x(row_ranges[rows[i+1]][1] + 1) if not is_last else None
 
-        if i == 0:
-            # First row: start at top-right
-            contour.append((right_x, top_y))
-        else:
-            # Check if right edge changed from previous row
-            prev_right = panel_x(row_ranges[rows[i-1]][1] + 1)
-            if right_x != prev_right:
-                # Step: horizontal then vertical
-                contour.append((prev_right, top_y))
-                contour.append((right_x, top_y))
+        if is_last or next_right != right_x:
+            # Right edge changes at next row (or this is the last row)
+            # Add the bottom of the current right edge
+            contour.append((right_x, panel_y(row + 1)))
+            if not is_last:
+                # Step to the next row's right edge
+                contour.append((next_right, panel_y(row + 1)))
 
-        contour.append((right_x, bottom_y))
-
-    # Bottom-right corner is already added
-    # Now go left along the bottom of the last row
+    # === BOTTOM EDGE: go left to the bottom-left corner of last row ===
     last_row = rows[-1]
-    last_min_c = row_ranges[last_row][0]
-    contour.append((panel_x(last_min_c), panel_y(last_row + 1)))
+    last_left = panel_x(row_ranges[last_row][0])
+    bottom_y = panel_y(last_row + 1)
+    if contour[-1] != (last_left, bottom_y):
+        contour.append((last_left, bottom_y))
 
-    # Left side: go up
+    # === LEFT SIDE (bottom to top) ===
     for i in range(len(rows) - 1, -1, -1):
         row = rows[i]
-        min_c, max_c = row_ranges[row]
-        left_x = panel_x(min_c)
-        top_y = panel_y(row)
-        bottom_y = panel_y(row + 1)
+        left_x = panel_x(row_ranges[row][0])
+        is_first = (i == 0)
+        next_left = panel_x(row_ranges[rows[i-1]][0]) if not is_first else None
 
-        if i == len(rows) - 1:
-            # Last row: left edge bottom already added above
-            contour.append((left_x, top_y))
-        else:
-            # Check if left edge changed from the row below
-            prev_left = panel_x(row_ranges[rows[i+1]][0])
-            if left_x != prev_left:
-                contour.append((prev_left, bottom_y))
-                contour.append((left_x, bottom_y))
-            contour.append((left_x, top_y))
+        if is_first or next_left != left_x:
+            # Left edge changes at the row above (or this is the first row)
+            contour.append((left_x, panel_y(row)))
+            if not is_first:
+                # Step to the row above's left edge
+                contour.append((next_left, panel_y(row)))
 
-    # Close: connect back to start (top of first row)
-    first_min_c = row_ranges[rows[0]][0]
-    first_max_c = row_ranges[rows[0]][1]
-    top_left = (panel_x(first_min_c), panel_y(rows[0]))
-    # Add top edge
-    if contour[-1] != top_left:
-        contour.append(top_left)
-
-    # Remove duplicate consecutive points
+    # Remove duplicate consecutive points and close
     cleaned = [contour[0]]
     for pt in contour[1:]:
         if pt != cleaned[-1]:
             cleaned.append(pt)
-    # Remove last point if it duplicates the first (closed contour)
     if len(cleaned) > 1 and cleaned[-1] == cleaned[0]:
         cleaned.pop()
 
