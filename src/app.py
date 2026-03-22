@@ -1769,10 +1769,10 @@ def _compute_panel_contour(layer):
 def _resolume_polygon(layer, unique_id):
     """Generate a Resolume Polygon XML block for a non-rectangular layer."""
     bounds = _layer_bounds(layer)
-    x1 = float(bounds['x'])
-    y1 = float(bounds['y'])
-    x2 = x1 + float(bounds['width'])
-    y2 = y1 + float(bounds['height'])
+    x1 = int(bounds['x'])
+    y1 = int(bounds['y'])
+    x2 = x1 + int(bounds['width'])
+    y2 = y1 + int(bounds['height'])
     name = layer.get('name', 'Layer')
 
     # Output params (no BRed/BGreen/BBlue for Polygon)
@@ -1794,7 +1794,7 @@ def _resolume_polygon(layer, unique_id):
         for x, y in pts:
             lines += f'{indent}\t<v x="{x}" y="{y}"/>\n'
         lines += f'{indent}</points>\n'
-        lines += f'{indent}<segments>{"L" * (len(pts) + 1)}</segments>\n'
+        lines += f'{indent}<segments>{"L" * len(pts)}</segments>\n'
         return lines
 
     input_contour = contour_xml(contour_pts, '\t\t\t\t\t\t\t')
