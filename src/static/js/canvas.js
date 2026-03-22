@@ -1017,9 +1017,13 @@ class CanvasRenderer {
                     if (this.viewMode === 'power') {
                         this.renderPowerArrows(layer);
                     }
+
+                    // Render labels as part of each layer so upper layers naturally
+                    // paint over lower layers' labels (no bleed-through)
+                    this.renderLayerLabels(layer);
                 }
             });
-            
+
             if (!this.exportMode && this.viewMode === 'data-flow') {
                 this.renderCustomSelectionOverlay();
                 this.renderCustomActivePortBadge();
@@ -1028,13 +1032,6 @@ class CanvasRenderer {
                 this.renderPowerSelectionOverlay();
                 this.renderPowerActiveCircuitBadge();
             }
-            
-            // Second pass: render all labels ON TOP of panels, clipped to layer bounds
-            const visibleLayers = window.app.project.layers.filter(l => l.visible);
-
-            visibleLayers.forEach((layer) => {
-                this.renderLayerLabels(layer);
-            });
             
             // Third pass: render capacity error overlays ON TOP of labels (Data Flow mode only)
             if (this.viewMode === 'data-flow') {
