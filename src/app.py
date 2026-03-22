@@ -1623,6 +1623,220 @@ def _resolume_param_range(name, default="0", value="0", min_val="-1", max_val="1
         f'\t\t\t\t\t\t\t</ParamRange>\n'
     )
 
+def _layer_has_hidden_panels(layer):
+    """Check if a layer has any hidden (deleted) panels."""
+    panels = layer.get('panels', [])
+    return any(p.get('hidden', False) for p in panels)
+
+
+def _compute_panel_contour(layer):
+    """Compute the outer boundary contour of visible panels as pixel coordinates.
+
+    Returns a list of (x, y) vertices tracing the boundary clockwise.
+    The contour follows the outer edges of the visible panel grid,
+    stepping at panel boundaries where the shape changes.
+    """
+    panels = layer.get('panels', [])
+    if not panels:
+        return []
+
+    cab_w = int(layer.get('cabinet_width', 192))
+    cab_h = int(layer.get('cabinet_height', 384))
+    off_x = int(layer.get('offset_x', 0))
+    off_y = int(layer.get('offset_y', 0))
+
+    # Build a grid of visible panels: grid[row][col] = True/False
+    visible = set()
+    max_row = 0
+    max_col = 0
+    for p in panels:
+        if not p.get('hidden', False):
+            r, c = p['row'], p['col']
+            visible.add((r, c))
+            if r > max_row: max_row = r
+            if c > max_col: max_col = c
+
+    if not visible:
+        return []
+
+    # Determine panel pixel dimensions (accounting for half panels)
+    def panel_x(col):
+        """Get pixel X position for column index."""
+        return off_x + col * cab_w
+
+    def panel_y(row):
+        """Get pixel Y position for row index."""
+        return off_y + row * cab_h
+
+    # Use marching squares on the grid to trace the boundary.
+    # Each visible panel occupies grid cell (row, col).
+    # We trace edges between visible and non-visible cells.
+
+    # Trace the outer boundary of visible panels using grid edge walking.
+    # This handles concavities and arbitrary shapes correctly.
+    # The contour walks counter-clockwise (matching Resolume convention):
+    #   top-right → across top going left → down left side → across bottom → up right side
+
+    # Build a set for O(1) lookup
+    # visible is already a set of (row, col)
+
+    # Collect all boundary edges between visible and non-visible cells.
+    # An edge is on the boundary if one side is visible and the other is not.
+    # Edges are stored as ((x1,y1),(x2,y2)) oriented so the visible cell
+    # is on the right side (counter-clockwise winding).
+
+    edges = []
+    for (r, c) in visible:
+        px = panel_x(c)
+        py = panel_y(r)
+        px2 = panel_x(c + 1)
+        py2 = panel_y(r + 1)
+
+        # Top edge: if cell above (r-1, c) is not visible
+        if (r - 1, c) not in visible:
+            edges.append(((px2, py), (px, py)))  # right to left (CCW)
+        # Bottom edge: if cell below (r+1, c) is not visible
+        if (r + 1, c) not in visible:
+            edges.append(((px, py2), (px2, py2)))  # left to right (CCW)
+        # Left edge: if cell left (r, c-1) is not visible
+        if (r, c - 1) not in visible:
+            edges.append(((px, py), (px, py2)))  # top to bottom (CCW)
+        # Right edge: if cell right (r, c+1) is not visible
+        if (r, c + 1) not in visible:
+            edges.append(((px2, py2), (px2, py)))  # bottom to top (CCW)
+
+    if not edges:
+        return []
+
+    # Build adjacency: for each vertex, map start_point -> [(end_point, edge_idx)]
+    from collections import defaultdict
+    adj = defaultdict(list)
+    for i, (start, end) in enumerate(edges):
+        adj[start].append((end, i))
+
+    # Walk the boundary starting from the topmost-rightmost point
+    # Find the starting point: among all edge start points, pick the one
+    # with the largest x, then smallest y (top-right corner)
+    all_starts = set(e[0] for e in edges)
+    start_pt = max(all_starts, key=lambda p: (p[0], -p[1]))
+
+    contour = [start_pt]
+    used = set()
+    current = start_pt
+
+    for _ in range(len(edges) + 1):
+        candidates = [(end, idx) for end, idx in adj[current] if idx not in used]
+        if not candidates:
+            break
+        # Pick the next edge (for simple polygons there should be exactly one unused)
+        next_pt, edge_idx = candidates[0]
+        used.add(edge_idx)
+        contour.append(next_pt)
+        current = next_pt
+        if current == start_pt:
+            break
+
+    # Remove the closing duplicate
+    if len(contour) > 1 and contour[-1] == contour[0]:
+        contour.pop()
+
+    # Simplify: remove collinear intermediate points (points on straight lines)
+    if len(contour) < 3:
+        return contour
+
+    simplified = []
+    n = len(contour)
+    for i in range(n):
+        prev = contour[(i - 1) % n]
+        curr = contour[i]
+        nxt = contour[(i + 1) % n]
+        # Keep point if direction changes
+        dx1 = curr[0] - prev[0]
+        dy1 = curr[1] - prev[1]
+        dx2 = nxt[0] - curr[0]
+        dy2 = nxt[1] - curr[1]
+        # Normalize to direction signs
+        d1 = (1 if dx1 > 0 else (-1 if dx1 < 0 else 0),
+              1 if dy1 > 0 else (-1 if dy1 < 0 else 0))
+        d2 = (1 if dx2 > 0 else (-1 if dx2 < 0 else 0),
+              1 if dy2 > 0 else (-1 if dy2 < 0 else 0))
+        if d1 != d2:
+            simplified.append(curr)
+
+    return simplified
+
+
+def _resolume_polygon(layer, unique_id):
+    """Generate a Resolume Polygon XML block for a non-rectangular layer."""
+    bounds = _layer_bounds(layer)
+    x1 = int(bounds['x'])
+    y1 = int(bounds['y'])
+    x2 = x1 + int(bounds['width'])
+    y2 = y1 + int(bounds['height'])
+    name = layer.get('name', 'Layer')
+
+    # Output params (no BRed/BGreen/BBlue for Polygon)
+    output_params = (
+        _resolume_param_range("Brightness") +
+        _resolume_param_range("Contrast") +
+        _resolume_param_range("Red") +
+        _resolume_param_range("Green") +
+        _resolume_param_range("Blue") +
+        f'\t\t\t\t\t\t\t<Param name="Is Key" T="BOOL" default="0" value="0"/>\n'
+        f'\t\t\t\t\t\t\t<Param name="Black BG" T="BOOL" default="0" value="0"/>\n'
+    )
+
+    # Compute contour
+    contour_pts = _compute_panel_contour(layer)
+
+    def contour_xml(pts, indent):
+        lines = f'{indent}<points>\n'
+        for x, y in pts:
+            lines += f'{indent}\t<v x="{x}" y="{y}"/>\n'
+        lines += f'{indent}</points>\n'
+        lines += f'{indent}<segments>{"L" * len(pts)}</segments>\n'
+        return lines
+
+    input_contour = contour_xml(contour_pts, '\t\t\t\t\t\t\t')
+    output_contour = contour_xml(contour_pts, '\t\t\t\t\t\t\t')
+
+    return (
+        f'\t\t\t\t\t<Polygon uniqueId="{unique_id}" IsVirgin="0">\n'
+        f'\t\t\t\t\t\t<Params name="Common">\n'
+        f'\t\t\t\t\t\t\t<Param name="Name" T="STRING" default="Layer" value="{name}"/>\n'
+        f'\t\t\t\t\t\t\t<Param name="Enabled" T="BOOL" default="1" value="1"/>\n'
+        f'\t\t\t\t\t\t</Params>\n'
+        f'\t\t\t\t\t\t<Params name="Input">\n'
+        f'\t\t\t\t\t\t\t<ParamChoice name="Input Source" default="0:1" value="0:1" storeChoices="0"/>\n'
+        f'\t\t\t\t\t\t\t<Param name="Input Opacity" T="BOOL" default="1" value="1"/>\n'
+        f'\t\t\t\t\t\t\t<Param name="Input Bypass/Solo" T="BOOL" default="1" value="1"/>\n'
+        f'\t\t\t\t\t\t</Params>\n'
+        f'\t\t\t\t\t\t<Params name="Output">\n'
+        f'\t\t\t\t\t\t\t<Param name="Flip" T="UINT8" default="0" value="0"/>\n'
+        f'{output_params}'
+        f'\t\t\t\t\t\t</Params>\n'
+        f'\t\t\t\t\t\t<InputRect orientation="0">\n'
+        f'\t\t\t\t\t\t\t<v x="{x1}" y="{y1}"/>\n'
+        f'\t\t\t\t\t\t\t<v x="{x2}" y="{y1}"/>\n'
+        f'\t\t\t\t\t\t\t<v x="{x2}" y="{y2}"/>\n'
+        f'\t\t\t\t\t\t\t<v x="{x1}" y="{y2}"/>\n'
+        f'\t\t\t\t\t\t</InputRect>\n'
+        f'\t\t\t\t\t\t<OutputRect orientation="0">\n'
+        f'\t\t\t\t\t\t\t<v x="{x1}" y="{y1}"/>\n'
+        f'\t\t\t\t\t\t\t<v x="{x2}" y="{y1}"/>\n'
+        f'\t\t\t\t\t\t\t<v x="{x2}" y="{y2}"/>\n'
+        f'\t\t\t\t\t\t\t<v x="{x1}" y="{y2}"/>\n'
+        f'\t\t\t\t\t\t</OutputRect>\n'
+        f'\t\t\t\t\t\t<InputContour closed="1">\n'
+        f'{input_contour}'
+        f'\t\t\t\t\t\t</InputContour>\n'
+        f'\t\t\t\t\t\t<OutputContour closed="1">\n'
+        f'{output_contour}'
+        f'\t\t\t\t\t\t</OutputContour>\n'
+        f'\t\t\t\t\t</Polygon>\n'
+    )
+
+
 def _resolume_slice(layer, unique_id):
     """Generate a Resolume Slice XML block for a layer."""
     bounds = _layer_bounds(layer)
@@ -1729,7 +1943,10 @@ def generate_resolume_xml(project, project_name, raster_w, raster_h):
     slices_xml = ""
     for layer in screen_layers:
         slice_id = random.randint(1000000000000, 9999999999999)
-        slices_xml += _resolume_slice(layer, slice_id)
+        if _layer_has_hidden_panels(layer):
+            slices_xml += _resolume_polygon(layer, slice_id)
+        else:
+            slices_xml += _resolume_slice(layer, slice_id)
 
     # Screen-level output params
     def screen_param_range(name, default="0", value="0", min_val="-1", max_val="1"):
