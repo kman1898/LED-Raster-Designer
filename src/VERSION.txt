@@ -1,7 +1,7 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
-v0.7 - March 21, 2026
+v0.7.1 - March 21, 2026
 ----------------------------
 - FIX: Novastar Legacy port capacity now calculates using bounding rectangle instead of sum of visible panel pixels
 - FIX: Non-rectangular layouts (stair-step, L-shape) now correctly account for the full rectangle the processor reserves
