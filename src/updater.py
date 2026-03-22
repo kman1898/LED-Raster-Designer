@@ -61,7 +61,7 @@ def _read_version_file():
     try:
         with open(version_path, 'r', encoding='utf-8', errors='ignore') as f:
             for line in f:
-                m = re.match(r'^v?(\d+\.\d+\.\d+(?:\.\d+)?)', line.strip())
+                m = re.match(r'^v?(\d+\.\d+(?:\.\d+)*)', line.strip())
                 if m:
                     return m.group(1)
     except FileNotFoundError:
