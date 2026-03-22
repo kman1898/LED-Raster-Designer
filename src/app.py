@@ -1623,6 +1623,210 @@ def _resolume_param_range(name, default="0", value="0", min_val="-1", max_val="1
         f'\t\t\t\t\t\t\t</ParamRange>\n'
     )
 
+def _layer_has_hidden_panels(layer):
+    """Check if a layer has any hidden (deleted) panels."""
+    panels = layer.get('panels', [])
+    return any(p.get('hidden', False) for p in panels)
+
+
+def _compute_panel_contour(layer):
+    """Compute the outer boundary contour of visible panels as pixel coordinates.
+
+    Returns a list of (x, y) vertices tracing the boundary clockwise.
+    The contour follows the outer edges of the visible panel grid,
+    stepping at panel boundaries where the shape changes.
+    """
+    panels = layer.get('panels', [])
+    if not panels:
+        return []
+
+    cab_w = int(layer.get('cabinet_width', 192))
+    cab_h = int(layer.get('cabinet_height', 384))
+    off_x = int(layer.get('offset_x', 0))
+    off_y = int(layer.get('offset_y', 0))
+
+    # Build a grid of visible panels: grid[row][col] = True/False
+    visible = set()
+    max_row = 0
+    max_col = 0
+    for p in panels:
+        if not p.get('hidden', False):
+            r, c = p['row'], p['col']
+            visible.add((r, c))
+            if r > max_row: max_row = r
+            if c > max_col: max_col = c
+
+    if not visible:
+        return []
+
+    # Determine panel pixel dimensions (accounting for half panels)
+    def panel_x(col):
+        """Get pixel X position for column index."""
+        return off_x + col * cab_w
+
+    def panel_y(row):
+        """Get pixel Y position for row index."""
+        return off_y + row * cab_h
+
+    # Use marching squares on the grid to trace the boundary.
+    # Each visible panel occupies grid cell (row, col).
+    # We trace edges between visible and non-visible cells.
+
+    # Build ordered contour by walking the boundary clockwise.
+    # Strategy: for each row, find the leftmost and rightmost visible columns,
+    # then build the contour by sweeping top-to-bottom on the right edge
+    # and bottom-to-top on the left edge.
+
+    rows = sorted(set(r for r, c in visible))
+    if not rows:
+        return []
+
+    # For each row, find min and max visible column
+    row_ranges = {}
+    for row in rows:
+        cols_in_row = sorted(c for r, c in visible if r == row)
+        row_ranges[row] = (min(cols_in_row), max(cols_in_row))
+
+    # Build right edge (top to bottom): trace the right boundary
+    # Start from top-right corner of the first row
+    contour = []
+
+    # Right side: go down
+    for i, row in enumerate(rows):
+        min_c, max_c = row_ranges[row]
+        right_x = panel_x(max_c + 1)  # right edge of rightmost panel
+        top_y = panel_y(row)
+        bottom_y = panel_y(row + 1)
+
+        if i == 0:
+            # First row: start at top-right
+            contour.append((right_x, top_y))
+        else:
+            # Check if right edge changed from previous row
+            prev_right = panel_x(row_ranges[rows[i-1]][1] + 1)
+            if right_x != prev_right:
+                # Step: horizontal then vertical
+                contour.append((prev_right, top_y))
+                contour.append((right_x, top_y))
+
+        contour.append((right_x, bottom_y))
+
+    # Bottom-right corner is already added
+    # Now go left along the bottom of the last row
+    last_row = rows[-1]
+    last_min_c = row_ranges[last_row][0]
+    contour.append((panel_x(last_min_c), panel_y(last_row + 1)))
+
+    # Left side: go up
+    for i in range(len(rows) - 1, -1, -1):
+        row = rows[i]
+        min_c, max_c = row_ranges[row]
+        left_x = panel_x(min_c)
+        top_y = panel_y(row)
+        bottom_y = panel_y(row + 1)
+
+        if i == len(rows) - 1:
+            # Last row: left edge bottom already added above
+            contour.append((left_x, top_y))
+        else:
+            # Check if left edge changed from the row below
+            prev_left = panel_x(row_ranges[rows[i+1]][0])
+            if left_x != prev_left:
+                contour.append((prev_left, bottom_y))
+                contour.append((left_x, bottom_y))
+            contour.append((left_x, top_y))
+
+    # Close: connect back to start (top of first row)
+    first_min_c = row_ranges[rows[0]][0]
+    first_max_c = row_ranges[rows[0]][1]
+    top_left = (panel_x(first_min_c), panel_y(rows[0]))
+    # Add top edge
+    if contour[-1] != top_left:
+        contour.append(top_left)
+
+    # Remove duplicate consecutive points
+    cleaned = [contour[0]]
+    for pt in contour[1:]:
+        if pt != cleaned[-1]:
+            cleaned.append(pt)
+    # Remove last point if it duplicates the first (closed contour)
+    if len(cleaned) > 1 and cleaned[-1] == cleaned[0]:
+        cleaned.pop()
+
+    return cleaned
+
+
+def _resolume_polygon(layer, unique_id):
+    """Generate a Resolume Polygon XML block for a non-rectangular layer."""
+    bounds = _layer_bounds(layer)
+    x1 = float(bounds['x'])
+    y1 = float(bounds['y'])
+    x2 = x1 + float(bounds['width'])
+    y2 = y1 + float(bounds['height'])
+    name = layer.get('name', 'Layer')
+
+    # Output params (no BRed/BGreen/BBlue for Polygon)
+    output_params = (
+        _resolume_param_range("Brightness") +
+        _resolume_param_range("Contrast") +
+        _resolume_param_range("Red") +
+        _resolume_param_range("Green") +
+        _resolume_param_range("Blue") +
+        f'\t\t\t\t\t\t\t<Param name="Is Key" T="BOOL" default="0" value="0"/>\n'
+        f'\t\t\t\t\t\t\t<Param name="Black BG" T="BOOL" default="0" value="0"/>\n'
+    )
+
+    # Compute contour
+    contour_pts = _compute_panel_contour(layer)
+
+    def contour_xml(pts, indent):
+        lines = f'{indent}<points>\n'
+        for x, y in pts:
+            lines += f'{indent}\t<v x="{x}" y="{y}"/>\n'
+        lines += f'{indent}</points>\n'
+        lines += f'{indent}<segments>{"L" * (len(pts) + 1)}</segments>\n'
+        return lines
+
+    input_contour = contour_xml(contour_pts, '\t\t\t\t\t\t\t')
+    output_contour = contour_xml(contour_pts, '\t\t\t\t\t\t\t')
+
+    return (
+        f'\t\t\t\t\t<Polygon uniqueId="{unique_id}" IsVirgin="0">\n'
+        f'\t\t\t\t\t\t<Params name="Common">\n'
+        f'\t\t\t\t\t\t\t<Param name="Name" T="STRING" default="Layer" value="{name}"/>\n'
+        f'\t\t\t\t\t\t\t<Param name="Enabled" T="BOOL" default="1" value="1"/>\n'
+        f'\t\t\t\t\t\t</Params>\n'
+        f'\t\t\t\t\t\t<Params name="Input">\n'
+        f'\t\t\t\t\t\t\t<ParamChoice name="Input Source" default="0:1" value="0:1" storeChoices="0"/>\n'
+        f'\t\t\t\t\t\t\t<Param name="Input Opacity" T="BOOL" default="1" value="1"/>\n'
+        f'\t\t\t\t\t\t\t<Param name="Input Bypass/Solo" T="BOOL" default="1" value="1"/>\n'
+        f'\t\t\t\t\t\t</Params>\n'
+        f'\t\t\t\t\t\t<Params name="Output">\n'
+        f'\t\t\t\t\t\t\t<Param name="Flip" T="UINT8" default="0" value="0"/>\n'
+        f'{output_params}'
+        f'\t\t\t\t\t\t</Params>\n'
+        f'\t\t\t\t\t\t<InputRect orientation="0">\n'
+        f'\t\t\t\t\t\t\t<v x="{x1}" y="{y1}"/>\n'
+        f'\t\t\t\t\t\t\t<v x="{x2}" y="{y1}"/>\n'
+        f'\t\t\t\t\t\t\t<v x="{x2}" y="{y2}"/>\n'
+        f'\t\t\t\t\t\t\t<v x="{x1}" y="{y2}"/>\n'
+        f'\t\t\t\t\t\t</InputRect>\n'
+        f'\t\t\t\t\t\t<OutputRect orientation="0">\n'
+        f'\t\t\t\t\t\t\t<v x="{x1}" y="{y1}"/>\n'
+        f'\t\t\t\t\t\t\t<v x="{x2}" y="{y1}"/>\n'
+        f'\t\t\t\t\t\t\t<v x="{x2}" y="{y2}"/>\n'
+        f'\t\t\t\t\t\t\t<v x="{x1}" y="{y2}"/>\n'
+        f'\t\t\t\t\t\t</OutputRect>\n'
+        f'\t\t\t\t\t\t<InputContour closed="1">\n'
+        f'{input_contour}'
+        f'\t\t\t\t\t\t</InputContour>\n'
+        f'\t\t\t\t\t\t<OutputContour closed="1">\n'
+        f'{output_contour}'
+        f'\t\t\t\t\t\t</OutputContour>\n'
+        f'\t\t\t\t\t</Polygon>\n'
+    )
+
+
 def _resolume_slice(layer, unique_id):
     """Generate a Resolume Slice XML block for a layer."""
     bounds = _layer_bounds(layer)
@@ -1729,7 +1933,10 @@ def generate_resolume_xml(project, project_name, raster_w, raster_h):
     slices_xml = ""
     for layer in screen_layers:
         slice_id = random.randint(1000000000000, 9999999999999)
-        slices_xml += _resolume_slice(layer, slice_id)
+        if _layer_has_hidden_panels(layer):
+            slices_xml += _resolume_polygon(layer, slice_id)
+        else:
+            slices_xml += _resolume_slice(layer, slice_id)
 
     # Screen-level output params
     def screen_param_range(name, default="0", value="0", min_val="-1", max_val="1"):
