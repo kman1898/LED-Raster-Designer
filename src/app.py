@@ -1672,71 +1672,98 @@ def _compute_panel_contour(layer):
     # Each visible panel occupies grid cell (row, col).
     # We trace edges between visible and non-visible cells.
 
-    # Build ordered contour by walking the boundary clockwise.
-    # Start at top-right, go down the right edge, across the bottom,
-    # up the left edge, and across the top. Only add vertices where the
-    # boundary changes direction (no intermediate points on straight edges).
+    # Trace the outer boundary of visible panels using grid edge walking.
+    # This handles concavities and arbitrary shapes correctly.
+    # The contour walks counter-clockwise (matching Resolume convention):
+    #   top-right → across top going left → down left side → across bottom → up right side
 
-    rows = sorted(set(r for r, c in visible))
-    if not rows:
+    # Build a set for O(1) lookup
+    # visible is already a set of (row, col)
+
+    # Collect all boundary edges between visible and non-visible cells.
+    # An edge is on the boundary if one side is visible and the other is not.
+    # Edges are stored as ((x1,y1),(x2,y2)) oriented so the visible cell
+    # is on the right side (counter-clockwise winding).
+
+    edges = []
+    for (r, c) in visible:
+        px = panel_x(c)
+        py = panel_y(r)
+        px2 = panel_x(c + 1)
+        py2 = panel_y(r + 1)
+
+        # Top edge: if cell above (r-1, c) is not visible
+        if (r - 1, c) not in visible:
+            edges.append(((px2, py), (px, py)))  # right to left (CCW)
+        # Bottom edge: if cell below (r+1, c) is not visible
+        if (r + 1, c) not in visible:
+            edges.append(((px, py2), (px2, py2)))  # left to right (CCW)
+        # Left edge: if cell left (r, c-1) is not visible
+        if (r, c - 1) not in visible:
+            edges.append(((px, py), (px, py2)))  # top to bottom (CCW)
+        # Right edge: if cell right (r, c+1) is not visible
+        if (r, c + 1) not in visible:
+            edges.append(((px2, py2), (px2, py)))  # bottom to top (CCW)
+
+    if not edges:
         return []
 
-    # For each row, find min and max visible column
-    row_ranges = {}
-    for row in rows:
-        cols_in_row = sorted(c for r, c in visible if r == row)
-        row_ranges[row] = (min(cols_in_row), max(cols_in_row))
+    # Build adjacency: for each vertex, map start_point -> [(end_point, edge_idx)]
+    from collections import defaultdict
+    adj = defaultdict(list)
+    for i, (start, end) in enumerate(edges):
+        adj[start].append((end, i))
 
-    contour = []
+    # Walk the boundary starting from the topmost-rightmost point
+    # Find the starting point: among all edge start points, pick the one
+    # with the largest x, then smallest y (top-right corner)
+    all_starts = set(e[0] for e in edges)
+    start_pt = max(all_starts, key=lambda p: (p[0], -p[1]))
 
-    # === RIGHT SIDE (top to bottom) ===
-    # Start at top-right corner of first row
-    first_right = panel_x(row_ranges[rows[0]][1] + 1)
-    contour.append((first_right, panel_y(rows[0])))
+    contour = [start_pt]
+    used = set()
+    current = start_pt
 
-    for i, row in enumerate(rows):
-        right_x = panel_x(row_ranges[row][1] + 1)
-        is_last = (i == len(rows) - 1)
-        next_right = panel_x(row_ranges[rows[i+1]][1] + 1) if not is_last else None
+    for _ in range(len(edges) + 1):
+        candidates = [(end, idx) for end, idx in adj[current] if idx not in used]
+        if not candidates:
+            break
+        # Pick the next edge (for simple polygons there should be exactly one unused)
+        next_pt, edge_idx = candidates[0]
+        used.add(edge_idx)
+        contour.append(next_pt)
+        current = next_pt
+        if current == start_pt:
+            break
 
-        if is_last or next_right != right_x:
-            # Right edge changes at next row (or this is the last row)
-            # Add the bottom of the current right edge
-            contour.append((right_x, panel_y(row + 1)))
-            if not is_last:
-                # Step to the next row's right edge
-                contour.append((next_right, panel_y(row + 1)))
+    # Remove the closing duplicate
+    if len(contour) > 1 and contour[-1] == contour[0]:
+        contour.pop()
 
-    # === BOTTOM EDGE: go left to the bottom-left corner of last row ===
-    last_row = rows[-1]
-    last_left = panel_x(row_ranges[last_row][0])
-    bottom_y = panel_y(last_row + 1)
-    if contour[-1] != (last_left, bottom_y):
-        contour.append((last_left, bottom_y))
+    # Simplify: remove collinear intermediate points (points on straight lines)
+    if len(contour) < 3:
+        return contour
 
-    # === LEFT SIDE (bottom to top) ===
-    for i in range(len(rows) - 1, -1, -1):
-        row = rows[i]
-        left_x = panel_x(row_ranges[row][0])
-        is_first = (i == 0)
-        next_left = panel_x(row_ranges[rows[i-1]][0]) if not is_first else None
+    simplified = []
+    n = len(contour)
+    for i in range(n):
+        prev = contour[(i - 1) % n]
+        curr = contour[i]
+        nxt = contour[(i + 1) % n]
+        # Keep point if direction changes
+        dx1 = curr[0] - prev[0]
+        dy1 = curr[1] - prev[1]
+        dx2 = nxt[0] - curr[0]
+        dy2 = nxt[1] - curr[1]
+        # Normalize to direction signs
+        d1 = (1 if dx1 > 0 else (-1 if dx1 < 0 else 0),
+              1 if dy1 > 0 else (-1 if dy1 < 0 else 0))
+        d2 = (1 if dx2 > 0 else (-1 if dx2 < 0 else 0),
+              1 if dy2 > 0 else (-1 if dy2 < 0 else 0))
+        if d1 != d2:
+            simplified.append(curr)
 
-        if is_first or next_left != left_x:
-            # Left edge changes at the row above (or this is the first row)
-            contour.append((left_x, panel_y(row)))
-            if not is_first:
-                # Step to the row above's left edge
-                contour.append((next_left, panel_y(row)))
-
-    # Remove duplicate consecutive points and close
-    cleaned = [contour[0]]
-    for pt in contour[1:]:
-        if pt != cleaned[-1]:
-            cleaned.append(pt)
-    if len(cleaned) > 1 and cleaned[-1] == cleaned[0]:
-        cleaned.pop()
-
-    return cleaned
+    return simplified
 
 
 def _resolume_polygon(layer, unique_id):
