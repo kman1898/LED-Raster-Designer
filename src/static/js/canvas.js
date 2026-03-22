@@ -1017,9 +1017,13 @@ class CanvasRenderer {
                     if (this.viewMode === 'power') {
                         this.renderPowerArrows(layer);
                     }
+
+                    // Render labels as part of each layer so upper layers naturally
+                    // paint over lower layers' labels (no bleed-through)
+                    this.renderLayerLabels(layer);
                 }
             });
-            
+
             if (!this.exportMode && this.viewMode === 'data-flow') {
                 this.renderCustomSelectionOverlay();
                 this.renderCustomActivePortBadge();
@@ -1028,36 +1032,6 @@ class CanvasRenderer {
                 this.renderPowerSelectionOverlay();
                 this.renderPowerActiveCircuitBadge();
             }
-            
-            // Second pass: render all labels ON TOP of panels, clipped so that
-            // layers above occlude labels of layers below (no bleed-through).
-            const visibleLayers = window.app.project.layers.filter(l => l.visible);
-
-            visibleLayers.forEach((layer, idx) => {
-                this.ctx.save();
-
-                // Clip out regions covered by layers ABOVE this one in the stack
-                // (layers later in the array are rendered on top)
-                const layersAbove = visibleLayers.slice(idx + 1);
-                if (layersAbove.length > 0) {
-                    // Build a single clip path using evenodd: outer rect includes everything,
-                    // inner rects (for each layer above) are excluded
-                    const region = new Path2D();
-                    // Outer rect — the entire raster area (clockwise)
-                    region.rect(0, 0, this.rasterWidth, this.rasterHeight);
-                    // Subtract each layer above (same-direction rects → evenodd excludes them)
-                    layersAbove.forEach(aboveLayer => {
-                        if (aboveLayer.panels && aboveLayer.panels.some(p => !p.hidden)) {
-                            const ab = this.getLayerBounds(aboveLayer);
-                            region.rect(ab.x, ab.y, ab.width, ab.height);
-                        }
-                    });
-                    this.ctx.clip(region, 'evenodd');
-                }
-
-                this.renderLayerLabels(layer);
-                this.ctx.restore();
-            });
             
             // Third pass: render capacity error overlays ON TOP of labels (Data Flow mode only)
             if (this.viewMode === 'data-flow') {
