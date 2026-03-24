@@ -711,6 +711,28 @@ def toggle_panel_hidden(layer_id, panel_id):
     socketio.emit('panel_updated', {'layer_id': layer_id, 'panel': panel})
     return jsonify(panel)
 
+@app.route('/api/layer/<int:layer_id>/panels/set_hidden', methods=['POST'])
+def set_panels_hidden(layer_id):
+    """Bulk set hidden state for multiple panels."""
+    layer = next((l for l in current_project['layers'] if l['id'] == layer_id), None)
+    if not layer:
+        return jsonify({'error': 'Layer not found'}), 404
+
+    data = request.json or {}
+    panel_states = data.get('panels', [])
+
+    updated = []
+    for ps in panel_states:
+        panel = next((p for p in layer['panels'] if p['id'] == ps.get('id')), None)
+        if panel:
+            panel['hidden'] = ps.get('hidden', False)
+            updated.append(panel)
+
+    log_event('bulk_set_panels_hidden', {'layer_id': layer_id, 'count': len(updated)})
+    socketio.emit('layer_updated', layer)
+    return jsonify({'updated': len(updated)})
+
+
 @app.route('/api/log', methods=['POST'])
 def client_log():
     data = request.json or {}
