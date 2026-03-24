@@ -292,6 +292,7 @@ class CanvasRenderer {
             if (this.viewMode === 'pixel-map') {
                 const clickedPanel = this.getPanelAt(worldX, worldY);
                 if (clickedPanel && window.app) {
+                    e.preventDefault();
                     this.isAltPainting = true;
                     this.altPaintLayerId = clickedPanel.layerId;
                     this.altPaintMode = clickedPanel.panel.hidden ? 'show' : 'hide';
