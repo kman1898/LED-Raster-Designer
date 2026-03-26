@@ -5797,14 +5797,28 @@ class LEDRasterApp {
                     scrScreenY: l.scrScreenY != null ? l.scrScreenY : (l.offset_y || 0),
                     scrPortSendingCards: l.scrPortSendingCards || {},
                     scrPortNumbers: l.scrPortNumbers || {},
-                    portAssignments: assignments.map(a => ({
-                        port: a.port,
-                        col: a.panel.col,
-                        row: a.panel.row,
-                        isPortStart: a.isPortStart,
-                        pixelIndex: a.pixelIndex,
-                        hidden: a.panel.hidden || false
-                    }))
+                    portAssignments: [
+                        ...assignments.map(a => ({
+                            port: a.port,
+                            col: a.panel.col,
+                            row: a.panel.row,
+                            isPortStart: a.isPortStart,
+                            pixelIndex: a.pixelIndex,
+                            hidden: a.panel.hidden || false
+                        })),
+                        // Include hidden panels not in port assignments
+                        ...(l.panels || [])
+                            .filter(p => p.hidden)
+                            .filter(p => !assignments.some(a => a.panel.col === p.col && a.panel.row === p.row))
+                            .map(p => ({
+                                port: 0,
+                                col: p.col,
+                                row: p.row,
+                                isPortStart: false,
+                                pixelIndex: 0,
+                                hidden: true
+                            }))
+                    ]
                 };
             });
 

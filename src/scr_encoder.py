@@ -141,19 +141,33 @@ def build_single_screen_scr(cols, rows, pw, ph, port_assignments=None):
     for a in port_assignments:
         assign_map[(a['col'], a['row'])] = a
 
+    # Build hidden panels set
+    hidden_set = set()
+    for a in port_assignments:
+        if a.get('hidden', False):
+            hidden_set.add((a['col'], a['row']))
+
     # Build records: column-major order, skip origin (0,0)
     records = bytearray()
     for col in range(cols):
         for row in range(rows):
             if col == 0 and row == 0:
                 continue
-            a = assign_map.get((col, row), {'port_num': 1, 'chain_order': 0, 'b5': 0})
             rec = bytearray(17)
             struct.pack_into('<HH', rec, 0, pw, ph)
             rec[4] = 1
-            rec[5] = a.get('b5', 0)
-            rec[6] = max(0, a.get('port_num', 1) - 1)  # Convert 1-based to 0-based
-            rec[7] = a.get('chain_order', 0) & 0xFF
+
+            if (col, row) in hidden_set:
+                # Hidden/blank panel: b5=0xFF, b6=1, b7=1
+                rec[5] = 0xFF
+                rec[6] = 1
+                rec[7] = 1
+            else:
+                a = assign_map.get((col, row), {'port_num': 1, 'chain_order': 0, 'b5': 0})
+                rec[5] = a.get('b5', 0)
+                rec[6] = max(0, a.get('port_num', 1) - 1)  # Convert 1-based to 0-based
+                rec[7] = a.get('chain_order', 0) & 0xFF
+
             rec[8] = 0
             struct.pack_into('<H', rec, 9, col * pw)
             struct.pack_into('<H', rec, 11, row * ph)
@@ -419,7 +433,8 @@ def generate_scr_files(project_name, layers):
                     'port_num': p['port_num'],
                     'chain_order': p['chain_order'],
                     'b5': p.get('b5', 0),
-                } for p in screens[0].get('panels', []) if not p.get('hidden', False)]
+                    'hidden': p.get('hidden', False),
+                } for p in screens[0].get('panels', [])]
                 or None
             )
         else:
