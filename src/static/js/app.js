@@ -2207,6 +2207,7 @@ class LEDRasterApp {
                 this.saveClientSideProperties();
                 this.updatePortCapacityDisplay();
                 this.updatePortLabelEditor();
+                this.updateScrVisibility();
                 this.updateLayers(this.getSelectedLayers());
                 window.canvasRenderer.render();
             });
@@ -2888,6 +2889,53 @@ class LEDRasterApp {
             });
         }
 
+        // NovaLCT Mapping controls
+        const scrExportCb = document.getElementById('scr-export-enabled');
+        if (scrExportCb) {
+            scrExportCb.addEventListener('change', () => {
+                const checked = scrExportCb.checked;
+                this.applyToSelectedLayers(layer => {
+                    layer.scrExportEnabled = checked;
+                    if (checked && layer.scrScreenX == null) {
+                        layer.scrScreenX = layer.offset_x || 0;
+                        layer.scrScreenY = layer.offset_y || 0;
+                    }
+                });
+                document.getElementById('scr-mapping-panel').style.display = checked ? '' : 'none';
+                if (checked) this.updateScrPortAssignmentUI();
+                this.updateExportFormatOptions();
+                this.saveClientSideProperties();
+                this.updateLayers(this.getSelectedLayers());
+            });
+        }
+        const scrScreenNum = document.getElementById('scr-screen-number');
+        if (scrScreenNum) {
+            scrScreenNum.addEventListener('change', () => {
+                this.applyToSelectedLayers(layer => {
+                    layer.scrScreenNumber = parseInt(scrScreenNum.value) || 1;
+                });
+                this.updateLayers(this.getSelectedLayers());
+            });
+        }
+        const scrScreenX = document.getElementById('scr-screen-x');
+        if (scrScreenX) {
+            scrScreenX.addEventListener('change', () => {
+                this.applyToSelectedLayers(layer => {
+                    layer.scrScreenX = parseInt(scrScreenX.value) || 0;
+                });
+                this.updateLayers(this.getSelectedLayers());
+            });
+        }
+        const scrScreenY = document.getElementById('scr-screen-y');
+        if (scrScreenY) {
+            scrScreenY.addEventListener('change', () => {
+                this.applyToSelectedLayers(layer => {
+                    layer.scrScreenY = parseInt(scrScreenY.value) || 0;
+                });
+                this.updateLayers(this.getSelectedLayers());
+            });
+        }
+
         const getSelectedPowerCircuits = () => {
             const list = document.getElementById('power-label-list');
             if (!list) return [];
@@ -3336,6 +3384,22 @@ class LEDRasterApp {
                     console.error('Resolume export error:', error);
                     document.getElementById('status-message').textContent = 'Export failed!';
                     sendClientLog('export_failed', { message: error.message, format: 'resolume-xml' });
+                }
+                return;
+            }
+
+            // NovaStar SCR export
+            if (format === 'novastar-scr') {
+                document.getElementById('export-modal').style.display = 'none';
+                document.getElementById('status-message').textContent = 'Exporting NovaStar SCR...';
+                try {
+                    await this.exportNovastarScr(projectName);
+                    document.getElementById('status-message').textContent = 'Export complete!';
+                    setTimeout(() => { document.getElementById('status-message').textContent = 'Ready'; }, 3000);
+                } catch (error) {
+                    console.error('SCR export error:', error);
+                    document.getElementById('status-message').textContent = 'Export failed!';
+                    sendClientLog('export_failed', { message: error.message, format: 'novastar-scr' });
                 }
                 return;
             }
@@ -5096,6 +5160,22 @@ class LEDRasterApp {
         if (showDataFlowPortInfoEl) {
             showDataFlowPortInfoEl.checked = !!this.currentLayer.showDataFlowPortInfo;
         }
+        // Update NovaLCT Mapping controls
+        this.updateScrVisibility();
+        const scrCb = document.getElementById('scr-export-enabled');
+        if (scrCb) {
+            scrCb.checked = !!this.currentLayer.scrExportEnabled;
+            const panel = document.getElementById('scr-mapping-panel');
+            if (panel) panel.style.display = this.currentLayer.scrExportEnabled ? '' : 'none';
+        }
+        const scrNum = document.getElementById('scr-screen-number');
+        if (scrNum) scrNum.value = this.currentLayer.scrScreenNumber || 1;
+        const scrX = document.getElementById('scr-screen-x');
+        if (scrX) scrX.value = this.currentLayer.scrScreenX != null ? this.currentLayer.scrScreenX : (this.currentLayer.offset_x || 0);
+        const scrY = document.getElementById('scr-screen-y');
+        if (scrY) scrY.value = this.currentLayer.scrScreenY != null ? this.currentLayer.scrScreenY : (this.currentLayer.offset_y || 0);
+        if (this.currentLayer.scrExportEnabled) this.updateScrPortAssignmentUI();
+
         const showPowerCircuitInfoEl = document.getElementById('show-power-circuit-info');
         if (showPowerCircuitInfoEl) {
             showPowerCircuitInfoEl.checked = !!this.currentLayer.showPowerCircuitInfo;
@@ -5547,15 +5627,32 @@ class LEDRasterApp {
         
         const preview = document.getElementById('export-preview');
 
-        // Hide view checkboxes for Resolume XML (geometry only, no rendered views)
+        // Hide view checkboxes for Resolume XML and NovaStar SCR (geometry only, no rendered views)
         const viewSection = document.getElementById('export-views-section');
         if (viewSection) {
-            viewSection.style.display = format === 'resolume-xml' ? 'none' : '';
+            viewSection.style.display = (format === 'resolume-xml' || format === 'novastar-scr') ? 'none' : '';
         }
 
         if (format === 'resolume-xml') {
             preview.style.color = '#4A90E2';
             preview.textContent = `${projectName}.xml`;
+            return;
+        }
+
+        if (format === 'novastar-scr') {
+            preview.style.color = '#4A90E2';
+            const scrLayers = this.project.layers.filter(l => l.scrExportEnabled && l.processorType === 'novastar-armor');
+            const scNums = new Set();
+            scrLayers.forEach(l => {
+                const scMap = l.scrPortSendingCards || {};
+                Object.values(scMap).forEach(sc => scNums.add(sc));
+                if (Object.keys(scMap).length === 0) scNums.add(1);
+            });
+            if (scNums.size > 1) {
+                preview.textContent = `${projectName}_SC*.scr (${scNums.size} files, zipped)`;
+            } else {
+                preview.textContent = `${projectName}.scr`;
+            }
             return;
         }
 
@@ -5679,6 +5776,111 @@ class LEDRasterApp {
         const blob = await response.blob();
         await this.saveBlobWithPicker(blob, `${projectName}.xml`, 'application/xml');
         sendClientLog('export_resolume_complete', { projectName, rasterW, rasterH });
+    }
+
+    async exportNovastarScr(projectName) {
+        const scrLayers = this.project.layers
+            .filter(l => l.scrExportEnabled && l.processorType === 'novastar-armor' && l.type === 'screen')
+            .map(l => {
+                const assignments = this.calculatePortAssignments(l);
+                return {
+                    id: l.id,
+                    name: l.name,
+                    columns: l.columns,
+                    rows: l.rows,
+                    cabinet_width: l.cabinet_width,
+                    cabinet_height: l.cabinet_height,
+                    offset_x: l.offset_x || 0,
+                    offset_y: l.offset_y || 0,
+                    scrScreenNumber: l.scrScreenNumber || 1,
+                    scrScreenX: l.scrScreenX != null ? l.scrScreenX : (l.offset_x || 0),
+                    scrScreenY: l.scrScreenY != null ? l.scrScreenY : (l.offset_y || 0),
+                    scrPortSendingCards: l.scrPortSendingCards || {},
+                    portAssignments: assignments.map(a => ({
+                        port: a.port,
+                        col: a.panel.col,
+                        row: a.panel.row,
+                        isPortStart: a.isPortStart,
+                        pixelIndex: a.pixelIndex,
+                        hidden: a.panel.hidden || false
+                    }))
+                };
+            });
+
+        if (scrLayers.length === 0) throw new Error('No SCR-enabled layers found');
+
+        const response = await fetch('/api/export/scr', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ project_name: projectName, layers: scrLayers })
+        });
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.error || 'SCR export failed');
+        }
+        const blob = await response.blob();
+        const contentType = response.headers.get('content-type') || '';
+        const ext = contentType.includes('zip') ? 'zip' : 'scr';
+        await this.saveBlobWithPicker(blob, `${projectName}.${ext}`, contentType);
+        sendClientLog('export_scr_complete', { projectName, layers: scrLayers.length });
+    }
+
+    updateScrVisibility() {
+        const scrRow = document.getElementById('scr-export-row');
+        if (!scrRow) return;
+        const layer = this.currentLayer;
+        const isNovastar = layer && layer.processorType === 'novastar-armor';
+        scrRow.style.display = isNovastar ? '' : 'none';
+        if (!isNovastar) {
+            const cb = document.getElementById('scr-export-enabled');
+            if (cb) cb.checked = false;
+            document.getElementById('scr-mapping-panel').style.display = 'none';
+        }
+    }
+
+    updateScrPortAssignmentUI() {
+        const container = document.getElementById('scr-port-sc-assignments');
+        if (!container) return;
+        container.innerHTML = '';
+
+        const layer = this.currentLayer;
+        if (!layer || !layer.scrExportEnabled) return;
+
+        const assignments = this.calculatePortAssignments(layer);
+        const portNums = [...new Set(assignments.map(a => a.port))].sort((a, b) => a - b);
+        const scMap = layer.scrPortSendingCards || {};
+
+        portNums.forEach(portNum => {
+            const row = document.createElement('div');
+            row.className = 'scr-port-row';
+
+            const label = document.createElement('label');
+            label.textContent = `Port ${portNum + 1}`;
+            row.appendChild(label);
+
+            const select = document.createElement('select');
+            for (let sc = 1; sc <= 16; sc++) {
+                const opt = document.createElement('option');
+                opt.value = sc;
+                opt.textContent = `SC ${sc}`;
+                if ((scMap[String(portNum)] || 1) === sc) opt.selected = true;
+                select.appendChild(opt);
+            }
+            select.addEventListener('change', () => {
+                if (!layer.scrPortSendingCards) layer.scrPortSendingCards = {};
+                layer.scrPortSendingCards[String(portNum)] = parseInt(select.value);
+                this.updateLayers(this.getSelectedLayers());
+            });
+            row.appendChild(select);
+            container.appendChild(row);
+        });
+    }
+
+    updateExportFormatOptions() {
+        const scrOption = document.getElementById('export-format-scr');
+        if (!scrOption) return;
+        const hasScr = this.project.layers.some(l => l.scrExportEnabled && l.processorType === 'novastar-armor');
+        scrOption.style.display = hasScr ? '' : 'none';
     }
 
     // Perform export using client-side canvas capture at 1:1 pixel scale

@@ -459,6 +459,32 @@
                             </div>
                         </div>
                         
+                        <!-- NovaLCT Mapping (only visible when Novastar Legacy selected) -->
+                        <div class="info-row checkbox-row" id="scr-export-row" style="display: none; margin-top: 15px;"
+                             data-tooltip="NovaLCT Mapping — Enable NovaStar SCR file export for this screen. Configure sending card and screen assignments for NovaLCT.">
+                            <input type="checkbox" id="scr-export-enabled">
+                            <label for="scr-export-enabled">NovaLCT Mapping</label>
+                        </div>
+                        <div id="scr-mapping-panel" style="display: none; margin-top: 10px; padding: 12px; background: #1a1a1a; border-radius: 6px; border: 1px solid #333;">
+                            <label style="font-weight: 600; margin-bottom: 10px; display: block; color: #4A90E2;">NovaLCT Mapping</label>
+                            <div class="info-row" style="margin-bottom: 8px;" data-tooltip="Screen Number — Which screen slot this layer occupies on the sending card (1-20).">
+                                <label>Screen #</label>
+                                <input type="number" id="scr-screen-number" min="1" max="20" value="1" autocomplete="off" style="width: 60px;">
+                            </div>
+                            <div class="info-row" style="margin-bottom: 8px;" data-tooltip="Screen X — Horizontal pixel offset of this screen in the NovaStar raster.">
+                                <label>Screen X</label>
+                                <input type="number" id="scr-screen-x" min="0" value="0" autocomplete="off" style="width: 80px;">
+                            </div>
+                            <div class="info-row" style="margin-bottom: 8px;" data-tooltip="Screen Y — Vertical pixel offset of this screen in the NovaStar raster.">
+                                <label>Screen Y</label>
+                                <input type="number" id="scr-screen-y" min="0" value="0" autocomplete="off" style="width: 80px;">
+                            </div>
+                            <label style="font-weight: 600; margin-top: 10px; margin-bottom: 8px; display: block; color: #4A90E2;">Port → Sending Card</label>
+                            <div id="scr-port-sc-assignments" style="max-height: 200px; overflow-y: auto;">
+                                <!-- Dynamically populated by JS with one row per port -->
+                            </div>
+                        </div>
+
                         <div class="info-row" style="margin-top: 15px;" data-tooltip="Flow Pattern — Choose the serpentine direction data cables follow through the cabinets.">
                             <label style="font-weight: 600; margin-bottom: 12px; display: block;">Flow Pattern</label>
                             <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;">
@@ -1162,6 +1188,7 @@
                     <option value="psd">PSD (Layered Photoshop - screens as layers)</option>
                     <option value="pdf">PDF (All views combined)</option>
                     <option value="resolume-xml">Resolume XML (Advanced Output)</option>
+                    <option value="novastar-scr" id="export-format-scr" style="display: none;">NovaStar SCR (Sending Card Mapping)</option>
                 </select>
             </div>
             
