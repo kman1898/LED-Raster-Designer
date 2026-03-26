@@ -542,7 +542,7 @@ def add_layer():
         'customPortPaths', 'customPortIndex',
         'randomDataColors',
         'scrExportEnabled', 'scrScreenNumber', 'scrScreenX', 'scrScreenY',
-        'scrPortSendingCards',
+        'scrPortSendingCards', 'scrPortNumbers',
     ]
     
     half_fields = {'halfFirstColumn', 'halfLastColumn', 'halfFirstRow', 'halfLastRow'}
@@ -624,7 +624,7 @@ def update_layer(layer_id):
                 'lastPowerFlowPattern', 'type', 'imageData', 'imageWidth', 'imageHeight', 'imageScale',
                 'locked', 'screenNameSizeCabinet', 'screenNameSizeDataFlow', 'screenNameSizePower',
                 'scrExportEnabled', 'scrScreenNumber', 'scrScreenX', 'scrScreenY',
-                'scrPortSendingCards']:
+                'scrPortSendingCards', 'scrPortNumbers']:
         if key in data:
             layer[key] = data[key]
 

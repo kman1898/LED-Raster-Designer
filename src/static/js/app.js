@@ -5850,7 +5850,9 @@ class LEDRasterApp {
         const portNums = [...new Set(assignments.map(a => a.port))].sort((a, b) => a - b);
         const scMap = layer.scrPortSendingCards || {};
 
-        portNums.forEach(portNum => {
+        const portNumMap = layer.scrPortNumbers || {};
+
+        portNums.forEach((portNum, idx) => {
             const row = document.createElement('div');
             row.className = 'scr-port-row';
 
@@ -5858,20 +5860,39 @@ class LEDRasterApp {
             label.textContent = `P${portNum}`;
             row.appendChild(label);
 
-            const select = document.createElement('select');
+            // Editable NovaStar port number
+            const portInput = document.createElement('select');
+            portInput.className = 'scr-port-num-select';
+            for (let p = 1; p <= 32; p++) {
+                const opt = document.createElement('option');
+                opt.value = p;
+                opt.textContent = `Port ${p}`;
+                if ((portNumMap[String(portNum)] || portNum) === p) opt.selected = true;
+                portInput.appendChild(opt);
+            }
+            portInput.addEventListener('change', () => {
+                if (!layer.scrPortNumbers) layer.scrPortNumbers = {};
+                layer.scrPortNumbers[String(portNum)] = parseInt(portInput.value);
+                this.updateLayers(this.getSelectedLayers());
+            });
+            row.appendChild(portInput);
+
+            // Sending card assignment
+            const scSelect = document.createElement('select');
+            scSelect.className = 'scr-sc-select';
             for (let sc = 1; sc <= 16; sc++) {
                 const opt = document.createElement('option');
                 opt.value = sc;
                 opt.textContent = `SC ${sc}`;
                 if ((scMap[String(portNum)] || 1) === sc) opt.selected = true;
-                select.appendChild(opt);
+                scSelect.appendChild(opt);
             }
-            select.addEventListener('change', () => {
+            scSelect.addEventListener('change', () => {
                 if (!layer.scrPortSendingCards) layer.scrPortSendingCards = {};
-                layer.scrPortSendingCards[String(portNum)] = parseInt(select.value);
+                layer.scrPortSendingCards[String(portNum)] = parseInt(scSelect.value);
                 this.updateLayers(this.getSelectedLayers());
             });
-            row.appendChild(select);
+            row.appendChild(scSelect);
             container.appendChild(row);
         });
     }

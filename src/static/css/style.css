@@ -554,17 +554,18 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 /* NovaLCT Mapping - Port to Sending Card assignments */
 #scr-port-sc-assignments .scr-port-row {
     display: flex;
-    justify-content: space-between;
     align-items: center;
+    gap: 6px;
     margin-bottom: 4px;
     font-size: 12px;
 }
 #scr-port-sc-assignments .scr-port-row label {
     color: #888;
-    min-width: 60px;
+    min-width: 30px;
+    font-weight: 600;
 }
 #scr-port-sc-assignments .scr-port-row select {
-    width: 90px;
+    flex: 1;
     padding: 4px;
     background: #252525;
     border: 1px solid #444;
