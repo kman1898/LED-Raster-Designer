@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, dev/draft]
+    branches: [main, dev/draft, feature/**]
     tags-ignore: ['**']
   pull_request:
     branches: [main]
