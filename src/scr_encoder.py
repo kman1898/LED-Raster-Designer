@@ -115,6 +115,18 @@ def build_single_screen_scr(cols, rows, pw, ph, port_assignments=None):
     prerec[0x145 - 0x138] = cols
     prerec[0x147 - 0x138] = rows
 
+    # Check if origin panel (0,0) is hidden — set pre-record flag
+    origin_hidden = False
+    if port_assignments:
+        for a in port_assignments:
+            if a.get('col') == 0 and a.get('row') == 0 and a.get('hidden', False):
+                origin_hidden = True
+                break
+    if origin_hidden:
+        prerec[0x149 - 0x138] = 0xFF  # origin is blank
+        prerec[0x14A - 0x138] = 0x01
+        prerec[0x14B - 0x138] = 0x01
+
     # Default port map: horizontal snake on port 0
     if port_assignments is None:
         port_assignments = []
