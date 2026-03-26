@@ -147,12 +147,12 @@ def build_single_screen_scr(cols, rows, pw, ph, port_assignments=None):
         for row in range(rows):
             if col == 0 and row == 0:
                 continue
-            a = assign_map.get((col, row), {'port_num': 0, 'chain_order': 0, 'b5': 0})
+            a = assign_map.get((col, row), {'port_num': 1, 'chain_order': 0, 'b5': 0})
             rec = bytearray(17)
             struct.pack_into('<HH', rec, 0, pw, ph)
             rec[4] = 1
             rec[5] = a.get('b5', 0)
-            rec[6] = a.get('port_num', 0)
+            rec[6] = max(0, a.get('port_num', 1) - 1)  # Convert 1-based to 0-based
             rec[7] = a.get('chain_order', 0) & 0xFF
             rec[8] = 0
             struct.pack_into('<H', rec, 9, col * pw)
@@ -366,16 +366,22 @@ def generate_scr_files(project_name, layers):
                 sc_groups[sc_num] = []
 
             # Filter port assignments to only those on this sending card
+            # and compute sequential chain_order per port
             filtered_panels = []
+            port_chain_counters = {}  # port_num -> next chain index
             for pa in layer.get('portAssignments', []):
                 port_num = pa.get('port', 0)
                 assigned_sc = port_sc_map.get(str(port_num), 1)
                 if assigned_sc == sc_num:
+                    if port_num not in port_chain_counters:
+                        port_chain_counters[port_num] = 0
+                    chain_idx = port_chain_counters[port_num]
+                    port_chain_counters[port_num] += 1
                     filtered_panels.append({
                         'col': pa['col'],
                         'row': pa['row'],
                         'port_num': port_num,
-                        'chain_order': pa.get('pixelIndex', 0),
+                        'chain_order': chain_idx,
                         'hidden': pa.get('hidden', False),
                         'b5': 0,
                     })

@@ -5796,14 +5796,19 @@ class LEDRasterApp {
                     scrScreenX: l.scrScreenX != null ? l.scrScreenX : (l.offset_x || 0),
                     scrScreenY: l.scrScreenY != null ? l.scrScreenY : (l.offset_y || 0),
                     scrPortSendingCards: l.scrPortSendingCards || {},
-                    portAssignments: assignments.map(a => ({
-                        port: a.port,
-                        col: a.panel.col,
-                        row: a.panel.row,
-                        isPortStart: a.isPortStart,
-                        pixelIndex: a.pixelIndex,
-                        hidden: a.panel.hidden || false
-                    }))
+                    scrPortNumbers: l.scrPortNumbers || {},
+                    portAssignments: assignments.map(a => {
+                        const portNumMap = l.scrPortNumbers || {};
+                        const novaPort = portNumMap[String(a.port)] || a.port;
+                        return {
+                            port: novaPort,
+                            col: a.panel.col,
+                            row: a.panel.row,
+                            isPortStart: a.isPortStart,
+                            pixelIndex: a.pixelIndex,
+                            hidden: a.panel.hidden || false
+                        };
+                    })
                 };
             });
 
