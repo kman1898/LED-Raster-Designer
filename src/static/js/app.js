@@ -5855,7 +5855,7 @@ class LEDRasterApp {
             row.className = 'scr-port-row';
 
             const label = document.createElement('label');
-            label.textContent = `Port ${portNum + 1}`;
+            label.textContent = `P${portNum}`;
             row.appendChild(label);
 
             const select = document.createElement('select');
