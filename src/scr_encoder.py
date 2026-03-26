@@ -352,7 +352,7 @@ def generate_scr_files(project_name, layers):
 
     for layer in layers:
         port_sc_map = layer.get('scrPortSendingCards', {})
-        sc_idx = 0  # default sending card
+        port_num_map = layer.get('scrPortNumbers', {})
 
         # Determine which sending card(s) this layer's ports are on
         sc_numbers = set()
@@ -367,20 +367,24 @@ def generate_scr_files(project_name, layers):
 
             # Filter port assignments to only those on this sending card
             # and compute sequential chain_order per port
+            # port_num in portAssignments is the app's 1-based port number
+            # port_num_map maps app port -> NovaStar port number (for the binary)
             filtered_panels = []
-            port_chain_counters = {}  # port_num -> next chain index
+            port_chain_counters = {}  # nova_port -> next chain index
             for pa in layer.get('portAssignments', []):
-                port_num = pa.get('port', 0)
-                assigned_sc = port_sc_map.get(str(port_num), 1)
+                app_port = pa.get('port', 1)  # app's 1-based port
+                assigned_sc = port_sc_map.get(str(app_port), 1)
                 if assigned_sc == sc_num:
-                    if port_num not in port_chain_counters:
-                        port_chain_counters[port_num] = 0
-                    chain_idx = port_chain_counters[port_num]
-                    port_chain_counters[port_num] += 1
+                    # Map to NovaStar port number (user may have remapped)
+                    nova_port = port_num_map.get(str(app_port), app_port)
+                    if nova_port not in port_chain_counters:
+                        port_chain_counters[nova_port] = 0
+                    chain_idx = port_chain_counters[nova_port]
+                    port_chain_counters[nova_port] += 1
                     filtered_panels.append({
                         'col': pa['col'],
                         'row': pa['row'],
-                        'port_num': port_num,
+                        'port_num': nova_port,  # NovaStar port number (1-based)
                         'chain_order': chain_idx,
                         'hidden': pa.get('hidden', False),
                         'b5': 0,
