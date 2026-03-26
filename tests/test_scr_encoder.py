@@ -154,7 +154,7 @@ class TestBuildSingleScreenScr:
         # Check that records have correct port assignments
         # First record (col=0, row=1): port_num=1
         rec0 = data[0x155:0x155 + 17]
-        assert rec0[6] == 1  # port_num
+        assert rec0[6] == 0  # port_num (1-based input=1 → 0-based binary=0)
 
     def test_various_panel_sizes(self):
         for pw, ph in [(48, 96), (64, 64), (96, 108), (104, 208), (120, 80), (192, 192)]:
