@@ -288,11 +288,18 @@ class CanvasRenderer {
                 }
             }
         } else if (e.button === 0 && e.altKey) {
-            // Alt+click to hide panels only on pixel-map
+            // Alt+click/drag to hide/show panels on pixel-map
             if (this.viewMode === 'pixel-map') {
                 const clickedPanel = this.getPanelAt(worldX, worldY);
                 if (clickedPanel && window.app) {
-                    window.app.togglePanelHidden(clickedPanel.layerId, clickedPanel.panel.id);
+                    e.preventDefault();
+                    this.isAltPainting = true;
+                    this.altPaintLayerId = clickedPanel.layerId;
+                    this.altPaintMode = clickedPanel.panel.hidden ? 'show' : 'hide';
+                    this.altPaintedPanelIds = new Set();
+                    clickedPanel.panel.hidden = (this.altPaintMode === 'hide');
+                    this.altPaintedPanelIds.add(clickedPanel.panel.id);
+                    this.render();
                 }
             }
         } else if (e.button === 0 && this.viewMode === 'data-flow' && window.app) {
@@ -332,6 +339,16 @@ class CanvasRenderer {
         const mouseY = e.clientY - rect.top;
         const worldX = (mouseX - this.panX) / this.zoom;
         const worldY = (mouseY - this.panY) / this.zoom;
+
+        if (this.isAltPainting) {
+            const clickedPanel = this.getPanelAt(worldX, worldY);
+            if (clickedPanel && clickedPanel.layerId === this.altPaintLayerId && !this.altPaintedPanelIds.has(clickedPanel.panel.id)) {
+                clickedPanel.panel.hidden = (this.altPaintMode === 'hide');
+                this.altPaintedPanelIds.add(clickedPanel.panel.id);
+                this.render();
+            }
+            return;
+        }
 
         if (this.isSelectingPanels && this.selectionRect) {
             this.selectionRect.x2 = worldX;
@@ -472,6 +489,35 @@ class CanvasRenderer {
     }
     
     handleMouseUp(e) {
+        if (this.isAltPainting) {
+            this.isAltPainting = false;
+            if (window.app && this.altPaintedPanelIds && this.altPaintedPanelIds.size > 0) {
+                const layer = window.app.project.layers.find(l => l.id === this.altPaintLayerId);
+                if (layer) {
+                    window.app.saveState('Toggle Panel Visibility');
+                    const newHidden = this.altPaintMode === 'hide';
+                    const panels = [...this.altPaintedPanelIds].map(id => ({ id, hidden: newHidden }));
+                    fetch(`/api/layer/${this.altPaintLayerId}/panels/set_hidden`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ panels })
+                    });
+                    if (typeof sendClientLog === 'function') {
+                        sendClientLog('bulk_toggle_panels', {
+                            layerId: this.altPaintLayerId,
+                            mode: this.altPaintMode,
+                            count: this.altPaintedPanelIds.size
+                        });
+                    }
+                }
+            }
+            this.altPaintLayerId = null;
+            this.altPaintMode = null;
+            this.altPaintedPanelIds = null;
+            this.render();
+            return;
+        }
+
         if (this.isSelectingPanels) {
             this.isSelectingPanels = false;
             if (this.selectionRect && window.app && window.app.currentLayer) {

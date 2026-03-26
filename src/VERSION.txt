@@ -1,6 +1,21 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.4.2 - March 24, 2026
+----------------------------
+- FIX: Keyboard Shortcuts modal now shows Option/Alt for cross-platform clarity
+- FIX: Alt+drag preventDefault to stop browser native drag behavior
+
+v0.7.4.1 - March 24, 2026
+----------------------------
+- NEW: Alt+Click+Drag to bulk hide/show panels — paint mode based on first panel state
+- NEW: Bulk panel visibility API endpoint for efficient server sync
+- Added to Keyboard Shortcuts modal
+
+v0.7.4 - March 24, 2026
+----------------------------
+- Version placeholder (superseded by v0.7.4.2)
+
 v0.7.3 - March 22, 2026
 ----------------------------
 - NEW: Resolume Polygon export for non-rectangular layers with hidden panels
