@@ -4,6 +4,7 @@ import json
 import uuid
 import time
 import io
+import zipfile
 import os
 import sys
 import datetime
@@ -539,7 +540,9 @@ def add_layer():
         'portLabelTemplatePrimary', 'portLabelTemplateReturn',
         'portLabelOverridesPrimary', 'portLabelOverridesReturn',
         'customPortPaths', 'customPortIndex',
-        'randomDataColors'
+        'randomDataColors',
+        'scrExportEnabled', 'scrScreenNumber', 'scrScreenX', 'scrScreenY',
+        'scrPortSendingCards',
     ]
     
     half_fields = {'halfFirstColumn', 'halfLastColumn', 'halfFirstRow', 'halfLastRow'}
@@ -619,7 +622,9 @@ def update_layer(layer_id):
                 'powerLineColor', 'powerArrowColor', 'powerRandomColors', 'powerColorCodedView', 'powerCircuitColors', 'powerLabelSize', 'powerLabelBgColor', 'powerLabelTextColor',
                 'powerLabelTemplate', 'powerLabelOverrides', 'powerCustomPaths', 'powerCustomIndex',
                 'lastPowerFlowPattern', 'type', 'imageData', 'imageWidth', 'imageHeight', 'imageScale',
-                'locked', 'screenNameSizeCabinet', 'screenNameSizeDataFlow', 'screenNameSizePower']:
+                'locked', 'screenNameSizeCabinet', 'screenNameSizeDataFlow', 'screenNameSizePower',
+                'scrExportEnabled', 'scrScreenNumber', 'scrScreenX', 'scrScreenY',
+                'scrPortSendingCards']:
         if key in data:
             layer[key] = data[key]
 
@@ -2105,6 +2110,59 @@ def export_resolume_xml():
         import traceback
         traceback.print_exc()
         return jsonify({'error': f'Resolume export failed: {str(e)}'}), 500
+
+
+# ── NovaStar SCR Export ─────────────────────────────────────────────
+from scr_encoder import generate_scr_files
+
+@app.route('/api/export/scr', methods=['POST'])
+def export_scr():
+    """Export project as NovaStar SCR sending card mapping file(s)."""
+    try:
+        data = request.get_json() or {}
+        project_name = data.get('project_name', current_project.get('name', 'Untitled Project'))
+        layers = data.get('layers', [])
+
+        if not layers:
+            return jsonify({'error': 'No SCR-enabled layers provided'}), 400
+
+        results = generate_scr_files(project_name, layers)
+
+        if not results:
+            return jsonify({'error': 'No SCR data generated'}), 400
+
+        log_event('export_scr', {
+            'project_name': project_name,
+            'files': len(results),
+            'layers': len(layers),
+        })
+
+        if len(results) == 1:
+            filename, scr_data = results[0]
+            return send_file(
+                io.BytesIO(scr_data),
+                mimetype='application/octet-stream',
+                as_attachment=True,
+                download_name=filename
+            )
+        else:
+            # Multiple sending cards — return ZIP
+            zip_buffer = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+                for filename, scr_data in results:
+                    zf.writestr(filename, scr_data)
+            zip_buffer.seek(0)
+            return send_file(
+                zip_buffer,
+                mimetype='application/zip',
+                as_attachment=True,
+                download_name=f"{project_name}_SCR.zip"
+            )
+    except Exception as e:
+        print(f"SCR export error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'SCR export failed: {str(e)}'}), 500
 
 
 # ── Update Checker ──────────────────────────────────────────────────
