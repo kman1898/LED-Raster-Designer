@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED Raster Designer v0.7.5.7</title>
+    <title>LED Raster Designer v0.7.5.8</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -66,7 +66,7 @@
 
         <div id="toolbar">
             <div class="toolbar-section toolbar-project">
-                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.7.5.7</span></h1>
+                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.7.5.8</span></h1>
                 <input type="text" id="project-name" value="Untitled Project" class="editable-project-name">
             </div>
             <div class="toolbar-section toolbar-actions">
@@ -465,7 +465,7 @@
                             <input type="checkbox" id="scr-export-enabled">
                             <label for="scr-export-enabled">NovaLCT Mapping</label>
                         </div>
-                        <div id="scr-mapping-panel" style="display: none; margin-top: 10px; padding: 12px; background: #1a1a1a; border-radius: 6px; border: 1px solid #333;">
+                        <div id="scr-mapping-panel" style="display: none; margin-top: 10px; padding: 8px; background: #1a1a1a; border-radius: 6px; border: 1px solid #333; overflow: hidden;">
                             <label style="font-weight: 600; margin-bottom: 10px; display: block; color: #4A90E2;">NovaLCT Mapping</label>
                             <div class="info-row" style="margin-bottom: 8px;" data-tooltip="Screen Number — Which screen slot this layer occupies on the sending card (1-20).">
                                 <label>Screen #</label>
@@ -480,9 +480,9 @@
                                 <input type="number" id="scr-screen-y" min="0" value="0" autocomplete="off" style="width: 80px;">
                             </div>
                             <label style="font-weight: 600; margin-top: 10px; margin-bottom: 8px; display: block; color: #4A90E2;">Port → Sending Card</label>
-                            <div style="display: flex; gap: 6px; margin-bottom: 8px;">
-                                <button id="scr-port-select-all" class="btn" style="flex: 1; padding: 4px 8px; background: #222; font-size: 11px;">Select All</button>
-                                <button id="scr-port-deselect-all" class="btn" style="flex: 1; padding: 4px 8px; background: #222; font-size: 11px;">Deselect All</button>
+                            <div style="display: flex; gap: 4px; margin-bottom: 6px;">
+                                <button id="scr-port-select-all" class="btn" style="flex: 1; padding: 3px 6px; background: #222; font-size: 10px;">Select All</button>
+                                <button id="scr-port-deselect-all" class="btn" style="flex: 1; padding: 3px 6px; background: #222; font-size: 10px;">Deselect All</button>
                             </div>
                             <div style="display: flex; gap: 4px; margin-bottom: 6px; align-items: center; flex-wrap: wrap;">
                                 <label style="font-size: 10px; color: #888; white-space: nowrap;">Bulk:</label>
