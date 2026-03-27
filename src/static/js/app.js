@@ -5890,7 +5890,7 @@ class LEDRasterApp {
             // Editable NovaStar port number
             const portInput = document.createElement('select');
             portInput.className = 'scr-port-num-select';
-            for (let p = 1; p <= 32; p++) {
+            for (let p = 1; p <= 40; p++) {
                 const opt = document.createElement('option');
                 opt.value = p;
                 opt.textContent = p;
@@ -5907,7 +5907,7 @@ class LEDRasterApp {
             // Sending card assignment
             const scSelect = document.createElement('select');
             scSelect.className = 'scr-sc-select';
-            for (let sc = 1; sc <= 16; sc++) {
+            for (let sc = 1; sc <= 20; sc++) {
                 const opt = document.createElement('option');
                 opt.value = sc;
                 opt.textContent = sc;
