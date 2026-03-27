@@ -424,34 +424,27 @@ def generate_scr_files(project_name, layers):
                 'panels': filtered_panels,
             })
 
-    # Generate one SCR file per sending card
-    results = []
+    # Combine all screens into one file, sorted by screen number
+    all_screens = []
     for sc_num in sorted(sc_groups.keys()):
-        screens = sc_groups[sc_num]
-        # Sort by screen number
-        screens.sort(key=lambda s: s.get('screen_number', 1))
+        all_screens.extend(sc_groups[sc_num])
+    all_screens.sort(key=lambda s: s.get('screen_number', 1))
 
-        if len(screens) == 1:
-            scr_data = build_single_screen_scr(
-                screens[0]['cols'], screens[0]['rows'],
-                screens[0]['pw'], screens[0]['ph'],
-                port_assignments=[{
-                    'col': p['col'], 'row': p['row'],
-                    'port_num': p['port_num'],
-                    'chain_order': p['chain_order'],
-                    'b5': p.get('b5', 0),
-                    'hidden': p.get('hidden', False),
-                } for p in screens[0].get('panels', [])]
-                or None
-            )
-        else:
-            scr_data = build_multi_screen_scr(screens)
+    if len(all_screens) == 1:
+        scr_data = build_single_screen_scr(
+            all_screens[0]['cols'], all_screens[0]['rows'],
+            all_screens[0]['pw'], all_screens[0]['ph'],
+            port_assignments=[{
+                'col': p['col'], 'row': p['row'],
+                'port_num': p['port_num'],
+                'chain_order': p['chain_order'],
+                'b5': p.get('b5', 0),
+                'hidden': p.get('hidden', False),
+            } for p in all_screens[0].get('panels', [])]
+            or None
+        )
+    else:
+        scr_data = build_multi_screen_scr(all_screens)
 
-        if len(sc_groups) == 1:
-            filename = '{}.scr'.format(project_name)
-        else:
-            filename = '{}_SC{}.scr'.format(project_name, sc_num)
-
-        results.append((filename, scr_data))
-
-    return results
+    filename = '{}.scr'.format(project_name)
+    return [(filename, scr_data)]
