@@ -5885,7 +5885,6 @@ class LEDRasterApp {
 
             const label = document.createElement('label');
             label.textContent = `P${portNum}`;
-            label.style.minWidth = '30px';
             row.appendChild(label);
 
             // Editable NovaStar port number
@@ -5894,7 +5893,7 @@ class LEDRasterApp {
             for (let p = 1; p <= 32; p++) {
                 const opt = document.createElement('option');
                 opt.value = p;
-                opt.textContent = `Port ${p}`;
+                opt.textContent = p;
                 if ((portNumMap[String(portNum)] || portNum) === p) opt.selected = true;
                 portInput.appendChild(opt);
             }
@@ -5911,7 +5910,7 @@ class LEDRasterApp {
             for (let sc = 1; sc <= 16; sc++) {
                 const opt = document.createElement('option');
                 opt.value = sc;
-                opt.textContent = `SC ${sc}`;
+                opt.textContent = sc;
                 if ((scMap[String(portNum)] || 1) === sc) opt.selected = true;
                 scSelect.appendChild(opt);
             }
