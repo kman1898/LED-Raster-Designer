@@ -4247,6 +4247,14 @@ class LEDRasterApp {
         this.renderLayers();
     }
 
+    updateLayerById(layerId, props) {
+        fetch(`/api/layer/${layerId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(props)
+        });
+    }
+
     toggleLockOnSelected() {
         const layers = this.getSelectedLayers();
         if (layers.length === 0) return;
@@ -5897,7 +5905,7 @@ class LEDRasterApp {
             portInput.addEventListener('change', () => {
                 if (!layer.scrPortNumbers) layer.scrPortNumbers = {};
                 layer.scrPortNumbers[String(portNum)] = parseInt(portInput.value);
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayerById(layer.id, { scrPortNumbers: layer.scrPortNumbers });
             });
             row.appendChild(portInput);
 
@@ -5914,7 +5922,7 @@ class LEDRasterApp {
             scSelect.addEventListener('change', () => {
                 if (!layer.scrPortSendingCards) layer.scrPortSendingCards = {};
                 layer.scrPortSendingCards[String(portNum)] = parseInt(scSelect.value);
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayerById(layer.id, { scrPortSendingCards: layer.scrPortSendingCards });
             });
             row.appendChild(scSelect);
             container.appendChild(row);
@@ -5960,7 +5968,10 @@ class LEDRasterApp {
                     }
                 });
 
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayerById(layer.id, {
+                    scrPortSendingCards: layer.scrPortSendingCards || {},
+                    scrPortNumbers: layer.scrPortNumbers || {}
+                });
                 // Reset bulk inputs
                 document.getElementById('scr-bulk-sc').value = '';
                 document.getElementById('scr-bulk-port').value = '';
