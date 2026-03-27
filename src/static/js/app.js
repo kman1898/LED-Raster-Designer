@@ -5656,11 +5656,7 @@ class LEDRasterApp {
                 Object.values(scMap).forEach(sc => scNums.add(sc));
                 if (Object.keys(scMap).length === 0) scNums.add(1);
             });
-            if (scNums.size > 1) {
-                preview.textContent = `${projectName}_SC*.scr (${scNums.size} files, zipped)`;
-            } else {
-                preview.textContent = `${projectName}.scr`;
-            }
+            preview.textContent = `${projectName}.scr`;
             return;
         }
 
