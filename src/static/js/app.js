@@ -5871,8 +5871,17 @@ class LEDRasterApp {
             const row = document.createElement('div');
             row.className = 'scr-port-row';
 
+            // Checkbox for bulk selection
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.className = 'scr-port-cb';
+            cb.dataset.port = portNum;
+            cb.style.marginRight = '6px';
+            row.appendChild(cb);
+
             const label = document.createElement('label');
             label.textContent = `P${portNum}`;
+            label.style.minWidth = '30px';
             row.appendChild(label);
 
             // Editable NovaStar port number
@@ -5910,6 +5919,53 @@ class LEDRasterApp {
             row.appendChild(scSelect);
             container.appendChild(row);
         });
+
+        // Wire up Select All / Deselect All / Bulk Apply
+        const selectAllBtn = document.getElementById('scr-port-select-all');
+        const deselectAllBtn = document.getElementById('scr-port-deselect-all');
+        const bulkApplyBtn = document.getElementById('scr-bulk-apply');
+
+        if (selectAllBtn) {
+            selectAllBtn.onclick = () => {
+                container.querySelectorAll('.scr-port-cb').forEach(cb => cb.checked = true);
+            };
+        }
+        if (deselectAllBtn) {
+            deselectAllBtn.onclick = () => {
+                container.querySelectorAll('.scr-port-cb').forEach(cb => cb.checked = false);
+            };
+        }
+        if (bulkApplyBtn) {
+            bulkApplyBtn.onclick = () => {
+                const bulkSc = document.getElementById('scr-bulk-sc').value;
+                const bulkPort = document.getElementById('scr-bulk-port').value;
+                const checked = container.querySelectorAll('.scr-port-cb:checked');
+                if (checked.length === 0) return;
+
+                checked.forEach(cb => {
+                    const portNum = cb.dataset.port;
+                    const row = cb.closest('.scr-port-row');
+
+                    if (bulkSc) {
+                        if (!layer.scrPortSendingCards) layer.scrPortSendingCards = {};
+                        layer.scrPortSendingCards[portNum] = parseInt(bulkSc);
+                        const scSel = row.querySelector('.scr-sc-select');
+                        if (scSel) scSel.value = bulkSc;
+                    }
+                    if (bulkPort) {
+                        if (!layer.scrPortNumbers) layer.scrPortNumbers = {};
+                        layer.scrPortNumbers[portNum] = parseInt(bulkPort);
+                        const portSel = row.querySelector('.scr-port-num-select');
+                        if (portSel) portSel.value = bulkPort;
+                    }
+                });
+
+                this.updateLayers(this.getSelectedLayers());
+                // Reset bulk inputs
+                document.getElementById('scr-bulk-sc').value = '';
+                document.getElementById('scr-bulk-port').value = '';
+            };
+        }
     }
 
     updateExportFormatOptions() {

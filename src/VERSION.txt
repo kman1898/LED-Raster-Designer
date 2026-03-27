@@ -1,7 +1,7 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
-v0.7.5.4 - March 24, 2026
+v0.7.5.5 - March 24, 2026
 ----------------------------
 - FIX: Keyboard Shortcuts modal now shows Option/Alt for cross-platform clarity
 - FIX: Alt+drag preventDefault to stop browser native drag behavior
@@ -14,7 +14,7 @@ v0.7.4.1 - March 24, 2026
 
 v0.7.4 - March 24, 2026
 ----------------------------
-- Version placeholder (superseded by v0.7.5.4)
+- Version placeholder (superseded by v0.7.5.5)
 
 v0.7.3 - March 22, 2026
 ----------------------------

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED Raster Designer v0.7.5.4</title>
+    <title>LED Raster Designer v0.7.5.5</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -66,7 +66,7 @@
 
         <div id="toolbar">
             <div class="toolbar-section toolbar-project">
-                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.7.5.4</span></h1>
+                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.7.5.5</span></h1>
                 <input type="text" id="project-name" value="Untitled Project" class="editable-project-name">
             </div>
             <div class="toolbar-section toolbar-actions">
@@ -480,6 +480,20 @@
                                 <input type="number" id="scr-screen-y" min="0" value="0" autocomplete="off" style="width: 80px;">
                             </div>
                             <label style="font-weight: 600; margin-top: 10px; margin-bottom: 8px; display: block; color: #4A90E2;">Port → Sending Card</label>
+                            <div style="display: flex; gap: 6px; margin-bottom: 8px;">
+                                <button id="scr-port-select-all" class="btn" style="flex: 1; padding: 4px 8px; background: #222; font-size: 11px;">Select All</button>
+                                <button id="scr-port-deselect-all" class="btn" style="flex: 1; padding: 4px 8px; background: #222; font-size: 11px;">Deselect All</button>
+                            </div>
+                            <div style="display: flex; gap: 6px; margin-bottom: 8px; align-items: center;">
+                                <label style="font-size: 11px; color: #888; white-space: nowrap;">Set Selected:</label>
+                                <select id="scr-bulk-sc" style="flex: 1; padding: 4px; background: #111; border: 1px solid #333; color: #fff; border-radius: 4px; font-size: 11px;">
+                                    <option value="">SC...</option>
+                                    <option value="1">SC 1</option><option value="2">SC 2</option><option value="3">SC 3</option><option value="4">SC 4</option>
+                                    <option value="5">SC 5</option><option value="6">SC 6</option><option value="7">SC 7</option><option value="8">SC 8</option>
+                                </select>
+                                <input type="number" id="scr-bulk-port" min="1" max="255" placeholder="Port#" style="width: 55px; padding: 4px; background: #111; border: 1px solid #333; color: #fff; border-radius: 4px; font-size: 11px;">
+                                <button id="scr-bulk-apply" class="btn" style="padding: 4px 10px; font-size: 11px;">Apply</button>
+                            </div>
                             <div id="scr-port-sc-assignments" style="max-height: 200px; overflow-y: auto;">
                                 <!-- Dynamically populated by JS with one row per port -->
                             </div>
