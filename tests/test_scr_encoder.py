@@ -282,7 +282,8 @@ class TestGenerateScrFiles:
         assert filename == 'test_project.scr'
         assert data[0:4] == b'DSCI'
 
-    def test_multi_sending_card_generates_multiple_files(self):
+    def test_multi_sending_card_single_file(self):
+        """Multi-SC ports should all go into one SCR file."""
         layers = [
             {
                 'columns': 8, 'rows': 2,
@@ -298,10 +299,8 @@ class TestGenerateScrFiles:
             }
         ]
         results = scr_encoder.generate_scr_files('test_project', layers)
-        assert len(results) == 2
-        filenames = [r[0] for r in results]
-        assert 'test_project_SC1.scr' in filenames
-        assert 'test_project_SC2.scr' in filenames
+        assert len(results) == 1
+        assert results[0][0] == 'test_project.scr'
 
     def test_output_files_have_valid_checksums(self):
         layers = [{
