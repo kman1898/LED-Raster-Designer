@@ -1,6 +1,13 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.5.13 - March 27, 2026
+----------------------------
+- FIX: SCR importer now handles newer NovaStar format variant where header cols/rows are invalid
+- SCR decoder derives grid dimensions from panel pixel positions using GCD method when header is invalid
+- Also supports row-index variant where off+10 holds 0-based row indices instead of pixel positions
+- FIX: JS lint warning for unused variable in port assignment UI
+
 v0.7.5.12 - March 27, 2026
 ----------------------------
 - NEW: Import NovaStar SCR files — load screen layouts directly from .scr configuration files
