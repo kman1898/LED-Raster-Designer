@@ -30,6 +30,7 @@ StandardScreen header (10 bytes):
 All panels are present in the section (including col=0,row=0 origin).
 """
 
+import math
 import struct
 
 BLOCK_START = 0xB6
@@ -90,6 +91,81 @@ def decode_scr(data: bytes) -> dict:
     return {'screen_count': screen_count, 'screens': screens}
 
 
+def _derive_grid_from_pixel_positions(data: bytes, rec_start: int, n_panels: int):
+    """
+    For newer Format B sections where the StandardScreen header cols/rows are
+    invalid (0 or >512), derive grid dimensions from panel records.
+
+    Two sub-formats are handled:
+
+    Pixel-position variant (e.g. Test 3 section 0):
+      off+8 = cabinet X pixel position, off+10 = cabinet Y pixel position.
+      pw/ph derived from GCD of consecutive sorted differences.
+
+    Row-index variant (e.g. Test 3 section 1):
+      off+8 = cabinet X pixel position, off+10 = row index (0-based sequential).
+      pw from GCD of X diffs; rows = max row index + 1;
+      ph from the u16 at off+14 (panel size field in this format variant).
+
+    Returns (cols, rows, pw, ph, y_are_indices) or None if derivation fails.
+    """
+    xs = []
+    ys = []
+    for p_idx in range(n_panels):
+        off = rec_start + p_idx * RECORD_SIZE
+        xs.append(struct.unpack_from('<H', data, off + 8)[0])
+        ys.append(struct.unpack_from('<H', data, off + 10)[0])
+
+    xs_unique = sorted(set(xs))
+    ys_unique = sorted(set(ys))
+
+    if len(xs_unique) < 2 or len(ys_unique) < 2:
+        return None
+
+    x_diffs = [xs_unique[i + 1] - xs_unique[i] for i in range(len(xs_unique) - 1)]
+    y_diffs = [ys_unique[i + 1] - ys_unique[i] for i in range(len(ys_unique) - 1)]
+
+    pw = x_diffs[0]
+    for d in x_diffs[1:]:
+        pw = math.gcd(pw, d)
+
+    if pw < 16 or pw > 512:
+        return None
+
+    cols = xs_unique[-1] // pw + 1
+    if cols < 1 or cols > 512:
+        return None
+
+    ph_gcd = y_diffs[0]
+    for d in y_diffs[1:]:
+        ph_gcd = math.gcd(ph_gcd, d)
+
+    if 16 <= ph_gcd <= 512:
+        # Pixel-position variant: Y values are cabinet Y pixel positions
+        rows = ys_unique[-1] // ph_gcd + 1
+        ph = ph_gcd
+        y_are_indices = False
+    elif all(d == 1 for d in y_diffs):
+        # Row-index variant: Y values are sequential 0-based row indices
+        rows = ys_unique[-1] + 1
+        # Panel height is stored at off+14 in this format
+        ph_votes = {}
+        for p_idx in range(n_panels):
+            off = rec_start + p_idx * RECORD_SIZE
+            val = struct.unpack_from('<H', data, off + 14)[0]
+            ph_votes[val] = ph_votes.get(val, 0) + 1
+        ph_candidate = max(ph_votes, key=ph_votes.get) if ph_votes else 0
+        ph = ph_candidate if 16 <= ph_candidate <= 512 else pw
+        y_are_indices = True
+    else:
+        return None
+
+    if rows < 1 or rows > 512:
+        return None
+
+    return cols, rows, pw, ph, y_are_indices
+
+
 def _decode_section(data: bytes, offset: int, size: int, s_idx: int):
     """
     Decode one screen section.
@@ -105,9 +181,6 @@ def _decode_section(data: bytes, offset: int, size: int, s_idx: int):
     cols = struct.unpack_from('<H', data, offset + 6)[0]
     rows = struct.unpack_from('<H', data, offset + 8)[0]
 
-    if cols == 0 or rows == 0 or cols > 512 or rows > 512:
-        return None
-
     # Detect format A vs B
     if (offset + 14 <= len(data) and
             data[offset + 10:offset + 14] == FORMAT_A_MARKER):
@@ -120,6 +193,18 @@ def _decode_section(data: bytes, offset: int, size: int, s_idx: int):
     if n_panels <= 0:
         return None
 
+    # If header cols/rows are invalid, try to derive from pixel positions in records
+    header_valid = (1 <= cols <= 512 and 1 <= rows <= 512)
+    derived_pw = None
+    derived_ph = None
+    y_are_indices = False
+
+    if not header_valid:
+        result = _derive_grid_from_pixel_positions(data, rec_start, n_panels)
+        if result is None:
+            return None
+        cols, rows, derived_pw, derived_ph, y_are_indices = result
+
     panels = []
     pw_counts = {}
     ph_counts = {}
@@ -129,20 +214,40 @@ def _decode_section(data: bytes, offset: int, size: int, s_idx: int):
         if off + RECORD_SIZE > len(data):
             break
 
-        x = struct.unpack_from('<H', data, off)[0]
-        y = struct.unpack_from('<H', data, off + 2)[0]
-        col = struct.unpack_from('<H', data, off + 4)[0]
-        row = struct.unpack_from('<H', data, off + 6)[0]
-        width = struct.unpack_from('<H', data, off + 8)[0]
-        height = struct.unpack_from('<H', data, off + 10)[0]
-        sender = data[off + 13]
-        port = data[off + 14]
-        chain = struct.unpack_from('<H', data, off + 15)[0]
+        if derived_pw is not None:
+            # Newer format: off+8 = cabinet X pixel position
+            x_pix = struct.unpack_from('<H', data, off + 8)[0]
+            y_val = struct.unpack_from('<H', data, off + 10)[0]
+            col = x_pix // derived_pw
+            if y_are_indices:
+                # off+10 is a 0-based row index, not a pixel position
+                row = y_val
+                y_pix = row * derived_ph
+            else:
+                row = y_val // derived_ph
+                y_pix = y_val
+            x = x_pix
+            y = y_pix
+            width = derived_pw
+            height = derived_ph
+            sender = data[off + 13]
+            port = data[off + 14]
+            chain = struct.unpack_from('<H', data, off + 15)[0]
+        else:
+            x = struct.unpack_from('<H', data, off)[0]
+            y = struct.unpack_from('<H', data, off + 2)[0]
+            col = struct.unpack_from('<H', data, off + 4)[0]
+            row = struct.unpack_from('<H', data, off + 6)[0]
+            width = struct.unpack_from('<H', data, off + 8)[0]
+            height = struct.unpack_from('<H', data, off + 10)[0]
+            sender = data[off + 13]
+            port = data[off + 14]
+            chain = struct.unpack_from('<H', data, off + 15)[0]
 
-        if 0 < width < 4096:
-            pw_counts[width] = pw_counts.get(width, 0) + 1
-        if 0 < height < 4096:
-            ph_counts[height] = ph_counts.get(height, 0) + 1
+            if 0 < width < 4096:
+                pw_counts[width] = pw_counts.get(width, 0) + 1
+            if 0 < height < 4096:
+                ph_counts[height] = ph_counts.get(height, 0) + 1
 
         panels.append({
             'col': col,
@@ -159,8 +264,12 @@ def _decode_section(data: bytes, offset: int, size: int, s_idx: int):
     if not panels:
         return None
 
-    pw = max(pw_counts, key=pw_counts.get) if pw_counts else 128
-    ph = max(ph_counts, key=ph_counts.get) if ph_counts else 128
+    if derived_pw is not None:
+        pw = derived_pw
+        ph = derived_ph
+    else:
+        pw = max(pw_counts, key=pw_counts.get) if pw_counts else 128
+        ph = max(ph_counts, key=ph_counts.get) if ph_counts else 128
 
     return {
         'screen_idx': s_idx,

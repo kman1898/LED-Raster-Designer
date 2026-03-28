@@ -5910,7 +5910,7 @@ class LEDRasterApp {
 
         const portNumMap = layer.scrPortNumbers || {};
 
-        portNums.forEach((portNum, idx) => {
+        portNums.forEach((portNum) => {
             const row = document.createElement('div');
             row.className = 'scr-port-row';
 
