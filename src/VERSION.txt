@@ -1,6 +1,12 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.5.19 - March 28, 2026
+----------------------------
+- DEBUG: SCR export now writes scr_debug.log to app logs/ folder with per-port panel ordering
+- DEBUG: Browser console logs [SCR DEBUG] port assignment summary on each SCR export
+- FIX: scr_debug.log path uses _LRD_LOG_DIR env var so it works in compiled builds
+
 v0.7.5.18 - March 28, 2026
 ----------------------------
 - FIX: SCR encoder multi-screen transition format corrected (json_len + json only, no pw/ph/flag prefix)
