@@ -228,12 +228,18 @@ def build_multi_screen_scr(screens_list):
 
     json_data = make_json(num_screens)
 
-    # Native format: section size = 25 + panels*17
-    # (10-byte StandardScreen header + 4-byte marker + panels*17 records + 11-byte suffix)
-    section_sizes = []
-    for s in screens_list:
-        panels = s['cols'] * s['rows']
-        section_sizes.append(25 + panels * 17)
+    # Native format: section size = 25 + active_panels*17
+    # Hidden panels are excluded entirely from the binary — NovaStar does not
+    # use inactive-panel sentinels in multi-screen format.
+    # (10-byte StandardScreen header + 4-byte marker + active_panels*17 records + 11-byte suffix)
+    def _count_active(s):
+        pmap = {(p['col'], p['row']): p for p in s.get('panels', [])}
+        return sum(
+            1 for col in range(s['cols']) for row in range(s['rows'])
+            if not pmap.get((col, row), {}).get('hidden', False)
+        )
+
+    section_sizes = [25 + _count_active(s) * 17 for s in screens_list]
 
     total_sections = sum(section_sizes)
 
@@ -306,12 +312,16 @@ def build_multi_screen_scr(screens_list):
         # Format A marker
         marker = b'\xff\x01\x01\x00'
 
-        # All cols*rows records in column-major order
+        # Write records for active (non-hidden) panels only, in column-major order.
+        # Hidden panels are excluded entirely — NovaStar has no hidden-panel sentinel
+        # in multi-screen format and will reject files that include inactive records.
         records = bytearray()
         chain_counter = 0
         for col in range(cols):
             for row in range(rows):
                 p = panel_map.get((col, row), {})
+                if p.get('hidden', False):
+                    continue  # skip hidden panels entirely
                 rec = bytearray(17)
                 struct.pack_into('<H', rec, 0, screen_x + col * pw)
                 struct.pack_into('<H', rec, 2, screen_y + row * ph)
@@ -319,18 +329,11 @@ def build_multi_screen_scr(screens_list):
                 struct.pack_into('<H', rec, 6, row)
                 struct.pack_into('<H', rec, 8, pw)
                 struct.pack_into('<H', rec, 10, ph)
-                if p.get('hidden', False):
-                    # Hidden panel: Active=0, no port/chain routing
-                    rec[12] = 0x00
-                    rec[13] = 0xFF
-                    rec[14] = 0x00
-                    struct.pack_into('<H', rec, 15, 0)
-                else:
-                    rec[12] = 0x01
-                    rec[13] = sc_idx & 0xFF
-                    rec[14] = (p.get('port_num', port_start + 1) - 1) & 0xFF
-                    struct.pack_into('<H', rec, 15, p.get('chain_order', chain_counter))
-                    chain_counter += 1
+                rec[12] = 0x01
+                rec[13] = sc_idx & 0xFF
+                rec[14] = (p.get('port_num', port_start + 1) - 1) & 0xFF
+                struct.pack_into('<H', rec, 15, p.get('chain_order', chain_counter))
+                chain_counter += 1
                 records += rec
 
         # 11-byte suffix (zeros)
