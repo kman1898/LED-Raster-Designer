@@ -1,6 +1,12 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.5.15 - March 28, 2026
+----------------------------
+- FIX: SCR encoder multi-screen hidden panels produced port=255 in binary
+- Hidden panels (port=0 from JS) are now written with Active=0 sentinel, not routed through port counter
+- FIX: Hidden panel chain counter no longer bleeds into non-hidden panel chain ordering
+
 v0.7.5.14 - March 28, 2026
 ----------------------------
 - FIX: SCR encoder multi-screen section offset was wrong — sections placed at 0x155 instead of 0x13B+N*4
