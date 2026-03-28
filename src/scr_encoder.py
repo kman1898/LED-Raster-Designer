@@ -409,7 +409,9 @@ def generate_scr_files(project_name, layers):
         list of (filename, bytes) tuples
     """
     import os as _os
-    _debug_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'scr_debug.log')
+    _log_dir = _os.environ.get('_LRD_LOG_DIR', _os.path.dirname(_os.path.abspath(__file__)))
+    _os.makedirs(_log_dir, exist_ok=True)
+    _debug_path = _os.path.join(_log_dir, 'scr_debug.log')
     with open(_debug_path, 'w') as _dbf:
         for lyr in layers:
             _dbf.write(f"=== Layer: {lyr.get('name')} ({lyr.get('columns')}x{lyr.get('rows')}) ===\n")
