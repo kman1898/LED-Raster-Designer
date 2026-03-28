@@ -228,18 +228,11 @@ def build_multi_screen_scr(screens_list):
 
     json_data = make_json(num_screens)
 
-    # Native format: section size = 25 + active_panels*17
-    # Hidden panels are excluded entirely from the binary — NovaStar does not
-    # use inactive-panel sentinels in multi-screen format.
-    # (10-byte StandardScreen header + 4-byte marker + active_panels*17 records + 11-byte suffix)
-    def _count_active(s):
-        pmap = {(p['col'], p['row']): p for p in s.get('panels', [])}
-        return sum(
-            1 for col in range(s['cols']) for row in range(s['rows'])
-            if not pmap.get((col, row), {}).get('hidden', False)
-        )
-
-    section_sizes = [25 + _count_active(s) * 17 for s in screens_list]
+    # Native format: section size = 25 + cols*rows*17
+    # ALL panels in the bounding box are written. Hidden/stair-step panels use
+    # sender=0xFF, port=1, chain=1 as a NovaStar placeholder — they are never skipped.
+    # (10-byte StandardScreen header + 4-byte marker + cols*rows*17 records + 11-byte suffix)
+    section_sizes = [25 + s['cols'] * s['rows'] * 17 for s in screens_list]
 
     total_sections = sum(section_sizes)
 
@@ -312,16 +305,14 @@ def build_multi_screen_scr(screens_list):
         # Format A marker
         marker = b'\xff\x01\x01\x00'
 
-        # Write records for active (non-hidden) panels only, in column-major order.
-        # Hidden panels are excluded entirely — NovaStar has no hidden-panel sentinel
-        # in multi-screen format and will reject files that include inactive records.
+        # Write records for ALL panels in the bounding box (column-major order).
+        # Hidden/stair-step panels use sender=0xFF, port=1, chain=1 per NovaStar convention.
+        # Connected panels use the normal sender/port/chain routing.
         records = bytearray()
         chain_counter = 0
         for col in range(cols):
             for row in range(rows):
                 p = panel_map.get((col, row), {})
-                if p.get('hidden', False):
-                    continue  # skip hidden panels entirely
                 rec = bytearray(17)
                 struct.pack_into('<H', rec, 0, screen_x + col * pw)
                 struct.pack_into('<H', rec, 2, screen_y + row * ph)
@@ -329,11 +320,17 @@ def build_multi_screen_scr(screens_list):
                 struct.pack_into('<H', rec, 6, row)
                 struct.pack_into('<H', rec, 8, pw)
                 struct.pack_into('<H', rec, 10, ph)
-                rec[12] = 0x01
-                rec[13] = sc_idx & 0xFF
-                rec[14] = (p.get('port_num', port_start + 1) - 1) & 0xFF
-                struct.pack_into('<H', rec, 15, p.get('chain_order', chain_counter))
-                chain_counter += 1
+                rec[12] = 0x01  # Active always 1
+                if p.get('hidden', False):
+                    # Stair-step/unconnected panel: NovaStar placeholder convention
+                    rec[13] = 0xFF  # sender=255
+                    rec[14] = 0x01  # port=1
+                    struct.pack_into('<H', rec, 15, 1)  # chain=1
+                else:
+                    rec[13] = sc_idx & 0xFF
+                    rec[14] = (p.get('port_num', port_start + 1) - 1) & 0xFF
+                    struct.pack_into('<H', rec, 15, p.get('chain_order', chain_counter))
+                    chain_counter += 1
                 records += rec
 
         # 11-byte suffix (zeros)

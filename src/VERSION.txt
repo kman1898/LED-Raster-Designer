@@ -1,6 +1,12 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.5.17 - March 28, 2026
+----------------------------
+- FIX: SCR encoder multi-screen hidden panels now use NovaStar placeholder convention
+- Hidden/stair-step panels written as sender=255, port=1, chain=1 (all panels in bounding box present)
+- Section size restored to cols*rows*17 — full bounding box always written
+
 v0.7.5.16 - March 28, 2026
 ----------------------------
 - FIX: SCR encoder multi-screen now excludes hidden panels entirely from the binary
