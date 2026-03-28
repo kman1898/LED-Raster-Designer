@@ -408,6 +408,27 @@ def generate_scr_files(project_name, layers):
     Returns:
         list of (filename, bytes) tuples
     """
+    import os as _os
+    _debug_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'scr_debug.log')
+    with open(_debug_path, 'w') as _dbf:
+        for lyr in layers:
+            _dbf.write(f"=== Layer: {lyr.get('name')} ({lyr.get('columns')}x{lyr.get('rows')}) ===\n")
+            _dbf.write(f"  flowPattern (from scrPortSendingCards): not in payload\n")
+            _dbf.write(f"  scrScreenX={lyr.get('scrScreenX')} scrScreenY={lyr.get('scrScreenY')}\n")
+            pa_list = lyr.get('portAssignments', [])
+            _dbf.write(f"  total portAssignments: {len(pa_list)}\n")
+            # Group by port
+            _ports = {}
+            for _pa in pa_list:
+                _k = _pa.get('port', 0)
+                _ports.setdefault(_k, []).append(_pa)
+            for _pk in sorted(_ports.keys()):
+                _plist = _ports[_pk]
+                _first3 = [(p['col'], p['row'], p.get('hidden', False)) for p in _plist[:3]]
+                _last3  = [(p['col'], p['row'], p.get('hidden', False)) for p in _plist[-3:]]
+                _dbf.write(f"  Port {_pk} ({len(_plist)} panels): first={_first3}  last={_last3}\n")
+        _dbf.write("\n")
+
     # Group layers by sending card
     sc_groups = {}  # sending_card_num -> list of screen dicts
 

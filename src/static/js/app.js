@@ -5867,6 +5867,25 @@ class LEDRasterApp {
 
         if (scrLayers.length === 0) throw new Error('No SCR-enabled layers found');
 
+        // DEBUG: Log port assignment ordering to help diagnose row-ordering bugs
+        scrLayers.forEach(l => {
+            const pa = l.portAssignments;
+            const portGroups = {};
+            pa.forEach(a => {
+                const k = a.port;
+                if (!portGroups[k]) portGroups[k] = [];
+                portGroups[k].push(a);
+            });
+            console.group(`[SCR DEBUG] Layer: ${l.name} (${l.columns}×${l.rows})`);
+            Object.keys(portGroups).sort((a,b) => Number(a)-Number(b)).forEach(portKey => {
+                const panels = portGroups[portKey];
+                const first3 = panels.slice(0, 3).map(p => `(c${p.col},r${p.row}${p.hidden?',H':''})`).join(' ');
+                const last3  = panels.slice(-3).map(p => `(c${p.col},r${p.row}${p.hidden?',H':''})`).join(' ');
+                console.log(`  Port ${portKey} [${panels.length} panels]: first=${first3} … last=${last3}`);
+            });
+            console.groupEnd();
+        });
+
         const response = await fetch('/api/export/scr', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
