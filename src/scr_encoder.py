@@ -228,23 +228,30 @@ def build_multi_screen_scr(screens_list):
 
     json_data = make_json(num_screens)
 
-    # Calculate section sizes
+    # Native format: section size = 25 + panels*17
+    # (10-byte StandardScreen header + 4-byte marker + panels*17 records + 11-byte suffix)
     section_sizes = []
     for s in screens_list:
         panels = s['cols'] * s['rows']
-        # Section = 42 (header) + (panels-1)*17 (records) - 15 (sentinel overlap)
-        section_sizes.append(42 + (panels - 1) * 17 - 15)
+        section_sizes.append(25 + panels * 17)
 
     total_sections = sum(section_sizes)
 
-    # File size = 0x155 + total_sections + transition + footer
-    # Transition for multi-screen: pw(2) + ph(2) + 01 + json_len(2) + json
+    # Transition: pw(2) + ph(2) + 01 + json_len(2) + json
     last_screen = screens_list[-1]
     transition = struct.pack('<HH', last_screen['pw'], last_screen['ph'])
     transition += bytes([0x01])
     transition += struct.pack('<H', len(json_data)) + json_data
 
-    fsize = 0x155 + total_sections + len(transition) + len(FOOTER)
+    # Pre-record: 2 zero bytes + screen_count(1) + N×4-byte section sizes (u32LE each)
+    # This places sections at 0x138 + 3 + N*4 = 0x13B + N*4 (matches native files)
+    prerec = bytearray(3 + num_screens * 4)
+    prerec[2] = num_screens
+    for s_idx, sz in enumerate(section_sizes):
+        struct.pack_into('<I', prerec, 3 + s_idx * 4, sz)
+
+    sections_start = 0x138 + len(prerec)  # = 0x13B + N*4
+    fsize = sections_start + total_sections + len(transition) + len(FOOTER)
     v0a = fsize - 0x155 - 14
 
     # Header (0x00-0x35)
@@ -270,16 +277,7 @@ def build_multi_screen_scr(screens_list):
     struct.pack_into('<H', sec2, 2, 0x03EE)
     struct.pack_into('<H', sec2, 0xD2 - 0xB4, v0a - 68)
 
-    # Pre-record (0x138-0x154)
-    prerec = bytearray(0x155 - 0x138)
-    prerec[2] = num_screens
-    # Section size table: screens × (u16 size + u16 padding)
-    for s_idx in range(num_screens):
-        struct.pack_into('<H', prerec, 3 + s_idx * 4, section_sizes[s_idx])
-    prerec[6] = 0x00
-    prerec[7] = 0x01
-
-    # Build per-screen data
+    # Build per-screen section data
     all_screen_data = bytearray()
     for s_idx, s in enumerate(screens_list):
         cols = s['cols']
@@ -290,69 +288,52 @@ def build_multi_screen_scr(screens_list):
         screen_y = s.get('screen_y', 0)
         sc_idx = s.get('sc_idx', 0)
         port_start = s.get('port_start', 0)
-        panels = cols * rows
 
-        # 42-byte screen header
-        hdr = bytearray(42)
-        struct.pack_into('<H', hdr, 0, cols)
-        struct.pack_into('<H', hdr, 2, rows)
-        hdr[4] = sc_idx
-        hdr[5] = port_start
-        struct.pack_into('<H', hdr, 8, screen_x)
-        struct.pack_into('<H', hdr, 10, screen_y)
-        struct.pack_into('<H', hdr, 16, pw)
-        struct.pack_into('<H', hdr, 18, ph)
-        hdr[20] = 0x01
-        # Second config block
-        hdr[21] = sc_idx
-        hdr[22] = port_start
-        struct.pack_into('<H', hdr, 25, screen_x)
-        struct.pack_into('<H', hdr, 27, screen_y + ph)
-        hdr[31] = 0x01
-        struct.pack_into('<H', hdr, 33, pw)
-        struct.pack_into('<H', hdr, 35, ph)
-        hdr[37] = 0x01
-        hdr[38] = sc_idx
-        hdr[39] = port_start
-
-        # Build panel lookup
+        # Build panel lookup: (col, row) -> panel dict
         panel_map = {}
         for p in s.get('panels', []):
-            if not p.get('hidden', False):
-                panel_map[(p['col'], p['row'])] = p
+            panel_map[(p['col'], p['row'])] = p
 
-        # Records: column-major, skip origin (0,0), skip last record (sentinel)
+        # 10-byte StandardScreen header: Type(1) VMode(1) X(2) Y(2) Cols(2) Rows(2)
+        sec_hdr = bytearray(10)
+        sec_hdr[0] = 0x01  # Type
+        sec_hdr[1] = 0x00  # VMode
+        struct.pack_into('<H', sec_hdr, 2, screen_x)
+        struct.pack_into('<H', sec_hdr, 4, screen_y)
+        struct.pack_into('<H', sec_hdr, 6, cols)
+        struct.pack_into('<H', sec_hdr, 8, rows)
+
+        # Format A marker
+        marker = b'\xff\x01\x01\x00'
+
+        # All cols*rows records in column-major order
         records = bytearray()
-        rec_count = 0
-        max_records = panels - 2  # -1 for origin skip, -1 for sentinel
+        chain_counter = 0
         for col in range(cols):
             for row in range(rows):
-                if col == 0 and row == 0:
-                    continue
-                if rec_count >= max_records:
-                    break
                 p = panel_map.get((col, row), {})
                 rec = bytearray(17)
                 struct.pack_into('<H', rec, 0, screen_x + col * pw)
                 struct.pack_into('<H', rec, 2, screen_y + row * ph)
-                rec[4] = col & 0xFF
-                rec[6] = row & 0xFF
+                struct.pack_into('<H', rec, 4, col)
+                struct.pack_into('<H', rec, 6, row)
                 struct.pack_into('<H', rec, 8, pw)
                 struct.pack_into('<H', rec, 10, ph)
                 rec[12] = 0x01
-                rec[13] = sc_idx
-                rec[14] = port_start
-                struct.pack_into('<H', rec, 15, p.get('chain_order', 0))
+                rec[13] = sc_idx & 0xFF
+                rec[14] = (p.get('port_num', port_start + 1) - 1) & 0xFF
+                struct.pack_into('<H', rec, 15, p.get('chain_order', chain_counter))
                 records += rec
-                rec_count += 1
-            if rec_count >= max_records:
-                break
+                chain_counter += 1
 
-        all_screen_data += hdr + records
+        # 11-byte suffix (zeros)
+        suffix = bytes(11)
+
+        all_screen_data += bytes(sec_hdr) + marker + records + suffix
 
     # Assemble file
     data = bytearray(header + sec1 + sec2 + prerec + all_screen_data
-                      + transition + FOOTER)
+                     + transition + FOOTER)
 
     return calc_checksums(data, num_screens)
 

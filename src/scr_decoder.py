@@ -181,11 +181,26 @@ def _decode_section(data: bytes, offset: int, size: int, s_idx: int):
     cols = struct.unpack_from('<H', data, offset + 6)[0]
     rows = struct.unpack_from('<H', data, offset + 8)[0]
 
-    # Detect format A vs B
-    if (offset + 14 <= len(data) and
-            data[offset + 10:offset + 14] == FORMAT_A_MARKER):
+    # Detect format A vs B.
+    # Format A: 10-byte header + 4-byte marker + records (+ optional suffix).
+    #   Records start at offset+14.
+    # Format B: 10-byte header only, records immediately follow.
+    #   Records start at offset+10.
+    #
+    # Strategy: if bytes 10-13 are non-zero (a potential marker is present) AND
+    # the first record from offset+14 has plausible panel dimensions (pw/ph in 16-4096),
+    # treat as Format A. Otherwise use Format B.
+    _marker = data[offset + 10:offset + 14]
+    _use_format_a = False
+    if _marker != b'\x00\x00\x00\x00' and offset + 14 + RECORD_SIZE <= len(data):
+        _test_pw = struct.unpack_from('<H', data, offset + 14 + 8)[0]
+        _test_ph = struct.unpack_from('<H', data, offset + 14 + 10)[0]
+        if 16 <= _test_pw <= 4096 and 16 <= _test_ph <= 4096:
+            _use_format_a = True
+
+    if _use_format_a:
         rec_start = offset + 14
-        n_panels = (size - FORMAT_A_OVERHEAD) // RECORD_SIZE
+        n_panels = (size - 14) // RECORD_SIZE
     else:
         rec_start = offset + 10
         n_panels = (size - FORMAT_B_OVERHEAD) // RECORD_SIZE
