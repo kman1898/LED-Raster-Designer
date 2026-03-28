@@ -1,6 +1,15 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.5.14 - March 28, 2026
+----------------------------
+- FIX: SCR encoder multi-screen section offset was wrong — sections placed at 0x155 instead of 0x13B+N*4
+- FIX: SCR encoder multi-screen section size formula corrected to 25+panels*17 (was 42+(panels-1)*17-15)
+- FIX: SCR encoder multi-screen pre-record used fixed 29-byte block; now dynamic 3+N*4 bytes
+- FIX: SCR encoder multi-screen section header now matches native 10-byte StandardScreen + Format A marker
+- FIX: SCR encoder section size table now writes u32LE per entry (was u16, corrupting entry 1)
+- FIX: SCR decoder format detection now handles any non-zero marker (not just FF010100)
+
 v0.7.5.13 - March 27, 2026
 ----------------------------
 - FIX: SCR importer now handles newer NovaStar format variant where header cols/rows are invalid
