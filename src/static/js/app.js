@@ -1833,6 +1833,17 @@ class LEDRasterApp {
                 this.handleImageFileSelection(e);
             });
         }
+        const importScrBtn = document.getElementById('btn-import-scr');
+        const importScrInput = document.getElementById('import-scr-input');
+        if (importScrBtn && importScrInput) {
+            importScrBtn.addEventListener('click', () => { importScrInput.click(); });
+            importScrInput.addEventListener('change', (e) => {
+                if (e.target.files && e.target.files[0]) {
+                    this.importScrFile(e.target.files[0]);
+                    e.target.value = '';
+                }
+            });
+        }
         const replaceImageBtn = document.getElementById('btn-replace-image');
         if (replaceImageBtn && addImageInput) {
             replaceImageBtn.addEventListener('click', () => {
@@ -3532,6 +3543,34 @@ class LEDRasterApp {
             // Save the new defaults to localStorage
             this.saveClientSideProperties();
         });
+    }
+
+    async importScrFile(file) {
+        const formData = new FormData();
+        formData.append('file', file);
+        try {
+            const res = await fetch('/api/import/scr', { method: 'POST', body: formData });
+            const json = await res.json();
+            if (!res.ok) {
+                alert(`SCR import failed: ${json.error || 'Unknown error'}`);
+                return;
+            }
+            const layers = json.layers || [];
+            if (layers.length === 0) {
+                alert('No screens found in SCR file.');
+                return;
+            }
+            this.saveState('Import SCR');
+            layers.forEach(layer => {
+                this.initializeLayerDefaults(layer);
+                this.upsertProjectLayer(layer);
+            });
+            this.selectLayer(layers[0]);
+            window.canvasRenderer.fitToView();
+            sendClientLog('import_scr', { screens: layers.length, filename: file.name });
+        } catch (err) {
+            alert(`SCR import error: ${err.message}`);
+        }
     }
 
     addImageLayer(imageData, imageWidth, imageHeight) {

@@ -2114,6 +2114,7 @@ def export_resolume_xml():
 
 # ── NovaStar SCR Export ─────────────────────────────────────────────
 from scr_encoder import generate_scr_files
+from scr_decoder import decode_scr
 
 @app.route('/api/export/scr', methods=['POST'])
 def export_scr():
@@ -2163,6 +2164,60 @@ def export_scr():
         import traceback
         traceback.print_exc()
         return jsonify({'error': f'SCR export failed: {str(e)}'}), 500
+
+
+@app.route('/api/import/scr', methods=['POST'])
+def import_scr():
+    """Import a NovaStar SCR file and create screen layers from it."""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided'}), 400
+
+        f = request.files['file']
+        data = f.read()
+        if not data:
+            return jsonify({'error': 'Empty file'}), 400
+
+        decoded = decode_scr(data)
+        screens = decoded.get('screens', [])
+        if not screens:
+            return jsonify({'error': 'No screens found in SCR file'}), 400
+
+        created_layers = []
+        for s in screens:
+            layer = create_layer(
+                name=f'Screen {s["screen_idx"] + 1}',
+                columns=s['cols'],
+                rows=s['rows'],
+                cabinet_width=s['panel_width'],
+                cabinet_height=s['panel_height'],
+                offset_x=s['x'],
+                offset_y=s['y'],
+            )
+            layer['scrExportEnabled'] = True
+            layer['scrScreenNumber'] = s['screen_idx'] + 1
+            layer['scrScreenX'] = s['x']
+            layer['scrScreenY'] = s['y']
+            layer['processorType'] = 'novastar-armor'
+
+            current_project['layers'].append(layer)
+            current_project['is_pristine'] = False
+            socketio.emit('layer_added', layer)
+            created_layers.append(layer)
+
+        log_event('import_scr', {
+            'screens': len(created_layers),
+            'filename': f.filename,
+        })
+        return jsonify({'layers': created_layers})
+
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        print(f'SCR import error: {e}')
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'SCR import failed: {str(e)}'}), 500
 
 
 # ── Update Checker ──────────────────────────────────────────────────
