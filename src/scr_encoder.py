@@ -319,12 +319,19 @@ def build_multi_screen_scr(screens_list):
                 struct.pack_into('<H', rec, 6, row)
                 struct.pack_into('<H', rec, 8, pw)
                 struct.pack_into('<H', rec, 10, ph)
-                rec[12] = 0x01
-                rec[13] = sc_idx & 0xFF
-                rec[14] = (p.get('port_num', port_start + 1) - 1) & 0xFF
-                struct.pack_into('<H', rec, 15, p.get('chain_order', chain_counter))
+                if p.get('hidden', False):
+                    # Hidden panel: Active=0, no port/chain routing
+                    rec[12] = 0x00
+                    rec[13] = 0xFF
+                    rec[14] = 0x00
+                    struct.pack_into('<H', rec, 15, 0)
+                else:
+                    rec[12] = 0x01
+                    rec[13] = sc_idx & 0xFF
+                    rec[14] = (p.get('port_num', port_start + 1) - 1) & 0xFF
+                    struct.pack_into('<H', rec, 15, p.get('chain_order', chain_counter))
+                    chain_counter += 1
                 records += rec
-                chain_counter += 1
 
         # 11-byte suffix (zeros)
         suffix = bytes(11)
@@ -375,6 +382,24 @@ def generate_scr_files(project_name, layers):
             port_chain_counters = {}  # nova_port -> next chain index
             for pa in layer.get('portAssignments', []):
                 app_port = pa.get('port', 1)  # app's 1-based port
+                is_hidden = pa.get('hidden', False) or app_port == 0
+
+                if is_hidden:
+                    # Hidden panels (port=0 from JS or hidden flag set) are not
+                    # routed through any real port — add them directly without
+                    # touching the chain counters.
+                    assigned_sc = port_sc_map.get(str(app_port), sc_num)
+                    if assigned_sc == sc_num or app_port == 0:
+                        filtered_panels.append({
+                            'col': pa['col'],
+                            'row': pa['row'],
+                            'port_num': 0,
+                            'chain_order': 0,
+                            'hidden': True,
+                            'b5': 0,
+                        })
+                    continue
+
                 assigned_sc = port_sc_map.get(str(app_port), 1)
                 if assigned_sc == sc_num:
                     # Map to NovaStar port number (user may have remapped)
@@ -388,7 +413,7 @@ def generate_scr_files(project_name, layers):
                         'row': pa['row'],
                         'port_num': nova_port,  # NovaStar port number (1-based)
                         'chain_order': chain_idx,
-                        'hidden': pa.get('hidden', False),
+                        'hidden': False,
                         'b5': 0,
                     })
 
