@@ -253,11 +253,15 @@ class TestBuildMultiScreenScr:
              'sc_idx': 1, 'port_start': 5},
         ]
         data = scr_encoder.build_multi_screen_scr(screens)
-        # Screen 0 header at 0x155
-        cols0 = struct.unpack_from('<H', data, 0x155)[0]
-        rows0 = struct.unpack_from('<H', data, 0x157)[0]
-        x0 = struct.unpack_from('<H', data, 0x155 + 8)[0]
-        y0 = struct.unpack_from('<H', data, 0x155 + 10)[0]
+        # Native format: sections start at 0x13B + N*4.
+        # For 2 screens: 0x138 + (3 + 2*4) = 0x143.
+        # StandardScreen header layout: Type(1) VMode(1) X(2) Y(2) Cols(2) Rows(2)
+        num_screens = len(screens)
+        sec0_start = 0x138 + 3 + num_screens * 4  # = 0x143 for 2 screens
+        x0   = struct.unpack_from('<H', data, sec0_start + 2)[0]
+        y0   = struct.unpack_from('<H', data, sec0_start + 4)[0]
+        cols0 = struct.unpack_from('<H', data, sec0_start + 6)[0]
+        rows0 = struct.unpack_from('<H', data, sec0_start + 8)[0]
         assert cols0 == 10
         assert rows0 == 5
         assert x0 == 100
