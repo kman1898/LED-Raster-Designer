@@ -13,21 +13,58 @@ File structure:
 - Header: 0x000-0x035 (DSCI magic, checksums, section markers)
 - Section 0x03E9: 0x036-0x0B3 (config)
 - Section 0x03EE: 0x0B4-0x137 (sub-checksum, derived fields)
-- Pre-record: 0x138-0x154 (screen count, section size table)
-- Per-screen: 42-byte header + (panels-1)*17 records (column-major, skip origin)
-- Transition: pw(2) + ph(2) + 01 + json_len(2) + json
-- Footer: 173 bytes (constant)
+- Pre-record: 0x138+ (screen count, section size table)
+- Per-screen sections: 10-byte header + 4-byte marker + cols*rows*17 records + 11-byte suffix
+- Transition: json_len(2) + json  (NO pw/ph/flag prefix)
+- Footer: 173 + (N-1)*40 bytes, N = num_screens; header bytes [2:4] = N*0xE7 as LE uint16
+
+v0a formula (header[0x0A] size field): fsize - footer_size - 182
+sec2[0xD2] field: v0a - len(transition)
 """
 import struct
 import io
 import zipfile
 
 
-# 173-byte footer constant (identical across all known .scr files)
+# 173-byte footer for single-screen files
 FOOTER = bytes(
     b'\xea\x03\xe7\x00' + b'\x00' * 128 +
     b'\x01\x00\x01\x00\x01\xe4' + b'\x00' * 35
 )  # 173 bytes exactly
+
+
+def make_footer(num_screens):
+    """
+    Build the variable-length footer for the given number of screens.
+
+    Footer structure (verified from native NovaStar files):
+    - 4 bytes: EA 03 + (num_screens * 0xE7 as LE uint16)
+    - 128 zeros
+    - Block 0: [num_screens, 00, 01, 00, 01, E4] + 36 zeros (or 35 if N==1)
+    - Blocks 1..N-1: [01, 00, 01, E4] + 36 zeros (35 for last block)
+
+    Total size = 173 + (num_screens - 1) * 40 bytes
+    """
+    footer = bytearray()
+    # 4-byte header: EA 03 + (N * 0xE7) as LE uint16
+    footer += b'\xea\x03'
+    footer += struct.pack('<H', num_screens * 0xE7)
+    # 128 zeros
+    footer += b'\x00' * 128
+    # Block 0: [N, 00, 01, 00, 01, E4] + trailing zeros
+    footer += bytes([num_screens, 0x00, 0x01, 0x00, 0x01, 0xE4])
+    if num_screens == 1:
+        footer += b'\x00' * 35  # single-screen: 35 trailing zeros
+    else:
+        footer += b'\x00' * 36  # multi-screen block 0: 36 zeros before next block
+        # Additional blocks (1 per extra screen)
+        for i in range(1, num_screens):
+            footer += b'\x01\x00\x01\xe4'
+            if i == num_screens - 1:
+                footer += b'\x00' * 35  # last block: 35 trailing zeros
+            else:
+                footer += b'\x00' * 36  # intermediate blocks: 36 zeros
+    return bytes(footer)
 
 
 def make_json(screens):
@@ -236,11 +273,11 @@ def build_multi_screen_scr(screens_list):
 
     total_sections = sum(section_sizes)
 
-    # Transition: pw(2) + ph(2) + 01 + json_len(2) + json
-    last_screen = screens_list[-1]
-    transition = struct.pack('<HH', last_screen['pw'], last_screen['ph'])
-    transition += bytes([0x01])
-    transition += struct.pack('<H', len(json_data)) + json_data
+    # Transition: json_len(2) + json  — NO pw/ph/flag prefix (verified from native files)
+    transition = struct.pack('<H', len(json_data)) + json_data
+
+    # Footer: variable length based on num_screens (verified from native files)
+    footer = make_footer(num_screens)
 
     # Pre-record: 2 zero bytes + screen_count(1) + N×4-byte section sizes (u32LE each)
     # This places sections at 0x138 + 3 + N*4 = 0x13B + N*4 (matches native files)
@@ -250,14 +287,16 @@ def build_multi_screen_scr(screens_list):
         struct.pack_into('<I', prerec, 3 + s_idx * 4, sz)
 
     sections_start = 0x138 + len(prerec)  # = 0x13B + N*4
-    fsize = sections_start + total_sections + len(transition) + len(FOOTER)
-    v0a = fsize - 0x155 - 14
+    fsize = sections_start + total_sections + len(transition) + len(footer)
+    # v0a formula: fsize - footer_size - 182 (verified from native files)
+    v0a = fsize - len(footer) - 182
 
     # Header (0x00-0x35)
     header = bytearray(0x36)
     header[0:4] = b'DSCI'
     header[6] = 0x80
-    header[0x0E] = 0xAD
+    # header[0x0E-0x0F] = footer_size as LE uint16 (verified from native files)
+    struct.pack_into('<H', header, 0x0E, len(footer))
     struct.pack_into('<H', header, 0x0A, v0a)
 
     # Section 0x03E9 (0x36-0xB3)
@@ -274,7 +313,8 @@ def build_multi_screen_scr(screens_list):
     # Section 0x03EE (0xB4-0x137)
     sec2 = bytearray(0x138 - 0xB4)
     struct.pack_into('<H', sec2, 2, 0x03EE)
-    struct.pack_into('<H', sec2, 0xD2 - 0xB4, v0a - 68)
+    # sec2[0xD2] = v0a - len(transition) (verified from native: 40326 - 263 = 40063)
+    struct.pack_into('<H', sec2, 0xD2 - 0xB4, v0a - len(transition))
 
     # Build per-screen section data
     all_screen_data = bytearray()
@@ -302,8 +342,20 @@ def build_multi_screen_scr(screens_list):
         struct.pack_into('<H', sec_hdr, 6, cols)
         struct.pack_into('<H', sec_hdr, 8, rows)
 
-        # Format A marker
-        marker = b'\xff\x01\x01\x00'
+        # Format marker: depends on sc_idx and minimum port used.
+        # SC1/SC2 (sc_idx 0-1) with standard ports 0-7 → Format A (FF 01 01 00)
+        # SC3+ or port >= 8 → explicit [sc_idx, min_port_0based, 00, 00]
+        # Verified from native files (2026 EDC.scr).
+        non_hidden_ports = [
+            p.get('port_num', 1)
+            for p in s.get('panels', [])
+            if not p.get('hidden', False)
+        ]
+        min_port_0based = (min(non_hidden_ports) - 1) if non_hidden_ports else 0
+        if sc_idx <= 1 and min_port_0based <= 7:
+            marker = b'\xff\x01\x01\x00'  # Format A (standard)
+        else:
+            marker = bytes([sc_idx & 0xFF, min_port_0based & 0xFF, 0x00, 0x00])
 
         # Write records for ALL panels in the bounding box (column-major order).
         # Hidden/stair-step panels use sender=0xFF, port=1, chain=1 per NovaStar convention.
@@ -340,7 +392,7 @@ def build_multi_screen_scr(screens_list):
 
     # Assemble file
     data = bytearray(header + sec1 + sec2 + prerec + all_screen_data
-                     + transition + FOOTER)
+                     + transition + footer)
 
     return calc_checksums(data, num_screens)
 
