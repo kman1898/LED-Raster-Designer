@@ -1,6 +1,16 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.5.18 - March 28, 2026
+----------------------------
+- FIX: SCR encoder multi-screen transition format corrected (json_len + json only, no pw/ph/flag prefix)
+- FIX: SCR encoder footer is now variable-length: 173 + (N-1)*40 bytes for N screens
+- FIX: header[0x0E] now stores footer_size as LE uint16 (was hardcoded 0xAD)
+- FIX: v0a formula corrected to fsize - footer_size - 182
+- FIX: sec2[0xD2] field corrected to v0a - len(transition)
+- FIX: Section marker now computed dynamically (FF 01 01 00 for SC1/SC2 port≤7, else [sc_idx, min_port, 0, 0])
+- Generated multi-screen SCR files now match native NovaStar file size exactly
+
 v0.7.5.17 - March 28, 2026
 ----------------------------
 - FIX: SCR encoder multi-screen hidden panels now use NovaStar placeholder convention
