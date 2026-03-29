@@ -435,23 +435,28 @@ def generate_scr_files(project_name, layers):
                 _dbf.write(f"  Port {_pk} ({len(_plist)} panels, {len(_visible)} visible): "
                            f"first={_first3}  last={_last3}\n")
         _dbf.write("\n")
-        # After filtering, log the actual chain=0 positions that will go into the binary
+        # After filtering, log the actual chain=0 positions that will go into the binary.
+        # For top-starting patterns (tr-*, tl-*) chains are REVERSED so chain=0 is the
+        # LAST visible panel per port (NovaStar convention: chain=0 = farthest from controller).
         _dbf.write("=== Chain=0 positions (what goes into SCR binary) ===\n")
         for lyr in layers:
-            _dbf.write(f"  Layer: {lyr.get('name')}\n")
-            _port_sc_map = lyr.get('scrPortSendingCards', {})
+            _fp = lyr.get('flowPattern', 'tl-h')
+            _reversed = _fp.startswith('t')
+            _dbf.write(f"  Layer: {lyr.get('name')} (flowPattern={_fp}, chain_reversed={_reversed})\n")
             _port_num_map = lyr.get('scrPortNumbers', {})
-            _port_chains = {}  # nova_port -> first panel
+            # Collect ALL visible panels per port in portAssignment order
+            _port_panels = {}  # nova_port -> [list of (col,row) in order]
             for _pa in lyr.get('portAssignments', []):
                 _app_port = _pa.get('port', 1)
                 if _pa.get('hidden', False) or _app_port == 0:
                     continue
                 _nova_port = _port_num_map.get(str(_app_port), _app_port)
-                if _nova_port not in _port_chains:
-                    # chain=0 for this nova_port → this is the first visible panel
-                    _port_chains[_nova_port] = (_pa['col'], _pa['row'])
-            for _np in sorted(_port_chains.keys()):
-                _c, _r = _port_chains[_np]
+                _port_panels.setdefault(_nova_port, []).append((_pa['col'], _pa['row']))
+            for _np in sorted(_port_panels.keys()):
+                _panels = _port_panels[_np]
+                # chain=0 is LAST panel if reversed, FIRST panel if not reversed
+                _chain0 = _panels[-1] if _reversed else _panels[0]
+                _c, _r = _chain0
                 _dbf.write(f"    NovaStar port {_np} (0-based: {_np-1}): chain=0 at col={_c}, row={_r}\n")
         _dbf.write("\n")
 
@@ -515,6 +520,28 @@ def generate_scr_files(project_name, layers):
                         'hidden': False,
                         'b5': 0,
                     })
+
+            # NovaStar convention: chain=0 is the panel FARTHEST from the controller
+            # (the last panel in the physical daisy chain — always at the bottom of the
+            # routing path). Our JS portAssignments are generated START-to-END (top→bottom
+            # for patterns starting at the top), so chain=0 lands at the TOP.
+            # For all serpentines that start at the top (tr-*, tl-*), reverse each port's
+            # chain_order so chain=0 ends up at the last panel (physical bottom of routing).
+            # Patterns starting at the bottom (br-*, bl-*) and 'custom' already have
+            # chain=0 at the bottom — no reversal needed.
+            flow_pattern = layer.get('flowPattern', 'tl-h')
+            if flow_pattern.startswith('t'):
+                port_max_chain = {}
+                for p in filtered_panels:
+                    if not p.get('hidden', False):
+                        pn = p['port_num']
+                        co = p['chain_order']
+                        if pn not in port_max_chain or co > port_max_chain[pn]:
+                            port_max_chain[pn] = co
+                for p in filtered_panels:
+                    if not p.get('hidden', False):
+                        pn = p['port_num']
+                        p['chain_order'] = port_max_chain[pn] - p['chain_order']
 
             sc_groups[sc_num].append({
                 'cols': layer['columns'],

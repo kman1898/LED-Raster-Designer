@@ -1,6 +1,14 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.5.21 - March 28, 2026
+----------------------------
+- FIX: SCR encoder now reverses chain order for top-starting serpentine patterns (tr-*, tl-*)
+  so chain=0 is at the last panel (physical bottom of routing path), matching NovaStar convention
+- FIX: Chain reversal is skipped for bottom-starting (br-*, bl-*) and custom patterns which
+  already have chain=0 at the bottom (e.g., UPSTAGE custom pattern)
+- DEBUG: scr_debug.log chain=0 positions now reflect actual binary output after reversal
+
 v0.7.5.20 - March 28, 2026
 ----------------------------
 - DEBUG: scr_debug.log now includes flowPattern, scrPortNumbers, cabinet dimensions, and chain=0 positions per NovaStar port
