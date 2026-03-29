@@ -415,8 +415,11 @@ def generate_scr_files(project_name, layers):
     with open(_debug_path, 'w') as _dbf:
         for lyr in layers:
             _dbf.write(f"=== Layer: {lyr.get('name')} ({lyr.get('columns')}x{lyr.get('rows')}) ===\n")
-            _dbf.write(f"  flowPattern (from scrPortSendingCards): not in payload\n")
+            _dbf.write(f"  flowPattern={lyr.get('flowPattern', '(not sent)')}\n")
             _dbf.write(f"  scrScreenX={lyr.get('scrScreenX')} scrScreenY={lyr.get('scrScreenY')}\n")
+            _dbf.write(f"  scrPortNumbers={lyr.get('scrPortNumbers', {})}\n")
+            _dbf.write(f"  scrPortSendingCards={lyr.get('scrPortSendingCards', {})}\n")
+            _dbf.write(f"  cabinet_width={lyr.get('cabinet_width')} cabinet_height={lyr.get('cabinet_height')}\n")
             pa_list = lyr.get('portAssignments', [])
             _dbf.write(f"  total portAssignments: {len(pa_list)}\n")
             # Group by port
@@ -426,9 +429,30 @@ def generate_scr_files(project_name, layers):
                 _ports.setdefault(_k, []).append(_pa)
             for _pk in sorted(_ports.keys()):
                 _plist = _ports[_pk]
+                _visible = [p for p in _plist if not p.get('hidden', False)]
                 _first3 = [(p['col'], p['row'], p.get('hidden', False)) for p in _plist[:3]]
                 _last3  = [(p['col'], p['row'], p.get('hidden', False)) for p in _plist[-3:]]
-                _dbf.write(f"  Port {_pk} ({len(_plist)} panels): first={_first3}  last={_last3}\n")
+                _dbf.write(f"  Port {_pk} ({len(_plist)} panels, {len(_visible)} visible): "
+                           f"first={_first3}  last={_last3}\n")
+        _dbf.write("\n")
+        # After filtering, log the actual chain=0 positions that will go into the binary
+        _dbf.write("=== Chain=0 positions (what goes into SCR binary) ===\n")
+        for lyr in layers:
+            _dbf.write(f"  Layer: {lyr.get('name')}\n")
+            _port_sc_map = lyr.get('scrPortSendingCards', {})
+            _port_num_map = lyr.get('scrPortNumbers', {})
+            _port_chains = {}  # nova_port -> first panel
+            for _pa in lyr.get('portAssignments', []):
+                _app_port = _pa.get('port', 1)
+                if _pa.get('hidden', False) or _app_port == 0:
+                    continue
+                _nova_port = _port_num_map.get(str(_app_port), _app_port)
+                if _nova_port not in _port_chains:
+                    # chain=0 for this nova_port → this is the first visible panel
+                    _port_chains[_nova_port] = (_pa['col'], _pa['row'])
+            for _np in sorted(_port_chains.keys()):
+                _c, _r = _port_chains[_np]
+                _dbf.write(f"    NovaStar port {_np} (0-based: {_np-1}): chain=0 at col={_c}, row={_r}\n")
         _dbf.write("\n")
 
     # Group layers by sending card
