@@ -5840,6 +5840,7 @@ class LEDRasterApp {
                     scrScreenY: l.scrScreenY != null ? l.scrScreenY : (l.offset_y || 0),
                     scrPortSendingCards: l.scrPortSendingCards || {},
                     scrPortNumbers: l.scrPortNumbers || {},
+                    flowPattern: l.flowPattern || 'tl-h',
                     portAssignments: [
                         ...assignments.map(a => ({
                             port: a.port,

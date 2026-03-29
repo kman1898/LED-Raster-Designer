@@ -1,6 +1,11 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.5.20 - March 28, 2026
+----------------------------
+- DEBUG: scr_debug.log now includes flowPattern, scrPortNumbers, cabinet dimensions, and chain=0 positions per NovaStar port
+- DEBUG: flowPattern is now included in the SCR export payload from JS to server
+
 v0.7.5.19 - March 28, 2026
 ----------------------------
 - DEBUG: SCR export now writes scr_debug.log to app logs/ folder with per-port panel ordering
