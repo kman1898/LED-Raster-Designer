@@ -1,6 +1,13 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.5.22 - March 28, 2026
+----------------------------
+- REVERT: Removed chain reversal from v0.7.5.21 — chain=0 now stays at the cable entry point
+  (first panel in the flow pattern), matching the app's configured routing direction
+- DEBUG: Enhanced scr_debug.log with full chain-to-position mapping per port for direct
+  comparison with NovaStar/SmartLCT display
+
 v0.7.5.21 - March 28, 2026
 ----------------------------
 - FIX: SCR encoder now reverses chain order for top-starting serpentine patterns (tr-*, tl-*)
