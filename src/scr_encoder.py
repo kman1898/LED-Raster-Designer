@@ -412,7 +412,7 @@ def generate_scr_files(project_name, layers):
     _log_dir = _os.environ.get('_LRD_LOG_DIR', _os.path.dirname(_os.path.abspath(__file__)))
     _os.makedirs(_log_dir, exist_ok=True)
     _debug_path = _os.path.join(_log_dir, 'scr_debug.log')
-    with open(_debug_path, 'w') as _dbf:
+    with open(_debug_path, 'w', encoding='utf-8') as _dbf:
         for lyr in layers:
             _dbf.write(f"=== Layer: {lyr.get('name')} ({lyr.get('columns')}x{lyr.get('rows')}) ===\n")
             _dbf.write(f"  flowPattern={lyr.get('flowPattern', '(not sent)')}\n")
@@ -457,7 +457,7 @@ def generate_scr_files(project_name, layers):
                 _cN, _rN = _panels[-1]
                 _dbf.write(f"    NovaStar port {_np} (0-based: {_np-1}, SC{_sc}): "
                            f"{len(_panels)} panels, "
-                           f"chain=0 at col={_c0},row={_r0} → "
+                           f"chain=0 at col={_c0},row={_r0} -> "
                            f"chain={len(_panels)-1} at col={_cN},row={_rN}\n")
                 # Show first and last 5 chain assignments
                 if len(_panels) <= 10:
