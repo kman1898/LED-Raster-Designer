@@ -5825,7 +5825,56 @@ class LEDRasterApp {
         const scrLayers = this.project.layers
             .filter(l => l.scrExportEnabled && l.processorType === 'novastar-armor' && l.type === 'screen')
             .map(l => {
-                const assignments = this.calculatePortAssignments(l);
+                // Build port assignments: use customPortPaths when in custom flow mode,
+                // otherwise use calculatePortAssignments for organized/auto mode.
+                let visibleAssignments = [];
+                const isCustom = l.flowPattern === 'custom' && l.customPortPaths;
+
+                if (isCustom) {
+                    // Custom cable mode: use the exact paths the user drew.
+                    // customPortPaths maps port# -> [{row, col}, {row, col}, ...]
+                    const fullPanelPixels = this.getFullPanelPixels(l);
+                    const portNums = Object.keys(l.customPortPaths)
+                        .map(n => parseInt(n, 10))
+                        .sort((a, b) => a - b);
+                    portNums.forEach(portNum => {
+                        const path = l.customPortPaths[portNum] || [];
+                        let pixelIndex = 0;
+                        path.forEach((p, idx) => {
+                            // Find the actual panel object to check hidden status
+                            const panel = (l.panels || []).find(
+                                pan => pan.row === p.row && pan.col === p.col
+                            );
+                            if (!panel || panel.hidden) return; // skip hidden/missing
+                            visibleAssignments.push({
+                                port: portNum,
+                                col: p.col,
+                                row: p.row,
+                                isPortStart: idx === 0,
+                                pixelIndex: pixelIndex,
+                                hidden: false
+                            });
+                            pixelIndex += fullPanelPixels;
+                        });
+                    });
+                } else {
+                    // Organized/auto mode: use calculated port assignments
+                    const assignments = this.calculatePortAssignments(l);
+                    visibleAssignments = assignments.map(a => ({
+                        port: a.port,
+                        col: a.panel.col,
+                        row: a.panel.row,
+                        isPortStart: a.isPortStart,
+                        pixelIndex: a.pixelIndex,
+                        hidden: a.panel.hidden || false
+                    }));
+                }
+
+                // Build the set of panels already in visible assignments
+                const assignedSet = new Set(
+                    visibleAssignments.map(a => `${a.col},${a.row}`)
+                );
+
                 return {
                     id: l.id,
                     name: l.name,
@@ -5842,18 +5891,11 @@ class LEDRasterApp {
                     scrPortNumbers: l.scrPortNumbers || {},
                     flowPattern: l.flowPattern || 'tl-h',
                     portAssignments: [
-                        ...assignments.map(a => ({
-                            port: a.port,
-                            col: a.panel.col,
-                            row: a.panel.row,
-                            isPortStart: a.isPortStart,
-                            pixelIndex: a.pixelIndex,
-                            hidden: a.panel.hidden || false
-                        })),
+                        ...visibleAssignments,
                         // Include hidden panels not in port assignments
                         ...(l.panels || [])
-                            .filter(p => p.hidden)
-                            .filter(p => !assignments.some(a => a.panel.col === p.col && a.panel.row === p.row))
+                            .filter(p => p.hidden || !assignedSet.has(`${p.col},${p.row}`))
+                            .filter(p => !assignedSet.has(`${p.col},${p.row}`))
                             .map(p => ({
                                 port: 0,
                                 col: p.col,
