@@ -1,6 +1,11 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.5.23 - March 30, 2026
+----------------------------
+- FIX: SCR debug log uses ASCII arrow (->) instead of Unicode arrow to fix Windows CI failure
+- FIX: SCR debug log file opened with explicit UTF-8 encoding for cross-platform compatibility
+
 v0.7.5.22 - March 28, 2026
 ----------------------------
 - REVERT: Removed chain reversal from v0.7.5.21 — chain=0 now stays at the cable entry point
