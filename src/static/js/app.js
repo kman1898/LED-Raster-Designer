@@ -5516,18 +5516,9 @@ class LEDRasterApp {
         const processorType = layer.processorType || 'novastar-armor';
         const mappingMode = layer.portMappingMode || 'organized';
         const portCapacity = this.calculatePortCapacity(bitDepth, frameRate, processorType);
-        // For SCR export: if in custom cable mode, use the original flow pattern
-        // (stored as lastFlowPattern when custom mode was activated).
-        // SCR export always uses organized mode algorithm with NovaStar conventions.
-        const pattern = (options.scrExport && layer.flowPattern === 'custom')
-            ? (layer.lastFlowPattern || 'tl-h')
-            : (layer.flowPattern || 'tl-h');
-        // For SCR export: disable rectangle constraint — NovaStar groups by actual
-        // pixel count, not bounding rectangle. This allows non-contiguous rows
-        // (like the rotated bottom row) to share a port with top rows.
-        const usesRectangle = options.scrExport ? false : this.usesRectangleConstraint(processorType);
-        // For SCR export: always use organized mode for correct NovaStar port grouping
-        const isOrganized = options.scrExport ? true : (usesRectangle ? true : (mappingMode === 'organized'));
+        const pattern = layer.flowPattern || 'tl-h';
+        const usesRectangle = this.usesRectangleConstraint(processorType);
+        const isOrganized = usesRectangle ? true : (mappingMode === 'organized');
         const isHorizontalFirst = pattern.includes('-h');
         const startsTop = pattern.startsWith('t');
         const startsLeft = pattern.includes('l-');
@@ -5839,26 +5830,212 @@ class LEDRasterApp {
         sendClientLog('export_resolume_complete', { projectName, rasterW, rasterH });
     }
 
+    // Apply NovaStar last-row-first convention to custom cable port assignments.
+    // Cascades the bottom row from the last port to the first port, shifting every
+    // other port's rows by one.  Fixes serpentine direction for moved rows.
+    _applyScrRowCascade(visibleAssignments, totalRows, flowPattern) {
+        const maxRow = totalRows - 1;
+        if (totalRows < 2 || visibleAssignments.length === 0) return visibleAssignments;
+
+        // Determine serpentine direction from flow pattern
+        const isHorizontal = flowPattern.includes('-h');
+        const startsLeft = flowPattern.includes('l-');
+
+        // Group assignments by port, maintaining chain order
+        const portMap = new Map();
+        visibleAssignments.forEach(a => {
+            if (!portMap.has(a.port)) portMap.set(a.port, []);
+            portMap.get(a.port).push(a);
+        });
+        const sortedPorts = [...portMap.keys()].sort((a, b) => a - b);
+        if (sortedPorts.length < 2) return visibleAssignments;
+
+        // For each port, group its panels by row and determine the row order
+        // (based on first appearance in the chain)
+        const portRowInfo = new Map(); // port -> [{row, panels:[]}]
+        sortedPorts.forEach(port => {
+            const panels = portMap.get(port);
+            const rowOrder = [];
+            const rowPanels = new Map();
+            panels.forEach(p => {
+                if (!rowPanels.has(p.row)) {
+                    rowPanels.set(p.row, []);
+                    rowOrder.push(p.row);
+                }
+                rowPanels.get(p.row).push(p);
+            });
+            portRowInfo.set(port, rowOrder.map(r => ({ row: r, panels: rowPanels.get(r) })));
+        });
+
+        // Build a global row sequence across all ports (unique rows, in order)
+        const globalRowOrder = [];
+        const seenRows = new Set();
+        sortedPorts.forEach(port => {
+            portRowInfo.get(port).forEach(ri => {
+                if (!seenRows.has(ri.row)) {
+                    seenRows.add(ri.row);
+                    globalRowOrder.push(ri.row);
+                }
+            });
+        });
+
+        // Check if the last row in global order is the bottom row
+        if (globalRowOrder[globalRowOrder.length - 1] !== maxRow) return visibleAssignments;
+
+        // Rotate: move bottom row to front
+        globalRowOrder.pop();
+        globalRowOrder.unshift(maxRow);
+
+        // Build port row counts (number of UNIQUE rows per port)
+        const portRowCounts = sortedPorts.map(port => {
+            const rows = new Set(portRowInfo.get(port).map(ri => ri.row));
+            return rows.size;
+        });
+
+        // Assign rotated rows to ports, maintaining original port sizes
+        const newPortRows = new Map(); // port -> [row numbers]
+        let gIdx = 0;
+        sortedPorts.forEach((port, pIdx) => {
+            const rows = [];
+            for (let i = 0; i < portRowCounts[pIdx]; i++) {
+                if (gIdx < globalRowOrder.length) rows.push(globalRowOrder[gIdx++]);
+            }
+            newPortRows.set(port, rows);
+        });
+
+        // Collect ALL visible panels grouped by row (across all ports)
+        const allPanelsByRow = new Map(); // row -> [panels from all ports]
+        visibleAssignments.forEach(a => {
+            if (!allPanelsByRow.has(a.row)) allPanelsByRow.set(a.row, []);
+            allPanelsByRow.get(a.row).push(a);
+        });
+
+        // For ports that share rows (e.g., SR Ports 7 and 8 both covering R13-15),
+        // determine the column split point from the original data
+        const portColRanges = new Map(); // port -> {minCol, maxCol}
+        sortedPorts.forEach(port => {
+            const panels = portMap.get(port);
+            const cols = panels.map(p => p.col);
+            portColRanges.set(port, {
+                minCol: Math.min(...cols),
+                maxCol: Math.max(...cols)
+            });
+        });
+
+        // Build new assignments with correct serpentine direction
+        const result = [];
+        sortedPorts.forEach(port => {
+            const rows = newPortRows.get(port);
+            const colRange = portColRanges.get(port);
+
+            rows.forEach((row, unitPos) => {
+                // Get all panels on this row
+                let panels = allPanelsByRow.get(row) || [];
+
+                // If multiple ports share the same rows, filter by column range
+                // Check if any other port in this group has the same rows
+                const portsWithSameRows = sortedPorts.filter(p =>
+                    p !== port && newPortRows.get(p) &&
+                    JSON.stringify(newPortRows.get(p)) === JSON.stringify(rows)
+                );
+                if (portsWithSameRows.length > 0) {
+                    // Split by column range: this port gets panels in its column range
+                    const midCol = (colRange.minCol + colRange.maxCol) / 2;
+                    const otherRanges = portsWithSameRows.map(p => portColRanges.get(p));
+                    // Use the original column range to filter
+                    panels = panels.filter(p =>
+                        p.col >= colRange.minCol && p.col <= colRange.maxCol
+                    );
+                }
+
+                // Sort in correct serpentine direction
+                const forward = unitPos % 2 === 0;
+                const sorted = [...panels];
+                if (isHorizontal) {
+                    sorted.sort((a, b) => {
+                        if (startsLeft) return forward ? a.col - b.col : b.col - a.col;
+                        return forward ? b.col - a.col : a.col - b.col;
+                    });
+                } else {
+                    // Vertical: sort by row
+                    const startsTop = flowPattern.startsWith('t');
+                    sorted.sort((a, b) => {
+                        if (startsTop) return forward ? a.row - b.row : b.row - a.row;
+                        return forward ? b.row - a.row : a.row - b.row;
+                    });
+                }
+
+                sorted.forEach((p, idx) => {
+                    result.push({
+                        port: port,
+                        col: p.col,
+                        row: p.row,
+                        isPortStart: unitPos === 0 && idx === 0,
+                        pixelIndex: 0,
+                        hidden: false
+                    });
+                });
+            });
+        });
+
+        return result;
+    }
+
     async exportNovastarScr(projectName) {
         const scrLayers = this.project.layers
             .filter(l => l.scrExportEnabled && l.processorType === 'novastar-armor' && l.type === 'screen')
             .map(l => {
-                // SCR export ALWAYS uses the organized algorithm with NovaStar
-                // rotation (bottom row first).  Custom cable paths are for on-screen
-                // display only — the SCR binary must follow NovaStar conventions.
-                // calculatePortAssignments with scrExport flag handles:
-                //   - using lastFlowPattern when in custom mode
-                //   - disabling rectangle constraint (pixel-sum capacity)
-                //   - rotating unitIndices (last row → first)
-                const assignments = this.calculatePortAssignments(l, { scrExport: true });
-                const visibleAssignments = assignments.map(a => ({
-                    port: a.port,
-                    col: a.panel.col,
-                    row: a.panel.row,
-                    isPortStart: a.isPortStart,
-                    pixelIndex: a.pixelIndex,
-                    hidden: a.panel.hidden || false
-                }));
+                // Build port assignments based on the layer's cable mode.
+                // Custom cable mode: use the user's drawn paths, then apply
+                // NovaStar row cascade (bottom row → first port).
+                // Organized mode: use calculatePortAssignments with scrExport
+                // flag (which rotates unitIndices and uses correct capacity).
+                let visibleAssignments = [];
+                const isCustom = l.flowPattern === 'custom' && l.customPortPaths;
+
+                if (isCustom) {
+                    // Custom cable mode: build from user's drawn paths
+                    const fullPanelPixels = this.getFullPanelPixels(l);
+                    const portNums = Object.keys(l.customPortPaths)
+                        .map(n => parseInt(n, 10))
+                        .sort((a, b) => a - b);
+                    portNums.forEach(portNum => {
+                        const path = l.customPortPaths[portNum] || [];
+                        let pixelIndex = 0;
+                        path.forEach((p, idx) => {
+                            const panel = (l.panels || []).find(
+                                pan => pan.row === p.row && pan.col === p.col
+                            );
+                            if (!panel || panel.hidden) return;
+                            visibleAssignments.push({
+                                port: portNum,
+                                col: p.col,
+                                row: p.row,
+                                isPortStart: idx === 0,
+                                pixelIndex: pixelIndex,
+                                hidden: false
+                            });
+                            pixelIndex += fullPanelPixels;
+                        });
+                    });
+
+                    // Apply NovaStar row cascade: bottom row → first port
+                    const effectivePattern = l.lastFlowPattern || 'tl-h';
+                    visibleAssignments = this._applyScrRowCascade(
+                        visibleAssignments, l.rows, effectivePattern
+                    );
+                } else {
+                    // Organized mode: use algorithm with NovaStar rotation
+                    const assignments = this.calculatePortAssignments(l, { scrExport: true });
+                    visibleAssignments = assignments.map(a => ({
+                        port: a.port,
+                        col: a.panel.col,
+                        row: a.panel.row,
+                        isPortStart: a.isPortStart,
+                        pixelIndex: a.pixelIndex,
+                        hidden: a.panel.hidden || false
+                    }));
+                }
 
                 // Build the set of panels already in visible assignments
                 const assignedSet = new Set(

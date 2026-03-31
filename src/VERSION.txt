@@ -1,7 +1,18 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
-v0.7.5.28 - March 31, 2026
+v0.7.5.29 - March 31, 2026
+----------------------------
+- FIX: SCR export now respects the user's cable mode (custom or organized) for port grouping.
+  Custom cable paths define which panels go to which port — the app no longer overrides this.
+- NEW: NovaStar row cascade for custom cable mode: the bottom row automatically rotates from
+  the last port to the first port, and all other rows shift by one port. This matches the
+  NovaStar convention (bottom row first in chain) while preserving the user's port groupings.
+  Serpentine direction is corrected for each row based on its new position in the port.
+- Organized mode still uses the unitIndices rotation from v0.7.5.27 with rectangle constraint.
+- Reverts v0.7.5.28's forced organized mode which produced wrong port sizes.
+
+v0.7.5.28 - March 31, 2026 (REVERTED)
 ----------------------------
 - FIX: SCR export now ALWAYS uses organized algorithm with NovaStar rotation for port grouping,
   regardless of whether the user is in custom cable mode. Custom cable paths are for on-screen
