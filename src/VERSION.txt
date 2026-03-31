@@ -1,6 +1,12 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.5.25 - March 31, 2026
+----------------------------
+- REVERT: Removed chain reversal from v0.7.5.24 — chain reversal made all ports backwards
+  without fixing the bottom-row-at-top issue. Root cause analysis shows the actual problem is
+  a 1-row offset in staircase panel visibility between the app layout and the native SCR.
+
 v0.7.5.24 - March 31, 2026
 ----------------------------
 - FIX: SCR encoder now reverses chain indices to match NovaStar convention (chain=MAX at cable
