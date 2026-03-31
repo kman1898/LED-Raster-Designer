@@ -5507,7 +5507,8 @@ class LEDRasterApp {
     }
     
     // Calculate port assignments for panels
-    calculatePortAssignments(layer) {
+    calculatePortAssignments(layer, options) {
+        options = options || {};
         if (!layer || !Array.isArray(layer.panels)) return [];
 
         const bitDepth = layer.bitDepth || 8;
@@ -5533,9 +5534,17 @@ class LEDRasterApp {
         const ports = [];
 
         if (isOrganized) {
-            const unitIndices = isHorizontalFirst
+            let unitIndices = isHorizontalFirst
                 ? [...Array(layer.rows).keys()].map(i => (startsTop ? i : (layer.rows - 1 - i)))
                 : [...Array(layer.columns).keys()].map(i => (startsLeft ? i : (layer.columns - 1 - i)));
+
+            // NovaStar SCR convention: the last row/column is placed FIRST in
+            // the chain.  Rotate the indices so the last element moves to position 0.
+            // This only applies during SCR export so the on-screen display is unchanged.
+            if (options.scrExport && unitIndices.length > 1) {
+                const last = unitIndices.pop();   // remove last element
+                unitIndices.unshift(last);         // insert at front
+            }
 
             // For rectangle-constraint processors (Novastar Legacy), calculate load
             // using the bounding rectangle of VISIBLE panels in the port.
@@ -5859,7 +5868,8 @@ class LEDRasterApp {
                     });
                 } else {
                     // Organized/auto mode: use calculated port assignments
-                    const assignments = this.calculatePortAssignments(l);
+                    // Pass scrExport flag so unitIndices are rotated (last row first)
+                    const assignments = this.calculatePortAssignments(l, { scrExport: true });
                     visibleAssignments = assignments.map(a => ({
                         port: a.port,
                         col: a.panel.col,

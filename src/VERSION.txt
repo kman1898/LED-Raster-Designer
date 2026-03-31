@@ -1,6 +1,14 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.5.27 - March 31, 2026
+----------------------------
+- FIX: SCR export 1-row offset — NovaStar convention places the last row first in the chain.
+  Organized mode now rotates unitIndices so the last row/column is processed first during
+  SCR export, matching native NovaStar file behavior across all screens. This fixes the
+  "bottom row at top, shifted 1 panel" bug that persisted through v0.7.5.22–v0.7.5.26.
+- The rotation only applies during SCR export; on-screen Data tab display is unchanged.
+
 v0.7.5.26 - March 31, 2026
 ----------------------------
 - FIX: Custom cable mode SCR export now uses the actual customPortPaths the user drew instead

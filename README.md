@@ -1,4 +1,4 @@
-# LED Raster Designer v0.7.5.26
+# LED Raster Designer v0.7.5.27
 
 A professional LED video wall layout designer for live events, concerts, and installations.
 
