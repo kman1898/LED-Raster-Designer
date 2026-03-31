@@ -452,25 +452,27 @@ def generate_scr_files(project_name, layers):
                 _port_panels.setdefault(_nova_port, []).append((_pa['col'], _pa['row']))
             for _np in sorted(_port_panels.keys()):
                 _panels = _port_panels[_np]
+                _N = len(_panels)
                 _sc = _port_sc_map.get(str(_np), 1)
+                # Show reversed chain values (matching binary output)
                 _c0, _r0 = _panels[0]
                 _cN, _rN = _panels[-1]
                 _dbf.write(f"    NovaStar port {_np} (0-based: {_np-1}, SC{_sc}): "
-                           f"{len(_panels)} panels, "
-                           f"chain=0 at col={_c0},row={_r0} -> "
-                           f"chain={len(_panels)-1} at col={_cN},row={_rN}\n")
-                # Show first and last 5 chain assignments
-                if len(_panels) <= 10:
+                           f"{_N} panels, "
+                           f"chain={_N-1} at col={_c0},row={_r0} (cable entry) -> "
+                           f"chain=0 at col={_cN},row={_rN} (chain end)\n")
+                # Show first and last 5 chain assignments (reversed)
+                if _N <= 10:
                     for _ci, (_c, _r) in enumerate(_panels):
-                        _dbf.write(f"      chain={_ci}: col={_c}, row={_r}\n")
+                        _dbf.write(f"      chain={_N-1-_ci}: col={_c}, row={_r}\n")
                 else:
                     for _ci in range(5):
                         _c, _r = _panels[_ci]
-                        _dbf.write(f"      chain={_ci}: col={_c}, row={_r}\n")
-                    _dbf.write(f"      ... ({len(_panels) - 10} more) ...\n")
-                    for _ci in range(len(_panels)-5, len(_panels)):
+                        _dbf.write(f"      chain={_N-1-_ci}: col={_c}, row={_r}\n")
+                    _dbf.write(f"      ... ({_N - 10} more) ...\n")
+                    for _ci in range(_N-5, _N):
                         _c, _r = _panels[_ci]
-                        _dbf.write(f"      chain={_ci}: col={_c}, row={_r}\n")
+                        _dbf.write(f"      chain={_N-1-_ci}: col={_c}, row={_r}\n")
         _dbf.write("\n")
 
     # Group layers by sending card
@@ -533,6 +535,14 @@ def generate_scr_files(project_name, layers):
                         'hidden': False,
                         'b5': 0,
                     })
+
+            # Reverse chain indices: NovaStar convention is chain=MAX at cable
+            # entry (S1 indicator) and chain=0 at chain end. Our sequential
+            # assignment puts chain=0 at cable entry, so flip them.
+            for nova_port, total in port_chain_counters.items():
+                for p in filtered_panels:
+                    if not p.get('hidden') and p['port_num'] == nova_port:
+                        p['chain_order'] = (total - 1) - p['chain_order']
 
             sc_groups[sc_num].append({
                 'cols': layer['columns'],

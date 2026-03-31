@@ -1,6 +1,12 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.5.24 - March 31, 2026
+----------------------------
+- FIX: SCR encoder now reverses chain indices to match NovaStar convention (chain=MAX at cable
+  entry / S1 indicator, chain=0 at chain end). Fixes "bottom row at top, shifted 1 panel" bug
+  across all screens. Verified against native 2026 EDC.scr reference file.
+
 v0.7.5.23 - March 30, 2026
 ----------------------------
 - FIX: SCR debug log uses ASCII arrow (->) instead of Unicode arrow to fix Windows CI failure
