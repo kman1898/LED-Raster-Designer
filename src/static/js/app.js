@@ -5516,9 +5516,18 @@ class LEDRasterApp {
         const processorType = layer.processorType || 'novastar-armor';
         const mappingMode = layer.portMappingMode || 'organized';
         const portCapacity = this.calculatePortCapacity(bitDepth, frameRate, processorType);
-        const pattern = layer.flowPattern || 'tl-h';
-        const usesRectangle = this.usesRectangleConstraint(processorType);
-        const isOrganized = usesRectangle ? true : (mappingMode === 'organized');
+        // For SCR export: if in custom cable mode, use the original flow pattern
+        // (stored as lastFlowPattern when custom mode was activated).
+        // SCR export always uses organized mode algorithm with NovaStar conventions.
+        const pattern = (options.scrExport && layer.flowPattern === 'custom')
+            ? (layer.lastFlowPattern || 'tl-h')
+            : (layer.flowPattern || 'tl-h');
+        // For SCR export: disable rectangle constraint — NovaStar groups by actual
+        // pixel count, not bounding rectangle. This allows non-contiguous rows
+        // (like the rotated bottom row) to share a port with top rows.
+        const usesRectangle = options.scrExport ? false : this.usesRectangleConstraint(processorType);
+        // For SCR export: always use organized mode for correct NovaStar port grouping
+        const isOrganized = options.scrExport ? true : (usesRectangle ? true : (mappingMode === 'organized'));
         const isHorizontalFirst = pattern.includes('-h');
         const startsTop = pattern.startsWith('t');
         const startsLeft = pattern.includes('l-');
@@ -5834,51 +5843,22 @@ class LEDRasterApp {
         const scrLayers = this.project.layers
             .filter(l => l.scrExportEnabled && l.processorType === 'novastar-armor' && l.type === 'screen')
             .map(l => {
-                // Build port assignments: use customPortPaths when in custom flow mode,
-                // otherwise use calculatePortAssignments for organized/auto mode.
-                let visibleAssignments = [];
-                const isCustom = l.flowPattern === 'custom' && l.customPortPaths;
-
-                if (isCustom) {
-                    // Custom cable mode: use the exact paths the user drew.
-                    // customPortPaths maps port# -> [{row, col}, {row, col}, ...]
-                    const fullPanelPixels = this.getFullPanelPixels(l);
-                    const portNums = Object.keys(l.customPortPaths)
-                        .map(n => parseInt(n, 10))
-                        .sort((a, b) => a - b);
-                    portNums.forEach(portNum => {
-                        const path = l.customPortPaths[portNum] || [];
-                        let pixelIndex = 0;
-                        path.forEach((p, idx) => {
-                            // Find the actual panel object to check hidden status
-                            const panel = (l.panels || []).find(
-                                pan => pan.row === p.row && pan.col === p.col
-                            );
-                            if (!panel || panel.hidden) return; // skip hidden/missing
-                            visibleAssignments.push({
-                                port: portNum,
-                                col: p.col,
-                                row: p.row,
-                                isPortStart: idx === 0,
-                                pixelIndex: pixelIndex,
-                                hidden: false
-                            });
-                            pixelIndex += fullPanelPixels;
-                        });
-                    });
-                } else {
-                    // Organized/auto mode: use calculated port assignments
-                    // Pass scrExport flag so unitIndices are rotated (last row first)
-                    const assignments = this.calculatePortAssignments(l, { scrExport: true });
-                    visibleAssignments = assignments.map(a => ({
-                        port: a.port,
-                        col: a.panel.col,
-                        row: a.panel.row,
-                        isPortStart: a.isPortStart,
-                        pixelIndex: a.pixelIndex,
-                        hidden: a.panel.hidden || false
-                    }));
-                }
+                // SCR export ALWAYS uses the organized algorithm with NovaStar
+                // rotation (bottom row first).  Custom cable paths are for on-screen
+                // display only — the SCR binary must follow NovaStar conventions.
+                // calculatePortAssignments with scrExport flag handles:
+                //   - using lastFlowPattern when in custom mode
+                //   - disabling rectangle constraint (pixel-sum capacity)
+                //   - rotating unitIndices (last row → first)
+                const assignments = this.calculatePortAssignments(l, { scrExport: true });
+                const visibleAssignments = assignments.map(a => ({
+                    port: a.port,
+                    col: a.panel.col,
+                    row: a.panel.row,
+                    isPortStart: a.isPortStart,
+                    pixelIndex: a.pixelIndex,
+                    hidden: a.panel.hidden || false
+                }));
 
                 // Build the set of panels already in visible assignments
                 const assignedSet = new Set(
