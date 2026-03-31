@@ -1,6 +1,15 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.5.26 - March 31, 2026
+----------------------------
+- FIX: Custom cable mode SCR export now uses the actual customPortPaths the user drew instead
+  of recalculating port assignments via calculatePortAssignments(). Previously, flowPattern=custom
+  was parsed as a pattern string (vertical bottom-right serpentine), completely ignoring the
+  user's custom cable drawings.
+- FIX: Debug log labels hidden panels as "Hidden (port 0)" instead of "Port 0" for clarity.
+- Panels not assigned to any custom port are automatically included as hidden in the SCR output.
+
 v0.7.5.25 - March 31, 2026
 ----------------------------
 - REVERT: Removed chain reversal from v0.7.5.24 — chain reversal made all ports backwards

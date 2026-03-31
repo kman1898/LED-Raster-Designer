@@ -432,7 +432,8 @@ def generate_scr_files(project_name, layers):
                 _visible = [p for p in _plist if not p.get('hidden', False)]
                 _first3 = [(p['col'], p['row'], p.get('hidden', False)) for p in _plist[:3]]
                 _last3  = [(p['col'], p['row'], p.get('hidden', False)) for p in _plist[-3:]]
-                _dbf.write(f"  Port {_pk} ({len(_plist)} panels, {len(_visible)} visible): "
+                _label = f"Port {_pk}" if _pk != 0 else "Hidden (port 0)"
+                _dbf.write(f"  {_label} ({len(_plist)} panels, {len(_visible)} visible): "
                            f"first={_first3}  last={_last3}\n")
         _dbf.write("\n")
         # Log chain=0 positions and full chain sequences for binary verification
