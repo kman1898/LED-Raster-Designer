@@ -633,14 +633,28 @@ def generate_scr_files(project_name, layers):
                         'b5': 0,
                     })
 
-            # ── Origin row adjustment ──
-            # NovaStar convention: the origin row (app row 0 = display row 1)
-            # must have the same visible column range as the adjacent row
-            # (app row 1).  For anchor screens, one column is consumed by the
-            # anchor, so the data range is adjacent minus 1 column (on the
-            # anchor side).  For non-anchor screens, the origin duplicate at
-            # (cols-1, 0) provides the extra column.
-            #
+            # ── Origin row chain reversal ──
+            # NovaStar convention: data chains that reach the origin row
+            # must START from the origin row and flow downward.  The app's
+            # serpentine may flow bottom-up for the top section of
+            # stairstepped screens.  Reverse the chain direction for any
+            # port that has panels on origin row (app row 0) so that the
+            # origin-row panel becomes chain 0 (or near 0).
+            origin_row_ports = set()
+            for p in filtered_panels:
+                if p['row'] == 0 and not p.get('hidden', False):
+                    origin_row_ports.add(p['port_num'])
+            for oport in origin_row_ports:
+                max_ch = max(
+                    (p['chain_order'] for p in filtered_panels
+                     if p['port_num'] == oport and not p.get('hidden', False)),
+                    default=0)
+                for i, p in enumerate(filtered_panels):
+                    if p['port_num'] == oport and not p.get('hidden', False):
+                        filtered_panels[i] = dict(
+                            p, chain_order=max_ch - p['chain_order'])
+
+            # ── Origin row extension ──
             # Build visibility maps for rows 0 and 1
             row0_vis = {}  # col -> panel dict (visible data only)
             row1_vis_cols = set()
@@ -650,22 +664,41 @@ def generate_scr_files(project_name, layers):
                 elif p['row'] == 1 and not p.get('hidden', False):
                     row1_vis_cols.add(p['col'])
 
-            # Determine which columns need to be added/removed on row 0
             row0_vis_cols = set(row0_vis.keys())
             cols_to_add = row1_vis_cols - row0_vis_cols - {origin_app_col}
-            cols_to_remove = set()
 
-            if needs_anchor:
-                # Anchor takes the origin position.  If the anchor position
-                # was hidden in the app (stair-step area), the anchor makes
-                # it visible → we need to remove 1 data column from the
-                # anchor side to keep the total correct.
-                if origin_hidden_in_app and row0_vis_cols:
-                    # Remove the data column closest to the anchor
+            # Only remove origin-row data columns when adding extensions +
+            # anchor would make origin visible EXCEED adjacent visible.
+            # Count how many cols the extensions will actually add (adjacent only).
+            projected_add = 0
+            test_vis = set(row0_vis_cols)
+            for col in sorted(cols_to_add):
+                if not test_vis:
+                    break
+                if col == min(test_vis) - 1 or col == max(test_vis) + 1:
+                    projected_add += 1
+                    test_vis.add(col)
+
+            origin_vis_after = len(row0_vis_cols) + projected_add
+            if needs_anchor and origin_hidden_in_app:
+                origin_vis_after += 1  # anchor adds 1 visible
+            adj_vis = len(row1_vis_cols)
+
+            cols_to_remove = set()
+            if origin_vis_after > adj_vis and row0_vis_cols:
+                excess = origin_vis_after - adj_vis
+                for _ in range(excess):
+                    if not row0_vis_cols:
+                        break
                     if origin_app_col > max(row0_vis_cols):
                         cols_to_remove.add(max(row0_vis_cols))
+                        row0_vis_cols.discard(max(row0_vis_cols))
                     elif origin_app_col < min(row0_vis_cols):
                         cols_to_remove.add(min(row0_vis_cols))
+                        row0_vis_cols.discard(min(row0_vis_cols))
+
+            # Recalculate row0_vis_cols after removals
+            row0_vis_cols = set(row0_vis.keys()) - cols_to_remove
 
             # Apply removals: convert data panels to hidden and renumber chains
             for col in cols_to_remove:
@@ -678,7 +711,6 @@ def generate_scr_files(project_name, layers):
                             'port_num': 0, 'chain_order': 0,
                             'hidden': True, 'b5': 0,
                         }
-                        # Close the gap: decrement all chains > removed on same port
                         for j, q in enumerate(filtered_panels):
                             if (q['port_num'] == removed_port
                                     and not q.get('hidden', False)
@@ -686,12 +718,17 @@ def generate_scr_files(project_name, layers):
                                 filtered_panels[j] = dict(q, chain_order=q['chain_order'] - 1)
                         break
 
-            # Apply additions: make hidden columns visible with a unique
-            # chain value inserted into the sequence at the correct position.
-            # Only add columns adjacent to the current visible range.
-            updated_vis = set(row0_vis_cols) - cols_to_remove
+            # Apply additions: extend origin row with panels from adjacent.
+            # Cap at target visible count to avoid over-extending.
+            target_vis = adj_vis
+            if needs_anchor and origin_hidden_in_app:
+                target_vis = adj_vis - 1  # anchor occupies one slot
+            updated_vis = set(row0_vis_cols)
             for col in sorted(cols_to_add):
                 if not updated_vis:
+                    break
+                # Stop if we've already reached the target visible count
+                if len(updated_vis) >= target_vis:
                     break
                 min_v = min(updated_vis)
                 max_v = max(updated_vis)
@@ -707,22 +744,10 @@ def generate_scr_files(project_name, layers):
                     continue
 
                 ext_port = adj_p['port_num']
-                # Find all row-0 visible chains on this port to determine
-                # whether the extension goes at the high or low end.
-                r0_chains = [p['chain_order'] for p in filtered_panels
-                             if p['row'] == 0 and p['port_num'] == ext_port
-                             and not p.get('hidden', False)]
-                if not r0_chains:
-                    continue
-                adj_chain = adj_p['chain_order']
-                max_r0 = max(r0_chains)
-                min_r0 = min(r0_chains)
-                # If adj is at the high end of row-0 chains, the extension
-                # continues after it; otherwise it inserts before the low end.
-                if adj_chain == max_r0:
-                    insert_chain = max_r0 + 1
-                else:
-                    insert_chain = min_r0
+                # After reversal, row-0 panels are at the LOW end of the
+                # chain (near 0).  Insert the extension right after the
+                # adjacent panel's chain.
+                insert_chain = adj_p['chain_order'] + 1
 
                 # Shift all existing panels on this port with chain >= insert
                 for i, p in enumerate(filtered_panels):
@@ -730,7 +755,6 @@ def generate_scr_files(project_name, layers):
                             and not p.get('hidden', False)
                             and p['chain_order'] >= insert_chain):
                         filtered_panels[i] = dict(p, chain_order=p['chain_order'] + 1)
-                        # Update row0_vis if this panel is on row 0
                         if p['row'] == 0 and p['col'] in row0_vis:
                             row0_vis[p['col']] = filtered_panels[i]
 
@@ -750,30 +774,28 @@ def generate_scr_files(project_name, layers):
             # ── Origin row port redistribution ──
             # NovaStar convention: origin row port boundaries are shifted
             # left by 1 column relative to the adjacent row.  Each port's
-            # origin-row range starts at (adjacent_entry_col - 1), where
-            # entry_col is the column with the lowest chain on adjacent
-            # row 1 for that port.
+            # origin-row range starts at (adjacent_leftmost_col - 1).
+            # We use the LEFTMOST column per port on row 1, which is
+            # direction-independent (works regardless of chain reversal).
             if layer['rows'] > 1:
-                port_adj_entry = {}  # port -> (entry_col, min_chain)
+                port_adj_left = {}  # port -> leftmost col on row 1
                 for p in filtered_panels:
                     if (p['row'] == 1 and not p.get('hidden', False)
                             and p['port_num'] > 0):
                         pn = p['port_num']
-                        if (pn not in port_adj_entry
-                                or p['chain_order'] < port_adj_entry[pn][1]):
-                            port_adj_entry[pn] = (p['col'], p['chain_order'])
+                        if pn not in port_adj_left or p['col'] < port_adj_left[pn]:
+                            port_adj_left[pn] = p['col']
 
-                # Only redistribute when multiple ports exist on adjacent row
-                if len(port_adj_entry) > 1:
+                if len(port_adj_left) > 1:
                     sorted_ports = sorted(
-                        port_adj_entry.keys(),
-                        key=lambda pn: port_adj_entry[pn][0])
-                    # Build boundary list: cols >= boundary → next port
+                        port_adj_left.keys(),
+                        key=lambda pn: port_adj_left[pn])
                     bnd = []
                     for idx in range(len(sorted_ports) - 1):
                         nxt = sorted_ports[idx + 1]
-                        bnd.append(port_adj_entry[nxt][0] - 1)
+                        bnd.append(port_adj_left[nxt] - 1)
 
+                    # Reassign origin-row panels to correct ports
                     for i, p in enumerate(filtered_panels):
                         if (p['row'] == 0 and not p.get('hidden', False)
                                 and p['port_num'] > 0):
@@ -783,25 +805,38 @@ def generate_scr_files(project_name, layers):
                                 if col >= boundary:
                                     new_port = sorted_ports[bidx + 1]
                             if new_port != p['port_num']:
-                                old_port = p['port_num']
-                                old_chain = p['chain_order']
-                                # Decrement chains > old_chain on old port
-                                for j, q in enumerate(filtered_panels):
-                                    if (j != i
-                                            and q['port_num'] == old_port
-                                            and not q.get('hidden', False)
-                                            and q['chain_order'] > old_chain):
-                                        filtered_panels[j] = dict(
-                                            q, chain_order=q['chain_order'] - 1)
-                                # Append at end of new port chain
-                                max_new = max(
-                                    (q['chain_order'] for q in filtered_panels
-                                     if q['port_num'] == new_port
-                                     and not q.get('hidden', False)),
-                                    default=-1)
-                                filtered_panels[i] = dict(
-                                    p, port_num=new_port,
-                                    chain_order=max_new + 1)
+                                filtered_panels[i] = dict(p, port_num=new_port)
+
+                    # Post-redistribution: renumber chains per port so
+                    # origin-row panels are at the LOW end (sorted by col)
+                    # and non-origin panels follow sequentially.
+                    for port in sorted_ports:
+                        origin_idxs = []
+                        non_origin_idxs = []
+                        for i, p in enumerate(filtered_panels):
+                            if p['port_num'] == port and not p.get('hidden', False):
+                                if p['row'] == 0:
+                                    origin_idxs.append(i)
+                                else:
+                                    non_origin_idxs.append(i)
+                        # Sort origin panels by column
+                        origin_idxs.sort(key=lambda i: filtered_panels[i]['col'])
+                        # Sort non-origin panels by their existing chain order
+                        non_origin_idxs.sort(
+                            key=lambda i: filtered_panels[i]['chain_order'])
+                        # Chain start: 1 if anchor replaces visible panel, else 0
+                        chain_start = 0
+                        if needs_anchor and not origin_hidden_in_app:
+                            chain_start = 1
+                        ch = chain_start
+                        for i in origin_idxs:
+                            filtered_panels[i] = dict(
+                                filtered_panels[i], chain_order=ch)
+                            ch += 1
+                        for i in non_origin_idxs:
+                            filtered_panels[i] = dict(
+                                filtered_panels[i], chain_order=ch)
+                            ch += 1
 
             sc_groups[sc_num].append({
                 'cols': layer['columns'],
