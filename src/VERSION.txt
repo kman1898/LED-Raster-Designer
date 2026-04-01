@@ -1,6 +1,14 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.5.39 - April 1, 2026
+----------------------------
+- SCR export: rewrite origin row adjustment without chain reversal. NovaStar shifts
+  origin row data LEFT by 1 column from adjacent row boundaries. Extensions fill gaps.
+  Origin panels inserted at serpentine transition points: horizontal sweeps put all
+  origin panels first; vertical serpentines interleave at top-of-column transitions.
+  Correct target count: adj-1 for non-anchor/visible-anchor, adj-2 for hidden-anchor.
+
 v0.7.5.38 - April 1, 2026
 ----------------------------
 - SCR export: remove origin row chain reversal, extension, and port redistribution.
