@@ -6,7 +6,8 @@ v0.7.5.40 - April 1, 2026
 - SCR export: fix origin row column placement. Compute target origin data columns as the
   leftmost N adjacent-row columns instead of using app's existing row-0 positions (which
   could be shifted right due to stairstepping). Fixes UPSTAGE origin row shifted right by
-  1 panel.
+  1 panel. Fix chain start for horizontal anchor screens (start at 1, not 0) —
+  fixes SL showing duplicate port 1 / RC1 positions.
 
 v0.7.5.39 - April 1, 2026
 ----------------------------
