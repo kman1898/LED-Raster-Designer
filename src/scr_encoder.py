@@ -664,52 +664,25 @@ def generate_scr_files(project_name, layers):
                                 pt = adj_sp[bi + 1]
                         return pt
 
-                    # Step 3: target origin-row DATA panel count
+                    # Step 3: compute target origin-row DATA columns
+                    # NovaStar convention: the origin row has (adj_vis - 1)
+                    # data cols for non-anchor, or (adj_vis - 2) for
+                    # hidden-anchor screens.  These are always the LEFTMOST
+                    # `tgt` columns from the adjacent visible set (the
+                    # origin row is shifted LEFT relative to adjacent).
                     adj_vc = set()
                     for p in filtered_panels:
                         if p['row'] == 1 and not p.get('hidden', False):
                             adj_vc.add(p['col'])
                     adj_vis = len(adj_vc)
 
-                    ori_dv = set()
-                    for p in filtered_panels:
-                        if (p['row'] == 0 and not p.get('hidden', False)
-                                and p['port_num'] > 0):
-                            ori_dv.add(p['col'])
-
-                    # Origin pos (dup or anchor) occupies 1 slot.
-                    # Hidden-origin anchors also add 1 visible → extra -1.
                     if needs_anchor and origin_hidden_in_app:
                         tgt = adj_vis - 2
                     else:
                         tgt = adj_vis - 1
 
-                    # Step 4: extend or trim origin visible cols
-                    while len(ori_dv) < tgt:
-                        cands = adj_vc - ori_dv - {origin_app_col}
-                        if not cands or not ori_dv:
-                            break
-                        mn, mx = min(ori_dv), max(ori_dv)
-                        added = False
-                        if origin_app_col > mx:
-                            if mn - 1 in cands:
-                                ori_dv.add(mn - 1); added = True
-                        else:
-                            if mx + 1 in cands:
-                                ori_dv.add(mx + 1); added = True
-                        if not added:
-                            if mn - 1 in cands:
-                                ori_dv.add(mn - 1); added = True
-                            elif mx + 1 in cands:
-                                ori_dv.add(mx + 1); added = True
-                        if not added:
-                            break
-
-                    while len(ori_dv) > tgt and ori_dv:
-                        if origin_app_col > max(ori_dv):
-                            ori_dv.discard(max(ori_dv))
-                        else:
-                            ori_dv.discard(min(ori_dv))
+                    # Step 4: origin data cols = leftmost tgt adjacent cols
+                    ori_dv = set(sorted(adj_vc)[:tgt])
 
                     # Step 5: assign origin cols to ports
                     p_oc = {}
@@ -794,8 +767,11 @@ def generate_scr_files(project_name, layers):
                                 seq.append((None, c, 0))
 
                         # Apply chain numbers
+                        # Chain start: anchor screens with horizontal
+                        # serpentine start at 1 (anchor consumes slot 0).
+                        # Vertical anchor and all non-anchor start at 0.
                         ch = 0
-                        if needs_anchor and not origin_hidden_in_app:
+                        if needs_anchor and horiz:
                             ch = 1
                         for eidx, col, row in seq:
                             if eidx is not None:
