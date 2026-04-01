@@ -1,6 +1,15 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.5.37 - April 1, 2026
+----------------------------
+- SCR export: fix origin row chain direction and port redistribution for stairstepped
+  screens. Use leftmost column per port on adjacent row (direction-independent) instead
+  of lowest chain to compute port boundaries. Cap origin row extensions at target visible
+  count to prevent over-extending. Renumber chains after redistribution so origin-row
+  panels sit at the low end of each port's chain. Fixes serpentine data flow direction
+  and port panel counts matching the app's design in NovaLCT/SmartLCT.
+
 v0.7.5.36 - April 1, 2026
 ----------------------------
 - SCR export: add origin row port redistribution for multi-port stairstepped screens.
