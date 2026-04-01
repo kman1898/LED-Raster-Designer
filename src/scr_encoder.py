@@ -638,7 +638,9 @@ def generate_scr_files(project_name, layers):
             # has data shifted LEFT by 1 column from adjacent row port
             # boundaries.  Extensions fill gap columns.  No chain reversal
             # — the app's non-origin chain ordering is already correct.
-            if layer_rows > 1:
+            # Only apply for anchor screens (sc_idx > 0) — single-SC
+            # screens don't need origin adjustment; NovaLCT handles it.
+            if layer_rows > 1 and needs_anchor:
                 # Step 1: adjacent row (app row 1) port column ranges
                 port_adj_cols = {}
                 for p in filtered_panels:

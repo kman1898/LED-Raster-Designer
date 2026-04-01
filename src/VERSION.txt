@@ -1,6 +1,12 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.5.41 - April 1, 2026
+----------------------------
+- SCR export: skip origin row adjustment for non-anchor (sc_idx=0) screens. NovaLCT
+  handles origin row internally for single-sending-card screens. Fixes broken chain
+  ordering on simple single-screen exports (e.g. 20x5 vertical serpentine).
+
 v0.7.5.40 - April 1, 2026
 ----------------------------
 - SCR export: fix origin row column placement. Compute target origin data columns as the
