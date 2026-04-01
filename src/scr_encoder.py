@@ -767,11 +767,8 @@ def generate_scr_files(project_name, layers):
                                 seq.append((None, c, 0))
 
                         # Apply chain numbers
-                        # Chain start: anchor screens with horizontal
-                        # serpentine start at 1 (anchor consumes slot 0).
-                        # Vertical anchor and all non-anchor start at 0.
                         ch = 0
-                        if needs_anchor and horiz:
+                        if needs_anchor and not origin_hidden_in_app:
                             ch = 1
                         for eidx, col, row in seq:
                             if eidx is not None:
