@@ -1,6 +1,14 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.5.31 - April 1, 2026
+----------------------------
+- SCR export: add anchor panel generation for screens on sending cards other than SC0.
+  Each non-SC0 screen now gets a sender=0 anchor at binary position (cols-1, rows-1)
+  matching the native NovaStar convention. Fixes receiving card numbering starting at 2
+  instead of 1 and chain offset issues in NovaLCT/SmartLCT.
+- Anchor position excluded from port chain assignment to avoid phantom panel records.
+
 v0.7.5.30 - April 1, 2026
 ----------------------------
 - SCR export: removed row cascade transformation — cable paths (custom and organized)
