@@ -362,21 +362,22 @@ def build_multi_screen_scr(screens_list):
         else:
             marker = bytes([sc_idx & 0xFF, min_port_0based & 0xFF, 0x00, 0x00])
 
-        # Anchor panel convention: screens on sc_idx > 0 need a single anchor
-        # panel at binary position (cols-1, rows-1) with sender=0, port=0.
-        # This tells NovaStar the screen is linked to SC0 and fixes receiving
-        # card numbering.  The anchor replaces whatever panel was at that
-        # position (visible or hidden).
-        #
-        # IMPORTANT: The anchor chain value MUST NOT collide with any data
-        # chain on the same port (port 0).  NovaStar uses chain indices
-        # per-port regardless of sender, so anchor chain=0 + data chain=0
-        # = collision → NovaStar drops 1 panel and shifts RC numbering.
-        # Use cols*rows as a safe value guaranteed above any data chain.
+        # Origin/anchor convention for binary position (cols-1, rows-1):
+        # - Anchor screens (sc_idx > 0): sender=0, port=0, chain=cols*rows
+        #   (safe value above any data chain to avoid collision)
+        # - Non-anchor screens (sc_idx == 0): origin duplicate — visible with
+        #   same sender/port/chain as the first data panel (chain=0).
         has_anchor = sc_idx > 0
-        anchor_col = cols - 1
-        anchor_row = rows - 1  # binary row
+        origin_col = cols - 1
+        origin_row = rows - 1  # binary row
         anchor_chain = cols * rows  # safe: always > max data chain index
+
+        # Find the first visible panel's port for origin duplicate
+        first_port_0based = 0
+        for p in sorted(s.get('panels', []), key=lambda x: x.get('chain_order', 999)):
+            if not p.get('hidden', False):
+                first_port_0based = (p.get('port_num', port_start + 1) - 1) & 0xFF
+                break
 
         # Write records for ALL panels in the bounding box (column-major order).
         # Hidden/stair-step panels use sender=0xFF, port=1, chain=1 per NovaStar convention.
@@ -401,12 +402,18 @@ def build_multi_screen_scr(screens_list):
                 struct.pack_into('<H', rec, 8, pw)
                 struct.pack_into('<H', rec, 10, ph)
                 rec[12] = 0x01  # Active always 1
-                if has_anchor and col == anchor_col and row == anchor_row:
-                    # Anchor panel: sender=0 (SC0), port=0 (Port 1)
-                    # Chain must not collide with data chains on port 0
-                    rec[13] = 0x00  # sender=0
-                    rec[14] = 0x00  # port=0 (0-based)
-                    struct.pack_into('<H', rec, 15, anchor_chain)
+                if col == origin_col and row == origin_row:
+                    if has_anchor:
+                        # Anchor panel: sender=0 (SC0), port=0 (Port 1)
+                        rec[13] = 0x00  # sender=0
+                        rec[14] = 0x00  # port=0 (0-based)
+                        struct.pack_into('<H', rec, 15, anchor_chain)
+                    else:
+                        # Origin duplicate: visible, same port as first data
+                        # panel, chain=0 (duplicates the cable entry)
+                        rec[13] = sc_idx & 0xFF
+                        rec[14] = first_port_0based
+                        struct.pack_into('<H', rec, 15, 0)  # chain=0
                 elif panel_map.get((col, app_row), {}).get('hidden', False):
                     # Stair-step/unconnected panel: NovaStar placeholder convention
                     rec[13] = 0xFF  # sender=255
@@ -509,8 +516,8 @@ def generate_scr_files(project_name, layers):
                         _c, _r = _panels[_ci]
                         _dbf.write(f"      chain={_ci}: col={_c}, row={_r}\n")
         _dbf.write("\n")
-        # Log anchor panel info
-        _dbf.write("=== Anchor panel info ===\n")
+        # Log origin/anchor panel info
+        _dbf.write("=== Origin/Anchor info ===\n")
         for lyr in layers:
             _sc_map = lyr.get('scrPortSendingCards', {})
             _sc_nums = set(_sc_map.values()) or {1}
@@ -518,17 +525,18 @@ def generate_scr_files(project_name, layers):
             _rows = lyr.get('rows', 0)
             for _sc in sorted(_sc_nums):
                 _sc_idx = _sc - 1
-                _anchor_app = (_cols - 1, 0)  # app coords
-                _anchor_bin = (_cols - 1, _rows - 1)  # binary coords
+                _origin_app = (_cols - 1, 0)  # app coords
+                _origin_bin = (_cols - 1, _rows - 1)  # binary coords
                 if _sc_idx > 0:
                     _anch_chain = _cols * _rows
                     _dbf.write(f"  Layer '{lyr.get('name')}' SC{_sc} (sc_idx={_sc_idx}): "
-                               f"ANCHOR at app({_anchor_app[0]},{_anchor_app[1]}) "
-                               f"binary({_anchor_bin[0]},{_anchor_bin[1]}) "
+                               f"ANCHOR at app({_origin_app[0]},{_origin_app[1]}) "
+                               f"binary({_origin_bin[0]},{_origin_bin[1]}) "
                                f"sender=0 port=0 chain={_anch_chain}\n")
                 else:
                     _dbf.write(f"  Layer '{lyr.get('name')}' SC{_sc} (sc_idx={_sc_idx}): "
-                               f"no anchor (already on SC0)\n")
+                               f"ORIGIN DUPLICATE at app({_origin_app[0]},{_origin_app[1]}) "
+                               f"binary({_origin_bin[0]},{_origin_bin[1]}) chain=0\n")
         _dbf.write("\n")
 
     # Group layers by sending card
@@ -549,14 +557,25 @@ def generate_scr_files(project_name, layers):
             if sc_num not in sc_groups:
                 sc_groups[sc_num] = []
 
-            # Anchor position: for screens not on SC0, the last binary position
-            # (cols-1, rows-1) maps to app row 0.  That panel is replaced by the
-            # anchor in the binary, so exclude it from chain assignment.
+            # Origin/anchor position: binary (cols-1, rows-1) = app (cols-1, 0).
+            # For anchor screens (sc_idx > 0): replaced by anchor in binary.
+            # For non-anchor screens: origin duplicate (visible, chain=0).
+            # In both cases this position is always VISIBLE in the binary.
             layer_cols = layer['columns']
             layer_rows = layer['rows']
-            anchor_app_col = layer_cols - 1
-            anchor_app_row = 0  # binary (cols-1, rows-1) -> app_row = (rows-1+1)%rows = 0
+            origin_app_col = layer_cols - 1
+            origin_app_row = 0  # binary (cols-1, rows-1) -> app_row = (rows-1+1)%rows = 0
             needs_anchor = (sc_num - 1) > 0  # sc_idx > 0
+
+            # Check if the origin position is hidden in the ORIGINAL app data
+            # (before filtering).  This determines whether the anchor adds a
+            # visible panel to a previously-hidden position.
+            origin_hidden_in_app = True
+            for pa in layer.get('portAssignments', []):
+                if pa['col'] == origin_app_col and pa['row'] == origin_app_row:
+                    if not pa.get('hidden', False) and pa.get('port', 0) != 0:
+                        origin_hidden_in_app = False
+                    break
 
             # Filter port assignments to only those on this sending card
             # and compute sequential chain_order per port
@@ -568,9 +587,9 @@ def generate_scr_files(project_name, layers):
                 app_port = pa.get('port', 1)  # app's 1-based port
                 is_hidden = pa.get('hidden', False) or app_port == 0
 
-                # Skip the anchor position — it will be written as an anchor
-                # panel in the binary, not as a regular panel.
-                if needs_anchor and pa['col'] == anchor_app_col and pa['row'] == anchor_app_row:
+                # Skip the origin/anchor position — it will be written
+                # specially in the binary (anchor or origin duplicate).
+                if pa['col'] == origin_app_col and pa['row'] == origin_app_row:
                     continue
 
                 if is_hidden:
@@ -594,12 +613,10 @@ def generate_scr_files(project_name, layers):
                     # Map to NovaStar port number (user may have remapped)
                     nova_port = port_num_map.get(str(app_port), app_port)
                     if nova_port not in port_chain_counters:
-                        # Anchor occupies port 0 (NovaStar 0-based) = port 1 (1-based).
-                        # If this port matches the anchor's port, start chain at 1
-                        # to avoid chain collision (anchor uses its own chain value
-                        # on port 0, but NovaStar indexes chains per-port regardless
-                        # of sender — chain=0 on port 0 would collide).
-                        if needs_anchor and nova_port == 1:
+                        # NovaStar convention: anchor screens start all data
+                        # chains at 1 (chain=0 is reserved for the origin
+                        # position). Non-anchor screens start at 0.
+                        if needs_anchor:
                             port_chain_counters[nova_port] = 1
                         else:
                             port_chain_counters[nova_port] = 0
@@ -613,6 +630,84 @@ def generate_scr_files(project_name, layers):
                         'hidden': False,
                         'b5': 0,
                     })
+
+            # ── Origin row adjustment ──
+            # NovaStar convention: the origin row (app row 0 = display row 1)
+            # must have the same visible column range as the adjacent row
+            # (app row 1).  For anchor screens, one column is consumed by the
+            # anchor, so the data range is adjacent minus 1 column (on the
+            # anchor side).  For non-anchor screens, the origin duplicate at
+            # (cols-1, 0) provides the extra column.
+            #
+            # Build visibility maps for rows 0 and 1
+            row0_vis = {}  # col -> panel dict (visible data only)
+            row1_vis_cols = set()
+            for p in filtered_panels:
+                if p['row'] == 0 and not p.get('hidden', False):
+                    row0_vis[p['col']] = p
+                elif p['row'] == 1 and not p.get('hidden', False):
+                    row1_vis_cols.add(p['col'])
+
+            # Determine which columns need to be added/removed on row 0
+            row0_vis_cols = set(row0_vis.keys())
+            cols_to_add = row1_vis_cols - row0_vis_cols - {origin_app_col}
+            cols_to_remove = set()
+
+            if needs_anchor:
+                # Anchor takes the origin position.  If the anchor position
+                # was hidden in the app (stair-step area), the anchor makes
+                # it visible → we need to remove 1 data column from the
+                # anchor side to keep the total correct.
+                if origin_hidden_in_app and row0_vis_cols:
+                    # Remove the data column closest to the anchor
+                    if origin_app_col > max(row0_vis_cols):
+                        cols_to_remove.add(max(row0_vis_cols))
+                    elif origin_app_col < min(row0_vis_cols):
+                        cols_to_remove.add(min(row0_vis_cols))
+
+            # Apply removals: convert data panels to hidden
+            for col in cols_to_remove:
+                for i, p in enumerate(filtered_panels):
+                    if p['col'] == col and p['row'] == 0 and not p.get('hidden', False):
+                        filtered_panels[i] = {
+                            'col': col, 'row': 0,
+                            'port_num': 0, 'chain_order': 0,
+                            'hidden': True, 'b5': 0,
+                        }
+                        break
+
+            # Apply additions: make hidden columns visible with duplicate
+            # chain from the nearest existing visible panel on row 0.
+            # Only add columns adjacent to the current visible range.
+            updated_vis = set(row0_vis_cols) - cols_to_remove
+            for col in sorted(cols_to_add):
+                if not updated_vis:
+                    break
+                min_v = min(updated_vis)
+                max_v = max(updated_vis)
+                if col != min_v - 1 and col != max_v + 1:
+                    continue  # not adjacent
+                adj_col = min_v if col == min_v - 1 else max_v
+                adj_p = row0_vis.get(adj_col)
+                if adj_p is None:
+                    # adj_col might have been added in a previous iteration
+                    adj_p = next((p for p in filtered_panels
+                                  if p['col'] == adj_col and p['row'] == 0
+                                  and not p.get('hidden', False)), None)
+                if adj_p is None:
+                    continue
+                # Remove existing hidden entry
+                filtered_panels = [p for p in filtered_panels
+                                   if not (p['col'] == col and p['row'] == 0)]
+                new_p = {
+                    'col': col, 'row': 0,
+                    'port_num': adj_p['port_num'],
+                    'chain_order': adj_p['chain_order'],  # duplicate chain
+                    'hidden': False, 'b5': 0,
+                }
+                filtered_panels.append(new_p)
+                row0_vis[col] = new_p
+                updated_vis.add(col)
 
             sc_groups[sc_num].append({
                 'cols': layer['columns'],

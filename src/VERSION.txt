@@ -1,6 +1,15 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.5.33 - April 1, 2026
+----------------------------
+- SCR export: implement NovaStar origin row convention. Display row 1 (binary rows-1)
+  now has the correct visible panel count matching the adjacent row. For non-anchor
+  screens, the origin at (cols-1, rows-1) is a visible chain=0 duplicate. For anchor
+  screens with stairstepped layouts, the data range is adjusted to prevent the anchor
+  from inflating the visible count. All data chains on anchor screens now start at 1
+  (not 0) on every port, matching native NovaStar convention.
+
 v0.7.5.32 - April 1, 2026
 ----------------------------
 - SCR export: fix anchor chain collision that caused NovaStar to drop 1 panel per screen
