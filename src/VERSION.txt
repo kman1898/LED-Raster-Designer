@@ -1,6 +1,15 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.5.30 - April 1, 2026
+----------------------------
+- SCR export: removed row cascade transformation — cable paths (custom and organized)
+  now pass straight through to encoder without modification
+- SCR encoder: handles NovaStar binary row convention internally (app row 0 maps to
+  binary row N-1 so NovaLCT displays correctly)
+- Fixes: shared-row ports (7/8) no longer broken, Port 9 no longer missing,
+  UPSTAGE cascade issue eliminated, phantom row shift fixed
+
 v0.7.5.29 - March 31, 2026
 ----------------------------
 - FIX: SCR export now respects the user's cable mode (custom or organized) for port grouping.

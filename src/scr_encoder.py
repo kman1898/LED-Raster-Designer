@@ -152,11 +152,13 @@ def build_single_screen_scr(cols, rows, pw, ph, port_assignments=None):
     prerec[0x145 - 0x138] = cols
     prerec[0x147 - 0x138] = rows
 
-    # Check if origin panel (0,0) is hidden — set pre-record flag
+    # Check if the panel at binary origin (0,0) is hidden — set pre-record flag.
+    # Binary (0,0) corresponds to app row 1 due to NovaStar row convention.
+    origin_app_row = 1 % rows if rows > 1 else 0
     origin_hidden = False
     if port_assignments:
         for a in port_assignments:
-            if a.get('col') == 0 and a.get('row') == 0 and a.get('hidden', False):
+            if a.get('col') == 0 and a.get('row') == origin_app_row and a.get('hidden', False):
                 origin_hidden = True
                 break
     if origin_hidden:
@@ -192,22 +194,25 @@ def build_single_screen_scr(cols, rows, pw, ph, port_assignments=None):
             hidden_set.add((a['col'], a['row']))
 
     # Build records: column-major order, skip origin (0,0)
+    # NovaStar row convention: app_row = (binary_row + 1) % rows
     records = bytearray()
     for col in range(cols):
         for row in range(rows):
             if col == 0 and row == 0:
                 continue
+            # Map binary row to app row for panel data lookup
+            app_row = (row + 1) % rows
             rec = bytearray(17)
             struct.pack_into('<HH', rec, 0, pw, ph)
             rec[4] = 1
 
-            if (col, row) in hidden_set:
+            if (col, app_row) in hidden_set:
                 # Hidden/blank panel: b5=0xFF, b6=1, b7=1
                 rec[5] = 0xFF
                 rec[6] = 1
                 rec[7] = 1
             else:
-                a = assign_map.get((col, row), {'port_num': 1, 'chain_order': 0, 'b5': 0})
+                a = assign_map.get((col, app_row), {'port_num': 1, 'chain_order': 0, 'b5': 0})
                 rec[5] = a.get('b5', 0)
                 rec[6] = max(0, a.get('port_num', 1) - 1)  # Convert 1-based to 0-based
                 rec[7] = a.get('chain_order', 0) & 0xFF
@@ -360,11 +365,19 @@ def build_multi_screen_scr(screens_list):
         # Write records for ALL panels in the bounding box (column-major order).
         # Hidden/stair-step panels use sender=0xFF, port=1, chain=1 per NovaStar convention.
         # Connected panels use the normal sender/port/chain routing.
+        #
+        # NovaStar row convention: the binary stores rows offset by 1 from the
+        # app's display.  App row 0 (display row 1) maps to binary row N-1,
+        # and app rows 1..N-1 map to binary rows 0..N-2.  This is because
+        # NovaLCT always displays binary row N-1 as display row 1.
+        # Formula: app_row = (binary_row + 1) % rows
         records = bytearray()
         chain_counter = 0
         for col in range(cols):
             for row in range(rows):
-                p = panel_map.get((col, row), {})
+                # Map binary row to app row for panel data lookup
+                app_row = (row + 1) % rows
+                p = panel_map.get((col, app_row), {})
                 rec = bytearray(17)
                 struct.pack_into('<H', rec, 0, screen_x + col * pw)
                 struct.pack_into('<H', rec, 2, screen_y + row * ph)
