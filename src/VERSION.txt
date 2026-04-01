@@ -1,6 +1,13 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.5.35 - April 1, 2026
+----------------------------
+- SCR export: fix chain start offset for anchor screens with hidden origin. When the
+  anchor replaces a hidden panel (stairstepped area), chains now correctly start at 0
+  instead of 1. Only screens where the anchor replaces a visible data panel start at 1.
+  Fixes receiving card numbers being off by 1 on all ports for stairstepped screens.
+
 v0.7.5.34 - April 1, 2026
 ----------------------------
 - SCR export: fix chain numbering for origin row adjustments. Extension panels now get

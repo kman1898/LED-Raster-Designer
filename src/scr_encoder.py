@@ -613,10 +613,12 @@ def generate_scr_files(project_name, layers):
                     # Map to NovaStar port number (user may have remapped)
                     nova_port = port_num_map.get(str(app_port), app_port)
                     if nova_port not in port_chain_counters:
-                        # NovaStar convention: anchor screens start all data
-                        # chains at 1 (chain=0 is reserved for the origin
-                        # position). Non-anchor screens start at 0.
-                        if needs_anchor:
+                        # NovaStar convention: when the anchor replaces a
+                        # visible data panel at the origin, chain 0 is
+                        # consumed by the anchor so data starts at 1.
+                        # When the origin was hidden (stairstepped area),
+                        # the anchor doesn't displace data, so start at 0.
+                        if needs_anchor and not origin_hidden_in_app:
                             port_chain_counters[nova_port] = 1
                         else:
                             port_chain_counters[nova_port] = 0
