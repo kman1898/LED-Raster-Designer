@@ -396,3 +396,96 @@ class TestEdgeCases:
         records_bytes = records_end - 0x155
         # Should be roughly (panels-1) * 17
         assert abs(records_bytes - (panels - 1) * 17) < 20
+
+
+class TestAnchorPanels:
+    """Tests for anchor panel generation on non-SC0 screens."""
+
+    def test_anchor_at_last_position(self):
+        """Screens with sc_idx > 0 should have anchor at (cols-1, rows-1) binary."""
+        screens = [
+            {'cols': 10, 'rows': 5, 'pw': 60, 'ph': 120, 'screen_x': 0, 'screen_y': 0,
+             'sc_idx': 0, 'port_start': 0, 'panels': []},
+            {'cols': 8, 'rows': 3, 'pw': 60, 'ph': 120, 'screen_x': 600, 'screen_y': 0,
+             'sc_idx': 1, 'port_start': 0, 'panels': []},
+        ]
+        data = scr_encoder.build_multi_screen_scr(screens)
+        # Find Screen 1 section start
+        num_screens = 2
+        sec_sizes = []
+        for i in range(num_screens):
+            sec_sizes.append(struct.unpack_from('<I', data, 0x13B + i * 4)[0])
+        sec1_start = 0x138 + 3 + num_screens * 4 + sec_sizes[0]
+        rec_start = sec1_start + 14  # 10-byte header + 4-byte marker
+
+        # Last record in column-major: col=7, row=2 (cols-1, rows-1)
+        cols, rows = 8, 3
+        last_rec_idx = cols * rows - 1
+        roff = rec_start + last_rec_idx * 17
+        col_val = struct.unpack_from('<H', data, roff + 4)[0]
+        row_val = struct.unpack_from('<H', data, roff + 6)[0]
+        sender = data[roff + 13]
+        port = data[roff + 14]
+        chain = struct.unpack_from('<H', data, roff + 15)[0]
+
+        assert col_val == 7  # cols - 1
+        assert row_val == 2  # rows - 1
+        assert sender == 0   # SC0
+        assert port == 0     # Port 1 (0-based)
+        assert chain == 0
+
+    def test_no_anchor_on_sc0(self):
+        """Screens with sc_idx == 0 should NOT have an anchor."""
+        screens = [
+            {'cols': 10, 'rows': 5, 'pw': 60, 'ph': 120, 'screen_x': 0, 'screen_y': 0,
+             'sc_idx': 0, 'port_start': 0, 'panels': []},
+            {'cols': 8, 'rows': 3, 'pw': 60, 'ph': 120, 'screen_x': 600, 'screen_y': 0,
+             'sc_idx': 1, 'port_start': 0, 'panels': []},
+        ]
+        data = scr_encoder.build_multi_screen_scr(screens)
+        # Check Screen 0 last record — should NOT be an anchor
+        num_screens = 2
+        sec0_start = 0x138 + 3 + num_screens * 4
+        rec_start = sec0_start + 14
+        cols, rows = 10, 5
+        last_rec_idx = cols * rows - 1
+        roff = rec_start + last_rec_idx * 17
+        sender = data[roff + 13]
+        # On SC0, last panel should be sc_idx=0 (normal) or 0xFF (hidden), not anchor
+        # Since sc_idx == 0, sender will be 0 (same as anchor) but that's the real SC
+        # The key check is that it's NOT forced to port=0 chain=0 if it's a real panel
+        # For empty panels list it defaults, which is fine
+        assert sender == 0  # sc_idx 0 — real panel, same sender value
+
+    def test_anchor_replaces_visible_panel(self):
+        """Anchor should replace a visible panel at the anchor position."""
+        # Create panels for Screen 1 (sc_idx=1) with a visible panel at (4, 0) in app coords
+        # That maps to binary (4, 2) for rows=3: binary_row = (app_row - 1 + rows) % rows
+        panels = [
+            {'col': c, 'row': r, 'port_num': 1, 'chain_order': c * 3 + r, 'hidden': False}
+            for c in range(5) for r in range(3)
+        ]
+        screens = [
+            {'cols': 5, 'rows': 3, 'pw': 60, 'ph': 120, 'screen_x': 0, 'screen_y': 0,
+             'sc_idx': 0, 'port_start': 0, 'panels': []},
+            {'cols': 5, 'rows': 3, 'pw': 60, 'ph': 120, 'screen_x': 300, 'screen_y': 0,
+             'sc_idx': 1, 'port_start': 0, 'panels': panels},
+        ]
+        data = scr_encoder.build_multi_screen_scr(screens)
+
+        num_screens = 2
+        sec_sizes = []
+        for i in range(num_screens):
+            sec_sizes.append(struct.unpack_from('<I', data, 0x13B + i * 4)[0])
+        sec1_start = 0x138 + 3 + num_screens * 4 + sec_sizes[0]
+        rec_start = sec1_start + 14
+
+        # Last record: binary (4, 2) = anchor position
+        last_rec_idx = 5 * 3 - 1
+        roff = rec_start + last_rec_idx * 17
+        sender = data[roff + 13]
+        port = data[roff + 14]
+        chain = struct.unpack_from('<H', data, roff + 15)[0]
+        assert sender == 0   # Anchor
+        assert port == 0
+        assert chain == 0

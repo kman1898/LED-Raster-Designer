@@ -362,6 +362,16 @@ def build_multi_screen_scr(screens_list):
         else:
             marker = bytes([sc_idx & 0xFF, min_port_0based & 0xFF, 0x00, 0x00])
 
+        # Anchor panel convention: screens on sc_idx > 0 need a single anchor
+        # panel at binary position (cols-1, rows-1) with sender=0, port=0.
+        # This tells NovaStar the screen is linked to SC0 and fixes receiving
+        # card numbering.  The anchor replaces whatever panel was at that
+        # position (visible or hidden).
+        # Anchor chain value = 0 (matches native convention for simple cases).
+        has_anchor = sc_idx > 0
+        anchor_col = cols - 1
+        anchor_row = rows - 1  # binary row
+
         # Write records for ALL panels in the bounding box (column-major order).
         # Hidden/stair-step panels use sender=0xFF, port=1, chain=1 per NovaStar convention.
         # Connected panels use the normal sender/port/chain routing.
@@ -377,7 +387,6 @@ def build_multi_screen_scr(screens_list):
             for row in range(rows):
                 # Map binary row to app row for panel data lookup
                 app_row = (row + 1) % rows
-                p = panel_map.get((col, app_row), {})
                 rec = bytearray(17)
                 struct.pack_into('<H', rec, 0, screen_x + col * pw)
                 struct.pack_into('<H', rec, 2, screen_y + row * ph)
@@ -386,12 +395,18 @@ def build_multi_screen_scr(screens_list):
                 struct.pack_into('<H', rec, 8, pw)
                 struct.pack_into('<H', rec, 10, ph)
                 rec[12] = 0x01  # Active always 1
-                if p.get('hidden', False):
+                if has_anchor and col == anchor_col and row == anchor_row:
+                    # Anchor panel: sender=0 (SC0), port=0 (Port 1), chain=0
+                    rec[13] = 0x00  # sender=0
+                    rec[14] = 0x00  # port=0 (0-based)
+                    struct.pack_into('<H', rec, 15, 0)  # chain=0
+                elif panel_map.get((col, app_row), {}).get('hidden', False):
                     # Stair-step/unconnected panel: NovaStar placeholder convention
                     rec[13] = 0xFF  # sender=255
                     rec[14] = 0x01  # port=1
                     struct.pack_into('<H', rec, 15, 1)  # chain=1
                 else:
+                    p = panel_map.get((col, app_row), {})
                     rec[13] = sc_idx & 0xFF
                     rec[14] = (p.get('port_num', port_start + 1) - 1) & 0xFF
                     struct.pack_into('<H', rec, 15, p.get('chain_order', chain_counter))
@@ -487,6 +502,26 @@ def generate_scr_files(project_name, layers):
                         _c, _r = _panels[_ci]
                         _dbf.write(f"      chain={_ci}: col={_c}, row={_r}\n")
         _dbf.write("\n")
+        # Log anchor panel info
+        _dbf.write("=== Anchor panel info ===\n")
+        for lyr in layers:
+            _sc_map = lyr.get('scrPortSendingCards', {})
+            _sc_nums = set(_sc_map.values()) or {1}
+            _cols = lyr.get('columns', 0)
+            _rows = lyr.get('rows', 0)
+            for _sc in sorted(_sc_nums):
+                _sc_idx = _sc - 1
+                _anchor_app = (_cols - 1, 0)  # app coords
+                _anchor_bin = (_cols - 1, _rows - 1)  # binary coords
+                if _sc_idx > 0:
+                    _dbf.write(f"  Layer '{lyr.get('name')}' SC{_sc} (sc_idx={_sc_idx}): "
+                               f"ANCHOR at app({_anchor_app[0]},{_anchor_app[1]}) "
+                               f"binary({_anchor_bin[0]},{_anchor_bin[1]}) "
+                               f"sender=0 port=0 chain=0\n")
+                else:
+                    _dbf.write(f"  Layer '{lyr.get('name')}' SC{_sc} (sc_idx={_sc_idx}): "
+                               f"no anchor (already on SC0)\n")
+        _dbf.write("\n")
 
     # Group layers by sending card
     sc_groups = {}  # sending_card_num -> list of screen dicts
@@ -506,6 +541,15 @@ def generate_scr_files(project_name, layers):
             if sc_num not in sc_groups:
                 sc_groups[sc_num] = []
 
+            # Anchor position: for screens not on SC0, the last binary position
+            # (cols-1, rows-1) maps to app row 0.  That panel is replaced by the
+            # anchor in the binary, so exclude it from chain assignment.
+            layer_cols = layer['columns']
+            layer_rows = layer['rows']
+            anchor_app_col = layer_cols - 1
+            anchor_app_row = 0  # binary (cols-1, rows-1) -> app_row = (rows-1+1)%rows = 0
+            needs_anchor = (sc_num - 1) > 0  # sc_idx > 0
+
             # Filter port assignments to only those on this sending card
             # and compute sequential chain_order per port
             # port_num in portAssignments is the app's 1-based port number
@@ -515,6 +559,11 @@ def generate_scr_files(project_name, layers):
             for pa in layer.get('portAssignments', []):
                 app_port = pa.get('port', 1)  # app's 1-based port
                 is_hidden = pa.get('hidden', False) or app_port == 0
+
+                # Skip the anchor position — it will be written as an anchor
+                # panel in the binary, not as a regular panel.
+                if needs_anchor and pa['col'] == anchor_app_col and pa['row'] == anchor_app_row:
+                    continue
 
                 if is_hidden:
                     # Hidden panels (port=0 from JS or hidden flag set) are not
