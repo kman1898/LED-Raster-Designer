@@ -633,6 +633,195 @@ def generate_scr_files(project_name, layers):
                         'b5': 0,
                     })
 
+            # ── Origin row adjustment ──
+            # NovaStar convention: origin row (app row 0, binary row N-1)
+            # has data shifted LEFT by 1 column from adjacent row port
+            # boundaries.  Extensions fill gap columns.  No chain reversal
+            # — the app's non-origin chain ordering is already correct.
+            if layer_rows > 1:
+                # Step 1: adjacent row (app row 1) port column ranges
+                port_adj_cols = {}
+                for p in filtered_panels:
+                    if (p['row'] == 1 and not p.get('hidden', False)
+                            and p['port_num'] > 0):
+                        port_adj_cols.setdefault(p['port_num'], set()).add(
+                            p['col'])
+                port_adj_left = {pn: min(cs)
+                                 for pn, cs in port_adj_cols.items()}
+
+                if port_adj_left:
+                    adj_sp = sorted(port_adj_left,
+                                    key=lambda pn: port_adj_left[pn])
+                    # Step 2: origin row boundaries (shifted left by 1)
+                    obnds = []
+                    for bi in range(len(adj_sp) - 1):
+                        obnds.append(port_adj_left[adj_sp[bi + 1]] - 1)
+
+                    def _oport(col):
+                        pt = adj_sp[0]
+                        for bi, bv in enumerate(obnds):
+                            if col >= bv:
+                                pt = adj_sp[bi + 1]
+                        return pt
+
+                    # Step 3: target origin-row DATA panel count
+                    adj_vc = set()
+                    for p in filtered_panels:
+                        if p['row'] == 1 and not p.get('hidden', False):
+                            adj_vc.add(p['col'])
+                    adj_vis = len(adj_vc)
+
+                    ori_dv = set()
+                    for p in filtered_panels:
+                        if (p['row'] == 0 and not p.get('hidden', False)
+                                and p['port_num'] > 0):
+                            ori_dv.add(p['col'])
+
+                    # Origin pos (dup or anchor) occupies 1 slot.
+                    # Hidden-origin anchors also add 1 visible → extra -1.
+                    if needs_anchor and origin_hidden_in_app:
+                        tgt = adj_vis - 2
+                    else:
+                        tgt = adj_vis - 1
+
+                    # Step 4: extend or trim origin visible cols
+                    while len(ori_dv) < tgt:
+                        cands = adj_vc - ori_dv - {origin_app_col}
+                        if not cands or not ori_dv:
+                            break
+                        mn, mx = min(ori_dv), max(ori_dv)
+                        added = False
+                        if origin_app_col > mx:
+                            if mn - 1 in cands:
+                                ori_dv.add(mn - 1); added = True
+                        else:
+                            if mx + 1 in cands:
+                                ori_dv.add(mx + 1); added = True
+                        if not added:
+                            if mn - 1 in cands:
+                                ori_dv.add(mn - 1); added = True
+                            elif mx + 1 in cands:
+                                ori_dv.add(mx + 1); added = True
+                        if not added:
+                            break
+
+                    while len(ori_dv) > tgt and ori_dv:
+                        if origin_app_col > max(ori_dv):
+                            ori_dv.discard(max(ori_dv))
+                        else:
+                            ori_dv.discard(min(ori_dv))
+
+                    # Step 5: assign origin cols to ports
+                    p_oc = {}
+                    for c in ori_dv:
+                        pn = _oport(c)
+                        p_oc.setdefault(pn, []).append(c)
+                    for pn in p_oc:
+                        p_oc[pn].sort()
+
+                    # Step 6: rebuild chains per port
+                    for port in adj_sp:
+                        if port not in p_oc:
+                            continue
+                        new_oc = p_oc[port]
+                        new_oc_set = set(new_oc)
+
+                        # Separate origin / non-origin panels
+                        old_oi = []
+                        nori = []
+                        for i, p in enumerate(filtered_panels):
+                            if (p['port_num'] == port
+                                    and not p.get('hidden', False)):
+                                if p['row'] == 0:
+                                    old_oi.append(i)
+                                else:
+                                    nori.append((i, p))
+                        nori.sort(key=lambda x: x[1]['chain_order'])
+
+                        # Mark old origin panels hidden
+                        for idx in old_oi:
+                            filtered_panels[idx] = dict(
+                                filtered_panels[idx],
+                                port_num=0, chain_order=0, hidden=True)
+
+                        # Detect horizontal vs vertical serpentine on origin
+                        horiz = False
+                        if len(nori) >= 2:
+                            a, b = nori[0][1], nori[1][1]
+                            if (a['row'] == 1 and b['row'] == 1
+                                    and a['col'] != b['col']):
+                                horiz = True
+
+                        # Build chain sequence
+                        seq = []  # (existing_idx | None, col, row)
+                        if horiz:
+                            # Origin panels first, opposite direction of adj
+                            if nori[0][1]['col'] < nori[1][1]['col']:
+                                soc = sorted(new_oc, reverse=True)
+                            else:
+                                soc = sorted(new_oc)
+                            for c in soc:
+                                seq.append((None, c, 0))
+                            for idx, p in nori:
+                                seq.append((idx, p['col'], p['row']))
+                        else:
+                            # Vertical: cable entry at first_adj_col - 1
+                            if nori:
+                                ce_c = nori[0][1]['col'] - 1
+                                if ce_c not in new_oc_set:
+                                    fc = nori[0][1]['col']
+                                    ce_c = min(new_oc,
+                                               key=lambda c: abs(c - fc))
+                            else:
+                                ce_c = new_oc[0]
+                            rem = [c for c in new_oc if c != ce_c]
+
+                            seq.append((None, ce_c, 0))
+                            for j, (idx, p) in enumerate(nori):
+                                seq.append((idx, p['col'], p['row']))
+                                if rem and p['row'] == 1:
+                                    top = False
+                                    if j + 1 < len(nori):
+                                        nx = nori[j + 1][1]
+                                        if (nx['row'] == 1
+                                                and nx['col'] != p['col']):
+                                            top = True
+                                    elif j == len(nori) - 1:
+                                        top = True
+                                    if top:
+                                        seq.append((None, rem.pop(0), 0))
+                            for c in rem:
+                                seq.append((None, c, 0))
+
+                        # Apply chain numbers
+                        ch = 0
+                        if needs_anchor and not origin_hidden_in_app:
+                            ch = 1
+                        for eidx, col, row in seq:
+                            if eidx is not None:
+                                filtered_panels[eidx] = dict(
+                                    filtered_panels[eidx], chain_order=ch)
+                            else:
+                                found = False
+                                for i, p in enumerate(filtered_panels):
+                                    if p['col'] == col and p['row'] == 0:
+                                        filtered_panels[i] = {
+                                            'col': col, 'row': 0,
+                                            'port_num': port,
+                                            'chain_order': ch,
+                                            'hidden': False, 'b5': 0,
+                                        }
+                                        found = True
+                                        break
+                                if not found:
+                                    filtered_panels.append({
+                                        'col': col, 'row': 0,
+                                        'port_num': port,
+                                        'chain_order': ch,
+                                        'hidden': False, 'b5': 0,
+                                    })
+                            ch += 1
+
             sc_groups[sc_num].append({
                 'cols': layer['columns'],
                 'rows': layer['rows'],
