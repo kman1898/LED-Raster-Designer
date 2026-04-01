@@ -1,6 +1,14 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.5.34 - April 1, 2026
+----------------------------
+- SCR export: fix chain numbering for origin row adjustments. Extension panels now get
+  unique chain values (inserted at the correct position in the sequence) instead of
+  duplicating the adjacent panel's chain. Removal panels now close the chain gap by
+  decrementing all subsequent chains on the affected port. Fixes duplicate receiving
+  card numbers and missing cards in NovaLCT/SmartLCT.
+
 v0.7.5.33 - April 1, 2026
 ----------------------------
 - SCR export: implement NovaStar origin row convention. Display row 1 (binary rows-1)
