@@ -1,11 +1,12 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
-v0.7.5.41 - April 1, 2026
+v0.7.5.42 - April 1, 2026
 ----------------------------
-- SCR export: skip origin row adjustment for non-anchor (sc_idx=0) screens. NovaLCT
-  handles origin row internally for single-sending-card screens. Fixes broken chain
-  ordering on simple single-screen exports (e.g. 20x5 vertical serpentine).
+- SCR export: restore v0.7.5.12 single-screen behavior — remove NovaStar row convention
+  from single-screen builder (NovaLCT handles it internally), only skip origin position
+  for anchor screens. Merge multiple layers sharing the same screen number into a single
+  screen entry instead of creating separate screens per layer.
 
 v0.7.5.40 - April 1, 2026
 ----------------------------

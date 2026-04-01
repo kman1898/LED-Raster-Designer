@@ -152,13 +152,11 @@ def build_single_screen_scr(cols, rows, pw, ph, port_assignments=None):
     prerec[0x145 - 0x138] = cols
     prerec[0x147 - 0x138] = rows
 
-    # Check if the panel at binary origin (0,0) is hidden — set pre-record flag.
-    # Binary (0,0) corresponds to app row 1 due to NovaStar row convention.
-    origin_app_row = 1 % rows if rows > 1 else 0
+    # Check if origin panel (0,0) is hidden — set pre-record flag
     origin_hidden = False
     if port_assignments:
         for a in port_assignments:
-            if a.get('col') == 0 and a.get('row') == origin_app_row and a.get('hidden', False):
+            if a.get('col') == 0 and a.get('row') == 0 and a.get('hidden', False):
                 origin_hidden = True
                 break
     if origin_hidden:
@@ -194,25 +192,23 @@ def build_single_screen_scr(cols, rows, pw, ph, port_assignments=None):
             hidden_set.add((a['col'], a['row']))
 
     # Build records: column-major order, skip origin (0,0)
-    # NovaStar row convention: app_row = (binary_row + 1) % rows
+    # Single-screen format: no row convention — NovaLCT handles it internally.
     records = bytearray()
     for col in range(cols):
         for row in range(rows):
             if col == 0 and row == 0:
                 continue
-            # Map binary row to app row for panel data lookup
-            app_row = (row + 1) % rows
             rec = bytearray(17)
             struct.pack_into('<HH', rec, 0, pw, ph)
             rec[4] = 1
 
-            if (col, app_row) in hidden_set:
+            if (col, row) in hidden_set:
                 # Hidden/blank panel: b5=0xFF, b6=1, b7=1
                 rec[5] = 0xFF
                 rec[6] = 1
                 rec[7] = 1
             else:
-                a = assign_map.get((col, app_row), {'port_num': 1, 'chain_order': 0, 'b5': 0})
+                a = assign_map.get((col, row), {'port_num': 1, 'chain_order': 0, 'b5': 0})
                 rec[5] = a.get('b5', 0)
                 rec[6] = max(0, a.get('port_num', 1) - 1)  # Convert 1-based to 0-based
                 rec[7] = a.get('chain_order', 0) & 0xFF
@@ -587,9 +583,10 @@ def generate_scr_files(project_name, layers):
                 app_port = pa.get('port', 1)  # app's 1-based port
                 is_hidden = pa.get('hidden', False) or app_port == 0
 
-                # Skip the origin/anchor position — it will be written
-                # specially in the binary (anchor or origin duplicate).
-                if pa['col'] == origin_app_col and pa['row'] == origin_app_row:
+                # Skip the origin/anchor position for anchor screens —
+                # it will be written specially in the binary.
+                # Non-anchor screens keep the origin as a normal panel.
+                if needs_anchor and pa['col'] == origin_app_col and pa['row'] == origin_app_row:
                     continue
 
                 if is_hidden:
@@ -812,11 +809,28 @@ def generate_scr_files(project_name, layers):
                 'panels': filtered_panels,
             })
 
-    # Combine all screens into one file, sorted by screen number
-    all_screens = []
+    # Combine all screens into one file, sorted by screen number.
+    # Merge layers that share the same screen number and sending card
+    # into a single screen entry (multiple layers on one screen).
+    all_screens_raw = []
     for sc_num in sorted(sc_groups.keys()):
-        all_screens.extend(sc_groups[sc_num])
-    all_screens.sort(key=lambda s: s.get('screen_number', 1))
+        all_screens_raw.extend(sc_groups[sc_num])
+
+    merged = {}  # (sc_idx, screen_number) -> screen dict
+    for s in all_screens_raw:
+        key = (s['sc_idx'], s.get('screen_number', 1))
+        if key not in merged:
+            merged[key] = dict(s)  # copy
+        else:
+            m = merged[key]
+            # Use the largest bounding box
+            m['cols'] = max(m['cols'], s['cols'])
+            m['rows'] = max(m['rows'], s['rows'])
+            # Merge panels (later layers' panels overlay earlier ones)
+            m['panels'].extend(s['panels'])
+
+    all_screens = sorted(merged.values(),
+                         key=lambda s: s.get('screen_number', 1))
 
     if len(all_screens) == 1:
         scr_data = build_single_screen_scr(
