@@ -1,6 +1,11 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.5.43 - April 1, 2026
+----------------------------
+- Fix test_default_snake_order test to match single-screen encoder behavior (no row
+  convention). Test previously expected row convention mapping that was removed in v0.7.5.42.
+
 v0.7.5.42 - April 1, 2026
 ----------------------------
 - SCR export: restore v0.7.5.12 single-screen behavior — remove NovaStar row convention

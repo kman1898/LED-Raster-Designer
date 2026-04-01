@@ -136,12 +136,12 @@ class TestBuildSingleScreenScr:
     def test_default_snake_order(self):
         data = scr_encoder.build_single_screen_scr(4, 2, 96, 108)
         # First record is at binary (col=0, row=1) — column-major, skipping origin.
-        # NovaStar row convention: binary row 1 → app row 0.
-        # Default snake: app row 0 L->R (chains 0,1,2,3), app row 1 R->L (7,6,5,4)
-        # So binary (col=0, row=1) = app (col=0, row=0) = chain 0
+        # Single-screen format: NO row convention — NovaLCT handles it internally.
+        # Default snake: row 0 L->R (chains 0,1,2,3), row 1 R->L (7,6,5,4)
+        # So (col=0, row=1) = chain 7 (row 1 R->L, col 0 is last)
         rec0 = data[0x155:0x155 + 17]
-        b7 = rec0[7]  # chain order for binary (col=0, row=1) = app (col=0, row=0)
-        assert b7 == 0  # app row 0, col 0, first in L->R snake
+        b7 = rec0[7]  # chain order for (col=0, row=1)
+        assert b7 == 7  # row 1, col 0, last in R->L snake
 
     def test_custom_port_assignments(self):
         assignments = [
