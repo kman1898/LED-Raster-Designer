@@ -241,6 +241,10 @@ class CanvasRenderer {
                         return;
                     }
                     this.isDraggingLayer = true;
+                    // Save state BEFORE the drag starts so undo reverts to pre-move positions
+                    if (typeof window.app.saveState === 'function') {
+                        window.app.saveState('Move Layers');
+                    }
                     this.dragLayerStartX = worldX;
                     this.dragLayerStartY = worldY;
                     this.layerStartOffset = {
@@ -680,7 +684,7 @@ class CanvasRenderer {
                 }
                 
                 const toUpdate = window.app.getSelectedLayers ? window.app.getSelectedLayers() : [window.app.currentLayer];
-                window.app.updateLayers(toUpdate, true, 'Move Layers');
+                window.app.updateLayers(toUpdate, false);
             }
         } else if (this.isDraggingScreenName) {
             this.isDraggingScreenName = false;

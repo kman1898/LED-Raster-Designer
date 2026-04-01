@@ -1,6 +1,20 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.4.3 - April 1, 2026
+----------------------------
+- FIX: Per-tab Screen Name checkboxes are now independent — unchecking on one tab no longer
+  affects other tabs. updateLayerFromInputs() no longer overwrites per-tab label properties.
+- FIX: Second resetApplicationState() now clears lastSelectedLayerId and selectionAnchorLayerId
+  to match the primary reset method, preventing stale selection state after file load.
+- FIX: Sidebar property changes (columns, rows, colors, checkboxes, font sizes, etc.) now
+  create undo history entries. Uses debounced saveState (500ms) to avoid spam from color
+  pickers and spinners. Cabinet ID style/position and screen name toggles save immediately.
+- FIX: Move Layers undo now correctly reverts to pre-move position. saveState fires at
+  drag start (mousedown) instead of drag end (mouseup).
+- FIX: Custom edit mode toggle (data flow and power) now applies to all selected layers
+  when multi-selecting, not just the current layer.
+
 v0.7.4.2 - March 24, 2026
 ----------------------------
 - FIX: Keyboard Shortcuts modal now shows Option/Alt for cross-platform clarity

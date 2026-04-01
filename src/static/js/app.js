@@ -924,6 +924,8 @@ class LEDRasterApp {
         this.history = [];
         this.historyIndex = -1;
         this.maxHistory = 50;
+        this._saveStateTimer = null;
+        this._pendingSaveAction = null;
         
         // Clipboard for copy/paste
         this.clipboard = null;
@@ -1924,7 +1926,8 @@ class LEDRasterApp {
             };
             const commitScale = () => {
                 if (!this.currentLayer || (this.currentLayer.type || 'screen') !== 'image') return;
-                this.updateLayers([this.currentLayer], true, 'Image Scale');
+                this.updateLayers([this.currentLayer]);
+                this.debouncedSaveState('Image Scale');
             };
             imageScaleInput.addEventListener('input', () => {
                 const val = parseFloat(imageScaleInput.value);
@@ -1995,9 +1998,10 @@ class LEDRasterApp {
                 });
                 this.updateLayers(this.getSelectedLayers());
                 window.canvasRenderer.render();
+                this.saveState('Change Cabinet ID Style');
             });
         });
-        
+
         // Cabinet ID position radio buttons
         const cabinetIdPositionRadios = document.querySelectorAll('input[name="cabinet-id-position"]');
         cabinetIdPositionRadios.forEach(radio => {
@@ -2007,6 +2011,7 @@ class LEDRasterApp {
                 });
                 this.updateLayers(this.getSelectedLayers());
                 window.canvasRenderer.render();
+                this.saveState('Change Cabinet ID Position');
             });
         });
         
@@ -2186,11 +2191,12 @@ class LEDRasterApp {
                         });
                         this.updateLayers(this.getSelectedLayers());
                         window.canvasRenderer.render();
+                        this.saveState('Toggle Screen Name');
                     }
                 });
             }
         });
-        
+
         // Processor Type, Bit Depth and Frame Rate controls for port capacity
         const processorSelect = document.getElementById('processor-type');
         const bitDepthSelect = document.getElementById('bit-depth');
@@ -4561,9 +4567,6 @@ class LEDRasterApp {
         
         // Per-layer label settings
         const showLabelNameEl = document.getElementById('show-label-name');
-        const showLabelNameCabinetEl = document.getElementById('show-label-name-cabinet');
-        const showLabelNameDataEl = document.getElementById('show-label-name-data');
-        const showLabelNamePowerEl = document.getElementById('show-label-name-power');
         const showLabelSizePxEl = document.getElementById('show-label-size-px');
         const showLabelSizeMEl = document.getElementById('show-label-size-m');
         const showLabelSizeFtEl = document.getElementById('show-label-size-ft');
@@ -4574,9 +4577,6 @@ class LEDRasterApp {
         const useFractionalInchesEl = document.getElementById('use-fractional-inches');
 
         const showLabelNameVal = showLabelNameEl && !showLabelNameEl.indeterminate ? showLabelNameEl.checked : null;
-        const showLabelNameCabinetVal = showLabelNameCabinetEl && !showLabelNameCabinetEl.indeterminate ? showLabelNameCabinetEl.checked : null;
-        const showLabelNameDataVal = showLabelNameDataEl && !showLabelNameDataEl.indeterminate ? showLabelNameDataEl.checked : null;
-        const showLabelNamePowerVal = showLabelNamePowerEl && !showLabelNamePowerEl.indeterminate ? showLabelNamePowerEl.checked : null;
         const showLabelSizePxVal = showLabelSizePxEl && !showLabelSizePxEl.indeterminate ? showLabelSizePxEl.checked : null;
         const showLabelSizeMVal = showLabelSizeMEl && !showLabelSizeMEl.indeterminate ? showLabelSizeMEl.checked : null;
         const showLabelSizeFtVal = showLabelSizeFtEl && !showLabelSizeFtEl.indeterminate ? showLabelSizeFtEl.checked : null;
@@ -4640,9 +4640,6 @@ class LEDRasterApp {
             if (powerLabelTextColorVal !== null) layer.powerLabelTextColor = powerLabelTextColorVal;
 
             if (showLabelNameVal !== null) layer.showLabelName = showLabelNameVal;
-            if (showLabelNameCabinetVal !== null) layer.showLabelNameCabinet = showLabelNameCabinetVal;
-            if (showLabelNameDataVal !== null) layer.showLabelNameDataFlow = showLabelNameDataVal;
-            if (showLabelNamePowerVal !== null) layer.showLabelNamePower = showLabelNamePowerVal;
             if (showLabelSizePxVal !== null) layer.showLabelSizePx = showLabelSizePxVal;
             if (showLabelSizeMVal !== null) layer.showLabelSizeM = showLabelSizeMVal;
             if (showLabelSizeFtVal !== null) layer.showLabelSizeFt = showLabelSizeFtVal;
@@ -4680,8 +4677,9 @@ class LEDRasterApp {
         }
         
         this.updateLayers(targetLayers);
+        this.debouncedSaveState('Update Properties');
     }
-    
+
     loadLayerToInputs() {
         const layers = this.getSelectedLayers();
         if (layers.length === 0) return;
@@ -7157,19 +7155,24 @@ class LEDRasterApp {
 
     toggleCustomFlowMode(enabled) {
         if (!this.currentLayer) return;
-        if (enabled) {
-            if (this.currentLayer.flowPattern && this.currentLayer.flowPattern !== 'custom') {
-                this.currentLayer.lastFlowPattern = this.currentLayer.flowPattern;
+        this.applyToSelectedLayers(layer => {
+            if (enabled) {
+                if (layer.flowPattern && layer.flowPattern !== 'custom') {
+                    layer.lastFlowPattern = layer.flowPattern;
+                }
+                layer.flowPattern = 'custom';
+                this.ensureCustomFlowState(layer);
+            } else {
+                layer.flowPattern = layer.lastFlowPattern || 'tl-h';
             }
-            this.currentLayer.flowPattern = 'custom';
-            this.ensureCustomFlowState(this.currentLayer);
-        } else {
-            this.currentLayer.flowPattern = this.currentLayer.lastFlowPattern || 'tl-h';
+        });
+        if (!enabled) {
             this.customSelectMode = false;
             this.customSelection.clear();
         }
         this.saveState('Custom Mode Toggle');
         this.saveClientSideProperties();
+        this.updateLayers(this.getSelectedLayers());
         this.updatePortCapacityDisplay();
         this.updateCustomFlowUI();
         window.canvasRenderer.render();
@@ -7207,20 +7210,25 @@ class LEDRasterApp {
 
     toggleCustomPowerMode(enabled) {
         if (!this.currentLayer) return;
-        if (enabled) {
-            if (this.currentLayer.powerFlowPattern && this.currentLayer.powerFlowPattern !== 'custom') {
-                this.currentLayer.lastPowerFlowPattern = this.currentLayer.powerFlowPattern;
+        this.applyToSelectedLayers(layer => {
+            if (enabled) {
+                if (layer.powerFlowPattern && layer.powerFlowPattern !== 'custom') {
+                    layer.lastPowerFlowPattern = layer.powerFlowPattern;
+                }
+                layer.powerFlowPattern = 'custom';
+                layer.powerCustomPath = true;
+                this.ensureCustomPowerState(layer);
+            } else {
+                layer.powerFlowPattern = layer.lastPowerFlowPattern || 'tl-h';
+                layer.powerCustomPath = false;
             }
-            this.currentLayer.powerFlowPattern = 'custom';
-            this.currentLayer.powerCustomPath = true;
-            this.ensureCustomPowerState(this.currentLayer);
-        } else {
-            this.currentLayer.powerFlowPattern = this.currentLayer.lastPowerFlowPattern || 'tl-h';
-            this.currentLayer.powerCustomPath = false;
+        });
+        if (!enabled) {
             this.powerCustomSelection.clear();
         }
         this.saveState('Power Custom Mode Toggle');
         this.saveClientSideProperties();
+        this.updateLayers(this.getSelectedLayers());
         this.updatePowerCapacityDisplay();
         this.updateCustomPowerUI();
         window.canvasRenderer.render();
@@ -7909,6 +7917,8 @@ class LEDRasterApp {
     resetApplicationState() {
         this.selectedLayerIds = new Set();
         this.currentLayer = null;
+        this.lastSelectedLayerId = null;
+        this.selectionAnchorLayerId = null;
         localStorage.removeItem('ledRasterClientProps');
         this.resetHistory('Initial State');
     }
@@ -8066,11 +8076,21 @@ class LEDRasterApp {
             selectedLayers: this.selectedLayerIds ? [...this.selectedLayerIds] : [],
             currentLayerId: this.currentLayer ? this.currentLayer.id : null
         });
-        
+
     }
-    
+
+    debouncedSaveState(action, delay = 500) {
+        this._pendingSaveAction = action;
+        if (this._saveStateTimer) clearTimeout(this._saveStateTimer);
+        this._saveStateTimer = setTimeout(() => {
+            this.saveState(this._pendingSaveAction || action);
+            this._saveStateTimer = null;
+            this._pendingSaveAction = null;
+        }, delay);
+    }
+
     undo() {
-        
+
         if (this.historyIndex > 0) {
             this.historyIndex--;
             const state = this.history[this.historyIndex];
