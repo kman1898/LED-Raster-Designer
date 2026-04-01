@@ -1,6 +1,13 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.5.40 - April 1, 2026
+----------------------------
+- SCR export: fix origin row column placement. Compute target origin data columns as the
+  leftmost N adjacent-row columns instead of using app's existing row-0 positions (which
+  could be shifted right due to stairstepping). Fixes UPSTAGE origin row shifted right by
+  1 panel. Also fix chain start for horizontal anchor screens (start at 1, not 0).
+
 v0.7.5.39 - April 1, 2026
 ----------------------------
 - SCR export: rewrite origin row adjustment without chain reversal. NovaStar shifts
