@@ -1,6 +1,13 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.5.36 - April 1, 2026
+----------------------------
+- SCR export: add origin row port redistribution for multi-port stairstepped screens.
+  NovaStar convention shifts port boundaries left by 1 column on the origin row relative
+  to adjacent row. Each port's origin range starts at (adjacent_entry_col - 1). Fixes
+  port panel counts and data flow pattern matching the app's design in NovaLCT/SmartLCT.
+
 v0.7.5.35 - April 1, 2026
 ----------------------------
 - SCR export: fix chain start offset for anchor screens with hidden origin. When the

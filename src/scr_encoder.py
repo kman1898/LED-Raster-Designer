@@ -747,6 +747,62 @@ def generate_scr_files(project_name, layers):
                 row0_vis[col] = new_p
                 updated_vis.add(col)
 
+            # ── Origin row port redistribution ──
+            # NovaStar convention: origin row port boundaries are shifted
+            # left by 1 column relative to the adjacent row.  Each port's
+            # origin-row range starts at (adjacent_entry_col - 1), where
+            # entry_col is the column with the lowest chain on adjacent
+            # row 1 for that port.
+            if layer['rows'] > 1:
+                port_adj_entry = {}  # port -> (entry_col, min_chain)
+                for p in filtered_panels:
+                    if (p['row'] == 1 and not p.get('hidden', False)
+                            and p['port_num'] > 0):
+                        pn = p['port_num']
+                        if (pn not in port_adj_entry
+                                or p['chain_order'] < port_adj_entry[pn][1]):
+                            port_adj_entry[pn] = (p['col'], p['chain_order'])
+
+                # Only redistribute when multiple ports exist on adjacent row
+                if len(port_adj_entry) > 1:
+                    sorted_ports = sorted(
+                        port_adj_entry.keys(),
+                        key=lambda pn: port_adj_entry[pn][0])
+                    # Build boundary list: cols >= boundary → next port
+                    bnd = []
+                    for idx in range(len(sorted_ports) - 1):
+                        nxt = sorted_ports[idx + 1]
+                        bnd.append(port_adj_entry[nxt][0] - 1)
+
+                    for i, p in enumerate(filtered_panels):
+                        if (p['row'] == 0 and not p.get('hidden', False)
+                                and p['port_num'] > 0):
+                            col = p['col']
+                            new_port = sorted_ports[0]
+                            for bidx, boundary in enumerate(bnd):
+                                if col >= boundary:
+                                    new_port = sorted_ports[bidx + 1]
+                            if new_port != p['port_num']:
+                                old_port = p['port_num']
+                                old_chain = p['chain_order']
+                                # Decrement chains > old_chain on old port
+                                for j, q in enumerate(filtered_panels):
+                                    if (j != i
+                                            and q['port_num'] == old_port
+                                            and not q.get('hidden', False)
+                                            and q['chain_order'] > old_chain):
+                                        filtered_panels[j] = dict(
+                                            q, chain_order=q['chain_order'] - 1)
+                                # Append at end of new port chain
+                                max_new = max(
+                                    (q['chain_order'] for q in filtered_panels
+                                     if q['port_num'] == new_port
+                                     and not q.get('hidden', False)),
+                                    default=-1)
+                                filtered_panels[i] = dict(
+                                    p, port_num=new_port,
+                                    chain_order=max_new + 1)
+
             sc_groups[sc_num].append({
                 'cols': layer['columns'],
                 'rows': layer['rows'],
