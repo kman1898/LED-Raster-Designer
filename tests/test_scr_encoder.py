@@ -432,7 +432,7 @@ class TestAnchorPanels:
         assert row_val == 2  # rows - 1
         assert sender == 0   # SC0
         assert port == 0     # Port 1 (0-based)
-        assert chain == 0
+        assert chain == 8 * 3  # cols * rows (safe non-colliding value)
 
     def test_no_anchor_on_sc0(self):
         """Screens with sc_idx == 0 should NOT have an anchor."""
@@ -488,4 +488,4 @@ class TestAnchorPanels:
         chain = struct.unpack_from('<H', data, roff + 15)[0]
         assert sender == 0   # Anchor
         assert port == 0
-        assert chain == 0
+        assert chain == 5 * 3  # cols * rows

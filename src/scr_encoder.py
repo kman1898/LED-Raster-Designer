@@ -367,10 +367,16 @@ def build_multi_screen_scr(screens_list):
         # This tells NovaStar the screen is linked to SC0 and fixes receiving
         # card numbering.  The anchor replaces whatever panel was at that
         # position (visible or hidden).
-        # Anchor chain value = 0 (matches native convention for simple cases).
+        #
+        # IMPORTANT: The anchor chain value MUST NOT collide with any data
+        # chain on the same port (port 0).  NovaStar uses chain indices
+        # per-port regardless of sender, so anchor chain=0 + data chain=0
+        # = collision → NovaStar drops 1 panel and shifts RC numbering.
+        # Use cols*rows as a safe value guaranteed above any data chain.
         has_anchor = sc_idx > 0
         anchor_col = cols - 1
         anchor_row = rows - 1  # binary row
+        anchor_chain = cols * rows  # safe: always > max data chain index
 
         # Write records for ALL panels in the bounding box (column-major order).
         # Hidden/stair-step panels use sender=0xFF, port=1, chain=1 per NovaStar convention.
@@ -396,10 +402,11 @@ def build_multi_screen_scr(screens_list):
                 struct.pack_into('<H', rec, 10, ph)
                 rec[12] = 0x01  # Active always 1
                 if has_anchor and col == anchor_col and row == anchor_row:
-                    # Anchor panel: sender=0 (SC0), port=0 (Port 1), chain=0
+                    # Anchor panel: sender=0 (SC0), port=0 (Port 1)
+                    # Chain must not collide with data chains on port 0
                     rec[13] = 0x00  # sender=0
                     rec[14] = 0x00  # port=0 (0-based)
-                    struct.pack_into('<H', rec, 15, 0)  # chain=0
+                    struct.pack_into('<H', rec, 15, anchor_chain)
                 elif panel_map.get((col, app_row), {}).get('hidden', False):
                     # Stair-step/unconnected panel: NovaStar placeholder convention
                     rec[13] = 0xFF  # sender=255
@@ -514,10 +521,11 @@ def generate_scr_files(project_name, layers):
                 _anchor_app = (_cols - 1, 0)  # app coords
                 _anchor_bin = (_cols - 1, _rows - 1)  # binary coords
                 if _sc_idx > 0:
+                    _anch_chain = _cols * _rows
                     _dbf.write(f"  Layer '{lyr.get('name')}' SC{_sc} (sc_idx={_sc_idx}): "
                                f"ANCHOR at app({_anchor_app[0]},{_anchor_app[1]}) "
                                f"binary({_anchor_bin[0]},{_anchor_bin[1]}) "
-                               f"sender=0 port=0 chain=0\n")
+                               f"sender=0 port=0 chain={_anch_chain}\n")
                 else:
                     _dbf.write(f"  Layer '{lyr.get('name')}' SC{_sc} (sc_idx={_sc_idx}): "
                                f"no anchor (already on SC0)\n")
@@ -586,7 +594,15 @@ def generate_scr_files(project_name, layers):
                     # Map to NovaStar port number (user may have remapped)
                     nova_port = port_num_map.get(str(app_port), app_port)
                     if nova_port not in port_chain_counters:
-                        port_chain_counters[nova_port] = 0
+                        # Anchor occupies port 0 (NovaStar 0-based) = port 1 (1-based).
+                        # If this port matches the anchor's port, start chain at 1
+                        # to avoid chain collision (anchor uses its own chain value
+                        # on port 0, but NovaStar indexes chains per-port regardless
+                        # of sender — chain=0 on port 0 would collide).
+                        if needs_anchor and nova_port == 1:
+                            port_chain_counters[nova_port] = 1
+                        else:
+                            port_chain_counters[nova_port] = 0
                     chain_idx = port_chain_counters[nova_port]
                     port_chain_counters[nova_port] += 1
                     filtered_panels.append({
