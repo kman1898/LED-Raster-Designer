@@ -665,19 +665,27 @@ def generate_scr_files(project_name, layers):
                     elif origin_app_col < min(row0_vis_cols):
                         cols_to_remove.add(min(row0_vis_cols))
 
-            # Apply removals: convert data panels to hidden
+            # Apply removals: convert data panels to hidden and renumber chains
             for col in cols_to_remove:
                 for i, p in enumerate(filtered_panels):
                     if p['col'] == col and p['row'] == 0 and not p.get('hidden', False):
+                        removed_port = p['port_num']
+                        removed_chain = p['chain_order']
                         filtered_panels[i] = {
                             'col': col, 'row': 0,
                             'port_num': 0, 'chain_order': 0,
                             'hidden': True, 'b5': 0,
                         }
+                        # Close the gap: decrement all chains > removed on same port
+                        for j, q in enumerate(filtered_panels):
+                            if (q['port_num'] == removed_port
+                                    and not q.get('hidden', False)
+                                    and q['chain_order'] > removed_chain):
+                                filtered_panels[j] = dict(q, chain_order=q['chain_order'] - 1)
                         break
 
-            # Apply additions: make hidden columns visible with duplicate
-            # chain from the nearest existing visible panel on row 0.
+            # Apply additions: make hidden columns visible with a unique
+            # chain value inserted into the sequence at the correct position.
             # Only add columns adjacent to the current visible range.
             updated_vis = set(row0_vis_cols) - cols_to_remove
             for col in sorted(cols_to_add):
@@ -690,19 +698,47 @@ def generate_scr_files(project_name, layers):
                 adj_col = min_v if col == min_v - 1 else max_v
                 adj_p = row0_vis.get(adj_col)
                 if adj_p is None:
-                    # adj_col might have been added in a previous iteration
                     adj_p = next((p for p in filtered_panels
                                   if p['col'] == adj_col and p['row'] == 0
                                   and not p.get('hidden', False)), None)
                 if adj_p is None:
                     continue
+
+                ext_port = adj_p['port_num']
+                # Find all row-0 visible chains on this port to determine
+                # whether the extension goes at the high or low end.
+                r0_chains = [p['chain_order'] for p in filtered_panels
+                             if p['row'] == 0 and p['port_num'] == ext_port
+                             and not p.get('hidden', False)]
+                if not r0_chains:
+                    continue
+                adj_chain = adj_p['chain_order']
+                max_r0 = max(r0_chains)
+                min_r0 = min(r0_chains)
+                # If adj is at the high end of row-0 chains, the extension
+                # continues after it; otherwise it inserts before the low end.
+                if adj_chain == max_r0:
+                    insert_chain = max_r0 + 1
+                else:
+                    insert_chain = min_r0
+
+                # Shift all existing panels on this port with chain >= insert
+                for i, p in enumerate(filtered_panels):
+                    if (p['port_num'] == ext_port
+                            and not p.get('hidden', False)
+                            and p['chain_order'] >= insert_chain):
+                        filtered_panels[i] = dict(p, chain_order=p['chain_order'] + 1)
+                        # Update row0_vis if this panel is on row 0
+                        if p['row'] == 0 and p['col'] in row0_vis:
+                            row0_vis[p['col']] = filtered_panels[i]
+
                 # Remove existing hidden entry
                 filtered_panels = [p for p in filtered_panels
                                    if not (p['col'] == col and p['row'] == 0)]
                 new_p = {
                     'col': col, 'row': 0,
-                    'port_num': adj_p['port_num'],
-                    'chain_order': adj_p['chain_order'],  # duplicate chain
+                    'port_num': ext_port,
+                    'chain_order': insert_chain,
                     'hidden': False, 'b5': 0,
                 }
                 filtered_panels.append(new_p)
