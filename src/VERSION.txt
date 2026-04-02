@@ -1,6 +1,67 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.4.11 - April 1, 2026
+----------------------------
+- CHANGE: Recent Files max limit increased from 10 to 20.
+
+v0.7.4.10 - April 1, 2026
+----------------------------
+- FIX: Recent Files label no longer disappears when files are present.
+  Label text now in a span element preserved across shortcut label rewrites.
+- Removed Clear Recent Files option. Removed unused handler.
+
+v0.7.4.9 - April 1, 2026
+----------------------------
+- FIX: Recent Files submenu no longer destroyed by updateShortcutLabels().
+  Submenu parent items are skipped during label rewrite. Click on submenu parent
+  no longer closes the menu.
+
+v0.7.4.8 - April 1, 2026
+----------------------------
+- FEATURE: Recent Files submenu under File menu. Tracks last 10 opened/saved projects
+  in localStorage. Click to reload any recent project instantly.
+- FEATURE: Transparent Background export option (#25). Checkbox in export modal removes
+  the black background from PNG and PSD exports, rendering with alpha transparency.
+
+v0.7.4.7 - April 1, 2026
+----------------------------
+- REVERT: Removed #20 focus preservation fixes — issue not reproducible on macOS.
+  Will revisit when Windows reproduction steps are available.
+
+v0.7.4.6 - April 1, 2026
+----------------------------
+- FIX: Port label inputs now preserve focus and in-progress edits during UI rebuilds.
+  Added IDs to dynamically created port label inputs so focus restoration works. (#20)
+
+v0.7.4.5 - April 1, 2026
+----------------------------
+- CHANGE: Port cycling shortcut changed from Shift+B/N to Tab/Shift+Tab.
+  Only activates when custom mode is enabled and canvas has focus (not in sidebar fields).
+  Updated Edit menu, context menu, and keyboard shortcuts dialog.
+
+v0.7.4.4 - April 1, 2026
+----------------------------
+- FIX: Sidebar field focus no longer stolen when canvas redraws after property changes.
+  Focus and cursor position are preserved across UI rebuilds. (Fixes #20)
+- FIX: Horizontal trackpad scroll now pans the canvas instead of zooming out.
+  Only vertical scroll triggers zoom. Tiny deltaY values ignored to prevent
+  accidental zoom during horizontal swipes. (Fixes #6)
+
+v0.7.4.3 - April 1, 2026
+----------------------------
+- FIX: Per-tab Screen Name checkboxes are now independent — unchecking on one tab no longer
+  affects other tabs. updateLayerFromInputs() no longer overwrites per-tab label properties.
+- FIX: Second resetApplicationState() now clears lastSelectedLayerId and selectionAnchorLayerId
+  to match the primary reset method, preventing stale selection state after file load.
+- FIX: Sidebar property changes (columns, rows, colors, checkboxes, font sizes, etc.) now
+  create undo history entries. Uses debounced saveState (500ms) to avoid spam from color
+  pickers and spinners. Cabinet ID style/position and screen name toggles save immediately.
+- FIX: Move Layers undo now correctly reverts to pre-move position. saveState fires at
+  drag start (mousedown) instead of drag end (mouseup).
+- FIX: Custom edit mode toggle (data flow and power) now applies to all selected layers
+  when multi-selecting, not just the current layer.
+
 v0.7.4.2 - March 24, 2026
 ----------------------------
 - FIX: Keyboard Shortcuts modal now shows Option/Alt for cross-platform clarity

@@ -430,6 +430,59 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     z-index: 3000;
 }
 
+/* Recent Files submenu */
+.menu-has-submenu {
+    position: relative;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.menu-has-submenu::after {
+    content: '\25B6';
+    font-size: 8px;
+    color: #888;
+    margin-right: 4px;
+}
+.menu-submenu {
+    display: none;
+    position: absolute;
+    left: calc(100% + 2px);
+    top: -6px;
+    background: #1f1f1f;
+    border: 1px solid #3a3a3a;
+    box-shadow: 0 6px 16px rgba(0,0,0,0.35);
+    border-radius: 6px;
+    padding: 6px 0;
+    min-width: 280px;
+    z-index: 2001;
+}
+.menu-has-submenu:hover > .menu-submenu {
+    display: block;
+}
+.recent-file-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+}
+.recent-file-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+}
+.recent-file-date {
+    font-size: 11px;
+    color: #666;
+    flex-shrink: 0;
+}
+.recent-files-empty {
+    padding: 6px 14px;
+    font-size: 12px;
+    color: #666;
+    font-style: italic;
+}
+
 .prefs-grid {
     display: flex;
     flex-direction: column;

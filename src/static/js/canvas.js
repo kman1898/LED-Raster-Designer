@@ -20,6 +20,7 @@ class CanvasRenderer {
         this.showGrid = true;
         this.viewMode = 'pixel-map'; // Default view mode
         this.exportMode = false; // When true, hides grid and raster boundary for clean export
+        this.exportTransparentBg = false; // When true, export renders with transparent background
         
         // Label display settings
         this.showLabelName = true;
@@ -241,6 +242,10 @@ class CanvasRenderer {
                         return;
                     }
                     this.isDraggingLayer = true;
+                    // Save state BEFORE the drag starts so undo reverts to pre-move positions
+                    if (typeof window.app.saveState === 'function') {
+                        window.app.saveState('Move Layers');
+                    }
                     this.dragLayerStartX = worldX;
                     this.dragLayerStartY = worldY;
                     this.layerStartOffset = {
@@ -680,7 +685,7 @@ class CanvasRenderer {
                 }
                 
                 const toUpdate = window.app.getSelectedLayers ? window.app.getSelectedLayers() : [window.app.currentLayer];
-                window.app.updateLayers(toUpdate, true, 'Move Layers');
+                window.app.updateLayers(toUpdate, false);
             }
         } else if (this.isDraggingScreenName) {
             this.isDraggingScreenName = false;
@@ -716,6 +721,18 @@ class CanvasRenderer {
         const rect = this.canvas.getBoundingClientRect();
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
+
+        // If horizontal scroll dominates (trackpad swipe), pan instead of zoom
+        if (Math.abs(e.deltaX) > Math.abs(e.deltaY) && Math.abs(e.deltaX) > 1) {
+            this.panX -= e.deltaX;
+            this.panY -= e.deltaY;
+            this.render();
+            return;
+        }
+
+        // Ignore tiny deltaY to avoid accidental zoom during horizontal swipes
+        if (Math.abs(e.deltaY) < 1) return;
+
         // Further reduced sensitivity: 1.025 instead of 1.05 (50% less again)
         const zoomFactor = e.deltaY < 0 ? 1.025 : 0.975;
         const newZoom = Math.max(0.01, Math.min(500.0, this.zoom * zoomFactor));  // Max 50000% for pixel-level zoom
@@ -804,8 +821,8 @@ class CanvasRenderer {
             }
         }
 
-        // Shift+N - Next port (custom flow)
-        if (e.shiftKey && !e.metaKey && !e.ctrlKey && e.code === 'KeyN' && !isTyping) {
+        // Tab - Next port (custom flow/power, only when custom mode active)
+        if (e.code === 'Tab' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !isTyping) {
             if (window.app && window.app.currentLayer && window.app.isCustomFlow(window.app.currentLayer)) {
                 e.preventDefault();
                 const layer = window.app.currentLayer;
@@ -826,8 +843,8 @@ class CanvasRenderer {
             }
         }
 
-        // Shift+B - Previous port (custom flow)
-        if (e.shiftKey && !e.metaKey && !e.ctrlKey && e.code === 'KeyB' && !isTyping) {
+        // Shift+Tab - Previous port (custom flow/power, only when custom mode active)
+        if (e.code === 'Tab' && e.shiftKey && !e.metaKey && !e.ctrlKey && !isTyping) {
             if (window.app && window.app.currentLayer && window.app.isCustomFlow(window.app.currentLayer)) {
                 e.preventDefault();
                 const layer = window.app.currentLayer;
@@ -979,9 +996,13 @@ class CanvasRenderer {
         if (this.layerSelectionRect && !this.isSelectingLayers && !this.isSelectingPanels && !this.isDraggingLayer) {
             this.layerSelectionRect = null;
         }
-        // In export mode, use black background; otherwise use dark gray
-        this.ctx.fillStyle = this.exportMode ? '#000000' : '#0a0a0a';
-        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        // In export mode with transparent bg, clear to transparent; otherwise fill
+        if (this.exportMode && this.exportTransparentBg) {
+            this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        } else {
+            this.ctx.fillStyle = this.exportMode ? '#000000' : '#0a0a0a';
+            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        }
         
         // Skip grid in export mode
         if (this.showGrid && !this.exportMode) {
