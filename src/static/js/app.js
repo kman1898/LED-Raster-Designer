@@ -6386,6 +6386,8 @@ class LEDRasterApp {
         const handleMenuClick = (e) => {
             const target = e.target.closest('.menu-option');
             if (!target) return;
+            // Don't close menu when hovering over submenu parent
+            if (target.classList.contains('menu-has-submenu')) return;
             const action = target.dataset.action;
             if (!action) return;
             hideMenus();
@@ -6416,6 +6418,8 @@ class LEDRasterApp {
     updateShortcutLabels() {
         const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform) || /Mac/.test(navigator.userAgent);
         document.querySelectorAll('.menu-option[data-label]').forEach(option => {
+            // Skip options with submenus — they manage their own content
+            if (option.classList.contains('menu-has-submenu')) return;
             const label = option.getAttribute('data-label') || '';
             const shortcut = isMac ? option.getAttribute('data-shortcut-mac') : option.getAttribute('data-shortcut-win');
             if (shortcut) {
