@@ -1,6 +1,12 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.4.10 - April 1, 2026
+----------------------------
+- FIX: Recent Files label no longer disappears when files are present.
+  Label text now in a span element preserved across shortcut label rewrites.
+- Removed Clear Recent Files option. Removed unused handler.
+
 v0.7.4.9 - April 1, 2026
 ----------------------------
 - FIX: Recent Files submenu no longer destroyed by updateShortcutLabels().

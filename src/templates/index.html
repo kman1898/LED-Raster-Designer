@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED Raster Designer v0.7.4.9</title>
+    <title>LED Raster Designer v0.7.4.10</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -20,11 +20,10 @@
             <div class="menu-option" data-action="open" data-label="Open" data-shortcut-mac="Cmd+O" data-shortcut-win="Ctrl+O"></div>
             <div class="menu-option" data-action="save" data-label="Save" data-shortcut-mac="Cmd+S" data-shortcut-win="Ctrl+S"></div>
             <div class="menu-divider"></div>
-            <div class="menu-option menu-has-submenu" data-action="recent-files" data-label="Recent Files">
+            <div class="menu-option menu-has-submenu" data-action="recent-files">
+                <span class="menu-label-text">Recent Files</span>
                 <div id="recent-files-submenu" class="menu-submenu">
                     <div id="recent-files-list"></div>
-                    <div class="menu-divider" id="recent-files-divider" style="display:none;"></div>
-                    <div class="menu-option" data-action="clear-recent" data-label="Clear Recent Files"></div>
                 </div>
             </div>
             <div class="menu-divider"></div>
@@ -74,7 +73,7 @@
 
         <div id="toolbar">
             <div class="toolbar-section toolbar-project">
-                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.7.4.9</span></h1>
+                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.7.4.10</span></h1>
                 <input type="text" id="project-name" value="Untitled Project" class="editable-project-name">
             </div>
             <div class="toolbar-section toolbar-actions">

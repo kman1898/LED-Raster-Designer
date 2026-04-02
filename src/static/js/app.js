@@ -6498,9 +6498,6 @@ class LEDRasterApp {
             case 'about':
                 this.openAboutModal();
                 break;
-            case 'clear-recent':
-                this.clearRecentFiles();
-                break;
             default:
                 if (action && action.startsWith('recent-file-')) {
                     const idx = parseInt(action.replace('recent-file-', ''), 10);
