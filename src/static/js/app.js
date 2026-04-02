@@ -5698,11 +5698,15 @@ class LEDRasterApp {
         const mainCanvas = window.canvasRenderer.canvas;
         const originalCtx = window.canvasRenderer.ctx;
         
+        // Check if transparent background is requested
+        const transparentBg = document.getElementById('export-transparent-bg');
+        const useTransparentBg = transparentBg && transparentBg.checked;
+
         // Create a fresh offscreen canvas at exact raster size
         const exportCanvas = document.createElement('canvas');
         exportCanvas.width = rasterWidth;
         exportCanvas.height = rasterHeight;
-        const exportCtx = exportCanvas.getContext('2d', { alpha: false });
+        const exportCtx = exportCanvas.getContext('2d', { alpha: useTransparentBg });
         
         // Swap to export canvas
         window.canvasRenderer.canvas = exportCanvas;
@@ -5715,6 +5719,7 @@ class LEDRasterApp {
         
         // Enable export mode (hides grid and raster boundary)
         window.canvasRenderer.exportMode = true;
+        window.canvasRenderer.exportTransparentBg = useTransparentBg;
         
         // Render each view and collect images
         const renderedViews = [];
@@ -5746,6 +5751,7 @@ class LEDRasterApp {
         window.canvasRenderer.canvas = mainCanvas;
         window.canvasRenderer.ctx = originalCtx;
         window.canvasRenderer.exportMode = false;
+        window.canvasRenderer.exportTransparentBg = false;
         window.canvasRenderer.viewMode = originalViewMode;
         window.canvasRenderer.zoom = originalZoom;
         window.canvasRenderer.panX = originalPanX;
@@ -6402,6 +6408,9 @@ class LEDRasterApp {
             });
             this.globalContextMenuBound = true;
         }
+
+        // Populate recent files submenu
+        this.updateRecentFilesMenu();
     }
 
     updateShortcutLabels() {
@@ -6485,7 +6494,14 @@ class LEDRasterApp {
             case 'about':
                 this.openAboutModal();
                 break;
+            case 'clear-recent':
+                this.clearRecentFiles();
+                break;
             default:
+                if (action && action.startsWith('recent-file-')) {
+                    const idx = parseInt(action.replace('recent-file-', ''), 10);
+                    this.loadRecentFile(idx);
+                }
                 break;
         }
     }
@@ -6522,6 +6538,159 @@ class LEDRasterApp {
             if (e.target === modal) modal.style.display = 'none';
         };
     }
+
+    // ── Recent Files ──────────────────────────────────────────────
+
+    getRecentFiles() {
+        try {
+            return JSON.parse(localStorage.getItem('ledRasterRecentFiles') || '[]');
+        } catch (e) {
+            return [];
+        }
+    }
+
+    saveRecentFiles(files) {
+        localStorage.setItem('ledRasterRecentFiles', JSON.stringify(files));
+    }
+
+    addToRecentFiles(projectData) {
+        if (!projectData || !projectData.name) return;
+        const recent = this.getRecentFiles();
+        // Remove existing entry with the same name
+        const filtered = recent.filter(f => f.name !== projectData.name);
+        // Add to front
+        filtered.unshift({
+            name: projectData.name,
+            timestamp: Date.now(),
+            layerCount: projectData.layers ? projectData.layers.length : 0,
+            data: projectData
+        });
+        // Keep max 10
+        this.saveRecentFiles(filtered.slice(0, 10));
+        this.updateRecentFilesMenu();
+    }
+
+    clearRecentFiles() {
+        this.saveRecentFiles([]);
+        this.updateRecentFilesMenu();
+    }
+
+    updateRecentFilesMenu() {
+        const list = document.getElementById('recent-files-list');
+        const divider = document.getElementById('recent-files-divider');
+        if (!list) return;
+        list.innerHTML = '';
+        const recent = this.getRecentFiles();
+        if (recent.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'recent-files-empty';
+            empty.textContent = 'No recent files';
+            list.appendChild(empty);
+            if (divider) divider.style.display = 'none';
+            return;
+        }
+        if (divider) divider.style.display = '';
+        recent.forEach((file, idx) => {
+            const item = document.createElement('div');
+            item.className = 'menu-option';
+            item.setAttribute('data-action', `recent-file-${idx}`);
+            const date = new Date(file.timestamp);
+            const dateStr = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+            item.innerHTML = `<div class="recent-file-item"><span class="recent-file-name">${this.escapeHtml(file.name)}</span><span class="recent-file-date">${dateStr} &middot; ${file.layerCount || 0} layers</span></div>`;
+            item.addEventListener('click', (e) => {
+                e.stopPropagation();
+                // Hide all menus
+                document.querySelectorAll('.menu-dropdown').forEach(m => m.style.display = 'none');
+                document.querySelectorAll('#menu-bar .menu-item').forEach(m => m.classList.remove('active'));
+                this.loadRecentFile(idx);
+            });
+            list.appendChild(item);
+        });
+    }
+
+    escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
+    loadRecentFile(idx) {
+        const recent = this.getRecentFiles();
+        if (idx < 0 || idx >= recent.length) return;
+        const file = recent[idx];
+        if (!file || !file.data) {
+            alert('Recent file data is unavailable.');
+            return;
+        }
+        try {
+            this.resetApplicationState();
+            this.project = file.data;
+            if (this.project.layers) {
+                this.project.layers.forEach(layer => {
+                    this.applyMissingLayerDefaults(layer);
+                    this.normalizeLoadedPowerFlowPattern(layer);
+                });
+            }
+            if (file.data.raster_width && file.data.raster_height) {
+                window.canvasRenderer.rasterWidth = file.data.raster_width;
+                window.canvasRenderer.rasterHeight = file.data.raster_height;
+                document.getElementById('toolbar-raster-width').value = file.data.raster_width;
+                document.getElementById('toolbar-raster-height').value = file.data.raster_height;
+                this.saveRasterSize();
+            }
+            this.updateUI();
+            if (this.project.layers && this.project.layers.length > 0) {
+                this.selectLayer(this.project.layers[0]);
+            }
+            this.saveClientSideProperties();
+            window.canvasRenderer.fitToView();
+
+            fetch('/api/project', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(this.project)
+            })
+                .then(res => res.json())
+                .then(data => {
+                    if (!data || !Array.isArray(data.layers)) {
+                        throw new Error('Invalid project data returned from server');
+                    }
+                    this.project = data;
+                    this.dedupeProjectLayers('load_recent_file');
+                    if (this.project.layers) {
+                        this.project.layers.forEach(layer => {
+                            this.applyMissingLayerDefaults(layer);
+                            this.normalizeLoadedPowerFlowPattern(layer);
+                        });
+                    }
+                    this.updateUI();
+                    if (this.project.layers && this.project.layers.length > 0) {
+                        this.selectLayer(this.project.layers[0]);
+                    }
+                    this.saveClientSideProperties();
+                    window.canvasRenderer.fitToView();
+                    this.updateLayers(this.project.layers, false, 'Recent File Load Sync');
+                    this.resetHistory('Initial State');
+                    document.getElementById('status-message').textContent = 'Project loaded from recent files';
+                    setTimeout(() => {
+                        document.getElementById('status-message').textContent = 'Ready';
+                    }, 2000);
+                })
+                .catch((err) => {
+                    this.resetHistory('Initial State');
+                    document.getElementById('status-message').textContent = 'Project loaded (server sync failed)';
+                    setTimeout(() => {
+                        document.getElementById('status-message').textContent = 'Ready';
+                    }, 2000);
+                });
+            // Update timestamp so it moves to top of recent list
+            this.addToRecentFiles(file.data);
+        } catch (error) {
+            alert('Error loading recent file: ' + error.message);
+        }
+    }
+
+    // ── End Recent Files ─────────────────────────────────────────
 
     openExportModalWithFormat(format) {
         const modal = document.getElementById('export-modal');
@@ -7808,7 +7977,8 @@ class LEDRasterApp {
         const projectData = JSON.stringify(this.project, null, 2);
         const blob = new Blob([projectData], { type: 'application/json' });
         await this.saveBlobWithPicker(blob, `${this.project.name}.json`, 'application/json');
-        
+
+        this.addToRecentFiles(this.project);
         document.getElementById('status-message').textContent = 'Project saved to file';
         setTimeout(() => {
             document.getElementById('status-message').textContent = 'Ready';
@@ -7889,6 +8059,7 @@ class LEDRasterApp {
                                 setTimeout(() => {
                                     document.getElementById('status-message').textContent = 'Ready';
                                 }, 2000);
+                                this.addToRecentFiles(this.project);
                                 sendClientLog('load_project_file_success', { name: this.project.name, layers: this.project.layers ? this.project.layers.length : 0 });
                             })
                             .catch((err) => {

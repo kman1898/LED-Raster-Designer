@@ -1,6 +1,13 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.4.8 - April 1, 2026
+----------------------------
+- FEATURE: Recent Files submenu under File menu. Tracks last 10 opened/saved projects
+  in localStorage. Click to reload any recent project instantly.
+- FEATURE: Transparent Background export option (#25). Checkbox in export modal removes
+  the black background from PNG and PSD exports, rendering with alpha transparency.
+
 v0.7.4.7 - April 1, 2026
 ----------------------------
 - REVERT: Removed #20 focus preservation fixes — issue not reproducible on macOS.

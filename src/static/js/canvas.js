@@ -20,6 +20,7 @@ class CanvasRenderer {
         this.showGrid = true;
         this.viewMode = 'pixel-map'; // Default view mode
         this.exportMode = false; // When true, hides grid and raster boundary for clean export
+        this.exportTransparentBg = false; // When true, export renders with transparent background
         
         // Label display settings
         this.showLabelName = true;
@@ -995,9 +996,13 @@ class CanvasRenderer {
         if (this.layerSelectionRect && !this.isSelectingLayers && !this.isSelectingPanels && !this.isDraggingLayer) {
             this.layerSelectionRect = null;
         }
-        // In export mode, use black background; otherwise use dark gray
-        this.ctx.fillStyle = this.exportMode ? '#000000' : '#0a0a0a';
-        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        // In export mode with transparent bg, clear to transparent; otherwise fill
+        if (this.exportMode && this.exportTransparentBg) {
+            this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        } else {
+            this.ctx.fillStyle = this.exportMode ? '#000000' : '#0a0a0a';
+            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        }
         
         // Skip grid in export mode
         if (this.showGrid && !this.exportMode) {

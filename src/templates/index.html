@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED Raster Designer v0.7.4.7</title>
+    <title>LED Raster Designer v0.7.4.8</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -19,6 +19,14 @@
             <div class="menu-option" data-action="new" data-label="New" data-shortcut-mac="Cmd+N" data-shortcut-win="Ctrl+N"></div>
             <div class="menu-option" data-action="open" data-label="Open" data-shortcut-mac="Cmd+O" data-shortcut-win="Ctrl+O"></div>
             <div class="menu-option" data-action="save" data-label="Save" data-shortcut-mac="Cmd+S" data-shortcut-win="Ctrl+S"></div>
+            <div class="menu-divider"></div>
+            <div class="menu-option menu-has-submenu" data-action="recent-files" data-label="Recent Files">
+                <div id="recent-files-submenu" class="menu-submenu">
+                    <div id="recent-files-list"></div>
+                    <div class="menu-divider" id="recent-files-divider" style="display:none;"></div>
+                    <div class="menu-option" data-action="clear-recent" data-label="Clear Recent Files"></div>
+                </div>
+            </div>
             <div class="menu-divider"></div>
             <div class="menu-option" data-action="export-png" data-label="Export PNG" data-shortcut-mac="Option+S" data-shortcut-win="Alt+S"></div>
             <div class="menu-option" data-action="export-psd" data-label="Export PSD" data-shortcut-mac="Cmd+Option+S" data-shortcut-win="Ctrl+Alt+S"></div>
@@ -66,7 +74,7 @@
 
         <div id="toolbar">
             <div class="toolbar-section toolbar-project">
-                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.7.4.7</span></h1>
+                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.7.4.8</span></h1>
                 <input type="text" id="project-name" value="Untitled Project" class="editable-project-name">
             </div>
             <div class="toolbar-section toolbar-actions">
@@ -1154,6 +1162,16 @@
                 <div style="margin-top: 6px; font-size: 11px; color: #777;">Suffixes are saved as defaults for next time.</div>
             </div>
             
+            <!-- Export Options -->
+            <div id="export-options-section" style="margin-bottom: 18px;">
+                <label style="display: block; margin-bottom: 8px; color: #ccc; font-size: 13px;">Options:</label>
+                <label style="display: flex; align-items: center; gap: 8px; color: #ccc; font-size: 13px; cursor: pointer;">
+                    <input type="checkbox" id="export-transparent-bg">
+                    Transparent Background
+                </label>
+                <div style="margin-top: 4px; font-size: 11px; color: #777;">Removes the black background. Supported by PNG and PSD.</div>
+            </div>
+
             <!-- Export Format -->
             <div style="margin-bottom: 18px;">
                 <label style="display: block; margin-bottom: 6px; color: #ccc; font-size: 13px;">Export Format:</label>
