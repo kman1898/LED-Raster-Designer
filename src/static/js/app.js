@@ -6567,7 +6567,8 @@ class LEDRasterApp {
             data: projectData
         });
         // Keep max 10
-        this.saveRecentFiles(filtered.slice(0, 10));
+        // Keep max 20 recent files
+        this.saveRecentFiles(filtered.slice(0, 20));
         this.updateRecentFilesMenu();
     }
 
