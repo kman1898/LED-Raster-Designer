@@ -4483,7 +4483,23 @@ class LEDRasterApp {
                 const refreshed = this.project.layers.find(l => l.id === this.currentLayer.id);
                 if (refreshed) this.currentLayer = refreshed;
             }
+            // Preserve focus across UI rebuild so sidebar field editing isn't interrupted
+            const focused = document.activeElement;
+            const focusedId = focused ? focused.id : null;
+            const focusedTag = focused ? focused.tagName : null;
+            const selStart = focused && focused.selectionStart != null ? focused.selectionStart : null;
+            const selEnd = focused && focused.selectionEnd != null ? focused.selectionEnd : null;
             this.updateUI();
+            // Restore focus if the element still exists
+            if (focusedId && (focusedTag === 'INPUT' || focusedTag === 'TEXTAREA' || focusedTag === 'SELECT')) {
+                const el = document.getElementById(focusedId);
+                if (el) {
+                    el.focus();
+                    if (selStart != null && el.setSelectionRange) {
+                        try { el.setSelectionRange(selStart, selEnd); } catch (e) { /* ignore */ }
+                    }
+                }
+            }
             if (window.canvasRenderer) {
                 if (window.canvasRenderer.viewMode === 'power') {
                     this.updatePowerCapacityDisplay();

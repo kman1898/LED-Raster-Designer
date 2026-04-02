@@ -720,6 +720,18 @@ class CanvasRenderer {
         const rect = this.canvas.getBoundingClientRect();
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
+
+        // If horizontal scroll dominates (trackpad swipe), pan instead of zoom
+        if (Math.abs(e.deltaX) > Math.abs(e.deltaY) && Math.abs(e.deltaX) > 1) {
+            this.panX -= e.deltaX;
+            this.panY -= e.deltaY;
+            this.render();
+            return;
+        }
+
+        // Ignore tiny deltaY to avoid accidental zoom during horizontal swipes
+        if (Math.abs(e.deltaY) < 1) return;
+
         // Further reduced sensitivity: 1.025 instead of 1.05 (50% less again)
         const zoomFactor = e.deltaY < 0 ? 1.025 : 0.975;
         const newZoom = Math.max(0.01, Math.min(500.0, this.zoom * zoomFactor));  // Max 50000% for pixel-level zoom

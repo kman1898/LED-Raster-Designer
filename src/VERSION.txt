@@ -1,6 +1,14 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.4.4 - April 1, 2026
+----------------------------
+- FIX: Sidebar field focus no longer stolen when canvas redraws after property changes.
+  Focus and cursor position are preserved across UI rebuilds. (Fixes #20)
+- FIX: Horizontal trackpad scroll now pans the canvas instead of zooming out.
+  Only vertical scroll triggers zoom. Tiny deltaY values ignored to prevent
+  accidental zoom during horizontal swipes. (Fixes #6)
+
 v0.7.4.3 - April 1, 2026
 ----------------------------
 - FIX: Per-tab Screen Name checkboxes are now independent — unchecking on one tab no longer
