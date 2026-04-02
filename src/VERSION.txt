@@ -1,6 +1,12 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.4.5 - April 1, 2026
+----------------------------
+- CHANGE: Port cycling shortcut changed from Shift+B/N to Tab/Shift+Tab.
+  Only activates when custom mode is enabled and canvas has focus (not in sidebar fields).
+  Updated Edit menu, context menu, and keyboard shortcuts dialog.
+
 v0.7.4.4 - April 1, 2026
 ----------------------------
 - FIX: Sidebar field focus no longer stolen when canvas redraws after property changes.

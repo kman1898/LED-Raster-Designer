@@ -820,8 +820,8 @@ class CanvasRenderer {
             }
         }
 
-        // Shift+N - Next port (custom flow)
-        if (e.shiftKey && !e.metaKey && !e.ctrlKey && e.code === 'KeyN' && !isTyping) {
+        // Tab - Next port (custom flow/power, only when custom mode active)
+        if (e.code === 'Tab' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !isTyping) {
             if (window.app && window.app.currentLayer && window.app.isCustomFlow(window.app.currentLayer)) {
                 e.preventDefault();
                 const layer = window.app.currentLayer;
@@ -842,8 +842,8 @@ class CanvasRenderer {
             }
         }
 
-        // Shift+B - Previous port (custom flow)
-        if (e.shiftKey && !e.metaKey && !e.ctrlKey && e.code === 'KeyB' && !isTyping) {
+        // Shift+Tab - Previous port (custom flow/power, only when custom mode active)
+        if (e.code === 'Tab' && e.shiftKey && !e.metaKey && !e.ctrlKey && !isTyping) {
             if (window.app && window.app.currentLayer && window.app.isCustomFlow(window.app.currentLayer)) {
                 e.preventDefault();
                 const layer = window.app.currentLayer;
