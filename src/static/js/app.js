@@ -4483,23 +4483,7 @@ class LEDRasterApp {
                 const refreshed = this.project.layers.find(l => l.id === this.currentLayer.id);
                 if (refreshed) this.currentLayer = refreshed;
             }
-            // Preserve focus across UI rebuild so sidebar field editing isn't interrupted
-            const focused = document.activeElement;
-            const focusedId = focused ? focused.id : null;
-            const focusedTag = focused ? focused.tagName : null;
-            const selStart = focused && focused.selectionStart != null ? focused.selectionStart : null;
-            const selEnd = focused && focused.selectionEnd != null ? focused.selectionEnd : null;
             this.updateUI();
-            // Restore focus if the element still exists
-            if (focusedId && (focusedTag === 'INPUT' || focusedTag === 'TEXTAREA' || focusedTag === 'SELECT')) {
-                const el = document.getElementById(focusedId);
-                if (el) {
-                    el.focus();
-                    if (selStart != null && el.setSelectionRange) {
-                        try { el.setSelectionRange(selStart, selEnd); } catch (e) { /* ignore */ }
-                    }
-                }
-            }
             if (window.canvasRenderer) {
                 if (window.canvasRenderer.viewMode === 'power') {
                     this.updatePowerCapacityDisplay();
@@ -6932,14 +6916,6 @@ class LEDRasterApp {
         const list = document.getElementById('port-label-list');
         if (!list) return;
 
-        // Preserve in-progress edits in focused port label inputs
-        const focused = document.activeElement;
-        const focusedId = focused ? focused.id : null;
-        let pendingValue = null;
-        if (focusedId && focusedId.match(/^port-label-(primary|return)-\d+$/)) {
-            pendingValue = focused.value;
-        }
-
         let portsRequired = this.currentLayer._portsRequired || 0;
         if (portsRequired <= 0) {
             this.updatePortCapacityDisplay();
@@ -6986,7 +6962,6 @@ class LEDRasterApp {
 
             const primaryInput = document.createElement('input');
             primaryInput.type = 'text';
-            primaryInput.id = `port-label-primary-${portNum}`;
             primaryInput.value = (this.currentLayer.portLabelOverridesPrimary && this.currentLayer.portLabelOverridesPrimary[portNum]) || '';
             primaryInput.placeholder = this.getPortLabelText(this.currentLayer, portNum, 'primary');
             primaryInput.style.padding = '4px 6px';
@@ -7013,7 +6988,6 @@ class LEDRasterApp {
 
             const returnInput = document.createElement('input');
             returnInput.type = 'text';
-            returnInput.id = `port-label-return-${portNum}`;
             returnInput.value = (this.currentLayer.portLabelOverridesReturn && this.currentLayer.portLabelOverridesReturn[portNum]) || '';
             returnInput.placeholder = this.getPortLabelText(this.currentLayer, portNum, 'return');
             returnInput.style.padding = '4px 6px';
@@ -7043,13 +7017,6 @@ class LEDRasterApp {
             row.appendChild(primaryInput);
             row.appendChild(returnInput);
             list.appendChild(row);
-        }
-        // Restore in-progress value to the focused port label input
-        if (focusedId && pendingValue != null) {
-            const el = document.getElementById(focusedId);
-            if (el) {
-                el.value = pendingValue;
-            }
         }
     }
 
