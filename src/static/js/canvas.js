@@ -1073,10 +1073,10 @@ class CanvasRenderer {
                 dynamicLines.push(`Circuits: ${pwr.circuits} @ ${pwr.voltage}V`);
             }
             if (layer.showSinglePhase && pwr.circuits > 0) {
-                dynamicLines.push(`1-Phase: ${pwr.singlePhaseAmps}A`);
+                dynamicLines.push(`1-Phase: ${pwr.singlePhaseAmps.toFixed(2)}A`);
             }
             if (layer.showThreePhase && pwr.circuits >= 3) {
-                dynamicLines.push(`3-Phase: ${pwr.threePhaseAmps}A (${Math.ceil(pwr.circuits / 3)}/phase)`);
+                dynamicLines.push(`3-Phase: ${pwr.threePhaseAmps.toFixed(2)}A`);
             }
         }
         if (dynamicLines.length > 0) {

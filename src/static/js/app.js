@@ -3861,7 +3861,6 @@ class LEDRasterApp {
         let totalCircuits = 0;
         let totalWattsAll = 0;
         const voltages = new Set();
-        const amperages = new Set();
         this.project.layers.forEach(layer => {
             if ((layer.type || 'screen') !== 'screen') return;
             if (!layer.visible) return;
@@ -3871,8 +3870,8 @@ class LEDRasterApp {
             const amperage = Number(layer.powerAmperage) || 20;
             const panelWatts = Number(layer.panelWatts) || 200;
             voltages.add(voltage);
-            amperages.add(amperage);
-            const layerWatts = activePanels.length * panelWatts;
+            const equivalentPanels = activePanels.reduce((sum, p) => sum + this.getPanelLoadFactor(layer, p), 0);
+            const layerWatts = panelWatts * equivalentPanels;
             totalWattsAll += layerWatts;
             const circuitWatts = voltage * amperage;
             if (circuitWatts > 0) {
@@ -3880,9 +3879,8 @@ class LEDRasterApp {
             }
         });
         const voltage = [...voltages][0] || 110;
-        const amperage = [...amperages][0] || 20;
-        const singlePhaseAmps = totalCircuits * amperage;
-        const threePhaseAmps = Math.ceil(totalCircuits / 3) * amperage;
+        const singlePhaseAmps = voltage > 0 ? totalWattsAll / voltage : 0;
+        const threePhaseAmps = voltage > 0 ? totalWattsAll / (voltage * 1.73) : 0;
         return { circuits: totalCircuits, totalWatts: totalWattsAll, singlePhaseAmps, threePhaseAmps, voltage };
     }
 
