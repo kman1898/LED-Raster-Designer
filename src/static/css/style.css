@@ -332,6 +332,63 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 #canvas-wrapper { flex: 1; overflow: hidden; position: relative; background: #0a0a0a; }
 #main-canvas { position: absolute; cursor: default; }
 #status-bar { background: #2a2a2a; border-top: 1px solid #3a3a3a; padding: 6px 20px; display: flex; justify-content: space-between; font-size: 11px; color: #888; height: 28px; }
+/* Project Notes Panel */
+#notes-panel {
+    background: #1e1e1e;
+    border-top: 1px solid #3a3a3a;
+    width: 260px;
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    min-height: 36px;
+    max-height: 50vh;
+    height: 150px;
+    resize: vertical;
+    overflow: hidden;
+}
+#notes-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid #3a3a3a;
+    font-size: 13px;
+    font-weight: 600;
+    color: #ccc;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+#notes-panel-body {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+    overflow: hidden;
+}
+#project-notes {
+    width: 100%;
+    height: 100%;
+    background: #141414;
+    border: none;
+    color: #ccc;
+    padding: 8px 12px;
+    font-size: 12px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    line-height: 1.5;
+    resize: none;
+    outline: none;
+}
+#project-notes::placeholder {
+    color: #555;
+}
+#notes-panel.collapsed {
+    min-height: 36px;
+    max-height: 36px;
+    resize: none;
+}
+#notes-panel.collapsed #notes-panel-body {
+    display: none;
+}
+
 #help-tooltip-panel {
     background: #1e1e1e;
     border-top: 1px solid #3a3a3a;
@@ -602,4 +659,15 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     color: #fff;
     border-radius: 4px;
     box-sizing: border-box;
+}
+
+/* Text style toggle buttons (Bold/Italic/Underline) */
+.text-style-btn.active {
+    background: #2a6dd4 !important;
+    border-color: #4a8df0 !important;
+    color: #fff !important;
+}
+.text-style-btn:hover {
+    background: #2a2a2a;
+    border-color: #555;
 }

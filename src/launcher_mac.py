@@ -24,13 +24,20 @@ from launcher_settings import (
     load_settings, save_settings, get_network_interfaces, set_run_at_login
 )
 
+# Global reference to socketio for server restart
+_socketio = None
+_app = None
+
 
 def start_flask_server(settings):
     """Import and run the Flask app in a background thread."""
+    global _socketio, _app
     host = settings.get('interface', '127.0.0.1')
     port = int(settings.get('port', 8050))
 
     from app import app, socketio, log_event
+    _socketio = socketio
+    _app = app
     log_event('server_start', {
         'port': port,
         'host': host,
@@ -39,6 +46,17 @@ def start_flask_server(settings):
     })
     socketio.run(app, host=host, port=port, debug=False,
                  allow_unsafe_werkzeug=True)
+
+
+def restart_flask_server(settings):
+    """Stop the current server and start a new one with updated settings."""
+    global _socketio
+    if _socketio:
+        _socketio.stop()
+        # Give it a moment to release the port
+        time.sleep(0.5)
+    server_thread = threading.Thread(target=start_flask_server, args=(settings,), daemon=True)
+    server_thread.start()
 
 
 def get_display_url(settings):
@@ -121,10 +139,14 @@ def run_menubar(settings):
                     if isinstance(item, rumps.MenuItem):
                         item.state = 0
                 sender.state = 1
+                # Restart server with new interface
+                restart_flask_server(self.settings)
+                # Update status in menu
+                self._build_menu()
                 rumps.notification(
                     'LED Raster Designer',
                     'Network interface changed',
-                    f'Restart the app for the change to take effect.\nNew interface: {ip}',
+                    f'Server restarted on {ip}',
                 )
             return callback
 
@@ -145,10 +167,13 @@ def run_menubar(settings):
                     if 1024 <= new_port <= 65535:
                         self.settings['port'] = new_port
                         save_settings(self.settings)
+                        # Restart server with new port
+                        restart_flask_server(self.settings)
+                        self._build_menu()
                         rumps.notification(
                             'LED Raster Designer',
                             'Port changed',
-                            f'Restart the app for the change to take effect.\nNew port: {new_port}',
+                            f'Server restarted on port {new_port}',
                         )
                     else:
                         rumps.notification(

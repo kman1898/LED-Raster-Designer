@@ -410,6 +410,61 @@ def create_image_layer(name, image_data, image_width, image_height, offset_x=0, 
     next_layer_id += 1
     return layer
 
+def create_text_layer(name, text_content='', offset_x=0, offset_y=0, text_width=400, text_height=100):
+    global next_layer_id
+    layer = {
+        'id': next_layer_id,
+        'type': 'text',
+        'name': name,
+        'visible': True,
+        'offset_x': offset_x,
+        'offset_y': offset_y,
+        'textContent': text_content,
+        'textContentPixelMap': text_content,
+        'textContentCabinetId': '',
+        'textContentDataFlow': '',
+        'textContentPower': '',
+        'textWidth': text_width,
+        'textHeight': text_height,
+        'fontSize': 24,
+        'fontFamily': 'Arial',
+        'fontColor': '#ffffff',
+        'bgColor': '#000000',
+        'bgOpacity': 0.7,
+        'textAlign': 'left',
+        'textPadding': 12,
+        'showBorder': True,
+        'borderColor': '#555555',
+        'showOnPixelMap': True,
+        'showOnCabinetId': True,
+        'showOnDataFlow': True,
+        'showOnPower': True,
+        'showRasterSize': False,
+        'showProjectName': False,
+        'showDate': False,
+        'showPrimaryPorts': False,
+        'showBackupPorts': False,
+        'showCircuits': False,
+        'showSinglePhase': False,
+        'showThreePhase': False,
+        'fontBold': False,
+        'fontItalic': False,
+        'fontUnderline': False,
+        # Keep label/panel fields empty
+        'showLabelName': False,
+        'showLabelSizePx': False,
+        'showLabelSizeM': False,
+        'showLabelSizeFt': False,
+        'showLabelWeight': False,
+        'showLabelInfo': False,
+        'labelsColor': '#ffffff',
+        'labelsFontSize': 30,
+        'infoLabelSize': 14,
+        'panels': []
+    }
+    next_layer_id += 1
+    return layer
+
 @app.route('/')
 def index():
     # Initialize default layer if project is empty
@@ -591,6 +646,29 @@ def add_image_layer():
     socketio.emit('layer_added', layer)
     return jsonify(layer)
 
+@app.route('/api/layer/add-text', methods=['POST'])
+def add_text_layer():
+    data = request.json or {}
+    layer = create_text_layer(
+        name=data.get('name', f'Text{len(current_project["layers"]) + 1}'),
+        text_content=data.get('textContent', ''),
+        offset_x=data.get('offset_x', 0),
+        offset_y=data.get('offset_y', 0),
+        text_width=data.get('textWidth', 400),
+        text_height=data.get('textHeight', 100)
+    )
+    for key in ('fontSize', 'fontFamily', 'fontColor', 'bgColor', 'bgOpacity',
+                'textAlign', 'textPadding', 'showBorder', 'borderColor',
+                'showOnPixelMap', 'showOnCabinetId', 'showOnDataFlow', 'showOnPower',
+                'showRasterSize'):
+        if key in data:
+            layer[key] = data[key]
+    log_event('add_text_layer', {'name': layer.get('name'), 'id': layer.get('id')})
+    current_project['layers'].append(layer)
+    current_project['is_pristine'] = False
+    socketio.emit('layer_added', layer)
+    return jsonify(layer)
+
 @app.route('/api/layer/<int:layer_id>', methods=['PUT'])
 def update_layer(layer_id):
     data = request.json
@@ -619,7 +697,17 @@ def update_layer(layer_id):
                 'powerLineColor', 'powerArrowColor', 'powerRandomColors', 'powerColorCodedView', 'powerCircuitColors', 'powerLabelSize', 'powerLabelBgColor', 'powerLabelTextColor',
                 'powerLabelTemplate', 'powerLabelOverrides', 'powerCustomPaths', 'powerCustomIndex',
                 'lastPowerFlowPattern', 'type', 'imageData', 'imageWidth', 'imageHeight', 'imageScale',
-                'locked', 'screenNameSizeCabinet', 'screenNameSizeDataFlow', 'screenNameSizePower']:
+                'locked', 'screenNameSizeCabinet', 'screenNameSizeDataFlow', 'screenNameSizePower',
+                'textContent', 'textContentPixelMap', 'textContentCabinetId',
+                'textContentDataFlow', 'textContentPower',
+                'textWidth', 'textHeight', 'fontSize', 'fontFamily',
+                'fontColor', 'bgColor', 'bgOpacity', 'textAlign', 'textPadding',
+                'showBorder', 'borderColor', 'showOnPixelMap', 'showOnCabinetId',
+                'showOnDataFlow', 'showOnPower', 'showRasterSize',
+                'showProjectName', 'showDate',
+                'showPrimaryPorts', 'showBackupPorts',
+                'showCircuits', 'showSinglePhase', 'showThreePhase',
+                'fontBold', 'fontItalic', 'fontUnderline']:
         if key in data:
             layer[key] = data[key]
 
@@ -640,7 +728,7 @@ def update_layer(layer_id):
     log_event('update_layer', {'id': layer_id, 'name': layer.get('name', '?'), 'changed': changed_values})
     
     # Only regenerate panels if grid size or cabinet size changes (not offset)
-    if layer.get('type') != 'image' and (
+    if layer.get('type') not in ('image', 'text') and (
         'columns' in data or 'rows' in data or 'cabinet_width' in data or 'cabinet_height' in data
             or 'halfFirstColumn' in data or 'halfLastColumn' in data
             or 'halfFirstRow' in data or 'halfLastRow' in data):

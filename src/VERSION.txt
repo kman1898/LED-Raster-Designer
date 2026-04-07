@@ -1,6 +1,21 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.4.12 - April 6, 2026
+----------------------------
+- FEATURE: Text/Label layer (#24). New layer type for adding text annotations to the canvas.
+  Movable, resizable, with font controls (bold/italic/underline, alignment, size, colors).
+  Per-tab text content — each tab (Pixel Map, Cabinet ID, Data, Power) has its own text.
+  Per-tab visibility checkboxes. Dynamic info toggles: Raster Size, Project Name, Date,
+  Primary Ports, Backup Ports, Circuits, Single Phase, Three Phase.
+- FEATURE: Project Notes panel in right sidebar (#24). Collapsible, resizable textarea
+  between Screens and Help. Notes saved with the project file. Starts collapsed.
+- FEATURE: Seamless server restart when changing network interface or port in the
+  launcher menu. No app restart required — server hot-restarts and clients auto-reconnect.
+- FIX: Remote/LAN file save. When accessing the app from another computer over the
+  network, Save/Export now downloads files to the client browser instead of opening
+  a file dialog on the server machine. Local access still uses native file dialogs.
+
 v0.7.4.11 - April 1, 2026
 ----------------------------
 - CHANGE: Recent Files max limit increased from 10 to 20.

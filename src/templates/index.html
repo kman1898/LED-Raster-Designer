@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED Raster Designer v0.7.4.11</title>
+    <title>LED Raster Designer v0.7.4.12</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -73,7 +73,7 @@
 
         <div id="toolbar">
             <div class="toolbar-section toolbar-project">
-                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.7.4.11</span></h1>
+                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.7.4.12</span></h1>
                 <input type="text" id="project-name" value="Untitled Project" class="editable-project-name">
             </div>
             <div class="toolbar-section toolbar-actions">
@@ -1042,6 +1042,126 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Text Layer Settings (shared across all tabs) -->
+                <div id="text-layer-panel" class="panel text-only" style="display: none;">
+                    <div class="panel-header" data-tooltip="Text Label — Configure text content, font, colors, and per-tab visibility for this text label.">
+                        <h2>Text Label</h2>
+                    </div>
+                    <div class="panel-content">
+                        <div class="info-row">
+                            <label>Text Content <span id="text-layer-tab-indicator" style="color:#888; font-weight:normal; font-size:10px; text-transform:uppercase;"></span></label>
+                            <textarea id="text-layer-content" rows="3" placeholder="Enter text for this tab..." style="width:100%; background:#1a1a1a; border:1px solid #3a3a3a; color:#e0e0e0; padding:6px; border-radius:4px; font-size:12px; resize:vertical;"></textarea>
+                        </div>
+                        <div class="info-row" style="display:flex; gap:8px;">
+                            <div style="flex:1;">
+                                <label>Font Size</label>
+                                <input type="number" id="text-layer-font-size" value="24" min="8" max="200" style="width:100%;">
+                            </div>
+                            <div style="flex:1;">
+                                <label>Align</label>
+                                <select id="text-layer-align" style="width:100%; background:#1a1a1a; border:1px solid #3a3a3a; color:#e0e0e0; padding:6px; border-radius:4px;">
+                                    <option value="left">Left</option>
+                                    <option value="center">Center</option>
+                                    <option value="right">Right</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="info-row" style="display:flex; gap:4px;">
+                            <label style="width:100%; margin-bottom:2px;">Style</label>
+                        </div>
+                        <div style="display:flex; gap:4px; margin-bottom:8px;">
+                            <button type="button" id="text-layer-bold" class="text-style-btn" title="Bold" style="flex:1; padding:4px 0; background:#1a1a1a; border:1px solid #3a3a3a; color:#e0e0e0; border-radius:4px; cursor:pointer; font-weight:bold; font-size:13px;">B</button>
+                            <button type="button" id="text-layer-italic" class="text-style-btn" title="Italic" style="flex:1; padding:4px 0; background:#1a1a1a; border:1px solid #3a3a3a; color:#e0e0e0; border-radius:4px; cursor:pointer; font-style:italic; font-size:13px;">I</button>
+                            <button type="button" id="text-layer-underline" class="text-style-btn" title="Underline" style="flex:1; padding:4px 0; background:#1a1a1a; border:1px solid #3a3a3a; color:#e0e0e0; border-radius:4px; cursor:pointer; text-decoration:underline; font-size:13px;">U</button>
+                        </div>
+                        <div class="info-row" style="display:flex; gap:8px;">
+                            <div style="flex:1;">
+                                <label>Width</label>
+                                <input type="number" id="text-layer-width" value="400" min="50" style="width:100%;">
+                            </div>
+                            <div style="flex:1;">
+                                <label>Height</label>
+                                <input type="number" id="text-layer-height" value="100" min="20" style="width:100%;">
+                            </div>
+                        </div>
+                        <div class="info-row">
+                            <label>Font Color</label>
+                            <div style="display:flex; gap:5px; align-items:center;">
+                                <input type="color" id="text-layer-font-color" value="#ffffff">
+                                <input type="text" id="text-layer-font-color-hex" value="#FFFFFF" maxlength="7" style="width:70px; font-family:monospace; background:#1a1a1a; border:1px solid #3a3a3a; color:#e0e0e0; padding:4px; border-radius:4px;">
+                            </div>
+                        </div>
+                        <div class="info-row">
+                            <label>Background Color</label>
+                            <div style="display:flex; gap:5px; align-items:center;">
+                                <input type="color" id="text-layer-bg-color" value="#000000">
+                                <input type="text" id="text-layer-bg-color-hex" value="#000000" maxlength="7" style="width:70px; font-family:monospace; background:#1a1a1a; border:1px solid #3a3a3a; color:#e0e0e0; padding:4px; border-radius:4px;">
+                            </div>
+                        </div>
+                        <div class="info-row" style="display:flex; gap:8px;">
+                            <div style="flex:1;">
+                                <label>BG Opacity</label>
+                                <input type="number" id="text-layer-bg-opacity" value="0.7" min="0" max="1" step="0.1" style="width:100%;">
+                            </div>
+                            <div style="flex:1;">
+                                <label>Padding</label>
+                                <input type="number" id="text-layer-padding" value="12" min="0" style="width:100%;">
+                            </div>
+                        </div>
+                        <div class="info-row">
+                            <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+                                <input type="checkbox" id="text-layer-show-border" checked> Show Border
+                            </label>
+                        </div>
+                        <div class="info-row" style="margin-top:12px; border-top:1px solid #3a3a3a; padding-top:10px;">
+                            <label style="text-transform:uppercase; font-size:10px; color:#888; margin-bottom:6px; display:block;">Dynamic Info</label>
+                            <label style="display:flex; align-items:center; gap:6px; cursor:pointer; margin-bottom:4px;">
+                                <input type="checkbox" id="text-layer-show-raster-size"> Raster Size
+                            </label>
+                            <label style="display:flex; align-items:center; gap:6px; cursor:pointer; margin-bottom:4px;">
+                                <input type="checkbox" id="text-layer-show-project-name"> Project Name
+                            </label>
+                            <label style="display:flex; align-items:center; gap:6px; cursor:pointer; margin-bottom:4px;">
+                                <input type="checkbox" id="text-layer-show-date"> Date
+                            </label>
+                            <label style="text-transform:uppercase; font-size:10px; color:#666; margin:8px 0 4px; display:block;">Data</label>
+                            <label style="display:flex; align-items:center; gap:6px; cursor:pointer; margin-bottom:4px;">
+                                <input type="checkbox" id="text-layer-show-primary-ports"> Primary Ports
+                            </label>
+                            <label style="display:flex; align-items:center; gap:6px; cursor:pointer; margin-bottom:4px;">
+                                <input type="checkbox" id="text-layer-show-backup-ports"> Backup Ports
+                            </label>
+                            <label style="text-transform:uppercase; font-size:10px; color:#666; margin:8px 0 4px; display:block;">Power</label>
+                            <label style="display:flex; align-items:center; gap:6px; cursor:pointer; margin-bottom:4px;">
+                                <input type="checkbox" id="text-layer-show-circuits"> Circuits
+                            </label>
+                            <label style="display:flex; align-items:center; gap:6px; cursor:pointer; margin-bottom:4px;">
+                                <input type="checkbox" id="text-layer-show-single-phase"> Single Phase
+                            </label>
+                            <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+                                <input type="checkbox" id="text-layer-show-three-phase"> Three Phase
+                            </label>
+                        </div>
+                        <div class="info-row" style="margin-top:12px; border-top:1px solid #3a3a3a; padding-top:10px;">
+                            <label style="text-transform:uppercase; font-size:10px; color:#888; margin-bottom:6px; display:block;">Show On Tabs</label>
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:4px;">
+                                <label style="display:flex; align-items:center; gap:4px; font-size:12px; color:#ccc; cursor:pointer;">
+                                    <input type="checkbox" id="text-layer-show-pixel-map" checked> Pixel Map
+                                </label>
+                                <label style="display:flex; align-items:center; gap:4px; font-size:12px; color:#ccc; cursor:pointer;">
+                                    <input type="checkbox" id="text-layer-show-cabinet-id" checked> Cabinet ID
+                                </label>
+                                <label style="display:flex; align-items:center; gap:4px; font-size:12px; color:#ccc; cursor:pointer;">
+                                    <input type="checkbox" id="text-layer-show-data-flow" checked> Data
+                                </label>
+                                <label style="display:flex; align-items:center; gap:4px; font-size:12px; color:#ccc; cursor:pointer;">
+                                    <input type="checkbox" id="text-layer-show-power" checked> Power
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <div id="canvas-container">
@@ -1085,6 +1205,18 @@
                         </div>
                         <button id="btn-add-layer" class="btn btn-primary full-width" data-tooltip="Add a new LED screen layer">+ Add Screen</button>
                         <button id="btn-add-image" class="btn btn-secondary full-width" style="margin-top: 8px;" data-tooltip="Add an image or logo layer">+ Add Image/Logo</button>
+                        <button id="btn-add-text" class="btn btn-secondary full-width" style="margin-top: 8px;" data-tooltip="Add a text label layer">+ Add Text Label</button>
+                    </div>
+                </div>
+
+                <!-- Project Notes Panel -->
+                <div id="notes-panel" class="collapsed">
+                    <div id="notes-panel-header">
+                        <span>Notes</span>
+                        <button id="notes-toggle" title="Toggle Notes" style="background:none; border:none; color:#888; cursor:pointer; font-size:14px; padding:0 4px;">▶</button>
+                    </div>
+                    <div id="notes-panel-body">
+                        <textarea id="project-notes" placeholder="Add project notes here..."></textarea>
                     </div>
                 </div>
 
