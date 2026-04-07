@@ -3833,26 +3833,21 @@ class LEDRasterApp {
     getPortCounts() {
         if (!this.project || !this.project.layers) return { primary: 0, backup: 0 };
         let totalPrimary = 0;
-        let totalBackup = 0;
         this.project.layers.forEach(layer => {
             if ((layer.type || 'screen') !== 'screen') return;
             if (!layer.visible) return;
+            const activePanels = (layer.panels || []).filter(p => !p.blank && !p.hidden);
+            if (activePanels.length === 0) return;
             const assignments = this.calculatePortAssignments(layer);
             if (!assignments || assignments.length === 0) return;
-            // Count unique port numbers (assignments are per-panel, not per-port)
-            const primaryPorts = new Set();
-            const backupPorts = new Set();
+            const ports = new Set();
             assignments.forEach(a => {
-                if (a.type === 'backup' || a.isBackup) {
-                    backupPorts.add(a.port);
-                } else {
-                    primaryPorts.add(a.port);
-                }
+                if (a && a.port) ports.add(a.port);
             });
-            totalPrimary += primaryPorts.size;
-            totalBackup += backupPorts.size;
+            totalPrimary += ports.size;
         });
-        return { primary: totalPrimary, backup: totalBackup };
+        // Every primary port has a backup/return port
+        return { primary: totalPrimary, backup: totalPrimary };
     }
 
     // Aggregate power stats across all visible screen layers
