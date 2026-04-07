@@ -1,8 +1,12 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
-v0.7.4.14 - April 7, 2026
+v0.7.4.15 - April 7, 2026
 ----------------------------
+- UI: Right sidebar (Screens panel) now spans full height from toolbar to bottom,
+  eliminating wasted space above the layer list.
+- UI: Layer order buttons compacted to single row with smaller "▲ Up" / "▼ Down"
+  buttons, removing the bordered box and label.
 - FIX: Layer name input now stretches to fill available space up to the visibility
   button instead of being fixed at 80px width.
 

@@ -1,6 +1,12 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; overflow: hidden; }
-#app { display: flex; flex-direction: column; height: 100vh; }
+#app { display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto auto auto 1fr auto; height: 100vh; }
+#app > #menu-bar { grid-column: 1 / -1; }
+#app > #toolbar { grid-column: 1 / 2; }
+#app > #view-tabs { grid-column: 1 / 2; }
+#app > #main-container { grid-column: 1 / 2; }
+#app > #right-sidebar { grid-column: 2 / 3; grid-row: 2 / 6; }
+#app > #status-bar { grid-column: 1 / 2; }
 #toolbar { background: #2a2a2a; border-bottom: 1px solid #3a3a3a; padding: 10px 20px; display: flex; justify-content: flex-start; align-items: center; gap: 14px; height: 50px; }
 .toolbar-section { display: flex; gap: 10px; align-items: center; }
 .toolbar-actions { flex: 0 0 auto; }
@@ -24,7 +30,7 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 #main-container { display: flex; flex: 1; overflow: hidden; }
 #left-sidebar, #right-sidebar { background: #252525; width: 260px; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; padding: 10px; border-right: 1px solid #3a3a3a; box-sizing: border-box; }
 #right-sidebar { border-right: none; border-left: 1px solid #3a3a3a; display: flex; flex-direction: column; overflow: hidden; padding: 0; }
-#right-sidebar > .panel { margin: 10px 10px 0 10px; flex: 1; overflow-y: auto; min-height: 0; }
+#right-sidebar > .panel { margin: 0 10px 0 10px; flex: 1; overflow-y: auto; min-height: 0; }
 .panel { background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 6px; margin-bottom: 10px; }
 .panel-header { padding: 12px; border-bottom: 1px solid #3a3a3a; }
 .panel-header h2 { font-size: 12px; color: #4A90E2; text-transform: uppercase; margin: 0; }
@@ -82,10 +88,8 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     line-height: 1;
     font-size: 20px;
 }
-.layer-order-controls { border: 1px solid #3a3a3a; border-radius: 6px; padding: 10px; margin-bottom: 10px; background: #1a1a1a; }
-.layer-order-label { color: #aaa; font-size: 12px; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.6px; }
-.layer-order-buttons { display: flex; gap: 8px; }
-.layer-order-buttons .btn { flex: 1; }
+.layer-order-controls { display: flex; gap: 8px; margin-bottom: 8px; }
+.layer-order-controls .btn { flex: 1; padding: 4px 8px; font-size: 12px; }
 #port-label-list, #power-label-list, #power-circuit-color-list { scrollbar-gutter: stable; }
 
 .color-swatch {

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED Raster Designer v0.7.4.14</title>
+    <title>LED Raster Designer v0.7.4.15</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -73,7 +73,7 @@
 
         <div id="toolbar">
             <div class="toolbar-section toolbar-project">
-                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.7.4.14</span></h1>
+                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.7.4.15</span></h1>
                 <input type="text" id="project-name" value="Untitled Project" class="editable-project-name">
             </div>
             <div class="toolbar-section toolbar-actions">
@@ -1184,50 +1184,47 @@
                     <canvas id="main-canvas"></canvas>
                 </div>
             </div>
+        </div>
 
-            <div id="right-sidebar">
-                <div class="panel">
-                    <div class="panel-header" data-tooltip="Screens — Manage screen and image layers: reorder, lock, add, or remove layers in the design.">
-                        <h2>Screens</h2>
-                    </div>
-                    <div class="panel-content">
-                        <div class="info-row" style="gap: 8px; margin-bottom: 8px; align-items: center;">
-                            <button id="toggle-lock-selected" class="btn btn-secondary" title="Toggle Lock Selected" data-tooltip="Lock or unlock the selected layer">🔒</button>
-                            <span style="color:#888; font-size:12px;">Lock Selected</span>
-                        </div>
-                        <div id="layers-list"></div>
-                        <div id="layer-order-controls" class="layer-order-controls">
-                            <div class="layer-order-label">Layer Order</div>
-                            <div class="layer-order-buttons">
-                                <button id="btn-layer-up" class="btn btn-secondary" data-tooltip="Move selected layer up in draw order">Move Up</button>
-                                <button id="btn-layer-down" class="btn btn-secondary" data-tooltip="Move selected layer down in draw order">Move Down</button>
-                            </div>
-                        </div>
-                        <button id="btn-add-layer" class="btn btn-primary full-width" data-tooltip="Add a new LED screen layer">+ Add Screen</button>
-                        <button id="btn-add-image" class="btn btn-secondary full-width" style="margin-top: 8px;" data-tooltip="Add an image or logo layer">+ Add Image/Logo</button>
-                        <button id="btn-add-text" class="btn btn-secondary full-width" style="margin-top: 8px;" data-tooltip="Add a text label layer">+ Add Text Label</button>
-                    </div>
+        <div id="right-sidebar">
+            <div class="panel">
+                <div class="panel-header" data-tooltip="Screens — Manage screen and image layers: reorder, lock, add, or remove layers in the design.">
+                    <h2>Screens</h2>
                 </div>
-
-                <!-- Project Notes Panel -->
-                <div id="notes-panel" class="collapsed">
-                    <div id="notes-panel-header">
-                        <span>Notes</span>
-                        <button id="notes-toggle" title="Toggle Notes" style="background:none; border:none; color:#888; cursor:pointer; font-size:14px; padding:0 4px;">▶</button>
+                <div class="panel-content">
+                    <div class="info-row" style="gap: 8px; margin-bottom: 8px; align-items: center;">
+                        <button id="toggle-lock-selected" class="btn btn-secondary" title="Toggle Lock Selected" data-tooltip="Lock or unlock the selected layer">🔒</button>
+                        <span style="color:#888; font-size:12px;">Lock Selected</span>
                     </div>
-                    <div id="notes-panel-body">
-                        <textarea id="project-notes" placeholder="Add project notes here..."></textarea>
+                    <div id="layers-list"></div>
+                    <div id="layer-order-controls" class="layer-order-controls">
+                        <button id="btn-layer-up" class="btn btn-secondary" data-tooltip="Move selected layer up in draw order">▲ Up</button>
+                        <button id="btn-layer-down" class="btn btn-secondary" data-tooltip="Move selected layer down in draw order">▼ Down</button>
                     </div>
+                    <button id="btn-add-layer" class="btn btn-primary full-width" data-tooltip="Add a new LED screen layer">+ Add Screen</button>
+                    <button id="btn-add-image" class="btn btn-secondary full-width" style="margin-top: 8px;" data-tooltip="Add an image or logo layer">+ Add Image/Logo</button>
+                    <button id="btn-add-text" class="btn btn-secondary full-width" style="margin-top: 8px;" data-tooltip="Add a text label layer">+ Add Text Label</button>
                 </div>
+            </div>
 
-                <!-- Help Tooltip Panel (Resolume-style) -->
-                <div id="help-tooltip-panel">
-                    <div id="help-tooltip-header">
-                        <span>Help</span>
-                    </div>
-                    <div id="help-tooltip-body">
-                        Move your mouse over the interface element that you would like more info about.
-                    </div>
+            <!-- Project Notes Panel -->
+            <div id="notes-panel" class="collapsed">
+                <div id="notes-panel-header">
+                    <span>Notes</span>
+                    <button id="notes-toggle" title="Toggle Notes" style="background:none; border:none; color:#888; cursor:pointer; font-size:14px; padding:0 4px;">▶</button>
+                </div>
+                <div id="notes-panel-body">
+                    <textarea id="project-notes" placeholder="Add project notes here..."></textarea>
+                </div>
+            </div>
+
+            <!-- Help Tooltip Panel (Resolume-style) -->
+            <div id="help-tooltip-panel">
+                <div id="help-tooltip-header">
+                    <span>Help</span>
+                </div>
+                <div id="help-tooltip-body">
+                    Move your mouse over the interface element that you would like more info about.
                 </div>
             </div>
         </div>
