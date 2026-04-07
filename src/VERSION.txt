@@ -1,6 +1,11 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.4.14 - April 7, 2026
+----------------------------
+- FIX: Layer name input now stretches to fill available space up to the visibility
+  button instead of being fixed at 80px width.
+
 v0.7.4.13 - April 6, 2026
 ----------------------------
 - FEATURE: HTTPS/SSL support. Self-signed certificate auto-generated on first use.

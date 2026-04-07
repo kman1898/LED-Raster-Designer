@@ -8176,8 +8176,8 @@ class LEDRasterApp {
             const lockBadge = layer.locked ? '<span title="Locked" style="margin-left: 6px; color:#bbb;">🔒</span>' : '';
             layerDiv.innerHTML = `
                 <div class="layer-header">
-                    <div style="display:flex; align-items:center; gap:4px;">
-                        <input type="text" class="layer-name-input" data-layer-id="${layer.id}" value="${layer.name}" style="background: transparent; border: 1px solid transparent; color: #e0e0e0; padding: 2px 4px; border-radius: 3px; font-size: 13px; font-weight: 600; width: 80px;">
+                    <div style="display:flex; align-items:center; gap:4px; flex:1; min-width:0;">
+                        <input type="text" class="layer-name-input" data-layer-id="${layer.id}" value="${layer.name}" style="background: transparent; border: 1px solid transparent; color: #e0e0e0; padding: 2px 4px; border-radius: 3px; font-size: 13px; font-weight: 600; flex:1; min-width:0;">
                         ${lockBadge}
                     </div>
                     <div class="layer-controls">
