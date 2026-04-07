@@ -6233,7 +6233,7 @@ class LEDRasterApp {
     }
 
     async saveBlobWithPicker(blob, filename, mimeType) {
-        // 1. Try the File System Access API (Chrome/Edge on localhost or HTTPS)
+        // 1. Try the File System Access API (Chrome/Edge on secure contexts)
         if (window.showSaveFilePicker) {
             try {
                 sendClientLog('save_blob_picker_start', { filename, mimeType });
@@ -6252,29 +6252,23 @@ class LEDRasterApp {
                 throw err;
             }
         }
-        // 2. If on local machine, use native server-side dialogs
-        if (this.isLocalConnection()) {
-            try {
-                const savePath = await this.nativeSelectSavePath(filename);
-                if (!savePath) {
-                    sendClientLog('save_blob_native_dialog_cancelled', { filename });
-                    return;
-                }
-                sendClientLog('save_blob_native_dialog_selected', { filename, savePath });
-                const ok = await this.nativeWriteFile(savePath, blob);
-                if (ok) {
-                    sendClientLog('save_blob_native_dialog_success', { filename, savePath });
-                    return;
-                }
-                sendClientLog('save_blob_native_dialog_write_failed', { filename, savePath });
-                return;
-            } catch (err) {
-                sendClientLog('save_blob_native_dialog_error', { filename, message: err.message });
+        // 2. Use native server-side dialog (opens on the host machine)
+        try {
+            const savePath = await this.nativeSelectSavePath(filename);
+            if (!savePath) {
+                sendClientLog('save_blob_native_dialog_cancelled', { filename });
                 return;
             }
+            sendClientLog('save_blob_native_dialog_selected', { filename, savePath });
+            const ok = await this.nativeWriteFile(savePath, blob);
+            if (ok) {
+                sendClientLog('save_blob_native_dialog_success', { filename, savePath });
+                return;
+            }
+            sendClientLog('save_blob_native_dialog_write_failed', { filename, savePath });
+        } catch (err) {
+            sendClientLog('save_blob_native_dialog_error', { filename, message: err.message });
         }
-        // 3. Remote/LAN access — use browser download
-        this.browserDownload(blob, filename);
     }
 
     async saveMultipleFiles(files) {
@@ -6307,34 +6301,25 @@ class LEDRasterApp {
             sendClientLog('save_multiple_files_picker_success', { count: files.length });
             return;
         }
-        // Local: use native server-side directory picker
-        if (this.isLocalConnection()) {
-            try {
-                const targetDir = await this.nativeSelectDirectory();
-                if (!targetDir) {
-                    sendClientLog('save_multiple_files_native_dialog_cancelled', { count: files.length });
-                    return;
-                }
-                for (const file of files) {
-                    const filePath = `${targetDir.replace(/[\\/]$/, '')}/${file.filename}`;
-                    const ok = await this.nativeWriteFile(filePath, file.blob);
-                    if (!ok) {
-                        sendClientLog('save_multiple_files_native_dialog_write_failed', { file: file.filename, filePath });
-                        throw new Error(`Native write failed for ${file.filename}`);
-                    }
-                }
-                sendClientLog('save_multiple_files_native_dialog_success', { count: files.length, directory: targetDir });
-                return;
-            } catch (err) {
-                sendClientLog('save_multiple_files_native_dialog_error', { message: err.message });
+        // Use native server-side directory picker (opens on the host machine)
+        try {
+            const targetDir = await this.nativeSelectDirectory();
+            if (!targetDir) {
+                sendClientLog('save_multiple_files_native_dialog_cancelled', { count: files.length });
                 return;
             }
+            for (const file of files) {
+                const filePath = `${targetDir.replace(/[\\/]$/, '')}/${file.filename}`;
+                const ok = await this.nativeWriteFile(filePath, file.blob);
+                if (!ok) {
+                    sendClientLog('save_multiple_files_native_dialog_write_failed', { file: file.filename, filePath });
+                    throw new Error(`Native write failed for ${file.filename}`);
+                }
+            }
+            sendClientLog('save_multiple_files_native_dialog_success', { count: files.length, directory: targetDir });
+        } catch (err) {
+            sendClientLog('save_multiple_files_native_dialog_error', { message: err.message });
         }
-        // Remote/LAN: download each file via browser
-        for (const file of files) {
-            this.browserDownload(file.blob, file.filename);
-        }
-        sendClientLog('save_multiple_files_browser_download', { count: files.length });
     }
 
     async downloadRenderedPNGs(renderedViews) {

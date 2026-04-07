@@ -1,6 +1,12 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.4.16 - April 7, 2026
+----------------------------
+- FIX: Restore native save/export dialogs for all connections. Removed the
+  local-only restriction that forced LAN/remote clients to browser downloads.
+  Save As and multi-file export now use the native dialog as before.
+
 v0.7.4.15 - April 7, 2026
 ----------------------------
 - UI: Right sidebar (Screens panel) now spans full height from toolbar to bottom,
