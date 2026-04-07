@@ -1,7 +1,7 @@
 """
 LED Raster Designer - macOS Menu Bar Launcher
 Runs the Flask server in the background and provides a menu bar icon
-with settings for network interface, port, start minimized, and run at login.
+with settings for network interface, port, HTTPS, start minimized, and run at login.
 """
 import sys
 import os
@@ -21,7 +21,8 @@ if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
 from launcher_settings import (
-    load_settings, save_settings, get_network_interfaces, set_run_at_login
+    load_settings, save_settings, get_network_interfaces, set_run_at_login,
+    get_ssl_context, regenerate_ssl_certs
 )
 
 # Global reference to socketio for server restart
@@ -38,14 +39,24 @@ def start_flask_server(settings):
     from app import app, socketio, log_event
     _socketio = socketio
     _app = app
+
+    ssl_ctx = get_ssl_context(settings)
+    protocol = 'https' if ssl_ctx else 'http'
+
     log_event('server_start', {
         'port': port,
         'host': host,
+        'protocol': protocol,
         'launcher': 'mac_menubar',
         'log_dir': os.environ.get('_LRD_LOG_DIR', 'unknown'),
     })
-    socketio.run(app, host=host, port=port, debug=False,
-                 allow_unsafe_werkzeug=True)
+
+    kwargs = dict(host=host, port=port, debug=False, allow_unsafe_werkzeug=True)
+    if ssl_ctx:
+        kwargs['certfile'] = ssl_ctx[0]
+        kwargs['keyfile'] = ssl_ctx[1]
+
+    socketio.run(app, **kwargs)
 
 
 def restart_flask_server(settings):
@@ -64,7 +75,8 @@ def get_display_url(settings):
     host = settings.get('interface', '127.0.0.1')
     port = settings.get('port', 8050)
     display_host = host if host != '0.0.0.0' else '127.0.0.1'
-    return f'http://{display_host}:{port}'
+    protocol = 'https' if settings.get('https_enabled', False) else 'http'
+    return f'{protocol}://{display_host}:{port}'
 
 
 def run_menubar(settings):
@@ -83,8 +95,6 @@ def run_menubar(settings):
 
         def _build_menu(self):
             """Build the full menu with current settings."""
-            url = get_display_url(self.settings)
-
             # Network interface submenu
             interfaces = get_network_interfaces()
             current_iface = self.settings.get('interface', '127.0.0.1')
@@ -102,10 +112,15 @@ def run_menubar(settings):
             port = self.settings.get('port', 8050)
             port_item = rumps.MenuItem(f'Port: {port}', callback=self._change_port)
 
+            # HTTPS toggle
+            https_item = rumps.MenuItem('HTTPS (SSL)', callback=self._toggle_https)
+            https_item.state = 1 if self.settings.get('https_enabled', False) else 0
+
             # Status (disabled)
+            protocol = 'https' if self.settings.get('https_enabled', False) else 'http'
             host = self.settings.get('interface', '127.0.0.1')
             display_host = host if host != '0.0.0.0' else '127.0.0.1'
-            status_item = rumps.MenuItem(f'Running on {display_host}:{port}')
+            status_item = rumps.MenuItem(f'Running on {protocol}://{display_host}:{port}')
             status_item.set_callback(None)
 
             # Toggles
@@ -118,6 +133,7 @@ def run_menubar(settings):
                 None,  # separator
                 network_menu,
                 port_item,
+                https_item,
                 None,  # separator
                 status_item,
                 None,  # separator
@@ -187,6 +203,40 @@ def run_menubar(settings):
                         'Invalid port',
                         'Please enter a valid number.',
                     )
+
+        def _toggle_https(self, sender):
+            """Toggle HTTPS on/off."""
+            sender.state = not sender.state
+            enabled = bool(sender.state)
+            self.settings['https_enabled'] = enabled
+            save_settings(self.settings)
+
+            if enabled:
+                # Generate certs if needed
+                try:
+                    from launcher_settings import ssl_certs_exist, generate_ssl_certs
+                    if not ssl_certs_exist():
+                        generate_ssl_certs()
+                except RuntimeError as e:
+                    sender.state = 0
+                    self.settings['https_enabled'] = False
+                    save_settings(self.settings)
+                    rumps.notification(
+                        'LED Raster Designer',
+                        'HTTPS setup failed',
+                        str(e),
+                    )
+                    return
+
+            # Restart server with new protocol
+            restart_flask_server(self.settings)
+            self._build_menu()
+            protocol = 'HTTPS' if enabled else 'HTTP'
+            rumps.notification(
+                'LED Raster Designer',
+                f'{protocol} enabled',
+                f'Server restarted with {protocol}',
+            )
 
         def _toggle_run_at_login(self, sender):
             sender.state = not sender.state

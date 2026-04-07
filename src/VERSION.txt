@@ -1,6 +1,14 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.4.13 - April 6, 2026
+----------------------------
+- FEATURE: HTTPS/SSL support. Self-signed certificate auto-generated on first use.
+  Toggle in both Mac menu bar and Windows/Linux system tray launchers. Enables the
+  browser File System Access API (native Save As dialog) when accessing over LAN.
+- FEATURE: HTTPS toggle added to Windows/Linux system tray launcher (pystray),
+  matching the Mac menu bar launcher. Status display now shows protocol (http/https).
+
 v0.7.4.12 - April 6, 2026
 ----------------------------
 - FEATURE: Text/Label layer (#24). New layer type for adding text annotations to the canvas.
