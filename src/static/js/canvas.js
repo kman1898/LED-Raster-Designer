@@ -1974,12 +1974,14 @@ class CanvasRenderer {
         const isCustom = (layer.powerFlowPattern || 'tl-h') === 'custom';
         let error = null;
         let circuits = [];
+        let circuitNumKeys = null;
 
         if (isCustom && layer.powerCustomPaths) {
             const circuitNums = Object.keys(layer.powerCustomPaths)
                 .map(n => parseInt(n, 10))
                 .filter(n => (layer.powerCustomPaths[n] || []).length > 0)
                 .sort((a, b) => a - b);
+            circuitNumKeys = circuitNums;
             circuits = circuitNums.map(circuitNum => {
                 const path = layer.powerCustomPaths[circuitNum] || [];
                 return path
@@ -1994,12 +1996,13 @@ class CanvasRenderer {
 
         layer._powerError = error;
         layer._powerCircuits = circuits;
+        layer._powerCircuitNumKeys = circuitNumKeys;
 
         const panelCircuitMap = new Map();
         const panelIndexMap = new Map();
         if (!error) {
             circuits.forEach((circuitPanels, idx) => {
-                const circuitNum = idx + 1;
+                const circuitNum = circuitNumKeys ? circuitNumKeys[idx] : idx + 1;
                 (circuitPanels || []).forEach((panel, panelIdx) => {
                     const key = this.getPowerPanelKey(panel);
                     panelCircuitMap.set(key, circuitNum);
@@ -2072,9 +2075,11 @@ class CanvasRenderer {
                 this.ctx.restore();
                 return;
             }
+            const colorViewKeys = layer._powerCircuitNumKeys;
             layer._powerCircuits.forEach((circuitPanels, idx) => {
                 if (!circuitPanels || circuitPanels.length === 0) return;
-                drawCircuitLabel(circuitPanels[0], circuitPanels[1], idx + 1);
+                const circuitNum = colorViewKeys ? colorViewKeys[idx] : idx + 1;
+                drawCircuitLabel(circuitPanels[0], circuitPanels[1], circuitNum);
             });
             this.ctx.restore();
             return;
