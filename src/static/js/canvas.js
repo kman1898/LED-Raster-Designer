@@ -98,6 +98,14 @@ class CanvasRenderer {
     }
 
     getLayerBounds(layer) {
+        if (layer && (layer.type || 'screen') === 'text') {
+            return {
+                x: Number(layer.offset_x) || 0,
+                y: Number(layer.offset_y) || 0,
+                width: Number(layer.textWidth) || 400,
+                height: Number(layer.textHeight) || 100
+            };
+        }
         if (layer && (layer.type || 'screen') === 'image') {
             const scale = Number(layer.imageScale) || 1;
             const width = (Number(layer.imageWidth) || 0) * scale;
@@ -992,6 +1000,130 @@ class CanvasRenderer {
         this.ctx.imageSmoothingEnabled = prevSmoothing;
     }
     
+    renderTextLayer(layer) {
+        if (!layer) return;
+        // Check per-tab visibility
+        const viewMode = this.viewMode || 'pixel-map';
+        if (viewMode === 'pixel-map' && !layer.showOnPixelMap) return;
+        if (viewMode === 'cabinet-id' && !layer.showOnCabinetId) return;
+        if (viewMode === 'data-flow' && !layer.showOnDataFlow) return;
+        if (viewMode === 'power' && !layer.showOnPower) return;
+
+        const x = Number(layer.offset_x) || 0;
+        const y = Number(layer.offset_y) || 0;
+        const w = Number(layer.textWidth) || 400;
+        const h = Number(layer.textHeight) || 100;
+        const padding = Number(layer.textPadding) || 12;
+        const fontSize = Number(layer.fontSize) || 24;
+        const fontFamily = layer.fontFamily || 'Arial';
+        const fontColor = layer.fontColor || '#ffffff';
+        const bgColor = layer.bgColor || '#000000';
+        const bgOpacity = layer.bgOpacity != null ? Number(layer.bgOpacity) : 0.7;
+        const textAlign = layer.textAlign || 'left';
+
+        // Background
+        this.ctx.save();
+        this.ctx.globalAlpha = bgOpacity;
+        this.ctx.fillStyle = bgColor;
+        this.ctx.fillRect(x, y, w, h);
+        this.ctx.globalAlpha = 1.0;
+
+        // Border
+        if (layer.showBorder) {
+            this.ctx.strokeStyle = layer.borderColor || '#555555';
+            this.ctx.lineWidth = 1;
+            this.ctx.strokeRect(x, y, w, h);
+        }
+
+        // Per-tab text content
+        let text = '';
+        if (viewMode === 'pixel-map') text = layer.textContentPixelMap || layer.textContent || '';
+        else if (viewMode === 'cabinet-id') text = layer.textContentCabinetId || layer.textContent || '';
+        else if (viewMode === 'data-flow') text = layer.textContentDataFlow || layer.textContent || '';
+        else if (viewMode === 'power') text = layer.textContentPower || layer.textContent || '';
+        else text = layer.textContent || '';
+
+        // Append dynamic info lines
+        const dynamicLines = [];
+        if (layer.showRasterSize && window.canvasRenderer) {
+            const rw = window.canvasRenderer.rasterWidth || 1920;
+            const rh = window.canvasRenderer.rasterHeight || 1080;
+            dynamicLines.push(`Raster: ${rw} × ${rh}`);
+        }
+        if (layer.showProjectName && window.app && window.app.project) {
+            dynamicLines.push(window.app.project.name || 'Untitled Project');
+        }
+        if (layer.showDate) {
+            dynamicLines.push(new Date().toLocaleDateString());
+        }
+        // Data port stats
+        if ((layer.showPrimaryPorts || layer.showBackupPorts) && window.app) {
+            const counts = window.app.getPortCounts();
+            if (layer.showPrimaryPorts && counts.primary > 0) {
+                dynamicLines.push(`Primary Ports: ${counts.primary}`);
+            }
+            if (layer.showBackupPorts && counts.backup > 0) {
+                dynamicLines.push(`Backup Ports: ${counts.backup}`);
+            }
+        }
+        // Power stats
+        if ((layer.showCircuits || layer.showSinglePhase || layer.showThreePhase) && window.app) {
+            const pwr = window.app.getPowerCounts();
+            if (layer.showCircuits && pwr.circuits > 0) {
+                dynamicLines.push(`Circuits: ${pwr.circuits} @ ${pwr.voltage}V`);
+            }
+            if (layer.showSinglePhase && pwr.circuits > 0) {
+                dynamicLines.push(`1-Phase: ${pwr.singlePhaseAmps.toFixed(2)}A`);
+            }
+            if (layer.showThreePhase && pwr.circuits >= 3) {
+                dynamicLines.push(`3-Phase: ${pwr.threePhaseAmps.toFixed(2)}A`);
+            }
+        }
+        if (dynamicLines.length > 0) {
+            text = text ? `${text}\n${dynamicLines.join('\n')}` : dynamicLines.join('\n');
+        }
+
+        if (text) {
+            this.ctx.fillStyle = fontColor;
+            // Build font string with bold/italic
+            let fontStyle = '';
+            if (layer.fontItalic) fontStyle += 'italic ';
+            if (layer.fontBold) fontStyle += 'bold ';
+            this.ctx.font = `${fontStyle}${fontSize}px ${fontFamily}`;
+            this.ctx.textBaseline = 'top';
+            this.ctx.textAlign = textAlign;
+
+            const lines = text.split('\n');
+            const lineHeight = fontSize * 1.3;
+            let textX = x + padding;
+            if (textAlign === 'center') textX = x + w / 2;
+            else if (textAlign === 'right') textX = x + w - padding;
+
+            lines.forEach((line, i) => {
+                const ty = y + padding + i * lineHeight;
+                if (ty + lineHeight <= y + h + lineHeight) {
+                    this.ctx.fillText(line, textX, ty);
+                    // Underline
+                    if (layer.fontUnderline && line.length > 0) {
+                        const metrics = this.ctx.measureText(line);
+                        let ulX = textX;
+                        if (textAlign === 'center') ulX = textX - metrics.width / 2;
+                        else if (textAlign === 'right') ulX = textX - metrics.width;
+                        const ulY = ty + fontSize + 2;
+                        this.ctx.beginPath();
+                        this.ctx.strokeStyle = fontColor;
+                        this.ctx.lineWidth = Math.max(1, fontSize / 15);
+                        this.ctx.moveTo(ulX, ulY);
+                        this.ctx.lineTo(ulX + metrics.width, ulY);
+                        this.ctx.stroke();
+                    }
+                }
+            });
+        }
+
+        this.ctx.restore();
+    }
+
     render() {
         if (this.layerSelectionRect && !this.isSelectingLayers && !this.isSelectingPanels && !this.isDraggingLayer) {
             this.layerSelectionRect = null;
@@ -1051,6 +1183,10 @@ class CanvasRenderer {
                     }
                     if ((layer.type || 'screen') === 'image') {
                         this.renderImageLayer(layer);
+                        return;
+                    }
+                    if ((layer.type || 'screen') === 'text') {
+                        this.renderTextLayer(layer);
                         return;
                     }
                     // Note: We don't fill the layer background anymore
@@ -1838,12 +1974,14 @@ class CanvasRenderer {
         const isCustom = (layer.powerFlowPattern || 'tl-h') === 'custom';
         let error = null;
         let circuits = [];
+        let circuitNumKeys = null;
 
         if (isCustom && layer.powerCustomPaths) {
             const circuitNums = Object.keys(layer.powerCustomPaths)
                 .map(n => parseInt(n, 10))
                 .filter(n => (layer.powerCustomPaths[n] || []).length > 0)
                 .sort((a, b) => a - b);
+            circuitNumKeys = circuitNums;
             circuits = circuitNums.map(circuitNum => {
                 const path = layer.powerCustomPaths[circuitNum] || [];
                 return path
@@ -1858,12 +1996,13 @@ class CanvasRenderer {
 
         layer._powerError = error;
         layer._powerCircuits = circuits;
+        layer._powerCircuitNumKeys = circuitNumKeys;
 
         const panelCircuitMap = new Map();
         const panelIndexMap = new Map();
         if (!error) {
             circuits.forEach((circuitPanels, idx) => {
-                const circuitNum = idx + 1;
+                const circuitNum = circuitNumKeys ? circuitNumKeys[idx] : idx + 1;
                 (circuitPanels || []).forEach((panel, panelIdx) => {
                     const key = this.getPowerPanelKey(panel);
                     panelCircuitMap.set(key, circuitNum);
@@ -1936,9 +2075,11 @@ class CanvasRenderer {
                 this.ctx.restore();
                 return;
             }
+            const colorViewKeys = layer._powerCircuitNumKeys;
             layer._powerCircuits.forEach((circuitPanels, idx) => {
                 if (!circuitPanels || circuitPanels.length === 0) return;
-                drawCircuitLabel(circuitPanels[0], circuitPanels[1], idx + 1);
+                const circuitNum = colorViewKeys ? colorViewKeys[idx] : idx + 1;
+                drawCircuitLabel(circuitPanels[0], circuitPanels[1], circuitNum);
             });
             this.ctx.restore();
             return;

@@ -1188,7 +1188,39 @@ class LEDRasterApp {
             border_color_power: layer.border_color_power,
             weight_unit: layer.weight_unit,
             panel_weight: layer.panel_weight,
-            infoLabelSize: layer.infoLabelSize
+            infoLabelSize: layer.infoLabelSize,
+            // Text layer properties
+            textContent: layer.textContent,
+            textContentPixelMap: layer.textContentPixelMap,
+            textContentCabinetId: layer.textContentCabinetId,
+            textContentDataFlow: layer.textContentDataFlow,
+            textContentPower: layer.textContentPower,
+            textWidth: layer.textWidth,
+            textHeight: layer.textHeight,
+            fontSize: layer.fontSize,
+            fontFamily: layer.fontFamily,
+            fontColor: layer.fontColor,
+            bgColor: layer.bgColor,
+            bgOpacity: layer.bgOpacity,
+            textAlign: layer.textAlign,
+            textPadding: layer.textPadding,
+            showBorder: layer.showBorder,
+            borderColor: layer.borderColor,
+            showOnPixelMap: layer.showOnPixelMap,
+            showOnCabinetId: layer.showOnCabinetId,
+            showOnDataFlow: layer.showOnDataFlow,
+            showOnPower: layer.showOnPower,
+            showRasterSize: layer.showRasterSize,
+            showProjectName: layer.showProjectName,
+            showDate: layer.showDate,
+            showPrimaryPorts: layer.showPrimaryPorts,
+            showBackupPorts: layer.showBackupPorts,
+            showCircuits: layer.showCircuits,
+            showSinglePhase: layer.showSinglePhase,
+            showThreePhase: layer.showThreePhase,
+            fontBold: layer.fontBold,
+            fontItalic: layer.fontItalic,
+            fontUnderline: layer.fontUnderline
         };
     }
     
@@ -1542,10 +1574,42 @@ class LEDRasterApp {
                 panel_weight: layer.panel_weight,
                 infoLabelSize: layer.infoLabelSize,
                 showDataFlowPortInfo: layer.showDataFlowPortInfo,
-                showPowerCircuitInfo: layer.showPowerCircuitInfo
+                showPowerCircuitInfo: layer.showPowerCircuitInfo,
+                // Text layer properties
+                textContent: layer.textContent,
+                textContentPixelMap: layer.textContentPixelMap,
+                textContentCabinetId: layer.textContentCabinetId,
+                textContentDataFlow: layer.textContentDataFlow,
+                textContentPower: layer.textContentPower,
+                textWidth: layer.textWidth,
+                textHeight: layer.textHeight,
+                fontSize: layer.fontSize,
+                fontFamily: layer.fontFamily,
+                fontColor: layer.fontColor,
+                bgColor: layer.bgColor,
+                bgOpacity: layer.bgOpacity,
+                textAlign: layer.textAlign,
+                textPadding: layer.textPadding,
+                showBorder: layer.showBorder,
+                borderColor: layer.borderColor,
+                showOnPixelMap: layer.showOnPixelMap,
+                showOnCabinetId: layer.showOnCabinetId,
+                showOnDataFlow: layer.showOnDataFlow,
+                showOnPower: layer.showOnPower,
+                showRasterSize: layer.showRasterSize,
+                showProjectName: layer.showProjectName,
+                showDate: layer.showDate,
+                showPrimaryPorts: layer.showPrimaryPorts,
+                showBackupPorts: layer.showBackupPorts,
+                showCircuits: layer.showCircuits,
+                showSinglePhase: layer.showSinglePhase,
+                showThreePhase: layer.showThreePhase,
+                fontBold: layer.fontBold,
+                fontItalic: layer.fontItalic,
+                fontUnderline: layer.fontUnderline
             };
         });
-        
+
         localStorage.setItem('ledRasterClientProps', JSON.stringify(propsMap));
     }
     
@@ -1743,9 +1807,14 @@ class LEDRasterApp {
     updateUI() {
         
         document.getElementById('project-name').value = this.project.name;
-        
+
+        // Load project notes
+        const notesEl = document.getElementById('project-notes');
+        if (notesEl) notesEl.value = this.project.notes || '';
+
         this.renderLayers();
-        
+        this.loadTextLayerToInputs();
+
         if (window.canvasRenderer) {
             if (window.canvasRenderer.viewMode === 'data-flow' && this.currentLayer) {
                 this.updatePortCapacityDisplay();
@@ -1772,6 +1841,27 @@ class LEDRasterApp {
             });
         }
         
+        // Project Notes
+        const notesTextarea = document.getElementById('project-notes');
+        const notesToggle = document.getElementById('notes-toggle');
+        const notesPanel = document.getElementById('notes-panel');
+        if (notesTextarea) {
+            notesTextarea.addEventListener('input', () => {
+                if (this.project) {
+                    this.project.notes = notesTextarea.value;
+                    this.saveProject();
+                }
+            });
+        }
+        if (notesToggle && notesPanel) {
+            const toggleNotes = () => {
+                notesPanel.classList.toggle('collapsed');
+                notesToggle.textContent = notesPanel.classList.contains('collapsed') ? '▶' : '▼';
+            };
+            notesToggle.addEventListener('click', (e) => { e.stopPropagation(); toggleNotes(); });
+            document.getElementById('notes-panel-header').addEventListener('click', toggleNotes);
+        }
+
         // View tabs
         document.querySelectorAll('.view-tab').forEach(tab => {
             tab.addEventListener('click', () => {
@@ -1794,8 +1884,12 @@ class LEDRasterApp {
                     currentLayer: this.currentLayer ? { id: this.currentLayer.id, name: this.currentLayer.name } : null,
                     selectedLayers: this.selectedLayerIds ? [...this.selectedLayerIds] : []
                 });
-                this.updateLayerPanelVisibility(!!this.currentLayer && (this.currentLayer.type || 'screen') === 'image');
+                this.updateLayerPanelVisibility(
+                    !!this.currentLayer && (this.currentLayer.type || 'screen') === 'image',
+                    !!this.currentLayer && (this.currentLayer.type || 'screen') === 'text'
+                );
                 this.loadLayerToInputs();
+                this.loadTextLayerToInputs();
                 if (mode === 'data-flow' && this.currentLayer) {
                     this.updatePortCapacityDisplay();
                     this.updatePortLabelEditor();
@@ -1843,6 +1937,14 @@ class LEDRasterApp {
                 addImageInput.click();
             });
         }
+
+        const addTextBtn = document.getElementById('btn-add-text');
+        if (addTextBtn) {
+            addTextBtn.addEventListener('click', () => this.addTextLayer());
+        }
+
+        // Text layer sidebar controls
+        this.setupTextLayerControls();
 
         const layerUpBtn = document.getElementById('btn-layer-up');
         const layerDownBtn = document.getElementById('btn-layer-down');
@@ -3513,6 +3615,270 @@ class LEDRasterApp {
         });
     }
 
+    addTextLayer() {
+        const name = this.getNextTextLayerName();
+        this.saveState('Add Text Layer');
+        fetch('/api/layer/add-text', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, textContent: '', offset_x: 0, offset_y: 0 })
+        })
+        .then(res => res.json())
+        .then(layer => {
+            sendClientLog('add_text_layer', { id: layer.id, name: layer.name });
+            this.upsertProjectLayer(layer);
+            this.selectLayer(layer);
+            window.canvasRenderer.fitToView();
+            window.canvasRenderer.render();
+            this.saveClientSideProperties();
+        });
+    }
+
+    getNextTextLayerName() {
+        const base = 'Text';
+        const existing = this.project.layers
+            .filter(l => (l.type || 'screen') === 'text')
+            .map(l => l.name || '')
+            .filter(name => name.startsWith(base));
+        let maxNum = 0;
+        existing.forEach(name => {
+            const m = name.match(/^Text\s*(\d+)$/i);
+            if (m) maxNum = Math.max(maxNum, parseInt(m[1], 10));
+        });
+        return `Text ${maxNum + 1}`;
+    }
+
+    // Map current view mode to the per-tab text content property
+    getTextContentPropForTab() {
+        const viewMode = window.canvasRenderer ? window.canvasRenderer.viewMode : 'pixel-map';
+        const map = {
+            'pixel-map': 'textContentPixelMap',
+            'cabinet-id': 'textContentCabinetId',
+            'data-flow': 'textContentDataFlow',
+            'power': 'textContentPower'
+        };
+        return map[viewMode] || 'textContentPixelMap';
+    }
+
+    getTextTabLabel() {
+        const viewMode = window.canvasRenderer ? window.canvasRenderer.viewMode : 'pixel-map';
+        const map = {
+            'pixel-map': '(Pixel Map)',
+            'cabinet-id': '(Cabinet ID)',
+            'data-flow': '(Data)',
+            'power': '(Power)'
+        };
+        return map[viewMode] || '(Pixel Map)';
+    }
+
+    setupTextLayerControls() {
+        // Per-tab text content textarea
+        const contentEl = document.getElementById('text-layer-content');
+        if (contentEl) {
+            contentEl.addEventListener('input', () => {
+                if (!this.currentLayer || (this.currentLayer.type || 'screen') !== 'text') return;
+                const prop = this.getTextContentPropForTab();
+                const val = contentEl.value;
+                this.applyToSelectedLayers(layer => {
+                    if ((layer.type || 'screen') !== 'text') return;
+                    layer[prop] = val;
+                });
+                this.debouncedSaveState('Update Text Label');
+                this.saveClientSideProperties();
+                this.updateLayers(this.getSelectedLayers());
+                window.canvasRenderer.render();
+            });
+        }
+
+        const fields = [
+            { id: 'text-layer-font-size', prop: 'fontSize', type: 'number' },
+            { id: 'text-layer-align', prop: 'textAlign', type: 'select' },
+            { id: 'text-layer-width', prop: 'textWidth', type: 'number' },
+            { id: 'text-layer-height', prop: 'textHeight', type: 'number' },
+            { id: 'text-layer-bg-opacity', prop: 'bgOpacity', type: 'float' },
+            { id: 'text-layer-padding', prop: 'textPadding', type: 'number' },
+            { id: 'text-layer-show-border', prop: 'showBorder', type: 'checkbox' },
+            { id: 'text-layer-show-raster-size', prop: 'showRasterSize', type: 'checkbox' },
+            { id: 'text-layer-show-project-name', prop: 'showProjectName', type: 'checkbox' },
+            { id: 'text-layer-show-date', prop: 'showDate', type: 'checkbox' },
+            { id: 'text-layer-show-primary-ports', prop: 'showPrimaryPorts', type: 'checkbox' },
+            { id: 'text-layer-show-backup-ports', prop: 'showBackupPorts', type: 'checkbox' },
+            { id: 'text-layer-show-circuits', prop: 'showCircuits', type: 'checkbox' },
+            { id: 'text-layer-show-single-phase', prop: 'showSinglePhase', type: 'checkbox' },
+            { id: 'text-layer-show-three-phase', prop: 'showThreePhase', type: 'checkbox' },
+            { id: 'text-layer-show-pixel-map', prop: 'showOnPixelMap', type: 'checkbox' },
+            { id: 'text-layer-show-cabinet-id', prop: 'showOnCabinetId', type: 'checkbox' },
+            { id: 'text-layer-show-data-flow', prop: 'showOnDataFlow', type: 'checkbox' },
+            { id: 'text-layer-show-power', prop: 'showOnPower', type: 'checkbox' },
+        ];
+        fields.forEach(f => {
+            const el = document.getElementById(f.id);
+            if (!el) return;
+            const event = f.type === 'checkbox' ? 'change' : 'input';
+            el.addEventListener(event, () => {
+                if (!this.currentLayer || (this.currentLayer.type || 'screen') !== 'text') return;
+                let val;
+                if (f.type === 'checkbox') val = el.checked;
+                else if (f.type === 'number') val = parseInt(el.value, 10) || 0;
+                else if (f.type === 'float') val = parseFloat(el.value) || 0;
+                else val = el.value;
+                this.applyToSelectedLayers(layer => {
+                    if ((layer.type || 'screen') !== 'text') return;
+                    layer[f.prop] = val;
+                });
+                this.debouncedSaveState('Update Text Label');
+                this.saveClientSideProperties();
+                this.updateLayers(this.getSelectedLayers());
+                window.canvasRenderer.render();
+            });
+        });
+        // Color pickers
+        const setupColorSync = (pickerId, hexId, prop) => {
+            const picker = document.getElementById(pickerId);
+            const hex = document.getElementById(hexId);
+            if (!picker || !hex) return;
+            const apply = (val) => {
+                if (!this.currentLayer || (this.currentLayer.type || 'screen') !== 'text') return;
+                this.applyToSelectedLayers(layer => {
+                    if ((layer.type || 'screen') !== 'text') return;
+                    layer[prop] = val;
+                });
+                this.debouncedSaveState('Update Text Color');
+                this.saveClientSideProperties();
+                window.canvasRenderer.render();
+            };
+            picker.addEventListener('input', () => { hex.value = picker.value.toUpperCase(); apply(picker.value); });
+            hex.addEventListener('change', () => { picker.value = hex.value; apply(hex.value); });
+        };
+        setupColorSync('text-layer-font-color', 'text-layer-font-color-hex', 'fontColor');
+        setupColorSync('text-layer-bg-color', 'text-layer-bg-color-hex', 'bgColor');
+
+        // Bold / Italic / Underline toggle buttons
+        const setupStyleToggle = (btnId, prop) => {
+            const btn = document.getElementById(btnId);
+            if (!btn) return;
+            btn.addEventListener('click', () => {
+                if (!this.currentLayer || (this.currentLayer.type || 'screen') !== 'text') return;
+                const newVal = !this.currentLayer[prop];
+                this.applyToSelectedLayers(layer => {
+                    if ((layer.type || 'screen') !== 'text') return;
+                    layer[prop] = newVal;
+                });
+                btn.classList.toggle('active', newVal);
+                this.debouncedSaveState('Update Text Style');
+                this.saveClientSideProperties();
+                this.updateLayers(this.getSelectedLayers());
+                window.canvasRenderer.render();
+            });
+        };
+        setupStyleToggle('text-layer-bold', 'fontBold');
+        setupStyleToggle('text-layer-italic', 'fontItalic');
+        setupStyleToggle('text-layer-underline', 'fontUnderline');
+    }
+
+    loadTextLayerToInputs() {
+        const panel = document.getElementById('text-layer-panel');
+        if (!panel) return;
+        const layer = this.currentLayer;
+        if (!layer || (layer.type || 'screen') !== 'text') {
+            panel.style.display = 'none';
+            return;
+        }
+        panel.style.display = 'block';
+        const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+        const setChecked = (id, val) => { const el = document.getElementById(id); if (el) el.checked = val; };
+
+        // Load per-tab text content
+        const contentProp = this.getTextContentPropForTab();
+        setVal('text-layer-content', layer[contentProp] || '');
+
+        // Update tab indicator
+        const tabIndicator = document.getElementById('text-layer-tab-indicator');
+        if (tabIndicator) tabIndicator.textContent = this.getTextTabLabel();
+
+        setVal('text-layer-font-size', layer.fontSize || 24);
+        setVal('text-layer-align', layer.textAlign || 'left');
+        setVal('text-layer-width', layer.textWidth || 400);
+        setVal('text-layer-height', layer.textHeight || 100);
+        setVal('text-layer-font-color', layer.fontColor || '#ffffff');
+        setVal('text-layer-font-color-hex', (layer.fontColor || '#ffffff').toUpperCase());
+        setVal('text-layer-bg-color', layer.bgColor || '#000000');
+        setVal('text-layer-bg-color-hex', (layer.bgColor || '#000000').toUpperCase());
+        setVal('text-layer-bg-opacity', layer.bgOpacity != null ? layer.bgOpacity : 0.7);
+        setVal('text-layer-padding', layer.textPadding || 12);
+        setChecked('text-layer-show-border', layer.showBorder !== false);
+        setChecked('text-layer-show-raster-size', !!layer.showRasterSize);
+        setChecked('text-layer-show-project-name', !!layer.showProjectName);
+        setChecked('text-layer-show-date', !!layer.showDate);
+        setChecked('text-layer-show-pixel-map', layer.showOnPixelMap !== false);
+        setChecked('text-layer-show-cabinet-id', layer.showOnCabinetId !== false);
+        setChecked('text-layer-show-data-flow', layer.showOnDataFlow !== false);
+        setChecked('text-layer-show-power', layer.showOnPower !== false);
+        setChecked('text-layer-show-primary-ports', !!layer.showPrimaryPorts);
+        setChecked('text-layer-show-backup-ports', !!layer.showBackupPorts);
+        setChecked('text-layer-show-circuits', !!layer.showCircuits);
+        setChecked('text-layer-show-single-phase', !!layer.showSinglePhase);
+        setChecked('text-layer-show-three-phase', !!layer.showThreePhase);
+
+        // Style toggle buttons
+        const boldBtn = document.getElementById('text-layer-bold');
+        const italicBtn = document.getElementById('text-layer-italic');
+        const underlineBtn = document.getElementById('text-layer-underline');
+        if (boldBtn) boldBtn.classList.toggle('active', !!layer.fontBold);
+        if (italicBtn) italicBtn.classList.toggle('active', !!layer.fontItalic);
+        if (underlineBtn) underlineBtn.classList.toggle('active', !!layer.fontUnderline);
+    }
+
+    // Aggregate data port counts across all visible screen layers
+    getPortCounts() {
+        if (!this.project || !this.project.layers) return { primary: 0, backup: 0 };
+        let totalPrimary = 0;
+        this.project.layers.forEach(layer => {
+            if ((layer.type || 'screen') !== 'screen') return;
+            if (!layer.visible) return;
+            const activePanels = (layer.panels || []).filter(p => !p.blank && !p.hidden);
+            if (activePanels.length === 0) return;
+            const assignments = this.calculatePortAssignments(layer);
+            if (!assignments || assignments.length === 0) return;
+            const ports = new Set();
+            assignments.forEach(a => {
+                if (a && a.port) ports.add(a.port);
+            });
+            totalPrimary += ports.size;
+        });
+        // Every primary port has a backup/return port
+        return { primary: totalPrimary, backup: totalPrimary };
+    }
+
+    // Aggregate power stats across all visible screen layers
+    getPowerCounts() {
+        if (!this.project || !this.project.layers) return { circuits: 0, totalWatts: 0, singlePhaseAmps: 0, threePhaseAmps: 0, voltage: 0 };
+        let totalCircuits = 0;
+        let totalWattsAll = 0;
+        const voltages = new Set();
+        this.project.layers.forEach(layer => {
+            if ((layer.type || 'screen') !== 'screen') return;
+            if (!layer.visible) return;
+            const activePanels = (layer.panels || []).filter(p => !p.blank && !p.hidden);
+            if (activePanels.length === 0) return;
+            const voltage = Number(layer.powerVoltage) || 110;
+            const amperage = Number(layer.powerAmperage) || 20;
+            const panelWatts = Number(layer.panelWatts) || 200;
+            voltages.add(voltage);
+            const equivalentPanels = activePanels.reduce((sum, p) => sum + this.getPanelLoadFactor(layer, p), 0);
+            const layerWatts = panelWatts * equivalentPanels;
+            totalWattsAll += layerWatts;
+            const circuitWatts = voltage * amperage;
+            if (circuitWatts > 0) {
+                totalCircuits += Math.ceil(layerWatts / circuitWatts);
+            }
+        });
+        const voltage = [...voltages][0] || 110;
+        const singlePhaseAmps = voltage > 0 ? totalWattsAll / voltage : 0;
+        const threePhaseAmps = voltage > 0 ? totalWattsAll / (voltage * 1.73) : 0;
+        return { circuits: totalCircuits, totalWatts: totalWattsAll, singlePhaseAmps, threePhaseAmps, voltage };
+    }
+
     getNextImageLayerName() {
         const base = 'Image';
         const existing = this.project.layers
@@ -3558,6 +3924,9 @@ class LEDRasterApp {
         const prefs = this.getPreferences();
         if ((layer.type || 'screen') === 'image') {
             layer.imageScale = layer.imageScale || 1.0;
+            return;
+        }
+        if ((layer.type || 'screen') === 'text') {
             return;
         }
         layer.arrowLineWidth = prefs.dataLineWidth;  // Default line width for data flow
@@ -3962,9 +4331,10 @@ class LEDRasterApp {
         }
         this.renderLayers();
         this.loadLayerToInputs();
+        this.loadTextLayerToInputs();
         window.canvasRenderer.render();
     }
-    
+
     selectLayer(layer) {
         // Defensive: Make sure we have a valid layer
         if (!layer || !layer.id) {
@@ -4092,9 +4462,10 @@ class LEDRasterApp {
         
         this.renderLayers();
         this.loadLayerToInputs();
+        this.loadTextLayerToInputs();
         window.canvasRenderer.render();
     }
-    
+
     deleteLayer(layerId) {
         if (this.project.layers.length === 1) {
             alert('Cannot delete the last layer');
@@ -4685,23 +5056,28 @@ class LEDRasterApp {
         if (layers.length === 0) return;
         const primary = this.currentLayer || layers[0];
         const allImages = layers.every(l => (l.type || 'screen') === 'image');
+        const allText = layers.every(l => (l.type || 'screen') === 'text');
         const screenGridSection = document.getElementById('screen-grid-settings');
         const imageSection = document.getElementById('image-layer-section');
         if (screenGridSection) {
-            screenGridSection.style.display = allImages ? 'none' : '';
+            screenGridSection.style.display = (allImages || allText) ? 'none' : '';
         }
         if (imageSection) {
             imageSection.style.display = allImages ? '' : 'none';
         }
         document.querySelectorAll('.screen-only').forEach(el => {
             if (el.classList.contains('tab-panel')) return;
-            el.style.display = allImages ? 'none' : '';
+            el.style.display = (allImages || allText) ? 'none' : '';
         });
         document.querySelectorAll('.image-only').forEach(el => {
             if (el.classList.contains('tab-panel')) return;
             el.style.display = allImages ? '' : 'none';
         });
-        this.updateLayerPanelVisibility(allImages);
+        document.querySelectorAll('.text-only').forEach(el => {
+            if (el.classList.contains('tab-panel')) return;
+            el.style.display = allText ? '' : 'none';
+        });
+        this.updateLayerPanelVisibility(allImages, allText);
 
         const getCommon = (getter) => {
             const first = getter(layers[0]);
@@ -5172,32 +5548,25 @@ class LEDRasterApp {
         }
     }
 
-    updateLayerPanelVisibility(allImages) {
+    updateLayerPanelVisibility(allImages, allText) {
         const mode = window.canvasRenderer ? window.canvasRenderer.viewMode : 'pixel-map';
         const activeTab = mode === 'data-flow' ? 'data-flow' : mode;
+        const nonScreen = allImages || allText;
         document.querySelectorAll('.tab-panel').forEach(panel => {
             if (panel.getAttribute('data-tab') !== activeTab) {
                 panel.style.display = 'none';
                 return;
             }
-            if (activeTab === 'pixel-map') {
-                if (panel.classList.contains('screen-only')) {
-                    panel.style.display = allImages ? 'none' : 'block';
-                    return;
-                }
-                if (panel.classList.contains('image-only')) {
-                    panel.style.display = allImages ? 'block' : 'none';
-                    return;
-                }
-                panel.style.display = 'block';
-                return;
-            }
             if (panel.classList.contains('screen-only')) {
-                panel.style.display = allImages ? 'none' : 'block';
+                panel.style.display = nonScreen ? 'none' : 'block';
                 return;
             }
             if (panel.classList.contains('image-only')) {
                 panel.style.display = allImages ? 'block' : 'none';
+                return;
+            }
+            if (panel.classList.contains('text-only')) {
+                panel.style.display = allText ? 'block' : 'none';
                 return;
             }
             panel.style.display = 'block';
@@ -5839,7 +6208,25 @@ class LEDRasterApp {
         return !!(data && data.ok);
     }
 
+    isLocalConnection() {
+        const host = window.location.hostname;
+        return host === 'localhost' || host === '127.0.0.1' || host === '::1';
+    }
+
+    browserDownload(blob, filename) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+        sendClientLog('save_blob_browser_download', { filename });
+    }
+
     async saveBlobWithPicker(blob, filename, mimeType) {
+        // 1. Try the File System Access API (Chrome/Edge on secure contexts)
         if (window.showSaveFilePicker) {
             try {
                 sendClientLog('save_blob_picker_start', { filename, mimeType });
@@ -5858,6 +6245,7 @@ class LEDRasterApp {
                 throw err;
             }
         }
+        // 2. Use native server-side dialog (opens on the host machine)
         try {
             const savePath = await this.nativeSelectSavePath(filename);
             if (!savePath) {
@@ -5871,10 +6259,8 @@ class LEDRasterApp {
                 return;
             }
             sendClientLog('save_blob_native_dialog_write_failed', { filename, savePath });
-            return;
         } catch (err) {
             sendClientLog('save_blob_native_dialog_error', { filename, message: err.message });
-            return;
         }
     }
 
@@ -5908,6 +6294,7 @@ class LEDRasterApp {
             sendClientLog('save_multiple_files_picker_success', { count: files.length });
             return;
         }
+        // Use native server-side directory picker (opens on the host machine)
         try {
             const targetDir = await this.nativeSelectDirectory();
             if (!targetDir) {
@@ -5923,10 +6310,8 @@ class LEDRasterApp {
                 }
             }
             sendClientLog('save_multiple_files_native_dialog_success', { count: files.length, directory: targetDir });
-            return;
         } catch (err) {
             sendClientLog('save_multiple_files_native_dialog_error', { message: err.message });
-            return;
         }
     }
 
@@ -7752,17 +8137,25 @@ class LEDRasterApp {
                 layerDiv.classList.add('primary');
             }
             
-            const isImage = (layer.type || 'screen') === 'image';
-            const activePanels = isImage ? 0 : layer.panels.filter(p => !p.blank && !p.hidden).length;
-            
-            const infoText = isImage
-                ? `${layer.imageWidth || 0}×${layer.imageHeight || 0}px • ${Math.round((layer.imageScale || 1) * 100)}%`
-                : `${layer.columns}x${layer.rows} (${activePanels} panels) • ${layer.cabinet_width}×${layer.cabinet_height}px`;
+            const layerType = layer.type || 'screen';
+            const isImage = layerType === 'image';
+            const isText = layerType === 'text';
+            const activePanels = (isImage || isText) ? 0 : layer.panels.filter(p => !p.blank && !p.hidden).length;
+
+            let infoText;
+            if (isText) {
+                const preview = (layer.textContent || '').substring(0, 30);
+                infoText = `Text • ${layer.fontSize || 24}px${preview ? ' • ' + preview : ''}`;
+            } else if (isImage) {
+                infoText = `${layer.imageWidth || 0}×${layer.imageHeight || 0}px • ${Math.round((layer.imageScale || 1) * 100)}%`;
+            } else {
+                infoText = `${layer.columns}x${layer.rows} (${activePanels} panels) • ${layer.cabinet_width}×${layer.cabinet_height}px`;
+            }
             const lockBadge = layer.locked ? '<span title="Locked" style="margin-left: 6px; color:#bbb;">🔒</span>' : '';
             layerDiv.innerHTML = `
                 <div class="layer-header">
-                    <div style="display:flex; align-items:center; gap:4px;">
-                        <input type="text" class="layer-name-input" data-layer-id="${layer.id}" value="${layer.name}" style="background: transparent; border: 1px solid transparent; color: #e0e0e0; padding: 2px 4px; border-radius: 3px; font-size: 13px; font-weight: 600; width: 80px;">
+                    <div style="display:flex; align-items:center; gap:4px; flex:1; min-width:0;">
+                        <input type="text" class="layer-name-input" data-layer-id="${layer.id}" value="${layer.name}" style="background: transparent; border: 1px solid transparent; color: #e0e0e0; padding: 2px 4px; border-radius: 3px; font-size: 13px; font-weight: 600; flex:1; min-width:0;">
                         ${lockBadge}
                     </div>
                     <div class="layer-controls">
@@ -8464,7 +8857,61 @@ class LEDRasterApp {
             });
             return;
         }
-        
+
+        if ((layer.type || 'screen') === 'text') {
+            const duplicateData = {
+                name: getNextName(layer.name),
+                offset_x: (layer.offset_x || 0) + 50,
+                offset_y: (layer.offset_y || 0) + 50,
+                textContent: layer.textContent || '',
+                textContentPixelMap: layer.textContentPixelMap || '',
+                textContentCabinetId: layer.textContentCabinetId || '',
+                textContentDataFlow: layer.textContentDataFlow || '',
+                textContentPower: layer.textContentPower || '',
+                textWidth: layer.textWidth || 400,
+                textHeight: layer.textHeight || 100,
+                fontSize: layer.fontSize || 24,
+                fontFamily: layer.fontFamily || 'Arial',
+                fontColor: layer.fontColor || '#ffffff',
+                bgColor: layer.bgColor || '#000000',
+                bgOpacity: layer.bgOpacity != null ? layer.bgOpacity : 0.7,
+                textAlign: layer.textAlign || 'left',
+                textPadding: layer.textPadding || 12,
+                showBorder: layer.showBorder !== false,
+                borderColor: layer.borderColor || '#555555',
+                showOnPixelMap: layer.showOnPixelMap !== false,
+                showOnCabinetId: layer.showOnCabinetId !== false,
+                showOnDataFlow: layer.showOnDataFlow !== false,
+                showOnPower: layer.showOnPower !== false,
+                showRasterSize: !!layer.showRasterSize,
+                showProjectName: !!layer.showProjectName,
+                showDate: !!layer.showDate,
+                showPrimaryPorts: !!layer.showPrimaryPorts,
+                showBackupPorts: !!layer.showBackupPorts,
+                showCircuits: !!layer.showCircuits,
+                showSinglePhase: !!layer.showSinglePhase,
+                showThreePhase: !!layer.showThreePhase,
+                fontBold: !!layer.fontBold,
+                fontItalic: !!layer.fontItalic,
+                fontUnderline: !!layer.fontUnderline
+            };
+            fetch('/api/layer/add-text', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(duplicateData)
+            })
+            .then(res => res.json())
+            .then(newLayer => {
+                // Copy text properties to new layer
+                Object.assign(newLayer, duplicateData);
+                this.upsertProjectLayer(newLayer);
+                this.selectLayer(newLayer);
+                this.updateUI();
+                this.saveState('Duplicate Text Layer');
+            });
+            return;
+        }
+
         // Collect hidden panel positions (row, col) to apply to new layer
         const hiddenPanels = layer.panels
             .filter(p => p.hidden)
@@ -8682,6 +9129,59 @@ class LEDRasterApp {
                 this.selectLayer(newLayer);
                 this.updateUI();
                 this.saveState('Paste Image Layer');
+            });
+            return;
+        }
+
+        if ((this.clipboard.type || 'screen') === 'text') {
+            const pasteData = {
+                name: getNextName(this.clipboard.name),
+                offset_x: (this.clipboard.offset_x || 0) + 50,
+                offset_y: (this.clipboard.offset_y || 0) + 50,
+                textContent: this.clipboard.textContent || '',
+                textContentPixelMap: this.clipboard.textContentPixelMap || '',
+                textContentCabinetId: this.clipboard.textContentCabinetId || '',
+                textContentDataFlow: this.clipboard.textContentDataFlow || '',
+                textContentPower: this.clipboard.textContentPower || '',
+                textWidth: this.clipboard.textWidth || 400,
+                textHeight: this.clipboard.textHeight || 100,
+                fontSize: this.clipboard.fontSize || 24,
+                fontFamily: this.clipboard.fontFamily || 'Arial',
+                fontColor: this.clipboard.fontColor || '#ffffff',
+                bgColor: this.clipboard.bgColor || '#000000',
+                bgOpacity: this.clipboard.bgOpacity != null ? this.clipboard.bgOpacity : 0.7,
+                textAlign: this.clipboard.textAlign || 'left',
+                textPadding: this.clipboard.textPadding || 12,
+                showBorder: this.clipboard.showBorder !== false,
+                borderColor: this.clipboard.borderColor || '#555555',
+                showOnPixelMap: this.clipboard.showOnPixelMap !== false,
+                showOnCabinetId: this.clipboard.showOnCabinetId !== false,
+                showOnDataFlow: this.clipboard.showOnDataFlow !== false,
+                showOnPower: this.clipboard.showOnPower !== false,
+                showRasterSize: !!this.clipboard.showRasterSize,
+                showProjectName: !!this.clipboard.showProjectName,
+                showDate: !!this.clipboard.showDate,
+                showPrimaryPorts: !!this.clipboard.showPrimaryPorts,
+                showBackupPorts: !!this.clipboard.showBackupPorts,
+                showCircuits: !!this.clipboard.showCircuits,
+                showSinglePhase: !!this.clipboard.showSinglePhase,
+                showThreePhase: !!this.clipboard.showThreePhase,
+                fontBold: !!this.clipboard.fontBold,
+                fontItalic: !!this.clipboard.fontItalic,
+                fontUnderline: !!this.clipboard.fontUnderline
+            };
+            fetch('/api/layer/add-text', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(pasteData)
+            })
+            .then(res => res.json())
+            .then(newLayer => {
+                Object.assign(newLayer, pasteData);
+                this.upsertProjectLayer(newLayer);
+                this.selectLayer(newLayer);
+                this.updateUI();
+                this.saveState('Paste Text Layer');
             });
             return;
         }

@@ -21,24 +21,53 @@ if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
 from launcher_settings import (
-    load_settings, save_settings, get_network_interfaces, set_run_at_login
+    load_settings, save_settings, get_network_interfaces, set_run_at_login,
+    get_ssl_context, regenerate_ssl_certs
 )
+
+# Global reference to socketio for server restart
+_socketio = None
+_app = None
 
 
 def start_flask_server(settings):
     """Import and run the Flask app in a background thread."""
+    global _socketio, _app
     host = settings.get('interface', '127.0.0.1')
     port = int(settings.get('port', 8050))
 
     from app import app, socketio, log_event
+    _socketio = socketio
+    _app = app
+
+    ssl_ctx = get_ssl_context(settings)
+    protocol = 'https' if ssl_ctx else 'http'
+
     log_event('server_start', {
         'port': port,
         'host': host,
+        'protocol': protocol,
         'launcher': 'pc_systray',
         'log_dir': os.environ.get('_LRD_LOG_DIR', 'unknown'),
     })
-    socketio.run(app, host=host, port=port, debug=False,
-                 allow_unsafe_werkzeug=True)
+
+    kwargs = dict(host=host, port=port, debug=False, allow_unsafe_werkzeug=True)
+    if ssl_ctx:
+        kwargs['certfile'] = ssl_ctx[0]
+        kwargs['keyfile'] = ssl_ctx[1]
+
+    socketio.run(app, **kwargs)
+
+
+def restart_flask_server(settings):
+    """Stop the current server and start a new one with updated settings."""
+    global _socketio
+    if _socketio:
+        _socketio.stop()
+        # Give it a moment to release the port
+        time.sleep(0.5)
+    server_thread = threading.Thread(target=start_flask_server, args=(settings,), daemon=True)
+    server_thread.start()
 
 
 def get_display_url(settings):
@@ -46,7 +75,8 @@ def get_display_url(settings):
     host = settings.get('interface', '127.0.0.1')
     port = settings.get('port', 8050)
     display_host = host if host != '0.0.0.0' else '127.0.0.1'
-    return f'http://{display_host}:{port}'
+    protocol = 'https' if settings.get('https_enabled', False) else 'http'
+    return f'{protocol}://{display_host}:{port}'
 
 
 def create_tray_icon_image():
@@ -78,6 +108,9 @@ def run_tray(settings):
     import pystray
     from pystray import MenuItem, Menu
 
+    # Mutable container so callbacks can update the icon reference
+    icon_ref = [None]
+
     def open_browser(icon, item):
         webbrowser.open(get_display_url(settings))
 
@@ -86,14 +119,16 @@ def run_tray(settings):
         os._exit(0)
 
     # Network interface submenu
-    interfaces = get_network_interfaces()
-    current_iface = settings.get('interface', '127.0.0.1')
-
     def make_iface_callback(ip):
         def callback(icon, item):
             settings['interface'] = ip
             save_settings(settings)
-            # Can't easily restart server from tray — notify user
+            # Restart server with new interface
+            restart_flask_server(settings)
+            # Rebuild tray menu to update status and checkmarks
+            if icon_ref[0]:
+                icon_ref[0].menu = build_menu()
+                icon_ref[0].update_menu()
         return callback
 
     def iface_checked(ip):
@@ -101,45 +136,77 @@ def run_tray(settings):
             return settings.get('interface', '127.0.0.1') == ip
         return check
 
-    iface_items = []
-    for ip, label in interfaces:
-        iface_items.append(
-            MenuItem(label, make_iface_callback(ip), checked=iface_checked(ip))
-        )
-
-    # Port display
-    host = settings.get('interface', '127.0.0.1')
-    port = settings.get('port', 8050)
-    display_host = host if host != '0.0.0.0' else '127.0.0.1'
-
-    # Toggle callbacks
-    def toggle_run_at_login(icon, item):
-        enabled = not settings.get('run_at_login', False)
-        settings['run_at_login'] = enabled
+    def toggle_https(icon, item):
+        enabled = not settings.get('https_enabled', False)
+        settings['https_enabled'] = enabled
         save_settings(settings)
-        set_run_at_login(enabled)
 
-    def run_at_login_checked(item):
-        return settings.get('run_at_login', False)
+        if enabled:
+            # Generate certs if needed
+            try:
+                from launcher_settings import ssl_certs_exist, generate_ssl_certs
+                if not ssl_certs_exist():
+                    generate_ssl_certs()
+            except RuntimeError as e:
+                settings['https_enabled'] = False
+                save_settings(settings)
+                print(f'[HTTPS] Setup failed: {e}')
+                return
 
-    icon = pystray.Icon(
-        name='LED Raster Designer',
-        icon=create_tray_icon_image(),
-        title='LED Raster Designer',
-        menu=Menu(
+        # Restart server with new protocol
+        restart_flask_server(settings)
+        # Rebuild tray menu to update status
+        if icon_ref[0]:
+            icon_ref[0].menu = build_menu()
+            icon_ref[0].update_menu()
+
+    def https_checked(item):
+        return settings.get('https_enabled', False)
+
+    def build_menu():
+        interfaces = get_network_interfaces()
+        iface_items = []
+        for ip, label in interfaces:
+            iface_items.append(
+                MenuItem(label, make_iface_callback(ip), checked=iface_checked(ip))
+            )
+
+        host = settings.get('interface', '127.0.0.1')
+        port = settings.get('port', 8050)
+        display_host = host if host != '0.0.0.0' else '127.0.0.1'
+        protocol = 'https' if settings.get('https_enabled', False) else 'http'
+
+        def toggle_run_at_login(icon, item):
+            enabled = not settings.get('run_at_login', False)
+            settings['run_at_login'] = enabled
+            save_settings(settings)
+            set_run_at_login(enabled)
+
+        def run_at_login_checked(item):
+            return settings.get('run_at_login', False)
+
+        return Menu(
             MenuItem('Open in Browser', open_browser, default=True),
             Menu.SEPARATOR,
             MenuItem('Network', Menu(*iface_items)),
             MenuItem(f'Port: {port}', None, enabled=False),
+            MenuItem('HTTPS (SSL)', toggle_https, checked=https_checked),
             Menu.SEPARATOR,
-            MenuItem(f'Running on {display_host}:{port}', None, enabled=False),
+            MenuItem(f'Running on {protocol}://{display_host}:{port}', None, enabled=False),
             Menu.SEPARATOR,
             MenuItem('Run at Login', toggle_run_at_login,
                      checked=run_at_login_checked),
             Menu.SEPARATOR,
             MenuItem('Quit LED Raster Designer', quit_app),
         )
+
+    icon = pystray.Icon(
+        name='LED Raster Designer',
+        icon=create_tray_icon_image(),
+        title='LED Raster Designer',
+        menu=build_menu()
     )
+    icon_ref[0] = icon
 
     # icon.run() blocks on the main thread
     icon.run()

@@ -1,6 +1,64 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.4.19 - April 7, 2026
+----------------------------
+- FIX: Backup ports now correctly counted in aggregate info labels (was always
+  showing 0 because port assignments lacked backup type flags).
+- FIX: Port counts now exclude hidden/blank panels and hidden layers.
+
+v0.7.4.18 - April 7, 2026
+----------------------------
+- FIX: Power info label amp calculations now use correct formulas (I = P/V for
+  single-phase, I = P/(V×1.73) for 3-phase) instead of circuit capacity math.
+  Also accounts for panel load factors (half panels).
+- UI: Removed circuits-per-phase suffix from 3-phase info label.
+
+v0.7.4.17 - April 7, 2026
+----------------------------
+- FIX: Power Map color-coded view now shows correct circuit labels matching
+  the normal view. Previously, toggling color view on/off caused labels to
+  change because custom circuit numbering was not preserved in the color-coded
+  rendering path.
+
+v0.7.4.16 - April 7, 2026
+----------------------------
+- FIX: Restore native save/export dialogs for all connections. Removed the
+  local-only restriction that forced LAN/remote clients to browser downloads.
+  Save As and multi-file export now use the native dialog as before.
+
+v0.7.4.15 - April 7, 2026
+----------------------------
+- UI: Right sidebar (Screens panel) now spans full height from toolbar to bottom,
+  eliminating wasted space above the layer list.
+- UI: Layer order buttons compacted to single row with smaller "▲ Up" / "▼ Down"
+  buttons, removing the bordered box and label.
+- FIX: Layer name input now stretches to fill available space up to the visibility
+  button instead of being fixed at 80px width.
+
+v0.7.4.13 - April 6, 2026
+----------------------------
+- FEATURE: HTTPS/SSL support. Self-signed certificate auto-generated on first use.
+  Toggle in both Mac menu bar and Windows/Linux system tray launchers. Enables the
+  browser File System Access API (native Save As dialog) when accessing over LAN.
+- FEATURE: HTTPS toggle added to Windows/Linux system tray launcher (pystray),
+  matching the Mac menu bar launcher. Status display now shows protocol (http/https).
+
+v0.7.4.12 - April 6, 2026
+----------------------------
+- FEATURE: Text/Label layer (#24). New layer type for adding text annotations to the canvas.
+  Movable, resizable, with font controls (bold/italic/underline, alignment, size, colors).
+  Per-tab text content — each tab (Pixel Map, Cabinet ID, Data, Power) has its own text.
+  Per-tab visibility checkboxes. Dynamic info toggles: Raster Size, Project Name, Date,
+  Primary Ports, Backup Ports, Circuits, Single Phase, Three Phase.
+- FEATURE: Project Notes panel in right sidebar (#24). Collapsible, resizable textarea
+  between Screens and Help. Notes saved with the project file. Starts collapsed.
+- FEATURE: Seamless server restart when changing network interface or port in the
+  launcher menu. No app restart required — server hot-restarts and clients auto-reconnect.
+- FIX: Remote/LAN file save. When accessing the app from another computer over the
+  network, Save/Export now downloads files to the client browser instead of opening
+  a file dialog on the server machine. Local access still uses native file dialogs.
+
 v0.7.4.11 - April 1, 2026
 ----------------------------
 - CHANGE: Recent Files max limit increased from 10 to 20.
