@@ -1916,8 +1916,13 @@ class LEDRasterApp {
         });
         
         document.getElementById('btn-add-layer').addEventListener('click', () => {
-            this.addLayer();
+            this.openPresetPicker();
         });
+        const savePresetBtn = document.getElementById('btn-save-preset');
+        if (savePresetBtn) {
+            savePresetBtn.addEventListener('click', () => this.openPresetSaveModal());
+        }
+        this.setupPresetModals();
         const addImageBtn = document.getElementById('btn-add-image');
         const addImageInput = document.getElementById('add-image-input');
         if (addImageBtn && addImageInput) {
@@ -3526,35 +3531,47 @@ class LEDRasterApp {
         return `Screen${maxNum + 1}`;
     }
 
-    addLayer() {
+    addLayer(presetData) {
+        // Server-side props control panel generation (columns/rows/cabinet sizes/colors/etc.)
+        // Client-side props (data flow, power, labels...) are applied after the layer is returned.
         const prefs = this.getPreferences();
-        const columns = prefs.columns;
-        const rows = prefs.rows;
-        const cabinetWidth = prefs.panelWidth;
-        const cabinetHeight = prefs.panelHeight;
-        const offsetX = 0;
-        const offsetY = 0;
-        const color1 = this.hexToRgb(prefs.color1);
-        const color2 = this.hexToRgb(prefs.color2);
-        
+        let serverProps;
+        if (presetData && typeof presetData === 'object') {
+            serverProps = {
+                columns: presetData.columns != null ? presetData.columns : prefs.columns,
+                rows: presetData.rows != null ? presetData.rows : prefs.rows,
+                cabinet_width: presetData.cabinet_width != null ? presetData.cabinet_width : prefs.panelWidth,
+                cabinet_height: presetData.cabinet_height != null ? presetData.cabinet_height : prefs.panelHeight,
+                color1: presetData.color1 || this.hexToRgb(prefs.color1),
+                color2: presetData.color2 || this.hexToRgb(prefs.color2),
+                border_color: presetData.border_color || prefs.borderColor,
+                panel_weight: presetData.panel_weight != null ? presetData.panel_weight : prefs.panelWeight,
+                weight_unit: presetData.weight_unit || prefs.weightUnit
+            };
+        } else {
+            serverProps = {
+                columns: prefs.columns,
+                rows: prefs.rows,
+                cabinet_width: prefs.panelWidth,
+                cabinet_height: prefs.panelHeight,
+                color1: this.hexToRgb(prefs.color1),
+                color2: this.hexToRgb(prefs.color2),
+                border_color: prefs.borderColor,
+                panel_weight: prefs.panelWeight,
+                weight_unit: prefs.weightUnit
+            };
+        }
+
         this.saveState('Add Layer');
-        
+
         fetch('/api/layer/add', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 name: this.getNextScreenName(),
-                columns,
-                rows,
-                cabinet_width: cabinetWidth,
-                cabinet_height: cabinetHeight,
-                offset_x: offsetX,
-                offset_y: offsetY,
-                color1,
-                color2,
-                border_color: prefs.borderColor,
-                panel_weight: prefs.panelWeight,
-                weight_unit: prefs.weightUnit
+                offset_x: 0,
+                offset_y: 0,
+                ...serverProps
             })
         })
         .then(res => res.json())
@@ -3564,18 +3581,305 @@ class LEDRasterApp {
                 columns: layer.columns, rows: layer.rows,
                 cabinet_width: layer.cabinet_width, cabinet_height: layer.cabinet_height,
                 offset_x: layer.offset_x, offset_y: layer.offset_y,
+                preset: presetData ? (presetData._presetName || true) : false,
                 totalLayers: this.project.layers ? this.project.layers.length + 1 : 1
             });
-            // Initialize client-side defaults for new layer
+            // Initialize client-side defaults first (baseline)
             this.initializeLayerDefaults(layer);
-            
+            // Then overlay preset client-side props on top
+            if (presetData && typeof presetData === 'object') {
+                this.applyPresetClientProps(layer, presetData);
+            }
+
             this.upsertProjectLayer(layer);
             this.selectLayer(layer);
             window.canvasRenderer.fitToView();
-            
+
             // Save the new defaults to localStorage
             this.saveClientSideProperties();
         });
+    }
+
+    // Properties excluded from presets (identity, runtime position, cached computations).
+    // Everything else on a layer can be preserved as a preset.
+    getPresetExcludedKeys() {
+        return new Set([
+            'id', 'name', 'visible', 'locked',
+            'offset_x', 'offset_y',
+            'panels',  // panel array is regenerated from columns/rows on server
+            '_powerError', '_powerCircuits', '_powerPanelCircuitMap', '_powerPanelIndexMap',
+            '_powerCircuitNumKeys', '_powerTotalAmps1', '_powerTotalAmps3',
+            '_powerCircuitsRequired', '_capacityError', '_portsRequired', '_autoPortsRequired',
+            '_imageObj', 'imageData'
+        ]);
+    }
+
+    serializeLayerAsPreset(layer) {
+        if (!layer) return null;
+        const excluded = this.getPresetExcludedKeys();
+        const out = {};
+        Object.keys(layer).forEach(k => {
+            if (excluded.has(k)) return;
+            if (k.startsWith('_')) return;  // skip runtime caches
+            out[k] = layer[k];
+        });
+        return out;
+    }
+
+    applyPresetClientProps(layer, presetData) {
+        const excluded = this.getPresetExcludedKeys();
+        // Server-side structural props already applied via /api/layer/add; skip them here.
+        const serverKeys = new Set(['columns', 'rows', 'cabinet_width', 'cabinet_height',
+            'color1', 'color2', 'border_color', 'panel_weight', 'weight_unit']);
+        Object.keys(presetData).forEach(k => {
+            if (excluded.has(k)) return;
+            if (serverKeys.has(k)) return;
+            if (k.startsWith('_')) return;
+            layer[k] = presetData[k];
+        });
+    }
+
+    // ── Preset CRUD (server) ──
+    fetchPresetList() {
+        // Returns list of names (compat).
+        return fetch('/api/presets').then(r => r.json()).then(d => d.presets || []);
+    }
+
+    fetchPresetEntries() {
+        // Returns list of {name, columns, rows, cabinet_width, cabinet_height, panel_width_mm, panel_height_mm}
+        return fetch('/api/presets').then(r => r.json()).then(d => d.entries || []);
+    }
+
+    formatPresetSublabel(entry) {
+        if (!entry) return 'Saved preset';
+        const parts = [];
+        if (entry.columns != null && entry.rows != null) {
+            parts.push(`${entry.columns}×${entry.rows}`);
+        }
+        if (entry.cabinet_width != null && entry.cabinet_height != null) {
+            parts.push(`${entry.cabinet_width}×${entry.cabinet_height}px`);
+        }
+        if (entry.panel_width_mm != null && entry.panel_height_mm != null) {
+            parts.push(`${entry.panel_width_mm}×${entry.panel_height_mm}mm`);
+        }
+        if (entry.panelWatts != null) {
+            parts.push(`${entry.panelWatts}W/panel`);
+        }
+        return parts.length > 0 ? parts.join(' • ') : 'Saved preset';
+    }
+
+    fetchPreset(name) {
+        return fetch(`/api/presets/${encodeURIComponent(name)}`).then(r => {
+            if (!r.ok) return r.json().then(e => Promise.reject(e));
+            return r.json();
+        });
+    }
+
+    savePresetToServer(name, data) {
+        return fetch(`/api/presets/${encodeURIComponent(name)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ data })
+        }).then(r => r.json().then(body => r.ok ? body : Promise.reject(body)));
+    }
+
+    deletePresetOnServer(name) {
+        return fetch(`/api/presets/${encodeURIComponent(name)}`, { method: 'DELETE' })
+            .then(r => r.json().then(body => r.ok ? body : Promise.reject(body)));
+    }
+
+    // ── Preset Picker Modal (triggered by + Add Screen) ──
+    openPresetPicker() {
+        const modal = document.getElementById('preset-picker-modal');
+        const list = document.getElementById('preset-picker-list');
+        if (!modal || !list) return;
+        list.innerHTML = '<div style="padding: 12px; color: #888; font-size: 12px;">Loading…</div>';
+        modal.style.display = 'block';
+        this._presetPickerSelection = '__default__';
+        this.fetchPresetEntries().then(entries => {
+            list.innerHTML = '';
+            // Default row: describe current preferences so the user knows what they'll get
+            const prefs = this.getPreferences() || {};
+            const prefEntry = {
+                columns: prefs.columns,
+                rows: prefs.rows,
+                cabinet_width: prefs.panelWidth,
+                cabinet_height: prefs.panelHeight,
+                panel_width_mm: prefs.panelWidthMM,
+                panel_height_mm: prefs.panelHeightMM,
+                panelWatts: prefs.powerWatts
+            };
+            const rows = [
+                { key: '__default__', label: 'Default (from Preferences)', sublabel: this.formatPresetSublabel(prefEntry) }
+            ];
+            entries.forEach(entry => rows.push({
+                key: entry.name,
+                label: entry.name,
+                sublabel: this.formatPresetSublabel(entry)
+            }));
+            rows.forEach((row, idx) => {
+                const item = document.createElement('div');
+                item.className = 'preset-picker-row';
+                item.dataset.key = row.key;
+                item.style.cssText = 'padding: 10px 12px; border-radius: 4px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 8px;';
+                if (idx === 0) {
+                    item.style.background = '#2d4a7a';
+                }
+                const leftCol = document.createElement('div');
+                leftCol.innerHTML = `<div style="color:#fff; font-size:13px; font-weight:500;">${this.escapeHtml(row.label)}</div><div style="color:#888; font-size:11px;">${row.sublabel}</div>`;
+                item.appendChild(leftCol);
+                if (row.key !== '__default__') {
+                    const delBtn = document.createElement('button');
+                    delBtn.className = 'btn';
+                    delBtn.textContent = '🗑';
+                    delBtn.title = `Delete preset "${row.key}"`;
+                    delBtn.style.cssText = 'background: transparent; color: #c55; font-size: 14px; padding: 2px 8px; border: 1px solid #444;';
+                    delBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        if (!confirm(`Delete preset "${row.key}"?`)) return;
+                        this.deletePresetOnServer(row.key).then(() => {
+                            this.openPresetPicker();  // refresh
+                        }).catch(err => alert('Failed to delete preset: ' + (err && err.error || 'unknown')));
+                    });
+                    item.appendChild(delBtn);
+                }
+                item.addEventListener('click', () => {
+                    this._presetPickerSelection = row.key;
+                    list.querySelectorAll('.preset-picker-row').forEach(el => {
+                        el.style.background = el.dataset.key === row.key ? '#2d4a7a' : 'transparent';
+                    });
+                });
+                list.appendChild(item);
+            });
+        });
+    }
+
+    closePresetPicker() {
+        const modal = document.getElementById('preset-picker-modal');
+        if (modal) modal.style.display = 'none';
+    }
+
+    confirmPresetPicker() {
+        const selection = this._presetPickerSelection || '__default__';
+        this.closePresetPicker();
+        if (selection === '__default__') {
+            this.addLayer();
+            return;
+        }
+        this.fetchPreset(selection).then(resp => {
+            const data = resp && resp.data ? resp.data : null;
+            if (data) data._presetName = selection;
+            this.addLayer(data);
+        }).catch(err => {
+            alert('Failed to load preset: ' + (err && err.error || 'unknown'));
+            this.addLayer();  // fall back to default
+        });
+    }
+
+    // ── Save-as-Preset Modal ──
+    openPresetSaveModal() {
+        if (!this.currentLayer || (this.currentLayer.type || 'screen') !== 'screen') {
+            alert('Select a screen layer first to save as a preset.');
+            return;
+        }
+        const modal = document.getElementById('preset-save-modal');
+        const nameInput = document.getElementById('preset-save-name');
+        const warning = document.getElementById('preset-save-warning');
+        const sublabel = document.getElementById('preset-save-sublabel');
+        if (!modal || !nameInput) return;
+        nameInput.value = this.currentLayer.name || '';
+        warning.textContent = '';
+        if (sublabel) sublabel.textContent = `Saving settings from "${this.currentLayer.name || 'current layer'}".`;
+        modal.style.display = 'block';
+        setTimeout(() => nameInput.focus(), 50);
+        this._presetSaveExistingNames = null;
+        this.fetchPresetList().then(list => {
+            this._presetSaveExistingNames = list;
+            this.updatePresetSaveWarning();
+        });
+    }
+
+    closePresetSaveModal() {
+        const modal = document.getElementById('preset-save-modal');
+        if (modal) modal.style.display = 'none';
+    }
+
+    updatePresetSaveWarning() {
+        const nameInput = document.getElementById('preset-save-name');
+        const warning = document.getElementById('preset-save-warning');
+        if (!nameInput || !warning) return;
+        const name = nameInput.value.trim();
+        if (!name) {
+            warning.textContent = '';
+            return;
+        }
+        const existing = this._presetSaveExistingNames || [];
+        if (existing.includes(name)) {
+            warning.textContent = `⚠ A preset named "${name}" already exists. Saving will overwrite it.`;
+        } else {
+            warning.textContent = '';
+        }
+    }
+
+    confirmPresetSave() {
+        const nameInput = document.getElementById('preset-save-name');
+        const warning = document.getElementById('preset-save-warning');
+        if (!nameInput) return;
+        const name = nameInput.value.trim();
+        if (!name) {
+            warning.textContent = 'Please enter a name.';
+            return;
+        }
+        const existing = this._presetSaveExistingNames || [];
+        if (existing.includes(name)) {
+            if (!confirm(`A preset named "${name}" already exists. Overwrite it?`)) return;
+        }
+        const data = this.serializeLayerAsPreset(this.currentLayer);
+        if (!data) {
+            warning.textContent = 'No layer selected.';
+            return;
+        }
+        this.savePresetToServer(name, data).then(() => {
+            this.closePresetSaveModal();
+        }).catch(err => {
+            warning.textContent = 'Failed: ' + (err && err.error || 'unknown error');
+        });
+    }
+
+    setupPresetModals() {
+        const pickerCancel = document.getElementById('preset-picker-cancel');
+        const pickerAdd = document.getElementById('preset-picker-add');
+        if (pickerCancel) pickerCancel.addEventListener('click', () => this.closePresetPicker());
+        if (pickerAdd) pickerAdd.addEventListener('click', () => this.confirmPresetPicker());
+
+        const saveCancel = document.getElementById('preset-save-cancel');
+        const saveConfirm = document.getElementById('preset-save-confirm');
+        const saveName = document.getElementById('preset-save-name');
+        if (saveCancel) saveCancel.addEventListener('click', () => this.closePresetSaveModal());
+        if (saveConfirm) saveConfirm.addEventListener('click', () => this.confirmPresetSave());
+        if (saveName) {
+            saveName.addEventListener('input', () => this.updatePresetSaveWarning());
+            saveName.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') this.confirmPresetSave();
+                else if (e.key === 'Escape') this.closePresetSaveModal();
+            });
+        }
+        // Close modals on backdrop click
+        ['preset-picker-modal', 'preset-save-modal'].forEach(id => {
+            const m = document.getElementById(id);
+            if (m) {
+                m.addEventListener('click', (e) => {
+                    if (e.target === m) m.style.display = 'none';
+                });
+            }
+        });
+    }
+
+    escapeHtml(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, ch => (
+            { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
+        ));
     }
 
     addImageLayer(imageData, imageWidth, imageHeight) {

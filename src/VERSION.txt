@@ -1,6 +1,17 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.4.20 - April 16, 2026
+----------------------------
+- NEW: Screen Layer Presets. Save the currently selected layer's settings as
+  a reusable preset, then pick from saved presets when adding new screens.
+  Presets are stored server-side in <app>/presets/*.json and shared across
+  clients. Clicking "+ Add Screen" opens a picker showing each preset's
+  dimensions and watts/panel; "💾 Save as Preset" captures ~90 layer
+  properties (colors, data flow, power, labels, etc.) — excludes identity,
+  position, panels array, and runtime caches. Duplicate names prompt to
+  overwrite; each preset row has a delete button.
+
 v0.7.4.19 - April 7, 2026
 ----------------------------
 - FIX: Backup ports now correctly counted in aggregate info labels (was always
