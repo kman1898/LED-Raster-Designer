@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED Raster Designer v0.7.4.19</title>
+    <title>LED Raster Designer v0.7.4.20</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -73,7 +73,7 @@
 
         <div id="toolbar">
             <div class="toolbar-section toolbar-project">
-                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.7.4.19</span></h1>
+                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.7.4.20</span></h1>
                 <input type="text" id="project-name" value="Untitled Project" class="editable-project-name">
             </div>
             <div class="toolbar-section toolbar-actions">
@@ -1201,7 +1201,8 @@
                         <button id="btn-layer-up" class="btn btn-secondary" data-tooltip="Move selected layer up in draw order">▲ Up</button>
                         <button id="btn-layer-down" class="btn btn-secondary" data-tooltip="Move selected layer down in draw order">▼ Down</button>
                     </div>
-                    <button id="btn-add-layer" class="btn btn-primary full-width" data-tooltip="Add a new LED screen layer">+ Add Screen</button>
+                    <button id="btn-add-layer" class="btn btn-primary full-width" data-tooltip="Add a new LED screen layer — pick from saved presets or use default preferences">+ Add Screen</button>
+                    <button id="btn-save-preset" class="btn btn-secondary full-width" style="margin-top: 8px;" data-tooltip="Save the currently selected layer's settings as a reusable preset">💾 Save as Preset</button>
                     <button id="btn-add-image" class="btn btn-secondary full-width" style="margin-top: 8px;" data-tooltip="Add an image or logo layer">+ Add Image/Logo</button>
                     <button id="btn-add-text" class="btn btn-secondary full-width" style="margin-top: 8px;" data-tooltip="Add a text label layer">+ Add Text Label</button>
                 </div>
@@ -1527,6 +1528,33 @@
     </div>
 
     <!-- About Modal -->
+    <div id="preset-picker-modal" class="modal" style="display: none;">
+        <div class="modal-content" style="background: #252525; border-radius: 8px; padding: 24px; max-width: 480px; margin: 80px auto; border: 1px solid #3a3a3a;">
+            <h2 style="margin-top: 0; color: #fff; margin-bottom: 4px; font-size: 18px;">Add Screen — Choose Preset</h2>
+            <div style="color: #888; font-size: 12px; margin-bottom: 16px;">Pick a saved preset or use your default preferences.</div>
+            <div id="preset-picker-list" style="max-height: 320px; overflow-y: auto; border: 1px solid #333; border-radius: 4px; background: #1a1a1a; padding: 4px; margin-bottom: 16px;"></div>
+            <div style="display: flex; justify-content: flex-end; gap: 8px;">
+                <button id="preset-picker-cancel" class="btn" style="background: #3a3a3a; padding: 8px 16px;">Cancel</button>
+                <button id="preset-picker-add" class="btn btn-primary" style="padding: 8px 16px;">Add Screen</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="preset-save-modal" class="modal" style="display: none;">
+        <div class="modal-content" style="background: #252525; border-radius: 8px; padding: 24px; max-width: 420px; margin: 120px auto; border: 1px solid #3a3a3a;">
+            <h2 style="margin-top: 0; color: #fff; margin-bottom: 4px; font-size: 18px;">Save Layer as Preset</h2>
+            <div id="preset-save-sublabel" style="color: #888; font-size: 12px; margin-bottom: 12px;">Save the current layer's settings for reuse.</div>
+            <label style="color: #ccc; font-size: 12px; display: block; margin-bottom: 4px;">Preset name</label>
+            <input id="preset-save-name" type="text" maxlength="80" placeholder="e.g., Standard SRR Pillar"
+                   style="width: 100%; padding: 8px; background: #1a1a1a; border: 1px solid #333; border-radius: 4px; color: #fff; font-size: 13px; box-sizing: border-box; margin-bottom: 8px;">
+            <div id="preset-save-warning" style="color: #f0ad4e; font-size: 12px; min-height: 18px; margin-bottom: 12px;"></div>
+            <div style="display: flex; justify-content: flex-end; gap: 8px;">
+                <button id="preset-save-cancel" class="btn" style="background: #3a3a3a; padding: 8px 16px;">Cancel</button>
+                <button id="preset-save-confirm" class="btn btn-primary" style="padding: 8px 16px;">Save</button>
+            </div>
+        </div>
+    </div>
+
     <div id="about-modal" class="modal" style="display: none;">
         <div class="modal-content" style="background: #252525; border-radius: 8px; padding: 32px; max-width: 420px; margin: 80px auto; border: 1px solid #3a3a3a; text-align: center;">
             <h2 style="margin-top: 0; color: #fff; margin-bottom: 4px; font-size: 20px;">LED Raster Designer</h2>

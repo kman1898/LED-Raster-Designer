@@ -24,6 +24,12 @@ env/
 logs/
 *.log
 
+# User presets (per-install user data, not source)
+presets/
+
+# Claude Code local config
+.claude/
+
 # OS files
 .DS_Store
 Thumbs.db
