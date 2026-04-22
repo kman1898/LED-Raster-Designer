@@ -7260,6 +7260,9 @@ class LEDRasterApp {
         const linesSel = document.getElementById('logs-lines');
         const autoCb = document.getElementById('logs-autorefresh');
         const wrapCb = document.getElementById('logs-wrap');
+        const sinceInput = document.getElementById('logs-since');
+        const untilInput = document.getElementById('logs-until');
+        const filterClearBtn = document.getElementById('logs-filter-clear');
         const pre = document.getElementById('logs-content');
 
         if (closeBtn) closeBtn.addEventListener('click', () => this.closeLogsModal());
@@ -7277,6 +7280,17 @@ class LEDRasterApp {
                 pre.style.whiteSpace = wrapCb.checked ? 'pre-wrap' : 'pre';
             });
         }
+        // Filter inputs: re-render on input without re-fetching
+        const applyFilter = () => this._rerenderLogsWithFilter();
+        if (sinceInput) sinceInput.addEventListener('input', applyFilter);
+        if (untilInput) untilInput.addEventListener('input', applyFilter);
+        if (filterClearBtn) {
+            filterClearBtn.addEventListener('click', () => {
+                if (sinceInput) sinceInput.value = '';
+                if (untilInput) untilInput.value = '';
+                applyFilter();
+            });
+        }
         if (pre) {
             pre.addEventListener('scroll', () => {
                 // If user scrolls away from the bottom, stop auto-scrolling on refresh
@@ -7289,6 +7303,97 @@ class LEDRasterApp {
                 if (e.target === modal) this.closeLogsModal();
             });
         }
+    }
+
+    // Parse relative ("10 min ago", "2h ago", "30s", "1d ago") or absolute
+    // timestamps ("YYYY-MM-DD HH:MM:SS" or any Date-parseable string) into an
+    // epoch-ms number. Returns null for empty/unparseable input.
+    parseLogFilterTime(input) {
+        if (!input) return null;
+        const trimmed = String(input).trim();
+        if (!trimmed) return null;
+        // Relative: "<n> <unit> ago" or just "<n><unit>" / "<n> <unit>"
+        const relMatch = trimmed
+            .toLowerCase()
+            .replace(/\s+ago\s*$/, '')  // strip trailing "ago"
+            .trim()
+            .match(/^(\d+(?:\.\d+)?)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)$/);
+        if (relMatch) {
+            const n = parseFloat(relMatch[1]);
+            const unit = relMatch[2];
+            let ms;
+            if (/^s(ec(ond)?s?)?$/.test(unit)) ms = n * 1000;
+            else if (/^m(in(ute)?s?)?$/.test(unit)) ms = n * 60 * 1000;
+            else if (/^h(r|rs|our|ours)?$/.test(unit)) ms = n * 60 * 60 * 1000;
+            else if (/^d(ay|ays)?$/.test(unit)) ms = n * 24 * 60 * 60 * 1000;
+            else return null;
+            return Date.now() - ms;
+        }
+        // Absolute: try Date.parse. Accepts ISO, "YYYY-MM-DD HH:MM:SS",
+        // "YYYY-MM-DDTHH:MM:SS", etc.
+        // Log format "2026-04-22 13:20:48" is not strict ISO; convert space to T.
+        const iso = trimmed.replace(' ', 'T');
+        const parsed = Date.parse(iso);
+        if (!isNaN(parsed)) return parsed;
+        const parsed2 = Date.parse(trimmed);
+        if (!isNaN(parsed2)) return parsed2;
+        return null;
+    }
+
+    // Extract the log line's timestamp in epoch ms. Log lines are JSON with a
+    // "timestamp": "YYYY-MM-DD HH:MM:SS" field. Returns null if not parseable.
+    parseLogLineTime(line) {
+        if (!line) return null;
+        // Fast path: pull out the first "timestamp": "..." occurrence
+        const m = line.match(/"timestamp"\s*:\s*"([^"]+)"/);
+        if (!m) return null;
+        const iso = m[1].replace(' ', 'T');
+        const parsed = Date.parse(iso);
+        return isNaN(parsed) ? null : parsed;
+    }
+
+    _filterLogLines(lines) {
+        const sinceInput = document.getElementById('logs-since');
+        const untilInput = document.getElementById('logs-until');
+        const sinceMs = this.parseLogFilterTime(sinceInput && sinceInput.value);
+        const untilMs = this.parseLogFilterTime(untilInput && untilInput.value);
+        const statusEl = document.getElementById('logs-filter-status');
+        const hasSinceText = !!(sinceInput && sinceInput.value.trim());
+        const hasUntilText = !!(untilInput && untilInput.value.trim());
+        if (!hasSinceText && !hasUntilText) {
+            if (statusEl) statusEl.textContent = '';
+            return { lines, sinceMs: null, untilMs: null, valid: true };
+        }
+        // Validate: if user typed text but it didn't parse, highlight the issue
+        const parts = [];
+        if (hasSinceText && sinceMs === null) parts.push('Since: invalid');
+        if (hasUntilText && untilMs === null) parts.push('Until: invalid');
+        if (parts.length) {
+            if (statusEl) { statusEl.textContent = parts.join(' · '); statusEl.style.color = '#f0ad4e'; }
+            return { lines, sinceMs, untilMs, valid: false };
+        }
+        const filtered = lines.filter(line => {
+            const t = this.parseLogLineTime(line);
+            if (t === null) return false;  // drop lines without a timestamp
+            if (sinceMs !== null && t < sinceMs) return false;
+            if (untilMs !== null && t > untilMs) return false;
+            return true;
+        });
+        if (statusEl) {
+            statusEl.style.color = '#888';
+            statusEl.textContent = `filtered to ${filtered.length} of ${lines.length}`;
+        }
+        return { lines: filtered, sinceMs, untilMs, valid: true };
+    }
+
+    _rerenderLogsWithFilter() {
+        // Re-render last-fetched lines through the current filter (no re-fetch)
+        if (!this._logsLastLines) return;
+        const pre = document.getElementById('logs-content');
+        if (!pre) return;
+        const { lines } = this._filterLogLines(this._logsLastLines);
+        pre.textContent = lines.join('\n');
+        if (!this._logsUserScrolledUp) pre.scrollTop = pre.scrollHeight;
     }
 
     _startLogsAutoRefresh() {
@@ -7316,8 +7421,10 @@ class LEDRasterApp {
         const pre = document.getElementById('logs-content');
         const meta = document.getElementById('logs-meta');
         if (!pre) return;
-        const linesArr = Array.isArray(data.lines) ? data.lines : [];
-        pre.textContent = linesArr.join('\n');
+        const rawLines = Array.isArray(data.lines) ? data.lines : [];
+        this._logsLastLines = rawLines;
+        const { lines: visibleLines } = this._filterLogLines(rawLines);
+        pre.textContent = visibleLines.join('\n');
         if (meta) {
             const sizeKB = (data.file_size_bytes || 0) / 1024;
             const sizeStr = sizeKB >= 1024
@@ -7325,7 +7432,7 @@ class LEDRasterApp {
                 : `${sizeKB.toFixed(1)} KB`;
             const archives = data.archive_count || 0;
             const archiveStr = archives > 0 ? ` · ${archives} archived` : '';
-            meta.textContent = `${linesArr.length} lines shown · ${sizeStr}${archiveStr}`;
+            meta.textContent = `${rawLines.length} lines loaded · ${sizeStr}${archiveStr}`;
         }
         // Auto-scroll to bottom unless the user scrolled up
         if (force || !this._logsUserScrolledUp) {

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED Raster Designer v0.7.4.21</title>
+    <title>LED Raster Designer v0.7.4.22</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -74,7 +74,7 @@
 
         <div id="toolbar">
             <div class="toolbar-section toolbar-project">
-                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.7.4.21</span></h1>
+                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.7.4.22</span></h1>
                 <input type="text" id="project-name" value="Untitled Project" class="editable-project-name">
             </div>
             <div class="toolbar-section toolbar-actions">
@@ -1562,7 +1562,7 @@
                 <h2 style="margin: 0; color: #fff; font-size: 18px;">Application Logs</h2>
                 <div id="logs-meta" style="color: #888; font-size: 12px;"></div>
             </div>
-            <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap;">
+            <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 6px; flex-wrap: wrap;">
                 <label style="color: #ccc; font-size: 12px;">Lines:
                     <select id="logs-lines" style="background: #1a1a1a; border: 1px solid #333; color: #fff; padding: 4px; border-radius: 4px; margin-left: 4px;">
                         <option value="250">250</option>
@@ -1581,6 +1581,20 @@
                     Wrap lines
                 </label>
                 <button id="logs-refresh" class="btn" style="background: #3a3a3a; padding: 4px 12px; font-size: 12px;">Refresh</button>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap;">
+                <label style="color: #ccc; font-size: 12px;">Since:
+                    <input id="logs-since" type="text" placeholder="e.g. 10 min ago"
+                           title="Relative (e.g. 10 min ago, 2h ago, 30s ago, 1d ago) or absolute (YYYY-MM-DD HH:MM:SS). Blank = no start bound."
+                           style="background: #1a1a1a; border: 1px solid #333; color: #fff; padding: 4px 6px; border-radius: 4px; margin-left: 4px; width: 180px; font-family: inherit; font-size: 12px;">
+                </label>
+                <label style="color: #ccc; font-size: 12px;">Until:
+                    <input id="logs-until" type="text" placeholder="e.g. 5 min ago (blank = now)"
+                           title="Relative or absolute. Blank means now — all entries after Since are shown."
+                           style="background: #1a1a1a; border: 1px solid #333; color: #fff; padding: 4px 6px; border-radius: 4px; margin-left: 4px; width: 200px; font-family: inherit; font-size: 12px;">
+                </label>
+                <button id="logs-filter-clear" class="btn" style="background: #3a3a3a; padding: 4px 10px; font-size: 12px;">Clear filter</button>
+                <span id="logs-filter-status" style="color: #888; font-size: 11px;"></span>
             </div>
             <pre id="logs-content" style="flex: 1; min-height: 360px; background: #0d0d0d; border: 1px solid #333; border-radius: 4px; padding: 10px; color: #ddd; font-family: Menlo, Consolas, monospace; font-size: 11px; overflow: auto; white-space: pre; margin: 0;"></pre>
             <div style="display: flex; justify-content: space-between; gap: 8px; margin-top: 12px; flex-wrap: wrap;">

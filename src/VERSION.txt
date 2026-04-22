@@ -1,6 +1,14 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.4.22 - April 22, 2026
+----------------------------
+- NEW: Logs viewer gains Since / Until time filters. Enter a relative time
+  ("10 min ago", "2h ago", "30s ago", "1d ago") or an absolute timestamp
+  ("YYYY-MM-DD HH:MM:SS") to narrow the visible entries; leave both blank
+  to show everything. Invalid input is highlighted; a Clear Filter button
+  wipes both fields.
+
 v0.7.4.21 - April 22, 2026
 ----------------------------
 - FIX: Info labels (Data tab's "X Mains, Y Backups | Z Ports" and Power tab's
