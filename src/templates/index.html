@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED Raster Designer v0.7.4.20</title>
+    <title>LED Raster Designer v0.7.4.21</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -53,6 +53,7 @@
 
         <div id="menu-help" class="menu-dropdown">
             <div class="menu-option" data-action="keyboard-shortcuts" data-label="Keyboard Shortcuts"></div>
+            <div class="menu-option" data-action="show-logs" data-label="Show Logs…"></div>
             <div class="menu-option" data-action="check-updates" data-label="Check for Updates…"></div>
             <div class="menu-divider"></div>
             <div class="menu-option" data-action="about" data-label="About LED Raster Designer"></div>
@@ -73,7 +74,7 @@
 
         <div id="toolbar">
             <div class="toolbar-section toolbar-project">
-                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.7.4.20</span></h1>
+                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.7.4.21</span></h1>
                 <input type="text" id="project-name" value="Untitled Project" class="editable-project-name">
             </div>
             <div class="toolbar-section toolbar-actions">
@@ -1551,6 +1552,44 @@
             <div style="display: flex; justify-content: flex-end; gap: 8px;">
                 <button id="preset-save-cancel" class="btn" style="background: #3a3a3a; padding: 8px 16px;">Cancel</button>
                 <button id="preset-save-confirm" class="btn btn-primary" style="padding: 8px 16px;">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="logs-modal" class="modal" style="display: none;">
+        <div class="modal-content" style="background: #252525; border-radius: 8px; padding: 20px; max-width: 960px; width: 90%; margin: 40px auto; border: 1px solid #3a3a3a; display: flex; flex-direction: column; max-height: calc(100vh - 80px);">
+            <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px;">
+                <h2 style="margin: 0; color: #fff; font-size: 18px;">Application Logs</h2>
+                <div id="logs-meta" style="color: #888; font-size: 12px;"></div>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap;">
+                <label style="color: #ccc; font-size: 12px;">Lines:
+                    <select id="logs-lines" style="background: #1a1a1a; border: 1px solid #333; color: #fff; padding: 4px; border-radius: 4px; margin-left: 4px;">
+                        <option value="250">250</option>
+                        <option value="500" selected>500</option>
+                        <option value="1000">1000</option>
+                        <option value="5000">5000</option>
+                        <option value="20000">20000 (max)</option>
+                    </select>
+                </label>
+                <label style="color: #ccc; font-size: 12px; display: inline-flex; align-items: center; gap: 6px;">
+                    <input id="logs-autorefresh" type="checkbox">
+                    Auto-refresh (2s)
+                </label>
+                <label style="color: #ccc; font-size: 12px; display: inline-flex; align-items: center; gap: 6px;">
+                    <input id="logs-wrap" type="checkbox">
+                    Wrap lines
+                </label>
+                <button id="logs-refresh" class="btn" style="background: #3a3a3a; padding: 4px 12px; font-size: 12px;">Refresh</button>
+            </div>
+            <pre id="logs-content" style="flex: 1; min-height: 360px; background: #0d0d0d; border: 1px solid #333; border-radius: 4px; padding: 10px; color: #ddd; font-family: Menlo, Consolas, monospace; font-size: 11px; overflow: auto; white-space: pre; margin: 0;"></pre>
+            <div style="display: flex; justify-content: space-between; gap: 8px; margin-top: 12px; flex-wrap: wrap;">
+                <div style="display: flex; gap: 8px;">
+                    <button id="logs-copy" class="btn" style="background: #3a3a3a; padding: 6px 14px;">Copy</button>
+                    <button id="logs-reveal" class="btn" style="background: #3a3a3a; padding: 6px 14px;">Open Folder</button>
+                    <button id="logs-clear" class="btn" style="background: #552020; padding: 6px 14px; color: #fff;">Clear Logs</button>
+                </div>
+                <button id="logs-close" class="btn" style="background: #3a3a3a; padding: 6px 16px;">Close</button>
             </div>
         </div>
     </div>

@@ -2622,16 +2622,28 @@ class CanvasRenderer {
                 centerLines.push(`Weight ${totalWeightKg.toFixed(1)} kg / ${totalWeightLb.toFixed(1)} lb`);
             }
         } else if (this.viewMode === 'data-flow') {
-            if (layer.showDataFlowPortInfo) {
-                let portsRequired = layer._portsRequired || 0;
-                // Fallback: recalculate if not yet computed (e.g. right after file load)
-                if (portsRequired <= 0 && window.app && typeof window.app.calculatePortAssignments === 'function') {
-                    const assignments = window.app.calculatePortAssignments(layer);
-                    if (Array.isArray(assignments)) {
-                        portsRequired = assignments.reduce((max, a) => Math.max(max, a.port || 0), 0);
-                    }
-                    if (portsRequired <= 0 && layer._autoPortsRequired) {
-                        portsRequired = layer._autoPortsRequired;
+            if (layer.showDataFlowPortInfo && window.app) {
+                // Always recompute from current layer state. Cached `_portsRequired`
+                // is only refreshed for the currently-selected layer by
+                // `updatePortCapacityDisplay`, so other layers' labels would go
+                // stale until clicked. `renderDataFlowArrows` ran just above and
+                // populated fresh `_autoPortsRequired` on this layer.
+                let portsRequired = 0;
+                const isCustom = typeof window.app.isCustomFlow === 'function'
+                    ? window.app.isCustomFlow(layer)
+                    : (layer.flowPattern === 'custom');
+                if (isCustom && layer.customPortPaths) {
+                    const customPorts = Object.keys(layer.customPortPaths)
+                        .map(p => parseInt(p, 10))
+                        .filter(p => (layer.customPortPaths[p] || []).length > 0);
+                    portsRequired = customPorts.length > 0
+                        ? Math.max(...customPorts)
+                        : (layer._autoPortsRequired || layer.customPortIndex || 0);
+                } else {
+                    portsRequired = layer._autoPortsRequired || 0;
+                    if (portsRequired <= 0 && typeof window.app.calculatePortAssignments === 'function') {
+                        window.app.calculatePortAssignments(layer);
+                        portsRequired = layer._autoPortsRequired || 0;
                     }
                 }
                 if (portsRequired > 0) {
@@ -2641,14 +2653,18 @@ class CanvasRenderer {
                 }
             }
         } else if (this.viewMode === 'power') {
-            if (layer.showPowerCircuitInfo) {
-                let circuits = Number(layer._powerCircuitsRequired) || 0;
-                if (circuits <= 0 && Array.isArray(layer._powerCircuits)) {
-                    circuits = layer._powerCircuits.filter(c => Array.isArray(c) && c.length > 0).length;
-                }
-                if (circuits <= 0 && window.app && typeof window.app.calculatePowerAssignments === 'function') {
+            if (layer.showPowerCircuitInfo && window.app) {
+                // Always recompute from current layer state. `renderPowerArrows`
+                // (or `preparePowerLayerRenderData`) ran just above and populated
+                // `_powerCircuits` on this layer, so use that directly rather
+                // than trusting `_powerCircuitsRequired` (only refreshed for
+                // the currently-selected layer by `updatePowerStatsDisplay`).
+                let circuits = Array.isArray(layer._powerCircuits)
+                    ? layer._powerCircuits.filter(c => Array.isArray(c) && c.length > 0).length
+                    : 0;
+                if (circuits <= 0 && typeof window.app.calculatePowerAssignments === 'function') {
                     const assignments = window.app.calculatePowerAssignments(layer);
-                    if (!assignments.error && Array.isArray(assignments.circuits)) {
+                    if (assignments && !assignments.error && Array.isArray(assignments.circuits)) {
                         circuits = assignments.circuits.filter(c => Array.isArray(c) && c.length > 0).length;
                     }
                 }
@@ -2658,15 +2674,15 @@ class CanvasRenderer {
                     ? layer.panels
                         .filter(p => !p.hidden)
                         .reduce((sum, p) => {
-                            if (window.app && typeof window.app.getPanelLoadFactor === 'function') {
+                            if (typeof window.app.getPanelLoadFactor === 'function') {
                                 return sum + window.app.getPanelLoadFactor(layer, p);
                             }
                             return sum + 1;
                         }, 0)
                     : 0;
                 const totalWatts = panelWatts * equivalentPanels;
-                const amps1 = voltage > 0 ? (totalWatts / voltage) : (Number(layer._powerTotalAmps1) || 0);
-                const amps3 = voltage > 0 ? (totalWatts / (voltage * 1.73)) : (Number(layer._powerTotalAmps3) || 0);
+                const amps1 = voltage > 0 ? (totalWatts / voltage) : 0;
+                const amps3 = voltage > 0 ? (totalWatts / (voltage * 1.73)) : 0;
                 const multis = circuits > 0 ? Math.ceil(circuits / 6) : 0;
                 centerLines.push(`${multis} Multi, ${circuits} Circuits | ${amps1.toFixed(2)}A 1φ / ${amps3.toFixed(2)}A 3φ`);
             }

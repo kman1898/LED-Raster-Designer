@@ -1,6 +1,18 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.4.21 - April 22, 2026
+----------------------------
+- FIX: Info labels (Data tab's "X Mains, Y Backups | Z Ports" and Power tab's
+  "X Multi, Y Circuits | A 1φ / B 3φ") now update immediately when you change
+  a setting on multiple selected screens. Previously the cached port/circuit
+  counts were only refreshed for the currently selected layer's side panel,
+  so other selected screens kept stale labels until clicked.
+- NEW: Help → Show Logs… Opens an in-app viewer for the application log.
+  Features: adjustable line count (250/500/1000/5000/20000), auto-refresh
+  every 2s, wrap-lines toggle, Copy button, Open Folder (reveals in Finder/
+  Explorer), and Clear Logs (truncates current log, preserves archives).
+
 v0.7.4.20 - April 16, 2026
 ----------------------------
 - NEW: Screen Layer Presets. Save the currently selected layer's settings as

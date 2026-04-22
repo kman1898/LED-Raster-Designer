@@ -7184,6 +7184,9 @@ class LEDRasterApp {
             case 'keyboard-shortcuts':
                 this.openShortcutsModal();
                 break;
+            case 'show-logs':
+                this.openLogsModal();
+                break;
             case 'about':
                 this.openAboutModal();
                 break;
@@ -7227,6 +7230,158 @@ class LEDRasterApp {
         modal.onclick = function(e) {
             if (e.target === modal) modal.style.display = 'none';
         };
+    }
+
+    // ── Logs Viewer (Help → Show Logs…) ──
+    openLogsModal() {
+        const modal = document.getElementById('logs-modal');
+        if (!modal) return;
+        modal.style.display = 'block';
+        this._ensureLogsModalWired();
+        this._logsUserScrolledUp = false;
+        this.refreshLogs(true);
+    }
+
+    closeLogsModal() {
+        const modal = document.getElementById('logs-modal');
+        if (modal) modal.style.display = 'none';
+        this._stopLogsAutoRefresh();
+    }
+
+    _ensureLogsModalWired() {
+        if (this._logsModalWired) return;
+        this._logsModalWired = true;
+        const modal = document.getElementById('logs-modal');
+        const closeBtn = document.getElementById('logs-close');
+        const refreshBtn = document.getElementById('logs-refresh');
+        const copyBtn = document.getElementById('logs-copy');
+        const revealBtn = document.getElementById('logs-reveal');
+        const clearBtn = document.getElementById('logs-clear');
+        const linesSel = document.getElementById('logs-lines');
+        const autoCb = document.getElementById('logs-autorefresh');
+        const wrapCb = document.getElementById('logs-wrap');
+        const pre = document.getElementById('logs-content');
+
+        if (closeBtn) closeBtn.addEventListener('click', () => this.closeLogsModal());
+        if (refreshBtn) refreshBtn.addEventListener('click', () => this.refreshLogs(true));
+        if (copyBtn) copyBtn.addEventListener('click', () => this.copyLogs());
+        if (revealBtn) revealBtn.addEventListener('click', () => this.revealLogsFolder());
+        if (clearBtn) clearBtn.addEventListener('click', () => this.clearLogs());
+        if (linesSel) linesSel.addEventListener('change', () => this.refreshLogs(true));
+        if (autoCb) autoCb.addEventListener('change', () => {
+            if (autoCb.checked) this._startLogsAutoRefresh();
+            else this._stopLogsAutoRefresh();
+        });
+        if (wrapCb && pre) {
+            wrapCb.addEventListener('change', () => {
+                pre.style.whiteSpace = wrapCb.checked ? 'pre-wrap' : 'pre';
+            });
+        }
+        if (pre) {
+            pre.addEventListener('scroll', () => {
+                // If user scrolls away from the bottom, stop auto-scrolling on refresh
+                const atBottom = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 16;
+                this._logsUserScrolledUp = !atBottom;
+            });
+        }
+        if (modal) {
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) this.closeLogsModal();
+            });
+        }
+    }
+
+    _startLogsAutoRefresh() {
+        this._stopLogsAutoRefresh();
+        this._logsAutoInterval = setInterval(() => this.refreshLogs(false), 2000);
+    }
+
+    _stopLogsAutoRefresh() {
+        if (this._logsAutoInterval) {
+            clearInterval(this._logsAutoInterval);
+            this._logsAutoInterval = null;
+        }
+    }
+
+    refreshLogs(force) {
+        const linesSel = document.getElementById('logs-lines');
+        const lines = linesSel ? parseInt(linesSel.value, 10) || 500 : 500;
+        fetch(`/api/logs?lines=${lines}`)
+            .then(r => r.json())
+            .then(data => this._renderLogs(data, force))
+            .catch(err => this._renderLogsError(err));
+    }
+
+    _renderLogs(data, force) {
+        const pre = document.getElementById('logs-content');
+        const meta = document.getElementById('logs-meta');
+        if (!pre) return;
+        const linesArr = Array.isArray(data.lines) ? data.lines : [];
+        pre.textContent = linesArr.join('\n');
+        if (meta) {
+            const sizeKB = (data.file_size_bytes || 0) / 1024;
+            const sizeStr = sizeKB >= 1024
+                ? `${(sizeKB / 1024).toFixed(1)} MB`
+                : `${sizeKB.toFixed(1)} KB`;
+            const archives = data.archive_count || 0;
+            const archiveStr = archives > 0 ? ` · ${archives} archived` : '';
+            meta.textContent = `${linesArr.length} lines shown · ${sizeStr}${archiveStr}`;
+        }
+        // Auto-scroll to bottom unless the user scrolled up
+        if (force || !this._logsUserScrolledUp) {
+            pre.scrollTop = pre.scrollHeight;
+            this._logsUserScrolledUp = false;
+        }
+    }
+
+    _renderLogsError(err) {
+        const pre = document.getElementById('logs-content');
+        if (pre) pre.textContent = `Failed to load logs: ${err && err.message || err}`;
+    }
+
+    copyLogs() {
+        const pre = document.getElementById('logs-content');
+        if (!pre) return;
+        const text = pre.textContent || '';
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(() => this._flashCopyButton());
+        } else {
+            // Fallback: temporary textarea
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            document.body.appendChild(ta);
+            ta.select();
+            try { document.execCommand('copy'); } catch (e) { /* ignore */ }
+            document.body.removeChild(ta);
+            this._flashCopyButton();
+        }
+    }
+
+    _flashCopyButton() {
+        const btn = document.getElementById('logs-copy');
+        if (!btn) return;
+        const orig = btn.textContent;
+        btn.textContent = 'Copied ✓';
+        setTimeout(() => { btn.textContent = orig; }, 1200);
+    }
+
+    revealLogsFolder() {
+        fetch('/api/logs/reveal', { method: 'POST' })
+            .then(r => {
+                if (!r.ok) return r.json().then(e => Promise.reject(e));
+            })
+            .catch(err => alert('Failed to open logs folder: ' + (err && err.error || 'unknown')));
+    }
+
+    clearLogs() {
+        if (!confirm('Clear the current log file? Archived (rotated) logs will be preserved.')) return;
+        fetch('/api/logs', { method: 'DELETE' })
+            .then(r => {
+                if (!r.ok) return r.json().then(e => Promise.reject(e));
+                return r.json();
+            })
+            .then(() => this.refreshLogs(true))
+            .catch(err => alert('Failed to clear logs: ' + (err && err.error || 'unknown')));
     }
 
     // ── Recent Files ──────────────────────────────────────────────
