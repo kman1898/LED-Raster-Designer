@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED Raster Designer v0.7.4.22</title>
+    <title>LED Raster Designer v0.7.4.23</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -74,7 +74,7 @@
 
         <div id="toolbar">
             <div class="toolbar-section toolbar-project">
-                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.7.4.22</span></h1>
+                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.7.4.23</span></h1>
                 <input type="text" id="project-name" value="Untitled Project" class="editable-project-name">
             </div>
             <div class="toolbar-section toolbar-actions">
@@ -1542,13 +1542,17 @@
     </div>
 
     <div id="preset-save-modal" class="modal" style="display: none;">
-        <div class="modal-content" style="background: #252525; border-radius: 8px; padding: 24px; max-width: 420px; margin: 120px auto; border: 1px solid #3a3a3a;">
+        <div class="modal-content" style="background: #252525; border-radius: 8px; padding: 24px; max-width: 460px; margin: 80px auto; border: 1px solid #3a3a3a;">
             <h2 style="margin-top: 0; color: #fff; margin-bottom: 4px; font-size: 18px;">Save Layer as Preset</h2>
             <div id="preset-save-sublabel" style="color: #888; font-size: 12px; margin-bottom: 12px;">Save the current layer's settings for reuse.</div>
             <label style="color: #ccc; font-size: 12px; display: block; margin-bottom: 4px;">Preset name</label>
             <input id="preset-save-name" type="text" maxlength="80" placeholder="e.g., Standard SRR Pillar"
                    style="width: 100%; padding: 8px; background: #1a1a1a; border: 1px solid #333; border-radius: 4px; color: #fff; font-size: 13px; box-sizing: border-box; margin-bottom: 8px;">
-            <div id="preset-save-warning" style="color: #f0ad4e; font-size: 12px; min-height: 18px; margin-bottom: 12px;"></div>
+            <div id="preset-save-warning" style="color: #f0ad4e; font-size: 12px; min-height: 18px; margin-bottom: 8px;"></div>
+            <div id="preset-save-existing-section" style="margin-bottom: 12px; display: none;">
+                <div style="color: #aaa; font-size: 11px; margin-bottom: 4px;">Or click an existing preset to overwrite:</div>
+                <div id="preset-save-existing-list" style="max-height: 140px; overflow-y: auto; border: 1px solid #333; border-radius: 4px; background: #1a1a1a; padding: 4px;"></div>
+            </div>
             <div style="display: flex; justify-content: flex-end; gap: 8px;">
                 <button id="preset-save-cancel" class="btn" style="background: #3a3a3a; padding: 8px 16px;">Cancel</button>
                 <button id="preset-save-confirm" class="btn btn-primary" style="padding: 8px 16px;">Save</button>

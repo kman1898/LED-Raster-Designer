@@ -3587,7 +3587,8 @@ class LEDRasterApp {
             // Initialize client-side defaults first (baseline)
             this.initializeLayerDefaults(layer);
             // Then overlay preset client-side props on top
-            if (presetData && typeof presetData === 'object') {
+            const appliedPreset = presetData && typeof presetData === 'object';
+            if (appliedPreset) {
                 this.applyPresetClientProps(layer, presetData);
             }
 
@@ -3597,6 +3598,17 @@ class LEDRasterApp {
 
             // Save the new defaults to localStorage
             this.saveClientSideProperties();
+
+            // IMPORTANT: when a preset was applied, the server only knows the
+            // structural fields sent via /api/layer/add (columns, cabinet dims,
+            // colors, etc.). Preset values like bitDepth, frameRate, panelWatts,
+            // powerVoltage, flowPattern, label sizes, etc. live only on the
+            // client at this point. Any subsequent server re-fetch (e.g. after
+            // delete_layer or file load) would clobber them. Push the enriched
+            // layer back now so server + client stay in sync.
+            if (appliedPreset) {
+                this.updateLayers([layer]);
+            }
         });
     }
 
@@ -3622,6 +3634,17 @@ class LEDRasterApp {
             if (excluded.has(k)) return;
             if (k.startsWith('_')) return;  // skip runtime caches
             out[k] = layer[k];
+        });
+        // Ensure common layer-default keys are always present even if the
+        // source layer was loaded from an older project file that lacked them.
+        // Without this, a fresh layer created from the preset would fall back
+        // to `initializeLayerDefaults` values instead of the intended preset.
+        const ensuredDefaults = {
+            portMappingMode: 'organized',
+            randomDataColors: false
+        };
+        Object.keys(ensuredDefaults).forEach(k => {
+            if (out[k] === undefined) out[k] = ensuredDefaults[k];
         });
         return out;
     }
@@ -3793,10 +3816,58 @@ class LEDRasterApp {
         modal.style.display = 'block';
         setTimeout(() => nameInput.focus(), 50);
         this._presetSaveExistingNames = null;
+        this._renderPresetSaveExistingList([]);
+        this.updatePresetSaveConfirmButton();
         this.fetchPresetList().then(list => {
             this._presetSaveExistingNames = list;
+            this._renderPresetSaveExistingList(list);
             this.updatePresetSaveWarning();
+            this.updatePresetSaveConfirmButton();
         });
+    }
+
+    _renderPresetSaveExistingList(names) {
+        const section = document.getElementById('preset-save-existing-section');
+        const list = document.getElementById('preset-save-existing-list');
+        if (!section || !list) return;
+        list.innerHTML = '';
+        if (!Array.isArray(names) || names.length === 0) {
+            section.style.display = 'none';
+            return;
+        }
+        section.style.display = 'block';
+        names.forEach(name => {
+            const row = document.createElement('div');
+            row.className = 'preset-save-existing-row';
+            row.style.cssText = 'padding: 6px 8px; color: #ddd; font-size: 12px; cursor: pointer; border-radius: 3px;';
+            row.textContent = name;
+            row.title = `Click to overwrite "${name}"`;
+            row.addEventListener('mouseenter', () => { row.style.background = '#2d4a7a'; });
+            row.addEventListener('mouseleave', () => { row.style.background = 'transparent'; });
+            row.addEventListener('click', () => {
+                const nameInput = document.getElementById('preset-save-name');
+                if (nameInput) {
+                    nameInput.value = name;
+                    nameInput.focus();
+                    this.updatePresetSaveWarning();
+                    this.updatePresetSaveConfirmButton();
+                }
+            });
+            list.appendChild(row);
+        });
+    }
+
+    updatePresetSaveConfirmButton() {
+        const btn = document.getElementById('preset-save-confirm');
+        const nameInput = document.getElementById('preset-save-name');
+        if (!btn || !nameInput) return;
+        const name = nameInput.value.trim();
+        const existing = this._presetSaveExistingNames || [];
+        if (name && existing.includes(name)) {
+            btn.textContent = 'Overwrite';
+        } else {
+            btn.textContent = 'Save';
+        }
     }
 
     closePresetSaveModal() {
@@ -3858,7 +3929,10 @@ class LEDRasterApp {
         if (saveCancel) saveCancel.addEventListener('click', () => this.closePresetSaveModal());
         if (saveConfirm) saveConfirm.addEventListener('click', () => this.confirmPresetSave());
         if (saveName) {
-            saveName.addEventListener('input', () => this.updatePresetSaveWarning());
+            saveName.addEventListener('input', () => {
+                this.updatePresetSaveWarning();
+                this.updatePresetSaveConfirmButton();
+            });
             saveName.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter') this.confirmPresetSave();
                 else if (e.key === 'Escape') this.closePresetSaveModal();

@@ -867,8 +867,8 @@ def update_layer(layer_id):
     previous_offset_x = layer.get('offset_x', 0)
     previous_offset_y = layer.get('offset_y', 0)
 
-    for key in ['name', 'columns', 'rows', 'cabinet_width', 'cabinet_height', 
-                'offset_x', 'offset_y', 'rotation', 'color1', 'color2', 
+    for key in ['name', 'columns', 'rows', 'cabinet_width', 'cabinet_height',
+                'offset_x', 'offset_y', 'rotation', 'color1', 'color2',
                 'panel_width_mm', 'panel_height_mm', 'panel_weight', 'weight_unit', 'visible',
                 'halfFirstColumn', 'halfLastColumn', 'halfFirstRow', 'halfLastRow',
                 'show_numbers', 'number_size', 'show_panel_borders', 'show_circle_with_x', 'border_color',
@@ -894,7 +894,20 @@ def update_layer(layer_id):
                 'showProjectName', 'showDate',
                 'showPrimaryPorts', 'showBackupPorts',
                 'showCircuits', 'showSinglePhase', 'showThreePhase',
-                'fontBold', 'fontItalic', 'fontUnderline']:
+                'fontBold', 'fontItalic', 'fontUnderline',
+                # Data flow / processing settings (previously silently dropped on PUT
+                # which broke preset application and label updates on re-fetch)
+                'flowPattern', 'bitDepth', 'frameRate', 'processorType', 'portMappingMode',
+                'dataFlowColor', 'dataFlowLabelSize', 'randomDataColors',
+                'portLabelTemplatePrimary', 'portLabelTemplateReturn',
+                'portLabelOverridesPrimary', 'portLabelOverridesReturn',
+                'customPortPaths', 'customPortIndex',
+                'screenNameOffsetX', 'screenNameOffsetY',
+                'screenNameOffsetXCabinet', 'screenNameOffsetYCabinet',
+                'screenNameOffsetXDataFlow', 'screenNameOffsetYDataFlow',
+                'screenNameOffsetXPower', 'screenNameOffsetYPower',
+                'screenNameSize',
+                'showDataFlowPortInfo', 'showPowerCircuitInfo']:
         if key in data:
             layer[key] = data[key]
 

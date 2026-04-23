@@ -1,6 +1,24 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.4.23 - April 22, 2026
+----------------------------
+- FIX: Preset values (bit depth, frame rate, processor type, flow pattern,
+  data-flow colors/label sizes, port templates, screen-name offsets, info-label
+  toggles, etc.) now persist server-side after applying a preset. Root cause:
+  the server's PUT /api/layer/<id> endpoint had an incomplete whitelist that
+  silently dropped these fields, so presets would appear to work until any
+  subsequent server re-fetch (delete layer, project load) reset them.
+- FIX: Preset sync — `addLayer` now pushes the preset-enriched layer to the
+  server immediately after creation, so the server has complete state instead
+  of only the structural fields sent via `/api/layer/add`.
+- FIX: Preset serialization always includes `portMappingMode` and
+  `randomDataColors` defaults so presets saved from older-format layers are
+  still complete.
+- NEW: Save-as-Preset modal shows a list of existing presets; click any to
+  pre-fill the name field. The Save button label switches to "Overwrite"
+  when the typed name matches an existing preset.
+
 v0.7.4.22 - April 22, 2026
 ----------------------------
 - NEW: Logs viewer gains Since / Until time filters. Enter a relative time
