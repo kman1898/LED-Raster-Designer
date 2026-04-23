@@ -1,6 +1,18 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.4.24 - April 23, 2026
+----------------------------
+- NEW: Watts-per-Panel field accepts arithmetic expressions (+, -, *, /,
+  parentheses). Type "200+50", "500*2", "1000/3", etc. The field resolves
+  to the computed value on blur and flashes a red outline if the expression
+  is invalid.
+- NEW: Custom data/power flow badges (top-left of canvas) now show panel
+  counts. A white "N on port" / "N on circuit" pill shows how many panels
+  are already committed to the active port/circuit, and a yellow "+M
+  selected" pill appears live while drag-selecting panels so you can see
+  pending vs. locked-in counts at a glance.
+
 v0.7.4.23 - April 22, 2026
 ----------------------------
 - FIX: Preset values (bit depth, frame rate, processor type, flow pattern,

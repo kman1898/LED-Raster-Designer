@@ -2854,7 +2854,12 @@ class LEDRasterApp {
 
         if (powerPanelWattsInput) {
             powerPanelWattsInput.addEventListener('change', () => {
-                const val = parseFloat(powerPanelWattsInput.value) || 0;
+                const parsed = this.evaluateNumericExpression(powerPanelWattsInput.value);
+                const val = parsed === null ? 0 : parsed;
+                // Write the resolved number back so the field shows the result
+                if (parsed !== null) powerPanelWattsInput.value = this._formatEvaluatedNumber(parsed);
+                else powerPanelWattsInput.style.outline = '2px solid #c55';
+                if (parsed !== null) powerPanelWattsInput.style.outline = '';
                 this.applyToSelectedLayers(layer => {
                     layer.panelWatts = val;
                 });
@@ -9942,6 +9947,40 @@ class LEDRasterApp {
             g: parseInt(result[2], 16),
             b: parseInt(result[3], 16)
         } : { r: 255, g: 0, b: 0 };
+    }
+
+    // Evaluate a simple arithmetic expression using + - * / and parentheses.
+    // Returns a finite number, or null if the input is empty/invalid. Used by
+    // the Watts per Panel field (and anywhere else we want a "spreadsheet-y"
+    // numeric input) so users can type e.g. "200+50" or "1000/3" directly.
+    evaluateNumericExpression(raw) {
+        if (raw == null) return null;
+        const s = String(raw).trim();
+        if (s === '') return null;
+        // Allow only digits, . , whitespace, and the four operators + - * / plus parentheses
+        const cleaned = s.replace(/,/g, '').replace(/\s+/g, '');
+        if (!/^[-+*/().\d]+$/.test(cleaned)) return null;
+        // Reject dangerous patterns (consecutive operators other than a leading unary minus in a sub-expr)
+        if (/[*/]{2,}|\+{2,}|-{3,}|[-+*/]$|^[*/]/.test(cleaned)) return null;
+        try {
+            // Function constructor with no scope access — still safer than eval(),
+            // and the regex above guarantees only arithmetic characters are present.
+            // eslint-disable-next-line no-new-func
+            const result = Function('"use strict"; return (' + cleaned + ');')();
+            if (typeof result !== 'number' || !isFinite(result)) return null;
+            return result;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    // Format an evaluated number for display in the input: drop trailing zeros
+    // but keep reasonable precision for fractional results (e.g. 1000/3).
+    _formatEvaluatedNumber(n) {
+        if (!isFinite(n)) return '0';
+        if (Number.isInteger(n)) return String(n);
+        // Up to 4 decimal places, trim trailing zeros
+        return parseFloat(n.toFixed(4)).toString();
     }
     
     rgbToHex(r, g, b) {

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED Raster Designer v0.7.4.23</title>
+    <title>LED Raster Designer v0.7.4.24</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -74,7 +74,7 @@
 
         <div id="toolbar">
             <div class="toolbar-section toolbar-project">
-                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.7.4.23</span></h1>
+                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.7.4.24</span></h1>
                 <input type="text" id="project-name" value="Untitled Project" class="editable-project-name">
             </div>
             <div class="toolbar-section toolbar-actions">
@@ -779,9 +779,9 @@
                                 <input type="number" id="power-amperage-custom" value="15" min="0" step="0.1" autocomplete="off" style="width: 70px; display: none;">
                             </div>
                         </div>
-                        <div class="info-row" data-tooltip="Watts per Panel — Power draw of a single LED cabinet at full white, used to calculate circuits required.">
+                        <div class="info-row" data-tooltip="Watts per Panel — Power draw of a single LED cabinet at full white, used to calculate circuits required. Math OK (e.g., 200+50, 500*2, 1000/3).">
                             <label>Watts per Panel</label>
-                            <input type="number" id="power-panel-watts" value="200" min="0" step="1" autocomplete="off" style="width: 80px;">
+                            <input type="text" inputmode="decimal" id="power-panel-watts" value="200" autocomplete="off" style="width: 100px;" placeholder="e.g., 200 or 200+50">
                         </div>
 
                         <div style="padding: 8px; background: #111; border: 1px solid #333; border-radius: 4px; font-size: 12px; color: #ccc; margin-bottom: 12px;">
