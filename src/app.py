@@ -867,8 +867,8 @@ def update_layer(layer_id):
     previous_offset_x = layer.get('offset_x', 0)
     previous_offset_y = layer.get('offset_y', 0)
 
-    for key in ['name', 'columns', 'rows', 'cabinet_width', 'cabinet_height', 
-                'offset_x', 'offset_y', 'rotation', 'color1', 'color2', 
+    for key in ['name', 'columns', 'rows', 'cabinet_width', 'cabinet_height',
+                'offset_x', 'offset_y', 'rotation', 'color1', 'color2',
                 'panel_width_mm', 'panel_height_mm', 'panel_weight', 'weight_unit', 'visible',
                 'halfFirstColumn', 'halfLastColumn', 'halfFirstRow', 'halfLastRow',
                 'show_numbers', 'number_size', 'show_panel_borders', 'show_circle_with_x', 'border_color',
@@ -894,7 +894,20 @@ def update_layer(layer_id):
                 'showProjectName', 'showDate',
                 'showPrimaryPorts', 'showBackupPorts',
                 'showCircuits', 'showSinglePhase', 'showThreePhase',
-                'fontBold', 'fontItalic', 'fontUnderline']:
+                'fontBold', 'fontItalic', 'fontUnderline',
+                # Data flow / processing settings (previously silently dropped on PUT
+                # which broke preset application and label updates on re-fetch)
+                'flowPattern', 'bitDepth', 'frameRate', 'processorType', 'portMappingMode',
+                'dataFlowColor', 'dataFlowLabelSize', 'randomDataColors',
+                'portLabelTemplatePrimary', 'portLabelTemplateReturn',
+                'portLabelOverridesPrimary', 'portLabelOverridesReturn',
+                'customPortPaths', 'customPortIndex',
+                'screenNameOffsetX', 'screenNameOffsetY',
+                'screenNameOffsetXCabinet', 'screenNameOffsetYCabinet',
+                'screenNameOffsetXDataFlow', 'screenNameOffsetYDataFlow',
+                'screenNameOffsetXPower', 'screenNameOffsetYPower',
+                'screenNameSize',
+                'showDataFlowPortInfo', 'showPowerCircuitInfo']:
         if key in data:
             layer[key] = data[key]
 
@@ -2455,18 +2468,30 @@ if __name__ == '__main__':
 
     local_ip = get_local_ip()
 
+    # Allow `--port N` (or `--port=N`) on the command line to override 8050.
+    # Useful when running under Claude Preview alongside other Flask apps.
+    _port = 8050
+    _argv = sys.argv[1:]
+    for i, a in enumerate(_argv):
+        if a == '--port' and i + 1 < len(_argv):
+            try: _port = int(_argv[i + 1])
+            except ValueError: pass
+        elif a.startswith('--port='):
+            try: _port = int(a.split('=', 1)[1])
+            except ValueError: pass
+
     print('=' * 60)
     print('LED RASTER DESIGNER')
     print('=' * 60)
     print('Server starting...')
-    print(f'Local access:   http://127.0.0.1:8050')
-    print(f'Network access: http://{local_ip}:8050')
+    print(f'Local access:   http://127.0.0.1:{_port}')
+    print(f'Network access: http://{local_ip}:{_port}')
     print('=' * 60)
 
     # Auto-open browser when running as bundled executable
     if getattr(sys, 'frozen', False):
         import webbrowser
         import threading
-        threading.Timer(1.5, lambda: webbrowser.open('http://127.0.0.1:8050')).start()
+        threading.Timer(1.5, lambda: webbrowser.open(f'http://127.0.0.1:{_port}')).start()
 
-    run_server(host='0.0.0.0', port=8050)
+    run_server(host='0.0.0.0', port=_port)

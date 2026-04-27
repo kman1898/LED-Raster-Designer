@@ -3047,29 +3047,9 @@ class CanvasRenderer {
         if (!window.app.isCustomFlow(layer)) return;
         const portNum = layer.customPortIndex || 1;
         const label = window.app.getPortLabelText(layer, portNum, 'primary');
-
-        this.ctx.save();
-        // Draw in screen space (top-left of canvas)
-        this.ctx.setTransform(1, 0, 0, 1, 0, 0);
-
-        const x = 20;
-        const y = 20;
-        const fontSize = 72;
-        this.ctx.font = `bold ${fontSize}px Arial`;
-        this.ctx.textAlign = 'left';
-        this.ctx.textBaseline = 'top';
-
-        const padding = 12;
-        const metrics = this.ctx.measureText(label);
-        const boxW = metrics.width + padding * 2;
-        const boxH = fontSize + padding * 2;
-
-        this.ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-        this.ctx.fillRect(x, y, boxW, boxH);
-
-        this.ctx.fillStyle = 'rgba(0, 255, 0, 0.9)';
-        this.ctx.fillText(label, x + padding, y + padding);
-        this.ctx.restore();
+        const committedCount = this._getCustomPortPanelCount(layer, portNum);
+        const selectedCount = (window.app.customSelection && window.app.customSelection.size) || 0;
+        this._drawActiveBadge(label, committedCount, selectedCount, 'rgba(0, 255, 0, 0.9)');
     }
 
     renderPowerActiveCircuitBadge() {
@@ -3078,28 +3058,120 @@ class CanvasRenderer {
         if (!window.app.isCustomPower(layer)) return;
         const circuitNum = layer.powerCustomIndex || 1;
         const label = window.app.getPowerCircuitLabel(layer, circuitNum);
+        const committedCount = this._getCustomPowerCircuitPanelCount(layer, circuitNum);
+        const selectedCount = (window.app.powerCustomSelection && window.app.powerCustomSelection.size) || 0;
+        this._drawActiveBadge(label, committedCount, selectedCount, 'rgba(0, 255, 102, 0.9)');
+    }
 
+    _getCustomPortPanelCount(layer, portNum) {
+        const path = (layer.customPortPaths && layer.customPortPaths[portNum]) || [];
+        if (!Array.isArray(path)) return 0;
+        // Filter to panels that still exist and are not hidden
+        return path.reduce((n, pos) => {
+            if (!window.app || typeof window.app.getPanelByRowCol !== 'function') return n + 1;
+            const panel = window.app.getPanelByRowCol(layer, pos.row, pos.col);
+            return n + (panel && !panel.hidden ? 1 : 0);
+        }, 0);
+    }
+
+    _getCustomPowerCircuitPanelCount(layer, circuitNum) {
+        const path = (layer.powerCustomPaths && layer.powerCustomPaths[circuitNum]) || [];
+        if (!Array.isArray(path)) return 0;
+        return path.reduce((n, pos) => {
+            if (!window.app || typeof window.app.getPanelByRowCol !== 'function') return n + 1;
+            const panel = window.app.getPanelByRowCol(layer, pos.row, pos.col);
+            return n + (panel && !panel.hidden ? 1 : 0);
+        }, 0);
+    }
+
+    // Shared renderer for the active-port / active-circuit badge in the
+    // top-left of the canvas when a custom flow is being built.
+    //  - `committed` = panels already assigned to this port/circuit
+    //  - `selected`  = panels currently highlighted by a drag-select but
+    //    not yet applied. Shown in yellow only when > 0 so the user can
+    //    distinguish "locked in" vs "pending" at a glance.
+    _drawActiveBadge(label, committed, selected, labelColor) {
         this.ctx.save();
         this.ctx.setTransform(1, 0, 0, 1, 0, 0);
 
         const x = 20;
         const y = 20;
         const fontSize = 72;
+        const countFontSize = Math.round(fontSize * 0.5);
+        const padding = 12;
+        const gap = 14;
+        const pillGap = 8;
+        const pillPadX = 10;
+        const pillPadY = 6;
+
+        // Measure label
         this.ctx.font = `bold ${fontSize}px Arial`;
         this.ctx.textAlign = 'left';
         this.ctx.textBaseline = 'top';
+        const labelW = this.ctx.measureText(label).width;
 
-        const padding = 12;
-        const metrics = this.ctx.measureText(label);
-        const boxW = metrics.width + padding * 2;
+        // Measure pills
+        this.ctx.font = `bold ${countFontSize}px Arial`;
+        const committedText = `${committed} on port`;
+        const committedW = this.ctx.measureText(committedText).width;
+        const committedPillW = committedW + pillPadX * 2;
+        const pillH = countFontSize + pillPadY * 2;
+
+        const showSelected = selected > 0;
+        const selectedText = `+${selected} selected`;
+        const selectedW = showSelected ? this.ctx.measureText(selectedText).width : 0;
+        const selectedPillW = showSelected ? selectedW + pillPadX * 2 : 0;
+
+        // Outer box dimensions
+        const pillsW = committedPillW + (showSelected ? pillGap + selectedPillW : 0);
+        const boxW = labelW + gap + pillsW + padding * 2;
         const boxH = fontSize + padding * 2;
 
+        // Background
         this.ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
         this.ctx.fillRect(x, y, boxW, boxH);
 
-        this.ctx.fillStyle = 'rgba(0, 255, 102, 0.9)';
+        // Label (big)
+        this.ctx.font = `bold ${fontSize}px Arial`;
+        this.ctx.fillStyle = labelColor;
         this.ctx.fillText(label, x + padding, y + padding);
+
+        // Committed pill (white)
+        const pillY = y + (boxH - pillH) / 2;
+        let pillX = x + padding + labelW + gap;
+        this.ctx.fillStyle = committed > 0 ? 'rgba(255, 255, 255, 0.18)' : 'rgba(255, 255, 255, 0.08)';
+        this._roundRect(pillX, pillY, committedPillW, pillH, 8);
+        this.ctx.fill();
+        this.ctx.font = `bold ${countFontSize}px Arial`;
+        this.ctx.fillStyle = committed > 0 ? '#ffffff' : 'rgba(255, 255, 255, 0.7)';
+        this.ctx.fillText(committedText, pillX + pillPadX, pillY + pillPadY - 2);
+
+        // Selected pill (yellow) — only when drag-select has picked panels
+        if (showSelected) {
+            pillX += committedPillW + pillGap;
+            this.ctx.fillStyle = 'rgba(255, 204, 0, 0.85)';
+            this._roundRect(pillX, pillY, selectedPillW, pillH, 8);
+            this.ctx.fill();
+            this.ctx.fillStyle = '#000000';
+            this.ctx.fillText(selectedText, pillX + pillPadX, pillY + pillPadY - 2);
+        }
+
         this.ctx.restore();
+    }
+
+    _roundRect(x, y, w, h, r) {
+        const radius = Math.min(r, w / 2, h / 2);
+        this.ctx.beginPath();
+        this.ctx.moveTo(x + radius, y);
+        this.ctx.lineTo(x + w - radius, y);
+        this.ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+        this.ctx.lineTo(x + w, y + h - radius);
+        this.ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+        this.ctx.lineTo(x + radius, y + h);
+        this.ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+        this.ctx.lineTo(x, y + radius);
+        this.ctx.quadraticCurveTo(x, y, x + radius, y);
+        this.ctx.closePath();
     }
 }
 

@@ -2854,7 +2854,12 @@ class LEDRasterApp {
 
         if (powerPanelWattsInput) {
             powerPanelWattsInput.addEventListener('change', () => {
-                const val = parseFloat(powerPanelWattsInput.value) || 0;
+                const parsed = this.evaluateNumericExpression(powerPanelWattsInput.value);
+                const val = parsed === null ? 0 : parsed;
+                // Write the resolved number back so the field shows the result
+                if (parsed !== null) powerPanelWattsInput.value = this._formatEvaluatedNumber(parsed);
+                else powerPanelWattsInput.style.outline = '2px solid #c55';
+                if (parsed !== null) powerPanelWattsInput.style.outline = '';
                 this.applyToSelectedLayers(layer => {
                     layer.panelWatts = val;
                 });
@@ -3587,7 +3592,8 @@ class LEDRasterApp {
             // Initialize client-side defaults first (baseline)
             this.initializeLayerDefaults(layer);
             // Then overlay preset client-side props on top
-            if (presetData && typeof presetData === 'object') {
+            const appliedPreset = presetData && typeof presetData === 'object';
+            if (appliedPreset) {
                 this.applyPresetClientProps(layer, presetData);
             }
 
@@ -3597,6 +3603,17 @@ class LEDRasterApp {
 
             // Save the new defaults to localStorage
             this.saveClientSideProperties();
+
+            // IMPORTANT: when a preset was applied, the server only knows the
+            // structural fields sent via /api/layer/add (columns, cabinet dims,
+            // colors, etc.). Preset values like bitDepth, frameRate, panelWatts,
+            // powerVoltage, flowPattern, label sizes, etc. live only on the
+            // client at this point. Any subsequent server re-fetch (e.g. after
+            // delete_layer or file load) would clobber them. Push the enriched
+            // layer back now so server + client stay in sync.
+            if (appliedPreset) {
+                this.updateLayers([layer]);
+            }
         });
     }
 
@@ -3622,6 +3639,17 @@ class LEDRasterApp {
             if (excluded.has(k)) return;
             if (k.startsWith('_')) return;  // skip runtime caches
             out[k] = layer[k];
+        });
+        // Ensure common layer-default keys are always present even if the
+        // source layer was loaded from an older project file that lacked them.
+        // Without this, a fresh layer created from the preset would fall back
+        // to `initializeLayerDefaults` values instead of the intended preset.
+        const ensuredDefaults = {
+            portMappingMode: 'organized',
+            randomDataColors: false
+        };
+        Object.keys(ensuredDefaults).forEach(k => {
+            if (out[k] === undefined) out[k] = ensuredDefaults[k];
         });
         return out;
     }
@@ -3695,36 +3723,30 @@ class LEDRasterApp {
         if (!modal || !list) return;
         list.innerHTML = '<div style="padding: 12px; color: #888; font-size: 12px;">Loading…</div>';
         modal.style.display = 'block';
-        this._presetPickerSelection = '__default__';
+        // Selection model: { type: 'preset'|'panel', key } — default preset is always '__default__'
+        this._pickerSelection = { type: 'preset', key: '__default__' };
+        this._updatePickerSummary();
         this.fetchPresetEntries().then(entries => {
             list.innerHTML = '';
-            // Default row: describe current preferences so the user knows what they'll get
             const prefs = this.getPreferences() || {};
             const prefEntry = {
-                columns: prefs.columns,
-                rows: prefs.rows,
-                cabinet_width: prefs.panelWidth,
-                cabinet_height: prefs.panelHeight,
-                panel_width_mm: prefs.panelWidthMM,
-                panel_height_mm: prefs.panelHeightMM,
+                columns: prefs.columns, rows: prefs.rows,
+                cabinet_width: prefs.panelWidth, cabinet_height: prefs.panelHeight,
+                panel_width_mm: prefs.panelWidthMM, panel_height_mm: prefs.panelHeightMM,
                 panelWatts: prefs.powerWatts
             };
             const rows = [
                 { key: '__default__', label: 'Default (from Preferences)', sublabel: this.formatPresetSublabel(prefEntry) }
             ];
             entries.forEach(entry => rows.push({
-                key: entry.name,
-                label: entry.name,
-                sublabel: this.formatPresetSublabel(entry)
+                key: entry.name, label: entry.name, sublabel: this.formatPresetSublabel(entry)
             }));
             rows.forEach((row, idx) => {
                 const item = document.createElement('div');
                 item.className = 'preset-picker-row';
                 item.dataset.key = row.key;
                 item.style.cssText = 'padding: 10px 12px; border-radius: 4px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 8px;';
-                if (idx === 0) {
-                    item.style.background = '#2d4a7a';
-                }
+                if (idx === 0) item.style.background = '#2d4a7a';
                 const leftCol = document.createElement('div');
                 leftCol.innerHTML = `<div style="color:#fff; font-size:13px; font-weight:500;">${this.escapeHtml(row.label)}</div><div style="color:#888; font-size:11px;">${row.sublabel}</div>`;
                 item.appendChild(leftCol);
@@ -3738,20 +3760,167 @@ class LEDRasterApp {
                         e.stopPropagation();
                         if (!confirm(`Delete preset "${row.key}"?`)) return;
                         this.deletePresetOnServer(row.key).then(() => {
-                            this.openPresetPicker();  // refresh
+                            this.openPresetPicker();
                         }).catch(err => alert('Failed to delete preset: ' + (err && err.error || 'unknown')));
                     });
                     item.appendChild(delBtn);
                 }
                 item.addEventListener('click', () => {
-                    this._presetPickerSelection = row.key;
-                    list.querySelectorAll('.preset-picker-row').forEach(el => {
-                        el.style.background = el.dataset.key === row.key ? '#2d4a7a' : 'transparent';
-                    });
+                    this._pickerSelection = { type: 'preset', key: row.key, label: row.label };
+                    this._highlightPickerSelection();
+                    this._updatePickerSummary();
                 });
                 list.appendChild(item);
             });
+            this._highlightPickerSelection();
         });
+        // Load catalog in parallel
+        this._loadPanelCatalog();
+    }
+
+    _loadPanelCatalog() {
+        const listEl = document.getElementById('panel-catalog-list');
+        const mfrSel = document.getElementById('panel-catalog-mfr');
+        const searchEl = document.getElementById('panel-catalog-search');
+        const countEl = document.getElementById('panel-catalog-count');
+        if (!listEl) return;
+        listEl.innerHTML = '<div style="padding: 12px; color: #888; font-size: 12px;">Loading catalog…</div>';
+        const finish = () => {
+            // Populate manufacturer dropdown (once)
+            if (mfrSel && mfrSel.options.length <= 1) {
+                const mfrs = Object.keys(this._panelCatalog).sort((a, b) => a.localeCompare(b));
+                mfrs.forEach(m => {
+                    const opt = document.createElement('option');
+                    opt.value = m;
+                    opt.textContent = `${m.replace(/_/g, ' ')} (${this._panelCatalog[m].length})`;
+                    mfrSel.appendChild(opt);
+                });
+                mfrSel.addEventListener('change', () => this._renderPanelCatalogList());
+            }
+            if (searchEl && !searchEl._pickerWired) {
+                searchEl._pickerWired = true;
+                let t;
+                searchEl.addEventListener('input', () => {
+                    clearTimeout(t);
+                    t = setTimeout(() => this._renderPanelCatalogList(), 120);
+                });
+            }
+            if (countEl) {
+                const total = Object.values(this._panelCatalog).reduce((s, a) => s + a.length, 0);
+                countEl.textContent = `· ${total.toLocaleString()} panels · ${Object.keys(this._panelCatalog).length} mfrs`;
+            }
+            this._renderPanelCatalogList();
+        };
+        if (this._panelCatalog) { finish(); return; }
+        fetch('/static/data/panel_catalog.json').then(r => r.json()).then(data => {
+            this._panelCatalog = data || {};
+            // Flatten once for search
+            this._panelCatalogFlat = [];
+            Object.keys(this._panelCatalog).forEach(mfr => {
+                (this._panelCatalog[mfr] || []).forEach(p => {
+                    this._panelCatalogFlat.push(Object.assign({ _mfr: mfr, _searchKey: (mfr + ' ' + (p.name || '')).toLowerCase() }, p));
+                });
+            });
+            finish();
+        }).catch(() => {
+            listEl.innerHTML = '<div style="padding: 12px; color: #c55; font-size: 12px;">Failed to load panel catalog.</div>';
+        });
+    }
+
+    // A panel is "verified" if its `source` flags it as cross-checked against
+    // the manufacturer's published spec sheet/PDF rather than only FidoLED's
+    // (sometimes-outdated) internal database. Treats any source starting with
+    // "official:" or containing "spec PDF" / "absen ... PDF" as verified.
+    _isPanelVerified(p) {
+        const s = (p && p.source || '').toLowerCase();
+        if (!s) return false;
+        // Cross-checked against the manufacturer's own published spec sheet
+        if (s.startsWith('official:')) return true;
+        if (s.includes('spec pdf')) return true;
+        // Legacy entries that pre-dated the "official:" prefix
+        if (s.includes('absen ') && s.includes('pdf')) return true;
+        return false;
+    }
+
+    _renderPanelCatalogList() {
+        const listEl = document.getElementById('panel-catalog-list');
+        const mfrSel = document.getElementById('panel-catalog-mfr');
+        const searchEl = document.getElementById('panel-catalog-search');
+        if (!listEl || !this._panelCatalogFlat) return;
+        const q = (searchEl && searchEl.value || '').trim().toLowerCase();
+        const mfrFilter = mfrSel && mfrSel.value || '';
+        let rows = this._panelCatalogFlat;
+        if (mfrFilter) rows = rows.filter(p => p._mfr === mfrFilter);
+        if (q) rows = rows.filter(p => p._searchKey.indexOf(q) !== -1);
+        // Cap render to keep DOM light
+        const MAX = 300;
+        const total = rows.length;
+        rows = rows.slice(0, MAX);
+        listEl.innerHTML = '';
+        if (!total) {
+            listEl.innerHTML = '<div style="padding: 12px; color: #888; font-size: 12px;">No panels match.</div>';
+            return;
+        }
+        rows.forEach(p => {
+            const item = document.createElement('div');
+            item.className = 'panel-catalog-row';
+            item.dataset.mfr = p._mfr;
+            item.dataset.name = p.name || '';
+            item.style.cssText = 'padding: 8px 10px; border-bottom: 1px solid #222; cursor: pointer;';
+            const specs = [];
+            if (p.width_mm != null && p.height_mm != null) specs.push(`${p.width_mm}×${p.height_mm}mm`);
+            if (p.pixels_w != null && p.pixels_h != null) specs.push(`${p.pixels_w}×${p.pixels_h}px`);
+            if (p.weight_kg != null) specs.push(`${p.weight_kg}kg`);
+            if (p.watts_max != null) specs.push(`${p.watts_max}W`);
+            // Verified ⭐: panel specs were cross-checked against the manufacturer's
+            // own published spec sheet/PDF (not just FidoLED's database).
+            const verified = this._isPanelVerified(p);
+            const star = verified ? `<span title="Verified against ${this.escapeHtml(p.source || '')}" style="color:#f5c842; margin-right:4px;">⭐</span>` : '';
+            item.innerHTML = `<div style="color:#fff; font-size:12px;">${star}<span style="color:#8ab4f8;">${this.escapeHtml(p._mfr.replace(/_/g, ' '))}</span> · ${this.escapeHtml(p.name || '')}</div><div style="color:#888; font-size:11px;">${specs.join(' · ')}</div>`;
+            item.addEventListener('click', () => {
+                this._pickerSelection = { type: 'panel', key: p._mfr + '|' + p.name, panel: p, label: `${p._mfr.replace(/_/g,' ')} ${p.name}` };
+                this._highlightPickerSelection();
+                this._updatePickerSummary();
+            });
+            listEl.appendChild(item);
+        });
+        if (total > MAX) {
+            const more = document.createElement('div');
+            more.style.cssText = 'padding: 8px 10px; color: #888; font-size: 11px; text-align: center; background: #1d1d1d;';
+            more.textContent = `Showing first ${MAX} of ${total.toLocaleString()}. Refine search or pick a manufacturer.`;
+            listEl.appendChild(more);
+        }
+        this._highlightPickerSelection();
+    }
+
+    _highlightPickerSelection() {
+        const sel = this._pickerSelection || {};
+        document.querySelectorAll('#preset-picker-list .preset-picker-row').forEach(el => {
+            el.style.background = (sel.type === 'preset' && el.dataset.key === sel.key) ? '#2d4a7a' : 'transparent';
+        });
+        document.querySelectorAll('#panel-catalog-list .panel-catalog-row').forEach(el => {
+            const key = el.dataset.mfr + '|' + el.dataset.name;
+            el.style.background = (sel.type === 'panel' && key === sel.key) ? '#2d4a7a' : 'transparent';
+        });
+    }
+
+    _updatePickerSummary() {
+        const summary = document.getElementById('preset-picker-summary');
+        if (!summary) return;
+        const sel = this._pickerSelection || {};
+        if (sel.type === 'panel' && sel.panel) {
+            const p = sel.panel;
+            const parts = [];
+            if (p.width_mm != null) parts.push(`${p.width_mm}×${p.height_mm}mm`);
+            if (p.pixels_w != null) parts.push(`${p.pixels_w}×${p.pixels_h}px`);
+            if (p.weight_kg != null) parts.push(`${p.weight_kg}kg`);
+            if (p.watts_max != null) parts.push(`${p.watts_max}W`);
+            summary.textContent = `Panel: ${sel.label} — ${parts.join(' · ')}`;
+        } else if (sel.type === 'preset' && sel.key && sel.key !== '__default__') {
+            summary.textContent = `Preset: ${sel.label || sel.key}`;
+        } else {
+            summary.textContent = 'Default — uses your Preferences values.';
+        }
     }
 
     closePresetPicker() {
@@ -3760,20 +3929,50 @@ class LEDRasterApp {
     }
 
     confirmPresetPicker() {
-        const selection = this._presetPickerSelection || '__default__';
+        const sel = this._pickerSelection || { type: 'preset', key: '__default__' };
         this.closePresetPicker();
-        if (selection === '__default__') {
-            this.addLayer();
+        if (sel.type === 'panel' && sel.panel) {
+            this.addLayer(this._panelToPresetData(sel.panel));
             return;
         }
-        this.fetchPreset(selection).then(resp => {
-            const data = resp && resp.data ? resp.data : null;
-            if (data) data._presetName = selection;
-            this.addLayer(data);
-        }).catch(err => {
-            alert('Failed to load preset: ' + (err && err.error || 'unknown'));
-            this.addLayer();  // fall back to default
-        });
+        if (sel.type === 'preset') {
+            if (!sel.key || sel.key === '__default__') {
+                this.addLayer();
+                return;
+            }
+            this.fetchPreset(sel.key).then(resp => {
+                const data = resp && resp.data ? resp.data : null;
+                if (data) data._presetName = sel.key;
+                this.addLayer(data);
+            }).catch(err => {
+                alert('Failed to load preset: ' + (err && err.error || 'unknown'));
+                this.addLayer();
+            });
+        }
+    }
+
+    // Convert a catalog panel into preset-shaped data that addLayer() consumes.
+    // Grid (columns/rows) comes from Preferences; panel-specific fields override.
+    _panelToPresetData(panel) {
+        const prefs = this.getPreferences() || {};
+        const weightUnit = prefs.weightUnit || 'kg';
+        const weightKg = panel.weight_kg;
+        const weight = (weightKg != null)
+            ? (weightUnit === 'lb' ? +(weightKg * 2.20462).toFixed(2) : weightKg)
+            : prefs.panelWeight;
+        const data = {
+            columns: prefs.columns,
+            rows: prefs.rows,
+            cabinet_width: panel.pixels_w != null ? panel.pixels_w : prefs.panelWidth,
+            cabinet_height: panel.pixels_h != null ? panel.pixels_h : prefs.panelHeight,
+            panel_width_mm: panel.width_mm,
+            panel_height_mm: panel.height_mm,
+            panel_weight: weight,
+            weight_unit: weightUnit,
+            _presetName: `${(panel._mfr || panel.manufacturer || '').replace(/_/g, ' ')} ${panel.name}`.trim()
+        };
+        if (panel.watts_max != null) data.panelWatts = panel.watts_max;
+        return data;
     }
 
     // ── Save-as-Preset Modal ──
@@ -3793,10 +3992,58 @@ class LEDRasterApp {
         modal.style.display = 'block';
         setTimeout(() => nameInput.focus(), 50);
         this._presetSaveExistingNames = null;
+        this._renderPresetSaveExistingList([]);
+        this.updatePresetSaveConfirmButton();
         this.fetchPresetList().then(list => {
             this._presetSaveExistingNames = list;
+            this._renderPresetSaveExistingList(list);
             this.updatePresetSaveWarning();
+            this.updatePresetSaveConfirmButton();
         });
+    }
+
+    _renderPresetSaveExistingList(names) {
+        const section = document.getElementById('preset-save-existing-section');
+        const list = document.getElementById('preset-save-existing-list');
+        if (!section || !list) return;
+        list.innerHTML = '';
+        if (!Array.isArray(names) || names.length === 0) {
+            section.style.display = 'none';
+            return;
+        }
+        section.style.display = 'block';
+        names.forEach(name => {
+            const row = document.createElement('div');
+            row.className = 'preset-save-existing-row';
+            row.style.cssText = 'padding: 6px 8px; color: #ddd; font-size: 12px; cursor: pointer; border-radius: 3px;';
+            row.textContent = name;
+            row.title = `Click to overwrite "${name}"`;
+            row.addEventListener('mouseenter', () => { row.style.background = '#2d4a7a'; });
+            row.addEventListener('mouseleave', () => { row.style.background = 'transparent'; });
+            row.addEventListener('click', () => {
+                const nameInput = document.getElementById('preset-save-name');
+                if (nameInput) {
+                    nameInput.value = name;
+                    nameInput.focus();
+                    this.updatePresetSaveWarning();
+                    this.updatePresetSaveConfirmButton();
+                }
+            });
+            list.appendChild(row);
+        });
+    }
+
+    updatePresetSaveConfirmButton() {
+        const btn = document.getElementById('preset-save-confirm');
+        const nameInput = document.getElementById('preset-save-name');
+        if (!btn || !nameInput) return;
+        const name = nameInput.value.trim();
+        const existing = this._presetSaveExistingNames || [];
+        if (name && existing.includes(name)) {
+            btn.textContent = 'Overwrite';
+        } else {
+            btn.textContent = 'Save';
+        }
     }
 
     closePresetSaveModal() {
@@ -3858,7 +4105,10 @@ class LEDRasterApp {
         if (saveCancel) saveCancel.addEventListener('click', () => this.closePresetSaveModal());
         if (saveConfirm) saveConfirm.addEventListener('click', () => this.confirmPresetSave());
         if (saveName) {
-            saveName.addEventListener('input', () => this.updatePresetSaveWarning());
+            saveName.addEventListener('input', () => {
+                this.updatePresetSaveWarning();
+                this.updatePresetSaveConfirmButton();
+            });
             saveName.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter') this.confirmPresetSave();
                 else if (e.key === 'Escape') this.closePresetSaveModal();
@@ -4290,8 +4540,10 @@ class LEDRasterApp {
         layer.border_color_cabinet = layer.border_color || prefs.borderColor;
         layer.border_color_data = layer.border_color || prefs.borderColor;
         layer.border_color_power = layer.border_color || prefs.borderColor;
-        layer.panel_weight = prefs.panelWeight;
-        layer.weight_unit = prefs.weightUnit || 'kg';
+        // Only fall back to prefs if the server-created layer didn't already
+        // carry these from the add request (e.g. from a preset or catalog panel).
+        if (layer.panel_weight == null) layer.panel_weight = prefs.panelWeight;
+        if (layer.weight_unit == null) layer.weight_unit = prefs.weightUnit || 'kg';
     }
 
     getSelectedLayers() {
@@ -7260,6 +7512,9 @@ class LEDRasterApp {
         const linesSel = document.getElementById('logs-lines');
         const autoCb = document.getElementById('logs-autorefresh');
         const wrapCb = document.getElementById('logs-wrap');
+        const sinceInput = document.getElementById('logs-since');
+        const untilInput = document.getElementById('logs-until');
+        const filterClearBtn = document.getElementById('logs-filter-clear');
         const pre = document.getElementById('logs-content');
 
         if (closeBtn) closeBtn.addEventListener('click', () => this.closeLogsModal());
@@ -7277,6 +7532,17 @@ class LEDRasterApp {
                 pre.style.whiteSpace = wrapCb.checked ? 'pre-wrap' : 'pre';
             });
         }
+        // Filter inputs: re-render on input without re-fetching
+        const applyFilter = () => this._rerenderLogsWithFilter();
+        if (sinceInput) sinceInput.addEventListener('input', applyFilter);
+        if (untilInput) untilInput.addEventListener('input', applyFilter);
+        if (filterClearBtn) {
+            filterClearBtn.addEventListener('click', () => {
+                if (sinceInput) sinceInput.value = '';
+                if (untilInput) untilInput.value = '';
+                applyFilter();
+            });
+        }
         if (pre) {
             pre.addEventListener('scroll', () => {
                 // If user scrolls away from the bottom, stop auto-scrolling on refresh
@@ -7289,6 +7555,97 @@ class LEDRasterApp {
                 if (e.target === modal) this.closeLogsModal();
             });
         }
+    }
+
+    // Parse relative ("10 min ago", "2h ago", "30s", "1d ago") or absolute
+    // timestamps ("YYYY-MM-DD HH:MM:SS" or any Date-parseable string) into an
+    // epoch-ms number. Returns null for empty/unparseable input.
+    parseLogFilterTime(input) {
+        if (!input) return null;
+        const trimmed = String(input).trim();
+        if (!trimmed) return null;
+        // Relative: "<n> <unit> ago" or just "<n><unit>" / "<n> <unit>"
+        const relMatch = trimmed
+            .toLowerCase()
+            .replace(/\s+ago\s*$/, '')  // strip trailing "ago"
+            .trim()
+            .match(/^(\d+(?:\.\d+)?)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)$/);
+        if (relMatch) {
+            const n = parseFloat(relMatch[1]);
+            const unit = relMatch[2];
+            let ms;
+            if (/^s(ec(ond)?s?)?$/.test(unit)) ms = n * 1000;
+            else if (/^m(in(ute)?s?)?$/.test(unit)) ms = n * 60 * 1000;
+            else if (/^h(r|rs|our|ours)?$/.test(unit)) ms = n * 60 * 60 * 1000;
+            else if (/^d(ay|ays)?$/.test(unit)) ms = n * 24 * 60 * 60 * 1000;
+            else return null;
+            return Date.now() - ms;
+        }
+        // Absolute: try Date.parse. Accepts ISO, "YYYY-MM-DD HH:MM:SS",
+        // "YYYY-MM-DDTHH:MM:SS", etc.
+        // Log format "2026-04-22 13:20:48" is not strict ISO; convert space to T.
+        const iso = trimmed.replace(' ', 'T');
+        const parsed = Date.parse(iso);
+        if (!isNaN(parsed)) return parsed;
+        const parsed2 = Date.parse(trimmed);
+        if (!isNaN(parsed2)) return parsed2;
+        return null;
+    }
+
+    // Extract the log line's timestamp in epoch ms. Log lines are JSON with a
+    // "timestamp": "YYYY-MM-DD HH:MM:SS" field. Returns null if not parseable.
+    parseLogLineTime(line) {
+        if (!line) return null;
+        // Fast path: pull out the first "timestamp": "..." occurrence
+        const m = line.match(/"timestamp"\s*:\s*"([^"]+)"/);
+        if (!m) return null;
+        const iso = m[1].replace(' ', 'T');
+        const parsed = Date.parse(iso);
+        return isNaN(parsed) ? null : parsed;
+    }
+
+    _filterLogLines(lines) {
+        const sinceInput = document.getElementById('logs-since');
+        const untilInput = document.getElementById('logs-until');
+        const sinceMs = this.parseLogFilterTime(sinceInput && sinceInput.value);
+        const untilMs = this.parseLogFilterTime(untilInput && untilInput.value);
+        const statusEl = document.getElementById('logs-filter-status');
+        const hasSinceText = !!(sinceInput && sinceInput.value.trim());
+        const hasUntilText = !!(untilInput && untilInput.value.trim());
+        if (!hasSinceText && !hasUntilText) {
+            if (statusEl) statusEl.textContent = '';
+            return { lines, sinceMs: null, untilMs: null, valid: true };
+        }
+        // Validate: if user typed text but it didn't parse, highlight the issue
+        const parts = [];
+        if (hasSinceText && sinceMs === null) parts.push('Since: invalid');
+        if (hasUntilText && untilMs === null) parts.push('Until: invalid');
+        if (parts.length) {
+            if (statusEl) { statusEl.textContent = parts.join(' · '); statusEl.style.color = '#f0ad4e'; }
+            return { lines, sinceMs, untilMs, valid: false };
+        }
+        const filtered = lines.filter(line => {
+            const t = this.parseLogLineTime(line);
+            if (t === null) return false;  // drop lines without a timestamp
+            if (sinceMs !== null && t < sinceMs) return false;
+            if (untilMs !== null && t > untilMs) return false;
+            return true;
+        });
+        if (statusEl) {
+            statusEl.style.color = '#888';
+            statusEl.textContent = `filtered to ${filtered.length} of ${lines.length}`;
+        }
+        return { lines: filtered, sinceMs, untilMs, valid: true };
+    }
+
+    _rerenderLogsWithFilter() {
+        // Re-render last-fetched lines through the current filter (no re-fetch)
+        if (!this._logsLastLines) return;
+        const pre = document.getElementById('logs-content');
+        if (!pre) return;
+        const { lines } = this._filterLogLines(this._logsLastLines);
+        pre.textContent = lines.join('\n');
+        if (!this._logsUserScrolledUp) pre.scrollTop = pre.scrollHeight;
     }
 
     _startLogsAutoRefresh() {
@@ -7316,8 +7673,10 @@ class LEDRasterApp {
         const pre = document.getElementById('logs-content');
         const meta = document.getElementById('logs-meta');
         if (!pre) return;
-        const linesArr = Array.isArray(data.lines) ? data.lines : [];
-        pre.textContent = linesArr.join('\n');
+        const rawLines = Array.isArray(data.lines) ? data.lines : [];
+        this._logsLastLines = rawLines;
+        const { lines: visibleLines } = this._filterLogLines(rawLines);
+        pre.textContent = visibleLines.join('\n');
         if (meta) {
             const sizeKB = (data.file_size_bytes || 0) / 1024;
             const sizeStr = sizeKB >= 1024
@@ -7325,7 +7684,7 @@ class LEDRasterApp {
                 : `${sizeKB.toFixed(1)} KB`;
             const archives = data.archive_count || 0;
             const archiveStr = archives > 0 ? ` · ${archives} archived` : '';
-            meta.textContent = `${linesArr.length} lines shown · ${sizeStr}${archiveStr}`;
+            meta.textContent = `${rawLines.length} lines loaded · ${sizeStr}${archiveStr}`;
         }
         // Auto-scroll to bottom unless the user scrolled up
         if (force || !this._logsUserScrolledUp) {
@@ -9761,6 +10120,40 @@ class LEDRasterApp {
             g: parseInt(result[2], 16),
             b: parseInt(result[3], 16)
         } : { r: 255, g: 0, b: 0 };
+    }
+
+    // Evaluate a simple arithmetic expression using + - * / and parentheses.
+    // Returns a finite number, or null if the input is empty/invalid. Used by
+    // the Watts per Panel field (and anywhere else we want a "spreadsheet-y"
+    // numeric input) so users can type e.g. "200+50" or "1000/3" directly.
+    evaluateNumericExpression(raw) {
+        if (raw == null) return null;
+        const s = String(raw).trim();
+        if (s === '') return null;
+        // Allow only digits, . , whitespace, and the four operators + - * / plus parentheses
+        const cleaned = s.replace(/,/g, '').replace(/\s+/g, '');
+        if (!/^[-+*/().\d]+$/.test(cleaned)) return null;
+        // Reject dangerous patterns (consecutive operators other than a leading unary minus in a sub-expr)
+        if (/[*/]{2,}|\+{2,}|-{3,}|[-+*/]$|^[*/]/.test(cleaned)) return null;
+        try {
+            // Function constructor with no scope access — still safer than eval(),
+            // and the regex above guarantees only arithmetic characters are present.
+            // eslint-disable-next-line no-new-func
+            const result = Function('"use strict"; return (' + cleaned + ');')();
+            if (typeof result !== 'number' || !isFinite(result)) return null;
+            return result;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    // Format an evaluated number for display in the input: drop trailing zeros
+    // but keep reasonable precision for fractional results (e.g. 1000/3).
+    _formatEvaluatedNumber(n) {
+        if (!isFinite(n)) return '0';
+        if (Number.isInteger(n)) return String(n);
+        // Up to 4 decimal places, trim trailing zeros
+        return parseFloat(n.toFixed(4)).toString();
     }
     
     rgbToHex(r, g, b) {
