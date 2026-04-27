@@ -10,7 +10,11 @@ Unlike merge.py (which uses the FidoLED name→mfr map for resolution), this
 script trusts the explicit `manufacturer` field in each record. Use it for
 web-sourced data.
 
-Usage: python3 merge_web.py panels.json
+Usage: python3 merge_web.py panels.json [--overwrite]
+
+  --overwrite  Replace any existing entry with the same (manufacturer, name)
+               instead of skipping it. Used for fixing bad entries from the
+               legacy memory-dump extraction.
 """
 import json, sys
 from pathlib import Path
@@ -21,13 +25,20 @@ CATALOG_PATH = REPO / 'src' / 'static' / 'data' / 'panel_catalog.json'
 SKIP_LIST_PATH = HERE / 'skip_list.txt'
 
 def main(argv):
-    if len(argv) != 2:
-        print(f'usage: {argv[0]} <panels.json>', file=sys.stderr); sys.exit(2)
-    with open(argv[1]) as f:
+    args = [a for a in argv[1:] if not a.startswith('--')]
+    flags = [a for a in argv[1:] if a.startswith('--')]
+    overwrite = '--overwrite' in flags
+    if len(args) != 1:
+        print(f'usage: {argv[0]} <panels.json> [--overwrite]', file=sys.stderr); sys.exit(2)
+    with open(args[0]) as f:
         incoming = json.load(f)
 
     catalog = json.load(open(CATALOG_PATH))
-    have = {(m, p['name']) for m, panels in catalog.items() for p in panels}
+    # index by (mfr, name) -> list_index for in-place overwrite
+    index = {}
+    for mfr, panels in catalog.items():
+        for i, p in enumerate(panels):
+            index[(mfr, p['name'])] = i
     added = updated = duplicate = skipped = 0
     for p in incoming:
         mfr = p.get('manufacturer')
@@ -60,18 +71,22 @@ def main(argv):
         if entry['pitch_mm'] is None and entry['pixels_w'] and entry['width_mm']:
             entry['pitch_mm'] = round(entry['width_mm'] / entry['pixels_w'], 3)
         key = (mfr, name)
-        if key in have:
-            duplicate += 1
+        if key in index:
+            if overwrite:
+                catalog[mfr][index[key]] = entry
+                updated += 1
+            else:
+                duplicate += 1
         else:
             catalog.setdefault(mfr, []).append(entry)
-            have.add(key)
+            index[key] = len(catalog[mfr]) - 1
             added += 1
     for mfr in catalog:
         catalog[mfr].sort(key=lambda e: e['name'].lower())
     with open(CATALOG_PATH, 'w') as f:
         json.dump(catalog, f, indent=2)
     total = sum(len(v) for v in catalog.values())
-    print(f'merge_web: added={added} duplicate={duplicate} skipped={skipped}',
+    print(f'merge_web: added={added} updated={updated} duplicate={duplicate} skipped={skipped}',
           file=sys.stderr)
     print(f'catalog now: {total} panels, {len(catalog)} manufacturers',
           file=sys.stderr)

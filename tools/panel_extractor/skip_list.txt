@@ -91,3 +91,13 @@ ROE	Emerald 8.9-H (With Frame  Ladder)
 ROE	Emerald 8.9-V (Tile Only)
 ROE	Emerald 8.9-V (With Frame)
 ROE	Emerald 8.9-V (With Frame  Ladder)
+Barco	640x480 R&P 1.25
+Barco	Mambo-4 (4mm Indoor & Outdoor)
+Barco	Mambo-6 (6mm Indoor & Outdoor)
+Barco	Mambo-8 (8mm Indoor & Outdoor)
+Barco	Mambo-9.6 (9.6mm Indoor & Outdoor)
+Barco	VVRO-5.9$N
+LOPUTECH	Mambo-4 (4mm Indoor & Outdoor)
+LOPUTECH	Mambo-6 (6mm Indoor & Outdoor)
+LOPUTECH	Mambo-8 (8mm Indoor & Outdoor)
+LOPUTECH	Mambo-9.6 (9.6mm Indoor & Outdoor)

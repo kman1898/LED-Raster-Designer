@@ -3723,36 +3723,30 @@ class LEDRasterApp {
         if (!modal || !list) return;
         list.innerHTML = '<div style="padding: 12px; color: #888; font-size: 12px;">Loading…</div>';
         modal.style.display = 'block';
-        this._presetPickerSelection = '__default__';
+        // Selection model: { type: 'preset'|'panel', key } — default preset is always '__default__'
+        this._pickerSelection = { type: 'preset', key: '__default__' };
+        this._updatePickerSummary();
         this.fetchPresetEntries().then(entries => {
             list.innerHTML = '';
-            // Default row: describe current preferences so the user knows what they'll get
             const prefs = this.getPreferences() || {};
             const prefEntry = {
-                columns: prefs.columns,
-                rows: prefs.rows,
-                cabinet_width: prefs.panelWidth,
-                cabinet_height: prefs.panelHeight,
-                panel_width_mm: prefs.panelWidthMM,
-                panel_height_mm: prefs.panelHeightMM,
+                columns: prefs.columns, rows: prefs.rows,
+                cabinet_width: prefs.panelWidth, cabinet_height: prefs.panelHeight,
+                panel_width_mm: prefs.panelWidthMM, panel_height_mm: prefs.panelHeightMM,
                 panelWatts: prefs.powerWatts
             };
             const rows = [
                 { key: '__default__', label: 'Default (from Preferences)', sublabel: this.formatPresetSublabel(prefEntry) }
             ];
             entries.forEach(entry => rows.push({
-                key: entry.name,
-                label: entry.name,
-                sublabel: this.formatPresetSublabel(entry)
+                key: entry.name, label: entry.name, sublabel: this.formatPresetSublabel(entry)
             }));
             rows.forEach((row, idx) => {
                 const item = document.createElement('div');
                 item.className = 'preset-picker-row';
                 item.dataset.key = row.key;
                 item.style.cssText = 'padding: 10px 12px; border-radius: 4px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 8px;';
-                if (idx === 0) {
-                    item.style.background = '#2d4a7a';
-                }
+                if (idx === 0) item.style.background = '#2d4a7a';
                 const leftCol = document.createElement('div');
                 leftCol.innerHTML = `<div style="color:#fff; font-size:13px; font-weight:500;">${this.escapeHtml(row.label)}</div><div style="color:#888; font-size:11px;">${row.sublabel}</div>`;
                 item.appendChild(leftCol);
@@ -3766,20 +3760,167 @@ class LEDRasterApp {
                         e.stopPropagation();
                         if (!confirm(`Delete preset "${row.key}"?`)) return;
                         this.deletePresetOnServer(row.key).then(() => {
-                            this.openPresetPicker();  // refresh
+                            this.openPresetPicker();
                         }).catch(err => alert('Failed to delete preset: ' + (err && err.error || 'unknown')));
                     });
                     item.appendChild(delBtn);
                 }
                 item.addEventListener('click', () => {
-                    this._presetPickerSelection = row.key;
-                    list.querySelectorAll('.preset-picker-row').forEach(el => {
-                        el.style.background = el.dataset.key === row.key ? '#2d4a7a' : 'transparent';
-                    });
+                    this._pickerSelection = { type: 'preset', key: row.key, label: row.label };
+                    this._highlightPickerSelection();
+                    this._updatePickerSummary();
                 });
                 list.appendChild(item);
             });
+            this._highlightPickerSelection();
         });
+        // Load catalog in parallel
+        this._loadPanelCatalog();
+    }
+
+    _loadPanelCatalog() {
+        const listEl = document.getElementById('panel-catalog-list');
+        const mfrSel = document.getElementById('panel-catalog-mfr');
+        const searchEl = document.getElementById('panel-catalog-search');
+        const countEl = document.getElementById('panel-catalog-count');
+        if (!listEl) return;
+        listEl.innerHTML = '<div style="padding: 12px; color: #888; font-size: 12px;">Loading catalog…</div>';
+        const finish = () => {
+            // Populate manufacturer dropdown (once)
+            if (mfrSel && mfrSel.options.length <= 1) {
+                const mfrs = Object.keys(this._panelCatalog).sort((a, b) => a.localeCompare(b));
+                mfrs.forEach(m => {
+                    const opt = document.createElement('option');
+                    opt.value = m;
+                    opt.textContent = `${m.replace(/_/g, ' ')} (${this._panelCatalog[m].length})`;
+                    mfrSel.appendChild(opt);
+                });
+                mfrSel.addEventListener('change', () => this._renderPanelCatalogList());
+            }
+            if (searchEl && !searchEl._pickerWired) {
+                searchEl._pickerWired = true;
+                let t;
+                searchEl.addEventListener('input', () => {
+                    clearTimeout(t);
+                    t = setTimeout(() => this._renderPanelCatalogList(), 120);
+                });
+            }
+            if (countEl) {
+                const total = Object.values(this._panelCatalog).reduce((s, a) => s + a.length, 0);
+                countEl.textContent = `· ${total.toLocaleString()} panels · ${Object.keys(this._panelCatalog).length} mfrs`;
+            }
+            this._renderPanelCatalogList();
+        };
+        if (this._panelCatalog) { finish(); return; }
+        fetch('/static/data/panel_catalog.json').then(r => r.json()).then(data => {
+            this._panelCatalog = data || {};
+            // Flatten once for search
+            this._panelCatalogFlat = [];
+            Object.keys(this._panelCatalog).forEach(mfr => {
+                (this._panelCatalog[mfr] || []).forEach(p => {
+                    this._panelCatalogFlat.push(Object.assign({ _mfr: mfr, _searchKey: (mfr + ' ' + (p.name || '')).toLowerCase() }, p));
+                });
+            });
+            finish();
+        }).catch(() => {
+            listEl.innerHTML = '<div style="padding: 12px; color: #c55; font-size: 12px;">Failed to load panel catalog.</div>';
+        });
+    }
+
+    // A panel is "verified" if its `source` flags it as cross-checked against
+    // the manufacturer's published spec sheet/PDF rather than only FidoLED's
+    // (sometimes-outdated) internal database. Treats any source starting with
+    // "official:" or containing "spec PDF" / "absen ... PDF" as verified.
+    _isPanelVerified(p) {
+        const s = (p && p.source || '').toLowerCase();
+        if (!s) return false;
+        // Cross-checked against the manufacturer's own published spec sheet
+        if (s.startsWith('official:')) return true;
+        if (s.includes('spec pdf')) return true;
+        // Legacy entries that pre-dated the "official:" prefix
+        if (s.includes('absen ') && s.includes('pdf')) return true;
+        return false;
+    }
+
+    _renderPanelCatalogList() {
+        const listEl = document.getElementById('panel-catalog-list');
+        const mfrSel = document.getElementById('panel-catalog-mfr');
+        const searchEl = document.getElementById('panel-catalog-search');
+        if (!listEl || !this._panelCatalogFlat) return;
+        const q = (searchEl && searchEl.value || '').trim().toLowerCase();
+        const mfrFilter = mfrSel && mfrSel.value || '';
+        let rows = this._panelCatalogFlat;
+        if (mfrFilter) rows = rows.filter(p => p._mfr === mfrFilter);
+        if (q) rows = rows.filter(p => p._searchKey.indexOf(q) !== -1);
+        // Cap render to keep DOM light
+        const MAX = 300;
+        const total = rows.length;
+        rows = rows.slice(0, MAX);
+        listEl.innerHTML = '';
+        if (!total) {
+            listEl.innerHTML = '<div style="padding: 12px; color: #888; font-size: 12px;">No panels match.</div>';
+            return;
+        }
+        rows.forEach(p => {
+            const item = document.createElement('div');
+            item.className = 'panel-catalog-row';
+            item.dataset.mfr = p._mfr;
+            item.dataset.name = p.name || '';
+            item.style.cssText = 'padding: 8px 10px; border-bottom: 1px solid #222; cursor: pointer;';
+            const specs = [];
+            if (p.width_mm != null && p.height_mm != null) specs.push(`${p.width_mm}×${p.height_mm}mm`);
+            if (p.pixels_w != null && p.pixels_h != null) specs.push(`${p.pixels_w}×${p.pixels_h}px`);
+            if (p.weight_kg != null) specs.push(`${p.weight_kg}kg`);
+            if (p.watts_max != null) specs.push(`${p.watts_max}W`);
+            // Verified ⭐: panel specs were cross-checked against the manufacturer's
+            // own published spec sheet/PDF (not just FidoLED's database).
+            const verified = this._isPanelVerified(p);
+            const star = verified ? `<span title="Verified against ${this.escapeHtml(p.source || '')}" style="color:#f5c842; margin-right:4px;">⭐</span>` : '';
+            item.innerHTML = `<div style="color:#fff; font-size:12px;">${star}<span style="color:#8ab4f8;">${this.escapeHtml(p._mfr.replace(/_/g, ' '))}</span> · ${this.escapeHtml(p.name || '')}</div><div style="color:#888; font-size:11px;">${specs.join(' · ')}</div>`;
+            item.addEventListener('click', () => {
+                this._pickerSelection = { type: 'panel', key: p._mfr + '|' + p.name, panel: p, label: `${p._mfr.replace(/_/g,' ')} ${p.name}` };
+                this._highlightPickerSelection();
+                this._updatePickerSummary();
+            });
+            listEl.appendChild(item);
+        });
+        if (total > MAX) {
+            const more = document.createElement('div');
+            more.style.cssText = 'padding: 8px 10px; color: #888; font-size: 11px; text-align: center; background: #1d1d1d;';
+            more.textContent = `Showing first ${MAX} of ${total.toLocaleString()}. Refine search or pick a manufacturer.`;
+            listEl.appendChild(more);
+        }
+        this._highlightPickerSelection();
+    }
+
+    _highlightPickerSelection() {
+        const sel = this._pickerSelection || {};
+        document.querySelectorAll('#preset-picker-list .preset-picker-row').forEach(el => {
+            el.style.background = (sel.type === 'preset' && el.dataset.key === sel.key) ? '#2d4a7a' : 'transparent';
+        });
+        document.querySelectorAll('#panel-catalog-list .panel-catalog-row').forEach(el => {
+            const key = el.dataset.mfr + '|' + el.dataset.name;
+            el.style.background = (sel.type === 'panel' && key === sel.key) ? '#2d4a7a' : 'transparent';
+        });
+    }
+
+    _updatePickerSummary() {
+        const summary = document.getElementById('preset-picker-summary');
+        if (!summary) return;
+        const sel = this._pickerSelection || {};
+        if (sel.type === 'panel' && sel.panel) {
+            const p = sel.panel;
+            const parts = [];
+            if (p.width_mm != null) parts.push(`${p.width_mm}×${p.height_mm}mm`);
+            if (p.pixels_w != null) parts.push(`${p.pixels_w}×${p.pixels_h}px`);
+            if (p.weight_kg != null) parts.push(`${p.weight_kg}kg`);
+            if (p.watts_max != null) parts.push(`${p.watts_max}W`);
+            summary.textContent = `Panel: ${sel.label} — ${parts.join(' · ')}`;
+        } else if (sel.type === 'preset' && sel.key && sel.key !== '__default__') {
+            summary.textContent = `Preset: ${sel.label || sel.key}`;
+        } else {
+            summary.textContent = 'Default — uses your Preferences values.';
+        }
     }
 
     closePresetPicker() {
@@ -3788,20 +3929,50 @@ class LEDRasterApp {
     }
 
     confirmPresetPicker() {
-        const selection = this._presetPickerSelection || '__default__';
+        const sel = this._pickerSelection || { type: 'preset', key: '__default__' };
         this.closePresetPicker();
-        if (selection === '__default__') {
-            this.addLayer();
+        if (sel.type === 'panel' && sel.panel) {
+            this.addLayer(this._panelToPresetData(sel.panel));
             return;
         }
-        this.fetchPreset(selection).then(resp => {
-            const data = resp && resp.data ? resp.data : null;
-            if (data) data._presetName = selection;
-            this.addLayer(data);
-        }).catch(err => {
-            alert('Failed to load preset: ' + (err && err.error || 'unknown'));
-            this.addLayer();  // fall back to default
-        });
+        if (sel.type === 'preset') {
+            if (!sel.key || sel.key === '__default__') {
+                this.addLayer();
+                return;
+            }
+            this.fetchPreset(sel.key).then(resp => {
+                const data = resp && resp.data ? resp.data : null;
+                if (data) data._presetName = sel.key;
+                this.addLayer(data);
+            }).catch(err => {
+                alert('Failed to load preset: ' + (err && err.error || 'unknown'));
+                this.addLayer();
+            });
+        }
+    }
+
+    // Convert a catalog panel into preset-shaped data that addLayer() consumes.
+    // Grid (columns/rows) comes from Preferences; panel-specific fields override.
+    _panelToPresetData(panel) {
+        const prefs = this.getPreferences() || {};
+        const weightUnit = prefs.weightUnit || 'kg';
+        const weightKg = panel.weight_kg;
+        const weight = (weightKg != null)
+            ? (weightUnit === 'lb' ? +(weightKg * 2.20462).toFixed(2) : weightKg)
+            : prefs.panelWeight;
+        const data = {
+            columns: prefs.columns,
+            rows: prefs.rows,
+            cabinet_width: panel.pixels_w != null ? panel.pixels_w : prefs.panelWidth,
+            cabinet_height: panel.pixels_h != null ? panel.pixels_h : prefs.panelHeight,
+            panel_width_mm: panel.width_mm,
+            panel_height_mm: panel.height_mm,
+            panel_weight: weight,
+            weight_unit: weightUnit,
+            _presetName: `${(panel._mfr || panel.manufacturer || '').replace(/_/g, ' ')} ${panel.name}`.trim()
+        };
+        if (panel.watts_max != null) data.panelWatts = panel.watts_max;
+        return data;
     }
 
     // ── Save-as-Preset Modal ──
@@ -4369,8 +4540,10 @@ class LEDRasterApp {
         layer.border_color_cabinet = layer.border_color || prefs.borderColor;
         layer.border_color_data = layer.border_color || prefs.borderColor;
         layer.border_color_power = layer.border_color || prefs.borderColor;
-        layer.panel_weight = prefs.panelWeight;
-        layer.weight_unit = prefs.weightUnit || 'kg';
+        // Only fall back to prefs if the server-created layer didn't already
+        // carry these from the add request (e.g. from a preset or catalog panel).
+        if (layer.panel_weight == null) layer.panel_weight = prefs.panelWeight;
+        if (layer.weight_unit == null) layer.weight_unit = prefs.weightUnit || 'kg';
     }
 
     getSelectedLayers() {

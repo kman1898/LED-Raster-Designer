@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED Raster Designer v0.7.4.25</title>
+    <title>LED Raster Designer v0.7.4.26</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -74,7 +74,7 @@
 
         <div id="toolbar">
             <div class="toolbar-section toolbar-project">
-                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.7.4.25</span></h1>
+                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.7.4.26</span></h1>
                 <input type="text" id="project-name" value="Untitled Project" class="editable-project-name">
             </div>
             <div class="toolbar-section toolbar-actions">
@@ -1202,9 +1202,8 @@
                         <button id="btn-layer-up" class="btn btn-secondary" data-tooltip="Move selected layer up in draw order">▲ Up</button>
                         <button id="btn-layer-down" class="btn btn-secondary" data-tooltip="Move selected layer down in draw order">▼ Down</button>
                     </div>
-                    <button id="btn-add-layer" class="btn btn-primary full-width" data-tooltip="Add a new LED screen layer — pick from saved presets or use default preferences">+ Add Screen</button>
+                    <button id="btn-add-layer" class="btn btn-primary full-width" data-tooltip="Add a new LED screen layer — pick a saved preset or a panel from the built-in catalog (2,500+ panels)">+ Add Screen</button>
                     <button id="btn-save-preset" class="btn btn-secondary full-width" style="margin-top: 8px;" data-tooltip="Save the currently selected layer's settings as a reusable preset">💾 Save as Preset</button>
-                    <button id="btn-panel-catalog" class="btn btn-secondary full-width" style="margin-top: 8px;" data-tooltip="Browse built-in panel catalog (2,500+ panels across 180 manufacturers) — pick a panel to create a new screen with its dimensions, pixel count, weight, and power specs pre-filled">📚 Panel Catalog</button>
                     <button id="btn-add-image" class="btn btn-secondary full-width" style="margin-top: 8px;" data-tooltip="Add an image or logo layer">+ Add Image/Logo</button>
                     <button id="btn-add-text" class="btn btn-secondary full-width" style="margin-top: 8px;" data-tooltip="Add a text label layer">+ Add Text Label</button>
                 </div>
@@ -1531,13 +1530,37 @@
 
     <!-- About Modal -->
     <div id="preset-picker-modal" class="modal" style="display: none;">
-        <div class="modal-content" style="background: #252525; border-radius: 8px; padding: 24px; max-width: 480px; margin: 80px auto; border: 1px solid #3a3a3a;">
-            <h2 style="margin-top: 0; color: #fff; margin-bottom: 4px; font-size: 18px;">Add Screen — Choose Preset</h2>
-            <div style="color: #888; font-size: 12px; margin-bottom: 16px;">Pick a saved preset or use your default preferences.</div>
-            <div id="preset-picker-list" style="max-height: 320px; overflow-y: auto; border: 1px solid #333; border-radius: 4px; background: #1a1a1a; padding: 4px; margin-bottom: 16px;"></div>
-            <div style="display: flex; justify-content: flex-end; gap: 8px;">
-                <button id="preset-picker-cancel" class="btn" style="background: #3a3a3a; padding: 8px 16px;">Cancel</button>
-                <button id="preset-picker-add" class="btn btn-primary" style="padding: 8px 16px;">Add Screen</button>
+        <div class="modal-content" style="background: #252525; border-radius: 8px; padding: 20px; width: 900px; max-width: 95vw; margin: 50px auto; border: 1px solid #3a3a3a;">
+            <h2 style="margin-top: 0; color: #fff; margin-bottom: 4px; font-size: 18px;">Add Screen</h2>
+            <div style="color: #888; font-size: 12px; margin-bottom: 14px;">Pick a saved preset <em>or</em> a panel from the built-in catalog.</div>
+            <div style="display: flex; gap: 14px;">
+                <!-- Presets column -->
+                <div style="flex: 0 0 300px; display: flex; flex-direction: column;">
+                    <div style="color: #ddd; font-size: 12px; font-weight: 600; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;">Presets</div>
+                    <div id="preset-picker-list" style="height: 420px; overflow-y: auto; border: 1px solid #333; border-radius: 4px; background: #1a1a1a; padding: 4px;"></div>
+                </div>
+                <!-- Panel catalog column -->
+                <div style="flex: 1; display: flex; flex-direction: column;">
+                    <div style="color: #ddd; font-size: 12px; font-weight: 600; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; display: flex; justify-content: space-between; align-items: center;">
+                        <span>Panel Catalog <span id="panel-catalog-count" style="color:#777; font-weight:normal; text-transform:none; letter-spacing:0;"></span></span>
+                        <span style="color:#777; font-weight:normal; text-transform:none; letter-spacing:0; font-size:11px;" title="Most panels come from FidoLED's database — accurate but sometimes slightly older than current manufacturer specs. ⭐ marks panels we've cross-checked against the manufacturer's own spec sheet.">⭐ = manufacturer-verified</span>
+                    </div>
+                    <div style="display: flex; gap: 6px; margin-bottom: 6px;">
+                        <input id="panel-catalog-search" type="text" placeholder="🔍 Search name or manufacturer…"
+                               style="flex: 1; padding: 6px 8px; background: #1a1a1a; border: 1px solid #333; border-radius: 4px; color: #fff; font-size: 12px;">
+                        <select id="panel-catalog-mfr" style="padding: 6px 8px; background: #1a1a1a; border: 1px solid #333; border-radius: 4px; color: #fff; font-size: 12px; max-width: 180px;">
+                            <option value="">All manufacturers</option>
+                        </select>
+                    </div>
+                    <div id="panel-catalog-list" style="height: 390px; overflow-y: auto; border: 1px solid #333; border-radius: 4px; background: #1a1a1a;"></div>
+                </div>
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 14px; gap: 12px;">
+                <div id="preset-picker-summary" style="color: #888; font-size: 12px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Nothing selected — will use Default.</div>
+                <div style="display: flex; gap: 8px;">
+                    <button id="preset-picker-cancel" class="btn" style="background: #3a3a3a; padding: 8px 16px;">Cancel</button>
+                    <button id="preset-picker-add" class="btn btn-primary" style="padding: 8px 16px;">Add Screen</button>
+                </div>
             </div>
         </div>
     </div>

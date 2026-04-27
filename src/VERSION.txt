@@ -1,6 +1,33 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.4.26 - April 25, 2026
+----------------------------
+- NEW: Add Screen modal redesigned. Picking a panel from the built-in
+  catalog now happens in the same flow as picking a saved preset — two
+  columns side by side. Search the catalog by name or manufacturer; pick
+  one panel, click Add Screen, and the cabinet/pixel/weight/power values
+  fill in automatically (grid size still comes from Preferences).
+- NEW: ⭐ verified marker. Panels whose specs were cross-checked against
+  the manufacturer's own published spec sheet/PDF show a star. Currently
+  marks ~30 panels across Absen (JP, A3 Pro, A6T, VN), INFiLED (ART,
+  AMT, DB), UniLumin (UGM), and Gloshine. Other catalog entries come from
+  FidoLED's database — accurate but occasionally older than current specs.
+- DATA: Power values for all 2,536 panels re-validated. The original
+  extraction missed a 110V voltage selection in FidoLED for a chunk of
+  the catalog, leaving panels with corrupt watts (e.g. JP8 Pro showed
+  16.75W instead of the real ~480W). Re-ran the entire catalog through
+  FidoLED's "Copy to Clipboard" output with 110V properly set, plus
+  manually-applied PDF values for the JP series.
+- DATA: 12 phantom panels removed (Mambo-* entries that don't actually
+  exist in FidoLED's menus).
+- INTERNAL: clipboard_extract.sh hardened — Escape-key recovery to
+  prevent FidoLED popup wedge cascades, case-insensitive title verify,
+  abort-on-cascade detection, skip-on-missing-power so we never overwrite
+  good data with null. New post_batch.py + prep_no_source_batch.sh make
+  the maintenance loop a one-liner per batch.
+- INTERNAL: app.py accepts --port N to run alongside other Flask apps.
+
 v0.7.4.25 - April 24, 2026
 ----------------------------
 - NEW: Built-in Panel Catalog now covers 2,543 panels across 180
