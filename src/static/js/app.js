@@ -5123,10 +5123,21 @@ class LEDRasterApp {
             arrowColor: this.currentLayer.arrowColor,
             dataFlowLabelSize: this.currentLayer.dataFlowLabelSize
         });
-        
+
         this.renderLayers();
         this.loadLayerToInputs();
         this.loadTextLayerToInputs();
+        // Repopulate the active view's per-layer label editor so the port-rename
+        // (data-flow view) or circuit-rename (power view) sidebar reflects the
+        // newly selected layer immediately. Without this, the editor only
+        // refreshed the next time something else nudged it — which made the
+        // first click after a layer-change appear empty until a second click.
+        const viewMode = window.canvasRenderer && window.canvasRenderer.viewMode;
+        if (viewMode === 'data-flow') {
+            this.updatePortLabelEditor();
+        } else if (viewMode === 'power') {
+            this.updatePowerLabelEditor();
+        }
         window.canvasRenderer.render();
     }
 
