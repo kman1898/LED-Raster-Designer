@@ -1,6 +1,21 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.4.29 - April 28, 2026
+----------------------------
+- FIX: Toggling Offset TL/TR/BL/BR (or any other property checkbox) with
+  multiple screens selected was clobbering each layer's "Labels Font Size"
+  and "Info Label Size" to null whenever the selected layers had mixed
+  values for those fields. The shared input shows blank for mixed values,
+  parseInt('') returns NaN, and the NaN guard slipped past the null check
+  — so every selected layer ended up with labelsFontSize=null. Switched
+  both inputs to use the same readNumber() helper the other numeric
+  fields in this code path already use, which correctly returns null for
+  blank/NaN reads and skips the apply.
+- INTERNAL: Bumped GitHub Actions to Node.js 24-compatible majors —
+  upload-artifact v6→v7, download-artifact v6→v8, action-gh-release v2→v3
+  (resolves the deprecation warning surfaced on PR #34).
+
 v0.7.4.28 - April 25, 2026
 ----------------------------
 - NEW: "Found bad specs? Submit a correction →" link in the panel

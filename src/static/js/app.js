@@ -5618,9 +5618,12 @@ class LEDRasterApp {
         const showLabelInfoVal = showLabelInfoEl && !showLabelInfoEl.indeterminate ? showLabelInfoEl.checked : null;
         const showLabelWeightVal = showLabelWeightEl && !showLabelWeightEl.indeterminate ? showLabelWeightEl.checked : null;
         const labelsColorVal = labelsColorEl ? labelsColorEl.value : null;
-        const labelsFontSizeVal = labelsFontSizeEl ? parseInt(labelsFontSizeEl.value) : null;
-        const infoLabelSizeEl = document.getElementById('info-label-size');
-        const infoLabelSizeVal = infoLabelSizeEl ? parseInt(infoLabelSizeEl.value, 10) : null;
+        // Use readNumber() so blank/NaN reads come back as null and are skipped
+        // by the `!== null` guard below. Without this, multi-select with mixed
+        // values shows an empty input, parseInt('') = NaN, and every selected
+        // layer's labelsFontSize gets clobbered to NaN → null on the server.
+        const labelsFontSizeVal = readNumber('labels-fontsize').value;
+        const infoLabelSizeVal = readNumber('info-label-size').value;
         const useFractionalInchesVal = useFractionalInchesEl && !useFractionalInchesEl.indeterminate ? useFractionalInchesEl.checked : null;
         
         // Per-layer offset settings
