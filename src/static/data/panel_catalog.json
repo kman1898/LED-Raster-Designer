@@ -3938,21 +3938,6 @@
   ],
   "Barco": [
     {
-      "name": "1.5XT",
-      "connector": null,
-      "width_mm": 609.92,
-      "height_mm": 343.08,
-      "pixels_w": 384,
-      "pixels_h": 216,
-      "pitch_mm": 1.588,
-      "weight_kg": 7.5,
-      "weight_lb": 16.53465,
-      "proc_type": null,
-      "watts_max": 137.5,
-      "watts_ave": null,
-      "source": "fidoled clipboard"
-    },
-    {
       "name": "C11",
       "connector": null,
       "width_mm": 400.0,
@@ -4098,9 +4083,10 @@
       "weight_kg": 13.0,
       "weight_lb": 28.660059999999998,
       "proc_type": null,
-      "watts_max": 300.3,
+      "watts_max": 244.0,
       "watts_ave": null,
-      "source": "fidoled clipboard"
+      "source": "official: barco.com NX4 spec sheet",
+      "amps_max_110v": 2.22
     },
     {
       "name": "NX6",
@@ -4220,7 +4206,7 @@
       "proc_type": null,
       "watts_max": 165.0,
       "amps_max_110v": 1.5,
-      "source": "fidoled clipboard (manual paste)"
+      "source": "official: barco.com X1.9 Spec Sheet PDF"
     },
     {
       "name": "X1.9",
@@ -4235,7 +4221,7 @@
       "proc_type": null,
       "watts_max": 165.0,
       "watts_ave": null,
-      "source": "fidoled clipboard"
+      "source": "official: barco.com X1.9 Spec Sheet PDF"
     },
     {
       "name": "X2",
@@ -4293,9 +4279,25 @@
       "weight_kg": 7.7,
       "weight_lb": 16.975573999999998,
       "proc_type": null,
-      "watts_max": 60.5,
+      "watts_max": 188.9,
       "watts_ave": null,
-      "source": "fidoled clipboard"
+      "source": "official: barco.com X4 Spec Sheet PDF",
+      "amps_max_110v": 1.72
+    },
+    {
+      "name": "XT1.5",
+      "connector": null,
+      "width_mm": 609.92,
+      "height_mm": 343.08,
+      "pixels_w": 384,
+      "pixels_h": 216,
+      "pitch_mm": 1.588,
+      "weight_kg": 7.5,
+      "weight_lb": 16.53465,
+      "proc_type": null,
+      "watts_max": 137.5,
+      "watts_ave": null,
+      "source": "official: barco.com XT1.5 Spec Sheet PDF"
     }
   ],
   "beMatrix": [
@@ -19508,37 +19510,7 @@
       "proc_type": null,
       "watts_max": 74.8,
       "watts_ave": null,
-      "source": "fidoled clipboard"
-    },
-    {
-      "name": "CLA1.5",
-      "connector": null,
-      "width_mm": 250.0,
-      "height_mm": 250.0,
-      "pixels_w": 160,
-      "pixels_h": 160,
-      "pitch_mm": 1.562,
-      "weight_kg": 2.1,
-      "weight_lb": 4.629702,
-      "proc_type": null,
-      "watts_max": 74.8,
-      "watts_ave": null,
-      "source": "fidoled clipboard"
-    },
-    {
-      "name": "CLA1.9",
-      "connector": null,
-      "width_mm": 250.0,
-      "height_mm": 250.0,
-      "pixels_w": 128,
-      "pixels_h": 128,
-      "pitch_mm": 1.953,
-      "weight_kg": 2.0,
-      "weight_lb": 4.40924,
-      "proc_type": null,
-      "watts_max": 74.8,
-      "watts_ave": null,
-      "source": "fidoled clipboard"
+      "source": "official: eanixter.com Leyard CLA1.9 spec PDF"
     },
     {
       "name": "CLF-10.4",
@@ -19598,7 +19570,7 @@
       "proc_type": null,
       "watts_max": 300.3,
       "watts_ave": null,
-      "source": "fidoled clipboard"
+      "source": "official: planar.com CarbonLight CLI Series brochure"
     },
     {
       "name": "CLI-2.6",
@@ -19613,7 +19585,7 @@
       "proc_type": null,
       "watts_max": 149.6,
       "watts_ave": null,
-      "source": "fidoled clipboard"
+      "source": "official: planar.com CarbonLight CLI Series brochure"
     },
     {
       "name": "CLI-3.9",
@@ -19688,7 +19660,7 @@
       "proc_type": null,
       "watts_max": 300.3,
       "watts_ave": null,
-      "source": "fidoled clipboard"
+      "source": "official: planar.com CarbonLight CLM69 spec page"
     },
     {
       "name": "CLO-3.9",
@@ -19703,7 +19675,7 @@
       "proc_type": null,
       "watts_max": 300.3,
       "watts_ave": null,
-      "source": "fidoled clipboard"
+      "source": "official: eanixter.com Leyard CLO3.9 spec PDF"
     },
     {
       "name": "CLO-5.2",
@@ -20151,9 +20123,10 @@
       "weight_kg": 6.94,
       "weight_lb": 15.3000628,
       "proc_type": null,
-      "watts_max": 180.4,
+      "watts_max": 140.0,
       "watts_ave": null,
-      "source": "fidoled clipboard"
+      "source": "official: planar.com Leyard TVF data sheet",
+      "amps_max_110v": 1.27
     },
     {
       "name": "TVF1.8",

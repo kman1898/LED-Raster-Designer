@@ -3986,6 +3986,97 @@ class LEDRasterApp {
         return data;
     }
 
+    // ── Spec correction / new-panel submission ──
+    // Opens a pre-filled GitHub issue so users can submit a PDF spec sheet,
+    // a back-of-panel photo, just flag bad data, or request a brand-new
+    // panel that's missing from the catalog. Zero-server: GitHub hosts the
+    // upload (drag-drop into the issue comment), we read it on our normal
+    // triage workflow, no API keys / S3 / email gateway needed.
+    openPanelSpecCorrection() {
+        const sel = this._pickerSelection || {};
+        const hasSelection = sel.type === 'panel' && sel.panel;
+
+        // Branch: correction (existing panel) vs. new panel (missing one).
+        // confirm() returns true=OK ("Fix existing"), false=Cancel ("Add new").
+        // If the user already selected a panel in the catalog, default to fix.
+        let mode;
+        if (hasSelection) {
+            mode = 'fix';
+        } else {
+            const choice = window.confirm(
+                'Submit which kind of correction?\n\n' +
+                '  OK   = "Fix specs on an existing panel"\n' +
+                '  Cancel = "Add a panel that\'s missing from the catalog"'
+            );
+            mode = choice ? 'fix' : 'add';
+        }
+
+        let panelRef = '';
+        let currentValues = '';
+        if (hasSelection) {
+            const p = sel.panel;
+            panelRef = `${(p._mfr || p.manufacturer || '').replace(/_/g, ' ')} ${p.name}`.trim();
+            const lines = [];
+            if (p.width_mm != null) lines.push(`- Cabinet: ${p.width_mm} × ${p.height_mm} mm`);
+            if (p.pixels_w != null) lines.push(`- Pixels: ${p.pixels_w} × ${p.pixels_h}`);
+            if (p.weight_kg != null) lines.push(`- Weight: ${p.weight_kg} kg`);
+            if (p.watts_max != null) lines.push(`- Max power: ${p.watts_max} W`);
+            if (p.source) lines.push(`- Source: ${p.source}`);
+            currentValues = lines.join('\n');
+        } else {
+            const ask = (mode === 'fix')
+                ? 'Which panel has bad specs? (e.g. "Absen JP8 Pro")\n\nTip: select the panel in the catalog first to pre-fill this.'
+                : 'What panel is missing? Manufacturer + model name (e.g. "Absen NEW-X 1.5")';
+            panelRef = window.prompt(ask, '') || '';
+            if (!panelRef) return;
+        }
+
+        const notesPrompt = (mode === 'fix')
+            ? `What's wrong with "${panelRef}"?\n\nDescribe the discrepancy. After you click OK we'll open a GitHub issue — drag any spec sheet PDF or a photo of the panel back into the comment box there to attach it.`
+            : `Tell us about "${panelRef}" — paste any specs you have (cabinet mm, pixels, weight, max watts).\n\nAfter you click OK we'll open a GitHub issue — drag the official spec sheet PDF or a photo of the panel back into the comment box to attach it.`;
+        const notes = window.prompt(notesPrompt, '');
+        if (notes === null) return;  // cancelled
+
+        const versionEl = document.querySelector('h1 span');
+        const appVersion = (versionEl && versionEl.textContent) || '';
+
+        const bodyLines = (mode === 'fix') ? [
+            `**Panel:** ${panelRef}`,
+            '',
+            '**Current catalog values:**',
+            currentValues || '_(no panel selected — please paste the catalog values you saw)_',
+            '',
+            '**What\'s wrong:**',
+            notes || '_(left blank)_',
+            '',
+            '**Spec sheet / photo:**',
+            '⬆️ Drag a PDF or photo into this comment box to attach it.',
+            '',
+            '---',
+            `App version: ${appVersion}`,
+        ] : [
+            `**Panel to add:** ${panelRef}`,
+            '',
+            '**Specs (best-guess from user):**',
+            notes || '_(left blank)_',
+            '',
+            '**Spec sheet / photo:**',
+            '⬆️ Drag the official spec sheet PDF or a photo of the panel back into this comment box to attach it.',
+            '',
+            '---',
+            `App version: ${appVersion}`,
+        ];
+        const titlePrefix = (mode === 'fix') ? 'Spec correction' : 'Add panel';
+        const label = (mode === 'fix') ? 'spec-correction' : 'add-panel';
+        const params = new URLSearchParams({
+            title: `${titlePrefix}: ${panelRef}`,
+            labels: label,
+            body: bodyLines.join('\n'),
+        });
+        const url = `https://github.com/kman1898/LED-Raster-Designer/issues/new?${params.toString()}`;
+        window.open(url, '_blank', 'noopener');
+    }
+
     // ── Save-as-Preset Modal ──
     openPresetSaveModal() {
         if (!this.currentLayer || (this.currentLayer.type || 'screen') !== 'screen') {
@@ -4109,6 +4200,12 @@ class LEDRasterApp {
         const pickerAdd = document.getElementById('preset-picker-add');
         if (pickerCancel) pickerCancel.addEventListener('click', () => this.closePresetPicker());
         if (pickerAdd) pickerAdd.addEventListener('click', () => this.confirmPresetPicker());
+
+        const submitLink = document.getElementById('panel-submit-correction');
+        if (submitLink) submitLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            this.openPanelSpecCorrection();
+        });
 
         const saveCancel = document.getElementById('preset-save-cancel');
         const saveConfirm = document.getElementById('preset-save-confirm');
