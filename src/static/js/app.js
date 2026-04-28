@@ -3834,11 +3834,22 @@ class LEDRasterApp {
     _isPanelVerified(p) {
         const s = (p && p.source || '').toLowerCase();
         if (!s) return false;
-        // Cross-checked against the manufacturer's own published spec sheet
+        // Anti-patterns: any entry whose specs were inferred rather than read
+        // off a real spec sheet/PDF/website is not verified, even if the
+        // source string mentions an authoritative site.
+        if (/\b(est|estimated|derived|same as|inferred|approx)\b/.test(s)) return false;
+        if (/\+\s*(frame|air frame|t4|ladder|windbrace|spotlight)/.test(s)) return false;
+        // Trusted sources — manufacturer's own site / PDF, or a reputable
+        // third-party dealer that publishes the full datasheet.
         if (s.startsWith('official:')) return true;
+        if (s.startsWith('roevisual')) return true;          // roevisual.com (ROE)
+        if (s.startsWith('absen ')) return true;             // absen JP / VN spec PDFs
+        if (s.startsWith('ledwallcentral')) return true;     // dealer with full datasheets
+        if (s.startsWith('xled.pro')) return true;           // dealer datasheet
         if (s.includes('spec pdf')) return true;
-        // Legacy entries that pre-dated the "official:" prefix
-        if (s.includes('absen ') && s.includes('pdf')) return true;
+        if (s.includes('-specification.pdf')) return true;
+        if (s.includes('brochure')) return true;             // any "...brochure" reference
+        if (s.includes('per brochure')) return true;
         return false;
     }
 
