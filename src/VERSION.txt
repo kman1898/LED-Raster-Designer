@@ -1,6 +1,15 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.4.30 - April 28, 2026
+----------------------------
+- FIX: In Data Flow and Power views, clicking a different screen left the
+  port-rename / circuit-rename sidebar empty until you clicked a second
+  time. selectLayer() updated the canvas and the right-hand inputs but
+  never re-populated the left-side label editor; the editor only refreshed
+  the next time something else nudged it. Now it's repainted in lockstep
+  with the layer change.
+
 v0.7.4.29 - April 28, 2026
 ----------------------------
 - FIX: Toggling Offset TL/TR/BL/BR (or any other property checkbox) with
