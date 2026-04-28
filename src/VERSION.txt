@@ -1,6 +1,24 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.4.28 - April 25, 2026
+----------------------------
+- NEW: "Found bad specs? Submit a correction →" link in the panel
+  catalog. Opens a pre-filled GitHub issue (zero-server) where users
+  can drag a PDF spec sheet or back-of-panel photo into the comment
+  to attach. Issues land at github.com/kman1898/LED-Raster-Designer/issues
+  with the spec-correction label, including the panel reference, the
+  current catalog values, the user's notes, and the app version.
+- DATA: Leyard verified — CLI-1.9, CLI-2.6, CLO-3.9, CLM-6.9, CLA-1.9
+  all match Planar/eanixter PDFs. TVF1.5 watts corrected from 180.4W
+  → 140W (per official Planar TVF data sheet). Duplicate CLA1.5 +
+  CLA1.9 entries deduped (kept hyphenated form to match spec sheets).
+- DATA: Barco verified — X1.9, XT1.5 (renamed from "1.5XT"), X4, NX4
+  cross-checked against barco.com PDFs. X4 watts corrected from 60.5W
+  → 188.9W (factor-of-3 error from the original extraction). NX4
+  watts corrected from 300.3W → 244W.
+- Verified panel count now 92 (was 75).
+
 v0.7.4.27 - April 25, 2026
 ----------------------------
 - FIX: ⭐ verified marker now correctly recognizes ROE panels sourced

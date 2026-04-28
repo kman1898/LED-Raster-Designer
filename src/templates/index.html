@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED Raster Designer v0.7.4.27</title>
+    <title>LED Raster Designer v0.7.4.28</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -74,7 +74,7 @@
 
         <div id="toolbar">
             <div class="toolbar-section toolbar-project">
-                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.7.4.27</span></h1>
+                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.7.4.28</span></h1>
                 <input type="text" id="project-name" value="Untitled Project" class="editable-project-name">
             </div>
             <div class="toolbar-section toolbar-actions">
@@ -1552,7 +1552,11 @@
                             <option value="">All manufacturers</option>
                         </select>
                     </div>
-                    <div id="panel-catalog-list" style="height: 390px; overflow-y: auto; border: 1px solid #333; border-radius: 4px; background: #1a1a1a;"></div>
+                    <div id="panel-catalog-list" style="height: 366px; overflow-y: auto; border: 1px solid #333; border-radius: 4px; background: #1a1a1a;"></div>
+                    <div style="font-size: 11px; color: #777; margin-top: 6px; text-align: right;">
+                        Bad specs or missing panel?
+                        <a href="#" id="panel-submit-correction" style="color: #8ab4f8; text-decoration: none;">Submit a correction or add a panel →</a>
+                    </div>
                 </div>
             </div>
             <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 14px; gap: 12px;">
