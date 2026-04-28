@@ -8480,6 +8480,7 @@ class LEDRasterApp {
                 this.saveClientSideProperties();
                 this.updateLayers(this.getSelectedLayers());
                 window.canvasRenderer.render();
+                this.saveState('Edit Port Label');
             });
 
             const returnInput = document.createElement('input');
@@ -8506,6 +8507,7 @@ class LEDRasterApp {
                 this.saveClientSideProperties();
                 this.updateLayers(this.getSelectedLayers());
                 window.canvasRenderer.render();
+                this.saveState('Edit Port Label');
             });
 
             row.appendChild(cb);
@@ -8589,6 +8591,7 @@ class LEDRasterApp {
                 this.saveClientSideProperties();
                 this.updateLayers(this.getSelectedLayers());
                 window.canvasRenderer.render();
+                this.saveState('Edit Circuit Label');
             });
 
             row.appendChild(cb);
