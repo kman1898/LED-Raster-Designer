@@ -1,6 +1,17 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.4.32 - April 29, 2026
+----------------------------
+- FIX: Power circuit label templates other than the default "S1-#" did not
+  auto-increment the soca number after every 6 circuits. With "S1-#" the
+  labels correctly wrapped S1-1..S1-6, S2-1..S2-6, etc., but typing any
+  other starting number ("S2-#", "MULTI3-#", etc.) fell back to a plain
+  "#" → circuit-number substitution, so circuits 7+ rolled past 6 instead
+  of starting a new soca. The auto-increment now works for any template
+  shaped <prefix><number><sep># — "S2-#" produces S2-1..S2-6, S3-1..S3-6;
+  "MULTI3-#" produces MULTI3-1..MULTI3-6, MULTI4-1..MULTI4-6.
+
 v0.7.4.31 - April 27, 2026
 ----------------------------
 - FIX: Deleting a layer and pressing Undo could revert port-label or
