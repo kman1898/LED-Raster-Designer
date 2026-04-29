@@ -95,63 +95,149 @@ def rotate_logs():
     except Exception:
         pass
 
-def _panel_width(layer, col):
-    width = layer.get('cabinet_width', 0)
-    cols = int(layer.get('columns', 0) or 0)
-    if cols <= 0:
-        return width
-    if col == 0 and layer.get('halfFirstColumn', False):
-        return width / 2
-    if col == cols - 1 and layer.get('halfLastColumn', False):
-        return width / 2
-    return width
+def _migrate_screen_half_flags_to_panel_states(layer, panel_states):
+    """Convert legacy screen-level halfFirstColumn/halfLastColumn/halfFirstRow/
+    halfLastRow flags into per-panel halfTile values stamped onto panel_states.
 
-def _panel_height(layer, row):
-    height = layer.get('cabinet_height', 0)
+    Called from _build_panels so the legacy flags continue to render correctly
+    after migration. Panels in the affected first/last column get halfTile='width';
+    panels in the affected first/last row get halfTile='height'.
+
+    Mutates panel_states in place and returns it.
+    """
     rows = int(layer.get('rows', 0) or 0)
-    if rows <= 0:
-        return height
-    if row == 0 and layer.get('halfFirstRow', False):
-        return height / 2
-    if row == rows - 1 and layer.get('halfLastRow', False):
-        return height / 2
-    return height
+    cols = int(layer.get('columns', 0) or 0)
+    if rows <= 0 or cols <= 0:
+        return panel_states
+    if panel_states is None:
+        panel_states = {}
+    half_first_col = bool(layer.get('halfFirstColumn', False))
+    half_last_col = bool(layer.get('halfLastColumn', False))
+    half_first_row = bool(layer.get('halfFirstRow', False))
+    half_last_row = bool(layer.get('halfLastRow', False))
+    if not (half_first_col or half_last_col or half_first_row or half_last_row):
+        return panel_states
+    for r in range(rows):
+        for c in range(cols):
+            panel_num = r * cols + c + 1
+            state = panel_states.setdefault(panel_num, {})
+            if state.get('halfTile') in ('width', 'height'):
+                continue
+            if (half_first_row and r == 0) or (half_last_row and r == rows - 1):
+                state['halfTile'] = 'height'
+            elif (half_first_col and c == 0) or (half_last_col and c == cols - 1):
+                state['halfTile'] = 'width'
+    # Clear the legacy flags so they don't double-apply on subsequent rebuilds
+    layer['halfFirstColumn'] = False
+    layer['halfLastColumn'] = False
+    layer['halfFirstRow'] = False
+    layer['halfLastRow'] = False
+    return panel_states
+
 
 def _build_panels(layer, panel_states=None):
     rows = int(layer.get('rows', 0) or 0)
     cols = int(layer.get('columns', 0) or 0)
     offset_x = float(layer.get('offset_x', 0) or 0)
     offset_y = float(layer.get('offset_y', 0) or 0)
+    cabinet_width = float(layer.get('cabinet_width', 0) or 0)
+    cabinet_height = float(layer.get('cabinet_height', 0) or 0)
+
+    # One-time migration of legacy screen-level half flags into per-panel state.
+    panel_states = _migrate_screen_half_flags_to_panel_states(layer, panel_states or {})
+
+    def _half_at(r, c):
+        ps = panel_states.get(r * cols + c + 1, {}) if panel_states else {}
+        return ps.get('halfTile', 'none')
+
+    # Per-panel width/height — half-tiles render at half cabinet size.
+    def panel_w(r, c):
+        return cabinet_width / 2 if _half_at(r, c) == 'width' else cabinet_width
+
+    def panel_h(r, c):
+        return cabinet_height / 2 if _half_at(r, c) == 'height' else cabinet_height
+
+    # Column width = max width across all panels in that column. Row height = max
+    # across the row. So a row where every panel is half-height collapses to
+    # half-height (matching the legacy halfFirstRow behavior); a mixed row stays
+    # full-height with the half panels rendering shorter inside their slot.
+    col_widths = []
+    for c in range(cols):
+        widths = [panel_w(r, c) for r in range(rows)] or [cabinet_width]
+        col_widths.append(max(widths))
+    row_heights = []
+    for r in range(rows):
+        heights = [panel_h(r, c) for c in range(cols)] or [cabinet_height]
+        row_heights.append(max(heights))
 
     col_x = []
     x_cursor = offset_x
-    for col in range(cols):
+    for c in range(cols):
         col_x.append(x_cursor)
-        x_cursor += _panel_width(layer, col)
+        x_cursor += col_widths[c]
 
     row_y = []
     y_cursor = offset_y
-    for row in range(rows):
+    for r in range(rows):
         row_y.append(y_cursor)
-        y_cursor += _panel_height(layer, row)
+        y_cursor += row_heights[r]
+
+    # Helper: is the panel at (r, c) a visible (non-hidden) cabinet?
+    def _has_visible_neighbor(r, c):
+        if r < 0 or r >= rows or c < 0 or c >= cols:
+            return False
+        ps = panel_states.get(r * cols + c + 1, {}) if panel_states else {}
+        return not ps.get('hidden', False)
 
     panels = []
     panel_num = 1
-    for row in range(rows):
-        for col in range(cols):
+    for r in range(rows):
+        for c in range(cols):
             state = panel_states.get(panel_num, {}) if panel_states else {}
+            half_tile = state.get('halfTile', 'none')
+            if half_tile not in ('width', 'height'):
+                half_tile = 'none'
+
+            pw = panel_w(r, c)
+            ph = panel_h(r, c)
+            slot_w = col_widths[c]
+            slot_h = row_heights[r]
+            x = col_x[c]
+            y = row_y[r]
+
+            # Anchor half-tiles to their neighbor side so the visible cabinet
+            # connects to the rest of the wall — the "missing" half sits on
+            # the wall's outer edge (no neighbor side), not between this
+            # cabinet and its neighbor.
+            if half_tile == 'height' and ph < slot_h:
+                has_above = _has_visible_neighbor(r - 1, c)
+                has_below = _has_visible_neighbor(r + 1, c)
+                if not has_above and has_below:
+                    # Missing half on top — anchor to bottom of slot.
+                    y = row_y[r] + (slot_h - ph)
+                # else: anchor to top (default; covers top-anchored top edges
+                # and the interior/all-neighbors fallback).
+            elif half_tile == 'width' and pw < slot_w:
+                has_left = _has_visible_neighbor(r, c - 1)
+                has_right = _has_visible_neighbor(r, c + 1)
+                if not has_left and has_right:
+                    # Missing half on left — anchor to right of slot.
+                    x = col_x[c] + (slot_w - pw)
+                # else: anchor to left (default).
+
             panel = {
                 'id': panel_num,
                 'number': panel_num,
-                'row': row,
-                'col': col,
-                'x': col_x[col],
-                'y': row_y[row],
-                'width': _panel_width(layer, col),
-                'height': _panel_height(layer, row),
+                'row': r,
+                'col': c,
+                'x': x,
+                'y': y,
+                'width': pw,
+                'height': ph,
                 'blank': state.get('blank', False),
                 'hidden': state.get('hidden', False),
-                'is_color1': (row + col) % 2 == 0
+                'halfTile': half_tile,
+                'is_color1': (r + c) % 2 == 0
             }
             panels.append(panel)
             panel_num += 1
@@ -932,13 +1018,14 @@ def update_layer(layer_id):
         'columns' in data or 'rows' in data or 'cabinet_width' in data or 'cabinet_height' in data
             or 'halfFirstColumn' in data or 'halfLastColumn' in data
             or 'halfFirstRow' in data or 'halfLastRow' in data):
-        # Save existing panel states (hidden, blank) before regenerating
+        # Save existing panel states (hidden, blank, halfTile) before regenerating
         old_panel_states = {}
         if 'panels' in layer:
             for p in layer['panels']:
                 old_panel_states[p['id']] = {
                     'hidden': p.get('hidden', False),
-                    'blank': p.get('blank', False)
+                    'blank': p.get('blank', False),
+                    'halfTile': p.get('halfTile', 'none'),
                 }
         layer['panels'] = _build_panels(layer, old_panel_states)
     elif layer.get('type') != 'image' and ('offset_x' in data or 'offset_y' in data):
@@ -1019,6 +1106,74 @@ def set_panels_hidden(layer_id):
     log_event('bulk_set_panels_hidden', {'layer_id': layer_id, 'count': len(updated)})
     socketio.emit('layer_updated', layer)
     return jsonify({'updated': len(updated)})
+
+
+def _rebuild_layer_geometry_from_panel_states(layer):
+    """Re-run _build_panels using the layer's current panel states so per-panel
+    halfTile changes propagate into x/y/width/height (column widths and row
+    heights may collapse when an entire row/column becomes half).
+    """
+    states = {}
+    for p in layer.get('panels', []):
+        states[p['id']] = {
+            'hidden': p.get('hidden', False),
+            'blank': p.get('blank', False),
+            'halfTile': p.get('halfTile', 'none'),
+        }
+    layer['panels'] = _build_panels(layer, states)
+
+
+@app.route('/api/layer/<int:layer_id>/panel/<int:panel_id>/set_half_tile', methods=['POST'])
+def set_panel_half_tile(layer_id, panel_id):
+    """Set a single panel's halfTile value ('none' | 'width' | 'height')."""
+    layer = next((l for l in current_project['layers'] if l['id'] == layer_id), None)
+    if not layer:
+        return jsonify({'error': 'Layer not found'}), 404
+
+    panel = next((p for p in layer['panels'] if p['id'] == panel_id), None)
+    if not panel:
+        return jsonify({'error': 'Panel not found'}), 404
+
+    data = request.json or {}
+    value = data.get('halfTile', 'none')
+    if value not in ('none', 'width', 'height'):
+        value = 'none'
+    panel['halfTile'] = value
+
+    _rebuild_layer_geometry_from_panel_states(layer)
+    log_event('set_panel_half_tile', {'layer_id': layer_id, 'panel_id': panel_id, 'halfTile': value})
+    socketio.emit('layer_updated', layer)
+    return jsonify(layer)
+
+
+@app.route('/api/layer/<int:layer_id>/panels/set_half_tile', methods=['POST'])
+def set_panels_half_tile(layer_id):
+    """Bulk set halfTile state for multiple panels.
+
+    Body: { panels: [{ id, halfTile: 'none' | 'width' | 'height' }, ...] }
+    """
+    layer = next((l for l in current_project['layers'] if l['id'] == layer_id), None)
+    if not layer:
+        return jsonify({'error': 'Layer not found'}), 404
+
+    data = request.json or {}
+    panel_states = data.get('panels', [])
+
+    updated = 0
+    for ps in panel_states:
+        panel = next((p for p in layer['panels'] if p['id'] == ps.get('id')), None)
+        if not panel:
+            continue
+        value = ps.get('halfTile', 'none')
+        if value not in ('none', 'width', 'height'):
+            value = 'none'
+        panel['halfTile'] = value
+        updated += 1
+
+    _rebuild_layer_geometry_from_panel_states(layer)
+    log_event('bulk_set_panels_half_tile', {'layer_id': layer_id, 'count': updated})
+    socketio.emit('layer_updated', layer)
+    return jsonify({'updated': updated})
 
 
 @app.route('/api/log', methods=['POST'])
