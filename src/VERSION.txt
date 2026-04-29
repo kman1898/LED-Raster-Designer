@@ -1,6 +1,27 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.4.32 - April 29, 2026
+----------------------------
+- FIX: Power circuit label templates other than the default "S1-#" did not
+  auto-increment the soca number after every 6 circuits. With "S1-#" the
+  labels correctly wrapped S1-1..S1-6, S2-1..S2-6, etc., but typing any
+  other starting number ("S2-#", "MULTI3-#", etc.) fell back to a plain
+  "#" → circuit-number substitution, so circuits 7+ rolled past 6 instead
+  of starting a new soca. The auto-increment now works for any template
+  shaped <prefix><number><sep># — "S2-#" produces S2-1..S2-6, S3-1..S3-6;
+  "MULTI3-#" produces MULTI3-1..MULTI3-6, MULTI4-1..MULTI4-6.
+
+v0.7.4.31 - April 27, 2026
+----------------------------
+- FIX: Deleting a layer and pressing Undo could revert port-label or
+  circuit-label edits made on other screens since the previous undoable
+  action. The inline rename inputs in the Data Flow and Power sidebars
+  saved their edits to state but never pushed an undo snapshot, so Undo
+  jumped past them to an older snapshot and reverted them along with the
+  delete. Each port-label and circuit-label edit now records its own
+  history entry, so Undo only steps back one edit at a time.
+
 v0.7.4.30 - April 28, 2026
 ----------------------------
 - FIX: In Data Flow and Power views, clicking a different screen left the

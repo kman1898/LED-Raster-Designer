@@ -8341,13 +8341,19 @@ class LEDRasterApp {
         const template = layer.powerLabelTemplate || 'S1-#';
         const overrides = layer.powerLabelOverrides || {};
         if (overrides && overrides[circuitNum]) return overrides[circuitNum];
-        // Default power labeling is 6 circuits per multi:
-        // S1-1 ... S1-6, then S2-1 ... S2-6, etc.
-        if (template === 'S1-#') {
+        // A multi/soca has 6 ports, so labels wrap every 6 circuits and the
+        // soca number in the template increments. Works for any template
+        // shaped like <prefix><number><separator># — e.g. S1-#, S2-#, MULTI3-#.
+        const m = String(template).match(/^(.*?)(\d+)([^#\d]*)#(.*)$/);
+        if (m) {
+            const prefix = m[1];
+            const startMulti = parseInt(m[2], 10) || 1;
+            const sep = m[3];
+            const suffix = m[4];
             const n = Math.max(1, parseInt(circuitNum, 10) || 1);
-            const multi = Math.floor((n - 1) / 6) + 1;
+            const multi = startMulti + Math.floor((n - 1) / 6);
             const circuitInMulti = ((n - 1) % 6) + 1;
-            return `S${multi}-${circuitInMulti}`;
+            return `${prefix}${multi}${sep}${circuitInMulti}${suffix}`;
         }
         return template.replace('#', circuitNum);
     }
@@ -8480,6 +8486,7 @@ class LEDRasterApp {
                 this.saveClientSideProperties();
                 this.updateLayers(this.getSelectedLayers());
                 window.canvasRenderer.render();
+                this.saveState('Edit Port Label');
             });
 
             const returnInput = document.createElement('input');
@@ -8506,6 +8513,7 @@ class LEDRasterApp {
                 this.saveClientSideProperties();
                 this.updateLayers(this.getSelectedLayers());
                 window.canvasRenderer.render();
+                this.saveState('Edit Port Label');
             });
 
             row.appendChild(cb);
@@ -8589,6 +8597,7 @@ class LEDRasterApp {
                 this.saveClientSideProperties();
                 this.updateLayers(this.getSelectedLayers());
                 window.canvasRenderer.render();
+                this.saveState('Edit Circuit Label');
             });
 
             row.appendChild(cb);
