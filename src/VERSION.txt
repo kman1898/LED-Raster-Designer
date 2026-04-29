@@ -1,6 +1,14 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.4.34 - April 29, 2026
+----------------------------
+- UX: Project name field now shows an inline warning ("Note: / will be
+  replaced with _ in exported filenames.") when it contains characters
+  the OS rejects in filenames (\ / : * ? " < > |). Gives the user a
+  chance to rename before exporting; if they don't, v0.7.4.33's export-
+  time sanitization still produces a valid filename.
+
 v0.7.4.33 - April 29, 2026
 ----------------------------
 - FIX: Multi-file PNG/PSD export failed with "Failed to execute
