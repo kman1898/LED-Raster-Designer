@@ -1,6 +1,18 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.4.33 - April 29, 2026
+----------------------------
+- FIX: Multi-file PNG/PSD export failed with "Failed to execute
+  'getFileHandle' on 'FileSystemDirectoryHandle': Name is not allowed."
+  when the project name (used as the filename prefix) contained a forward
+  slash, backslash, colon, or other characters the OS rejects in
+  filenames. Common case: project named "Foo/Bar" produced filenames like
+  "Foo/Bar_pixel-map.png", which the File System Access API refuses.
+  Filenames are now sanitized — illegal characters are replaced with "_"
+  before being passed to the picker / directory handle. Single-file
+  exports (PDF, JSON save, etc.) get the same treatment.
+
 v0.7.4.32 - April 29, 2026
 ----------------------------
 - FIX: Power circuit label templates other than the default "S1-#" did not

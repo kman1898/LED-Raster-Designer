@@ -6904,6 +6904,9 @@ class LEDRasterApp {
     }
 
     async saveBlobWithPicker(blob, filename, mimeType) {
+        // Sanitize so a project name with "/" or other illegal chars doesn't
+        // get rejected by showSaveFilePicker / OS file APIs.
+        filename = this.sanitizeFilename(filename);
         // 1. Try the File System Access API (Chrome/Edge on secure contexts)
         if (window.showSaveFilePicker) {
             try {
@@ -6942,7 +6945,21 @@ class LEDRasterApp {
         }
     }
 
+    sanitizeFilename(name) {
+        // Strip path separators and characters Windows/macOS reject in filenames.
+        // Also collapse leading/trailing dots & whitespace which Windows rejects.
+        if (!name) return 'untitled';
+        const cleaned = String(name)
+            .replace(/[\\/:*?"<>|\x00-\x1F]/g, '_')
+            .replace(/^[\s.]+|[\s.]+$/g, '')
+            .trim();
+        return cleaned || 'untitled';
+    }
+
     async saveMultipleFiles(files) {
+        // Sanitize each filename so path separators (e.g. "/" in a project name)
+        // don't break getFileHandle() with "Name is not allowed."
+        files = files.map(f => ({ ...f, filename: this.sanitizeFilename(f.filename) }));
         sendClientLog('save_multiple_files_start', {
             count: files.length,
             hasDirectoryPicker: !!window.showDirectoryPicker,
