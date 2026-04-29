@@ -5516,6 +5516,14 @@ class LEDRasterApp {
                 _powerTotalAmps1: layer._powerTotalAmps1,
                 _powerTotalAmps3: layer._powerTotalAmps3,
                 _powerCircuitsRequired: layer._powerCircuitsRequired,
+                // Preserve client-computed port counts across the server
+                // roundtrip — server doesn't whitelist these fields, so its
+                // echo carries stale values that would otherwise overwrite
+                // the freshly recomputed numbers (causes ports-required and
+                // the port-rename editor to show too few ports in custom
+                // flow mode after toggling).
+                _portsRequired: layer._portsRequired,
+                _autoPortsRequired: layer._autoPortsRequired,
                 panel_weight: layer.panel_weight,
                 weight_unit: layer.weight_unit,
                 infoLabelSize: layer.infoLabelSize,
@@ -8715,8 +8723,10 @@ class LEDRasterApp {
         }
         this.saveState('Custom Mode Toggle');
         this.saveClientSideProperties();
-        this.updateLayers(this.getSelectedLayers());
+        // Recompute port count BEFORE the server roundtrip so the layer's
+        // _portsRequired is fresh when preservedProps captures it.
         this.updatePortCapacityDisplay();
+        this.updateLayers(this.getSelectedLayers());
         this.updateCustomFlowUI();
         window.canvasRenderer.render();
     }
