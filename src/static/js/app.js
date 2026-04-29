@@ -1805,8 +1805,12 @@ class LEDRasterApp {
     }
     
     updateUI() {
-        
-        document.getElementById('project-name').value = this.project.name;
+
+        const projectNameEl = document.getElementById('project-name');
+        projectNameEl.value = this.project.name;
+        // Refresh illegal-character warning whenever the project name changes
+        // programmatically (e.g. on project load).
+        projectNameEl.dispatchEvent(new Event('input'));
 
         // Load project notes
         const notesEl = document.getElementById('project-notes');
@@ -1832,13 +1836,31 @@ class LEDRasterApp {
     setupEventListeners() {
         // Project name editing
         const projectNameInput = document.getElementById('project-name');
+        const projectNameWarning = document.getElementById('project-name-warning');
+        const ILLEGAL_FILENAME_CHARS = /[\\/:*?"<>|]/;
+        const updateProjectNameWarning = () => {
+            if (!projectNameWarning) return;
+            const v = projectNameInput.value || '';
+            const bad = v.match(/[\\/:*?"<>|]/g);
+            if (bad && bad.length > 0) {
+                const unique = [...new Set(bad)].join(' ');
+                projectNameWarning.textContent = `Note: ${unique} will be replaced with _ in exported filenames.`;
+                projectNameWarning.style.display = 'block';
+            } else {
+                projectNameWarning.style.display = 'none';
+            }
+        };
         if (projectNameInput) {
+            projectNameInput.addEventListener('input', updateProjectNameWarning);
             projectNameInput.addEventListener('change', () => {
                 if (this.project) {
                     this.project.name = projectNameInput.value.trim() || 'Untitled Project';
                     this.saveProject();
                 }
+                updateProjectNameWarning();
             });
+            // Run once on init in case a loaded project has illegal chars
+            updateProjectNameWarning();
         }
         
         // Project Notes
