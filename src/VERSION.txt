@@ -1,6 +1,19 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.4.35 - April 29, 2026
+----------------------------
+- FIX: Ports Required count and the port-rename editor showed too few
+  ports when using custom data flow paths — e.g. 8 custom paths drawn
+  but the count stayed at the auto-pattern's 5. The client-computed
+  _portsRequired and _autoPortsRequired fields were being clobbered by
+  the server's stale echo on every PUT round-trip (server's whitelist
+  ignores these underscore-prefixed derived fields, but the response
+  body still carried the old values). Both fields are now preserved
+  client-side across the round-trip, and the toggle handler recomputes
+  the count before sending so the freshly computed value is what gets
+  preserved.
+
 v0.7.4.34 - April 29, 2026
 ----------------------------
 - UX: Project name field now shows an inline warning ("Note: / will be
