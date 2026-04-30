@@ -1873,7 +1873,6 @@ class LEDRasterApp {
         // Project name editing
         const projectNameInput = document.getElementById('project-name');
         const projectNameWarning = document.getElementById('project-name-warning');
-        const ILLEGAL_FILENAME_CHARS = /[\\/:*?"<>|]/;
         const updateProjectNameWarning = () => {
             if (!projectNameWarning) return;
             const v = projectNameInput.value || '';
@@ -5677,7 +5676,11 @@ class LEDRasterApp {
         const showLabelInfoEl = document.getElementById('show-label-info');
         const showLabelWeightEl = document.getElementById('show-label-weight');
         const labelsColorEl = document.getElementById('labels-color');
-        const labelsFontSizeEl = document.getElementById('labels-fontsize');
+        // labelsFontSize is now read via readNumber('labels-fontsize') below;
+        // the element handle above used to be referenced directly with parseInt
+        // and converted blank input into NaN, which then leaked through the
+        // multi-select bulk update as a real null write. The readNumber path
+        // returns null cleanly and skips the assignment in that case.
         const useFractionalInchesEl = document.getElementById('use-fractional-inches');
 
         const showLabelNameVal = showLabelNameEl && !showLabelNameEl.indeterminate ? showLabelNameEl.checked : null;
@@ -6512,22 +6515,11 @@ class LEDRasterApp {
                 ? [...Array(layer.rows).keys()].map(i => (startsTop ? i : (layer.rows - 1 - i)))
                 : [...Array(layer.columns).keys()].map(i => (startsLeft ? i : (layer.columns - 1 - i)));
 
-            // For rectangle-constraint processors (Novastar Legacy), calculate load
-            // using the bounding rectangle of VISIBLE panels in the port.
-            // The processor reserves the full rectangle from min to max visible panel position.
-            // Hidden panels outside that range don't count, but hidden panels within the
-            // bounding rect of visible panels DO count (the processor sees the whole rectangle).
-            const getUnitVisibleRange = (unitIdx) => {
-                // Get only non-hidden panels in this row/column
-                const allPanels = orderedForCapacity.filter(p => (isHorizontalFirst ? p.row === unitIdx : p.col === unitIdx));
-                const visible = allPanels.filter(p => !p.hidden);
-                if (visible.length === 0) return { min: -1, max: -1, span: 0 };
-                const positions = visible.map(p => isHorizontalFirst ? p.col : p.row);
-                const min = Math.min(...positions);
-                const max = Math.max(...positions);
-                return { min, max, span: max - min + 1 };
-            };
-
+            // Rectangle-constraint processors (NovaStar Armor / 1G) reserve a
+            // pixel rectangle that encloses every visible cabinet in the port.
+            // We compute that rect from each panel's actual x/y/width/height
+            // (so half-tiles contribute their reduced footprint instead of the
+            // full cell). See calcBoundingRectLoad below.
             const calcBoundingRectLoad = (unitIdxList) => {
                 if (!usesRectangle) {
                     // Non-rectangle processors: sum actual pixel areas
@@ -8117,7 +8109,7 @@ class LEDRasterApp {
                         document.getElementById('status-message').textContent = 'Ready';
                     }, 2000);
                 })
-                .catch((err) => {
+                .catch(() => {
                     this.resetHistory('Initial State');
                     document.getElementById('status-message').textContent = 'Project loaded (server sync failed)';
                     setTimeout(() => {
