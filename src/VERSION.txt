@@ -1,6 +1,24 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.5.2 - April 30, 2026
+----------------------------
+- Internal: tests and lint cleanup for the v0.7.5 half-tile rewrite.
+  No user-facing behavior changes.
+    - Tests updated for the per-panel halfTile model: legacy
+      halfFirstColumn / halfLastColumn / halfFirstRow / halfLastRow
+      flags now migrate to per-panel halfTile state on first build,
+      and a corner cell affected by both row+column legacy flags
+      becomes half-height (row flag wins) instead of the old
+      "quarter cabinet" combination.
+    - New tests cover (row, col)-keyed panel state preservation
+      across grid resizes (the v0.7.5.0 fix that stops blanks from
+      scattering when columns/rows change).
+    - Removed dead code surfaced by JS lint: getUnitVisibleRange
+      (replaced by pixel-extent calc in calcBoundingRectLoad),
+      ILLEGAL_FILENAME_CHARS (regex inlined), and a few unused
+      local bindings.
+
 v0.7.5.1 - April 30, 2026
 ----------------------------
 - UX: "Set Half-tile (auto)" on a multi-selection now picks one
