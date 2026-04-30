@@ -117,8 +117,16 @@ def test_delete_layer(client_with_layer):
 
 
 def test_half_panel_dimensions(client):
-    """Half-first/last column/row creates panels with half dimensions."""
-    # Add a layer first, then update it to enable halving
+    """Legacy halfFirstColumn / halfLastRow flags migrate to per-panel
+    halfTile state, producing the same visual result.
+
+    Note: under the new per-panel model, a corner panel can only be half
+    in one dimension at a time (height OR width, not both). The migration
+    gives row-based half flags precedence, so a corner cell affected by
+    both halfFirstColumn and halfLastRow becomes half-HEIGHT (the row flag
+    wins). Non-overlapping cells get exactly the dimension they were
+    flagged for.
+    """
     resp = client.post('/api/layer/add', json={
         'name': 'HalfTest',
         'columns': 3,
@@ -129,7 +137,6 @@ def test_half_panel_dimensions(client):
     assert resp.status_code == 200
     layer_id = resp.get_json()['id']
 
-    # Update with half-panel flags (triggers panel regeneration)
     resp = client.put(f'/api/layer/{layer_id}', json={
         'halfFirstColumn': True,
         'halfLastRow': True,
@@ -138,12 +145,13 @@ def test_half_panel_dimensions(client):
     layer = resp.get_json()
     panels = layer['panels']
 
-    # First column panels should have width 50
-    first_col_panels = [p for p in panels if p['col'] == 0]
-    for p in first_col_panels:
+    # First column panels (excluding the corner that the row flag claims)
+    # should have width 50.
+    first_col_non_overlap = [p for p in panels if p['col'] == 0 and p['row'] != 1]
+    for p in first_col_non_overlap:
         assert p['width'] == 50
 
-    # Last row panels should have height 50
+    # Last row panels should all have height 50.
     last_row_panels = [p for p in panels if p['row'] == 1]
     for p in last_row_panels:
         assert p['height'] == 50
