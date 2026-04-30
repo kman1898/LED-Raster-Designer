@@ -8998,10 +8998,26 @@ class LEDRasterApp {
     async setPanelsHalfTileBulk(panels, halfTile) {
         if (!this.currentLayer || !panels || panels.length === 0) return;
         const layerId = this.currentLayer.id;
+        // For 'auto', vote across the selection: pick the direction the
+        // majority of panels would auto-detect to, then apply that uniformly.
+        // Avoids a row of selected panels splitting into different directions
+        // when one happens to be an interior panel.
+        let resolved = halfTile;
+        if (halfTile === 'auto') {
+            let widthVotes = 0;
+            let heightVotes = 0;
+            panels.forEach(p => {
+                const d = this.autoDetectHalfDirection(this.currentLayer, p);
+                if (d === 'width') widthVotes++;
+                else heightVotes++;
+            });
+            // Tie goes to 'height' (top/bottom is the more common case).
+            resolved = widthVotes > heightVotes ? 'width' : 'height';
+        }
         const body = {
             panels: panels.map(p => ({
                 id: p.id,
-                halfTile: (halfTile === 'auto' ? this.autoDetectHalfDirection(this.currentLayer, p) : halfTile),
+                halfTile: resolved,
             })),
         };
         try {
