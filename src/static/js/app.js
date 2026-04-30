@@ -919,6 +919,9 @@ class LEDRasterApp {
         this.customDebug = false;
         this.powerCustomSelection = new Set();
         this.powerCustomDebug = false;
+        // Pixel Map bulk-select: drag-select panels of the current layer to
+        // bulk-toggle blank or half-tile state. Set of "row,col" strings.
+        this.pixelMapSelection = new Set();
         
         // Undo/Redo system
         this.history = [];
@@ -1833,7 +1836,40 @@ class LEDRasterApp {
         }
     }
     
+    setupPixelMapBulkActions() {
+        const wireBtn = (id, fn) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.addEventListener('click', () => {
+                const panels = this.getPixelMapSelectedPanels();
+                if (panels.length === 0) return;
+                fn(panels);
+            });
+        };
+        wireBtn('bulk-set-blank',       (panels) => this.setPanelsBlankBulk(panels, true));
+        wireBtn('bulk-unset-blank',     (panels) => this.setPanelsBlankBulk(panels, false));
+        wireBtn('bulk-set-half-auto',   (panels) => this.setPanelsHalfTileBulk(panels, 'auto'));
+        wireBtn('bulk-set-half-width',  (panels) => this.setPanelsHalfTileBulk(panels, 'width'));
+        wireBtn('bulk-set-half-height', (panels) => this.setPanelsHalfTileBulk(panels, 'height'));
+        wireBtn('bulk-clear-half',      (panels) => this.setPanelsHalfTileBulk(panels, 'none'));
+
+        // Esc clears the pixel-map selection. Only react when no input is focused
+        // and the pixel-map view is active.
+        document.addEventListener('keydown', (e) => {
+            if (e.key !== 'Escape') return;
+            const tag = (document.activeElement && document.activeElement.tagName) || '';
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+            if (window.canvasRenderer && window.canvasRenderer.viewMode === 'pixel-map'
+                    && this.pixelMapSelection && this.pixelMapSelection.size > 0) {
+                this.clearPixelMapSelection();
+                e.preventDefault();
+                e.stopPropagation();
+            }
+        }, true);
+    }
+
     setupEventListeners() {
+        this.setupPixelMapBulkActions();
         // Project name editing
         const projectNameInput = document.getElementById('project-name');
         const projectNameWarning = document.getElementById('project-name-warning');
@@ -2107,16 +2143,8 @@ class LEDRasterApp {
             });
         }
 
-        ['half-first-column', 'half-last-column', 'half-first-row', 'half-last-row'].forEach(id => {
-            const checkbox = document.getElementById(id);
-            if (checkbox) {
-                checkbox.addEventListener('change', () => {
-                    if (this.currentLayer) {
-                        this.updateLayerFromInputs();
-                    }
-                });
-            }
-        });
+        // (legacy half-* checkboxes removed; per-panel halfTile editing
+        // replaces them via Alt+Shift+Click and the bulk action sidebar.)
         
         // Cabinet ID style radio buttons
         const cabinetIdStyleRadios = document.querySelectorAll('input[name="cabinet-id-style"]');
@@ -5600,14 +5628,14 @@ class LEDRasterApp {
         const columnsVal = readNumber('screen-columns').value;
         const rowsVal = readNumber('screen-rows').value;
         const numberSizeVal = readNumber('number-size').value;
-        const halfFirstColumnEl = document.getElementById('half-first-column');
-        const halfLastColumnEl = document.getElementById('half-last-column');
-        const halfFirstRowEl = document.getElementById('half-first-row');
-        const halfLastRowEl = document.getElementById('half-last-row');
-        const halfFirstColumnVal = halfFirstColumnEl && !halfFirstColumnEl.indeterminate ? halfFirstColumnEl.checked : null;
-        const halfLastColumnVal = halfLastColumnEl && !halfLastColumnEl.indeterminate ? halfLastColumnEl.checked : null;
-        const halfFirstRowVal = halfFirstRowEl && !halfFirstRowEl.indeterminate ? halfFirstRowEl.checked : null;
-        const halfLastRowVal = halfLastRowEl && !halfLastRowEl.indeterminate ? halfLastRowEl.checked : null;
+        // The four screen-level half-tile flags were replaced by per-panel
+        // halfTile state. The variables below remain (always null) so the
+        // existing "if halfXxxVal !== null" assignment block stays a no-op
+        // without further changes elsewhere.
+        const halfFirstColumnVal = null;
+        const halfLastColumnVal = null;
+        const halfFirstRowVal = null;
+        const halfLastRowVal = null;
         
         // Panel physical dimensions
         const panelWidthMMVal = readNumber('panel-width-mm').value;
@@ -5853,10 +5881,9 @@ class LEDRasterApp {
         setTextInput('cabinet-height', getCommon(l => l.cabinet_height));
         setTextInput('screen-columns', getCommon(l => l.columns));
         setTextInput('screen-rows', getCommon(l => l.rows));
-        setCheckbox('half-first-column', getCommon(l => !!l.halfFirstColumn));
-        setCheckbox('half-last-column', getCommon(l => !!l.halfLastColumn));
-        setCheckbox('half-first-row', getCommon(l => !!l.halfFirstRow));
-        setCheckbox('half-last-row', getCommon(l => !!l.halfLastRow));
+        // (legacy half-* checkboxes were removed when half-tile state moved
+        // to per-panel; the four screen-level flags are migrated to per-panel
+        // halfTile values on first load.)
         setCheckbox('show-numbers', getCommon(l => l.show_numbers !== false));
         setTextInput('number-size', getCommon(l => l.number_size || 24));
         
@@ -6509,22 +6536,30 @@ class LEDRasterApp {
                         return total + panels.reduce((sum, p) => sum + this.getPanelPixelArea(p), 0);
                     }, 0);
                 }
-                // Rectangle constraint: bounding rect based on visible panel extent
-                // Find the overall min and max positions across all units in this port
-                let overallMin = Infinity, overallMax = -Infinity;
+                // Rectangle constraint (NovaStar Armor / 1G): the processor reserves
+                // a pixel rectangle that encloses every visible cabinet in the port.
+                // Compute that bounding rect from each panel's actual x/y/width/height
+                // so half-tiles correctly contribute their reduced footprint instead
+                // of the full cabinet cell.
+                let minX = Infinity, maxX = -Infinity;
+                let minY = Infinity, maxY = -Infinity;
                 let hasVisible = false;
                 unitIdxList.forEach(idx => {
-                    const range = getUnitVisibleRange(idx);
-                    if (range.span > 0) {
+                    const visible = orderedForCapacity.filter(p => (isHorizontalFirst ? p.row === idx : p.col === idx) && !p.hidden);
+                    visible.forEach(p => {
                         hasVisible = true;
-                        if (range.min < overallMin) overallMin = range.min;
-                        if (range.max > overallMax) overallMax = range.max;
-                    }
+                        const x1 = Number(p.x) || 0;
+                        const y1 = Number(p.y) || 0;
+                        const x2 = x1 + (Number(p.width) || 0);
+                        const y2 = y1 + (Number(p.height) || 0);
+                        if (x1 < minX) minX = x1;
+                        if (y1 < minY) minY = y1;
+                        if (x2 > maxX) maxX = x2;
+                        if (y2 > maxY) maxY = y2;
+                    });
                 });
                 if (!hasVisible) return 0;
-                const rectWidth = overallMax - overallMin + 1; // columns spanned
-                const rectHeight = unitIdxList.length;          // rows in port
-                return rectWidth * rectHeight * fullPanelPixels;
+                return (maxX - minX) * (maxY - minY);
             };
 
             let current = { unitIndices: [], load: 0 };
@@ -6536,9 +6571,23 @@ class LEDRasterApp {
                 const visibleInUnit = unitPanelsAll.filter(p => !p.hidden);
                 if (visibleInUnit.length === 0) return;
 
-                // Check if this single unit exceeds port capacity
+                // Check if this single unit exceeds port capacity. For
+                // rectangle-constraint processors, use the pixel-extent of the
+                // visible panels in the unit (so half-tiles count as half).
                 const singleUnitLoad = usesRectangle
-                    ? getUnitVisibleRange(unitIdx).span * fullPanelPixels
+                    ? (() => {
+                        const visible = unitPanelsAll.filter(p => !p.hidden);
+                        if (visible.length === 0) return 0;
+                        let mnX = Infinity, mxX = -Infinity, mnY = Infinity, mxY = -Infinity;
+                        visible.forEach(p => {
+                            const x1 = Number(p.x) || 0, y1 = Number(p.y) || 0;
+                            const x2 = x1 + (Number(p.width) || 0);
+                            const y2 = y1 + (Number(p.height) || 0);
+                            if (x1 < mnX) mnX = x1; if (y1 < mnY) mnY = y1;
+                            if (x2 > mxX) mxX = x2; if (y2 > mxY) mxY = y2;
+                        });
+                        return (mxX - mnX) * (mxY - mnY);
+                    })()
                     : unitPanelsAll.reduce((sum, p) => sum + this.getPanelPixelArea(p), 0);
                 if (singleUnitLoad > portCapacity) {
                     layer._capacityError = {
@@ -7584,6 +7633,24 @@ class LEDRasterApp {
             case 'prev-port':
                 this.stepCustomPort(-1);
                 break;
+            case 'bulk-set-blank':
+                this.setPanelsBlankBulk(this.getPixelMapSelectedPanels(), true);
+                break;
+            case 'bulk-unset-blank':
+                this.setPanelsBlankBulk(this.getPixelMapSelectedPanels(), false);
+                break;
+            case 'bulk-set-half-auto':
+                this.setPanelsHalfTileBulk(this.getPixelMapSelectedPanels(), 'auto');
+                break;
+            case 'bulk-set-half-width':
+                this.setPanelsHalfTileBulk(this.getPixelMapSelectedPanels(), 'width');
+                break;
+            case 'bulk-set-half-height':
+                this.setPanelsHalfTileBulk(this.getPixelMapSelectedPanels(), 'height');
+                break;
+            case 'bulk-clear-half':
+                this.setPanelsHalfTileBulk(this.getPixelMapSelectedPanels(), 'none');
+                break;
             case 'fit':
                 if (window.canvasRenderer) window.canvasRenderer.fitToView();
                 break;
@@ -8081,6 +8148,13 @@ class LEDRasterApp {
     showContextMenu(x, y) {
         const menu = document.getElementById('context-menu');
         if (!menu) return;
+        // Show/hide pixel-map-only menu group based on view + selection.
+        const inPixelMap = window.canvasRenderer && window.canvasRenderer.viewMode === 'pixel-map';
+        const haveSelection = this.pixelMapSelection && this.pixelMapSelection.size > 0;
+        const showPixelMapItems = inPixelMap && haveSelection;
+        menu.querySelectorAll('.pixel-map-only').forEach(el => {
+            el.style.display = showPixelMapItems ? '' : 'none';
+        });
         menu.style.visibility = 'hidden';
         menu.style.display = 'block';
         const menuRect = menu.getBoundingClientRect();
@@ -8850,6 +8924,155 @@ class LEDRasterApp {
         });
         this.updateCustomFlowUI();
         window.canvasRenderer.render();
+    }
+
+    // ---------- Pixel Map bulk-select (panel selection on the Pixel Map tab) ----------
+
+    selectPixelMapPanelsInRect(layer, rect) {
+        if (!layer || !rect) return;
+        this.pixelMapSelection.clear();
+        const minX = Math.min(rect.x1, rect.x2);
+        const maxX = Math.max(rect.x1, rect.x2);
+        const minY = Math.min(rect.y1, rect.y2);
+        const maxY = Math.max(rect.y1, rect.y2);
+        (layer.panels || []).forEach(panel => {
+            if (panel.hidden) return;
+            const intersects = panel.x <= maxX && (panel.x + panel.width) >= minX &&
+                panel.y <= maxY && (panel.y + panel.height) >= minY;
+            if (intersects) this.pixelMapSelection.add(this.getPanelKey(panel));
+        });
+        this.updatePixelMapBulkActionUI();
+        window.canvasRenderer.render();
+    }
+
+    togglePixelMapPanelSelection(panel) {
+        if (!panel) return;
+        const key = this.getPanelKey(panel);
+        if (this.pixelMapSelection.has(key)) {
+            this.pixelMapSelection.delete(key);
+        } else {
+            this.pixelMapSelection.add(key);
+        }
+        this.updatePixelMapBulkActionUI();
+        window.canvasRenderer.render();
+    }
+
+    clearPixelMapSelection() {
+        if (!this.pixelMapSelection || this.pixelMapSelection.size === 0) return;
+        this.pixelMapSelection.clear();
+        this.updatePixelMapBulkActionUI();
+        if (window.canvasRenderer) window.canvasRenderer.render();
+    }
+
+    getPixelMapSelectedPanels() {
+        if (!this.currentLayer || !this.currentLayer.panels) return [];
+        return this.currentLayer.panels.filter(p => this.pixelMapSelection.has(this.getPanelKey(p)));
+    }
+
+    /**
+     * Auto-detect half-tile direction for a panel based on its visible neighbors:
+     *  - top/bottom edge (no neighbor above or below): 'height'
+     *  - left/right edge (no neighbor left or right): 'width'
+     *  - corner (two missing): default 'height' (top/bottom is the common case)
+     *  - interior (all four neighbors visible): 'height' (rare; user can force-W via UI)
+     */
+    autoDetectHalfDirection(layer, panel) {
+        if (!layer || !panel) return 'height';
+        const get = (r, c) => (layer.panels || []).find(p => p.row === r && p.col === c);
+        const neighborVisible = (r, c) => {
+            const n = get(r, c);
+            return !!(n && !n.hidden);
+        };
+        const hasAbove = neighborVisible(panel.row - 1, panel.col);
+        const hasBelow = neighborVisible(panel.row + 1, panel.col);
+        const hasLeft = neighborVisible(panel.row, panel.col - 1);
+        const hasRight = neighborVisible(panel.row, panel.col + 1);
+        const verticalEdge = !hasAbove || !hasBelow;
+        const horizontalEdge = !hasLeft || !hasRight;
+        if (verticalEdge && !horizontalEdge) return 'height';
+        if (horizontalEdge && !verticalEdge) return 'width';
+        // Corner or interior — default to 'height' (top/bottom edges are the common case).
+        return 'height';
+    }
+
+    async setPanelsHalfTileBulk(panels, halfTile) {
+        if (!this.currentLayer || !panels || panels.length === 0) return;
+        const layerId = this.currentLayer.id;
+        const body = {
+            panels: panels.map(p => ({
+                id: p.id,
+                halfTile: (halfTile === 'auto' ? this.autoDetectHalfDirection(this.currentLayer, p) : halfTile),
+            })),
+        };
+        try {
+            const res = await fetch(`/api/layer/${layerId}/panels/set_half_tile`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            await res.json();
+        } catch (err) {
+            console.error('setPanelsHalfTileBulk failed', err);
+            return;
+        }
+        this.saveState('Bulk Set Half-tile');
+        sendClientLog && sendClientLog('bulk_set_half_tile', {
+            layer_id: layerId,
+            count: panels.length,
+            mode: halfTile,
+        });
+    }
+
+    /**
+     * Bulk hide/show panels — what the UI calls "Set Blank" (matching the
+     * Alt+click behaviour, which toggles the per-panel `hidden` flag so the
+     * cabinet disappears from the wall layout).
+     */
+    async setPanelsBlankBulk(panels, blank) {
+        if (!this.currentLayer || !panels || panels.length === 0) return;
+        const layerId = this.currentLayer.id;
+        const targetHidden = !!blank;
+        const toChange = panels.filter(p => !!p.hidden !== targetHidden);
+        if (toChange.length === 0) return;
+        // Apply locally so the canvas updates immediately while the server PUT is in flight.
+        toChange.forEach(p => { p.hidden = targetHidden; });
+        if (window.canvasRenderer) window.canvasRenderer.render();
+        try {
+            await fetch(`/api/layer/${layerId}/panels/set_hidden`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ panels: toChange.map(p => ({ id: p.id, hidden: targetHidden })) }),
+            });
+        } catch (err) {
+            console.error('setPanelsBlankBulk failed', err);
+        }
+        this.saveState('Bulk Set Blank');
+        sendClientLog && sendClientLog('bulk_set_blank', {
+            layer_id: layerId,
+            count: toChange.length,
+            hidden: targetHidden,
+        });
+    }
+
+    /**
+     * Update the sidebar bulk-action panel based on current selection.
+     * Shows count + action buttons when at least one panel is selected,
+     * hides when empty.
+     */
+    updatePixelMapBulkActionUI() {
+        const panel = document.getElementById('pixel-map-bulk-actions');
+        if (!panel) return;
+        const count = this.pixelMapSelection ? this.pixelMapSelection.size : 0;
+        const countEl = document.getElementById('pixel-map-bulk-count');
+        // Wrap label too so we can fix pluralization without rebuilding markup.
+        const labelEl = document.getElementById('pixel-map-bulk-label');
+        if (count > 0) {
+            panel.style.display = 'block';
+            if (countEl) countEl.textContent = count.toLocaleString();
+            if (labelEl) labelEl.textContent = count === 1 ? 'panel' : 'panels';
+        } else {
+            panel.style.display = 'none';
+        }
     }
 
     selectPowerPanelsInRect(layer, rect) {

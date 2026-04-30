@@ -215,7 +215,35 @@ class CanvasRenderer {
             }
         }
 
+        // Pixel Map: drag-select panels of the current layer for bulk
+        // Set-Blank / Set-Half-tile actions. Falls through to layer selection
+        // when the drag starts in empty space (so layer multi-select still works).
+        if (e.button === 0 && !this.spacePressed && !e.shiftKey && !e.altKey
+                && this.viewMode === 'pixel-map'
+                && window.app && window.app.currentLayer) {
+            const startPanel = this.getPanelAt(worldX, worldY);
+            const onCurrentLayer = startPanel
+                && startPanel.layerId === window.app.currentLayer.id
+                && !startPanel.panel.hidden;
+            if (onCurrentLayer) {
+                this.isSelectingPixelMapPanels = true;
+                this.selectionRect = { x1: worldX, y1: worldY, x2: worldX, y2: worldY };
+                if (typeof sendClientLog === 'function') {
+                    sendClientLog('panel_selection_start', { viewMode: this.viewMode, layerId: window.app.currentLayer.id });
+                }
+                return;
+            }
+        }
+
         if (e.button === 0 && !this.spacePressed && !e.shiftKey && !e.altKey) {
+            // Falling through to layer-select means the user clicked outside any
+            // panel in pixel-map (or in another view). Drop any stale pixel-map
+            // panel selection so it doesn't sit around — fresh layer-drag should
+            // start without panel-state lingering.
+            if (this.viewMode === 'pixel-map' && window.app && window.app.pixelMapSelection
+                    && window.app.pixelMapSelection.size > 0) {
+                window.app.clearPixelMapSelection();
+            }
             this.isSelectingLayers = true;
             this.layerSelectionRect = { x1: worldX, y1: worldY, x2: worldX, y2: worldY };
             if (typeof sendClientLog === 'function') {
@@ -300,12 +328,48 @@ class CanvasRenderer {
                     };
                 }
             }
+        } else if (e.button === 0 && e.altKey && e.shiftKey) {
+            // Alt+Shift+click toggles per-panel half-tile (auto direction).
+            // When a multi-selection is active, apply to the entire selection
+            // instead of just the clicked panel.
+            if (this.viewMode === 'pixel-map') {
+                const clickedPanel = this.getPanelAt(worldX, worldY);
+                if (clickedPanel && window.app && window.app.currentLayer
+                        && clickedPanel.layerId === window.app.currentLayer.id
+                        && !clickedPanel.panel.hidden) {
+                    e.preventDefault();
+                    const layer = window.app.currentLayer;
+                    const p = clickedPanel.panel;
+                    const selected = window.app.getPixelMapSelectedPanels
+                        ? window.app.getPixelMapSelectedPanels()
+                        : [];
+                    const targets = selected.length > 0 ? selected : [p];
+                    // Toggle: if any target panel currently has a halfTile, clear all;
+                    // otherwise auto-detect per panel and apply.
+                    const anyOn = targets.some(t => t.halfTile && t.halfTile !== 'none');
+                    const targetMode = anyOn ? 'none' : 'auto';
+                    window.app.setPanelsHalfTileBulk(targets, targetMode);
+                }
+            }
         } else if (e.button === 0 && e.altKey) {
-            // Alt+click/drag to hide/show panels on pixel-map
+            // Alt+click/drag toggles "blank" (hidden) on the panel.
+            // When a multi-selection is active, apply to the entire selection
+            // in one shot (no drag-painting in that mode — the selection is
+            // already explicit).
             if (this.viewMode === 'pixel-map') {
                 const clickedPanel = this.getPanelAt(worldX, worldY);
                 if (clickedPanel && window.app) {
                     e.preventDefault();
+                    const selected = (window.app.getPixelMapSelectedPanels
+                        ? window.app.getPixelMapSelectedPanels()
+                        : []);
+                    if (selected.length > 0) {
+                        // Toggle direction: if any selected panel is currently
+                        // visible, hide all; otherwise show all.
+                        const anyVisible = selected.some(p => !p.hidden);
+                        window.app.setPanelsBlankBulk(selected, anyVisible);
+                        return;
+                    }
                     this.isAltPainting = true;
                     this.altPaintLayerId = clickedPanel.layerId;
                     this.altPaintMode = clickedPanel.panel.hidden ? 'show' : 'hide';
@@ -370,6 +434,16 @@ class CanvasRenderer {
                 window.app.selectPanelsInRect(window.app.currentLayer, this.selectionRect);
             } else if (window.app && window.app.currentLayer && this.viewMode === 'power' && window.app.isCustomPower(window.app.currentLayer)) {
                 window.app.selectPowerPanelsInRect(window.app.currentLayer, this.selectionRect);
+            }
+            this.render();
+            return;
+        }
+
+        if (this.isSelectingPixelMapPanels && this.selectionRect) {
+            this.selectionRect.x2 = worldX;
+            this.selectionRect.y2 = worldY;
+            if (window.app && window.app.currentLayer) {
+                window.app.selectPixelMapPanelsInRect(window.app.currentLayer, this.selectionRect);
             }
             this.render();
             return;
@@ -596,6 +670,43 @@ class CanvasRenderer {
             this.render();
             return;
         }
+
+        if (this.isSelectingPixelMapPanels) {
+            this.isSelectingPixelMapPanels = false;
+            if (this.selectionRect && window.app && window.app.currentLayer) {
+                const w = Math.abs(this.selectionRect.x2 - this.selectionRect.x1);
+                const h = Math.abs(this.selectionRect.y2 - this.selectionRect.y1);
+                if (w < 0.5 && h < 0.5) {
+                    // Click without drag.
+                    //  - Plain click on a panel: replace the selection with just that panel
+                    //    (resets multi-select instead of confusingly toggling one panel out).
+                    //  - Cmd/Ctrl+click: additive — toggle that panel in/out of the selection.
+                    //  - Plain click on empty space: clear the selection.
+                    const clickedPanel = this.getPanelAt(this.selectionRect.x1, this.selectionRect.y1);
+                    const additive = e.metaKey || e.ctrlKey;
+                    if (clickedPanel && clickedPanel.layerId === window.app.currentLayer.id && !clickedPanel.panel.hidden) {
+                        if (additive) {
+                            window.app.togglePixelMapPanelSelection(clickedPanel.panel);
+                        } else {
+                            window.app.pixelMapSelection.clear();
+                            window.app.pixelMapSelection.add(window.app.getPanelKey(clickedPanel.panel));
+                            window.app.updatePixelMapBulkActionUI();
+                            this.render();
+                        }
+                    } else if (!additive) {
+                        window.app.clearPixelMapSelection();
+                    }
+                } else {
+                    window.app.selectPixelMapPanelsInRect(window.app.currentLayer, this.selectionRect);
+                }
+            }
+            this.selectionRect = null;
+            if (typeof sendClientLog === 'function') {
+                sendClientLog('panel_selection_end', { viewMode: this.viewMode });
+            }
+            this.render();
+            return;
+        }
         if (this.isSelectingLayers) {
             this.isSelectingLayers = false;
             if (this.layerSelectionRect && window.app) {
@@ -756,9 +867,26 @@ class CanvasRenderer {
     handleContextMenu(e) {
         e.preventDefault();
         e.stopPropagation();
-        if (window.app) {
-            window.app.showContextMenu(e.clientX, e.clientY);
+        if (!window.app) return;
+        // In Pixel Map view: if right-click lands on a panel of currentLayer
+        // and the panel is not already in the selection, treat it as a
+        // single-panel selection so the menu actions target it.
+        if (this.viewMode === 'pixel-map' && window.app.currentLayer) {
+            const rect = this.canvas.getBoundingClientRect();
+            const worldX = ((e.clientX - rect.left) - this.panX) / this.zoom;
+            const worldY = ((e.clientY - rect.top) - this.panY) / this.zoom;
+            const clicked = this.getPanelAt(worldX, worldY);
+            if (clicked && clicked.layerId === window.app.currentLayer.id && !clicked.panel.hidden) {
+                const key = window.app.getPanelKey(clicked.panel);
+                if (!window.app.pixelMapSelection.has(key)) {
+                    window.app.pixelMapSelection.clear();
+                    window.app.pixelMapSelection.add(key);
+                    window.app.updatePixelMapBulkActionUI();
+                    this.render();
+                }
+            }
         }
+        window.app.showContextMenu(e.clientX, e.clientY);
     }
     
     handleKeyDown(e) {
@@ -1234,6 +1362,10 @@ class CanvasRenderer {
             if (!this.exportMode && this.viewMode === 'power') {
                 this.renderPowerSelectionOverlay();
                 this.renderPowerActiveCircuitBadge();
+            }
+            if (!this.exportMode && this.viewMode === 'pixel-map') {
+                this.renderPixelMapSelectionOverlay();
+                this.renderPixelMapSelectionBadge();
             }
             
             // Third pass: render capacity error overlays ON TOP of labels (Data Flow mode only)
@@ -3038,6 +3170,58 @@ class CanvasRenderer {
             });
         }
 
+        this.ctx.restore();
+    }
+
+    renderPixelMapSelectionOverlay() {
+        if (!window.app || !window.app.currentLayer) return;
+        const selection = window.app.pixelMapSelection;
+        if (!selection || selection.size === 0) return;
+        const layer = window.app.currentLayer;
+        this.ctx.save();
+        this.ctx.beginPath();
+        this.ctx.rect(0, 0, this.rasterWidth, this.rasterHeight);
+        this.ctx.clip();
+        this.ctx.fillStyle = 'rgba(74, 144, 226, 0.35)';
+        this.ctx.strokeStyle = 'rgba(74, 144, 226, 1.0)';
+        this.ctx.lineWidth = 2 / this.zoom;
+        selection.forEach(key => {
+            const [row, col] = key.split(',').map(n => parseInt(n, 10));
+            const panel = window.app.getPanelByRowCol(layer, row, col);
+            if (!panel) return;
+            this.ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
+            this.ctx.strokeRect(panel.x, panel.y, panel.width, panel.height);
+        });
+        this.ctx.restore();
+    }
+
+    renderPixelMapSelectionBadge() {
+        if (!window.app || !window.app.currentLayer) return;
+        const selection = window.app.pixelMapSelection;
+        if (!selection || selection.size === 0) return;
+        const count = selection.size;
+        const label = `${count.toLocaleString()} panel${count === 1 ? '' : 's'} selected`;
+
+        // Draw in screen-space (above the world transform) so size doesn't depend on zoom.
+        this.ctx.save();
+        this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+        const padX = 14;
+        const padY = 8;
+        const fontPx = 13;
+        this.ctx.font = `600 ${fontPx}px -apple-system, "Segoe UI", sans-serif`;
+        const textWidth = this.ctx.measureText(label).width;
+        const boxW = textWidth + padX * 2;
+        const boxH = fontPx + padY * 2;
+        const x = 20;
+        const y = 20;
+        this.ctx.fillStyle = 'rgba(74, 144, 226, 0.95)';
+        this.ctx.beginPath();
+        if (this.ctx.roundRect) this.ctx.roundRect(x, y, boxW, boxH, 6);
+        else this.ctx.rect(x, y, boxW, boxH);
+        this.ctx.fill();
+        this.ctx.fillStyle = '#fff';
+        this.ctx.textBaseline = 'middle';
+        this.ctx.fillText(label, x + padX, y + boxH / 2);
         this.ctx.restore();
     }
 

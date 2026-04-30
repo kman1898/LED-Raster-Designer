@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED Raster Designer v0.7.4.35</title>
+    <title>LED Raster Designer v0.7.5.0</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -60,6 +60,16 @@
         </div>
 
         <div id="context-menu" class="context-menu">
+            <!-- Pixel-map panel-selection group (hidden by default; shown when a panel
+                 is right-clicked or a panel selection is active in Pixel Map view). -->
+            <div class="menu-option pixel-map-only" data-action="bulk-set-blank" data-label="Set Blank" data-shortcut-mac="Alt+Click" data-shortcut-win="Alt+Click"></div>
+            <div class="menu-option pixel-map-only" data-action="bulk-unset-blank" data-label="Restore From Blank"></div>
+            <div class="menu-divider pixel-map-only"></div>
+            <div class="menu-option pixel-map-only" data-action="bulk-set-half-auto" data-label="Set Half-tile" data-shortcut-mac="Alt+Shift+Click" data-shortcut-win="Alt+Shift+Click"></div>
+            <div class="menu-option pixel-map-only" data-action="bulk-set-half-width" data-label="Force Half-Width"></div>
+            <div class="menu-option pixel-map-only" data-action="bulk-set-half-height" data-label="Force Half-Height"></div>
+            <div class="menu-option pixel-map-only" data-action="bulk-clear-half" data-label="Restore Full"></div>
+            <div class="menu-divider pixel-map-only"></div>
             <div class="menu-option" data-action="undo" data-label="Undo" data-shortcut-mac="Cmd+Z" data-shortcut-win="Ctrl+Z"></div>
             <div class="menu-option" data-action="redo" data-label="Redo" data-shortcut-mac="Cmd+Shift+Z" data-shortcut-win="Ctrl+Shift+Z"></div>
             <div class="menu-divider"></div>
@@ -74,7 +84,7 @@
 
         <div id="toolbar">
             <div class="toolbar-section toolbar-project">
-                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.7.4.35</span></h1>
+                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.7.5.0</span></h1>
                 <div style="position:relative;">
                     <input type="text" id="project-name" value="Untitled Project" class="editable-project-name">
                     <div id="project-name-warning" style="display:none; position:absolute; top:100%; left:0; margin-top:4px; padding:4px 8px; font-size:11px; color:#f5a623; background:#1a1a1a; border:1px solid #f5a623; border-radius:4px; white-space:nowrap; z-index:1000; pointer-events:none;"></div>
@@ -129,22 +139,26 @@
                                 <label>Rows</label>
                                 <input type="text" id="screen-rows" value="5">
                             </div>
-                            <div class="info-row checkbox-row" data-tooltip="Half First Column — Use a half-width cabinet for the first column.">
-                                <input type="checkbox" id="half-first-column">
-                                <label for="half-first-column">Half First Column</label>
+                            <!-- Per-panel half-tile editing has replaced the four
+                                 screen-level Half checkboxes. Use Alt+Shift+Click
+                                 on a panel, or drag-select panels and use the
+                                 sidebar / right-click actions. -->
+                            <div id="pixel-map-bulk-actions" style="display:none; margin: 8px 0; padding: 10px 12px; background: rgba(74,144,226,0.10); border: 1px solid rgba(74,144,226,0.55); border-radius: 6px;">
+                                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 8px;">
+                                    <span style="font-size:11px; color:#aac4ee; text-transform:uppercase; letter-spacing:0.5px;">Selection</span>
+                                    <span style="font-size:11px; color:#fff;"><span id="pixel-map-bulk-count">0</span> <span id="pixel-map-bulk-label">panels</span></span>
+                                </div>
+                                <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
+                                    <button id="bulk-set-blank" class="btn btn-secondary" style="font-size:11px; padding:6px 8px;" data-tooltip="Set Blank — Hide the selected panels (same as Alt+click).">🚫 Set Blank</button>
+                                    <button id="bulk-unset-blank" class="btn btn-secondary" style="font-size:11px; padding:6px 8px;" data-tooltip="Restore — Bring the selected panels back to visible.">↺ Restore</button>
+                                    <button id="bulk-set-half-auto" class="btn btn-secondary" style="font-size:11px; padding:6px 8px; grid-column: 1 / -1;" data-tooltip="Set Half-tile (auto) — Auto-detect width vs height per panel from its wall-edge position.">◐ Set Half-tile (auto)</button>
+                                    <button id="bulk-set-half-width" class="btn btn-secondary" style="font-size:11px; padding:6px 8px;" data-tooltip="Force half-width on all selected panels.">◧ Half-Width</button>
+                                    <button id="bulk-set-half-height" class="btn btn-secondary" style="font-size:11px; padding:6px 8px;" data-tooltip="Force half-height on all selected panels.">⬓ Half-Height</button>
+                                    <button id="bulk-clear-half" class="btn btn-secondary" style="font-size:11px; padding:6px 8px; grid-column: 1 / -1;" data-tooltip="Clear half-tile — Restore selected panels to full size.">◯ Restore Full</button>
+                                </div>
+                                <div style="margin-top:8px; font-size:10px; color:#888; line-height:1.4;">Esc to clear selection. Alt+Shift+click toggles half-tile on a single panel.</div>
                             </div>
-                            <div class="info-row checkbox-row" data-tooltip="Half Last Column — Use a half-width cabinet for the last column.">
-                                <input type="checkbox" id="half-last-column">
-                                <label for="half-last-column">Half Last Column</label>
-                            </div>
-                            <div class="info-row checkbox-row" data-tooltip="Half First Row — Use a half-height cabinet for the first row.">
-                                <input type="checkbox" id="half-first-row">
-                                <label for="half-first-row">Half First Row</label>
-                            </div>
-                            <div class="info-row checkbox-row" data-tooltip="Half Last Row — Use a half-height cabinet for the last row.">
-                                <input type="checkbox" id="half-last-row">
-                                <label for="half-last-row">Half Last Row</label>
-                            </div>
+
                             <div class="info-row" data-tooltip="Panel Width — Physical width of each cabinet in millimeters, used for real-world size labels.">
                                 <label>Panel Width (mm)</label>
                                 <input type="number" id="panel-width-mm" value="500" step="0.1" autocomplete="off" style="width: 70px;">
