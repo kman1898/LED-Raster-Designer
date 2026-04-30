@@ -338,7 +338,6 @@ class CanvasRenderer {
                         && clickedPanel.layerId === window.app.currentLayer.id
                         && !clickedPanel.panel.hidden) {
                     e.preventDefault();
-                    const layer = window.app.currentLayer;
                     const p = clickedPanel.panel;
                     const selected = window.app.getPixelMapSelectedPanels
                         ? window.app.getPixelMapSelectedPanels()

@@ -406,7 +406,14 @@ def test_screen_name_sizes_workflow(client):
 # ── Half panel combinations ──────────────────────────────────────────
 
 def test_all_half_panel_flags(client):
-    """Enable all four half-panel flags simultaneously."""
+    """All four legacy half-panel flags simultaneously.
+
+    Under the new per-panel model, each panel can be half in one dimension
+    at a time. The migration gives row-based flags precedence over column-
+    based flags, so a corner cell affected by both row and column flags
+    becomes half-HEIGHT. Non-corner first/last column cells become
+    half-WIDTH; non-corner first/last row cells become half-HEIGHT.
+    """
     resp = client.post('/api/layer/add', json={
         'name': 'AllHalves',
         'columns': 4,
@@ -426,28 +433,34 @@ def test_all_half_panel_flags(client):
     assert resp.status_code == 200
     updated = resp.get_json()
     panels = updated['panels']
+    by_pos = {(p['row'], p['col']): p for p in panels}
 
-    # First column should be half width
-    for p in panels:
-        if p['col'] == 0:
-            assert p['width'] == 100, f"First col panel should be half width"
-        elif p['col'] == 3:
-            assert p['width'] == 100, f"Last col panel should be half width"
-        else:
-            assert p['width'] == 200, f"Middle col panel should be full width"
+    # Non-corner first/last row panels: half-height (full width).
+    for c in range(1, 3):
+        assert by_pos[(0, c)]['height'] == 50
+        assert by_pos[(0, c)]['width'] == 200
+        assert by_pos[(2, c)]['height'] == 50
+        assert by_pos[(2, c)]['width'] == 200
 
-    # First/last row should be half height
-    for p in panels:
-        if p['row'] == 0:
-            assert p['height'] == 50, f"First row panel should be half height"
-        elif p['row'] == 2:
-            assert p['height'] == 50, f"Last row panel should be half height"
-        else:
-            assert p['height'] == 100, f"Middle row panel should be full height"
+    # Non-corner first/last column panels: half-width (full height).
+    assert by_pos[(1, 0)]['width'] == 100
+    assert by_pos[(1, 0)]['height'] == 100
+    assert by_pos[(1, 3)]['width'] == 100
+    assert by_pos[(1, 3)]['height'] == 100
+
+    # Corner cells: row flag wins → half-height, full width.
+    for r in (0, 2):
+        for c in (0, 3):
+            assert by_pos[(r, c)]['height'] == 50, f"Corner ({r},{c}) should be half-height"
 
 
 def test_half_panels_with_1x1_grid(client):
-    """Half panel flags on a 1x1 grid (edge case)."""
+    """Half panel flags on a 1x1 grid (edge case).
+
+    With both halfFirstColumn and halfFirstRow set on a single cell, the
+    migration gives the row flag precedence, so the panel becomes half-
+    height with full width.
+    """
     resp = client.post('/api/layer/add', json={
         'name': 'Tiny',
         'columns': 1,
@@ -465,8 +478,10 @@ def test_half_panels_with_1x1_grid(client):
     assert resp.status_code == 200
     panels = resp.get_json()['panels']
     assert len(panels) == 1
-    assert panels[0]['width'] == 100
+    # Row flag wins: full width, half height.
+    assert panels[0]['width'] == 200
     assert panels[0]['height'] == 50
+    assert panels[0]['halfTile'] == 'height'
 
 
 # ── Multi-layer export workflow ───────────────────────────────────────
@@ -605,8 +620,12 @@ def test_restore_preserves_all_settings(client):
     assert restored_layer['dataFlowPattern'] == 'horizontal-right'
     assert restored_layer['cabinetIdStyle'] == 'row-column'
     assert restored_layer['showLabelWeight'] is True
-    assert restored_layer['halfFirstColumn'] is True
     assert restored_layer['panel_width_mm'] == 600
+    # The legacy halfFirstColumn flag is migrated into per-panel halfTile
+    # state on first build, then cleared. Verify the equivalent state is
+    # preserved on the affected panels instead of the flag itself.
+    first_col_panels = [p for p in restored_layer['panels'] if p['col'] == 0]
+    assert all(p['halfTile'] == 'width' for p in first_col_panels)
 
 
 # ── Rotation ──────────────────────────────────────────────────────────
