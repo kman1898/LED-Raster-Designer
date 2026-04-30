@@ -99,9 +99,7 @@ def _migrate_screen_half_flags_to_panel_states(layer, panel_states):
     """Convert legacy screen-level halfFirstColumn/halfLastColumn/halfFirstRow/
     halfLastRow flags into per-panel halfTile values stamped onto panel_states.
 
-    Called from _build_panels so the legacy flags continue to render correctly
-    after migration. Panels in the affected first/last column get halfTile='width';
-    panels in the affected first/last row get halfTile='height'.
+    panel_states is keyed by (row, col) tuples so state survives grid resizes.
 
     Mutates panel_states in place and returns it.
     """
@@ -119,8 +117,8 @@ def _migrate_screen_half_flags_to_panel_states(layer, panel_states):
         return panel_states
     for r in range(rows):
         for c in range(cols):
-            panel_num = r * cols + c + 1
-            state = panel_states.setdefault(panel_num, {})
+            key = (r, c)
+            state = panel_states.setdefault(key, {})
             if state.get('halfTile') in ('width', 'height'):
                 continue
             if (half_first_row and r == 0) or (half_last_row and r == rows - 1):
@@ -147,7 +145,7 @@ def _build_panels(layer, panel_states=None):
     panel_states = _migrate_screen_half_flags_to_panel_states(layer, panel_states or {})
 
     def _half_at(r, c):
-        ps = panel_states.get(r * cols + c + 1, {}) if panel_states else {}
+        ps = panel_states.get((r, c), {}) if panel_states else {}
         return ps.get('halfTile', 'none')
 
     # Per-panel width/height — half-tiles render at half cabinet size.
@@ -186,14 +184,14 @@ def _build_panels(layer, panel_states=None):
     def _has_visible_neighbor(r, c):
         if r < 0 or r >= rows or c < 0 or c >= cols:
             return False
-        ps = panel_states.get(r * cols + c + 1, {}) if panel_states else {}
+        ps = panel_states.get((r, c), {}) if panel_states else {}
         return not ps.get('hidden', False)
 
     panels = []
     panel_num = 1
     for r in range(rows):
         for c in range(cols):
-            state = panel_states.get(panel_num, {}) if panel_states else {}
+            state = panel_states.get((r, c), {}) if panel_states else {}
             half_tile = state.get('halfTile', 'none')
             if half_tile not in ('width', 'height'):
                 half_tile = 'none'
@@ -1018,11 +1016,14 @@ def update_layer(layer_id):
         'columns' in data or 'rows' in data or 'cabinet_width' in data or 'cabinet_height' in data
             or 'halfFirstColumn' in data or 'halfLastColumn' in data
             or 'halfFirstRow' in data or 'halfLastRow' in data):
-        # Save existing panel states (hidden, blank, halfTile) before regenerating
+        # Save existing panel states (hidden, blank, halfTile) before regenerating.
+        # Key by (row, col) so state stays anchored to its grid cell when columns
+        # or rows change — keying by sequential id meant a column resize would
+        # shuffle blanks/half-tiles across the wall.
         old_panel_states = {}
         if 'panels' in layer:
             for p in layer['panels']:
-                old_panel_states[p['id']] = {
+                old_panel_states[(p.get('row', 0), p.get('col', 0))] = {
                     'hidden': p.get('hidden', False),
                     'blank': p.get('blank', False),
                     'halfTile': p.get('halfTile', 'none'),
@@ -1115,7 +1116,7 @@ def _rebuild_layer_geometry_from_panel_states(layer):
     """
     states = {}
     for p in layer.get('panels', []):
-        states[p['id']] = {
+        states[(p.get('row', 0), p.get('col', 0))] = {
             'hidden': p.get('hidden', False),
             'blank': p.get('blank', False),
             'halfTile': p.get('halfTile', 'none'),

@@ -1836,7 +1836,40 @@ class LEDRasterApp {
         }
     }
     
+    setupPixelMapBulkActions() {
+        const wireBtn = (id, fn) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.addEventListener('click', () => {
+                const panels = this.getPixelMapSelectedPanels();
+                if (panels.length === 0) return;
+                fn(panels);
+            });
+        };
+        wireBtn('bulk-set-blank',       (panels) => this.setPanelsBlankBulk(panels, true));
+        wireBtn('bulk-unset-blank',     (panels) => this.setPanelsBlankBulk(panels, false));
+        wireBtn('bulk-set-half-auto',   (panels) => this.setPanelsHalfTileBulk(panels, 'auto'));
+        wireBtn('bulk-set-half-width',  (panels) => this.setPanelsHalfTileBulk(panels, 'width'));
+        wireBtn('bulk-set-half-height', (panels) => this.setPanelsHalfTileBulk(panels, 'height'));
+        wireBtn('bulk-clear-half',      (panels) => this.setPanelsHalfTileBulk(panels, 'none'));
+
+        // Esc clears the pixel-map selection. Only react when no input is focused
+        // and the pixel-map view is active.
+        document.addEventListener('keydown', (e) => {
+            if (e.key !== 'Escape') return;
+            const tag = (document.activeElement && document.activeElement.tagName) || '';
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+            if (window.canvasRenderer && window.canvasRenderer.viewMode === 'pixel-map'
+                    && this.pixelMapSelection && this.pixelMapSelection.size > 0) {
+                this.clearPixelMapSelection();
+                e.preventDefault();
+                e.stopPropagation();
+            }
+        }, true);
+    }
+
     setupEventListeners() {
+        this.setupPixelMapBulkActions();
         // Project name editing
         const projectNameInput = document.getElementById('project-name');
         const projectNameWarning = document.getElementById('project-name-warning');
@@ -6503,22 +6536,30 @@ class LEDRasterApp {
                         return total + panels.reduce((sum, p) => sum + this.getPanelPixelArea(p), 0);
                     }, 0);
                 }
-                // Rectangle constraint: bounding rect based on visible panel extent
-                // Find the overall min and max positions across all units in this port
-                let overallMin = Infinity, overallMax = -Infinity;
+                // Rectangle constraint (NovaStar Armor / 1G): the processor reserves
+                // a pixel rectangle that encloses every visible cabinet in the port.
+                // Compute that bounding rect from each panel's actual x/y/width/height
+                // so half-tiles correctly contribute their reduced footprint instead
+                // of the full cabinet cell.
+                let minX = Infinity, maxX = -Infinity;
+                let minY = Infinity, maxY = -Infinity;
                 let hasVisible = false;
                 unitIdxList.forEach(idx => {
-                    const range = getUnitVisibleRange(idx);
-                    if (range.span > 0) {
+                    const visible = orderedForCapacity.filter(p => (isHorizontalFirst ? p.row === idx : p.col === idx) && !p.hidden);
+                    visible.forEach(p => {
                         hasVisible = true;
-                        if (range.min < overallMin) overallMin = range.min;
-                        if (range.max > overallMax) overallMax = range.max;
-                    }
+                        const x1 = Number(p.x) || 0;
+                        const y1 = Number(p.y) || 0;
+                        const x2 = x1 + (Number(p.width) || 0);
+                        const y2 = y1 + (Number(p.height) || 0);
+                        if (x1 < minX) minX = x1;
+                        if (y1 < minY) minY = y1;
+                        if (x2 > maxX) maxX = x2;
+                        if (y2 > maxY) maxY = y2;
+                    });
                 });
                 if (!hasVisible) return 0;
-                const rectWidth = overallMax - overallMin + 1; // columns spanned
-                const rectHeight = unitIdxList.length;          // rows in port
-                return rectWidth * rectHeight * fullPanelPixels;
+                return (maxX - minX) * (maxY - minY);
             };
 
             let current = { unitIndices: [], load: 0 };
@@ -6530,9 +6571,23 @@ class LEDRasterApp {
                 const visibleInUnit = unitPanelsAll.filter(p => !p.hidden);
                 if (visibleInUnit.length === 0) return;
 
-                // Check if this single unit exceeds port capacity
+                // Check if this single unit exceeds port capacity. For
+                // rectangle-constraint processors, use the pixel-extent of the
+                // visible panels in the unit (so half-tiles count as half).
                 const singleUnitLoad = usesRectangle
-                    ? getUnitVisibleRange(unitIdx).span * fullPanelPixels
+                    ? (() => {
+                        const visible = unitPanelsAll.filter(p => !p.hidden);
+                        if (visible.length === 0) return 0;
+                        let mnX = Infinity, mxX = -Infinity, mnY = Infinity, mxY = -Infinity;
+                        visible.forEach(p => {
+                            const x1 = Number(p.x) || 0, y1 = Number(p.y) || 0;
+                            const x2 = x1 + (Number(p.width) || 0);
+                            const y2 = y1 + (Number(p.height) || 0);
+                            if (x1 < mnX) mnX = x1; if (y1 < mnY) mnY = y1;
+                            if (x2 > mxX) mxX = x2; if (y2 > mxY) mxY = y2;
+                        });
+                        return (mxX - mnX) * (mxY - mnY);
+                    })()
                     : unitPanelsAll.reduce((sum, p) => sum + this.getPanelPixelArea(p), 0);
                 if (singleUnitLoad > portCapacity) {
                     layer._capacityError = {
@@ -7578,6 +7633,24 @@ class LEDRasterApp {
             case 'prev-port':
                 this.stepCustomPort(-1);
                 break;
+            case 'bulk-set-blank':
+                this.setPanelsBlankBulk(this.getPixelMapSelectedPanels(), true);
+                break;
+            case 'bulk-unset-blank':
+                this.setPanelsBlankBulk(this.getPixelMapSelectedPanels(), false);
+                break;
+            case 'bulk-set-half-auto':
+                this.setPanelsHalfTileBulk(this.getPixelMapSelectedPanels(), 'auto');
+                break;
+            case 'bulk-set-half-width':
+                this.setPanelsHalfTileBulk(this.getPixelMapSelectedPanels(), 'width');
+                break;
+            case 'bulk-set-half-height':
+                this.setPanelsHalfTileBulk(this.getPixelMapSelectedPanels(), 'height');
+                break;
+            case 'bulk-clear-half':
+                this.setPanelsHalfTileBulk(this.getPixelMapSelectedPanels(), 'none');
+                break;
             case 'fit':
                 if (window.canvasRenderer) window.canvasRenderer.fitToView();
                 break;
@@ -8075,6 +8148,13 @@ class LEDRasterApp {
     showContextMenu(x, y) {
         const menu = document.getElementById('context-menu');
         if (!menu) return;
+        // Show/hide pixel-map-only menu group based on view + selection.
+        const inPixelMap = window.canvasRenderer && window.canvasRenderer.viewMode === 'pixel-map';
+        const haveSelection = this.pixelMapSelection && this.pixelMapSelection.size > 0;
+        const showPixelMapItems = inPixelMap && haveSelection;
+        menu.querySelectorAll('.pixel-map-only').forEach(el => {
+            el.style.display = showPixelMapItems ? '' : 'none';
+        });
         menu.style.visibility = 'hidden';
         menu.style.display = 'block';
         const menuRect = menu.getBoundingClientRect();
@@ -8943,32 +9023,35 @@ class LEDRasterApp {
         });
     }
 
+    /**
+     * Bulk hide/show panels — what the UI calls "Set Blank" (matching the
+     * Alt+click behaviour, which toggles the per-panel `hidden` flag so the
+     * cabinet disappears from the wall layout).
+     */
     async setPanelsBlankBulk(panels, blank) {
         if (!this.currentLayer || !panels || panels.length === 0) return;
         const layerId = this.currentLayer.id;
-        // No bulk endpoint for blank — toggle each. Using set_hidden bulk
-        // would conflict; instead call the per-panel toggle. Optimize later
-        // if needed (not on the hot path).
-        const requests = panels.map(p => fetch(`/api/layer/${layerId}/panel/${p.id}/toggle`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-        }));
-        // The single-panel toggle flips state — to *set* a specific value we
-        // only toggle panels whose current state mismatches the target.
-        const toToggle = panels.filter(p => !!p.blank !== !!blank);
-        if (toToggle.length > 0) {
-            await Promise.all(toToggle.map(p => fetch(`/api/layer/${layerId}/panel/${p.id}/toggle`, {
+        const targetHidden = !!blank;
+        const toChange = panels.filter(p => !!p.hidden !== targetHidden);
+        if (toChange.length === 0) return;
+        // Apply locally so the canvas updates immediately while the server PUT is in flight.
+        toChange.forEach(p => { p.hidden = targetHidden; });
+        if (window.canvasRenderer) window.canvasRenderer.render();
+        try {
+            await fetch(`/api/layer/${layerId}/panels/set_hidden`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-            })));
+                body: JSON.stringify({ panels: toChange.map(p => ({ id: p.id, hidden: targetHidden })) }),
+            });
+        } catch (err) {
+            console.error('setPanelsBlankBulk failed', err);
         }
         this.saveState('Bulk Set Blank');
         sendClientLog && sendClientLog('bulk_set_blank', {
             layer_id: layerId,
-            count: toToggle.length,
-            blank,
+            count: toChange.length,
+            hidden: targetHidden,
         });
-        if (window.canvasRenderer) window.canvasRenderer.render();
     }
 
     /**
@@ -8981,9 +9064,12 @@ class LEDRasterApp {
         if (!panel) return;
         const count = this.pixelMapSelection ? this.pixelMapSelection.size : 0;
         const countEl = document.getElementById('pixel-map-bulk-count');
+        // Wrap label too so we can fix pluralization without rebuilding markup.
+        const labelEl = document.getElementById('pixel-map-bulk-label');
         if (count > 0) {
             panel.style.display = 'block';
             if (countEl) countEl.textContent = count.toLocaleString();
+            if (labelEl) labelEl.textContent = count === 1 ? 'panel' : 'panels';
         } else {
             panel.style.display = 'none';
         }

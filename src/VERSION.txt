@@ -1,6 +1,46 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.5.0 - April 30, 2026
+----------------------------
+- FEATURE: Per-panel half-tile editing replaces the four screen-level
+  "Half First/Last Column/Row" checkboxes. Mark any individual panel as
+  half-width or half-height for non-rectangular walls and stepped layouts.
+    - Drag-select panels in Pixel Map view → sidebar shows action
+      buttons: Set Blank, Restore, Set Half-tile (auto), Force
+      Half-Width, Force Half-Height, Restore Full. Selection count
+      badge in the canvas corner.
+    - Right-click a panel (or selection) → context menu with the same
+      actions.
+    - Alt + click toggles blank on a single panel (existing) — when a
+      multi-selection is active, applies to the entire selection.
+    - Alt + Shift + click toggles half-tile (auto direction) on a single
+      panel — when a multi-selection is active, applies to the entire
+      selection. Auto direction picks 'height' for top/bottom-edge panels
+      and 'width' for left/right-edge panels.
+    - Plain click on a panel resets selection to that single panel;
+      Cmd/Ctrl + click adds/removes from selection. Esc clears the
+      selection.
+    - Half-tile cabinets render anchored to their visible neighbor so
+      the missing half sits on the wall's outer edge (matching how
+      half cabinets are physically installed at wall edges).
+    - Math: half-tiles count as 0.5 panels for data/port mapping,
+      0.65 panels for power/weight (existing helpers already do this
+      via pixel area + load factor).
+    - Legacy halfFirstColumn / halfLastColumn / halfFirstRow / halfLastRow
+      flags are migrated to per-panel halfTile values on first load,
+      then dropped from the schema. Existing projects keep their look.
+- FIX: NovaStar 1G/Armor port load calculation now uses the actual
+  pixel bounding rect (panel x/y/width/height) instead of the cabinet-
+  cell shortcut. Half-tile cabinets correctly contribute half their
+  full-cell pixel footprint to the port reservation rectangle.
+- FIX: Pre-existing bug — hidden ("blank") panels in the middle of a
+  wall would scatter to other positions when columns or rows were
+  resized. Panel state was preserved by sequential id, so the same id
+  pointed to a different (row, col) cell after a grid resize. State
+  is now keyed by (row, col) so blanks and half-tiles stay anchored
+  to their original positions across resizes (within the new bounds).
+
 v0.7.4.35 - April 29, 2026
 ----------------------------
 - FIX: Ports Required count and the port-rename editor showed too few
