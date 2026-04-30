@@ -1,6 +1,14 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.5.3 - April 30, 2026
+----------------------------
+- FIX: Hidden ("blank") panels could not be selected via drag-select,
+  plain click, or right-click in Pixel Map view, so there was no way to
+  bulk-restore them via the sidebar buttons. Hidden panels can now be
+  selected for bulk Restore. (Alt+Shift+click for half-tile still skips
+  hidden panels — half-tiling a hidden cell would have no visible effect.)
+
 v0.7.5.2 - April 30, 2026
 ----------------------------
 - Internal: tests and lint cleanup for the v0.7.5 half-tile rewrite.

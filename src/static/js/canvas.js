@@ -222,9 +222,10 @@ class CanvasRenderer {
                 && this.viewMode === 'pixel-map'
                 && window.app && window.app.currentLayer) {
             const startPanel = this.getPanelAt(worldX, worldY);
+            // Allow drag-start on hidden ("blank") panels too — selecting them
+            // is the only way to bulk-restore via the sidebar buttons.
             const onCurrentLayer = startPanel
-                && startPanel.layerId === window.app.currentLayer.id
-                && !startPanel.panel.hidden;
+                && startPanel.layerId === window.app.currentLayer.id;
             if (onCurrentLayer) {
                 this.isSelectingPixelMapPanels = true;
                 this.selectionRect = { x1: worldX, y1: worldY, x2: worldX, y2: worldY };
@@ -683,7 +684,9 @@ class CanvasRenderer {
                     //  - Plain click on empty space: clear the selection.
                     const clickedPanel = this.getPanelAt(this.selectionRect.x1, this.selectionRect.y1);
                     const additive = e.metaKey || e.ctrlKey;
-                    if (clickedPanel && clickedPanel.layerId === window.app.currentLayer.id && !clickedPanel.panel.hidden) {
+                    // Allow click-select on hidden panels so they can be
+                    // bulk-restored via the sidebar.
+                    if (clickedPanel && clickedPanel.layerId === window.app.currentLayer.id) {
                         if (additive) {
                             window.app.togglePixelMapPanelSelection(clickedPanel.panel);
                         } else {
@@ -875,7 +878,9 @@ class CanvasRenderer {
             const worldX = ((e.clientX - rect.left) - this.panX) / this.zoom;
             const worldY = ((e.clientY - rect.top) - this.panY) / this.zoom;
             const clicked = this.getPanelAt(worldX, worldY);
-            if (clicked && clicked.layerId === window.app.currentLayer.id && !clicked.panel.hidden) {
+            // Right-click works on hidden panels too — the menu shows
+            // "Restore From Blank" so they can be brought back.
+            if (clicked && clicked.layerId === window.app.currentLayer.id) {
                 const key = window.app.getPanelKey(clicked.panel);
                 if (!window.app.pixelMapSelection.has(key)) {
                     window.app.pixelMapSelection.clear();

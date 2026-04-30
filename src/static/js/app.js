@@ -8927,8 +8927,9 @@ class LEDRasterApp {
         const maxX = Math.max(rect.x1, rect.x2);
         const minY = Math.min(rect.y1, rect.y2);
         const maxY = Math.max(rect.y1, rect.y2);
+        // Include hidden ("blank") panels so they can be selected for bulk
+        // restore via the sidebar / Alt+click action.
         (layer.panels || []).forEach(panel => {
-            if (panel.hidden) return;
             const intersects = panel.x <= maxX && (panel.x + panel.width) >= minX &&
                 panel.y <= maxY && (panel.y + panel.height) >= minY;
             if (intersects) this.pixelMapSelection.add(this.getPanelKey(panel));
