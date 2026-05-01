@@ -1,6 +1,14 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.6.1 - April 30, 2026
+----------------------------
+- FIX: Show Look raster now tracks the Pixel Map raster by default.
+  Changing the Pixel Map raster size also updates the Show Look raster
+  while they're equal (which is the case for new projects and any
+  project where Show Look hasn't been explicitly resized). Once you
+  set a different raster size in Show Look, the two stay independent.
+
 v0.7.6.0 - April 30, 2026
 ----------------------------
 - FEATURE: Show Look tab. New tab between Cabinet ID and Data that lets

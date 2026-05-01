@@ -3452,25 +3452,30 @@ class LEDRasterApp {
                 // The toolbar edits the raster for the *current* view: pixel-map
                 // / cabinet-id edit the processor raster, show-look / data /
                 // power edit the show raster.
+                //
+                // While show raster equals pixel raster ("linked"), changing
+                // the pixel raster also updates the show raster — Show Look
+                // tracks Pixel Map by default. Once they're set to different
+                // values they stay independent.
                 const renderer = window.canvasRenderer;
                 const isShow = renderer.isShowLookView();
+                const wasLinked = renderer.pixelRasterWidth === renderer.showRasterWidth;
                 if (isShow) {
                     renderer.showRasterWidth = width;
+                    if (this.project) this.project.show_raster_width = width;
                 } else {
                     renderer.pixelRasterWidth = width;
+                    if (this.project) this.project.raster_width = width;
+                    if (wasLinked) {
+                        renderer.showRasterWidth = width;
+                        if (this.project) this.project.show_raster_width = width;
+                    }
                 }
                 renderer.rasterWidth = width;
-                if (this.project) {
-                    if (isShow) {
-                        this.project.show_raster_width = width;
-                    } else {
-                        this.project.raster_width = width;
-                    }
-                    this.saveProject();
-                }
+                if (this.project) this.saveProject();
                 this.saveRasterSize();
                 if (typeof sendClientLog === 'function') {
-                    sendClientLog('raster_change', { width, height: renderer.rasterHeight, source: 'toolbar-width', view: renderer.viewMode });
+                    sendClientLog('raster_change', { width, height: renderer.rasterHeight, source: 'toolbar-width', view: renderer.viewMode, autoSyncedShow: !isShow && wasLinked });
                 }
                 renderer.render();
             });
@@ -3482,23 +3487,23 @@ class LEDRasterApp {
                 rasterHeightInput.value = height;
                 const renderer = window.canvasRenderer;
                 const isShow = renderer.isShowLookView();
+                const wasLinked = renderer.pixelRasterHeight === renderer.showRasterHeight;
                 if (isShow) {
                     renderer.showRasterHeight = height;
+                    if (this.project) this.project.show_raster_height = height;
                 } else {
                     renderer.pixelRasterHeight = height;
+                    if (this.project) this.project.raster_height = height;
+                    if (wasLinked) {
+                        renderer.showRasterHeight = height;
+                        if (this.project) this.project.show_raster_height = height;
+                    }
                 }
                 renderer.rasterHeight = height;
-                if (this.project) {
-                    if (isShow) {
-                        this.project.show_raster_height = height;
-                    } else {
-                        this.project.raster_height = height;
-                    }
-                    this.saveProject();
-                }
+                if (this.project) this.saveProject();
                 this.saveRasterSize();
                 if (typeof sendClientLog === 'function') {
-                    sendClientLog('raster_change', { width: renderer.rasterWidth, height, source: 'toolbar-height', view: renderer.viewMode });
+                    sendClientLog('raster_change', { width: renderer.rasterWidth, height, source: 'toolbar-height', view: renderer.viewMode, autoSyncedShow: !isShow && wasLinked });
                 }
                 renderer.render();
             });
