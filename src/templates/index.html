@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED Raster Designer v0.7.6.4</title>
+    <title>LED Raster Designer v0.7.7.0</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -84,7 +84,7 @@
 
         <div id="toolbar">
             <div class="toolbar-section toolbar-project">
-                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.7.6.4</span></h1>
+                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.7.7.0</span></h1>
                 <div style="position:relative;">
                     <input type="text" id="project-name" value="Untitled Project" class="editable-project-name">
                     <div id="project-name-warning" style="display:none; position:absolute; top:100%; left:0; margin-top:4px; padding:4px 8px; font-size:11px; color:#f5a623; background:#1a1a1a; border:1px solid #f5a623; border-radius:4px; white-space:nowrap; z-index:1000; pointer-events:none;"></div>
@@ -410,6 +410,15 @@
                         <h2>Data Settings</h2>
                     </div>
                     <div class="panel-content">
+                        <!-- Wiring view perspective: front (audience) or back (techs behind the wall). -->
+                        <div class="info-row" data-tooltip="View perspective for the Data Flow tab. Front shows the layout the audience sees (matches Show Look). Back horizontally mirrors the wall so techs working behind it see things from their perspective. Labels stay readable in either view.">
+                            <label>View</label>
+                            <div style="display: flex; gap: 4px;">
+                                <button type="button" id="data-flow-perspective-front" class="btn btn-secondary perspective-btn" data-perspective="front" data-target="data_flow_perspective" style="flex: 1; padding: 4px 10px; font-size: 12px;">Front</button>
+                                <button type="button" id="data-flow-perspective-back" class="btn btn-secondary perspective-btn" data-perspective="back" data-target="data_flow_perspective" style="flex: 1; padding: 4px 10px; font-size: 12px;">Back</button>
+                            </div>
+                        </div>
+
                         <div class="info-row checkbox-row" data-tooltip="Screen Name — Show or hide the screen layer name on the canvas in Data Flow view.">
                             <input type="checkbox" id="show-label-name-data" checked>
                             <label for="show-label-name-data">Screen Name</label>
@@ -780,6 +789,14 @@
                         <h2>Power Settings</h2>
                     </div>
                     <div class="panel-content">
+                        <div class="info-row" data-tooltip="View perspective for the Power tab. Front shows the layout the audience sees (matches Show Look). Back horizontally mirrors the wall so techs working behind it see things from their perspective. Labels stay readable in either view.">
+                            <label>View</label>
+                            <div style="display: flex; gap: 4px;">
+                                <button type="button" id="power-perspective-front" class="btn btn-secondary perspective-btn" data-perspective="front" data-target="power_perspective" style="flex: 1; padding: 4px 10px; font-size: 12px;">Front</button>
+                                <button type="button" id="power-perspective-back" class="btn btn-secondary perspective-btn" data-perspective="back" data-target="power_perspective" style="flex: 1; padding: 4px 10px; font-size: 12px;">Back</button>
+                            </div>
+                        </div>
+
                         <div class="info-row checkbox-row" data-tooltip="Screen Name — Show or hide the screen layer name on the canvas in Power view.">
                             <input type="checkbox" id="show-label-name-power" checked>
                             <label for="show-label-name-power">Screen Name</label>

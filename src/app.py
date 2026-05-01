@@ -334,6 +334,13 @@ current_project = {
     # Power views (which all render at the show position).
     'show_raster_width': 1920,
     'show_raster_height': 1080,
+    # Wiring view perspective per tab. 'front' shows the layout as the
+    # audience sees it (matching Show Look). 'back' horizontally mirrors
+    # the geometry so the techs working behind the wall see it from their
+    # perspective. Labels stay readable in either view. Per-tab so a Data
+    # tech and a Power tech can configure independently.
+    'data_flow_perspective': 'front',
+    'power_perspective': 'front',
     'layers': [],
     'is_pristine': True
 }
@@ -810,6 +817,8 @@ def new_project():
         'raster_height': 1080,
         'show_raster_width': 1920,
         'show_raster_height': 1080,
+        'data_flow_perspective': 'front',
+        'power_perspective': 'front',
         'layers': [],
         'is_pristine': True
     }
@@ -849,6 +858,12 @@ def restore_project():
         current_project['show_raster_width'] = current_project.get('raster_width', 1920)
     if current_project.get('show_raster_height') is None:
         current_project['show_raster_height'] = current_project.get('raster_height', 1080)
+    # Wiring perspective defaults: older projects render front-facing,
+    # matching how they appeared before the perspective toggle existed.
+    if current_project.get('data_flow_perspective') not in ('front', 'back'):
+        current_project['data_flow_perspective'] = 'front'
+    if current_project.get('power_perspective') not in ('front', 'back'):
+        current_project['power_perspective'] = 'front'
     sync_next_layer_id()
     log_event('restore_project', {
         'name': current_project.get('name', '?'),
