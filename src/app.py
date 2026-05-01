@@ -726,6 +726,91 @@ def delete_preset(name):
     socketio.emit('presets_updated')
     return jsonify({'status': 'success'})
 
+# ── Panel catalog refresh ──
+# The bundled `static/data/panel_catalog.json` is the source of truth shipped
+# with each release. To let users get newer panels between releases, the
+# client can call /api/panel-catalog/refresh and we proxy a fetch of the
+# canonical file from GitHub raw. We do the fetch server-side so we don't
+# depend on browser CORS or a user's corporate firewall, and we cache the
+# response in-process for a few minutes so repeat calls (boot check + manual
+# refresh) don't hammer GitHub.
+import hashlib
+import urllib.request
+import urllib.error
+
+_PANEL_CATALOG_RAW_URL = 'https://raw.githubusercontent.com/kman1898/LED-Raster-Designer/main/src/static/data/panel_catalog.json'
+_panel_catalog_cache = {'fetched_at': 0, 'payload': None}
+_PANEL_CATALOG_CACHE_TTL = 300  # seconds
+
+def _bundled_panel_catalog_path():
+    return os.path.join(os.path.dirname(__file__), 'static', 'data', 'panel_catalog.json')
+
+def _sha256_bytes(data):
+    return hashlib.sha256(data).hexdigest()
+
+def _bundled_panel_catalog_sha():
+    try:
+        with open(_bundled_panel_catalog_path(), 'rb') as f:
+            return _sha256_bytes(f.read())
+    except Exception:
+        return ''
+
+@app.route('/api/panel-catalog/info', methods=['GET'])
+def panel_catalog_info():
+    """Lightweight metadata used on app boot to compare against the upstream
+    catalog without forcing a full GitHub fetch every time."""
+    try:
+        with open(_bundled_panel_catalog_path(), 'rb') as f:
+            data = f.read()
+        catalog = json.loads(data)
+        panel_count = sum(len(v) for v in catalog.values() if isinstance(v, list))
+        return jsonify({
+            'bundledSha': _sha256_bytes(data),
+            'panelCount': panel_count,
+            'mfrCount': len(catalog),
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/panel-catalog/refresh', methods=['GET'])
+def panel_catalog_refresh():
+    """Fetch the canonical panel_catalog.json from GitHub raw and return it
+    along with a SHA the client uses to detect changes. Cached in-process for
+    a few minutes."""
+    now = time.time()
+    cached = _panel_catalog_cache
+    if cached['payload'] and (now - cached['fetched_at']) < _PANEL_CATALOG_CACHE_TTL:
+        payload = dict(cached['payload'])
+        payload['fromCache'] = True
+        return jsonify(payload)
+    try:
+        req = urllib.request.Request(
+            _PANEL_CATALOG_RAW_URL,
+            headers={'User-Agent': 'led-raster-designer'}
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = resp.read()
+        catalog = json.loads(data)
+        if not isinstance(catalog, dict):
+            raise ValueError('unexpected catalog shape')
+        sha = _sha256_bytes(data)
+        panel_count = sum(len(v) for v in catalog.values() if isinstance(v, list))
+        payload = {
+            'catalog': catalog,
+            'sha': sha,
+            'panelCount': panel_count,
+            'mfrCount': len(catalog),
+            'fetchedAt': datetime.datetime.utcnow().isoformat() + 'Z',
+            'bundledSha': _bundled_panel_catalog_sha(),
+        }
+        _panel_catalog_cache['payload'] = payload
+        _panel_catalog_cache['fetched_at'] = now
+        return jsonify(dict(payload, fromCache=False))
+    except urllib.error.URLError as e:
+        return jsonify({'error': f'network: {e}'}), 502
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 # ── Logs (in-app viewer) ──
 @app.route('/api/logs', methods=['GET'])
 def get_logs():

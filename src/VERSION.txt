@@ -1,6 +1,30 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.7.2 - May 1, 2026
+----------------------------
+- FEATURE: Panel catalog can now be refreshed live from GitHub without
+  reinstalling the app. The Add Screen modal has a "↻ Refresh" button
+  in the Panel Catalog header that pulls the latest panel_catalog.json
+  from the repo. The fetch is proxied through the Flask backend so it
+  works regardless of browser CORS or corporate firewall quirks.
+  A small source tag next to the button shows whether the catalog is
+  "Bundled" (shipping default) or "Updated <date>" (refreshed).
+  On boot, the app does a silent background check against upstream;
+  if a newer catalog exists, the source tag turns into a blue
+  "📦 Update available · click to apply" pill that swaps in the new
+  data with a single click. Refreshed catalog persists in localStorage
+  so it survives reloads — per browser, not per project.
+- FIX: Panel correction / new-panel submissions were silently dropping.
+  The "Submit a correction or add a panel" link opens a pre-filled
+  GitHub new-issue page, but users were closing the tab without
+  clicking the green "Submit new issue" button on GitHub itself —
+  so the submission never reached the repo. Added an explicit confirm
+  dialog before opening the tab and an inline note under the link
+  spelling out the extra step. Also created the missing
+  "spec-correction" and "add-panel" GitHub labels server-side so
+  future submissions are filterable on the issues page.
+
 v0.7.7.1 - May 1, 2026
 ----------------------------
 - FEATURE: Favorites for the Add Screen picker. Click the heart icon on

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED Raster Designer v0.7.7.1</title>
+    <title>LED Raster Designer v0.7.7.2</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -84,7 +84,7 @@
 
         <div id="toolbar">
             <div class="toolbar-section toolbar-project">
-                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.7.7.1</span></h1>
+                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.7.7.2</span></h1>
                 <div style="position:relative;">
                     <input type="text" id="project-name" value="Untitled Project" class="editable-project-name">
                     <div id="project-name-warning" style="display:none; position:absolute; top:100%; left:0; margin-top:4px; padding:4px 8px; font-size:11px; color:#f5a623; background:#1a1a1a; border:1px solid #f5a623; border-radius:4px; white-space:nowrap; z-index:1000; pointer-events:none;"></div>
@@ -1608,9 +1608,13 @@
                 </div>
                 <!-- Panel catalog column -->
                 <div style="flex: 1; display: flex; flex-direction: column;">
-                    <div style="color: #ddd; font-size: 12px; font-weight: 600; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; display: flex; justify-content: space-between; align-items: center;">
+                    <div style="color: #ddd; font-size: 12px; font-weight: 600; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; display: flex; justify-content: space-between; align-items: center; gap: 8px;">
                         <span>Panel Catalog <span id="panel-catalog-count" style="color:#777; font-weight:normal; text-transform:none; letter-spacing:0;"></span></span>
-                        <span style="color:#777; font-weight:normal; text-transform:none; letter-spacing:0; font-size:11px;" title="Most panels come from FidoLED's database — accurate but sometimes slightly older than current manufacturer specs. ⭐ marks panels we've cross-checked against the manufacturer's own spec sheet.">⭐ = manufacturer-verified</span>
+                        <span style="display:flex; align-items:center; gap:8px; font-weight:normal; text-transform:none; letter-spacing:0;">
+                            <span id="panel-catalog-source-tag" style="color:#777; font-size:10px;" title="Source of the panel catalog currently loaded">Bundled</span>
+                            <button type="button" id="panel-catalog-refresh-btn" class="btn" style="background:#2a2a2a; border:1px solid #3a3a3a; color:#ccc; font-size:11px; padding:3px 8px;" title="Pull the latest panel catalog from GitHub">↻ Refresh</button>
+                            <span style="color:#777; font-size:11px;" title="Most panels come from FidoLED's database — accurate but sometimes slightly older than current manufacturer specs. ⭐ marks panels we've cross-checked against the manufacturer's own spec sheet.">⭐ = verified</span>
+                        </span>
                     </div>
                     <div style="display: flex; gap: 6px; margin-bottom: 6px;">
                         <input id="panel-catalog-search" type="text" placeholder="🔍 Search name or manufacturer…"
@@ -1623,6 +1627,7 @@
                     <div style="font-size: 11px; color: #777; margin-top: 6px; text-align: right;">
                         Bad specs or missing panel?
                         <a href="#" id="panel-submit-correction" style="color: #8ab4f8; text-decoration: none;">Submit a correction or add a panel →</a>
+                        <div style="color: #888; font-size: 10px; margin-top: 2px;">Opens GitHub in a new tab — you must be signed in and click <b>“Submit new issue”</b> for it to reach us.</div>
                     </div>
                 </div>
             </div>
