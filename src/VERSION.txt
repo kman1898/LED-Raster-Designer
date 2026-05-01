@@ -1,6 +1,31 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.6.3 - May 1, 2026
+----------------------------
+- FEATURE: Collapsible side panels. A small chevron tab on the inner
+  edge of each sidebar collapses/expands the panel independently. The
+  toggle anchors to the sidebar's actual edge via ResizeObserver so it
+  stays in place at any window/sidebar size. Collapsed state persists
+  in localStorage per side.
+- FIX: Editing or dragging a layer's Pixel Map offset now mirrors the
+  change to the Show Look offset while the two are still equal
+  (linked). Without this, moving a layer in Pixel Map left Show Look /
+  Data / Power rendering at the old position. Once you set a different
+  Show Look offset, the two stay independent — Pixel Map edits no
+  longer touch Show Look.
+- FIX: Screen name labels and other per-layer labels were rendered
+  off-center in Show Look / Data / Power because the per-layer ctx
+  translate AND the bounds-calculation both added the show-offset,
+  double-shifting label positions. Bounds returned by getLayerBounds
+  are now in raw processor coords; new getLayerBoundsInActiveView
+  helper is used for the few callers that operate outside the
+  per-layer translate (selection bounding box, hit-test, magnetic
+  snap, screen-name drag, zoom-to-fit).
+- FIX: "Reset to Pixel Map Position" appeared to put screens in the
+  wrong spot — same root cause as the label bug above. Now resets
+  cleanly with screens visually matching their pixel-map positions.
+
 v0.7.6.2 - April 30, 2026
 ----------------------------
 - FIX: Opening a project file (recent or via the file picker) didn't

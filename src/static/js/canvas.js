@@ -117,6 +117,19 @@ class CanvasRenderer {
     }
 
     /**
+     * Layer bounds in the *currently active view's* coordinate space.
+     * For pixel-map / cabinet-id this matches getLayerBounds (processor
+     * coords). For show-look / data-flow / power it shifts by the layer's
+     * showOffset - offset_x/y delta so selection rects, hit-tests, and
+     * magnetic snap line up with the rendered position.
+     */
+    getLayerBoundsInActiveView(layer) {
+        const b = this.getLayerBounds(layer);
+        const { dx, dy } = this.getLayerRenderOffset(layer);
+        return { x: b.x + dx, y: b.y + dy, width: b.width, height: b.height };
+    }
+
+    /**
      * Render-time translation to apply to a layer's geometry so it appears
      * at its show position in show-look / data-flow / power. Returns
      * {dx: 0, dy: 0} for pixel-map / cabinet-id (no shift).
@@ -133,11 +146,17 @@ class CanvasRenderer {
     }
 
     getLayerBounds(layer) {
-        const { dx, dy } = this.getLayerRenderOffset(layer);
+        // NOTE: returns RAW processor-coords bounds (not shifted by Show Look
+        // offset). Most callers use this for things drawn INSIDE the per-layer
+        // ctx.translate(dx, dy) block in render(), so adding dx here would
+        // double-shift them. Callers that operate OUTSIDE the per-layer
+        // translate (selection bounding box, hit-test, magnetic snap, layer
+        // drag overlay) should use getLayerBoundsInActiveView(layer) instead,
+        // which adds the active view's render offset.
         if (layer && (layer.type || 'screen') === 'text') {
             return {
-                x: (Number(layer.offset_x) || 0) + dx,
-                y: (Number(layer.offset_y) || 0) + dy,
+                x: Number(layer.offset_x) || 0,
+                y: Number(layer.offset_y) || 0,
                 width: Number(layer.textWidth) || 400,
                 height: Number(layer.textHeight) || 100
             };
@@ -147,8 +166,8 @@ class CanvasRenderer {
             const width = (Number(layer.imageWidth) || 0) * scale;
             const height = (Number(layer.imageHeight) || 0) * scale;
             return {
-                x: (Number(layer.offset_x) || 0) + dx,
-                y: (Number(layer.offset_y) || 0) + dy,
+                x: Number(layer.offset_x) || 0,
+                y: Number(layer.offset_y) || 0,
                 width,
                 height
             };
@@ -169,8 +188,8 @@ class CanvasRenderer {
                 if (y2 > maxY) maxY = y2;
             });
             return {
-                x: minX + dx,
-                y: minY + dy,
+                x: minX,
+                y: minY,
                 width: maxX - minX,
                 height: maxY - minY
             };
@@ -178,8 +197,8 @@ class CanvasRenderer {
         const width = (Number(layer.columns) || 0) * (Number(layer.cabinet_width) || 0);
         const height = (Number(layer.rows) || 0) * (Number(layer.cabinet_height) || 0);
         return {
-            x: (Number(layer.offset_x) || 0) + dx,
-            y: (Number(layer.offset_y) || 0) + dy,
+            x: Number(layer.offset_x) || 0,
+            y: Number(layer.offset_y) || 0,
             width,
             height
         };
@@ -343,6 +362,15 @@ class CanvasRenderer {
                         startY: useShow
                             ? (layer.showOffsetY ?? layer.offset_y ?? 0)
                             : (layer.offset_y ?? 0),
+                        // Capture whether this layer's show position was
+                        // linked to its processor position at drag-start
+                        // (i.e. equal). If so, dragging in pixel-map should
+                        // also update showOffset so Show Look / Data / Power
+                        // track the new position. Once they diverge (because
+                        // the user moved the layer in Show Look), pixel-map
+                        // drags stop touching showOffset.
+                        showLinkedX: !useShow && (Number(layer.showOffsetX ?? layer.offset_x ?? 0) === Number(layer.offset_x ?? 0)),
+                        showLinkedY: !useShow && (Number(layer.showOffsetY ?? layer.offset_y ?? 0) === Number(layer.offset_y ?? 0)),
                         // Only the processor-position drag mutates panel.x/y
                         // (panels live in processor coords). Show-position
                         // drag is rendered via ctx.translate so panels stay
@@ -565,6 +593,11 @@ class CanvasRenderer {
                     } else {
                         layer.offset_x = nextX;
                         layer.offset_y = nextY;
+                        // While show position was linked to processor position,
+                        // keep them in sync so Show Look / Data / Power follow
+                        // the pixel-map move.
+                        if (item.showLinkedX) layer.showOffsetX = nextX;
+                        if (item.showLinkedY) layer.showOffsetY = nextY;
                         const startMap = new Map((item.panelStarts || []).map(p => [p.id, p]));
                         layer.panels.forEach(panel => {
                             const start = startMap.get(panel.id);
@@ -581,7 +614,8 @@ class CanvasRenderer {
             // Screen name dragging with snap positions - tab-specific
             if (window.app && window.app.currentLayer) {
                 const layer = window.app.currentLayer;
-                const bounds = this.getLayerBounds(layer);
+                // Screen-name drag — bounds in the active view for snap calc.
+                const bounds = this.getLayerBoundsInActiveView(layer);
                 const layerWidth = bounds.width;
                 const layerHeight = bounds.height;
                 
@@ -1178,7 +1212,10 @@ class CanvasRenderer {
         for (let i = window.app.project.layers.length - 1; i >= 0; i--) {
             const layer = window.app.project.layers[i];
             if (!layer.visible) continue;
-            const bounds = this.getLayerBounds(layer);
+            // Hit-test against the layer's bounds in the *active view*, since
+            // worldX/worldY are in the view's coord space (Show Look / Data /
+            // Power render at the show position).
+            const bounds = this.getLayerBoundsInActiveView(layer);
             if (worldX >= bounds.x && worldX <= bounds.x + bounds.width &&
                 worldY >= bounds.y && worldY <= bounds.y + bounds.height) {
                 return layer;
@@ -1484,12 +1521,14 @@ class CanvasRenderer {
             }
             
             // Draw bounding boxes around selected layers (skip during export)
+            // These render OUTSIDE the per-layer ctx.translate, so use the
+            // active-view bounds.
             if (!this.exportMode && window.app && window.app.selectedLayerIds && window.app.selectedLayerIds.size > 0) {
                 const selectedIds = window.app.selectedLayerIds;
                 window.app.project.layers.forEach(layer => {
                     if (!layer.visible) return;
                     if (!selectedIds.has(layer.id)) return;
-                    const bounds = this.getLayerBounds(layer);
+                    const bounds = this.getLayerBoundsInActiveView(layer);
                     const layerWidth = bounds.width;
                     const layerHeight = bounds.height;
                     this.ctx.strokeStyle = (window.app.currentLayer && window.app.currentLayer.id === layer.id) ? '#00ccff' : '#4A90E2';
@@ -1504,10 +1543,10 @@ class CanvasRenderer {
             if (!this.exportMode && this.isDraggingLayer && window.app && window.app.currentLayer) {
                 const selectedLayer = window.app.currentLayer;
                 if (selectedLayer.visible) {
-                    const bounds = this.getLayerBounds(selectedLayer);
+                    const bounds = this.getLayerBoundsInActiveView(selectedLayer);
                     const layerWidth = bounds.width;
                     const layerHeight = bounds.height;
-                    
+
                     this.ctx.strokeStyle = '#4A90E2';  // Blue highlight color
                     this.ctx.lineWidth = 3 / this.zoom;  // Scale with zoom
                     this.ctx.setLineDash([10 / this.zoom, 5 / this.zoom]);
@@ -1533,7 +1572,9 @@ class CanvasRenderer {
                 if (window.app && window.app.project) {
                     window.app.project.layers.forEach(layer => {
                         if (!layer.visible) return;
-                        const bounds = this.getLayerBounds(layer);
+                        // Active-view bounds — selection rect is in world coords
+                        // matching the rendered (possibly show-shifted) layout.
+                        const bounds = this.getLayerBoundsInActiveView(layer);
                         const layerWidth = bounds.width;
                         const layerHeight = bounds.height;
                         const x1 = bounds.x;
@@ -1643,7 +1684,8 @@ class CanvasRenderer {
             this.panY = 100;
         } else {
             const layer = window.app.currentLayer;
-            const bounds = this.getLayerBounds(layer);
+            // Zoom-to-layer in the active view, so it matches what's rendered.
+            const bounds = this.getLayerBoundsInActiveView(layer);
             const layerWidth = bounds.width;
             const layerHeight = bounds.height;
             const zoomX = (this.canvas.width * 0.9) / layerWidth;
@@ -1662,7 +1704,8 @@ class CanvasRenderer {
         const snapDistance = 20; // Snap within 20 pixels - feels natural
         let snappedX = offsetX;
         let snappedY = offsetY;
-        
+
+        // Width/height are the same regardless of view; use raw bounds.
         const currentBounds = this.getLayerBounds(currentLayer);
         const layerWidth = currentBounds.width;
         const layerHeight = currentBounds.height;
@@ -1692,11 +1735,14 @@ class CanvasRenderer {
         }
         
         // Snap to other layers - HARD EDGES ONLY
+        // Other layers' bounds are compared against the dragged layer's
+        // proposed offset (offsetX/Y), which is in the active view's
+        // coords — so use active-view bounds for the comparison.
         if (window.app && window.app.project) {
             window.app.project.layers.forEach(layer => {
                 if (layer.id === currentLayer.id || !layer.visible) return;
-                
-                const otherBounds = this.getLayerBounds(layer);
+
+                const otherBounds = this.getLayerBoundsInActiveView(layer);
                 const otherLeft = otherBounds.x;
                 const otherRight = otherBounds.x + otherBounds.width;
                 const otherTop = otherBounds.y;

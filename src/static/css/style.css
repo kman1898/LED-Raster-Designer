@@ -27,9 +27,48 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 .btn-primary { background: #4A90E2; border-color: #4A90E2; color: white; }
 .btn-primary:hover { background: #357ABD; }
 .full-width { width: 100%; }
-#main-container { display: flex; flex: 1; overflow: hidden; }
-#left-sidebar, #right-sidebar { background: #252525; width: 260px; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; padding: 10px; border-right: 1px solid #3a3a3a; box-sizing: border-box; }
+#main-container { display: flex; flex: 1; overflow: hidden; position: relative; }
+#left-sidebar, #right-sidebar { background: #252525; width: 260px; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; padding: 10px; border-right: 1px solid #3a3a3a; box-sizing: border-box; transition: width 0.18s ease, padding 0.18s ease, border-color 0.18s ease; }
 #right-sidebar { border-right: none; border-left: 1px solid #3a3a3a; display: flex; flex-direction: column; overflow: hidden; padding: 0; }
+
+/* ── Collapsible side panels ─────────────────────────────────────────── */
+/* Each toggle button hugs the inner edge of its sidebar. Click to hide
+   the entire panel; click again to bring it back. The two sides are
+   independent and the state persists across reloads (localStorage —
+   see app.js initSidebarToggles). */
+.sidebar-toggle {
+    position: fixed;
+    z-index: 50;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 18px;
+    height: 56px;
+    background: #2a2a2a;
+    border: 1px solid #3a3a3a;
+    color: #aaa;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0;
+    transition: background 0.15s, color 0.15s, left 0.18s ease, right 0.18s ease;
+}
+.sidebar-toggle:hover { background: #3a3a3a; color: #fff; }
+/* The actual left/right pixel positions are set in JS (initSidebarToggles)
+   based on the sidebar's live geometry — this lets the toggle hug the
+   sidebar's inner edge regardless of monitor size, window resize, or any
+   future change to sidebar width. */
+#left-sidebar-toggle { border-left: none; border-radius: 0 4px 4px 0; }
+#right-sidebar-toggle { border-right: none; border-radius: 4px 0 0 4px; }
+/* Collapsed: shrink the sidebar to nothing but keep it in the DOM so
+   layout/interactions stay intact. */
+#left-sidebar.collapsed,
+#right-sidebar.collapsed {
+    width: 0;
+    min-width: 0;
+    padding: 0;
+    border-right: none;
+    border-left: none;
+}
 #right-sidebar > .panel { margin: 0 10px 0 10px; flex: 1; overflow-y: auto; min-height: 0; }
 .panel { background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 6px; margin-bottom: 10px; }
 .panel-header { padding: 12px; border-bottom: 1px solid #3a3a3a; }
