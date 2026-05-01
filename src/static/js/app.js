@@ -946,13 +946,87 @@ class LEDRasterApp {
     
     init() {
         window.canvasRenderer = new CanvasRenderer('main-canvas');
-        
+
+        // Restore collapsed sidebar state before anything paints so there's
+        // no flash of the open panel.
+        this.initSidebarToggles();
+
         // Check server session FIRST - if server restarted, clear localStorage
         this.checkServerSession().then(() => {
             this.connectWebSocket();
             this.loadProject();
             this.setupEventListeners();
             sendClientLog('app_init', { ua: navigator.userAgent });
+        });
+    }
+
+    /**
+     * Wire the left/right sidebar collapse toggles. Each side is independent
+     * and the collapsed state persists in localStorage so the panel stays
+     * the way the user left it across reloads. The toggle button is
+     * positioned dynamically against the sidebar's actual geometry (via
+     * getBoundingClientRect), so it always sits flush with the sidebar's
+     * inner edge regardless of monitor size, sidebar width, or window
+     * resize. ResizeObserver keeps it pinned in place if the sidebar's
+     * dimensions ever change at runtime.
+     */
+    initSidebarToggles() {
+        const sides = [
+            { key: 'left', sidebarId: 'left-sidebar', toggleId: 'left-sidebar-toggle', expandSym: '›', collapseSym: '‹' },
+            { key: 'right', sidebarId: 'right-sidebar', toggleId: 'right-sidebar-toggle', expandSym: '‹', collapseSym: '›' },
+        ];
+        sides.forEach(({ key, sidebarId, toggleId, expandSym, collapseSym }) => {
+            const sidebar = document.getElementById(sidebarId);
+            const btn = document.getElementById(toggleId);
+            if (!sidebar || !btn) return;
+            const storageKey = `ledRasterSidebarCollapsed_${key}`;
+            const positionToggle = () => {
+                const rect = sidebar.getBoundingClientRect();
+                if (key === 'left') {
+                    btn.style.left = `${Math.round(rect.right)}px`;
+                    btn.style.right = '';
+                } else {
+                    btn.style.right = `${Math.round(window.innerWidth - rect.left)}px`;
+                    btn.style.left = '';
+                }
+            };
+            const apply = (collapsed) => {
+                sidebar.classList.toggle('collapsed', collapsed);
+                document.body.classList.toggle(`${key}-sidebar-collapsed`, collapsed);
+                btn.textContent = collapsed ? expandSym : collapseSym;
+                btn.title = collapsed
+                    ? `Expand ${key} panel`
+                    : `Collapse ${key} panel`;
+                // The width transition runs ~180ms; reposition while it
+                // animates and again at the end so the toggle hugs the
+                // edge throughout (and at the final position).
+                requestAnimationFrame(positionToggle);
+                setTimeout(positionToggle, 60);
+                setTimeout(positionToggle, 220);
+                // Canvas width changes when the sidebar shrinks; trigger a
+                // re-render so the canvas + raster boundary repaint at the
+                // new size.
+                if (window.canvasRenderer) {
+                    if (window.canvasRenderer.setupCanvas) window.canvasRenderer.setupCanvas();
+                    window.canvasRenderer.render();
+                }
+            };
+            const saved = localStorage.getItem(storageKey) === '1';
+            apply(saved);
+            btn.addEventListener('click', () => {
+                const nowCollapsed = !sidebar.classList.contains('collapsed');
+                localStorage.setItem(storageKey, nowCollapsed ? '1' : '0');
+                apply(nowCollapsed);
+                if (typeof sendClientLog === 'function') {
+                    sendClientLog('sidebar_toggle', { side: key, collapsed: nowCollapsed });
+                }
+            });
+            // Keep the toggle pinned to the sidebar edge whenever the
+            // sidebar resizes (window resize, scrollbar appearance, etc.).
+            if (typeof ResizeObserver === 'function') {
+                new ResizeObserver(positionToggle).observe(sidebar);
+            }
+            window.addEventListener('resize', positionToggle);
         });
     }
     
@@ -5714,8 +5788,13 @@ class LEDRasterApp {
         const lastChanged = this._lastChangedInputId || null;
         const applyOffsetX = offsetXVal !== null && (!multiSelected || lastChanged === 'offset-x');
         const applyOffsetY = offsetYVal !== null && (!multiSelected || lastChanged === 'offset-y');
-        const applyShowOffsetX = showOffsetXVal !== null && (!multiSelected || lastChanged === 'show-offset-x');
-        const applyShowOffsetY = showOffsetYVal !== null && (!multiSelected || lastChanged === 'show-offset-y');
+        // Show-offset writes are gated strictly on lastChanged so that editing
+        // the pixel-map offset doesn't fight the auto-link logic below (which
+        // mirrors the new offset_x to showOffsetX while they're equal). The
+        // show-offset inputs only set their fields when the user actually
+        // edits them (single-select OR multi-select).
+        const applyShowOffsetX = showOffsetXVal !== null && lastChanged === 'show-offset-x';
+        const applyShowOffsetY = showOffsetYVal !== null && lastChanged === 'show-offset-y';
         const cabinetWidthVal = readNumber('cabinet-width').value;
         const cabinetHeightVal = readNumber('cabinet-height').value;
         const columnsVal = readNumber('screen-columns').value;
@@ -5809,8 +5888,22 @@ class LEDRasterApp {
         targetLayers.forEach(layer => {
             const isImage = (layer.type || 'screen') === 'image';
             if (!layer.locked) {
-                if (applyOffsetX) layer.offset_x = offsetXVal;
-                if (applyOffsetY) layer.offset_y = offsetYVal;
+                // Capture whether the show offset is currently linked to the
+                // processor offset (i.e. equal). If so, editing the pixel-map
+                // offset should also update showOffset so Show Look / Data /
+                // Power follow the move. Once they diverge (because the user
+                // explicitly set a different show offset), pixel-map edits
+                // stop touching showOffset.
+                const linkedX = Number(layer.showOffsetX ?? layer.offset_x ?? 0) === Number(layer.offset_x ?? 0);
+                const linkedY = Number(layer.showOffsetY ?? layer.offset_y ?? 0) === Number(layer.offset_y ?? 0);
+                if (applyOffsetX) {
+                    layer.offset_x = offsetXVal;
+                    if (linkedX) layer.showOffsetX = offsetXVal;
+                }
+                if (applyOffsetY) {
+                    layer.offset_y = offsetYVal;
+                    if (linkedY) layer.showOffsetY = offsetYVal;
+                }
                 if (applyShowOffsetX) layer.showOffsetX = showOffsetXVal;
                 if (applyShowOffsetY) layer.showOffsetY = showOffsetYVal;
             }
