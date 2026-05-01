@@ -1043,12 +1043,23 @@ class LEDRasterApp {
             this.project = data;
             this.dedupeProjectLayers('socket_project_data');
             if (data && data.raster_width && data.raster_height) {
-                window.canvasRenderer.rasterWidth = data.raster_width;
-                window.canvasRenderer.rasterHeight = data.raster_height;
+                const r = window.canvasRenderer;
+                r.pixelRasterWidth = data.raster_width;
+                r.pixelRasterHeight = data.raster_height;
+                r.showRasterWidth = data.show_raster_width || data.raster_width;
+                r.showRasterHeight = data.show_raster_height || data.raster_height;
+                // Match the active fields to the current view.
+                if (r.isShowLookView()) {
+                    r.rasterWidth = r.showRasterWidth;
+                    r.rasterHeight = r.showRasterHeight;
+                } else {
+                    r.rasterWidth = r.pixelRasterWidth;
+                    r.rasterHeight = r.pixelRasterHeight;
+                }
                 const rw = document.getElementById('toolbar-raster-width');
                 const rh = document.getElementById('toolbar-raster-height');
-                if (rw) rw.value = data.raster_width;
-                if (rh) rh.value = data.raster_height;
+                if (rw) rw.value = r.rasterWidth;
+                if (rh) rh.value = r.rasterHeight;
                 this.saveRasterSize();
             }
 
@@ -1234,12 +1245,22 @@ class LEDRasterApp {
                 this.project = data;
                 this.dedupeProjectLayers('load_project');
                 if (data && data.raster_width && data.raster_height) {
-                    window.canvasRenderer.rasterWidth = data.raster_width;
-                    window.canvasRenderer.rasterHeight = data.raster_height;
+                    const r = window.canvasRenderer;
+                    r.pixelRasterWidth = data.raster_width;
+                    r.pixelRasterHeight = data.raster_height;
+                    r.showRasterWidth = data.show_raster_width || data.raster_width;
+                    r.showRasterHeight = data.show_raster_height || data.raster_height;
+                    if (r.isShowLookView()) {
+                        r.rasterWidth = r.showRasterWidth;
+                        r.rasterHeight = r.showRasterHeight;
+                    } else {
+                        r.rasterWidth = r.pixelRasterWidth;
+                        r.rasterHeight = r.pixelRasterHeight;
+                    }
                     const rw = document.getElementById('toolbar-raster-width');
                     const rh = document.getElementById('toolbar-raster-height');
-                    if (rw) rw.value = data.raster_width;
-                    if (rh) rh.value = data.raster_height;
+                    if (rw) rw.value = r.rasterWidth;
+                    if (rh) rh.value = r.rasterHeight;
                     this.saveRasterSize();
                 }
                 sendClientLog('load_project', { name: data.name, layers: data.layers ? data.layers.length : 0 });
@@ -1437,6 +1458,14 @@ class LEDRasterApp {
             if (layer.infoLabelSize === undefined) layer.infoLabelSize = 14;
             if (layer.showDataFlowPortInfo === undefined) layer.showDataFlowPortInfo = false;
             if (layer.showPowerCircuitInfo === undefined) layer.showPowerCircuitInfo = false;
+            // Show Look position — default to processor offset for older
+            // projects so they open looking identical to before.
+            if (layer.showOffsetX === undefined || layer.showOffsetX === null) {
+                layer.showOffsetX = layer.offset_x || 0;
+            }
+            if (layer.showOffsetY === undefined || layer.showOffsetY === null) {
+                layer.showOffsetY = layer.offset_y || 0;
+            }
         });
 
         // For startup factory-default project only, enforce saved preference defaults.
@@ -2066,8 +2095,9 @@ class LEDRasterApp {
             window.canvasRenderer.magneticSnap = e.target.checked;
         });
         
-        ['offset-x', 'offset-y', 'cabinet-width', 'cabinet-height', 
-         'screen-columns', 'screen-rows', 'number-size', 'panel-width-mm', 'panel-height-mm', 'panel-weight-kg', 'image-scale', 'image-scale-range'].forEach(id => {
+        ['offset-x', 'offset-y', 'cabinet-width', 'cabinet-height',
+         'screen-columns', 'screen-rows', 'number-size', 'panel-width-mm', 'panel-height-mm', 'panel-weight-kg', 'image-scale', 'image-scale-range',
+         'show-offset-x', 'show-offset-y'].forEach(id => {
             const input = document.getElementById(id);
             if (input) {
                 input.addEventListener('change', () => {
@@ -2079,6 +2109,23 @@ class LEDRasterApp {
                 });
             }
         });
+
+        // Show Look "Reset to Pixel Map Position" button
+        const showResetBtn = document.getElementById('show-look-reset');
+        if (showResetBtn) {
+            showResetBtn.addEventListener('click', () => {
+                const layers = this.getSelectedLayers ? this.getSelectedLayers() : (this.currentLayer ? [this.currentLayer] : []);
+                if (layers.length === 0) return;
+                this.saveState('Reset Show Look Position');
+                layers.forEach(l => {
+                    l.showOffsetX = l.offset_x;
+                    l.showOffsetY = l.offset_y;
+                });
+                this.updateLayers(layers, false);
+                this.loadLayerToInputs();
+                if (window.canvasRenderer) window.canvasRenderer.render();
+            });
+        }
         const imageScaleInput = document.getElementById('image-scale');
         const imageScaleRange = document.getElementById('image-scale-range');
         if (imageScaleInput && imageScaleRange) {
@@ -3401,34 +3448,59 @@ class LEDRasterApp {
         if (rasterWidthInput) {
             rasterWidthInput.addEventListener('change', () => {
                 const width = evaluateMathExpression(rasterWidthInput.value) || 1920;
-                window.canvasRenderer.rasterWidth = width;
-                rasterWidthInput.value = width; // Update input with evaluated result
+                rasterWidthInput.value = width;
+                // The toolbar edits the raster for the *current* view: pixel-map
+                // / cabinet-id edit the processor raster, show-look / data /
+                // power edit the show raster.
+                const renderer = window.canvasRenderer;
+                const isShow = renderer.isShowLookView();
+                if (isShow) {
+                    renderer.showRasterWidth = width;
+                } else {
+                    renderer.pixelRasterWidth = width;
+                }
+                renderer.rasterWidth = width;
                 if (this.project) {
-                    this.project.raster_width = width;
+                    if (isShow) {
+                        this.project.show_raster_width = width;
+                    } else {
+                        this.project.raster_width = width;
+                    }
                     this.saveProject();
                 }
                 this.saveRasterSize();
                 if (typeof sendClientLog === 'function') {
-                    sendClientLog('raster_change', { width, height: window.canvasRenderer.rasterHeight, source: 'toolbar-width' });
+                    sendClientLog('raster_change', { width, height: renderer.rasterHeight, source: 'toolbar-width', view: renderer.viewMode });
                 }
-                window.canvasRenderer.render();
+                renderer.render();
             });
         }
-        
+
         if (rasterHeightInput) {
             rasterHeightInput.addEventListener('change', () => {
                 const height = evaluateMathExpression(rasterHeightInput.value) || 1080;
-                window.canvasRenderer.rasterHeight = height;
-                rasterHeightInput.value = height; // Update input with evaluated result
+                rasterHeightInput.value = height;
+                const renderer = window.canvasRenderer;
+                const isShow = renderer.isShowLookView();
+                if (isShow) {
+                    renderer.showRasterHeight = height;
+                } else {
+                    renderer.pixelRasterHeight = height;
+                }
+                renderer.rasterHeight = height;
                 if (this.project) {
-                    this.project.raster_height = height;
+                    if (isShow) {
+                        this.project.show_raster_height = height;
+                    } else {
+                        this.project.raster_height = height;
+                    }
                     this.saveProject();
                 }
                 this.saveRasterSize();
                 if (typeof sendClientLog === 'function') {
-                    sendClientLog('raster_change', { width: window.canvasRenderer.rasterWidth, height, source: 'toolbar-height' });
+                    sendClientLog('raster_change', { width: renderer.rasterWidth, height, source: 'toolbar-height', view: renderer.viewMode });
                 }
-                window.canvasRenderer.render();
+                renderer.render();
             });
         }
         
@@ -3463,8 +3535,8 @@ class LEDRasterApp {
         });
         
         // Update preview when options change
-        ['export-name', 'export-format', 'export-pixel-map', 'export-cabinet-id', 'export-data-flow', 'export-power',
-         'export-suffix-pixel-map', 'export-suffix-cabinet-id', 'export-suffix-data-flow', 'export-suffix-power'].forEach(id => {
+        ['export-name', 'export-format', 'export-pixel-map', 'export-cabinet-id', 'export-show-look', 'export-data-flow', 'export-power',
+         'export-suffix-pixel-map', 'export-suffix-cabinet-id', 'export-suffix-show-look', 'export-suffix-data-flow', 'export-suffix-power'].forEach(id => {
             const el = document.getElementById(id);
             if (el) {
                 el.addEventListener('change', () => {
@@ -3511,6 +3583,7 @@ class LEDRasterApp {
             const views = [];
             if (document.getElementById('export-pixel-map').checked) views.push('pixel-map');
             if (document.getElementById('export-cabinet-id').checked) views.push('cabinet-id');
+            if (document.getElementById('export-show-look') && document.getElementById('export-show-look').checked) views.push('show-look');
             if (document.getElementById('export-data-flow').checked) views.push('data-flow');
             if (document.getElementById('export-power').checked) views.push('power');
 
@@ -5480,6 +5553,11 @@ class LEDRasterApp {
 
         const requests = layers.map(layer => {
             const preservedProps = {
+                // Show Look position — keep in sync across the server
+                // round-trip (server whitelists the field, but echoing the
+                // same value is safer than dropping it).
+                showOffsetX: layer.showOffsetX,
+                showOffsetY: layer.showOffsetY,
                 screenNameOffsetX: layer.screenNameOffsetX,
                 screenNameOffsetY: layer.screenNameOffsetY,
                 screenNameOffsetXCabinet: layer.screenNameOffsetXCabinet,
@@ -5615,13 +5693,17 @@ class LEDRasterApp {
 
         const offsetXVal = readNumber('offset-x').value;
         const offsetYVal = readNumber('offset-y').value;
-        
+        const showOffsetXVal = readNumber('show-offset-x').value;
+        const showOffsetYVal = readNumber('show-offset-y').value;
+
         // For multi-select: only apply the offset field that was actually changed by the user.
         // This prevents typing in Y from overwriting all layers' X values (or vice versa).
         const multiSelected = targetLayers.length > 1;
         const lastChanged = this._lastChangedInputId || null;
         const applyOffsetX = offsetXVal !== null && (!multiSelected || lastChanged === 'offset-x');
         const applyOffsetY = offsetYVal !== null && (!multiSelected || lastChanged === 'offset-y');
+        const applyShowOffsetX = showOffsetXVal !== null && (!multiSelected || lastChanged === 'show-offset-x');
+        const applyShowOffsetY = showOffsetYVal !== null && (!multiSelected || lastChanged === 'show-offset-y');
         const cabinetWidthVal = readNumber('cabinet-width').value;
         const cabinetHeightVal = readNumber('cabinet-height').value;
         const columnsVal = readNumber('screen-columns').value;
@@ -5717,6 +5799,8 @@ class LEDRasterApp {
             if (!layer.locked) {
                 if (applyOffsetX) layer.offset_x = offsetXVal;
                 if (applyOffsetY) layer.offset_y = offsetYVal;
+                if (applyShowOffsetX) layer.showOffsetX = showOffsetXVal;
+                if (applyShowOffsetY) layer.showOffsetY = showOffsetYVal;
             }
             if (isImage) {
                 if (imageScaleVal !== null && !Number.isNaN(imageScaleVal)) {
@@ -5849,6 +5933,9 @@ class LEDRasterApp {
 
         setTextInput('offset-x', getCommon(l => l.offset_x));
         setTextInput('offset-y', getCommon(l => l.offset_y));
+        // Show Look offsets — separate from processor offsets (Pixel Map).
+        setTextInput('show-offset-x', getCommon(l => (l.showOffsetX ?? l.offset_x) || 0));
+        setTextInput('show-offset-y', getCommon(l => (l.showOffsetY ?? l.offset_y) || 0));
 
         // Image layer controls
         const imageScaleEl = document.getElementById('image-scale');
@@ -6658,9 +6745,10 @@ class LEDRasterApp {
         const views = [];
         if (document.getElementById('export-pixel-map').checked) views.push('pixel-map');
         if (document.getElementById('export-cabinet-id').checked) views.push('cabinet-id');
+        if (document.getElementById('export-show-look') && document.getElementById('export-show-look').checked) views.push('show-look');
         if (document.getElementById('export-data-flow').checked) views.push('data-flow');
         if (document.getElementById('export-power').checked) views.push('power');
-        
+
         const preview = document.getElementById('export-preview');
 
         // Hide view checkboxes for Resolume XML (geometry only, no rendered views)
@@ -6715,6 +6803,7 @@ class LEDRasterApp {
         return {
             'pixel-map': 'Pixel Map',
             'cabinet-id': 'Cabinet Map',
+            'show-look': 'Show Look',
             'data-flow': 'Data Map',
             'power': 'Power Map'
         };
@@ -6724,6 +6813,7 @@ class LEDRasterApp {
         return {
             'pixel-map': 'Pixel Map',
             'cabinet-id': 'Cabinet Map',
+            'show-look': 'Show Look',
             'data-flow': 'Data Map',
             'power': 'Power Map'
         };
@@ -6745,6 +6835,7 @@ class LEDRasterApp {
         };
         apply('export-suffix-pixel-map', 'pixel-map');
         apply('export-suffix-cabinet-id', 'cabinet-id');
+        apply('export-suffix-show-look', 'show-look');
         apply('export-suffix-data-flow', 'data-flow');
         apply('export-suffix-power', 'power');
     }
@@ -6764,6 +6855,7 @@ class LEDRasterApp {
         return {
             'pixel-map': read('export-suffix-pixel-map', 'pixel-map'),
             'cabinet-id': read('export-suffix-cabinet-id', 'cabinet-id'),
+            'show-look': read('export-suffix-show-look', 'show-look'),
             'data-flow': read('export-suffix-data-flow', 'data-flow'),
             'power': read('export-suffix-power', 'power')
         };

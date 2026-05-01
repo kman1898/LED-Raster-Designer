@@ -1,6 +1,35 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.6.0 - April 30, 2026
+----------------------------
+- FEATURE: Show Look tab. New tab between Cabinet ID and Data that lets
+  you rearrange screen layers to match the real-world stage layout
+  without affecting the processor's expected layout.
+    - Pixel Map and Cabinet ID continue to use each layer's processor
+      position (offset_x / offset_y) — what the processor sends out.
+    - Show Look has its own per-layer position (showOffsetX / Y), which
+      also drives the Data and Power views so the wiring/power maps
+      match how the show is actually built on stage.
+    - Pixel Map and Show Look each have an independent raster size.
+      The toolbar Raster width/height edits the active view's raster:
+      pixel-map / cabinet-id edits the processor raster, show-look /
+      data / power edits the show raster.
+    - Shift-drag a screen on the canvas in Show Look (or Pixel Map) to
+      reposition it. Pixel Map drag writes to the processor position;
+      Show Look drag writes to the show position. The two can differ.
+    - Sidebar in Show Look exposes Show Offset X / Y inputs and a
+      "Reset to Pixel Map Position" button to re-sync.
+    - Show Look added to the export dialog with its own filename suffix.
+    - Existing projects open with show position = pixel position and
+      show raster = pixel raster, so nothing visually changes until you
+      start moving things in Show Look.
+- FIX: Hidden ("blank") panels in a Pixel Map drag-selection now render
+  a stronger blue tint than visible panels so you can clearly see which
+  blank cells are part of the selection. Without this, the normal
+  35%-alpha overlay was barely visible against the dark background of
+  an empty hidden cell.
+
 v0.7.5.3 - April 30, 2026
 ----------------------------
 - FIX: Hidden ("blank") panels could not be selected via drag-select,
