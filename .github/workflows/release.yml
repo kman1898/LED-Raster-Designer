@@ -211,7 +211,13 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           name: "LED Raster Designer ${{ github.ref_name }}"
-          draft: true
+          # Auto-publish on tag push so the README "Download latest" link
+          # and the in-app sidebar link always resolve to the just-built
+          # release. Previously this was draft:true and required manual
+          # publish, which led to releases piling up as drafts and the
+          # /releases/latest page pointing at an old version.
+          draft: false
+          make_latest: true
           generate_release_notes: true
           files: |
             artifacts/macos-build/*.zip
