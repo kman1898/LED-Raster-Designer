@@ -1,6 +1,17 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.6.2 - April 30, 2026
+----------------------------
+- FIX: Opening a project file (recent or via the file picker) didn't
+  sync the renderer's pixel/show raster backing fields, so Show Look
+  showed the wrong raster size after a file open even though the
+  project's data was correct. Added a single syncRasterFromProject()
+  helper that all project-load paths now call (initial socket connect,
+  HTTP /api/project, file-picker open, recent files, new project) so
+  Show Look picks up the file's saved show raster, falling back to
+  the pixel raster when the file pre-dates the Show Look feature.
+
 v0.7.6.1 - April 30, 2026
 ----------------------------
 - FIX: Show Look raster now tracks the Pixel Map raster by default.

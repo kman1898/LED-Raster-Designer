@@ -1043,23 +1043,7 @@ class LEDRasterApp {
             this.project = data;
             this.dedupeProjectLayers('socket_project_data');
             if (data && data.raster_width && data.raster_height) {
-                const r = window.canvasRenderer;
-                r.pixelRasterWidth = data.raster_width;
-                r.pixelRasterHeight = data.raster_height;
-                r.showRasterWidth = data.show_raster_width || data.raster_width;
-                r.showRasterHeight = data.show_raster_height || data.raster_height;
-                // Match the active fields to the current view.
-                if (r.isShowLookView()) {
-                    r.rasterWidth = r.showRasterWidth;
-                    r.rasterHeight = r.showRasterHeight;
-                } else {
-                    r.rasterWidth = r.pixelRasterWidth;
-                    r.rasterHeight = r.pixelRasterHeight;
-                }
-                const rw = document.getElementById('toolbar-raster-width');
-                const rh = document.getElementById('toolbar-raster-height');
-                if (rw) rw.value = r.rasterWidth;
-                if (rh) rh.value = r.rasterHeight;
+                this.syncRasterFromProject();
                 this.saveRasterSize();
             }
 
@@ -1245,22 +1229,7 @@ class LEDRasterApp {
                 this.project = data;
                 this.dedupeProjectLayers('load_project');
                 if (data && data.raster_width && data.raster_height) {
-                    const r = window.canvasRenderer;
-                    r.pixelRasterWidth = data.raster_width;
-                    r.pixelRasterHeight = data.raster_height;
-                    r.showRasterWidth = data.show_raster_width || data.raster_width;
-                    r.showRasterHeight = data.show_raster_height || data.raster_height;
-                    if (r.isShowLookView()) {
-                        r.rasterWidth = r.showRasterWidth;
-                        r.rasterHeight = r.showRasterHeight;
-                    } else {
-                        r.rasterWidth = r.pixelRasterWidth;
-                        r.rasterHeight = r.pixelRasterHeight;
-                    }
-                    const rw = document.getElementById('toolbar-raster-width');
-                    const rh = document.getElementById('toolbar-raster-height');
-                    if (rw) rw.value = r.rasterWidth;
-                    if (rh) rh.value = r.rasterHeight;
+                    this.syncRasterFromProject();
                     this.saveRasterSize();
                 }
                 sendClientLog('load_project', { name: data.name, layers: data.layers ? data.layers.length : 0 });
@@ -1653,6 +1622,43 @@ class LEDRasterApp {
         };
         localStorage.setItem('ledRasterSize', JSON.stringify(rasterSize));
     }
+
+    /**
+     * Sync the canvas renderer's pixel/show raster backing fields from the
+     * loaded project. Older projects pre-date the show raster, so default
+     * the show fields to the pixel fields when missing. Also refresh the
+     * toolbar input to match the currently active view's raster.
+     */
+    syncRasterFromProject() {
+        if (!this.project) return;
+        const r = window.canvasRenderer;
+        if (!r) return;
+        const pw = Number(this.project.raster_width) || r.pixelRasterWidth || 1920;
+        const ph = Number(this.project.raster_height) || r.pixelRasterHeight || 1080;
+        const sw = Number(this.project.show_raster_width) || pw;
+        const sh = Number(this.project.show_raster_height) || ph;
+        r.pixelRasterWidth = pw;
+        r.pixelRasterHeight = ph;
+        r.showRasterWidth = sw;
+        r.showRasterHeight = sh;
+        // Make sure the project dict carries both — older projects may have
+        // been opened without going through the server migration.
+        this.project.raster_width = pw;
+        this.project.raster_height = ph;
+        this.project.show_raster_width = sw;
+        this.project.show_raster_height = sh;
+        if (r.isShowLookView()) {
+            r.rasterWidth = sw;
+            r.rasterHeight = sh;
+        } else {
+            r.rasterWidth = pw;
+            r.rasterHeight = ph;
+        }
+        const rwIn = document.getElementById('toolbar-raster-width');
+        const rhIn = document.getElementById('toolbar-raster-height');
+        if (rwIn) rwIn.value = r.rasterWidth;
+        if (rhIn) rhIn.value = r.rasterHeight;
+    }
     
     // Load raster size from localStorage (checks version first)
     loadRasterSize() {
@@ -1720,6 +1726,7 @@ class LEDRasterApp {
             .then(data => {
                 this.project = data;
                 this.dedupeProjectLayers('new_project');
+                this.syncRasterFromProject();
                 sendClientLog('new_project');
                 this.updateUI();
 
@@ -8161,11 +8168,10 @@ class LEDRasterApp {
                     this.normalizeLoadedPowerFlowPattern(layer);
                 });
             }
+            // Sync renderer's pixel/show raster fields from the loaded file.
+            // syncRasterFromProject handles view-aware raster + toolbar input.
+            this.syncRasterFromProject();
             if (file.data.raster_width && file.data.raster_height) {
-                window.canvasRenderer.rasterWidth = file.data.raster_width;
-                window.canvasRenderer.rasterHeight = file.data.raster_height;
-                document.getElementById('toolbar-raster-width').value = file.data.raster_width;
-                document.getElementById('toolbar-raster-height').value = file.data.raster_height;
                 this.saveRasterSize();
             }
             this.updateUI();
@@ -8187,6 +8193,7 @@ class LEDRasterApp {
                     }
                     this.project = data;
                     this.dedupeProjectLayers('load_recent_file');
+                    this.syncRasterFromProject();
                     if (this.project.layers) {
                         this.project.layers.forEach(layer => {
                             this.applyMissingLayerDefaults(layer);
@@ -9766,6 +9773,10 @@ class LEDRasterApp {
                                         this.normalizeLoadedPowerFlowPattern(layer);
                                     });
                                 }
+                                // Sync the canvas's pixel/show raster backing fields from the
+                                // loaded project so Show Look picks up the file's values
+                                // (and falls back to the pixel raster when show wasn't saved).
+                                this.syncRasterFromProject();
                                 this.updateUI();
                                 if (this.project.layers && this.project.layers.length > 0) {
                                     this.selectLayer(this.project.layers[0]);
