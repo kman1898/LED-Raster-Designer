@@ -15,6 +15,15 @@ class CanvasRenderer {
         this.layerSelectionRect = null;
         this.magneticSnap = true; // Magnetic snapping enabled by default
         this.spacePressed = false;
+        // rasterWidth/Height are the *currently active* view's raster size.
+        // The actual storage lives in pixelRasterWidth/Height and
+        // showRasterWidth/Height; setViewMode() swaps the active fields so
+        // pixel-map/cabinet-id render against the processor raster while
+        // show-look/data-flow/power render against the show raster.
+        this.pixelRasterWidth = 1920;
+        this.pixelRasterHeight = 1080;
+        this.showRasterWidth = 1920;
+        this.showRasterHeight = 1080;
         this.rasterWidth = 1920;
         this.rasterHeight = 1080;
         this.showGrid = true;
@@ -97,11 +106,38 @@ class CanvasRenderer {
         };
     }
 
+    /**
+     * Returns true when the current view uses the Show Look position
+     * (showOffsetX/Y) instead of the processor position (offset_x/y).
+     * Show Look itself, plus Data Flow and Power, all render at the
+     * real-world stage layout per the Show Look feature spec.
+     */
+    isShowLookView(mode = this.viewMode) {
+        return mode === 'show-look' || mode === 'data-flow' || mode === 'power';
+    }
+
+    /**
+     * Render-time translation to apply to a layer's geometry so it appears
+     * at its show position in show-look / data-flow / power. Returns
+     * {dx: 0, dy: 0} for pixel-map / cabinet-id (no shift).
+     */
+    getLayerRenderOffset(layer) {
+        if (!layer || !this.isShowLookView()) return { dx: 0, dy: 0 };
+        const procX = Number(layer.offset_x) || 0;
+        const procY = Number(layer.offset_y) || 0;
+        const showX = (layer.showOffsetX !== null && layer.showOffsetX !== undefined)
+            ? Number(layer.showOffsetX) : procX;
+        const showY = (layer.showOffsetY !== null && layer.showOffsetY !== undefined)
+            ? Number(layer.showOffsetY) : procY;
+        return { dx: showX - procX, dy: showY - procY };
+    }
+
     getLayerBounds(layer) {
+        const { dx, dy } = this.getLayerRenderOffset(layer);
         if (layer && (layer.type || 'screen') === 'text') {
             return {
-                x: Number(layer.offset_x) || 0,
-                y: Number(layer.offset_y) || 0,
+                x: (Number(layer.offset_x) || 0) + dx,
+                y: (Number(layer.offset_y) || 0) + dy,
                 width: Number(layer.textWidth) || 400,
                 height: Number(layer.textHeight) || 100
             };
@@ -111,8 +147,8 @@ class CanvasRenderer {
             const width = (Number(layer.imageWidth) || 0) * scale;
             const height = (Number(layer.imageHeight) || 0) * scale;
             return {
-                x: Number(layer.offset_x) || 0,
-                y: Number(layer.offset_y) || 0,
+                x: (Number(layer.offset_x) || 0) + dx,
+                y: (Number(layer.offset_y) || 0) + dy,
                 width,
                 height
             };
@@ -133,8 +169,8 @@ class CanvasRenderer {
                 if (y2 > maxY) maxY = y2;
             });
             return {
-                x: minX,
-                y: minY,
+                x: minX + dx,
+                y: minY + dy,
                 width: maxX - minX,
                 height: maxY - minY
             };
@@ -142,8 +178,8 @@ class CanvasRenderer {
         const width = (Number(layer.columns) || 0) * (Number(layer.cabinet_width) || 0);
         const height = (Number(layer.rows) || 0) * (Number(layer.cabinet_height) || 0);
         return {
-            x: Number(layer.offset_x) || 0,
-            y: Number(layer.offset_y) || 0,
+            x: (Number(layer.offset_x) || 0) + dx,
+            y: (Number(layer.offset_y) || 0) + dy,
             width,
             height
         };
@@ -165,9 +201,12 @@ class CanvasRenderer {
         }
         
         if (e.button === 0 && e.shiftKey) {
-            // Let shift+drag behavior handle screen name move
+            // Let shift+drag behavior handle screen name move on cabinet-id /
+            // data-flow / power. On pixel-map and show-look, fall through so
+            // shift+drag moves the entire layer (writing to offset_x/y or
+            // showOffsetX/Y respectively).
             if (window.app && window.app.currentLayer) {
-                if (this.viewMode !== 'pixel-map') {
+                if (this.viewMode !== 'pixel-map' && this.viewMode !== 'show-look') {
                     this.isDraggingScreenName = true;
                     this.dragScreenNameStartX = worldX;
                     this.dragScreenNameStartY = worldY;
@@ -260,9 +299,11 @@ class CanvasRenderer {
             this.canvas.style.cursor = 'grabbing';
         } else if (e.button === 0 && e.shiftKey && !e.altKey) {
             if (window.app && window.app.currentLayer) {
-                // On pixel-map: drag entire layer
-                // On other modes: drag screen name label only
-                if (this.viewMode === 'pixel-map') {
+                // On pixel-map / show-look: drag entire layer.
+                //   - pixel-map writes to offset_x/y (the processor position)
+                //   - show-look writes to showOffsetX/Y (the show position)
+                // On data-flow / power / cabinet-id: drag screen name label only.
+                if (this.viewMode === 'pixel-map' || this.viewMode === 'show-look') {
                     const selected = window.app.getSelectedLayers ? window.app.getSelectedLayers() : [window.app.currentLayer];
                     const uniqueSelected = [];
                     const seenIds = new Set();
@@ -279,28 +320,45 @@ class CanvasRenderer {
                         return;
                     }
                     this.isDraggingLayer = true;
+                    this.dragLayerMode = (this.viewMode === 'show-look') ? 'show' : 'processor';
                     // Save state BEFORE the drag starts so undo reverts to pre-move positions
                     if (typeof window.app.saveState === 'function') {
-                        window.app.saveState('Move Layers');
+                        window.app.saveState(this.dragLayerMode === 'show' ? 'Move Layers (Show Look)' : 'Move Layers');
                     }
                     this.dragLayerStartX = worldX;
                     this.dragLayerStartY = worldY;
-                    this.layerStartOffset = {
-                        x: window.app.currentLayer.offset_x,
-                        y: window.app.currentLayer.offset_y
-                    };
+                    const useShow = this.dragLayerMode === 'show';
+                    const startX = useShow
+                        ? (window.app.currentLayer.showOffsetX ?? window.app.currentLayer.offset_x ?? 0)
+                        : (window.app.currentLayer.offset_x ?? 0);
+                    const startY = useShow
+                        ? (window.app.currentLayer.showOffsetY ?? window.app.currentLayer.offset_y ?? 0)
+                        : (window.app.currentLayer.offset_y ?? 0);
+                    this.layerStartOffset = { x: startX, y: startY };
                     this.dragLayerOffsets = movable.map(layer => ({
                         id: layer.id,
-                        startX: layer.offset_x,
-                        startY: layer.offset_y,
-                        panelStarts: (layer.panels || []).map(panel => ({
+                        startX: useShow
+                            ? (layer.showOffsetX ?? layer.offset_x ?? 0)
+                            : (layer.offset_x ?? 0),
+                        startY: useShow
+                            ? (layer.showOffsetY ?? layer.offset_y ?? 0)
+                            : (layer.offset_y ?? 0),
+                        // Only the processor-position drag mutates panel.x/y
+                        // (panels live in processor coords). Show-position
+                        // drag is rendered via ctx.translate so panels stay
+                        // put.
+                        panelStarts: useShow ? null : (layer.panels || []).map(panel => ({
                             id: panel.id,
                             x: panel.x,
                             y: panel.y
                         }))
                     }));
                     if (typeof sendClientLog === 'function') {
-                        sendClientLog('layer_drag_start', { viewMode: this.viewMode, layerIds: movable.map(l => l.id) });
+                        sendClientLog('layer_drag_start', {
+                            viewMode: this.viewMode,
+                            mode: this.dragLayerMode,
+                            layerIds: movable.map(l => l.id),
+                        });
                     }
                 } else {
                     // Dragging screen name on cabinet-id, data-flow, power modes
@@ -493,22 +551,30 @@ class CanvasRenderer {
                 if (movable.length === 0) {
                     return;
                 }
+                const showMode = this.dragLayerMode === 'show';
                 movable.forEach(item => {
                     const layer = window.app.project.layers.find(l => l.id === item.id);
                     if (!layer || layer.locked) return;
                     const nextX = item.startX + snapDx;
                     const nextY = item.startY + snapDy;
-                    layer.offset_x = nextX;
-                    layer.offset_y = nextY;
-                    const startMap = new Map((item.panelStarts || []).map(p => [p.id, p]));
-                    layer.panels.forEach(panel => {
-                        const start = startMap.get(panel.id);
-                        if (!start) return;
-                        panel.x = start.x + snapDx;
-                        panel.y = start.y + snapDy;
-                    });
+                    if (showMode) {
+                        // Show Look drag — only the show position changes;
+                        // panels stay at their processor coords.
+                        layer.showOffsetX = nextX;
+                        layer.showOffsetY = nextY;
+                    } else {
+                        layer.offset_x = nextX;
+                        layer.offset_y = nextY;
+                        const startMap = new Map((item.panelStarts || []).map(p => [p.id, p]));
+                        layer.panels.forEach(panel => {
+                            const start = startMap.get(panel.id);
+                            if (!start) return;
+                            panel.x = start.x + snapDx;
+                            panel.y = start.y + snapDy;
+                        });
+                    }
                 });
-                
+
                 this.render();
             }
         } else if (this.isDraggingScreenName) {
@@ -781,22 +847,28 @@ class CanvasRenderer {
                     const layer = window.app.project.layers.find(l => l.id === item.id);
                     return layer && !layer.locked;
                 });
+                const showMode = this.dragLayerMode === 'show';
                 movable.forEach(item => {
                     const layer = window.app.project.layers.find(l => l.id === item.id);
                     if (!layer || layer.locked) return;
                     const nextX = item.startX + snapDx;
                     const nextY = item.startY + snapDy;
-                    layer.offset_x = nextX;
-                    layer.offset_y = nextY;
-                    const startMap = new Map((item.panelStarts || []).map(p => [p.id, p]));
-                    layer.panels.forEach(panel => {
-                        const start = startMap.get(panel.id);
-                        if (!start) return;
-                        panel.x = start.x + snapDx;
-                        panel.y = start.y + snapDy;
-                    });
+                    if (showMode) {
+                        layer.showOffsetX = nextX;
+                        layer.showOffsetY = nextY;
+                    } else {
+                        layer.offset_x = nextX;
+                        layer.offset_y = nextY;
+                        const startMap = new Map((item.panelStarts || []).map(p => [p.id, p]));
+                        layer.panels.forEach(panel => {
+                            const start = startMap.get(panel.id);
+                            if (!start) return;
+                            panel.x = start.x + snapDx;
+                            panel.y = start.y + snapDy;
+                        });
+                    }
                 });
-                
+
                 // Update Screen Info inputs to reflect current positions (respects mixed values)
                 if (window.app.loadLayerToInputs) {
                     window.app.loadLayerToInputs();
@@ -804,9 +876,10 @@ class CanvasRenderer {
                     document.getElementById('offset-x').value = window.app.currentLayer.offset_x;
                     document.getElementById('offset-y').value = window.app.currentLayer.offset_y;
                 }
-                
+
                 const toUpdate = window.app.getSelectedLayers ? window.app.getSelectedLayers() : [window.app.currentLayer];
                 window.app.updateLayers(toUpdate, false);
+                this.dragLayerMode = null;
             }
         } else if (this.isDraggingScreenName) {
             this.isDraggingScreenName = false;
@@ -1083,10 +1156,16 @@ class CanvasRenderer {
             const layer = window.app.project.layers[i];
             if (!layer.visible) continue;
             if ((layer.type || 'screen') === 'image') continue;
+            // Convert world coords back into the layer's processor space so we
+            // can hit-test against panel.x/y (which are stored at processor
+            // position; show-look just renders with a translate).
+            const { dx, dy } = this.getLayerRenderOffset(layer);
+            const lx = worldX - dx;
+            const ly = worldY - dy;
             for (const panel of layer.panels) {
                 // Don't skip hidden panels - they need to be clickable to toggle back
-                if (worldX >= panel.x && worldX <= panel.x + panel.width &&
-                    worldY >= panel.y && worldY <= panel.y + panel.height) {
+                if (lx >= panel.x && lx <= panel.x + panel.width &&
+                    ly >= panel.y && ly <= panel.y + panel.height) {
                     return { panel, layerId: layer.id };
                 }
             }
@@ -1313,38 +1392,53 @@ class CanvasRenderer {
                     if (this.viewMode === 'power') {
                         this.preparePowerLayerRenderData(layer);
                     }
+                    // Show Look / Data / Power render at the layer's show
+                    // position rather than its processor position. We apply
+                    // that as a per-layer ctx translate so all the existing
+                    // panel.x/y math stays in processor coords.
+                    const { dx, dy } = this.getLayerRenderOffset(layer);
+                    const needsShift = dx !== 0 || dy !== 0;
+                    if (needsShift) {
+                        this.ctx.save();
+                        this.ctx.translate(dx, dy);
+                    }
                     if ((layer.type || 'screen') === 'image') {
                         this.renderImageLayer(layer);
+                        if (needsShift) this.ctx.restore();
                         return;
                     }
                     if ((layer.type || 'screen') === 'text') {
                         this.renderTextLayer(layer);
+                        if (needsShift) this.ctx.restore();
                         return;
                     }
                     // Note: We don't fill the layer background anymore
                     // Each panel fills its own area, and hidden panels show as outlines
                     // This allows hidden panels to be transparent instead of black
-                    
+
                     layer.panels.forEach(panel => {
-                        if (panel.x >= this.rasterWidth || panel.y >= this.rasterHeight) return;
-                        
+                        // Compare against raster bounds in the layer's render
+                        // space so panels that are off-canvas in pixel-map but
+                        // on-canvas in show-look (or vice versa) draw correctly.
+                        if (panel.x + dx >= this.rasterWidth || panel.y + dy >= this.rasterHeight) return;
+
                         // Render all panels - visible and hidden (hidden as ghost outlines)
                         this.renderPanel(panel, layer);
                     });
-                    
+
                     // Render Circle with X test pattern
                     if (layer.show_circle_with_x && this.viewMode === 'pixel-map' && (layer.type || 'screen') !== 'image') {
                         this.renderCircleWithX(layer);
                     }
-                    
+
                     // Render offsets (pixel-map only)
                     this.renderLayerOffsets(layer);
-                    
+
                     // Render Cabinet ID numbers in world space (scales with zoom)
                     if (this.viewMode === 'cabinet-id') {
                         this.renderCabinetIDNumbers(layer);
                     }
-                    
+
                     // Render Data Flow arrows (serpentine path with P1/R1 labels)
                     if (this.viewMode === 'data-flow') {
                         this.renderDataFlowArrows(layer);
@@ -1356,6 +1450,7 @@ class CanvasRenderer {
                     // Render labels as part of each layer so upper layers naturally
                     // paint over lower layers' labels (no bleed-through)
                     this.renderLayerLabels(layer);
+                    if (needsShift) this.ctx.restore();
                 }
             });
 
@@ -1631,6 +1726,22 @@ class CanvasRenderer {
     
     setViewMode(mode) {
         this.viewMode = mode;
+        // Swap the active raster to match the view. Show-look and the
+        // downstream tabs (data-flow, power) render at the show raster;
+        // pixel-map and cabinet-id render at the processor raster.
+        if (this.isShowLookView(mode)) {
+            this.rasterWidth = this.showRasterWidth;
+            this.rasterHeight = this.showRasterHeight;
+        } else {
+            this.rasterWidth = this.pixelRasterWidth;
+            this.rasterHeight = this.pixelRasterHeight;
+        }
+        // Reflect the active raster in the toolbar inputs so the user sees
+        // the right numbers when switching tabs.
+        const rw = document.getElementById('toolbar-raster-width');
+        const rh = document.getElementById('toolbar-raster-height');
+        if (rw) rw.value = this.rasterWidth;
+        if (rh) rh.value = this.rasterHeight;
         this.render();
     }
 
@@ -1662,6 +1773,12 @@ class CanvasRenderer {
                 break;
             case 'cabinet-id':
                 this.renderCabinetID(panel, layer);
+                break;
+            case 'show-look':
+                // Show Look uses the same checkerboard look as Pixel Map so
+                // the user can see the screen arrangement; only the layout
+                // (positions) differs.
+                this.renderPixelMap(panel, layer);
                 break;
             case 'data-flow':
                 this.renderDataFlow(panel, layer);
@@ -3186,13 +3303,21 @@ class CanvasRenderer {
         this.ctx.beginPath();
         this.ctx.rect(0, 0, this.rasterWidth, this.rasterHeight);
         this.ctx.clip();
-        this.ctx.fillStyle = 'rgba(74, 144, 226, 0.35)';
-        this.ctx.strokeStyle = 'rgba(74, 144, 226, 1.0)';
         this.ctx.lineWidth = 2 / this.zoom;
         selection.forEach(key => {
             const [row, col] = key.split(',').map(n => parseInt(n, 10));
             const panel = window.app.getPanelByRowCol(layer, row, col);
             if (!panel) return;
+            // Hidden ("blank") panels render as just a faint dashed outline,
+            // so the normal 0.35-alpha selection tint barely shows against the
+            // dark background. Use a stronger fill on hidden panels so the
+            // user can clearly see which blank cells are part of the selection.
+            if (panel.hidden) {
+                this.ctx.fillStyle = 'rgba(74, 144, 226, 0.55)';
+            } else {
+                this.ctx.fillStyle = 'rgba(74, 144, 226, 0.35)';
+            }
+            this.ctx.strokeStyle = 'rgba(74, 144, 226, 1.0)';
             this.ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
             this.ctx.strokeRect(panel.x, panel.y, panel.width, panel.height);
         });

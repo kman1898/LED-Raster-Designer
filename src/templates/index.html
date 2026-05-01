@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED Raster Designer v0.7.5.3</title>
+    <title>LED Raster Designer v0.7.6.0</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -84,7 +84,7 @@
 
         <div id="toolbar">
             <div class="toolbar-section toolbar-project">
-                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.7.5.3</span></h1>
+                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.7.6.0</span></h1>
                 <div style="position:relative;">
                     <input type="text" id="project-name" value="Untitled Project" class="editable-project-name">
                     <div id="project-name-warning" style="display:none; position:absolute; top:100%; left:0; margin-top:4px; padding:4px 8px; font-size:11px; color:#f5a623; background:#1a1a1a; border:1px solid #f5a623; border-radius:4px; white-space:nowrap; z-index:1000; pointer-events:none;"></div>
@@ -100,10 +100,11 @@
         </div>
 
         <div id="view-tabs">
-            <button class="view-tab active" data-mode="pixel-map" data-tooltip="Pixel map view — layout and positioning">Pixel Map</button>
-            <button class="view-tab" data-mode="cabinet-id" data-tooltip="Cabinet ID view — label and identify panels">Cabinet ID</button>
-            <button class="view-tab" data-mode="data-flow" data-tooltip="Data flow view — signal routing and ports">Data</button>
-            <button class="view-tab" data-mode="power" data-tooltip="Power view — electrical distribution">Power</button>
+            <button class="view-tab active" data-mode="pixel-map" data-tooltip="Pixel map view — layout and positioning (the layout the processor expects)">Pixel Map</button>
+            <button class="view-tab" data-mode="cabinet-id" data-tooltip="Cabinet ID view — label and identify panels (matches Pixel Map layout)">Cabinet ID</button>
+            <button class="view-tab" data-mode="show-look" data-tooltip="Show Look — rearrange screens to the real-world stage layout. Drives the layout shown in Data and Power views.">Show Look</button>
+            <button class="view-tab" data-mode="data-flow" data-tooltip="Data flow view — signal routing and ports (uses Show Look layout)">Data</button>
+            <button class="view-tab" data-mode="power" data-tooltip="Power view — electrical distribution (uses Show Look layout)">Power</button>
         </div>
 
         <div id="main-container">
@@ -378,7 +379,30 @@
                         </div>
                     </div>
                 </div>
-                
+
+                <!-- Show Look Controls -->
+                <div class="panel tab-panel screen-only" data-tab="show-look" style="display: none;">
+                    <div class="panel-header" data-tooltip="Show Look — Rearrange screens to match the real-world stage layout. Pixel Map and Cabinet ID stay tied to the processor's expected layout; Show Look drives Data and Power.">
+                        <h2>Show Look</h2>
+                    </div>
+                    <div class="panel-content">
+                        <div style="color:#aaa; font-size: 11px; margin-bottom: 10px; line-height: 1.4;">
+                            Shift-drag a screen on the canvas to position it for the real-world stage layout, or set the offsets here. Data and Power views render at this layout.
+                        </div>
+                        <div class="info-row" data-tooltip="Show Offset X — Horizontal position of this screen in the Show Look layout.">
+                            <label>Show Offset X</label>
+                            <input type="text" id="show-offset-x" value="0">
+                        </div>
+                        <div class="info-row" data-tooltip="Show Offset Y — Vertical position of this screen in the Show Look layout.">
+                            <label>Show Offset Y</label>
+                            <input type="text" id="show-offset-y" value="0">
+                        </div>
+                        <div style="margin-top: 12px;">
+                            <button id="show-look-reset" class="btn" style="width:100%;" data-tooltip="Reset this screen's Show Look position to match its Pixel Map position.">Reset to Pixel Map Position</button>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Data Controls -->
                 <div class="panel tab-panel screen-only" data-tab="data-flow" style="display: none;">
                     <div class="panel-header" data-tooltip="Data Settings — Configure data port mapping, flow patterns, port labels, and visual styling for the data flow overlay.">
@@ -1290,6 +1314,13 @@
                             Cabinet Map
                         </label>
                         <input type="text" id="export-suffix-cabinet-id" placeholder="Cabinet Map">
+                    </div>
+                    <div class="export-view-row">
+                        <label class="export-view-label">
+                            <input type="checkbox" id="export-show-look">
+                            Show Look
+                        </label>
+                        <input type="text" id="export-suffix-show-look" placeholder="Show Look">
                     </div>
                     <div class="export-view-row">
                         <label class="export-view-label">

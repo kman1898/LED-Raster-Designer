@@ -328,6 +328,12 @@ current_project = {
     'name': 'Untitled Project',
     'raster_width': 1920,
     'raster_height': 1080,
+    # Show Look has its own raster size — defaults to the same as the
+    # processor raster so existing projects open identically. The Show Look
+    # raster is used as the export canvas size for the Show Look / Data /
+    # Power views (which all render at the show position).
+    'show_raster_width': 1920,
+    'show_raster_height': 1080,
     'layers': [],
     'is_pristine': True
 }
@@ -374,6 +380,14 @@ def create_layer(name, columns, rows, cabinet_width, cabinet_height, offset_x=0,
         'cabinet_height': cabinet_height,
         'offset_x': offset_x,
         'offset_y': offset_y,
+        # Show Look position — used by the Show Look / Data / Power tabs.
+        # Defaults to the same values as offset_x/offset_y until the user
+        # rearranges the layer in the Show Look view, at which point the
+        # two positions diverge: pixel-map / cabinet-id keep using
+        # offset_x/y (the processor's expected layout) while show-look /
+        # data / power use showOffsetX/Y (the real-world stage layout).
+        'showOffsetX': offset_x,
+        'showOffsetY': offset_y,
         'panel_width_mm': 500.0,
         'panel_height_mm': 500.0,
         'panel_weight': 20.0,
@@ -794,6 +808,8 @@ def new_project():
         'name': 'Untitled Project',
         'raster_width': 1920,
         'raster_height': 1080,
+        'show_raster_width': 1920,
+        'show_raster_height': 1080,
         'layers': [],
         'is_pristine': True
     }
@@ -819,6 +835,20 @@ def restore_project():
     data = request.json
     current_project = data
     current_project['is_pristine'] = False
+    # Backfill showOffsetX/Y on layers from older projects that pre-date the
+    # Show Look feature — default them to the layer's processor offset so
+    # existing projects open with the show layout = pixel layout.
+    for layer in current_project.get('layers', []):
+        if layer.get('showOffsetX') is None:
+            layer['showOffsetX'] = layer.get('offset_x', 0)
+        if layer.get('showOffsetY') is None:
+            layer['showOffsetY'] = layer.get('offset_y', 0)
+    # Backfill the Show Look raster size to match the processor raster for
+    # projects saved before the Show Look feature.
+    if current_project.get('show_raster_width') is None:
+        current_project['show_raster_width'] = current_project.get('raster_width', 1920)
+    if current_project.get('show_raster_height') is None:
+        current_project['show_raster_height'] = current_project.get('raster_height', 1080)
     sync_next_layer_id()
     log_event('restore_project', {
         'name': current_project.get('name', '?'),
@@ -865,7 +895,8 @@ def add_layer():
         'portLabelTemplatePrimary', 'portLabelTemplateReturn',
         'portLabelOverridesPrimary', 'portLabelOverridesReturn',
         'customPortPaths', 'customPortIndex',
-        'randomDataColors'
+        'randomDataColors',
+        'showOffsetX', 'showOffsetY',
     ]
     
     half_fields = {'halfFirstColumn', 'halfLastColumn', 'halfFirstRow', 'halfLastRow'}
@@ -991,6 +1022,8 @@ def update_layer(layer_id):
                 'screenNameOffsetXDataFlow', 'screenNameOffsetYDataFlow',
                 'screenNameOffsetXPower', 'screenNameOffsetYPower',
                 'screenNameSize',
+                # Show Look position (separate from offset_x/y).
+                'showOffsetX', 'showOffsetY',
                 'showDataFlowPortInfo', 'showPowerCircuitInfo']:
         if key in data:
             layer[key] = data[key]
