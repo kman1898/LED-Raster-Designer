@@ -4317,10 +4317,26 @@ class LEDRasterApp {
 
     // Manual user-triggered refresh from the button in the catalog header.
     refreshPanelCatalogNow(opts = {}) {
+        // Re-entrancy guard: if a refresh is already in flight, return that
+        // promise instead of starting a parallel one. Spam-clicking the
+        // button used to stack 9 fetches behind each other and confuse the
+        // UI state.
+        if (this._catalogRefreshInFlight) return this._catalogRefreshInFlight;
         const btn = document.getElementById('panel-catalog-refresh-btn');
-        const tag = document.getElementById('panel-catalog-source-tag');
-        if (btn) { btn.disabled = true; btn.textContent = '↻ Refreshing…'; }
-        return fetch('/api/panel-catalog/refresh').then(r => r.ok ? r.json() : Promise.reject(r))
+        if (btn) {
+            btn.disabled = true;
+            // pointer-events:none belt-and-suspenders the disabled attribute
+            // (some bound listeners fire on disabled buttons in webviews).
+            btn.style.pointerEvents = 'none';
+            btn.style.opacity = '0.6';
+            btn.textContent = '↻ Refreshing…';
+        }
+        // Hard 15s client-side timeout so a hung server can't pin the UI.
+        const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+        const timeoutId = setTimeout(() => { try { ctrl && ctrl.abort(); } catch {} }, 15000);
+        const fetchOpts = ctrl ? { signal: ctrl.signal } : {};
+        const p = fetch('/api/panel-catalog/refresh', fetchOpts)
+            .then(r => r.ok ? r.json() : r.json().then(b => Promise.reject(b)).catch(() => Promise.reject({status: r.status})))
             .then(payload => {
                 if (!payload || !payload.catalog) throw new Error('bad payload');
                 this._setCachedCatalog(payload.catalog, payload.sha, payload.fetchedAt);
@@ -4336,12 +4352,24 @@ class LEDRasterApp {
                     this._toast(`Catalog refreshed — ${count.toLocaleString()} panels`);
                 }
             })
-            .catch(() => {
-                if (!opts.silent) this._toast('Couldn’t reach GitHub — keeping current catalog', true);
+            .catch((err) => {
+                if (!opts.silent) {
+                    const detail = err && err.error ? ` (${err.error})` : '';
+                    this._toast(`Couldn’t reach GitHub — keeping current catalog${detail}`, true);
+                }
             })
             .finally(() => {
-                if (btn) { btn.disabled = false; btn.textContent = '↻ Refresh'; }
+                clearTimeout(timeoutId);
+                this._catalogRefreshInFlight = null;
+                if (btn) {
+                    btn.disabled = false;
+                    btn.style.pointerEvents = '';
+                    btn.style.opacity = '';
+                    btn.textContent = '↻ Refresh';
+                }
             });
+        this._catalogRefreshInFlight = p;
+        return p;
     }
 
     // Renders the small "source tag" shown in the catalog column header:

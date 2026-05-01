@@ -1,6 +1,30 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.7.3 - May 1, 2026
+----------------------------
+- FIX: Panel catalog refresh failed in the macOS bundled app with
+  "Couldn't reach GitHub". Root cause: Python's stdlib ssl module
+  inside the PyInstaller .app couldn't find the system CA cert
+  store, so every HTTPS handshake to raw.githubusercontent.com
+  failed. We were already bundling certifi for this exact reason
+  but never actually pointing urllib at it. Now the refresh route
+  builds an SSL context with cafile=certifi.where() so verification
+  succeeds in both dev and bundled builds.
+- UX: Refresh button now properly suppresses spam clicks (previously
+  9 stacked fetches were possible while it said "Refreshing…"),
+  has a hard 15s client-side AbortController timeout so a hung
+  request can't pin the UI, and surfaces the underlying server
+  error in the failure toast instead of just "couldn't reach".
+- LOGS: Server now logs panel_catalog_refresh_start/done/error so
+  failures can be diagnosed without guessing whether the request
+  reached Flask.
+- INFRA: Release workflow auto-publishes tagged releases instead of
+  leaving them as drafts (was the reason /releases/latest pointed
+  at v0.7.6.4 even though .7.0/.1/.2 had been built).
+- DELETE: Removed broken v0.7.7.2 release from GitHub Releases
+  (catalog refresh never worked on macOS in that build).
+
 v0.7.7.2 - May 1, 2026
 ----------------------------
 - FEATURE: Panel catalog can now be refreshed live from GitHub without

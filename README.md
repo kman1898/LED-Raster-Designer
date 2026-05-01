@@ -1,4 +1,4 @@
-# LED Raster Designer v0.7.7.2
+# LED Raster Designer v0.7.7.3
 
 A professional LED video wall layout designer for live events, concerts, and installations.
 
@@ -98,6 +98,7 @@ Half-tiles count as **0.5 panel** for data/port math and **0.65 panel** for powe
 - Over-capacity error detection with visual overlay
 - Per-screen primary / backup port colors and label sizes
 - Optional per-port info display directly on the panel
+- **Front / Back view perspective** — independent toggle in the sidebar. Back view horizontally mirrors the canvas geometry (so wiring matches what you see standing behind the wall) while keeping every label readable, shows a "BACK VIEW" badge in the corner, and auto-appends `_back` to the export filename suffix.
 
 ### Power Tab
 - Circuit-based serpentine routing with configurable voltage, amperage, and watts
@@ -107,6 +108,7 @@ Half-tiles count as **0.5 panel** for data/port math and **0.65 panel** for powe
 - 1-phase and 3-phase power calculations
 - Circuit start labels with directional pointers
 - Per-circuit label overrides
+- **Front / Back view perspective** — same independent toggle as Data, with mirrored geometry and "BACK VIEW" badge.
 
 ### Project Management
 - Save / open projects as `.json` files (preserves all layers, settings, and panel state)
@@ -126,7 +128,9 @@ Half-tiles count as **0.5 panel** for data/port math and **0.65 panel** for powe
 ### Verified Panel Catalog
 - Built-in panel presets for many manufacturers (ROE, Leyard, Barco, INFiLED, ARTFOX, etc.)
 - ⭐ marker on panels with verified specs (cross-checked against manufacturer datasheets)
-- "Submit a correction" / "Add missing panel" link inside the app opens a pre-filled GitHub issue
+- **Live catalog refresh** — `↻ Refresh` button in the Add Screen modal pulls the latest `panel_catalog.json` from GitHub without needing to reinstall the app. Boot-time silent check shows a "📦 Update available" pill when newer panels are out. Refreshed catalog persists per browser.
+- **Favorites** — heart any panel in the catalog to pin it to the left column alongside your saved presets. Drag-reorder the left column to suit your typical workflow. Per-user, persists in localStorage.
+- "Submit a correction" / "Add missing panel" link inside the app opens a pre-filled GitHub issue (with a confirmation that the user must click "Submit new issue" on GitHub for it to actually reach us — submissions used to silently drop)
 
 ### Preferences
 - Default raster size, grid colors, flow patterns, and line widths
