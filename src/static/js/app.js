@@ -990,6 +990,11 @@ class LEDRasterApp {
                     btn.style.left = '';
                 }
             };
+            const resizeCanvas = () => {
+                if (!window.canvasRenderer) return;
+                if (window.canvasRenderer.setupCanvas) window.canvasRenderer.setupCanvas();
+                window.canvasRenderer.render();
+            };
             const apply = (collapsed) => {
                 sidebar.classList.toggle('collapsed', collapsed);
                 document.body.classList.toggle(`${key}-sidebar-collapsed`, collapsed);
@@ -997,19 +1002,15 @@ class LEDRasterApp {
                 btn.title = collapsed
                     ? `Expand ${key} panel`
                     : `Collapse ${key} panel`;
-                // The width transition runs ~180ms; reposition while it
-                // animates and again at the end so the toggle hugs the
-                // edge throughout (and at the final position).
-                requestAnimationFrame(positionToggle);
-                setTimeout(positionToggle, 60);
-                setTimeout(positionToggle, 220);
-                // Canvas width changes when the sidebar shrinks; trigger a
-                // re-render so the canvas + raster boundary repaint at the
-                // new size.
-                if (window.canvasRenderer) {
-                    if (window.canvasRenderer.setupCanvas) window.canvasRenderer.setupCanvas();
-                    window.canvasRenderer.render();
-                }
+                // The CSS width transition runs ~180ms. Reposition the
+                // toggle and resize the canvas at multiple points during /
+                // after the animation so the canvas always fills the
+                // available wrapper width — otherwise the canvas keeps its
+                // pre-collapse pixel dimensions and the user sees a black
+                // strip on the side where the sidebar used to be.
+                requestAnimationFrame(() => { positionToggle(); resizeCanvas(); });
+                setTimeout(() => { positionToggle(); resizeCanvas(); }, 60);
+                setTimeout(() => { positionToggle(); resizeCanvas(); }, 220);
             };
             const saved = localStorage.getItem(storageKey) === '1';
             apply(saved);
