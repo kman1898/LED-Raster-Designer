@@ -957,6 +957,9 @@ class LEDRasterApp {
             this.loadProject();
             this.setupEventListeners();
             sendClientLog('app_init', { ua: navigator.userAgent });
+            // Background-check upstream panel catalog after the rest of boot
+            // settles so we don't slow first paint. Failure is silent.
+            setTimeout(() => this.checkPanelCatalogUpdate(), 1500);
         });
     }
 
@@ -4190,6 +4193,38 @@ class LEDRasterApp {
         });
     }
 
+    // ── Panel catalog source-of-truth resolution ──
+    // Prefers a cached refresh from GitHub (in localStorage) over the bundled
+    // file shipped with this app version. If the user hits Refresh and a
+    // newer catalog is fetched, we cache it and every subsequent _loadPanelCatalog
+    // call uses the cached copy automatically.
+    _getCachedCatalog() {
+        try {
+            const raw = localStorage.getItem('panelCatalog.cached');
+            if (!raw) return null;
+            return JSON.parse(raw);
+        } catch { return null; }
+    }
+    _setCachedCatalog(catalog, sha, fetchedAt) {
+        try {
+            localStorage.setItem('panelCatalog.cached', JSON.stringify(catalog));
+            if (sha) localStorage.setItem('panelCatalog.cachedSha', sha);
+            if (fetchedAt) localStorage.setItem('panelCatalog.cachedAt', fetchedAt);
+        } catch {}
+    }
+    _getCachedCatalogSha() { return localStorage.getItem('panelCatalog.cachedSha') || ''; }
+    _getCachedCatalogAt()  { return localStorage.getItem('panelCatalog.cachedAt') || ''; }
+
+    _ingestCatalog(catalog) {
+        this._panelCatalog = catalog || {};
+        this._panelCatalogFlat = [];
+        Object.keys(this._panelCatalog).forEach(mfr => {
+            (this._panelCatalog[mfr] || []).forEach(p => {
+                this._panelCatalogFlat.push(Object.assign({ _mfr: mfr, _searchKey: (mfr + ' ' + (p.name || '')).toLowerCase() }, p));
+            });
+        });
+    }
+
     _loadPanelCatalog() {
         const listEl = document.getElementById('panel-catalog-list');
         const mfrSel = document.getElementById('panel-catalog-mfr');
@@ -4198,8 +4233,11 @@ class LEDRasterApp {
         if (!listEl) return;
         listEl.innerHTML = '<div style="padding: 12px; color: #888; font-size: 12px;">Loading catalog…</div>';
         const finish = () => {
-            // Populate manufacturer dropdown (once)
-            if (mfrSel && mfrSel.options.length <= 1) {
+            // Repopulate manufacturer dropdown when source changes (e.g. after refresh).
+            if (mfrSel) {
+                const cur = mfrSel.value;
+                // Clear all but the "All manufacturers" option
+                while (mfrSel.options.length > 1) mfrSel.remove(1);
                 const mfrs = Object.keys(this._panelCatalog).sort((a, b) => a.localeCompare(b));
                 mfrs.forEach(m => {
                     const opt = document.createElement('option');
@@ -4207,7 +4245,11 @@ class LEDRasterApp {
                     opt.textContent = `${m.replace(/_/g, ' ')} (${this._panelCatalog[m].length})`;
                     mfrSel.appendChild(opt);
                 });
-                mfrSel.addEventListener('change', () => this._renderPanelCatalogList());
+                if (cur && Array.from(mfrSel.options).some(o => o.value === cur)) mfrSel.value = cur;
+                if (!mfrSel._pickerWired) {
+                    mfrSel._pickerWired = true;
+                    mfrSel.addEventListener('change', () => this._renderPanelCatalogList());
+                }
             }
             if (searchEl && !searchEl._pickerWired) {
                 searchEl._pickerWired = true;
@@ -4222,21 +4264,144 @@ class LEDRasterApp {
                 countEl.textContent = `· ${total.toLocaleString()} panels · ${Object.keys(this._panelCatalog).length} mfrs`;
             }
             this._renderPanelCatalogList();
+            this._renderCatalogSourceTag();
         };
         if (this._panelCatalog) { finish(); return; }
+        // Prefer the cached refreshed catalog if present, else the bundled file.
+        const cached = this._getCachedCatalog();
+        if (cached) {
+            this._ingestCatalog(cached);
+            finish();
+            return;
+        }
         fetch('/static/data/panel_catalog.json').then(r => r.json()).then(data => {
-            this._panelCatalog = data || {};
-            // Flatten once for search
-            this._panelCatalogFlat = [];
-            Object.keys(this._panelCatalog).forEach(mfr => {
-                (this._panelCatalog[mfr] || []).forEach(p => {
-                    this._panelCatalogFlat.push(Object.assign({ _mfr: mfr, _searchKey: (mfr + ' ' + (p.name || '')).toLowerCase() }, p));
-                });
-            });
+            this._ingestCatalog(data);
             finish();
         }).catch(() => {
             listEl.innerHTML = '<div style="padding: 12px; color: #c55; font-size: 12px;">Failed to load panel catalog.</div>';
         });
+    }
+
+    // Background check on app boot — fetches the upstream catalog SHA and
+    // stashes the fresh catalog in localStorage if it differs from what the
+    // user currently has loaded. Sets `_catalogUpdateAvailable` so the picker
+    // can show an "Update available" badge next time it's opened.
+    checkPanelCatalogUpdate() {
+        // Resolve the user's current effective SHA (cached refresh wins over bundled).
+        const cachedSha = this._getCachedCatalogSha();
+        const baselineSha = cachedSha || (this._bundledCatalogSha || '');
+        const apply = (payload) => {
+            if (!payload || !payload.sha) return;
+            this._latestCatalogSha = payload.sha;
+            this._latestCatalogFetchedAt = payload.fetchedAt || '';
+            this._latestCatalogPanelCount = payload.panelCount || 0;
+            // Stash the catalog so the user can apply it instantly without
+            // another network call when they click the badge.
+            if (payload.catalog) this._pendingCatalog = payload.catalog;
+            const baseline = cachedSha || (this._bundledCatalogSha || '');
+            this._catalogUpdateAvailable = !!baseline && payload.sha !== baseline;
+            this._renderCatalogSourceTag();
+        };
+        // First pull bundled SHA (cheap, no network), then ask the upstream proxy.
+        const infoFetch = this._bundledCatalogSha
+            ? Promise.resolve({ bundledSha: this._bundledCatalogSha })
+            : fetch('/api/panel-catalog/info').then(r => r.json()).then(d => {
+                this._bundledCatalogSha = d.bundledSha || '';
+                this._bundledCatalogPanelCount = d.panelCount || 0;
+                return d;
+            }).catch(() => ({}));
+        infoFetch.then(() => fetch('/api/panel-catalog/refresh').then(r => r.ok ? r.json() : Promise.reject(r)))
+            .then(apply)
+            .catch(() => { /* offline / blocked — silently keep current */ });
+    }
+
+    // Manual user-triggered refresh from the button in the catalog header.
+    refreshPanelCatalogNow(opts = {}) {
+        const btn = document.getElementById('panel-catalog-refresh-btn');
+        const tag = document.getElementById('panel-catalog-source-tag');
+        if (btn) { btn.disabled = true; btn.textContent = '↻ Refreshing…'; }
+        return fetch('/api/panel-catalog/refresh').then(r => r.ok ? r.json() : Promise.reject(r))
+            .then(payload => {
+                if (!payload || !payload.catalog) throw new Error('bad payload');
+                this._setCachedCatalog(payload.catalog, payload.sha, payload.fetchedAt);
+                this._latestCatalogSha = payload.sha;
+                this._latestCatalogFetchedAt = payload.fetchedAt || '';
+                this._catalogUpdateAvailable = false;
+                this._pendingCatalog = null;
+                this._ingestCatalog(payload.catalog);
+                this._renderPanelCatalogList();
+                this._renderCatalogSourceTag();
+                if (!opts.silent) {
+                    const count = payload.panelCount || 0;
+                    this._toast(`Catalog refreshed — ${count.toLocaleString()} panels`);
+                }
+            })
+            .catch(() => {
+                if (!opts.silent) this._toast('Couldn’t reach GitHub — keeping current catalog', true);
+            })
+            .finally(() => {
+                if (btn) { btn.disabled = false; btn.textContent = '↻ Refresh'; }
+            });
+    }
+
+    // Renders the small "source tag" shown in the catalog column header:
+    //   - "Bundled (vX.Y.Z)" or "Updated <date>"
+    //   - When an update is available, the tag becomes a clickable green pill.
+    _renderCatalogSourceTag() {
+        const el = document.getElementById('panel-catalog-source-tag');
+        if (!el) return;
+        const cachedAt = this._getCachedCatalogAt();
+        const updateAvail = !!this._catalogUpdateAvailable;
+        if (updateAvail) {
+            el.style.cssText = 'display:inline-block; cursor:pointer; padding:2px 8px; border-radius:10px; background:#1a5fb4; color:#fff; font-size:10px; font-weight:600; letter-spacing:0.3px;';
+            el.textContent = '📦 Update available · click to apply';
+            el.title = 'A newer panel catalog is available from GitHub. Click to apply.';
+            el.onclick = () => {
+                if (this._pendingCatalog) {
+                    this._setCachedCatalog(this._pendingCatalog, this._latestCatalogSha, this._latestCatalogFetchedAt);
+                    this._ingestCatalog(this._pendingCatalog);
+                    this._catalogUpdateAvailable = false;
+                    this._pendingCatalog = null;
+                    // Re-render dropdown + list with new data
+                    this._loadPanelCatalog();
+                    this._toast('Catalog updated');
+                } else {
+                    // Pending data wasn't stashed (boot check failed?) — fall back to a fresh refresh
+                    this.refreshPanelCatalogNow();
+                }
+            };
+        } else {
+            el.style.cssText = 'display:inline-block; padding:2px 0; color:#777; font-size:10px;';
+            el.onclick = null;
+            if (cachedAt) {
+                const d = new Date(cachedAt);
+                const when = isNaN(d) ? cachedAt : d.toLocaleDateString();
+                el.textContent = `Updated ${when}`;
+                el.title = `Catalog last refreshed from GitHub on ${cachedAt}`;
+            } else {
+                el.textContent = 'Bundled';
+                el.title = 'Using the panel catalog bundled with this app version. Click Refresh to pull updates.';
+            }
+        }
+    }
+
+    _toast(msg, isError) {
+        let host = document.getElementById('app-toast-host');
+        if (!host) {
+            host = document.createElement('div');
+            host.id = 'app-toast-host';
+            host.style.cssText = 'position:fixed; bottom:20px; left:50%; transform:translateX(-50%); z-index:11000; display:flex; flex-direction:column; gap:6px; align-items:center;';
+            document.body.appendChild(host);
+        }
+        const t = document.createElement('div');
+        t.style.cssText = `padding:10px 16px; border-radius:6px; font-size:13px; color:#fff; background:${isError ? '#a8324b' : '#2d4a7a'}; box-shadow:0 2px 12px rgba(0,0,0,0.4); opacity:0; transition:opacity 0.18s ease;`;
+        t.textContent = msg;
+        host.appendChild(t);
+        requestAnimationFrame(() => { t.style.opacity = '1'; });
+        setTimeout(() => {
+            t.style.opacity = '0';
+            setTimeout(() => t.remove(), 220);
+        }, 2400);
     }
 
     // A panel is "verified" if its `source` flags it as cross-checked against
@@ -4511,6 +4676,15 @@ class LEDRasterApp {
             body: bodyLines.join('\n'),
         });
         const url = `https://github.com/kman1898/LED-Raster-Designer/issues/new?${params.toString()}`;
+        // Make sure the user knows the GitHub tab is the actual submission —
+        // we've had submissions get lost because the user filled out the
+        // app-side prompts and assumed that was enough.
+        const ok = confirm(
+            'This will open GitHub in a new tab with your submission pre-filled.\n\n' +
+            'IMPORTANT: You must be signed in to GitHub and click the green "Submit new issue" button there for it to actually reach us.\n\n' +
+            'Continue?'
+        );
+        if (!ok) return;
         window.open(url, '_blank', 'noopener');
     }
 
@@ -4643,6 +4817,9 @@ class LEDRasterApp {
             e.preventDefault();
             this.openPanelSpecCorrection();
         });
+
+        const refreshBtn = document.getElementById('panel-catalog-refresh-btn');
+        if (refreshBtn) refreshBtn.addEventListener('click', () => this.refreshPanelCatalogNow());
 
         const saveCancel = document.getElementById('preset-save-cancel');
         const saveConfirm = document.getElementById('preset-save-confirm');
