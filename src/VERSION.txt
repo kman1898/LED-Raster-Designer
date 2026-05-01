@@ -1,6 +1,16 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.7.1 - May 1, 2026
+----------------------------
+- FEATURE: Favorites for the Add Screen picker. Click the heart icon on
+  any row in the Panel Catalog to add it to the left column alongside
+  your saved presets. Hearted panels stay there forever (per user, not
+  per project) so you don't have to scroll the catalog every time you
+  add the same panel. Drag any row in the left column to reorder —
+  favorites and presets mix freely. Click the filled heart to remove a
+  favorite. Default is always pinned at the top.
+
 v0.7.7.0 - May 1, 2026
 ----------------------------
 - FEATURE: Front/Back view perspective toggle for Data Flow and Power

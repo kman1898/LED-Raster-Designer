@@ -3972,6 +3972,50 @@ class LEDRasterApp {
             .then(r => r.json().then(body => r.ok ? body : Promise.reject(body)));
     }
 
+    // ── Add-Layer favorites (per-user, localStorage) ──
+    // `favorites` is an array of panel snapshots ({ _mfr, name, width_mm, ... })
+    // captured when the user hearted a catalog row. Snapshotting lets us
+    // render favorites even before the catalog JSON has loaded.
+    // `order` is an array of left-column row IDs ('__default__', 'preset:<name>',
+    // 'panel:<mfr>|<name>'); items not in the array fall back to natural order.
+    getAddLayerFavorites() {
+        try { return JSON.parse(localStorage.getItem('addLayer.favorites') || '[]') || []; }
+        catch { return []; }
+    }
+    setAddLayerFavorites(arr) {
+        try { localStorage.setItem('addLayer.favorites', JSON.stringify(arr || [])); } catch {}
+    }
+    getAddLayerOrder() {
+        try { return JSON.parse(localStorage.getItem('addLayer.order') || '[]') || []; }
+        catch { return []; }
+    }
+    setAddLayerOrder(arr) {
+        try { localStorage.setItem('addLayer.order', JSON.stringify(arr || [])); } catch {}
+    }
+    _favoriteKey(mfr, name) { return `${mfr}|${name}`; }
+    _isCatalogFavorited(mfr, name) {
+        const key = this._favoriteKey(mfr, name);
+        return this.getAddLayerFavorites().some(p => this._favoriteKey(p._mfr, p.name) === key);
+    }
+    _toggleCatalogFavorite(panel) {
+        const key = this._favoriteKey(panel._mfr, panel.name);
+        const favs = this.getAddLayerFavorites();
+        const idx = favs.findIndex(p => this._favoriteKey(p._mfr, p.name) === key);
+        if (idx >= 0) {
+            favs.splice(idx, 1);
+        } else {
+            // Snapshot only the fields we need so we don't bloat localStorage.
+            favs.push({
+                _mfr: panel._mfr, name: panel.name,
+                width_mm: panel.width_mm, height_mm: panel.height_mm,
+                pixels_w: panel.pixels_w, pixels_h: panel.pixels_h,
+                weight_kg: panel.weight_kg, watts_max: panel.watts_max,
+                source: panel.source
+            });
+        }
+        this.setAddLayerFavorites(favs);
+    }
+
     // ── Preset Picker Modal (triggered by + Add Screen) ──
     openPresetPicker() {
         const modal = document.getElementById('preset-picker-modal');
@@ -3982,6 +4026,15 @@ class LEDRasterApp {
         // Selection model: { type: 'preset'|'panel', key } — default preset is always '__default__'
         this._pickerSelection = { type: 'preset', key: '__default__' };
         this._updatePickerSummary();
+        this._renderPresetPickerLeftColumn();
+        // Load catalog in parallel
+        this._loadPanelCatalog();
+    }
+
+    _renderPresetPickerLeftColumn() {
+        const list = document.getElementById('preset-picker-list');
+        if (!list) return;
+        list.innerHTML = '<div style="padding: 12px; color: #888; font-size: 12px;">Loading…</div>';
         this.fetchPresetEntries().then(entries => {
             list.innerHTML = '';
             const prefs = this.getPreferences() || {};
@@ -3991,38 +4044,95 @@ class LEDRasterApp {
                 panel_width_mm: prefs.panelWidthMM, panel_height_mm: prefs.panelHeightMM,
                 panelWatts: prefs.powerWatts
             };
-            const rows = [
-                { key: '__default__', label: 'Default (from Preferences)', sublabel: this.formatPresetSublabel(prefEntry) }
-            ];
-            entries.forEach(entry => rows.push({
-                key: entry.name, label: entry.name, sublabel: this.formatPresetSublabel(entry)
+            // Build unified row list. Default is always pinned first.
+            const defaultRow = {
+                id: '__default__',
+                kind: 'default',
+                label: 'Default (from Preferences)',
+                sublabel: this.formatPresetSublabel(prefEntry),
+                pickerKey: '__default__'
+            };
+            const presetRows = entries.map(entry => ({
+                id: `preset:${entry.name}`,
+                kind: 'preset',
+                label: entry.name,
+                sublabel: this.formatPresetSublabel(entry),
+                pickerKey: entry.name
             }));
+            const favRows = this.getAddLayerFavorites().map(p => ({
+                id: `panel:${this._favoriteKey(p._mfr, p.name)}`,
+                kind: 'favorite',
+                panel: p,
+                label: `${(p._mfr || '').replace(/_/g,' ')} ${p.name || ''}`.trim(),
+                sublabel: this.formatPresetSublabel({
+                    cabinet_width: p.pixels_w, cabinet_height: p.pixels_h,
+                    panel_width_mm: p.width_mm, panel_height_mm: p.height_mm,
+                    panelWatts: p.watts_max
+                }),
+                pickerKey: this._favoriteKey(p._mfr, p.name)
+            }));
+            // Sort by saved order; unknowns appended.
+            const order = this.getAddLayerOrder();
+            const orderIdx = id => {
+                const i = order.indexOf(id);
+                return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+            };
+            const mixed = [...presetRows, ...favRows].sort((a, b) => orderIdx(a.id) - orderIdx(b.id));
+            const rows = [defaultRow, ...mixed];
+
             rows.forEach((row, idx) => {
                 const item = document.createElement('div');
                 item.className = 'preset-picker-row';
-                item.dataset.key = row.key;
+                item.dataset.key = row.pickerKey;
+                item.dataset.kind = row.kind;
+                item.dataset.id = row.id;
                 item.style.cssText = 'padding: 10px 12px; border-radius: 4px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 8px;';
+                // Default + non-default rows get drag enabled (except default — it stays pinned)
+                if (row.kind !== 'default') {
+                    item.draggable = true;
+                    this._wirePresetRowDrag(item);
+                }
                 if (idx === 0) item.style.background = '#2d4a7a';
                 const leftCol = document.createElement('div');
-                leftCol.innerHTML = `<div style="color:#fff; font-size:13px; font-weight:500;">${this.escapeHtml(row.label)}</div><div style="color:#888; font-size:11px;">${row.sublabel}</div>`;
+                leftCol.style.cssText = 'flex: 1; min-width: 0; overflow: hidden;';
+                leftCol.innerHTML = `<div style="color:#fff; font-size:13px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${this.escapeHtml(row.label)}</div><div style="color:#888; font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${row.sublabel}</div>`;
                 item.appendChild(leftCol);
-                if (row.key !== '__default__') {
+                // Heart on favorite rows (always filled — clicking removes from favorites)
+                if (row.kind === 'favorite') {
+                    const heartBtn = document.createElement('button');
+                    heartBtn.className = 'btn';
+                    heartBtn.innerHTML = '♥';
+                    heartBtn.title = 'Remove from favorites';
+                    heartBtn.style.cssText = 'background: transparent; color: #e25555; font-size: 14px; padding: 2px 8px; border: 1px solid #444;';
+                    heartBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        this._toggleCatalogFavorite(row.panel);
+                        this._renderPresetPickerLeftColumn();
+                        this._renderPanelCatalogList();
+                    });
+                    item.appendChild(heartBtn);
+                }
+                if (row.kind === 'preset') {
                     const delBtn = document.createElement('button');
                     delBtn.className = 'btn';
                     delBtn.textContent = '🗑';
-                    delBtn.title = `Delete preset "${row.key}"`;
+                    delBtn.title = `Delete preset "${row.pickerKey}"`;
                     delBtn.style.cssText = 'background: transparent; color: #c55; font-size: 14px; padding: 2px 8px; border: 1px solid #444;';
                     delBtn.addEventListener('click', (e) => {
                         e.stopPropagation();
-                        if (!confirm(`Delete preset "${row.key}"?`)) return;
-                        this.deletePresetOnServer(row.key).then(() => {
-                            this.openPresetPicker();
+                        if (!confirm(`Delete preset "${row.pickerKey}"?`)) return;
+                        this.deletePresetOnServer(row.pickerKey).then(() => {
+                            this._renderPresetPickerLeftColumn();
                         }).catch(err => alert('Failed to delete preset: ' + (err && err.error || 'unknown')));
                     });
                     item.appendChild(delBtn);
                 }
                 item.addEventListener('click', () => {
-                    this._pickerSelection = { type: 'preset', key: row.key, label: row.label };
+                    if (row.kind === 'favorite') {
+                        this._pickerSelection = { type: 'panel', key: this._favoriteKey(row.panel._mfr, row.panel.name), panel: row.panel, label: row.label };
+                    } else {
+                        this._pickerSelection = { type: 'preset', key: row.pickerKey, label: row.label };
+                    }
                     this._highlightPickerSelection();
                     this._updatePickerSummary();
                 });
@@ -4030,8 +4140,54 @@ class LEDRasterApp {
             });
             this._highlightPickerSelection();
         });
-        // Load catalog in parallel
-        this._loadPanelCatalog();
+    }
+
+    // HTML5 drag-and-drop reorder for the left column. Default row is pinned
+    // (not draggable, not a drop target). Order persists in localStorage.
+    _wirePresetRowDrag(item) {
+        item.addEventListener('dragstart', (e) => {
+            this._dragRowId = item.dataset.id;
+            item.style.opacity = '0.4';
+            try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', item.dataset.id); } catch {}
+        });
+        item.addEventListener('dragend', () => {
+            item.style.opacity = '';
+            this._dragRowId = null;
+            document.querySelectorAll('#preset-picker-list .preset-picker-row').forEach(el => {
+                el.style.borderTop = '';
+                el.style.borderBottom = '';
+            });
+        });
+        item.addEventListener('dragover', (e) => {
+            if (!this._dragRowId || this._dragRowId === item.dataset.id) return;
+            if (item.dataset.kind === 'default') return;
+            e.preventDefault();
+            try { e.dataTransfer.dropEffect = 'move'; } catch {}
+            const rect = item.getBoundingClientRect();
+            const before = (e.clientY - rect.top) < rect.height / 2;
+            item.style.borderTop = before ? '2px solid #4A90E2' : '';
+            item.style.borderBottom = before ? '' : '2px solid #4A90E2';
+        });
+        item.addEventListener('dragleave', () => {
+            item.style.borderTop = '';
+            item.style.borderBottom = '';
+        });
+        item.addEventListener('drop', (e) => {
+            e.preventDefault();
+            const draggedId = this._dragRowId;
+            const targetId = item.dataset.id;
+            if (!draggedId || draggedId === targetId || item.dataset.kind === 'default') return;
+            const rect = item.getBoundingClientRect();
+            const dropBefore = (e.clientY - rect.top) < rect.height / 2;
+            // Build new order from current DOM, excluding default and dragged.
+            const ids = Array.from(document.querySelectorAll('#preset-picker-list .preset-picker-row'))
+                .map(el => el.dataset.id)
+                .filter(id => id && id !== '__default__' && id !== draggedId);
+            const insertAt = ids.indexOf(targetId) + (dropBefore ? 0 : 1);
+            ids.splice(insertAt, 0, draggedId);
+            this.setAddLayerOrder(ids);
+            this._renderPresetPickerLeftColumn();
+        });
     }
 
     _loadPanelCatalog() {
@@ -4143,7 +4299,25 @@ class LEDRasterApp {
             // own published spec sheet/PDF (not just FidoLED's database).
             const verified = this._isPanelVerified(p);
             const star = verified ? `<span title="Verified against ${this.escapeHtml(p.source || '')}" style="color:#f5c842; margin-right:4px;">⭐</span>` : '';
-            item.innerHTML = `<div style="color:#fff; font-size:12px;">${star}<span style="color:#8ab4f8;">${this.escapeHtml(p._mfr.replace(/_/g, ' '))}</span> · ${this.escapeHtml(p.name || '')}</div><div style="color:#888; font-size:11px;">${specs.join(' · ')}</div>`;
+            const isFav = this._isCatalogFavorited(p._mfr, p.name);
+            // Layout: text on the left, heart pinned on the right.
+            item.style.cssText = 'padding: 8px 10px; border-bottom: 1px solid #222; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 8px;';
+            const textCol = document.createElement('div');
+            textCol.style.cssText = 'flex: 1; min-width: 0;';
+            textCol.innerHTML = `<div style="color:#fff; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${star}<span style="color:#8ab4f8;">${this.escapeHtml(p._mfr.replace(/_/g, ' '))}</span> · ${this.escapeHtml(p.name || '')}</div><div style="color:#888; font-size:11px;">${specs.join(' · ')}</div>`;
+            item.appendChild(textCol);
+            const heartBtn = document.createElement('button');
+            heartBtn.className = 'btn';
+            heartBtn.innerHTML = isFav ? '♥' : '♡';
+            heartBtn.title = isFav ? 'Remove from favorites' : 'Add to favorites';
+            heartBtn.style.cssText = `background: transparent; color: ${isFav ? '#e25555' : '#888'}; font-size: 14px; padding: 2px 8px; border: 1px solid #333;`;
+            heartBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this._toggleCatalogFavorite(p);
+                this._renderPanelCatalogList();
+                this._renderPresetPickerLeftColumn();
+            });
+            item.appendChild(heartBtn);
             item.addEventListener('click', () => {
                 this._pickerSelection = { type: 'panel', key: p._mfr + '|' + p.name, panel: p, label: `${p._mfr.replace(/_/g,' ')} ${p.name}` };
                 this._highlightPickerSelection();
@@ -4163,7 +4337,14 @@ class LEDRasterApp {
     _highlightPickerSelection() {
         const sel = this._pickerSelection || {};
         document.querySelectorAll('#preset-picker-list .preset-picker-row').forEach(el => {
-            el.style.background = (sel.type === 'preset' && el.dataset.key === sel.key) ? '#2d4a7a' : 'transparent';
+            const kind = el.dataset.kind;
+            let match = false;
+            if (kind === 'favorite') {
+                match = sel.type === 'panel' && el.dataset.key === sel.key;
+            } else {
+                match = sel.type === 'preset' && el.dataset.key === sel.key;
+            }
+            el.style.background = match ? '#2d4a7a' : 'transparent';
         });
         document.querySelectorAll('#panel-catalog-list .panel-catalog-row').forEach(el => {
             const key = el.dataset.mfr + '|' + el.dataset.name;
