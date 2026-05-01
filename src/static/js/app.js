@@ -1925,6 +1925,9 @@ class LEDRasterApp {
         // Refresh illegal-character warning whenever the project name changes
         // programmatically (e.g. on project load).
         projectNameEl.dispatchEvent(new Event('input'));
+        // Sync the Front/Back perspective toggle buttons to the loaded
+        // project's saved values.
+        if (this.refreshPerspectiveButtons) this.refreshPerspectiveButtons();
 
         // Load project notes
         const notesEl = document.getElementById('project-notes');
@@ -1979,8 +1982,52 @@ class LEDRasterApp {
         }, true);
     }
 
+    /**
+     * Wire the Front / Back perspective toggles in the Data Flow and Power
+     * sidebars. Each tab has its own perspective stored on the project
+     * (project.data_flow_perspective, project.power_perspective). 'back'
+     * horizontally mirrors the wiring view so techs working behind the wall
+     * see things from their perspective; labels stay readable (un-mirrored
+     * inside the canvas mirror transform during render).
+     */
+    setupPerspectiveToggles() {
+        document.querySelectorAll('.perspective-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const target = btn.getAttribute('data-target');
+                const value = btn.getAttribute('data-perspective');
+                if (!target || !value || !this.project) return;
+                if (this.project[target] === value) return;
+                this.project[target] = value;
+                this.refreshPerspectiveButtons();
+                this.saveProject();
+                if (window.canvasRenderer) window.canvasRenderer.render();
+                if (typeof sendClientLog === 'function') {
+                    sendClientLog('perspective_change', { target, value });
+                }
+            });
+        });
+        this.refreshPerspectiveButtons();
+    }
+
+    /**
+     * Reflect the project's current perspective values on the toggle
+     * buttons (active state). Called after the project loads or the user
+     * toggles.
+     */
+    refreshPerspectiveButtons() {
+        if (!this.project) return;
+        document.querySelectorAll('.perspective-btn').forEach(btn => {
+            const target = btn.getAttribute('data-target');
+            const value = btn.getAttribute('data-perspective');
+            if (!target || !value) return;
+            const current = this.project[target] || 'front';
+            btn.classList.toggle('active', current === value);
+        });
+    }
+
     setupEventListeners() {
         this.setupPixelMapBulkActions();
+        this.setupPerspectiveToggles();
         // Project name editing
         const projectNameInput = document.getElementById('project-name');
         const projectNameWarning = document.getElementById('project-name-warning');
@@ -6969,7 +7016,17 @@ class LEDRasterApp {
 
     getExportSuffixForView(view, suffixes, viewNames) {
         const raw = (suffixes && typeof suffixes[view] === 'string') ? suffixes[view].trim() : '';
-        return raw || viewNames[view];
+        let suffix = raw || viewNames[view];
+        // Append _back when this view is in back perspective
+        if (this.project) {
+            const perspectiveKey = view === 'data-flow' ? 'data_flow_perspective'
+                : view === 'power' ? 'power_perspective'
+                : null;
+            if (perspectiveKey && this.project[perspectiveKey] === 'back') {
+                if (!/_back$/i.test(suffix)) suffix = `${suffix}_back`;
+            }
+        }
+        return suffix;
     }
     
     // Export Resolume Arena Advanced Output XML

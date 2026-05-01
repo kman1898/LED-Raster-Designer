@@ -117,6 +117,63 @@ class CanvasRenderer {
     }
 
     /**
+     * True when the active view is one of the wiring views (Data Flow /
+     * Power) AND the project's perspective for that view is 'back'. In that
+     * case render() horizontally mirrors the canvas around the right edge
+     * of the raster so techs working behind the wall see the layout from
+     * their perspective. Labels are un-mirrored at draw time via _fillText
+     * / _strokeText so they stay readable.
+     */
+    isMirroredView() {
+        if (!window.app || !window.app.project) return false;
+        if (this.viewMode === 'data-flow') {
+            return window.app.project.data_flow_perspective === 'back';
+        }
+        if (this.viewMode === 'power') {
+            return window.app.project.power_perspective === 'back';
+        }
+        return false;
+    }
+
+    /**
+     * fillText that auto-un-mirrors when the canvas is in a mirrored
+     * (back-view) render so label glyphs stay right-side-up. Anchor
+     * position is the same as ctx.fillText — pass the position you would
+     * have used in normal rendering. Text alignment ('center' is the most
+     * common in this codebase) keeps its visual centering. Edge-aligned
+     * text ('left'/'right') will flip its anchor side, which is the right
+     * behavior for a back view (the cabinet's left edge becomes its right
+     * in the tech's view).
+     */
+    _fillText(text, x, y, maxWidth) {
+        if (this._mirror) {
+            this.ctx.save();
+            this.ctx.translate(x, y);
+            this.ctx.scale(-1, 1);
+            if (maxWidth !== undefined) this.ctx.fillText(text, 0, 0, maxWidth);
+            else this.ctx.fillText(text, 0, 0);
+            this.ctx.restore();
+        } else {
+            if (maxWidth !== undefined) this.ctx.fillText(text, x, y, maxWidth);
+            else this.ctx.fillText(text, x, y);
+        }
+    }
+
+    _strokeText(text, x, y, maxWidth) {
+        if (this._mirror) {
+            this.ctx.save();
+            this.ctx.translate(x, y);
+            this.ctx.scale(-1, 1);
+            if (maxWidth !== undefined) this.ctx.strokeText(text, 0, 0, maxWidth);
+            else this.ctx.strokeText(text, 0, 0);
+            this.ctx.restore();
+        } else {
+            if (maxWidth !== undefined) this.ctx.strokeText(text, x, y, maxWidth);
+            else this.ctx.strokeText(text, x, y);
+        }
+    }
+
+    /**
      * Layer bounds in the *currently active view's* coordinate space.
      * For pixel-map / cabinet-id this matches getLayerBounds (processor
      * coords). For show-look / data-flow / power it shifts by the layer's
@@ -204,11 +261,19 @@ class CanvasRenderer {
         };
     }
     
+    // When the active view is mirrored (Back perspective), the canvas is
+    // flipped horizontally for display only. Mouse coordinates are still in
+    // un-mirrored screen space, so we have to flip them back into layer
+    // coordinates before any hit-testing / drag math.
+    _unmirrorWorldX(worldX) {
+        return this.isMirroredView() ? (this.rasterWidth - worldX) : worldX;
+    }
+
     handleMouseDown(e) {
         const rect = this.canvas.getBoundingClientRect();
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
-        const worldX = (mouseX - this.panX) / this.zoom;
+        const worldX = this._unmirrorWorldX((mouseX - this.panX) / this.zoom);
         const worldY = (mouseY - this.panY) / this.zoom;
         
         if (e.button === 0 && this.spacePressed) {
@@ -500,7 +565,7 @@ class CanvasRenderer {
         const rect = this.canvas.getBoundingClientRect();
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
-        const worldX = (mouseX - this.panX) / this.zoom;
+        const worldX = this._unmirrorWorldX((mouseX - this.panX) / this.zoom);
         const worldY = (mouseY - this.panY) / this.zoom;
 
         if (this.isAltPainting) {
@@ -858,7 +923,7 @@ class CanvasRenderer {
             this.isDraggingLayer = false;
             
             if (window.app && window.app.currentLayer) {
-                const dx = Math.round(((e.clientX - this.canvas.getBoundingClientRect().left) - this.panX) / this.zoom - this.dragLayerStartX);
+                const dx = Math.round(this._unmirrorWorldX(((e.clientX - this.canvas.getBoundingClientRect().left) - this.panX) / this.zoom) - this.dragLayerStartX);
                 const dy = Math.round(((e.clientY - this.canvas.getBoundingClientRect().top) - this.panY) / this.zoom - this.dragLayerStartY);
                 
                 let snapDx = dx;
@@ -982,7 +1047,7 @@ class CanvasRenderer {
         // single-panel selection so the menu actions target it.
         if (this.viewMode === 'pixel-map' && window.app.currentLayer) {
             const rect = this.canvas.getBoundingClientRect();
-            const worldX = ((e.clientX - rect.left) - this.panX) / this.zoom;
+            const worldX = this._unmirrorWorldX(((e.clientX - rect.left) - this.panX) / this.zoom);
             const worldY = ((e.clientY - rect.top) - this.panY) / this.zoom;
             const clicked = this.getPanelAt(worldX, worldY);
             // Right-click works on hidden panels too — the menu shows
@@ -1350,7 +1415,7 @@ class CanvasRenderer {
             lines.forEach((line, i) => {
                 const ty = y + padding + i * lineHeight;
                 if (ty + lineHeight <= y + h + lineHeight) {
-                    this.ctx.fillText(line, textX, ty);
+                    this._fillText(line, textX, ty);
                     // Underline
                     if (layer.fontUnderline && line.length > 0) {
                         const metrics = this.ctx.measureText(line);
@@ -1408,7 +1473,19 @@ class CanvasRenderer {
         this.ctx.save();
         // Round pan values to prevent sub-pixel anti-aliasing seams between panels
         this.ctx.setTransform(this.zoom, 0, 0, this.zoom, Math.round(this.panX), Math.round(this.panY));
-        
+
+        // Wiring view perspective: in 'back' view, mirror the entire
+        // geometry around the right edge of the raster so techs working
+        // behind the wall see things from their perspective. _fillText /
+        // _strokeText un-mirror text glyphs so labels stay readable. The
+        // _mirror flag drives both the canvas transform and the text
+        // helpers below.
+        this._mirror = this.isMirroredView();
+        if (this._mirror) {
+            this.ctx.translate(this.rasterWidth, 0);
+            this.ctx.scale(-1, 1);
+        }
+
         // Disable image smoothing to prevent anti-aliasing artifacts (seams between panels)
         this.ctx.imageSmoothingEnabled = false;
         
@@ -1502,6 +1579,12 @@ class CanvasRenderer {
             if (!this.exportMode && this.viewMode === 'pixel-map') {
                 this.renderPixelMapSelectionOverlay();
                 this.renderPixelMapSelectionBadge();
+            }
+            // Always show the perspective badge (BACK VIEW) in wiring views
+            // when in back perspective. Renders in both interactive view and
+            // export so the printed map is unambiguous.
+            if (this.viewMode === 'data-flow' || this.viewMode === 'power') {
+                this.renderPerspectiveBadge();
             }
             
             // Third pass: render capacity error overlays ON TOP of labels (Data Flow mode only)
@@ -2044,13 +2127,13 @@ class CanvasRenderer {
         this.ctx.textAlign = 'center';
         this.ctx.textBaseline = 'middle';
         
-        this.ctx.fillText(titleText, layerCenterX, layerCenterY - 35);
+        this._fillText(titleText, layerCenterX, layerCenterY - 35);
         this.ctx.fillStyle = '#FFFFFF';
         this.ctx.font = '28px Arial';
-        this.ctx.fillText(detailText, layerCenterX, layerCenterY + 10);
+        this._fillText(detailText, layerCenterX, layerCenterY + 10);
         this.ctx.font = '24px Arial';
         this.ctx.fillStyle = '#AAAAAA';
-        this.ctx.fillText(infoText, layerCenterX, layerCenterY + 45);
+        this._fillText(infoText, layerCenterX, layerCenterY + 45);
     }
     
     renderDataFlowArrows(layer) {
@@ -2167,28 +2250,28 @@ class CanvasRenderer {
                 this.ctx.font = `bold ${labelSize}px Arial`;
                 this.ctx.textAlign = 'center';
                 this.ctx.textBaseline = 'middle';
-                this.ctx.fillText(returnLabel, rx, ry);
+                this._fillText(returnLabel, rx, ry);
             }
-            
+
             this.ctx.fillStyle = primaryColor;
             this.ctx.beginPath();
             this.ctx.arc(px, py, circleRadius, 0, Math.PI * 2);
             this.ctx.fill();
-            
+
             this.ctx.fillStyle = primaryTextColor;
             this.ctx.font = `bold ${labelSize}px Arial`;
             this.ctx.textAlign = 'center';
             this.ctx.textBaseline = 'middle';
-            this.ctx.fillText(primaryLabel, px, py);
-            
+            this._fillText(primaryLabel, px, py);
+
             if (portPanels.length > 1) {
                 this.ctx.fillStyle = backupColor;
                 this.ctx.beginPath();
                 this.ctx.arc(rx, ry, circleRadius, 0, Math.PI * 2);
                 this.ctx.fill();
-                
+
                 this.ctx.fillStyle = backupTextColor;
-                this.ctx.fillText(returnLabel, rx, ry);
+                this._fillText(returnLabel, rx, ry);
             }
         };
 
@@ -2361,7 +2444,7 @@ class CanvasRenderer {
             this.ctx.fillStyle = powerLabelTextColor;
             this.ctx.textAlign = 'center';
             this.ctx.textBaseline = 'middle';
-            this.ctx.fillText(label, px, py);
+            this._fillText(label, px, py);
         };
 
         if (useColorCodedView) {
@@ -2507,7 +2590,7 @@ class CanvasRenderer {
         this.ctx.font = 'bold 42px Arial';
         this.ctx.textAlign = 'center';
         this.ctx.textBaseline = 'middle';
-        this.ctx.fillText(titleText, layerCenterX, layerCenterY);
+        this._fillText(titleText, layerCenterX, layerCenterY);
     }
     
     // Get panel flow order for a specific range of rows (for horizontal-first patterns)
@@ -2786,9 +2869,9 @@ class CanvasRenderer {
                 textY = panel.y + 5;
             }
             
-            this.ctx.fillText(label, this.snap(textX), this.snap(textY));
+            this._fillText(label, this.snap(textX), this.snap(textY));
         });
-        
+
         this.ctx.restore();
     }
     
@@ -3101,7 +3184,7 @@ class CanvasRenderer {
 
             // Draw BLACK text
             this.ctx.fillStyle = '#000000';
-            this.ctx.fillText(screenName, this.snap(screenNameX), this.snap(screenNameY));
+            this._fillText(screenName, this.snap(screenNameX), this.snap(screenNameY));
 
             this.ctx.restore();
             
@@ -3149,7 +3232,7 @@ class CanvasRenderer {
             this.ctx.fillStyle = layer.labelsColor || '#ffffff';
             let yPos = bgY + padding + lineHeight / 2;
             centerLines.forEach(line => {
-                this.ctx.fillText(line, this.snap(centerX), this.snap(yPos));
+                this._fillText(line, this.snap(centerX), this.snap(yPos));
                 yPos += lineHeight;
             });
 
@@ -3184,7 +3267,7 @@ class CanvasRenderer {
             this.ctx.fillStyle = layer.labelsColor || '#ffffff';
             let yPos = bgY + padding + infoLineHeight;
             infoLines.forEach(line => {
-                this.ctx.fillText(line, this.snap(centerX), this.snap(yPos));
+                this._fillText(line, this.snap(centerX), this.snap(yPos));
                 yPos += infoLineHeight;
             });
         }
@@ -3283,8 +3366,8 @@ class CanvasRenderer {
             
             const textX = corner.align === 'left' ? worldX + padding : worldX - padding;
             const textY = corner.baseline === 'top' ? worldY + padding : worldY - padding;
-            
-            this.ctx.fillText(corner.text, this.snap(textX), this.snap(textY));
+
+            this._fillText(corner.text, this.snap(textX), this.snap(textY));
         });
         
         this.ctx.restore();
@@ -3396,6 +3479,39 @@ class CanvasRenderer {
         this.ctx.fill();
         this.ctx.fillStyle = '#fff';
         this.ctx.textBaseline = 'middle';
+        this.ctx.fillText(label, x + padX, y + boxH / 2);
+        this.ctx.restore();
+    }
+
+    /**
+     * Wiring perspective badge — "BACK VIEW" in screen-space corner when
+     * Data Flow / Power are rendering in back perspective. Shown in both
+     * interactive view and export so the printed map is unambiguous.
+     * Front view shows nothing (clutter-free default; Front is implied).
+     */
+    renderPerspectiveBadge() {
+        if (!this.isMirroredView()) return;
+        const label = 'BACK VIEW';
+        this.ctx.save();
+        this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+        const padX = 18;
+        const padY = 10;
+        const fontPx = 16;
+        this.ctx.font = `700 ${fontPx}px -apple-system, "Segoe UI", sans-serif`;
+        const textWidth = this.ctx.measureText(label).width;
+        const boxW = textWidth + padX * 2;
+        const boxH = fontPx + padY * 2;
+        // Top-right corner so it doesn't overlap the selection badge.
+        const x = this.canvas.width - boxW - 20;
+        const y = 20;
+        this.ctx.fillStyle = 'rgba(217, 80, 0, 0.95)';
+        this.ctx.beginPath();
+        if (this.ctx.roundRect) this.ctx.roundRect(x, y, boxW, boxH, 6);
+        else this.ctx.rect(x, y, boxW, boxH);
+        this.ctx.fill();
+        this.ctx.fillStyle = '#fff';
+        this.ctx.textBaseline = 'middle';
+        this.ctx.textAlign = 'left';
         this.ctx.fillText(label, x + padX, y + boxH / 2);
         this.ctx.restore();
     }

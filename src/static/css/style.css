@@ -31,6 +31,11 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 #left-sidebar, #right-sidebar { background: #252525; width: 260px; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; padding: 10px; border-right: 1px solid #3a3a3a; box-sizing: border-box; transition: width 0.18s ease, padding 0.18s ease, border-color 0.18s ease; }
 #right-sidebar { border-right: none; border-left: 1px solid #3a3a3a; display: flex; flex-direction: column; overflow: hidden; padding: 0; }
 
+/* ── Perspective toggle (Front / Back) ────────────────────────────────── */
+.perspective-btn { background: #2a2a2a; border: 1px solid #3a3a3a; color: #aaa; }
+.perspective-btn:hover { background: #3a3a3a; color: #fff; }
+.perspective-btn.active { background: #4A90E2; border-color: #4A90E2; color: #fff; }
+
 /* ── Collapsible side panels ─────────────────────────────────────────── */
 /* Each toggle button hugs the inner edge of its sidebar. Click to hide
    the entire panel; click again to bring it back. The two sides are
