@@ -2136,6 +2136,10 @@ class LEDRasterApp {
         document.getElementById('btn-add-layer').addEventListener('click', () => {
             this.openPresetPicker();
         });
+        const addCanvasBtn = document.getElementById('btn-add-canvas');
+        if (addCanvasBtn) {
+            addCanvasBtn.addEventListener('click', () => this.addCanvas());
+        }
         const savePresetBtn = document.getElementById('btn-save-preset');
         if (savePresetBtn) {
             savePresetBtn.addEventListener('click', () => this.openPresetSaveModal());
@@ -10158,7 +10162,414 @@ class LEDRasterApp {
             container.appendChild(layerDiv);
         });
 
+        // v0.8 Slice 2: regroup the flat layer list by canvas. The existing
+        // layer items above are preserved as-is — we just lift them into
+        // per-canvas group containers and add canvas headers + per-canvas
+        // "+ Add Screen" buttons + cross-canvas drag/drop.
+        this.regroupLayersByCanvas(container);
+
         this.updateLayerOrderControls();
+    }
+
+    // -------------------------------------------------------------------
+    // Multi-canvas (v0.8 Slice 2) — sidebar canvas grouping.
+    //
+    // Slice 2 keeps workspace rendering unchanged; the sidebar restructure
+    // is the entire visible deliverable. Each canvas gets a header row
+    // (color swatch / name / 👁 / ⋮ / drag handle), its layers underneath
+    // (filtered by layer.canvas_id), and a per-canvas "+ Add Screen"
+    // button. A canvas drag handle reorders canvases. Layers can be
+    // dragged onto another group's header to move them cross-canvas
+    // (Cmd/Alt = duplicate).
+    // -------------------------------------------------------------------
+
+    regroupLayersByCanvas(container) {
+        const project = this.project;
+        if (!project || !Array.isArray(project.canvases) || project.canvases.length === 0) return;
+        const activeId = project.active_canvas_id;
+
+        // Snapshot the existing rendered layer items, keyed by id, then clear.
+        const layerNodes = new Map();
+        container.querySelectorAll('.layer-item').forEach(el => {
+            const lid = parseInt(el.dataset.layerId, 10);
+            if (Number.isFinite(lid)) layerNodes.set(lid, el);
+        });
+        container.innerHTML = '';
+
+        // Sidebar shows canvases in array order, with each canvas's
+        // (reverse-ordered) layers underneath — matches the existing
+        // newest-on-top convention.
+        project.canvases.forEach(canvas => {
+            const group = this.buildCanvasGroupEl(canvas, activeId === canvas.id);
+            container.appendChild(group);
+            const body = group.querySelector('.canvas-group-body');
+
+            // Append matching layer nodes in reverse render order
+            // (Photoshop style — newest on top).
+            const reversed = [...project.layers].reverse();
+            reversed.forEach(layer => {
+                if (layer.canvas_id !== canvas.id) return;
+                const node = layerNodes.get(layer.id);
+                if (node) body.appendChild(node);
+            });
+        });
+    }
+
+    buildCanvasGroupEl(canvas, isActive) {
+        const wrap = document.createElement('div');
+        wrap.className = 'canvas-group' + (isActive ? ' active' : '');
+        if (canvas.visible === false) wrap.classList.add('hidden');
+        wrap.dataset.canvasId = canvas.id;
+        wrap.style.setProperty('--canvas-color', canvas.color || '#4A90E2');
+
+        const layerCount = (this.project.layers || []).filter(l => l.canvas_id === canvas.id).length;
+        wrap.innerHTML = `
+            <div class="canvas-group-header" draggable="true" title="Click to activate · Drag to reorder">
+                <span class="canvas-drag-handle" title="Drag to reorder">⋮⋮</span>
+                <span class="canvas-color-swatch" style="background:${canvas.color || '#4A90E2'};"></span>
+                <input class="canvas-name-input" type="text" value="${this._escapeAttr(canvas.name || 'Canvas')}" readonly>
+                <button class="canvas-vis-btn" title="Toggle canvas visibility">${canvas.visible === false ? '👁‍🗨' : '👁'}</button>
+                <button class="canvas-menu-btn" title="Canvas actions">⋮</button>
+            </div>
+            <div class="canvas-group-body"></div>
+            <div class="canvas-group-footer">
+                <button class="btn btn-secondary canvas-add-screen-btn" title="Add a screen to this canvas">+ Add Screen</button>
+            </div>
+        `;
+        this._wireCanvasGroupEl(wrap, canvas, layerCount);
+        return wrap;
+    }
+
+    _escapeAttr(s) {
+        return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+            .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    _wireCanvasGroupEl(wrap, canvas, layerCount) {
+        const header = wrap.querySelector('.canvas-group-header');
+        const nameInput = wrap.querySelector('.canvas-name-input');
+        const visBtn = wrap.querySelector('.canvas-vis-btn');
+        const menuBtn = wrap.querySelector('.canvas-menu-btn');
+        const addScreenBtn = wrap.querySelector('.canvas-add-screen-btn');
+
+        // Click header anywhere except on inputs/buttons => activate canvas.
+        header.addEventListener('click', (e) => {
+            if (e.target.closest('button') || e.target.closest('input')) return;
+            this.setActiveCanvas(canvas.id);
+        });
+
+        // Double-click name to rename inline.
+        nameInput.addEventListener('dblclick', (e) => {
+            e.stopPropagation();
+            nameInput.readOnly = false;
+            nameInput.focus();
+            nameInput.select();
+        });
+        const commitName = () => {
+            nameInput.readOnly = true;
+            const newName = nameInput.value.trim();
+            if (newName && newName !== canvas.name) {
+                this.updateCanvas(canvas.id, { name: newName });
+            } else {
+                nameInput.value = canvas.name || '';
+            }
+        };
+        nameInput.addEventListener('blur', commitName);
+        nameInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); nameInput.blur(); }
+            else if (e.key === 'Escape') { nameInput.value = canvas.name || ''; nameInput.blur(); }
+            if (!nameInput.readOnly) e.stopPropagation();
+        });
+
+        visBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.updateCanvas(canvas.id, { visible: canvas.visible === false });
+        });
+
+        menuBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.openCanvasMenu(canvas, menuBtn);
+        });
+
+        addScreenBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            // Set the target canvas active so existing add-screen flow lands
+            // here. The PUT is async but the modal user interaction takes
+            // long enough that the server state catches up before any
+            // /api/layer/add request fires.
+            Promise.resolve(this.setActiveCanvas(canvas.id, { silent: true }))
+                .then(() => this.openPresetPicker());
+        });
+
+        // -- Drag & drop --
+        // Drag canvas header => reorder canvases.
+        header.addEventListener('dragstart', (e) => {
+            // If the drag originated from the name input (when readonly was true
+            // and user grabbed the field), still treat as canvas reorder.
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('application/x-canvas-id', canvas.id);
+            e.dataTransfer.setData('text/plain', `canvas:${canvas.id}`);
+            this._dragCanvasId = canvas.id;
+            wrap.classList.add('dragging');
+        });
+        header.addEventListener('dragend', () => {
+            wrap.classList.remove('dragging');
+            this._dragCanvasId = null;
+        });
+
+        // Drop target: canvas header accepts canvas-reorder OR layer drop.
+        wrap.addEventListener('dragover', (e) => {
+            // Layer being dragged onto this canvas => indicate cross-canvas drop.
+            const isCanvas = !!this._dragCanvasId;
+            const isLayer = this.dragLayerId != null && !isCanvas;
+            if (!isCanvas && !isLayer) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = (isLayer && (e.metaKey || e.altKey)) ? 'copy' : 'move';
+            wrap.classList.add('drag-target');
+        });
+        wrap.addEventListener('dragleave', (e) => {
+            // Only clear the highlight when leaving the wrap entirely.
+            if (!wrap.contains(e.relatedTarget)) wrap.classList.remove('drag-target');
+        });
+        wrap.addEventListener('drop', (e) => {
+            wrap.classList.remove('drag-target');
+            // Canvas reorder?
+            const draggedCanvasId = this._dragCanvasId
+                || e.dataTransfer.getData('application/x-canvas-id');
+            if (draggedCanvasId && draggedCanvasId !== canvas.id) {
+                e.preventDefault();
+                this.reorderCanvasBeforeTarget(draggedCanvasId, canvas.id);
+                return;
+            }
+            // Cross-canvas layer drop?
+            // Only handle when the drop landed on the canvas header / footer
+            // (not on an existing layer-item inside this canvas) — otherwise
+            // we would double-fire alongside the within-list reorder handler.
+            if (this.dragLayerId != null) {
+                const onLayerItem = e.target.closest && e.target.closest('.layer-item');
+                if (onLayerItem) return;
+                const draggedLayer = (this.project.layers || []).find(l => l.id === this.dragLayerId);
+                if (draggedLayer && draggedLayer.canvas_id !== canvas.id) {
+                    e.preventDefault();
+                    const mode = (e.metaKey || e.altKey) ? 'duplicate' : 'move';
+                    this.moveLayerToCanvas(draggedLayer.id, canvas.id, mode);
+                }
+            }
+        });
+    }
+
+    // -------------------------------------------------------------------
+    // Canvas API helpers (Slice 2). All call backend endpoints introduced
+    // in /api/canvas* and update this.project from the response.
+    // -------------------------------------------------------------------
+
+    _applyProjectUpdate(data) {
+        if (!data) return;
+        // Preserve client-side properties that may be on existing layers
+        // before we overwrite the project reference.
+        const savedClientProps = {};
+        if (this.project && this.project.layers) {
+            this.project.layers.forEach(l => {
+                savedClientProps[l.id] = this.extractClientSideProps
+                    ? this.extractClientSideProps(l) : null;
+            });
+        }
+        this.project = data;
+        if (data.layers && this.applyClientSideProperties) {
+            // re-apply localStorage-side overrides if available
+            try { this.loadClientSideProperties && this.loadClientSideProperties({ skipPreferences: true }); } catch (_) {}
+        }
+        // If the active canvas's properties changed, sync raster size for
+        // the workspace toolbar (Slice 4 will deepen this — Slice 2 just
+        // keeps the sidebar consistent).
+        if (data.raster_width && data.raster_height && this.syncRasterFromProject) {
+            try { this.syncRasterFromProject(); } catch (_) {}
+        }
+        this.renderLayers();
+        if (this.render) {
+            try { this.render(); } catch (_) {}
+        }
+    }
+
+    addCanvas() {
+        return fetch('/api/canvas', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+        }).then(r => r.json()).then(data => this._applyProjectUpdate(data));
+    }
+
+    updateCanvas(canvasId, patch) {
+        return fetch(`/api/canvas/${canvasId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(patch || {})
+        }).then(r => r.json()).then(data => this._applyProjectUpdate(data));
+    }
+
+    deleteCanvas(canvasId) {
+        return fetch(`/api/canvas/${canvasId}`, { method: 'DELETE' })
+            .then(r => r.json().then(body => ({ ok: r.ok, body })))
+            .then(({ ok, body }) => {
+                if (!ok) {
+                    this._toast(body && body.error ? body.error : 'Cannot delete canvas', true);
+                    return;
+                }
+                this._applyProjectUpdate(body);
+            });
+    }
+
+    duplicateCanvas(canvasId) {
+        return fetch(`/api/canvas/${canvasId}/duplicate`, { method: 'POST' })
+            .then(r => r.json()).then(data => this._applyProjectUpdate(data));
+    }
+
+    setActiveCanvas(canvasId, opts = {}) {
+        // Optimistic UI update so the highlight feels instant; backend
+        // confirms.
+        if (this.project) this.project.active_canvas_id = canvasId;
+        if (!opts.silent) this.renderLayers();
+        return fetch(`/api/canvas/${canvasId}/active`, { method: 'PUT' })
+            .then(r => r.json()).then(data => {
+                // Quietly absorb server state without re-rendering twice.
+                if (data && data.canvases) this.project = data;
+            });
+    }
+
+    reorderCanvasBeforeTarget(draggedId, targetId) {
+        if (!this.project || !this.project.canvases) return;
+        const ids = this.project.canvases.map(c => c.id);
+        const from = ids.indexOf(draggedId);
+        const to = ids.indexOf(targetId);
+        if (from < 0 || to < 0 || from === to) return;
+        ids.splice(from, 1);
+        ids.splice(ids.indexOf(targetId), 0, draggedId);
+        return fetch('/api/canvas/reorder', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ canvas_ids: ids })
+        }).then(r => r.json()).then(data => this._applyProjectUpdate(data));
+    }
+
+    moveLayerToCanvas(layerId, canvasId, mode = 'move') {
+        return fetch(`/api/layer/${layerId}/canvas`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ canvas_id: canvasId, mode })
+        }).then(r => r.json()).then(data => this._applyProjectUpdate(data));
+    }
+
+    openCanvasMenu(canvas, anchor) {
+        // Close any pre-existing menu.
+        document.querySelectorAll('.canvas-menu-popup').forEach(el => el.remove());
+        const menu = document.createElement('div');
+        menu.className = 'canvas-menu-popup';
+        menu.innerHTML = `
+            <button data-action="rename">Rename</button>
+            <button data-action="duplicate">Duplicate</button>
+            <button data-action="color">Change Color…</button>
+            <button data-action="delete" class="danger">Delete</button>
+        `;
+        document.body.appendChild(menu);
+        const r = anchor.getBoundingClientRect();
+        menu.style.position = 'fixed';
+        menu.style.top = `${r.bottom + 4}px`;
+        menu.style.left = `${Math.max(8, r.right - 160)}px`;
+        menu.style.zIndex = '12000';
+
+        const close = () => {
+            menu.remove();
+            document.removeEventListener('mousedown', onOutside, true);
+            document.removeEventListener('keydown', onKey, true);
+        };
+        const onOutside = (e) => { if (!menu.contains(e.target)) close(); };
+        const onKey = (e) => { if (e.key === 'Escape') close(); };
+        // Defer to avoid catching the click that opened us.
+        setTimeout(() => {
+            document.addEventListener('mousedown', onOutside, true);
+            document.addEventListener('keydown', onKey, true);
+        }, 0);
+
+        menu.querySelectorAll('button').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const act = btn.dataset.action;
+                close();
+                this._handleCanvasMenuAction(canvas, act);
+            });
+        });
+    }
+
+    _handleCanvasMenuAction(canvas, action) {
+        if (action === 'rename') {
+            const input = document.querySelector(`.canvas-group[data-canvas-id="${canvas.id}"] .canvas-name-input`);
+            if (input) {
+                input.readOnly = false;
+                input.focus();
+                input.select();
+            }
+        } else if (action === 'duplicate') {
+            this.duplicateCanvas(canvas.id);
+        } else if (action === 'color') {
+            this.openCanvasColorPicker(canvas);
+        } else if (action === 'delete') {
+            const layerCount = (this.project.layers || []).filter(l => l.canvas_id === canvas.id).length;
+            const msg = layerCount > 0
+                ? `Delete canvas '${canvas.name}' and its ${layerCount} layer${layerCount === 1 ? '' : 's'}? This cannot be undone.`
+                : `Delete canvas '${canvas.name}'?`;
+            if (window.confirm(msg)) this.deleteCanvas(canvas.id);
+        }
+    }
+
+    openCanvasColorPicker(canvas) {
+        document.querySelectorAll('.canvas-color-popup').forEach(el => el.remove());
+        const palette = ['#4A90E2', '#F5A623', '#7ED321', '#BD10E0',
+                         '#D0021B', '#50E3C2', '#F8E71C', '#9013FE'];
+        const popup = document.createElement('div');
+        popup.className = 'canvas-color-popup';
+        popup.innerHTML = `
+            <div class="canvas-color-swatches">
+                ${palette.map(c => `<button class="color-swatch" data-color="${c}" style="background:${c};" title="${c}"></button>`).join('')}
+            </div>
+            <div class="canvas-color-hex-row">
+                <label>Hex:</label>
+                <input type="text" class="canvas-color-hex" value="${canvas.color || ''}" maxlength="7">
+                <button class="canvas-color-apply">Apply</button>
+            </div>
+        `;
+        document.body.appendChild(popup);
+        const anchor = document.querySelector(`.canvas-group[data-canvas-id="${canvas.id}"] .canvas-menu-btn`);
+        if (anchor) {
+            const r = anchor.getBoundingClientRect();
+            popup.style.position = 'fixed';
+            popup.style.top = `${r.bottom + 4}px`;
+            popup.style.left = `${Math.max(8, r.right - 200)}px`;
+            popup.style.zIndex = '12000';
+        }
+        const close = () => {
+            popup.remove();
+            document.removeEventListener('mousedown', onOutside, true);
+        };
+        const onOutside = (e) => { if (!popup.contains(e.target)) close(); };
+        setTimeout(() => document.addEventListener('mousedown', onOutside, true), 0);
+
+        popup.querySelectorAll('.color-swatch').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.updateCanvas(canvas.id, { color: btn.dataset.color });
+                close();
+            });
+        });
+        popup.querySelector('.canvas-color-apply').addEventListener('click', (e) => {
+            e.stopPropagation();
+            const hex = popup.querySelector('.canvas-color-hex').value.trim();
+            if (/^#[0-9A-Fa-f]{6}$/.test(hex)) {
+                this.updateCanvas(canvas.id, { color: hex });
+                close();
+            } else {
+                this._toast('Invalid hex color (expected #RRGGBB)', true);
+            }
+        });
     }
 
     updateLayerOrderControls() {

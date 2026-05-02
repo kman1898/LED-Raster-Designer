@@ -176,3 +176,174 @@ def test_refuse_newer_format_version(client):
     body = resp.get_json()
     assert 'newer' in body['error'].lower()
     assert '0.9' in body['error']
+
+
+# -----------------------------------------------------------------------------
+# Slice 2 — canvas CRUD endpoints.
+# -----------------------------------------------------------------------------
+
+
+def test_create_canvas_appends_and_activates(client):
+    """POST /api/canvas appends a new canvas and makes it active."""
+    resp = client.post('/api/canvas', json={})
+    assert resp.status_code == 200
+    proj = resp.get_json()
+    assert len(proj['canvases']) == 2
+    new_canvas = proj['canvases'][1]
+    assert new_canvas['id'] == 'c2'
+    assert new_canvas['name'] == 'Canvas 2'
+    assert new_canvas['visible'] is True
+    assert proj['active_canvas_id'] == 'c2'
+    # Color should be different from canvas 1 (auto-cycled).
+    assert new_canvas['color'] != proj['canvases'][0]['color']
+
+
+def test_create_canvas_skips_used_colors(client):
+    """Auto-cycled color skips colors already in use."""
+    # First canvas uses palette[0]. Force it to palette[1] manually so the
+    # next auto-pick should land on palette[0] (the first unused one).
+    from app import DEFAULT_CANVAS_PALETTE
+    client.put('/api/canvas/c1', json={'color': DEFAULT_CANVAS_PALETTE[1]})
+    resp = client.post('/api/canvas', json={})
+    proj = resp.get_json()
+    assert proj['canvases'][1]['color'] == DEFAULT_CANVAS_PALETTE[0]
+
+
+def test_delete_canvas_refuses_last(client):
+    """Cannot delete the final remaining canvas."""
+    resp = client.delete('/api/canvas/c1')
+    assert resp.status_code == 400
+    body = resp.get_json()
+    assert 'last' in body['error'].lower()
+
+
+def test_delete_canvas_removes_layers(client_with_layer):
+    """Deleting a canvas removes all of that canvas's layers and reassigns active."""
+    # Add a second canvas, then move/add layers there.
+    client_with_layer.post('/api/canvas', json={})  # c2
+    # The default layer is on c1; verify it.
+    proj = client_with_layer.get('/api/project').get_json()
+    assert proj['layers'][0]['canvas_id'] == 'c1'
+    assert proj['active_canvas_id'] == 'c2'  # newly added is active
+
+    # Delete c1 — should remove its layer and reassign active to c2.
+    resp = client_with_layer.delete('/api/canvas/c1')
+    assert resp.status_code == 200
+    proj = resp.get_json()
+    assert len(proj['canvases']) == 1
+    assert proj['canvases'][0]['id'] == 'c2'
+    assert proj['active_canvas_id'] == 'c2'
+    assert all(l['canvas_id'] == 'c2' for l in proj['layers'])
+    # The c1 layer is gone.
+    assert len(proj['layers']) == 0
+
+
+def test_duplicate_canvas_clones_layers(client_with_layer):
+    """Duplicating a canvas clones its layers with fresh layer ids."""
+    proj = client_with_layer.get('/api/project').get_json()
+    src_layer_id = proj['layers'][0]['id']
+
+    resp = client_with_layer.post('/api/canvas/c1/duplicate')
+    assert resp.status_code == 200
+    proj = resp.get_json()
+    assert len(proj['canvases']) == 2
+    new_canvas = proj['canvases'][1]
+    assert new_canvas['id'] == 'c2'
+    assert new_canvas['name'].endswith('Copy')
+    assert proj['active_canvas_id'] == 'c2'
+    # Should now have two layers — original on c1, clone on c2 with new id.
+    assert len(proj['layers']) == 2
+    cloned = [l for l in proj['layers'] if l['canvas_id'] == 'c2']
+    assert len(cloned) == 1
+    assert cloned[0]['id'] != src_layer_id
+
+
+def test_reorder_canvases(client):
+    """POST /api/canvas/reorder reorders the canvases array."""
+    client.post('/api/canvas', json={})  # c2
+    client.post('/api/canvas', json={})  # c3
+    resp = client.post('/api/canvas/reorder', json={
+        'canvas_ids': ['c3', 'c1', 'c2']
+    })
+    assert resp.status_code == 200
+    proj = resp.get_json()
+    assert [c['id'] for c in proj['canvases']] == ['c3', 'c1', 'c2']
+
+
+def test_reorder_rejects_mismatched_ids(client):
+    """Reorder with an unknown id returns 400."""
+    resp = client.post('/api/canvas/reorder', json={'canvas_ids': ['c1', 'cX']})
+    assert resp.status_code == 400
+
+
+def test_set_active_canvas(client):
+    """PUT /api/canvas/<id>/active updates active_canvas_id."""
+    client.post('/api/canvas', json={})  # c2 (now active)
+    resp = client.put('/api/canvas/c1/active')
+    assert resp.status_code == 200
+    proj = resp.get_json()
+    assert proj['active_canvas_id'] == 'c1'
+
+
+def test_move_layer_to_canvas_resets_offsets(client_with_layer):
+    """Moving a layer to another canvas resets its offsets to 0,0."""
+    proj = client_with_layer.get('/api/project').get_json()
+    layer_id = proj['layers'][0]['id']
+    # Set a non-zero offset so we can verify the reset.
+    client_with_layer.put(f'/api/layer/{layer_id}', json={
+        'offset_x': 500, 'offset_y': 300,
+        'showOffsetX': 500, 'showOffsetY': 300,
+    })
+    client_with_layer.post('/api/canvas', json={})  # c2
+
+    resp = client_with_layer.put(f'/api/layer/{layer_id}/canvas', json={
+        'canvas_id': 'c2', 'mode': 'move',
+    })
+    assert resp.status_code == 200
+    proj = resp.get_json()
+    moved = next(l for l in proj['layers'] if l['id'] == layer_id)
+    assert moved['canvas_id'] == 'c2'
+    assert moved['offset_x'] == 0 and moved['offset_y'] == 0
+    assert moved['showOffsetX'] == 0 and moved['showOffsetY'] == 0
+
+
+def test_duplicate_layer_to_canvas(client_with_layer):
+    """Duplicate mode creates a copy with a new id at 0,0 in the target canvas."""
+    proj = client_with_layer.get('/api/project').get_json()
+    src_layer_id = proj['layers'][0]['id']
+    src_name = proj['layers'][0]['name']
+    client_with_layer.post('/api/canvas', json={})  # c2
+
+    resp = client_with_layer.put(f'/api/layer/{src_layer_id}/canvas', json={
+        'canvas_id': 'c2', 'mode': 'duplicate',
+    })
+    assert resp.status_code == 200
+    proj = resp.get_json()
+    assert len(proj['layers']) == 2
+    src_still_there = next(l for l in proj['layers'] if l['id'] == src_layer_id)
+    assert src_still_there['canvas_id'] == 'c1'
+    clone = next(l for l in proj['layers'] if l['id'] != src_layer_id)
+    assert clone['canvas_id'] == 'c2'
+    assert clone['name'] == src_name
+    assert clone['offset_x'] == 0 and clone['offset_y'] == 0
+
+
+def test_move_layer_to_unknown_canvas_404(client_with_layer):
+    """Moving to a non-existent canvas returns 404."""
+    proj = client_with_layer.get('/api/project').get_json()
+    layer_id = proj['layers'][0]['id']
+    resp = client_with_layer.put(f'/api/layer/{layer_id}/canvas', json={
+        'canvas_id': 'cX', 'mode': 'move',
+    })
+    assert resp.status_code == 404
+
+
+def test_update_canvas_partial(client):
+    """PUT /api/canvas/<id> applies a partial update."""
+    resp = client.put('/api/canvas/c1', json={
+        'name': 'Main Stage', 'visible': False,
+    })
+    assert resp.status_code == 200
+    proj = resp.get_json()
+    assert proj['canvases'][0]['name'] == 'Main Stage'
+    assert proj['canvases'][0]['visible'] is False

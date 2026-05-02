@@ -1352,6 +1352,256 @@ def delete_layer(layer_id):
     socketio.emit('layer_deleted', {'id': layer_id})
     return jsonify(current_project)
 
+# ---------------------------------------------------------------------------
+# Multi-canvas (v0.8) Slice 2: canvas CRUD endpoints.
+#
+# These mutate ``current_project['canvases']`` in place. The sidebar UI
+# routes all canvas operations through these endpoints; layer rendering in
+# the workspace is unchanged in Slice 2.
+# ---------------------------------------------------------------------------
+
+
+def _next_canvas_id():
+    """Pick the next free canvas id of the form ``c<N>``.
+
+    Scans existing canvases, finds the max numeric suffix, and returns one
+    above. Falls back to ``c1`` if the array is empty.
+    """
+    canvases = current_project.get('canvases') or []
+    max_n = 0
+    for c in canvases:
+        cid = (c or {}).get('id', '')
+        if isinstance(cid, str) and cid.startswith('c'):
+            try:
+                n = int(cid[1:])
+                if n > max_n:
+                    max_n = n
+            except ValueError:
+                pass
+    return f'c{max_n + 1}'
+
+
+def _next_canvas_color():
+    """Pick the first palette color not already used by another canvas.
+
+    If all 8 palette colors are taken, falls back to palette[N % 8] where N
+    is the count of existing canvases (so we still pick a sensible default
+    without surprising the user with random hex values).
+    """
+    canvases = current_project.get('canvases') or []
+    used = {(c or {}).get('color') for c in canvases}
+    for color in DEFAULT_CANVAS_PALETTE:
+        if color not in used:
+            return color
+    return DEFAULT_CANVAS_PALETTE[len(canvases) % len(DEFAULT_CANVAS_PALETTE)]
+
+
+def _find_canvas(canvas_id):
+    for c in current_project.get('canvases') or []:
+        if c.get('id') == canvas_id:
+            return c
+    return None
+
+
+@app.route('/api/canvas', methods=['POST'])
+def create_canvas():
+    data = request.json or {}
+    canvases = current_project.setdefault('canvases', [])
+    new_id = _next_canvas_id()
+    # Default name: "Canvas <N>" where N matches the numeric id suffix.
+    default_name = f'Canvas {new_id[1:]}'
+    # Inherit raster defaults from the active canvas so a freshly added
+    # canvas feels like a clone of the user's current setup. Slice 5 will
+    # add real workspace placement; for now stack at 0,0.
+    active = _find_canvas(current_project.get('active_canvas_id')) or (
+        canvases[0] if canvases else None
+    )
+    canvas = {
+        'id': new_id,
+        'name': data.get('name') or default_name,
+        'color': data.get('color') or _next_canvas_color(),
+        'workspace_x': 0,
+        'workspace_y': 0,
+        'raster_width': (active or {}).get('raster_width', 1920),
+        'raster_height': (active or {}).get('raster_height', 1080),
+        'show_raster_width': (active or {}).get('show_raster_width', 1920),
+        'show_raster_height': (active or {}).get('show_raster_height', 1080),
+        'data_flow_perspective': (active or {}).get('data_flow_perspective', 'front'),
+        'power_perspective': (active or {}).get('power_perspective', 'front'),
+        'visible': True,
+    }
+    canvases.append(canvas)
+    current_project['active_canvas_id'] = new_id
+    current_project['is_pristine'] = False
+    log_event('canvas_create', {'id': new_id, 'name': canvas['name']})
+    socketio.emit('project_updated', current_project)
+    return jsonify(current_project)
+
+
+@app.route('/api/canvas/<canvas_id>', methods=['PUT'])
+def update_canvas(canvas_id):
+    canvas = _find_canvas(canvas_id)
+    if not canvas:
+        return jsonify({'error': 'Canvas not found'}), 404
+    data = request.json or {}
+    allowed = {
+        'name', 'color', 'visible',
+        'workspace_x', 'workspace_y',
+        'raster_width', 'raster_height',
+        'show_raster_width', 'show_raster_height',
+        'data_flow_perspective', 'power_perspective',
+    }
+    changed = {}
+    for key, val in data.items():
+        if key in allowed:
+            canvas[key] = val
+            changed[key] = val
+    current_project['is_pristine'] = False
+    log_event('canvas_update', {'id': canvas_id, 'changed': changed})
+    socketio.emit('project_updated', current_project)
+    return jsonify(current_project)
+
+
+@app.route('/api/canvas/<canvas_id>', methods=['DELETE'])
+def delete_canvas(canvas_id):
+    canvases = current_project.get('canvases') or []
+    if len(canvases) <= 1:
+        return jsonify({
+            'error': 'Cannot delete the last remaining canvas. '
+                     'A project must contain at least one canvas.'
+        }), 400
+    canvas = _find_canvas(canvas_id)
+    if not canvas:
+        return jsonify({'error': 'Canvas not found'}), 404
+    deleted_name = canvas.get('name', '?')
+    # Remove the canvas itself.
+    current_project['canvases'] = [c for c in canvases if c.get('id') != canvas_id]
+    # Remove all layers belonging to this canvas.
+    layers_before = len(current_project.get('layers', []))
+    current_project['layers'] = [
+        l for l in current_project.get('layers', [])
+        if l.get('canvas_id') != canvas_id
+    ]
+    layers_removed = layers_before - len(current_project['layers'])
+    # Reassign active_canvas_id to the next remaining canvas.
+    if current_project.get('active_canvas_id') == canvas_id:
+        current_project['active_canvas_id'] = current_project['canvases'][0]['id']
+    current_project['is_pristine'] = False
+    log_event('canvas_delete', {
+        'id': canvas_id, 'name': deleted_name,
+        'layers_removed': layers_removed,
+    })
+    socketio.emit('project_updated', current_project)
+    return jsonify(current_project)
+
+
+@app.route('/api/canvas/<canvas_id>/duplicate', methods=['POST'])
+def duplicate_canvas(canvas_id):
+    global next_layer_id
+    src = _find_canvas(canvas_id)
+    if not src:
+        return jsonify({'error': 'Canvas not found'}), 404
+    new_id = _next_canvas_id()
+    new_canvas = json.loads(json.dumps(src))
+    new_canvas['id'] = new_id
+    new_canvas['name'] = f"{src.get('name', 'Canvas')} Copy"
+    new_canvas['color'] = _next_canvas_color()
+    current_project['canvases'].append(new_canvas)
+    # Clone every layer in the source canvas, with a new layer id.
+    src_layers = [
+        l for l in current_project.get('layers', [])
+        if l.get('canvas_id') == canvas_id
+    ]
+    for src_layer in src_layers:
+        clone = json.loads(json.dumps(src_layer))
+        clone['id'] = next_layer_id
+        next_layer_id += 1
+        clone['canvas_id'] = new_id
+        current_project['layers'].append(clone)
+    current_project['active_canvas_id'] = new_id
+    current_project['is_pristine'] = False
+    log_event('canvas_duplicate', {
+        'src_id': canvas_id, 'new_id': new_id,
+        'layers_cloned': len(src_layers),
+    })
+    socketio.emit('project_updated', current_project)
+    return jsonify(current_project)
+
+
+@app.route('/api/canvas/reorder', methods=['POST'])
+def reorder_canvases():
+    data = request.json or {}
+    canvas_ids = data.get('canvas_ids') or []
+    canvases = current_project.get('canvases') or []
+    by_id = {c.get('id'): c for c in canvases}
+    if set(canvas_ids) != set(by_id.keys()):
+        return jsonify({
+            'error': 'canvas_ids must be a permutation of existing canvas ids',
+        }), 400
+    current_project['canvases'] = [by_id[cid] for cid in canvas_ids]
+    current_project['is_pristine'] = False
+    log_event('canvas_reorder', {'order': canvas_ids})
+    socketio.emit('project_updated', current_project)
+    return jsonify(current_project)
+
+
+@app.route('/api/canvas/<canvas_id>/active', methods=['PUT'])
+def set_active_canvas(canvas_id):
+    if not _find_canvas(canvas_id):
+        return jsonify({'error': 'Canvas not found'}), 404
+    current_project['active_canvas_id'] = canvas_id
+    # Note: not flagging pristine — active canvas is a UI cursor, not data.
+    log_event('canvas_set_active', {'id': canvas_id})
+    socketio.emit('project_updated', current_project)
+    return jsonify(current_project)
+
+
+@app.route('/api/layer/<int:layer_id>/canvas', methods=['PUT'])
+def move_layer_to_canvas(layer_id):
+    """Move or duplicate a layer onto a different canvas.
+
+    Body: ``{canvas_id: "...", mode: "move" | "duplicate"}``. For "move",
+    the layer's ``canvas_id`` is updated and offset_x/y + showOffsetX/Y are
+    reset to 0,0 (per design Section 5.7). For "duplicate", a clone with a
+    fresh layer id is appended at 0,0 in the target canvas.
+    """
+    global next_layer_id
+    data = request.json or {}
+    target_id = data.get('canvas_id')
+    mode = data.get('mode', 'move')
+    if not _find_canvas(target_id):
+        return jsonify({'error': 'Target canvas not found'}), 404
+    layer = next((l for l in current_project['layers'] if l.get('id') == layer_id), None)
+    if not layer:
+        return jsonify({'error': 'Layer not found'}), 404
+    if mode == 'duplicate':
+        clone = json.loads(json.dumps(layer))
+        clone['id'] = next_layer_id
+        next_layer_id += 1
+        clone['canvas_id'] = target_id
+        clone['offset_x'] = 0
+        clone['offset_y'] = 0
+        clone['showOffsetX'] = 0
+        clone['showOffsetY'] = 0
+        current_project['layers'].append(clone)
+        log_event('layer_duplicate_to_canvas', {
+            'src_layer_id': layer_id, 'new_layer_id': clone['id'],
+            'target_canvas_id': target_id,
+        })
+    else:
+        layer['canvas_id'] = target_id
+        layer['offset_x'] = 0
+        layer['offset_y'] = 0
+        layer['showOffsetX'] = 0
+        layer['showOffsetY'] = 0
+        log_event('layer_move_to_canvas', {
+            'layer_id': layer_id, 'target_canvas_id': target_id,
+        })
+    current_project['is_pristine'] = False
+    socketio.emit('project_updated', current_project)
+    return jsonify(current_project)
+
+
 @app.route('/api/layer/<int:layer_id>/panel/<int:panel_id>/toggle', methods=['POST'])
 def toggle_panel_blank(layer_id, panel_id):
     layer = next((l for l in current_project['layers'] if l['id'] == layer_id), None)
