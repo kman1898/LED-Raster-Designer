@@ -174,6 +174,25 @@ class CanvasRenderer {
     }
 
     /**
+     * Build a clip path that constrains drawing to the active raster bounds
+     * in *screen* space, even when the caller is currently inside a per-layer
+     * ctx.translate(dx, dy). Without this, a naive `ctx.rect(0,0,rasterWidth,
+     * rasterHeight); ctx.clip()` ends up clipping in local (translated)
+     * coords — which means screen coords [dx, dx+rasterWidth] — and lops off
+     * any content drawn at low screen-x when the layer is shifted right (or
+     * vice versa). All renderers that paint within the per-layer translate
+     * (renderLayerLabels, renderDataFlowArrows, renderPowerArrows, etc.)
+     * should use this instead of the raw raster rect.
+     */
+    _clipToActiveRaster() {
+        const dx = this._renderDx || 0;
+        const dy = this._renderDy || 0;
+        this.ctx.beginPath();
+        this.ctx.rect(-dx, -dy, this.rasterWidth, this.rasterHeight);
+        this.ctx.clip();
+    }
+
+    /**
      * Layer bounds in the *currently active view's* coordinate space.
      * For pixel-map / cabinet-id this matches getLayerBounds (processor
      * coords). For show-look / data-flow / power it shifts by the layer's
@@ -1530,10 +1549,19 @@ class CanvasRenderer {
                     // Each panel fills its own area, and hidden panels show as outlines
                     // This allows hidden panels to be transparent instead of black
 
+                    // Stash the per-layer render offset so renderPanel() can
+                    // clip against raster bounds *in this layer's translated
+                    // space*. Without this, the per-panel clip in renderPanel
+                    // uses raw panel.x vs rasterWidth and silently drops
+                    // panels that sit beyond rasterWidth in processor coords
+                    // even when the show-offset places them inside the
+                    // visible raster — caused panels to "vanish" in Show
+                    // Look after a temporary raster shrink.
+                    this._renderDx = dx;
+                    this._renderDy = dy;
                     layer.panels.forEach(panel => {
-                        // Compare against raster bounds in the layer's render
-                        // space so panels that are off-canvas in pixel-map but
-                        // on-canvas in show-look (or vice versa) draw correctly.
+                        // Cheap early skip for panels entirely outside the
+                        // raster on the right or bottom in render space.
                         if (panel.x + dx >= this.rasterWidth || panel.y + dy >= this.rasterHeight) return;
 
                         // Render all panels - visible and hidden (hidden as ghost outlines)
@@ -1567,6 +1595,13 @@ class CanvasRenderer {
                     if (needsShift) this.ctx.restore();
                 }
             });
+            // Per-layer translates have been restored — clear the cached
+            // render offset so any later renderers (selection overlays,
+            // error badges) that happen to call _clipToActiveRaster get
+            // raster bounds in real screen space, not in the last layer's
+            // translated space.
+            this._renderDx = 0;
+            this._renderDy = 0;
 
             if (!this.exportMode && this.viewMode === 'data-flow') {
                 this.renderCustomSelectionOverlay();
@@ -1704,12 +1739,10 @@ class CanvasRenderer {
         // Circle radius is about 40% of the smaller dimension (based on Pixel Perfect Pro reference)
         const radius = Math.min(layerWidth, layerHeight) * 0.40;
         
-        // Save context and clip to raster bounds
+        // Save context and clip to active raster bounds (translate-aware)
         this.ctx.save();
-        this.ctx.beginPath();
-        this.ctx.rect(0, 0, this.rasterWidth, this.rasterHeight);
-        this.ctx.clip();
-        
+        this._clipToActiveRaster();
+
         this.ctx.strokeStyle = this.getLayerBorderColor(layer, 'pixel-map');
         this.ctx.lineWidth = 2;
         
@@ -1883,11 +1916,27 @@ class CanvasRenderer {
     }
     
     renderPanel(panel, layer) {
-        const clipX = Math.max(0, panel.x);
-        const clipY = Math.max(0, panel.y);
-        const clipWidth = Math.min(panel.width, this.rasterWidth - panel.x);
-        const clipHeight = Math.min(panel.height, this.rasterHeight - panel.y);
-        
+        // The outer render() loop applies ctx.translate(dx, dy) per layer for
+        // Show Look / Data / Power so the panel's processor coords land at
+        // their show position. The clip rect we set up here lives in that
+        // *translated* space, so the raster boundary (in screen-relative
+        // coords [0, rasterWidth]) maps to local coords [-dx, rasterWidth-dx].
+        // Computing the clip without that shift drops panels whenever
+        // panel.x >= rasterWidth in processor space, even when the show
+        // offset places them inside the visible raster.
+        const dx = this._renderDx || 0;
+        const dy = this._renderDy || 0;
+        const rasterLeft = -dx;
+        const rasterTop = -dy;
+        const rasterRight = this.rasterWidth - dx;
+        const rasterBottom = this.rasterHeight - dy;
+        const clipX = Math.max(rasterLeft, panel.x);
+        const clipY = Math.max(rasterTop, panel.y);
+        const clipRight = Math.min(rasterRight, panel.x + panel.width);
+        const clipBottom = Math.min(rasterBottom, panel.y + panel.height);
+        const clipWidth = clipRight - clipX;
+        const clipHeight = clipBottom - clipY;
+
         if (clipWidth <= 0 || clipHeight <= 0) return;
         
         this.ctx.save();
@@ -2071,12 +2120,16 @@ class CanvasRenderer {
     }
     
     // Render capacity error overlay ON TOP of everything (including labels)
-    // This renders WITHOUT clipping so it's visible even outside raster bounds
+    // This renders WITHOUT clipping so it's visible even outside raster bounds.
+    // Called from the third render pass (outside the per-layer ctx.translate),
+    // so use show-translated bounds — getLayerBounds returns processor coords
+    // which would land the badge at the layer's pixel-map position even when
+    // the layer renders at its show position in Data Flow / Power.
     renderCapacityErrorOverlay(layer) {
         if (!layer._capacityError) return;
-        
+
         const err = layer._capacityError;
-        const bounds = this.getLayerBounds(layer);
+        const bounds = this.getLayerBoundsInActiveView(layer);
         const layerCenterX = bounds.x + (bounds.width / 2);
         const layerCenterY = bounds.y + (bounds.height / 2);
         const layerWidth = bounds.width;
@@ -2168,12 +2221,10 @@ class CanvasRenderer {
         const visiblePanels = layer.panels.filter(p => !p.hidden);
         if (visiblePanels.length === 0) return;
         
-        // Save context
+        // Save context, clip to active raster bounds (translate-aware)
         this.ctx.save();
-        this.ctx.beginPath();
-        this.ctx.rect(0, 0, this.rasterWidth, this.rasterHeight);
-        this.ctx.clip();
-        
+        this._clipToActiveRaster();
+
         this.ctx.lineCap = 'round';
         this.ctx.lineJoin = 'round';
         
@@ -2415,9 +2466,7 @@ class CanvasRenderer {
         if (visiblePanels.length === 0) return;
 
         this.ctx.save();
-        this.ctx.beginPath();
-        this.ctx.rect(0, 0, this.rasterWidth, this.rasterHeight);
-        this.ctx.clip();
+        this._clipToActiveRaster();
         this.ctx.lineCap = 'round';
         this.ctx.lineJoin = 'round';
 
@@ -2555,7 +2604,12 @@ class CanvasRenderer {
     renderPowerErrorOverlay(layer) {
         if (!layer._powerError) return;
         const err = layer._powerError;
-        const bounds = this.getLayerBounds(layer);
+        // Same as renderCapacityErrorOverlay: this is called from the third
+        // render pass outside the per-layer translate, so we need the layer's
+        // active-view bounds (show offset already baked in) — using raw
+        // processor bounds parks the badge at the wrong screen position when
+        // the layer is moved in Show Look.
+        const bounds = this.getLayerBoundsInActiveView(layer);
         const layerCenterX = bounds.x + (bounds.width / 2);
         const layerCenterY = bounds.y + (bounds.height / 2);
         const layerWidth = bounds.width;
@@ -2802,12 +2856,10 @@ class CanvasRenderer {
     renderCabinetIDNumbers(layer) {
         if (!layer.show_numbers) return;
         
-        // Save context and clip to raster bounds
+        // Save context and clip to active raster bounds (translate-aware)
         this.ctx.save();
-        this.ctx.beginPath();
-        this.ctx.rect(0, 0, this.rasterWidth, this.rasterHeight);
-        this.ctx.clip();
-        
+        this._clipToActiveRaster();
+
         const numberSize = layer.number_size || 24;
         const cabinetIdStyle = layer.cabinetIdStyle || 'column-row';
         const cabinetIdPosition = layer.cabinetIdPosition || 'center';
@@ -2890,12 +2942,11 @@ class CanvasRenderer {
             return;
         }
         // Note: Clipping for layer occlusion is handled in the render() second pass
-        // We only clip to raster bounds here, which intersects with the occlusion clip
+        // We only clip to raster bounds here (translate-aware), which
+        // intersects with the occlusion clip
         this.ctx.save();
-        this.ctx.beginPath();
-        this.ctx.rect(0, 0, this.rasterWidth, this.rasterHeight);
-        this.ctx.clip();
-        
+        this._clipToActiveRaster();
+
         const bounds = this.getLayerBounds(layer);
         const layerWidth = bounds.width;
         const layerHeight = bounds.height;
@@ -3286,12 +3337,10 @@ class CanvasRenderer {
             return;
         }
         
-        // Save context and clip to raster bounds
+        // Save context and clip to active raster bounds (translate-aware)
         this.ctx.save();
-        this.ctx.beginPath();
-        this.ctx.rect(0, 0, this.rasterWidth, this.rasterHeight);
-        this.ctx.clip();
-        
+        this._clipToActiveRaster();
+
         const bounds = this.getLayerBounds(layer);
         const layerWidth = bounds.width;
         const layerHeight = bounds.height;
