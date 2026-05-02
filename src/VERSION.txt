@@ -1,6 +1,32 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.7.7.4 - May 1, 2026
+----------------------------
+- FIX: Show Look / Data / Power renders dropped pieces of layers whose
+  show offset shifted the layer past where the active raster started in
+  processor coords. Specifically: panels, layer labels, screen names,
+  cabinet ID numbers, data-flow arrows, power-circuit arrows, layer
+  offset labels, and circle-with-X test patterns all clipped against
+  raster bounds in *local* (per-layer translated) space instead of
+  *screen* space, so the right side of show-shifted layers got cut off
+  whenever the raster was narrower than the layer's processor right
+  edge. Symptom: shrink the show raster below a layer's processor
+  width, then grow it back — half the layer's panels and all its
+  labels stayed missing in Show Look / Data / Power even though the
+  layer was visually inside the new raster bounds.
+  Root cause: each renderer had its own
+    ctx.rect(0, 0, rasterWidth, rasterHeight); ctx.clip();
+  inside the per-layer ctx.translate(dx, dy) block. Centralised the
+  pattern into a translate-aware _clipToActiveRaster() helper that
+  compensates for the active per-layer translate so the clip always
+  lands on the screen-space raster boundary.
+- FIX: "CANNOT FIT COMPLETE COLUMN" / capacity-error red overlays in
+  Power and Data Flow rendered at the layer's pixel-map position even
+  when the layer was moved in Show Look. Both overlays now use
+  getLayerBoundsInActiveView so the badge follows the layer's show
+  position.
+
 v0.7.7.3 - May 1, 2026
 ----------------------------
 - FIX: Panel catalog refresh failed in the macOS bundled app with
