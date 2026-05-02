@@ -10013,8 +10013,10 @@ class LEDRasterApp {
                         ${lockBadge}
                     </div>
                     <div class="layer-controls">
-                        <button class="layer-btn layer-move-up" data-layer-id="${layer.id}" title="Move up within canvas">▲</button>
-                        <button class="layer-btn layer-move-down" data-layer-id="${layer.id}" title="Move down within canvas">▼</button>
+                        <div class="layer-arrows">
+                            <button class="layer-btn layer-move-up" data-layer-id="${layer.id}" title="Move up within canvas">▲</button>
+                            <button class="layer-btn layer-move-down" data-layer-id="${layer.id}" title="Move down within canvas">▼</button>
+                        </div>
                         <button class="layer-btn" onclick="app.toggleLayerVisibility(${layer.id})" title="Toggle Visibility">
                             ${layer.visible ? '👁' : '👁‍🗨'}
                         </button>

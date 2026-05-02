@@ -364,12 +364,14 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 .layer-btn:hover { color: #e0e0e0; }
 .layer-btn:disabled { color: #444; cursor: default; }
 .layer-btn:disabled:hover { color: #444; }
-/* Compact reorder arrows (Slice 2.5). */
+/* Compact reorder arrows (Slice 2.5). Stacked vertically. */
+.layer-arrows { display: flex; flex-direction: column; gap: 1px; }
 .layer-btn.layer-move-up,
 .layer-btn.layer-move-down {
-    font-size: 10px;
-    padding: 2px 3px;
+    font-size: 9px;
+    padding: 0 4px;
     line-height: 1;
+    height: 11px;
 }
 .layer-item.drag-over { outline: 2px solid #4A90E2; }
 .layer-item.drag-over { outline: none; }
