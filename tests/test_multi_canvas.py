@@ -347,3 +347,56 @@ def test_update_canvas_partial(client):
     proj = resp.get_json()
     assert proj['canvases'][0]['name'] == 'Main Stage'
     assert proj['canvases'][0]['visible'] is False
+
+
+# -----------------------------------------------------------------------------
+# Slice 3 — auto-place new canvases horizontally with a configurable gap.
+# -----------------------------------------------------------------------------
+
+DEFAULT_CANVAS_GAP = 50
+
+
+def test_new_canvas_auto_placed_to_right(client):
+    """A second canvas is placed at workspace_x = first_canvas.raster_width + gap."""
+    import app as app_module
+    app_module.server_preferences = {}
+    proj = client.get('/api/project').get_json()
+    first = proj['canvases'][0]
+    expected_x = (first['workspace_x'] or 0) + first['raster_width'] + DEFAULT_CANVAS_GAP
+
+    resp = client.post('/api/canvas', json={})
+    assert resp.status_code == 200
+    proj = resp.get_json()
+    new_canvas = proj['canvases'][1]
+    assert new_canvas['workspace_x'] == expected_x
+    assert new_canvas['workspace_y'] == 0
+
+
+def test_canvas_gap_preference(client):
+    """Setting canvasGap via /api/preferences changes the auto-placement gap."""
+    import app as app_module
+    app_module.server_preferences = {}
+    client.put('/api/preferences', json={'canvasGap': 200})
+    proj = client.get('/api/project').get_json()
+    first = proj['canvases'][0]
+    expected_x = (first['workspace_x'] or 0) + first['raster_width'] + 200
+
+    resp = client.post('/api/canvas', json={})
+    proj = resp.get_json()
+    assert proj['canvases'][1]['workspace_x'] == expected_x
+
+
+def test_duplicated_canvas_auto_placed(client_with_layer):
+    """Duplicating a canvas places the duplicate to the right with the gap."""
+    import app as app_module
+    app_module.server_preferences = {}
+    proj = client_with_layer.get('/api/project').get_json()
+    first = proj['canvases'][0]
+    expected_x = (first['workspace_x'] or 0) + first['raster_width'] + DEFAULT_CANVAS_GAP
+
+    resp = client_with_layer.post('/api/canvas/c1/duplicate')
+    assert resp.status_code == 200
+    proj = resp.get_json()
+    dup = proj['canvases'][1]
+    assert dup['workspace_x'] == expected_x
+    assert dup['workspace_y'] == 0

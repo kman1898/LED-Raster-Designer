@@ -1403,6 +1403,35 @@ def _find_canvas(canvas_id):
     return None
 
 
+def _next_canvas_workspace_position():
+    """Pick a workspace position for a freshly created canvas.
+
+    Auto-places the new canvas to the right of the existing rightmost
+    canvas, leaving a horizontal gap controlled by the ``canvasGap``
+    server preference (default 50 px). Vertical position resets to 0
+    so canvases line up along the workspace's top edge by default.
+
+    Returns ``(workspace_x, workspace_y)``.
+    """
+    canvases = current_project.get('canvases') or []
+    gap = 50
+    try:
+        pref_gap = (server_preferences or {}).get('canvasGap')
+        if pref_gap is not None:
+            pref_gap = float(pref_gap)
+            if pref_gap >= 0:
+                gap = pref_gap
+    except (TypeError, ValueError):
+        pass
+    if not canvases:
+        return (0, 0)
+    rightmost = max(
+        (c.get('workspace_x') or 0) + (c.get('raster_width') or 0)
+        for c in canvases
+    )
+    return (rightmost + gap, 0)
+
+
 @app.route('/api/canvas', methods=['POST'])
 def create_canvas():
     data = request.json or {}
@@ -1416,12 +1445,13 @@ def create_canvas():
     active = _find_canvas(current_project.get('active_canvas_id')) or (
         canvases[0] if canvases else None
     )
+    ws_x, ws_y = _next_canvas_workspace_position()
     canvas = {
         'id': new_id,
         'name': data.get('name') or default_name,
         'color': data.get('color') or _next_canvas_color(),
-        'workspace_x': 0,
-        'workspace_y': 0,
+        'workspace_x': ws_x,
+        'workspace_y': ws_y,
         'raster_width': (active or {}).get('raster_width', 1920),
         'raster_height': (active or {}).get('raster_height', 1080),
         'show_raster_width': (active or {}).get('show_raster_width', 1920),
@@ -1506,6 +1536,12 @@ def duplicate_canvas(canvas_id):
     new_canvas['id'] = new_id
     new_canvas['name'] = f"{src.get('name', 'Canvas')} Copy"
     new_canvas['color'] = _next_canvas_color()
+    # Auto-place the duplicate to the right of the existing canvases so it
+    # doesn't visually overlap its source. (Computed BEFORE the duplicate is
+    # appended, so the rightmost-edge calc covers existing canvases only.)
+    ws_x, ws_y = _next_canvas_workspace_position()
+    new_canvas['workspace_x'] = ws_x
+    new_canvas['workspace_y'] = ws_y
     current_project['canvases'].append(new_canvas)
     # Clone every layer in the source canvas, with a new layer id.
     src_layers = [

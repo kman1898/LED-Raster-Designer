@@ -7801,7 +7801,8 @@ class LEDRasterApp {
             frameRate: 60,
             powerVoltage: 110,
             powerAmperage: 15,
-            powerWatts: 200
+            powerWatts: 200,
+            canvasGap: 50
         };
     }
 
@@ -8043,6 +8044,7 @@ class LEDRasterApp {
             amperageCustom.style.display = (!amperageSelect || amperageSelect.value === 'custom') ? 'inline-block' : 'none';
         }
         setVal('pref-power-watts', prefs.powerWatts);
+        setVal('pref-canvas-gap', prefs.canvasGap);
         const modal = document.getElementById('preferences-modal');
         if (modal) modal.style.display = 'block';
     }
@@ -8096,7 +8098,8 @@ class LEDRasterApp {
             frameRate: readNum('pref-frame-rate', defaults.frameRate),
             powerVoltage: Number.isFinite(voltageVal) && voltageVal > 0 ? voltageVal : defaults.powerVoltage,
             powerAmperage: Number.isFinite(amperageVal) && amperageVal > 0 ? amperageVal : defaults.powerAmperage,
-            powerWatts: readNum('pref-power-watts', defaults.powerWatts)
+            powerWatts: readNum('pref-power-watts', defaults.powerWatts),
+            canvasGap: readNum('pref-canvas-gap', defaults.canvasGap)
         };
     }
 

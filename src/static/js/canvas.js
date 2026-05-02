@@ -199,6 +199,59 @@ class CanvasRenderer {
      * showOffset - offset_x/y delta so selection rects, hit-tests, and
      * magnetic snap line up with the rendered position.
      */
+    /**
+     * Multi-canvas (v0.8 Slice 3): draw a single canvas's dashed outline at
+     * the origin of the current ctx (caller is expected to have already
+     * translated to canvas.workspace_x/y). The outline color matches
+     * canvas.color; the active canvas gets a 1.5x bolder stroke. Skipped in
+     * exportMode by the caller.
+     *
+     * Uses the canvas's own raster_width/raster_height (not the renderer's
+     * project-level rasterWidth) so each canvas's rect reflects its own
+     * size — even though Slice 3 keeps the source-of-truth at project root
+     * for the active canvas; per-canvas raster sizes are read straight from
+     * the canvas object here.
+     */
+    _drawCanvasOutline(canvas, isActive) {
+        if (!canvas) return;
+        // For Slice 3, pixel-map / cabinet-id views use raster_width/height;
+        // show-look / data-flow / power use show_raster_width/height. Falls
+        // back to raster_width/height if the show-raster fields are missing.
+        const useShow = this.isShowLookView();
+        const w = (useShow && canvas.show_raster_width) || canvas.raster_width || 0;
+        const h = (useShow && canvas.show_raster_height) || canvas.raster_height || 0;
+        if (w <= 0 || h <= 0) return;
+        const color = canvas.color || '#ff0000';
+        this.ctx.save();
+        this.ctx.strokeStyle = color;
+        const baseLW = Math.max(3, 5 / this.zoom);
+        this.ctx.lineWidth = isActive ? baseLW * 1.5 : baseLW;
+        this.ctx.setLineDash([10, 5]);
+        this.ctx.strokeRect(0, 0, w, h);
+        this.ctx.setLineDash([]);
+        this.ctx.restore();
+    }
+
+    /**
+     * Faint background tint for the active canvas. Painted BEFORE layers
+     * (so layers paint over it) so the tint is visible only in empty
+     * regions of the active canvas's raster.
+     */
+    _drawActiveCanvasTint(canvas) {
+        if (!canvas) return;
+        const useShow = this.isShowLookView();
+        const w = (useShow && canvas.show_raster_width) || canvas.raster_width || 0;
+        const h = (useShow && canvas.show_raster_height) || canvas.raster_height || 0;
+        if (w <= 0 || h <= 0) return;
+        const color = canvas.color || '#ff0000';
+        // ~6% alpha (0F in 8-digit hex). Caller already translated to canvas
+        // origin, so fill at (0, 0).
+        this.ctx.save();
+        this.ctx.fillStyle = color + '0F';
+        this.ctx.fillRect(0, 0, w, h);
+        this.ctx.restore();
+    }
+
     getLayerBoundsInActiveView(layer) {
         const b = this.getLayerBounds(layer);
         const { dx, dy } = this.getLayerRenderOffset(layer);
@@ -1508,19 +1561,81 @@ class CanvasRenderer {
         // Disable image smoothing to prevent anti-aliasing artifacts (seams between panels)
         this.ctx.imageSmoothingEnabled = false;
         
-        // Raster boundary - skip in export mode
-        if (!this.exportMode) {
-            this.ctx.strokeStyle = '#ff0000';
-            // Scale inversely with zoom so it's always visible (min 3px on screen)
-            this.ctx.lineWidth = Math.max(3, 5 / this.zoom);
-            this.ctx.setLineDash([10, 5]);
-            this.ctx.strokeRect(0, 0, this.rasterWidth, this.rasterHeight);
-            this.ctx.setLineDash([]);
-        }
-        
+        // Multi-canvas (v0.8 Slice 3): build a lookup so per-layer post-passes
+        // (selection overlays, error badges, pixel grid) can translate to
+        // the layer's own canvas's workspace position. For pre-v0.8 projects
+        // that haven't been migrated yet, fall back to a synthetic canvas at
+        // (0, 0) so single-canvas behaviour is unchanged.
+        const _canvasesArr = (window.app && window.app.project && Array.isArray(window.app.project.canvases))
+            ? window.app.project.canvases
+            : [];
+        const _canvasById = {};
+        _canvasesArr.forEach(c => { if (c && c.id) _canvasById[c.id] = c; });
+        const _activeCanvasId = (window.app && window.app.project)
+            ? window.app.project.active_canvas_id : null;
+        // Helper: returns the workspace translate for a layer (or 0,0 for
+        // legacy / orphan layers). Used by the post-pass wrappers below.
+        const _layerWs = (layer) => {
+            const cid = layer && layer.canvas_id;
+            const c = cid ? _canvasById[cid] : null;
+            return { wx: (c && c.workspace_x) || 0, wy: (c && c.workspace_y) || 0 };
+        };
+        // Helper: wraps a per-layer drawing callback with the layer's
+        // canvas-workspace translate. Applies only when wx/wy are non-zero
+        // so single-canvas projects emit no extra ctx ops.
+        const _withLayerWs = (layer, fn) => {
+            const { wx, wy } = _layerWs(layer);
+            if (wx || wy) {
+                this.ctx.save();
+                this.ctx.translate(wx, wy);
+                fn();
+                this.ctx.restore();
+            } else {
+                fn();
+            }
+        };
+
         if (window.app && window.app.project && window.app.project.layers) {
-            // First pass: render all panels and mode-specific content (except labels)
-            window.app.project.layers.forEach(layer => {
+            // Per-canvas loop (Slice 3): translate to each canvas's
+            // workspace position, render that canvas's layers (existing
+            // per-layer body, unmodified), then draw the canvas's dashed
+            // outline ON TOP. Empty + hidden canvases are skipped.
+            // Pre-Slice-1 projects with no `canvases` array fall back to a
+            // synthetic single canvas using project root raster fields so
+            // legacy single-canvas behaviour is identical to v0.7.7.4.
+            const canvasesToRender = (_canvasesArr.length > 0)
+                ? _canvasesArr
+                : [{
+                    id: null,
+                    workspace_x: 0,
+                    workspace_y: 0,
+                    raster_width: this.rasterWidth,
+                    raster_height: this.rasterHeight,
+                    color: '#ff0000',
+                    visible: true,
+                }];
+            canvasesToRender.forEach(canvas => {
+                if (canvas.visible === false) return;
+                const layersInCanvas = window.app.project.layers.filter(l => {
+                    if (!l.visible) return false;
+                    if (_canvasesArr.length === 0) return true; // legacy fallback
+                    return l.canvas_id === canvas.id;
+                });
+                if (layersInCanvas.length === 0) return;
+                const wx = canvas.workspace_x || 0;
+                const wy = canvas.workspace_y || 0;
+                const needsCanvasShift = (wx !== 0 || wy !== 0);
+                if (needsCanvasShift) {
+                    this.ctx.save();
+                    this.ctx.translate(wx, wy);
+                }
+                // Active-canvas tint (BEFORE layers so layers paint over it
+                // but the tint shows through in empty regions).
+                if (!this.exportMode && canvas.id && canvas.id === _activeCanvasId) {
+                    this._drawActiveCanvasTint(canvas);
+                }
+                // First pass: render all panels and mode-specific content (except labels)
+                layersInCanvas.forEach(layer => {
                 if (layer.visible) {
                     if (this.viewMode === 'power') {
                         this.preparePowerLayerRenderData(layer);
@@ -1594,6 +1709,13 @@ class CanvasRenderer {
                     this.renderLayerLabels(layer);
                     if (needsShift) this.ctx.restore();
                 }
+                });
+                // Canvas outline drawn LAST so it sits on top of any
+                // layer content that bleeds outside the raster bounds.
+                if (!this.exportMode) {
+                    this._drawCanvasOutline(canvas, canvas.id === _activeCanvasId);
+                }
+                if (needsCanvasShift) this.ctx.restore();
             });
             // Per-layer translates have been restored — clear the cached
             // render offset so any later renderers (selection overlays,
@@ -1626,18 +1748,18 @@ class CanvasRenderer {
             if (this.viewMode === 'data-flow') {
                 window.app.project.layers.forEach(layer => {
                     if (layer.visible) {
-                        this.renderCapacityErrorOverlay(layer);
+                        _withLayerWs(layer, () => this.renderCapacityErrorOverlay(layer));
                     }
                 });
             }
             if (this.viewMode === 'power') {
                 window.app.project.layers.forEach(layer => {
                     if (layer.visible) {
-                        this.renderPowerErrorOverlay(layer);
+                        _withLayerWs(layer, () => this.renderPowerErrorOverlay(layer));
                     }
                 });
             }
-            
+
             // Draw bounding boxes around selected layers (skip during export)
             // These render OUTSIDE the per-layer ctx.translate, so use the
             // active-view bounds.
@@ -1646,14 +1768,16 @@ class CanvasRenderer {
                 window.app.project.layers.forEach(layer => {
                     if (!layer.visible) return;
                     if (!selectedIds.has(layer.id)) return;
-                    const bounds = this.getLayerBoundsInActiveView(layer);
-                    const layerWidth = bounds.width;
-                    const layerHeight = bounds.height;
-                    this.ctx.strokeStyle = (window.app.currentLayer && window.app.currentLayer.id === layer.id) ? '#00ccff' : '#4A90E2';
-                    this.ctx.lineWidth = 2 / this.zoom;
-                    this.ctx.setLineDash([8 / this.zoom, 4 / this.zoom]);
-                    this.ctx.strokeRect(bounds.x, bounds.y, layerWidth, layerHeight);
-                    this.ctx.setLineDash([]);
+                    _withLayerWs(layer, () => {
+                        const bounds = this.getLayerBoundsInActiveView(layer);
+                        const layerWidth = bounds.width;
+                        const layerHeight = bounds.height;
+                        this.ctx.strokeStyle = (window.app.currentLayer && window.app.currentLayer.id === layer.id) ? '#00ccff' : '#4A90E2';
+                        this.ctx.lineWidth = 2 / this.zoom;
+                        this.ctx.setLineDash([8 / this.zoom, 4 / this.zoom]);
+                        this.ctx.strokeRect(bounds.x, bounds.y, layerWidth, layerHeight);
+                        this.ctx.setLineDash([]);
+                    });
                 });
             }
 
@@ -1661,20 +1785,22 @@ class CanvasRenderer {
             if (!this.exportMode && this.isDraggingLayer && window.app && window.app.currentLayer) {
                 const selectedLayer = window.app.currentLayer;
                 if (selectedLayer.visible) {
-                    const bounds = this.getLayerBoundsInActiveView(selectedLayer);
-                    const layerWidth = bounds.width;
-                    const layerHeight = bounds.height;
+                    _withLayerWs(selectedLayer, () => {
+                        const bounds = this.getLayerBoundsInActiveView(selectedLayer);
+                        const layerWidth = bounds.width;
+                        const layerHeight = bounds.height;
 
-                    this.ctx.strokeStyle = '#4A90E2';  // Blue highlight color
-                    this.ctx.lineWidth = 3 / this.zoom;  // Scale with zoom
-                    this.ctx.setLineDash([10 / this.zoom, 5 / this.zoom]);
-                    this.ctx.strokeRect(
-                        bounds.x,
-                        bounds.y,
-                        layerWidth,
-                        layerHeight
-                    );
-                    this.ctx.setLineDash([]);
+                        this.ctx.strokeStyle = '#4A90E2';  // Blue highlight color
+                        this.ctx.lineWidth = 3 / this.zoom;  // Scale with zoom
+                        this.ctx.setLineDash([10 / this.zoom, 5 / this.zoom]);
+                        this.ctx.strokeRect(
+                            bounds.x,
+                            bounds.y,
+                            layerWidth,
+                            layerHeight
+                        );
+                        this.ctx.setLineDash([]);
+                    });
                 }
             }
 
@@ -1692,11 +1818,16 @@ class CanvasRenderer {
                         if (!layer.visible) return;
                         // Active-view bounds — selection rect is in world coords
                         // matching the rendered (possibly show-shifted) layout.
+                        // For multi-canvas, shift bounds into workspace coords
+                        // so the intersection test compares apples-to-apples
+                        // with the selection rect (which is in workspace coords
+                        // — captured from world-space mouse events).
+                        const { wx, wy } = _layerWs(layer);
                         const bounds = this.getLayerBoundsInActiveView(layer);
                         const layerWidth = bounds.width;
                         const layerHeight = bounds.height;
-                        const x1 = bounds.x;
-                        const y1 = bounds.y;
+                        const x1 = bounds.x + wx;
+                        const y1 = bounds.y + wy;
                         const x2 = x1 + layerWidth;
                         const y2 = y1 + layerHeight;
                         const intersects = x1 <= maxX && x2 >= minX && y1 <= maxY && y2 >= minY;
@@ -1719,7 +1850,7 @@ class CanvasRenderer {
             if (this.zoom >= 10) {
                 window.app.project.layers.forEach(layer => {
                     if (layer.visible) {
-                        this.renderPixelGrid(layer);
+                        _withLayerWs(layer, () => this.renderPixelGrid(layer));
                     }
                 });
             }
@@ -1783,12 +1914,45 @@ class CanvasRenderer {
         this.render();
     }
     
+    /**
+     * Compute the workspace bounding box of all visible canvases. Returns
+     * {x, y, width, height} of the union. Falls back to a synthetic box at
+     * (0, 0, rasterWidth, rasterHeight) for projects with no canvases array
+     * (pre-Slice-1) or when no canvases are visible.
+     */
+    _workspaceBounds() {
+        const proj = window.app && window.app.project;
+        const canvases = (proj && Array.isArray(proj.canvases)) ? proj.canvases : [];
+        const visible = canvases.filter(c => c && c.visible !== false);
+        if (visible.length === 0) {
+            return { x: 0, y: 0, width: this.rasterWidth, height: this.rasterHeight };
+        }
+        const useShow = this.isShowLookView();
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        visible.forEach(c => {
+            const wx = c.workspace_x || 0;
+            const wy = c.workspace_y || 0;
+            const w = (useShow && c.show_raster_width) || c.raster_width || 0;
+            const h = (useShow && c.show_raster_height) || c.raster_height || 0;
+            if (wx < minX) minX = wx;
+            if (wy < minY) minY = wy;
+            if (wx + w > maxX) maxX = wx + w;
+            if (wy + h > maxY) maxY = wy + h;
+        });
+        return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+    }
+
     fitToView() {
-        const zoomX = (this.canvas.width * 0.9) / this.rasterWidth;
-        const zoomY = (this.canvas.height * 0.9) / this.rasterHeight;
+        // Multi-canvas (v0.8 Slice 3): fit to the union bbox of all visible
+        // canvases instead of just the active canvas's raster.
+        const bb = this._workspaceBounds();
+        const w = bb.width || this.rasterWidth;
+        const h = bb.height || this.rasterHeight;
+        const zoomX = (this.canvas.width * 0.9) / w;
+        const zoomY = (this.canvas.height * 0.9) / h;
         this.zoom = Math.min(zoomX, zoomY);
-        this.panX = (this.canvas.width - this.rasterWidth * this.zoom) / 2;
-        this.panY = (this.canvas.height - this.rasterHeight * this.zoom) / 2;
+        this.panX = (this.canvas.width - w * this.zoom) / 2 - bb.x * this.zoom;
+        this.panY = (this.canvas.height - h * this.zoom) / 2 - bb.y * this.zoom;
         document.getElementById('zoom-level').value = `${Math.round(this.zoom * 100)}%`;
         this.render();
     }
