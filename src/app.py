@@ -324,26 +324,122 @@ SERVER_START_TIME = int(time.time() * 1000)  # milliseconds
 # Counter for unique layer IDs - never reuses IDs
 next_layer_id = 1
 
-current_project = {
-    'name': 'Untitled Project',
-    'raster_width': 1920,
-    'raster_height': 1080,
-    # Show Look has its own raster size — defaults to the same as the
-    # processor raster so existing projects open identically. The Show Look
-    # raster is used as the export canvas size for the Show Look / Data /
-    # Power views (which all render at the show position).
-    'show_raster_width': 1920,
-    'show_raster_height': 1080,
-    # Wiring view perspective per tab. 'front' shows the layout as the
-    # audience sees it (matching Show Look). 'back' horizontally mirrors
-    # the geometry so the techs working behind the wall see it from their
-    # perspective. Labels stay readable in either view. Per-tab so a Data
-    # tech and a Power tech can configure independently.
-    'data_flow_perspective': 'front',
-    'power_perspective': 'front',
-    'layers': [],
-    'is_pristine': True
-}
+# Multi-canvas (v0.8) support. The project file format gains a `canvases`
+# array, a `format_version` string, and an `active_canvas_id`. v0.7 projects
+# are auto-migrated on load. Slice 1 is additive only — root-level
+# raster_width/raster_height/show_raster_*/perspectives are still written so
+# the existing single-canvas client keeps working until later slices switch
+# the source-of-truth to per-canvas fields.
+CURRENT_FORMAT_VERSION = "0.8"
+DEFAULT_CANVAS_PALETTE = [
+    "#4A90E2", "#F5A623", "#7ED321", "#BD10E0",
+    "#D0021B", "#50E3C2", "#F8E71C", "#9013FE",
+]
+
+
+def _make_default_canvas(project, idx=0):
+    """Build a canvas dict from a project's current root-level raster fields.
+
+    Used both when constructing a fresh project (idx=0) and when migrating a
+    v0.7 project. The canvas inherits the project's existing raster /
+    perspective values so the migration is loss-free.
+    """
+    return {
+        'id': f'c{idx + 1}',
+        'name': f'Canvas {idx + 1}',
+        'color': DEFAULT_CANVAS_PALETTE[idx % len(DEFAULT_CANVAS_PALETTE)],
+        'workspace_x': 0,
+        'workspace_y': 0,
+        'raster_width': project.get('raster_width', 1920),
+        'raster_height': project.get('raster_height', 1080),
+        'show_raster_width': project.get(
+            'show_raster_width', project.get('raster_width', 1920)
+        ),
+        'show_raster_height': project.get(
+            'show_raster_height', project.get('raster_height', 1080)
+        ),
+        'data_flow_perspective': project.get('data_flow_perspective', 'front'),
+        'power_perspective': project.get('power_perspective', 'front'),
+        'visible': True,
+    }
+
+
+def _migrate_to_v0_8(project):
+    """Idempotent additive migrator from v0.7 to v0.8.
+
+    - If the project already declares format_version 0.8 AND has canvases AND
+      every layer has a canvas_id, this is a no-op.
+    - Otherwise: build a default canvas from the project's existing raster
+      fields, assign every layer to it, set format_version/active_canvas_id.
+      Root-level raster fields are intentionally left in place — Slice 1 is
+      additive so the existing single-canvas client keeps reading them.
+
+    Returns (project, did_migrate). did_migrate is True only when the
+    structure actually changed, so callers can avoid noisy log spam.
+    """
+    if not isinstance(project, dict):
+        return project, False
+    canvases = project.get('canvases')
+    layers = project.get('layers') or []
+    has_canvases = isinstance(canvases, list) and len(canvases) > 0
+    all_layers_assigned = all(
+        isinstance(l, dict) and l.get('canvas_id') for l in layers
+    )
+    if (
+        project.get('format_version') == CURRENT_FORMAT_VERSION
+        and has_canvases
+        and all_layers_assigned
+    ):
+        return project, False
+
+    if not has_canvases:
+        canvas = _make_default_canvas(project, 0)
+        project['canvases'] = [canvas]
+        project['active_canvas_id'] = canvas['id']
+    else:
+        # Canvases exist but format_version may be older or layers unassigned.
+        if not project.get('active_canvas_id'):
+            project['active_canvas_id'] = project['canvases'][0]['id']
+
+    default_canvas_id = project['canvases'][0]['id']
+    for layer in layers:
+        if isinstance(layer, dict) and not layer.get('canvas_id'):
+            layer['canvas_id'] = default_canvas_id
+
+    project['format_version'] = CURRENT_FORMAT_VERSION
+    return project, True
+
+
+def _build_initial_project():
+    """Build the in-memory project dict used at app startup and by /new."""
+    project = {
+        'name': 'Untitled Project',
+        'raster_width': 1920,
+        'raster_height': 1080,
+        # Show Look has its own raster size — defaults to the same as the
+        # processor raster so existing projects open identically. The Show
+        # Look raster is used as the export canvas size for the Show Look /
+        # Data / Power views (which all render at the show position).
+        'show_raster_width': 1920,
+        'show_raster_height': 1080,
+        # Wiring view perspective per tab. 'front' shows the layout as the
+        # audience sees it (matching Show Look). 'back' horizontally mirrors
+        # the geometry so the techs working behind the wall see it from their
+        # perspective. Labels stay readable in either view. Per-tab so a Data
+        # tech and a Power tech can configure independently.
+        'data_flow_perspective': 'front',
+        'power_perspective': 'front',
+        'layers': [],
+        'is_pristine': True,
+    }
+    # Pre-populate v0.8 fields so a fresh project already passes the
+    # migrator as a no-op. Root raster fields are still present for the
+    # client's current single-canvas code paths.
+    _migrate_to_v0_8(project)
+    return project
+
+
+current_project = _build_initial_project()
 
 # Add a default layer on startup
 def initialize_default_layer():
@@ -358,7 +454,36 @@ def initialize_default_layer():
             offset_x=0,
             offset_y=0
         )
+        # Assign to the active canvas. _build_initial_project / migrator
+        # guarantees at least one canvas exists at this point.
+        canvases = current_project.get('canvases') or []
+        if canvases:
+            default_layer['canvas_id'] = current_project.get(
+                'active_canvas_id', canvases[0]['id']
+            )
         current_project['layers'].append(default_layer)
+
+def _assign_canvas_id(layer, data=None):
+    """Stamp a layer with a canvas_id (caller-provided or active canvas).
+
+    Centralised so all add-layer paths (screen / image / text) get the same
+    behaviour: respect a client-supplied canvas_id if it matches an existing
+    canvas, otherwise fall back to the project's active canvas. Guarantees
+    layer['canvas_id'] is set to a non-empty string when at least one
+    canvas exists.
+    """
+    canvases = current_project.get('canvases') or []
+    if not canvases:
+        return
+    valid_ids = {c.get('id') for c in canvases if isinstance(c, dict)}
+    requested = (data or {}).get('canvas_id') if isinstance(data, dict) else None
+    if requested and requested in valid_ids:
+        layer['canvas_id'] = requested
+    else:
+        layer['canvas_id'] = current_project.get(
+            'active_canvas_id', canvases[0].get('id')
+        )
+
 
 def sync_next_layer_id():
     """Rebase next_layer_id to avoid duplicate IDs after project load/restore."""
@@ -919,17 +1044,7 @@ def reveal_logs_folder():
 def new_project():
     global current_project, next_layer_id
     next_layer_id = 1  # Reset counter for new project
-    current_project = {
-        'name': 'Untitled Project',
-        'raster_width': 1920,
-        'raster_height': 1080,
-        'show_raster_width': 1920,
-        'show_raster_height': 1080,
-        'data_flow_perspective': 'front',
-        'power_perspective': 'front',
-        'layers': [],
-        'is_pristine': True
-    }
+    current_project = _build_initial_project()
     # Add default layer to new projects
     initialize_default_layer()
     log_event('new_project')
@@ -949,7 +1064,19 @@ def save_project():
 def restore_project():
     """Restore entire project state (used by undo/redo and file load)"""
     global current_project
-    data = request.json
+    data = request.json or {}
+    # Refuse to load projects authored by a newer app version. Simple string
+    # comparison is fine for the foreseeable "0.x" range; revisit if we ever
+    # ship a 0.10 / 1.0.
+    incoming_version = data.get('format_version') if isinstance(data, dict) else None
+    if incoming_version and incoming_version > CURRENT_FORMAT_VERSION:
+        return jsonify({
+            'error': (
+                f'Project format {incoming_version} is newer than this '
+                f'version supports ({CURRENT_FORMAT_VERSION}). '
+                f'Please update the app.'
+            )
+        }), 400
     current_project = data
     current_project['is_pristine'] = False
     # Backfill showOffsetX/Y on layers from older projects that pre-date the
@@ -972,6 +1099,15 @@ def restore_project():
         current_project['data_flow_perspective'] = 'front'
     if current_project.get('power_perspective') not in ('front', 'back'):
         current_project['power_perspective'] = 'front'
+    # Multi-canvas migration. Additive: leaves root-level raster fields in
+    # place so the existing single-canvas client keeps working. Slice 6 will
+    # switch the source-of-truth to per-canvas fields.
+    current_project, did_migrate = _migrate_to_v0_8(current_project)
+    if did_migrate:
+        log_event('project_migrated', {
+            'from_version': '<0.8',
+            'to_version': CURRENT_FORMAT_VERSION,
+        })
     sync_next_layer_id()
     log_event('restore_project', {
         'name': current_project.get('name', '?'),
@@ -993,7 +1129,8 @@ def add_layer():
         offset_x=data.get('offset_x', 0),
         offset_y=data.get('offset_y', 0)
     )
-    
+    _assign_canvas_id(layer, data)
+
     # Apply additional settings from request (for duplicate/paste)
     optional_fields = [
         'color1', 'color2', 'panel_width_mm', 'panel_height_mm', 'panel_weight',
@@ -1065,6 +1202,7 @@ def add_image_layer():
     )
     if 'imageScale' in data:
         layer['imageScale'] = data['imageScale']
+    _assign_canvas_id(layer, data)
     log_event('add_image_layer', {'name': layer.get('name'), 'id': layer.get('id')})
     current_project['layers'].append(layer)
     current_project['is_pristine'] = False
@@ -1088,6 +1226,7 @@ def add_text_layer():
                 'showRasterSize'):
         if key in data:
             layer[key] = data[key]
+    _assign_canvas_id(layer, data)
     log_event('add_text_layer', {'name': layer.get('name'), 'id': layer.get('id')})
     current_project['layers'].append(layer)
     current_project['is_pristine'] = False
