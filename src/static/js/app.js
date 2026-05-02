@@ -2133,9 +2133,11 @@ class LEDRasterApp {
             });
         });
         
-        document.getElementById('btn-add-layer').addEventListener('click', () => {
-            this.openPresetPicker();
-        });
+        // v0.8 Slice 2.5: the global "+ Add Screen / + Add Image / + Add Text"
+        // and "▲ Up / ▼ Down" buttons were removed. Per-canvas "+ Add" chooser
+        // (built in buildCanvasGroupEl) and per-layer ▲▼ arrows now own those
+        // affordances. We still wire the file-input change handler because
+        // the per-canvas "Image / Logo" chooser entry reuses it.
         const addCanvasBtn = document.getElementById('btn-add-canvas');
         if (addCanvasBtn) {
             addCanvasBtn.addEventListener('click', () => this.addCanvas());
@@ -2145,13 +2147,8 @@ class LEDRasterApp {
             savePresetBtn.addEventListener('click', () => this.openPresetSaveModal());
         }
         this.setupPresetModals();
-        const addImageBtn = document.getElementById('btn-add-image');
         const addImageInput = document.getElementById('add-image-input');
-        if (addImageBtn && addImageInput) {
-            addImageBtn.addEventListener('click', () => {
-                this.imageFileAction = 'add';
-                addImageInput.click();
-            });
+        if (addImageInput) {
             addImageInput.addEventListener('change', (e) => {
                 this.handleImageFileSelection(e);
             });
@@ -2165,30 +2162,8 @@ class LEDRasterApp {
             });
         }
 
-        const addTextBtn = document.getElementById('btn-add-text');
-        if (addTextBtn) {
-            addTextBtn.addEventListener('click', () => this.addTextLayer());
-        }
-
         // Text layer sidebar controls
         this.setupTextLayerControls();
-
-        const layerUpBtn = document.getElementById('btn-layer-up');
-        const layerDownBtn = document.getElementById('btn-layer-down');
-        if (layerUpBtn) {
-            layerUpBtn.addEventListener('click', () => {
-                if (this.currentLayer) {
-                    this.moveLayerById(this.currentLayer.id, -1);
-                }
-            });
-        }
-        if (layerDownBtn) {
-            layerDownBtn.addEventListener('click', () => {
-                if (this.currentLayer) {
-                    this.moveLayerById(this.currentLayer.id, 1);
-                }
-            });
-        }
 
         const toggleLockBtn = document.getElementById('toggle-lock-selected');
         if (toggleLockBtn) {
@@ -10027,6 +10002,10 @@ class LEDRasterApp {
                 infoText = `${layer.columns}x${layer.rows} (${activePanels} panels) • ${layer.cabinet_width}×${layer.cabinet_height}px`;
             }
             const lockBadge = layer.locked ? '<span title="Locked" style="margin-left: 6px; color:#bbb;">🔒</span>' : '';
+            // v0.8 Slice 2.5: per-layer ▲▼ arrows replace the global Up/Down
+            // buttons. Disabled state (top/bottom of the layer's canvas group)
+            // is computed in updateLayerOrderControls() after the regroup pass
+            // so we know the within-canvas ordering.
             layerDiv.innerHTML = `
                 <div class="layer-header">
                     <div style="display:flex; align-items:center; gap:4px; flex:1; min-width:0;">
@@ -10034,6 +10013,8 @@ class LEDRasterApp {
                         ${lockBadge}
                     </div>
                     <div class="layer-controls">
+                        <button class="layer-btn layer-move-up" data-layer-id="${layer.id}" title="Move up within canvas">▲</button>
+                        <button class="layer-btn layer-move-down" data-layer-id="${layer.id}" title="Move down within canvas">▼</button>
                         <button class="layer-btn" onclick="app.toggleLayerVisibility(${layer.id})" title="Toggle Visibility">
                             ${layer.visible ? '👁' : '👁‍🗨'}
                         </button>
@@ -10044,6 +10025,24 @@ class LEDRasterApp {
                 </div>
             `;
             
+            // Per-layer reorder arrows (Slice 2.5).
+            const upArrow = layerDiv.querySelector('.layer-move-up');
+            const downArrow = layerDiv.querySelector('.layer-move-down');
+            if (upArrow) {
+                upArrow.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (upArrow.disabled) return;
+                    this.moveLayerWithinCanvas(layer.id, -1);
+                });
+            }
+            if (downArrow) {
+                downArrow.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (downArrow.disabled) return;
+                    this.moveLayerWithinCanvas(layer.id, 1);
+                });
+            }
+
             // Single click to select
             layerDiv.addEventListener('click', (e) => {
                 if (!e.target.classList.contains('layer-btn') && !e.target.classList.contains('layer-name-input')) {
@@ -10233,7 +10232,7 @@ class LEDRasterApp {
             </div>
             <div class="canvas-group-body"></div>
             <div class="canvas-group-footer">
-                <button class="btn btn-secondary canvas-add-screen-btn" title="Add a screen to this canvas">+ Add Screen</button>
+                <button class="btn btn-secondary canvas-add-btn" title="Add a layer to this canvas">+ Add</button>
             </div>
         `;
         this._wireCanvasGroupEl(wrap, canvas, layerCount);
@@ -10250,7 +10249,7 @@ class LEDRasterApp {
         const nameInput = wrap.querySelector('.canvas-name-input');
         const visBtn = wrap.querySelector('.canvas-vis-btn');
         const menuBtn = wrap.querySelector('.canvas-menu-btn');
-        const addScreenBtn = wrap.querySelector('.canvas-add-screen-btn');
+        const addBtn = wrap.querySelector('.canvas-add-btn');
 
         // Click header anywhere except on inputs/buttons => activate canvas.
         header.addEventListener('click', (e) => {
@@ -10291,14 +10290,9 @@ class LEDRasterApp {
             this.openCanvasMenu(canvas, menuBtn);
         });
 
-        addScreenBtn.addEventListener('click', (e) => {
+        addBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            // Set the target canvas active so existing add-screen flow lands
-            // here. The PUT is async but the modal user interaction takes
-            // long enough that the server state catches up before any
-            // /api/layer/add request fires.
-            Promise.resolve(this.setActiveCanvas(canvas.id, { silent: true }))
-                .then(() => this.openPresetPicker());
+            this.openCanvasAddMenu(canvas, addBtn);
         });
 
         // -- Drag & drop --
@@ -10459,6 +10453,66 @@ class LEDRasterApp {
         }).then(r => r.json()).then(data => this._applyProjectUpdate(data));
     }
 
+    // v0.8 Slice 2.5: per-canvas "+ Add" chooser (Screen / Image / Text).
+    // Routes to the existing add flows after activating the target canvas
+    // so the new layer always lands in the canvas whose "+ Add" was clicked
+    // (mirrors the Slice 2 add-screen pattern — server uses active_canvas_id
+    // when assigning new layers).
+    openCanvasAddMenu(canvas, anchor) {
+        document.querySelectorAll('.canvas-add-popup, .canvas-menu-popup, .canvas-color-popup').forEach(el => el.remove());
+        const menu = document.createElement('div');
+        menu.className = 'canvas-menu-popup canvas-add-popup';
+        menu.innerHTML = `
+            <button data-action="screen">Screen…</button>
+            <button data-action="image">Image / Logo…</button>
+            <button data-action="text">Text</button>
+        `;
+        document.body.appendChild(menu);
+        const r = anchor.getBoundingClientRect();
+        menu.style.position = 'fixed';
+        menu.style.top = `${r.bottom + 4}px`;
+        menu.style.left = `${Math.max(8, r.left)}px`;
+        menu.style.zIndex = '12000';
+
+        const close = () => {
+            menu.remove();
+            document.removeEventListener('mousedown', onOutside, true);
+            document.removeEventListener('keydown', onKey, true);
+        };
+        const onOutside = (e) => { if (!menu.contains(e.target)) close(); };
+        const onKey = (e) => { if (e.key === 'Escape') close(); };
+        setTimeout(() => {
+            document.addEventListener('mousedown', onOutside, true);
+            document.addEventListener('keydown', onKey, true);
+        }, 0);
+
+        menu.querySelectorAll('button').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const act = btn.dataset.action;
+                close();
+                this._handleCanvasAddAction(canvas, act);
+            });
+        });
+    }
+
+    _handleCanvasAddAction(canvas, action) {
+        // Activate the target canvas so the existing add flows (which look
+        // at active_canvas_id server-side) place the layer correctly.
+        const after = () => {
+            if (action === 'screen') {
+                this.openPresetPicker();
+            } else if (action === 'image') {
+                this.imageFileAction = 'add';
+                const input = document.getElementById('add-image-input');
+                if (input) input.click();
+            } else if (action === 'text') {
+                this.addTextLayer();
+            }
+        };
+        Promise.resolve(this.setActiveCanvas(canvas.id, { silent: true })).then(after);
+    }
+
     openCanvasMenu(canvas, anchor) {
         // Close any pre-existing menu.
         document.querySelectorAll('.canvas-menu-popup').forEach(el => el.remove());
@@ -10573,22 +10627,60 @@ class LEDRasterApp {
     }
 
     updateLayerOrderControls() {
-        const upBtn = document.getElementById('btn-layer-up');
-        const downBtn = document.getElementById('btn-layer-down');
-        if (!upBtn || !downBtn) return;
-        const hasSelection = !!this.currentLayer;
-        upBtn.disabled = !hasSelection;
-        downBtn.disabled = !hasSelection;
+        // v0.8 Slice 2.5: per-layer ▲▼ arrows. Disable the up arrow on the
+        // top-most layer of each canvas group, the down arrow on the
+        // bottom-most. Display order in the sidebar is reverse of the layer
+        // array (newest on top), so within a canvas the FIRST displayed
+        // layer is the LAST one in the array — the up arrow on that one is
+        // disabled, etc.
+        if (!this.project || !this.project.canvases) return;
+        // Group layer ids by canvas, in display order (reverse-array).
+        const reversed = [...(this.project.layers || [])].reverse();
+        const byCanvas = new Map();
+        reversed.forEach(l => {
+            if (!byCanvas.has(l.canvas_id)) byCanvas.set(l.canvas_id, []);
+            byCanvas.get(l.canvas_id).push(l.id);
+        });
+        document.querySelectorAll('#layers-list .layer-item').forEach(el => {
+            const lid = parseInt(el.dataset.layerId, 10);
+            const layer = (this.project.layers || []).find(l => l.id === lid);
+            if (!layer) return;
+            const ids = byCanvas.get(layer.canvas_id) || [];
+            const idx = ids.indexOf(lid);
+            const up = el.querySelector('.layer-move-up');
+            const down = el.querySelector('.layer-move-down');
+            if (up) up.disabled = idx <= 0;
+            if (down) down.disabled = idx < 0 || idx >= ids.length - 1;
+        });
     }
 
     moveLayerById(layerId, delta) {
+        // Kept for backward compatibility (keyboard shortcuts may call this).
+        // Delegates to within-canvas reorder so cross-canvas hops never
+        // happen via arrow-key reorder either.
+        this.moveLayerWithinCanvas(layerId, delta);
+    }
+
+    // v0.8 Slice 2.5: reorder a layer up/down by one slot, but only within
+    // its own canvas group. Display order is reverse of array order, so
+    // delta=-1 (visual up) corresponds to a HIGHER array index swap.
+    moveLayerWithinCanvas(layerId, delta) {
         if (!this.project || !this.project.layers) return;
-        const displayIds = [...document.querySelectorAll('#layers-list .layer-item')].map(el => parseInt(el.dataset.layerId, 10));
-        const idx = displayIds.indexOf(layerId);
-        if (idx < 0) return;
-        const nextIdx = idx + delta;
-        if (nextIdx < 0 || nextIdx >= displayIds.length) return;
-        displayIds.splice(nextIdx, 0, displayIds.splice(idx, 1)[0]);
+        const layer = this.project.layers.find(l => l.id === layerId);
+        if (!layer) return;
+        // Build the within-canvas display-order id list.
+        const reversed = [...this.project.layers].reverse();
+        const sameCanvasIds = reversed.filter(l => l.canvas_id === layer.canvas_id).map(l => l.id);
+        const localIdx = sameCanvasIds.indexOf(layerId);
+        const nextLocal = localIdx + delta;
+        if (localIdx < 0 || nextLocal < 0 || nextLocal >= sameCanvasIds.length) return;
+        const swapWithId = sameCanvasIds[nextLocal];
+        // Build the full display-order id list and swap just those two.
+        const displayIds = reversed.map(l => l.id);
+        const a = displayIds.indexOf(layerId);
+        const b = displayIds.indexOf(swapWithId);
+        if (a < 0 || b < 0) return;
+        [displayIds[a], displayIds[b]] = [displayIds[b], displayIds[a]];
         this.applyDisplayOrder(displayIds, 'Reorder Layers');
     }
 
