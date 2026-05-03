@@ -341,13 +341,59 @@ class CanvasRenderer {
         return this.isMirroredView() ? (this.rasterWidth - worldX) : worldX;
     }
 
+    /**
+     * Slice 4: hit-test a workspace point against the visible canvases.
+     * Returns the first canvas (in array order — earlier wins on overlap)
+     * whose rect contains (worldX, worldY), or null. Uses the same per-mode
+     * raster fields _drawCanvasOutline does, including the workspace_x/y
+     * offset so the rect is in workspace coords (matching worldX/worldY).
+     */
+    _canvasAtPoint(worldX, worldY) {
+        if (!window.app || !window.app.project) return null;
+        const arr = window.app.project.canvases;
+        if (!Array.isArray(arr) || arr.length === 0) return null;
+        const useShow = this.isShowLookView();
+        for (const c of arr) {
+            if (!c || c.visible === false) continue;
+            const w = (useShow && c.show_raster_width) || c.raster_width || 0;
+            const h = (useShow && c.show_raster_height) || c.raster_height || 0;
+            if (w <= 0 || h <= 0) continue;
+            const x = c.workspace_x || 0;
+            const y = c.workspace_y || 0;
+            if (worldX >= x && worldX <= x + w && worldY >= y && worldY <= y + h) {
+                return c;
+            }
+        }
+        return null;
+    }
+
     handleMouseDown(e) {
         const rect = this.canvas.getBoundingClientRect();
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
         const worldX = this._unmirrorWorldX((mouseX - this.panX) / this.zoom);
         const worldY = (mouseY - this.panY) / this.zoom;
-        
+
+        // Slice 4: clicking empty area inside a canvas's rect activates that
+        // canvas. Skipped for: pan (space), shift/alt modifiers (existing
+        // drag behaviors), and clicks that hit a panel (panel-select takes
+        // precedence; layer-click activation is wired separately in app.js
+        // selectLayer/toggleLayerSelection paths). Additive — the rest of
+        // mouse-down still runs, so panning/drag-select/etc. are unchanged.
+        if (e.button === 0 && !this.spacePressed && !e.shiftKey && !e.altKey) {
+            const hitPanel = this.getPanelAt(worldX, worldY);
+            if (!hitPanel) {
+                const hitCanvas = this._canvasAtPoint(worldX, worldY);
+                if (hitCanvas && hitCanvas.id
+                    && window.app
+                    && window.app.project
+                    && hitCanvas.id !== window.app.project.active_canvas_id
+                    && typeof window.app.setActiveCanvas === 'function') {
+                    window.app.setActiveCanvas(hitCanvas.id);
+                }
+            }
+        }
+
         if (e.button === 0 && this.spacePressed) {
             this.isDragging = true;
             this.dragStartX = mouseX;

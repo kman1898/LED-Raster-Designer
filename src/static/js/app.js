@@ -5372,6 +5372,8 @@ class LEDRasterApp {
         if (!this.selectionAnchorLayerId) {
             this.selectionAnchorLayerId = layer.id;
         }
+        // Slice 4: auto-activate this layer's canvas (no-op if already active).
+        this._activateCanvasForLayer(this.currentLayer);
         this.renderLayers();
         this.loadLayerToInputs();
         window.canvasRenderer.render();
@@ -5392,6 +5394,8 @@ class LEDRasterApp {
         this.selectedLayerIds = new Set(rangeIds);
         this.currentLayer = layer;
         this.lastSelectedLayerId = layer.id;
+        // Slice 4: auto-activate the canvas of the new primary layer.
+        this._activateCanvasForLayer(layer);
         this.renderLayers();
         this.loadLayerToInputs();
         window.canvasRenderer.render();
@@ -5621,6 +5625,8 @@ class LEDRasterApp {
         if (!this.selectionAnchorLayerId && this.currentLayer) {
             this.selectionAnchorLayerId = this.currentLayer.id;
         }
+        // Slice 4: auto-activate the canvas of the new primary layer.
+        this._activateCanvasForLayer(this.currentLayer);
         this.renderLayers();
         this.loadLayerToInputs();
         this.loadTextLayerToInputs();
@@ -5633,11 +5639,15 @@ class LEDRasterApp {
             console.error('SELECT LAYER: Invalid layer', layer);
             return;
         }
-        
+
         this.currentLayer = layer;
         this.selectedLayerIds = new Set([layer.id]);
         this.lastSelectedLayerId = layer.id;
         this.selectionAnchorLayerId = layer.id;
+        // Slice 4: auto-activate this layer's canvas. Idempotent — short-
+        // circuits when already active so programmatic selectLayer calls
+        // (post-load, post-create, post-delete) don't fire spurious PUTs.
+        this._activateCanvasForLayer(layer);
         sendClientLog('select_layer_before_defaults', {
             layerId: layer.id,
             processorType: layer.processorType,
@@ -10438,13 +10448,56 @@ class LEDRasterApp {
     setActiveCanvas(canvasId, opts = {}) {
         // Optimistic UI update so the highlight feels instant; backend
         // confirms.
-        if (this.project) this.project.active_canvas_id = canvasId;
-        if (!opts.silent) this.renderLayers();
+        if (!this.project) return Promise.resolve();
+        if (this.project.active_canvas_id === canvasId && !opts.force) {
+            // No-op: already active. Skip the network round-trip and
+            // re-render to avoid spamming PUTs from layer-selection paths.
+            return Promise.resolve();
+        }
+        this.project.active_canvas_id = canvasId;
+        // Slice 4: toolbar raster reflects the active canvas's raster.
+        // Mirror the active canvas's raster_* into project root + renderer
+        // so syncRasterFromProject populates the toolbar inputs correctly.
+        this._syncRootRasterFromActiveCanvas();
+        try { this.syncRasterFromProject(); } catch (_) {}
+        if (!opts.silent) {
+            this.renderLayers();
+            if (window.canvasRenderer) window.canvasRenderer.render();
+        }
         return fetch(`/api/canvas/${canvasId}/active`, { method: 'PUT' })
             .then(r => r.json()).then(data => {
                 // Quietly absorb server state without re-rendering twice.
                 if (data && data.canvases) this.project = data;
             });
+    }
+
+    /**
+     * Slice 4: copy the active canvas's raster_* fields into the project
+     * root so syncRasterFromProject (which reads project root) picks up the
+     * right values. Slice 6 will switch the renderer to read straight from
+     * the canvas object and this helper goes away.
+     */
+    _syncRootRasterFromActiveCanvas() {
+        if (!this.project || !this.project.canvases) return;
+        const c = this.project.canvases.find(c => c.id === this.project.active_canvas_id);
+        if (!c) return;
+        if (c.raster_width)        this.project.raster_width = c.raster_width;
+        if (c.raster_height)       this.project.raster_height = c.raster_height;
+        if (c.show_raster_width)   this.project.show_raster_width = c.show_raster_width;
+        if (c.show_raster_height)  this.project.show_raster_height = c.show_raster_height;
+    }
+
+    /**
+     * Slice 4: when a layer becomes the user-selected layer, also activate
+     * its canvas (if different). Idempotent — setActiveCanvas short-circuits
+     * when already active, so we won't spam PUTs from re-selecting the same
+     * layer or selecting siblings inside the already-active canvas.
+     */
+    _activateCanvasForLayer(layer) {
+        if (!layer || !layer.canvas_id) return;
+        if (!this.project) return;
+        if (layer.canvas_id === this.project.active_canvas_id) return;
+        this.setActiveCanvas(layer.canvas_id);
     }
 
     reorderCanvasBeforeTarget(draggedId, targetId) {

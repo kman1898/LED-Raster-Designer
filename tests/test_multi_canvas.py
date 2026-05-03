@@ -400,3 +400,25 @@ def test_duplicated_canvas_auto_placed(client_with_layer):
     dup = proj['canvases'][1]
     assert dup['workspace_x'] == expected_x
     assert dup['workspace_y'] == 0
+
+
+def test_active_canvas_id_round_trips_on_save_load(client):
+    """Slice 4: active_canvas_id survives a save/load round-trip so when
+    the user reopens a project the canvas they had selected is still
+    active (toolbar raster + sidebar highlight + workspace tint all
+    follow it). Frontend selection paths set active_canvas_id; this
+    verifies the persistence half of that contract."""
+    # Add a second canvas and make it active.
+    client.post('/api/canvas', json={})  # creates c2, sets it active
+    resp = client.put('/api/canvas/c2/active')
+    assert resp.status_code == 200
+    proj_before = resp.get_json()
+    assert proj_before['active_canvas_id'] == 'c2'
+
+    # Save, then reload.
+    save = client.post('/api/project', json=proj_before)
+    assert save.status_code == 200
+    restored = client.put('/api/project', json=proj_before).get_json()
+
+    assert restored['active_canvas_id'] == 'c2'
+    assert [c['id'] for c in restored['canvases']] == ['c1', 'c2']
