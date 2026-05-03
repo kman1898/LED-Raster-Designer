@@ -1702,35 +1702,41 @@ class LEDRasterApp {
     }
 
     /**
-     * Sync the canvas renderer's pixel/show raster backing fields from the
-     * loaded project. Older projects pre-date the show raster, so default
-     * the show fields to the pixel fields when missing. Also refresh the
-     * toolbar input to match the currently active view's raster.
+     * Slice 6: refresh the toolbar Raster: W x H inputs from the active
+     * canvas's raster (Pixel Map raster on pixel-map / cabinet-id, Show
+     * Look raster on show-look / data / power). Also seeds any missing
+     * show_raster_* on the active canvas so older projects (where show
+     * raster was never set) open with show = pixel.
+     *
+     * Renderer fields are accessor-backed (Slice 6) — they read straight
+     * from the active canvas — so no per-renderer assignment is needed.
+     * Legacy fallback (no canvases array): seed the renderer's _fallback*
+     * backing fields from the project root so single-canvas pre-Slice-1
+     * projects still display.
      */
     syncRasterFromProject() {
         if (!this.project) return;
         const r = window.canvasRenderer;
         if (!r) return;
-        const pw = Number(this.project.raster_width) || r.pixelRasterWidth || 1920;
-        const ph = Number(this.project.raster_height) || r.pixelRasterHeight || 1080;
-        const sw = Number(this.project.show_raster_width) || pw;
-        const sh = Number(this.project.show_raster_height) || ph;
-        r.pixelRasterWidth = pw;
-        r.pixelRasterHeight = ph;
-        r.showRasterWidth = sw;
-        r.showRasterHeight = sh;
-        // Make sure the project dict carries both — older projects may have
-        // been opened without going through the server migration.
-        this.project.raster_width = pw;
-        this.project.raster_height = ph;
-        this.project.show_raster_width = sw;
-        this.project.show_raster_height = sh;
-        if (r.isShowLookView()) {
-            r.rasterWidth = sw;
-            r.rasterHeight = sh;
+        const canvases = Array.isArray(this.project.canvases) ? this.project.canvases : [];
+        if (canvases.length > 0) {
+            const c = canvases.find(x => x.id === this.project.active_canvas_id) || canvases[0];
+            if (c) {
+                if (!c.show_raster_width)  c.show_raster_width  = c.raster_width;
+                if (!c.show_raster_height) c.show_raster_height = c.raster_height;
+            }
         } else {
-            r.rasterWidth = pw;
-            r.rasterHeight = ph;
+            // Pre-Slice-1 project — seed the renderer's fallback backing
+            // fields so the legacy single-canvas getter path returns sane
+            // values until the project gets migrated by the server.
+            const pw = Number(this.project.raster_width) || 1920;
+            const ph = Number(this.project.raster_height) || 1080;
+            const sw = Number(this.project.show_raster_width) || pw;
+            const sh = Number(this.project.show_raster_height) || ph;
+            r._fallbackPixelRasterWidth = pw;
+            r._fallbackPixelRasterHeight = ph;
+            r._fallbackShowRasterWidth = sw;
+            r._fallbackShowRasterHeight = sh;
         }
         const rwIn = document.getElementById('toolbar-raster-width');
         const rhIn = document.getElementById('toolbar-raster-height');
@@ -1738,45 +1744,53 @@ class LEDRasterApp {
         if (rhIn) rhIn.value = r.rasterHeight;
     }
     
-    // Load raster size from localStorage (checks version first)
+    // Load raster size from localStorage (checks version first).
+    //
+    // Slice 6: at boot the project hasn't loaded yet — the active canvas's
+    // raster is the source of truth and we must NOT clobber it with stale
+    // localStorage. So we only seed the renderer's fallback backing fields
+    // (used when no canvases array exists yet) and refresh the toolbar
+    // inputs. Once loadProject() runs, syncRasterFromProject() takes over
+    // and the toolbar reflects the active canvas.
     loadRasterSize() {
-        // Check version first - if mismatch, clear all saved settings including raster size
         const savedVersion = localStorage.getItem('ledRasterPropsVersion');
-        const currentVersion = '0.4.7'; // Must match version in loadClientSideProperties
-        
+        const currentVersion = '0.4.7';
+
+        const seed = (w, h) => {
+            const r = window.canvasRenderer;
+            if (!r) return;
+            r._fallbackPixelRasterWidth = w;
+            r._fallbackPixelRasterHeight = h;
+            r._fallbackShowRasterWidth = w;
+            r._fallbackShowRasterHeight = h;
+            const wIn = document.getElementById('toolbar-raster-width');
+            const hIn = document.getElementById('toolbar-raster-height');
+            if (wIn) wIn.value = w;
+            if (hIn) hIn.value = h;
+        };
+
         if (savedVersion !== currentVersion) {
             console.log('Version mismatch in loadRasterSize - clearing ALL localStorage');
             localStorage.removeItem('ledRasterSize');
             localStorage.removeItem('ledRasterClientProps');
             localStorage.setItem('ledRasterPropsVersion', currentVersion);
             const prefs = this.getPreferences();
-            window.canvasRenderer.rasterWidth = prefs.rasterWidth;
-            window.canvasRenderer.rasterHeight = prefs.rasterHeight;
-            document.getElementById('toolbar-raster-width').value = prefs.rasterWidth;
-            document.getElementById('toolbar-raster-height').value = prefs.rasterHeight;
+            seed(prefs.rasterWidth, prefs.rasterHeight);
             this.saveRasterSize();
             return;
         }
-        
+
         const saved = localStorage.getItem('ledRasterSize');
         if (saved) {
             try {
                 const size = JSON.parse(saved);
-                if (size.width && size.height) {
-                    window.canvasRenderer.rasterWidth = size.width;
-                    window.canvasRenderer.rasterHeight = size.height;
-                    document.getElementById('toolbar-raster-width').value = size.width;
-                    document.getElementById('toolbar-raster-height').value = size.height;
-                }
+                if (size.width && size.height) seed(size.width, size.height);
             } catch (e) {
                 console.error('Error loading raster size:', e);
             }
         } else {
             const prefs = this.getPreferences();
-            window.canvasRenderer.rasterWidth = prefs.rasterWidth;
-            window.canvasRenderer.rasterHeight = prefs.rasterHeight;
-            document.getElementById('toolbar-raster-width').value = prefs.rasterWidth;
-            document.getElementById('toolbar-raster-height').value = prefs.rasterHeight;
+            seed(prefs.rasterWidth, prefs.rasterHeight);
             this.saveRasterSize();
         }
     }
@@ -3575,40 +3589,18 @@ class LEDRasterApp {
             rasterWidthInput.addEventListener('change', () => {
                 const width = evaluateMathExpression(rasterWidthInput.value) || 1920;
                 rasterWidthInput.value = width;
-                // The toolbar edits the raster for the *current* view: pixel-map
-                // / cabinet-id edit the processor raster, show-look / data /
-                // power edit the show raster.
+                // Slice 6: the toolbar Raster: W x H field is the active
+                // canvas's raster (Pixel Map raster on pixel-map / cabinet-id;
+                // Show Look raster on show-look / data / power). Writes go
+                // straight to the active canvas via PUT /api/canvas/<id> —
+                // no project-root mirror, no _mirrorRasterToActiveCanvas hack.
                 //
                 // While show raster equals pixel raster ("linked"), changing
                 // the pixel raster also updates the show raster — Show Look
-                // tracks Pixel Map by default. Once they're set to different
-                // values they stay independent.
+                // tracks Pixel Map by default until the user splits them.
                 const renderer = window.canvasRenderer;
                 const isShow = renderer.isShowLookView();
-                const wasLinked = renderer.pixelRasterWidth === renderer.showRasterWidth;
-                if (isShow) {
-                    renderer.showRasterWidth = width;
-                    if (this.project) this.project.show_raster_width = width;
-                } else {
-                    renderer.pixelRasterWidth = width;
-                    if (this.project) this.project.raster_width = width;
-                    if (wasLinked) {
-                        renderer.showRasterWidth = width;
-                        if (this.project) this.project.show_raster_width = width;
-                    }
-                }
-                renderer.rasterWidth = width;
-                // Slice 3 patch: the renderer now reads each canvas's own
-                // raster_* fields (per-canvas outlines). Mirror the toolbar
-                // edit onto the active canvas so the visual size actually
-                // changes. Slice 6 will switch source-of-truth fully and
-                // remove the project-root writes above.
-                this._mirrorRasterToActiveCanvas(isShow ? 'show' : 'pixel', width, null, wasLinked);
-                if (this.project) this.saveProject();
-                this.saveRasterSize();
-                if (typeof sendClientLog === 'function') {
-                    sendClientLog('raster_change', { width, height: renderer.rasterHeight, source: 'toolbar-width', view: renderer.viewMode, autoSyncedShow: !isShow && wasLinked });
-                }
+                this._writeToolbarRasterToActiveCanvas('width', width, isShow);
                 renderer.render();
             });
         }
@@ -3619,25 +3611,7 @@ class LEDRasterApp {
                 rasterHeightInput.value = height;
                 const renderer = window.canvasRenderer;
                 const isShow = renderer.isShowLookView();
-                const wasLinked = renderer.pixelRasterHeight === renderer.showRasterHeight;
-                if (isShow) {
-                    renderer.showRasterHeight = height;
-                    if (this.project) this.project.show_raster_height = height;
-                } else {
-                    renderer.pixelRasterHeight = height;
-                    if (this.project) this.project.raster_height = height;
-                    if (wasLinked) {
-                        renderer.showRasterHeight = height;
-                        if (this.project) this.project.show_raster_height = height;
-                    }
-                }
-                renderer.rasterHeight = height;
-                this._mirrorRasterToActiveCanvas(isShow ? 'show' : 'pixel', null, height, wasLinked);
-                if (this.project) this.saveProject();
-                this.saveRasterSize();
-                if (typeof sendClientLog === 'function') {
-                    sendClientLog('raster_change', { width: renderer.rasterWidth, height, source: 'toolbar-height', view: renderer.viewMode, autoSyncedShow: !isShow && wasLinked });
-                }
+                this._writeToolbarRasterToActiveCanvas('height', height, isShow);
                 renderer.render();
             });
         }
@@ -10606,10 +10580,9 @@ class LEDRasterApp {
             this.currentLayer = next;
             if (!next) this.lastSelectedLayerId = null;
         }
-        // Slice 4: toolbar raster reflects the active canvas's raster.
-        // Mirror the active canvas's raster_* into project root + renderer
-        // so syncRasterFromProject populates the toolbar inputs correctly.
-        this._syncRootRasterFromActiveCanvas();
+        // Slice 6: toolbar raster reflects the active canvas's raster.
+        // syncRasterFromProject reads straight from the active canvas now,
+        // so no project-root mirror needed.
         try { this.syncRasterFromProject(); } catch (_) {}
         if (!opts.silent) {
             this.renderLayers();
@@ -10623,19 +10596,13 @@ class LEDRasterApp {
     }
 
     /**
-     * Slice 4: copy the active canvas's raster_* fields into the project
-     * root so syncRasterFromProject (which reads project root) picks up the
-     * right values. Slice 6 will switch the renderer to read straight from
-     * the canvas object and this helper goes away.
+     * Slice 6: deprecated — kept as a no-op so any lingering callers don't
+     * crash during the deprecation window. The renderer reads straight from
+     * the active canvas via accessors now, so there is no project-root copy
+     * to keep in sync.
      */
     _syncRootRasterFromActiveCanvas() {
-        if (!this.project || !this.project.canvases) return;
-        const c = this.project.canvases.find(c => c.id === this.project.active_canvas_id);
-        if (!c) return;
-        if (c.raster_width)        this.project.raster_width = c.raster_width;
-        if (c.raster_height)       this.project.raster_height = c.raster_height;
-        if (c.show_raster_width)   this.project.show_raster_width = c.show_raster_width;
-        if (c.show_raster_height)  this.project.show_raster_height = c.show_raster_height;
+        // intentionally empty — see syncRasterFromProject().
     }
 
     /**
@@ -10937,27 +10904,54 @@ class LEDRasterApp {
         this.saveProject();
     }
     
-    // Slice 3 helper: mirror a toolbar raster edit onto the active canvas's
-    // raster_* / show_raster_* fields so the visual canvas-rect actually
-    // resizes. Called by the toolbar Raster width/height change handlers.
-    // `view` is 'show' or 'pixel'. Pass the new width OR height; pass null
-    // for whichever axis isn't being changed. `wasLinked` mirrors the
-    // pixel-map → show-look auto-sync behavior already present at the
-    // project root.
-    _mirrorRasterToActiveCanvas(view, width, height, wasLinked) {
-        if (!this.project || !this.project.canvases || !this.project.active_canvas_id) return;
-        const c = this.project.canvases.find(c => c.id === this.project.active_canvas_id);
+    /**
+     * Slice 6: write a toolbar Raster: W x H change to the active canvas via
+     * PUT /api/canvas/<id>. Source-of-truth lives on the canvas object — no
+     * project-root mirror. `axis` is 'width' or 'height'; `value` is the new
+     * dimension; `isShow` selects show_raster_* vs raster_*.
+     *
+     * Auto-link behaviour: when the pixel and show rasters were equal
+     * before this change ("linked"), a pixel-raster edit also updates the
+     * show raster on the same axis so Show Look keeps tracking Pixel Map
+     * until the user explicitly splits them.
+     */
+    _writeToolbarRasterToActiveCanvas(axis, value, isShow) {
+        if (!this.project || !Array.isArray(this.project.canvases)) return;
+        const canvasId = this.project.active_canvas_id;
+        const c = this.project.canvases.find(x => x.id === canvasId);
         if (!c) return;
-        if (view === 'show') {
-            if (width != null)  c.show_raster_width  = width;
-            if (height != null) c.show_raster_height = height;
+        const patch = {};
+        if (isShow) {
+            if (axis === 'width')  patch.show_raster_width  = value;
+            if (axis === 'height') patch.show_raster_height = value;
         } else {
-            if (width != null)  c.raster_width  = width;
-            if (height != null) c.raster_height = height;
-            if (wasLinked) {
-                if (width != null)  c.show_raster_width  = width;
-                if (height != null) c.show_raster_height = height;
+            // Detect linked-state on the *active canvas* before mutating it.
+            const wasLinked = (axis === 'width')
+                ? ((Number(c.raster_width) || 0) === (Number(c.show_raster_width) || 0))
+                : ((Number(c.raster_height) || 0) === (Number(c.show_raster_height) || 0));
+            if (axis === 'width') {
+                patch.raster_width = value;
+                if (wasLinked) patch.show_raster_width = value;
+            } else {
+                patch.raster_height = value;
+                if (wasLinked) patch.show_raster_height = value;
             }
+        }
+        // Optimistic local update so the renderer (which reads from the
+        // canvas object via getters) repaints immediately, before the PUT
+        // round-trip. The server response will overwrite this with the
+        // canonical state.
+        Object.assign(c, patch);
+        this.saveRasterSize();
+        if (typeof sendClientLog === 'function') {
+            sendClientLog('raster_change', {
+                axis, value, isShow,
+                view: window.canvasRenderer && window.canvasRenderer.viewMode,
+                canvas_id: canvasId,
+            });
+        }
+        if (typeof this.updateCanvas === 'function') {
+            this.updateCanvas(canvasId, patch);
         }
     }
 

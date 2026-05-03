@@ -407,7 +407,43 @@ def _migrate_to_v0_8(project):
             layer['canvas_id'] = default_canvas_id
 
     project['format_version'] = CURRENT_FORMAT_VERSION
+    _mirror_active_canvas_to_root(project)
     return project, True
+
+
+def _mirror_active_canvas_to_root(project):
+    """Slice 6 compatibility shim.
+
+    Source-of-truth for raster fields moved to the per-canvas object. The
+    server keeps writing the mirrored values back onto the project root
+    (raster_width, raster_height, show_raster_*, *_perspective) so that:
+      - Older test code reading project['raster_width'] keeps working.
+      - A client that hasn't yet upgraded to per-canvas reads still sees
+        sane numbers (the active canvas's raster).
+      - The PNG / PDF / PSD export paths (which still read root raster
+        for the export size) keep working until they're rewritten per
+        canvas in a later slice.
+
+    No-op on projects with no canvases (pre-Slice-1 legacy state).
+    """
+    if not isinstance(project, dict):
+        return project
+    canvases = project.get('canvases') or []
+    if not canvases:
+        return project
+    active_id = project.get('active_canvas_id')
+    active = next((c for c in canvases if isinstance(c, dict) and c.get('id') == active_id), None)
+    if active is None:
+        active = canvases[0]
+    for key in (
+        'raster_width', 'raster_height',
+        'show_raster_width', 'show_raster_height',
+        'data_flow_perspective', 'power_perspective',
+    ):
+        val = active.get(key)
+        if val is not None:
+            project[key] = val
+    return project
 
 
 def _build_initial_project():
@@ -1053,9 +1089,29 @@ def new_project():
 
 @app.route('/api/project', methods=['POST'])
 def save_project():
-    data = request.json
+    data = request.json or {}
+    # Slice 6: source-of-truth for raster lives on the active canvas. If the
+    # client sent root-level raster_* fields without a canvases payload
+    # (backwards-compat clients / older tests), propagate those into the
+    # active canvas so the canvas object reflects the new values. Then
+    # re-mirror canvas → root so root stays consistent.
+    canvases = current_project.get('canvases') or []
+    if canvases and not data.get('canvases'):
+        active_id = current_project.get('active_canvas_id')
+        active = next(
+            (c for c in canvases if isinstance(c, dict) and c.get('id') == active_id),
+            canvases[0],
+        )
+        for key in (
+            'raster_width', 'raster_height',
+            'show_raster_width', 'show_raster_height',
+            'data_flow_perspective', 'power_perspective',
+        ):
+            if key in data and data[key] is not None:
+                active[key] = data[key]
     current_project.update(data)
     current_project['is_pristine'] = False
+    _mirror_active_canvas_to_root(current_project)
     sync_next_layer_id()
     log_event('save_project', {'name': current_project.get('name')})
     return jsonify({'status': 'success'})
@@ -1514,6 +1570,9 @@ def update_canvas(canvas_id):
             canvas[key] = val
             changed[key] = val
     current_project['is_pristine'] = False
+    # Slice 6: keep the project-root raster mirror in sync so any
+    # client/test still reading root sees the latest active-canvas values.
+    _mirror_active_canvas_to_root(current_project)
     log_event('canvas_update', {'id': canvas_id, 'changed': changed})
     socketio.emit('project_updated', current_project)
     return jsonify(current_project)

@@ -534,3 +534,129 @@ def test_duplicate_canvas_name_appends_1_when_no_suffix(client_with_layer):
     p = r.get_json()
     names = [c['name'] for c in p['canvases']]
     assert names == ['EDC', 'EDC 1', 'EDC 2']
+
+
+# -----------------------------------------------------------------------------
+# Slice 6 — per-canvas raster (toolbar source-of-truth on active canvas).
+# -----------------------------------------------------------------------------
+
+
+def test_toolbar_raster_change_only_touches_active_canvas(client):
+    """PUT /api/canvas/<id> with raster_* changes ONLY that canvas; siblings
+    keep their own raster sizes (per-canvas raster is now real)."""
+    # Two canvases, each with its own initial raster.
+    client.put('/api/canvas/c1', json={'raster_width': 1920, 'raster_height': 1080})
+    client.post('/api/canvas', json={})  # c2 (auto-cloned from active = c1)
+    client.put('/api/canvas/c2', json={'raster_width': 800, 'raster_height': 600})
+
+    # Activate c1 and "edit the toolbar" via the canvas update endpoint —
+    # mimics the Slice 6 client which routes the toolbar change to the
+    # active canvas, not to project root.
+    client.put('/api/canvas/c1/active')
+    resp = client.put('/api/canvas/c1', json={
+        'raster_width': 11520, 'raster_height': 2272,
+        'show_raster_width': 11520, 'show_raster_height': 2272,
+    })
+    assert resp.status_code == 200
+    proj = resp.get_json()
+    by_id = {c['id']: c for c in proj['canvases']}
+
+    # c1 picked up the change.
+    assert by_id['c1']['raster_width'] == 11520
+    assert by_id['c1']['raster_height'] == 2272
+    # c2 is untouched.
+    assert by_id['c2']['raster_width'] == 800
+    assert by_id['c2']['raster_height'] == 600
+
+
+def test_root_raster_mirrors_active_canvas(client):
+    """Backwards-compat shim: project root raster_* mirrors the active
+    canvas's raster on every save/update response."""
+    client.post('/api/canvas', json={})  # c2 (active)
+    client.put('/api/canvas/c2', json={'raster_width': 4096, 'raster_height': 2160})
+
+    proj = client.get('/api/project').get_json()
+    # Active is c2 → root mirrors c2's raster.
+    assert proj['active_canvas_id'] == 'c2'
+    assert proj['raster_width'] == 4096
+    assert proj['raster_height'] == 2160
+
+    # Switch active to c1 → root remirrors to c1's raster.
+    client.put('/api/canvas/c1/active')
+    # Trigger a refresh by hitting the project endpoint.
+    proj = client.get('/api/project').get_json()
+    # GET /api/project does not re-mirror (it just returns current_project),
+    # but set_active_canvas uses socketio_emit; either way we want any state-
+    # changing call to leave root in sync. Prove this by issuing a no-op
+    # canvas update on c1 and inspecting the response.
+    resp = client.put('/api/canvas/c1', json={})
+    proj = resp.get_json()
+    by_id = {c['id']: c for c in proj['canvases']}
+    assert proj['raster_width'] == by_id['c1']['raster_width']
+    assert proj['raster_height'] == by_id['c1']['raster_height']
+
+
+def test_save_project_with_root_raster_propagates_to_active_canvas(client):
+    """Backwards-compat: a POST /api/project that sends only root-level
+    raster_* (no canvases payload) flows through to the active canvas so
+    older clients/tests still drive raster size from the toolbar."""
+    proj_before = client.get('/api/project').get_json()
+    active_id = proj_before['active_canvas_id']
+
+    client.post('/api/project', json={
+        'raster_width': 7680,
+        'raster_height': 4320,
+    })
+
+    proj = client.get('/api/project').get_json()
+    by_id = {c['id']: c for c in proj['canvases']}
+    assert by_id[active_id]['raster_width'] == 7680
+    assert by_id[active_id]['raster_height'] == 4320
+    # Root is mirrored.
+    assert proj['raster_width'] == 7680
+    assert proj['raster_height'] == 4320
+
+
+def test_set_active_canvas_changes_what_toolbar_reads(client):
+    """Switching active canvas updates the project-root raster mirror so the
+    toolbar (which reflects whichever canvas is active) shows the new
+    values. Mirrors a typical setActiveCanvas → syncRasterFromProject flow."""
+    # c1 has 1920x1080 by default. Add c2 with a different raster.
+    client.post('/api/canvas', json={})  # c2 active
+    client.put('/api/canvas/c2', json={'raster_width': 3840, 'raster_height': 2160})
+    proj = client.get('/api/project').get_json()
+    assert proj['active_canvas_id'] == 'c2'
+    assert proj['raster_width'] == 3840
+
+    # Switch active to c1.
+    client.put('/api/canvas/c1/active')
+    # A subsequent canvas update (or any state-changing call) re-mirrors:
+    proj = client.put('/api/canvas/c1', json={}).get_json()
+    by_id = {c['id']: c for c in proj['canvases']}
+    assert proj['raster_width'] == by_id['c1']['raster_width']
+    # And the original c2 raster is untouched.
+    assert by_id['c2']['raster_width'] == 3840
+
+
+def test_per_canvas_raster_round_trips(client):
+    """Save / restore a multi-canvas project; each canvas's per-view raster
+    sizes survive intact (Slice 6 prerequisite for per-view per-canvas)."""
+    proj = client.get('/api/project').get_json()
+    proj['canvases'].append({
+        'id': 'c2', 'name': 'C2', 'color': '#F5A623',
+        'workspace_x': 5000, 'workspace_y': 0,
+        'raster_width': 1280, 'raster_height': 720,
+        'show_raster_width': 2560, 'show_raster_height': 1440,
+        'data_flow_perspective': 'front',
+        'power_perspective': 'front',
+        'visible': True,
+    })
+    proj['active_canvas_id'] = 'c2'
+    restored = client.put('/api/project', json=proj).get_json()
+    by_id = {c['id']: c for c in restored['canvases']}
+    assert by_id['c2']['raster_width'] == 1280
+    assert by_id['c2']['raster_height'] == 720
+    assert by_id['c2']['show_raster_width'] == 2560
+    assert by_id['c2']['show_raster_height'] == 1440
+    # And the c1 default raster is preserved (independent of c2's).
+    assert by_id['c1']['raster_width'] != by_id['c2']['raster_width']

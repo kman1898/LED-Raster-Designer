@@ -15,17 +15,18 @@ class CanvasRenderer {
         this.layerSelectionRect = null;
         this.magneticSnap = true; // Magnetic snapping enabled by default
         this.spacePressed = false;
-        // rasterWidth/Height are the *currently active* view's raster size.
-        // The actual storage lives in pixelRasterWidth/Height and
-        // showRasterWidth/Height; setViewMode() swaps the active fields so
-        // pixel-map/cabinet-id render against the processor raster while
-        // show-look/data-flow/power render against the show raster.
-        this.pixelRasterWidth = 1920;
-        this.pixelRasterHeight = 1080;
-        this.showRasterWidth = 1920;
-        this.showRasterHeight = 1080;
-        this.rasterWidth = 1920;
-        this.rasterHeight = 1080;
+        // Slice 6: rasterWidth/Height (and pixel/show variants) are now
+        // accessor properties that read from the *active canvas* (or, during
+        // the per-canvas render loop, from `_activeRenderCanvas` — set by
+        // render() so each canvas's panels clip against ITS own raster, not
+        // the active canvas's). Backing fields below are the legacy
+        // single-canvas fallback used only when the project has no canvases
+        // array (extremely old / pre-Slice-1 projects).
+        this._fallbackPixelRasterWidth = 1920;
+        this._fallbackPixelRasterHeight = 1080;
+        this._fallbackShowRasterWidth = 1920;
+        this._fallbackShowRasterHeight = 1080;
+        this._activeRenderCanvas = null;
         this.showGrid = true;
         this.viewMode = 'pixel-map'; // Default view mode
         this.exportMode = false; // When true, hides grid and raster boundary for clean export
@@ -45,9 +46,64 @@ class CanvasRenderer {
         this.showOffsetTR = false;
         this.showOffsetBL = false;
         this.showOffsetBR = false;
-        
+
+        // Slice 6: install raster getters/setters that route to the active
+        // canvas. Done in the constructor so every CanvasRenderer instance
+        // gets them on its own object (cannot be on the prototype because
+        // they shadow plain assignments).
+        this._installRasterAccessors();
+
         this.setupCanvas();
         this.setupEventListeners();
+    }
+
+    /**
+     * Slice 6 (multi-canvas v0.8): rasterWidth / rasterHeight and the
+     * pixel/show variants used to be plain instance fields. They are now
+     * computed from the active canvas (or the canvas currently being rendered
+     * in the per-canvas loop). Reads return the right value for the current
+     * view tab; writes route to the active canvas via the project model so
+     * the toolbar Raster: W x H field edits the active canvas's raster.
+     *
+     * Fallback behaviour (no canvases array — legacy / pre-Slice-1 project):
+     * read/write the _fallback* backing fields. Single-canvas behaviour is
+     * preserved exactly.
+     */
+    _installRasterAccessors() {
+        const self = this;
+        const active = () => {
+            const proj = (window.app && window.app.project) || null;
+            if (!proj || !Array.isArray(proj.canvases) || proj.canvases.length === 0) return null;
+            // Per-canvas render loop sets _activeRenderCanvas so each canvas's
+            // panels clip against ITS OWN raster — not the active canvas's.
+            if (self._activeRenderCanvas) return self._activeRenderCanvas;
+            return proj.canvases.find(c => c.id === proj.active_canvas_id) || proj.canvases[0];
+        };
+        const isShow = () => self.isShowLookView();
+        const def = (name, read, write) => Object.defineProperty(self, name, {
+            configurable: true,
+            enumerable: true,
+            get: read,
+            set: write,
+        });
+        def('pixelRasterWidth',
+            () => { const c = active(); return c ? (Number(c.raster_width) || 0) : self._fallbackPixelRasterWidth; },
+            (v) => { const c = active(); if (c) c.raster_width = Number(v) || 0; else self._fallbackPixelRasterWidth = Number(v) || 0; });
+        def('pixelRasterHeight',
+            () => { const c = active(); return c ? (Number(c.raster_height) || 0) : self._fallbackPixelRasterHeight; },
+            (v) => { const c = active(); if (c) c.raster_height = Number(v) || 0; else self._fallbackPixelRasterHeight = Number(v) || 0; });
+        def('showRasterWidth',
+            () => { const c = active(); return c ? (Number(c.show_raster_width) || Number(c.raster_width) || 0) : self._fallbackShowRasterWidth; },
+            (v) => { const c = active(); if (c) c.show_raster_width = Number(v) || 0; else self._fallbackShowRasterWidth = Number(v) || 0; });
+        def('showRasterHeight',
+            () => { const c = active(); return c ? (Number(c.show_raster_height) || Number(c.raster_height) || 0) : self._fallbackShowRasterHeight; },
+            (v) => { const c = active(); if (c) c.show_raster_height = Number(v) || 0; else self._fallbackShowRasterHeight = Number(v) || 0; });
+        def('rasterWidth',
+            () => isShow() ? self.showRasterWidth : self.pixelRasterWidth,
+            (v) => { if (isShow()) self.showRasterWidth = v; else self.pixelRasterWidth = v; });
+        def('rasterHeight',
+            () => isShow() ? self.showRasterHeight : self.pixelRasterHeight,
+            (v) => { if (isShow()) self.showRasterHeight = v; else self.pixelRasterHeight = v; });
     }
     
     setupCanvas() {
@@ -1923,6 +1979,11 @@ class CanvasRenderer {
                     this.ctx.save();
                     this.ctx.translate(wx, wy);
                 }
+                // Slice 6: scope rasterWidth/Height (via the getter) to THIS
+                // canvas during its render pass so per-panel clipping uses
+                // this canvas's raster, not the active canvas's. Cleared at
+                // the end of the pass.
+                this._activeRenderCanvas = canvas.id ? canvas : null;
                 // Active-canvas tint (BEFORE layers so layers paint over it
                 // but the tint shows through in empty regions).
                 if (!this.exportMode && canvas.id && canvas.id === _activeCanvasId) {
@@ -2018,6 +2079,10 @@ class CanvasRenderer {
             // translated space.
             this._renderDx = 0;
             this._renderDy = 0;
+            // Slice 6: clear the per-canvas raster scope so any post-pass
+            // (overlays, badges, hit-testing during this render) sees the
+            // active canvas's raster via the getter again.
+            this._activeRenderCanvas = null;
 
             if (!this.exportMode && this.viewMode === 'data-flow') {
                 this.renderCustomSelectionOverlay();
@@ -2355,18 +2420,11 @@ class CanvasRenderer {
     
     setViewMode(mode) {
         this.viewMode = mode;
-        // Swap the active raster to match the view. Show-look and the
-        // downstream tabs (data-flow, power) render at the show raster;
-        // pixel-map and cabinet-id render at the processor raster.
-        if (this.isShowLookView(mode)) {
-            this.rasterWidth = this.showRasterWidth;
-            this.rasterHeight = this.showRasterHeight;
-        } else {
-            this.rasterWidth = this.pixelRasterWidth;
-            this.rasterHeight = this.pixelRasterHeight;
-        }
-        // Reflect the active raster in the toolbar inputs so the user sees
-        // the right numbers when switching tabs.
+        // Slice 6: rasterWidth/Height now read view-aware from the active
+        // canvas via getters (pixel raster on pixel-map/cabinet-id, show
+        // raster on show-look/data-flow/power), so no manual swap needed.
+        // Refresh the toolbar inputs so the user sees the right numbers when
+        // switching tabs.
         const rw = document.getElementById('toolbar-raster-width');
         const rh = document.getElementById('toolbar-raster-height');
         if (rw) rw.value = this.rasterWidth;
