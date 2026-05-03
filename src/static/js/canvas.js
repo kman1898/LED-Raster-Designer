@@ -495,6 +495,13 @@ class CanvasRenderer {
                 this.canvasDragStartY = worldY;
                 this.canvasDragStartWX = edgeCanvas.workspace_x || 0;
                 this.canvasDragStartWY = edgeCanvas.workspace_y || 0;
+                // Snapshot pre-drag state so undo restores the canvas's
+                // original workspace position. mouseUp passes
+                // skipSaveState:true to the updateCanvas commit so we
+                // don't get a duplicate post-drag snapshot.
+                if (window.app && typeof window.app.saveState === 'function') {
+                    window.app.saveState('Move Canvas');
+                }
                 // Activate the dragged canvas so the sidebar reflects it.
                 if (window.app && window.app.project
                     && window.app.project.active_canvas_id !== edgeCanvas.id
@@ -968,17 +975,12 @@ class CanvasRenderer {
                     }
                 });
 
-                // Slice 7: track cross-canvas drop target for visual hint.
-                // Use the primary (current) layer's center in workspace coords.
+                // Track cross-canvas drop target for visual hint. Match the
+                // mouseUp drop logic: hit-test the **mouse cursor**, not the
+                // layer center (so wide layers feel responsive).
                 const _primary = window.app.currentLayer;
-                const _primaryCanvas = window.app.project && Array.isArray(window.app.project.canvases)
-                    ? window.app.project.canvases.find(c => c && c.id === _primary.canvas_id)
-                    : null;
-                if (_primaryCanvas) {
-                    const _b = this.getLayerBoundsInActiveView(_primary);
-                    const _cx = (_primaryCanvas.workspace_x || 0) + _b.x + _b.width / 2;
-                    const _cy = (_primaryCanvas.workspace_y || 0) + _b.y + _b.height / 2;
-                    const _tgt = this._canvasAtPoint(_cx, _cy);
+                if (_primary) {
+                    const _tgt = this._canvasAtPoint(worldX, worldY);
                     this._crossCanvasDropTarget = (_tgt && _tgt.id !== _primary.canvas_id) ? _tgt : null;
                 } else {
                     this._crossCanvasDropTarget = null;
@@ -1076,7 +1078,10 @@ class CanvasRenderer {
                     c.workspace_x = wx;
                     c.workspace_y = wy;
                     if (typeof window.app.updateCanvas === 'function') {
-                        window.app.updateCanvas(id, { workspace_x: wx, workspace_y: wy });
+                        // Skip the helper's own saveState — drag-start already
+                        // captured a 'Move Canvas' snapshot, so adding another
+                        // here would create a no-op duplicate history entry.
+                        window.app.updateCanvas(id, { workspace_x: wx, workspace_y: wy }, { skipSaveState: true });
                     }
                     if (typeof window.app._checkCanvasOverlapAndToast === 'function') {
                         window.app._checkCanvasOverlapAndToast(id);
@@ -1326,24 +1331,52 @@ class CanvasRenderer {
                     document.getElementById('offset-y').value = window.app.currentLayer.offset_y;
                 }
 
-                // Slice 7: cross-canvas drop check. If the primary layer's
-                // post-drag center lands inside a DIFFERENT canvas's rect,
-                // reassign (move) or duplicate it to that canvas instead of
-                // committing the within-canvas offset change.
+                // Slice 7 + multi-select fix: cross-canvas drop check. The
+                // hit-test uses the **mouse cursor position** at drop time,
+                // not the layer's geometric center — for a wide layer
+                // dragged onto a smaller canvas, the cursor lands inside
+                // the target rect long before the layer's center does, and
+                // the user expects "drop where I'm pointing". (Earlier
+                // implementation used layer center and felt unresponsive
+                // on big layers.) Layers in OTHER canvases keep their
+                // normal within-canvas offset change.
                 const primary = window.app.currentLayer;
                 const primaryCanvas = window.app.project && Array.isArray(window.app.project.canvases)
                     ? window.app.project.canvases.find(c => c && c.id === primary.canvas_id)
                     : null;
                 let crossCanvasHandled = false;
                 if (primaryCanvas) {
-                    const bounds = this.getLayerBoundsInActiveView(primary);
-                    const cx = (primaryCanvas.workspace_x || 0) + bounds.x + bounds.width / 2;
-                    const cy = (primaryCanvas.workspace_y || 0) + bounds.y + bounds.height / 2;
-                    const targetCanvas = this._canvasAtPoint(cx, cy);
+                    // Mouse cursor world coords at drop (already computed
+                    // above for the offset delta).
+                    const cursorWX = this._unmirrorWorldX(((e.clientX - this.canvas.getBoundingClientRect().left) - this.panX) / this.zoom);
+                    const cursorWY = ((e.clientY - this.canvas.getBoundingClientRect().top) - this.panY) / this.zoom;
+                    const targetCanvas = this._canvasAtPoint(cursorWX, cursorWY);
                     if (targetCanvas && targetCanvas.id !== primary.canvas_id) {
                         const mode = (e.metaKey || e.altKey) ? 'duplicate' : 'move';
-                        if (typeof window.app.moveLayerCrossCanvas === 'function') {
-                            window.app.moveLayerCrossCanvas(primary.id, targetCanvas.id, mode);
+                        // Collect all selected layer ids that share the
+                        // primary's canvas (so the whole multi-selection
+                        // travels together). Primary first so it stays the
+                        // currentLayer in the target.
+                        const movedIds = [primary.id];
+                        if (window.app.selectedLayerIds && window.app.selectedLayerIds.size > 1) {
+                            window.app.selectedLayerIds.forEach(id => {
+                                if (id === primary.id) return;
+                                const l = window.app.project.layers.find(x => x.id === id);
+                                if (l && l.canvas_id === primary.canvas_id && !l.locked) {
+                                    movedIds.push(id);
+                                }
+                            });
+                        }
+                        // Pass skipSaveState — the drag-start saveState
+                        // ('Move Layers' at line ~689) is the correct
+                        // pre-drag snapshot. Without skip, the helper
+                        // would push a SECOND mid-drag snapshot and undo
+                        // would restore weird intermediate coords.
+                        if (movedIds.length > 1 && typeof window.app.moveLayersCrossCanvas === 'function') {
+                            window.app.moveLayersCrossCanvas(movedIds, targetCanvas.id, mode, { skipSaveState: true });
+                            crossCanvasHandled = true;
+                        } else if (typeof window.app.moveLayerCrossCanvas === 'function') {
+                            window.app.moveLayerCrossCanvas(primary.id, targetCanvas.id, mode, { skipSaveState: true });
                             crossCanvasHandled = true;
                         }
                     }
