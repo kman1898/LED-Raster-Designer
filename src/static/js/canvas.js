@@ -3764,10 +3764,14 @@ class CanvasRenderer {
         const selection = window.app.pixelMapSelection;
         if (!selection || selection.size === 0) return;
         const layer = window.app.currentLayer;
+        // v0.8 multi-canvas: panels are drawn at canvas-relative coords; the
+        // workspace position of the layer's parent canvas needs to be applied
+        // so the overlay lands ON the layer the user is editing instead of
+        // at workspace (0,0) where it visually overlapped Canvas 1's panels.
+        const wsOff = (typeof window.app._getLayerWorkspaceOffset === 'function')
+            ? window.app._getLayerWorkspaceOffset(layer) : { wx: 0, wy: 0 };
         this.ctx.save();
-        this.ctx.beginPath();
-        this.ctx.rect(0, 0, this.rasterWidth, this.rasterHeight);
-        this.ctx.clip();
+        if (wsOff.wx || wsOff.wy) this.ctx.translate(wsOff.wx, wsOff.wy);
         this.ctx.lineWidth = 2 / this.zoom;
         selection.forEach(key => {
             const [row, col] = key.split(',').map(n => parseInt(n, 10));
