@@ -452,12 +452,20 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     background: #1e1e1e;
     border-top: 1px solid #3a3a3a;
     width: 260px;
-    min-height: 200px;
-    max-height: 280px;
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
+    /* Expanded state: bounded so it never grows past a reasonable preview
+       size, but the layer-groups list above gets every spare pixel. */
+    min-height: 0;
+    max-height: 200px;
 }
+#help-tooltip-panel.collapsed {
+    /* Collapsed: header only, body hidden. Matches the Notes panel idiom
+       so the user can still see "Help" and re-open it on demand. */
+    max-height: none;
+}
+#help-tooltip-panel.collapsed #help-tooltip-body { display: none; }
 #help-tooltip-header {
     display: flex;
     justify-content: space-between;
@@ -467,7 +475,13 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     font-size: 13px;
     font-weight: 600;
     color: #ccc;
+    cursor: pointer;
 }
+#help-tooltip-panel.collapsed #help-tooltip-header { border-bottom: none; }
+#help-tooltip-panel:not(.collapsed) #help-tooltip-toggle::before { content: '▼'; }
+#help-tooltip-panel.collapsed #help-tooltip-toggle::before { content: '▶'; }
+#help-tooltip-panel #help-tooltip-toggle { font-size: 0; }
+#help-tooltip-panel #help-tooltip-toggle::before { font-size: 10px; }
 #help-tooltip-body {
     padding: 10px 12px;
     font-size: 12px;

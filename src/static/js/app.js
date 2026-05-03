@@ -2080,6 +2080,15 @@ class LEDRasterApp {
             document.getElementById('notes-panel-header').addEventListener('click', toggleNotes);
         }
 
+        // Help panel — same collapse pattern as Notes. Defaults to collapsed
+        // so the layer-groups list above gets the spare space; user can
+        // expand on demand via the header.
+        const helpPanel = document.getElementById('help-tooltip-panel');
+        const helpHeader = document.getElementById('help-tooltip-header');
+        if (helpPanel && helpHeader) {
+            helpHeader.addEventListener('click', () => helpPanel.classList.toggle('collapsed'));
+        }
+
         // View tabs
         document.querySelectorAll('.view-tab').forEach(tab => {
             tab.addEventListener('click', () => {

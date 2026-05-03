@@ -1646,6 +1646,13 @@ def move_layer_to_canvas(layer_id):
         clone['offset_y'] = 0
         clone['showOffsetX'] = 0
         clone['showOffsetY'] = 0
+        # Re-anchor panel coordinates to the clone's new (0, 0) origin in
+        # the target canvas. Without this rebuild, panel.x / panel.y stay
+        # at their pre-drag absolute positions and the layer renders far
+        # off in the new canvas instead of snapping to the top-left.
+        # _rebuild_layer_geometry_from_panel_states preserves per-panel
+        # hidden / blank / halfTile state.
+        _rebuild_layer_geometry_from_panel_states(clone)
         current_project['layers'].append(clone)
         log_event('layer_duplicate_to_canvas', {
             'src_layer_id': layer_id, 'new_layer_id': clone['id'],
@@ -1657,6 +1664,8 @@ def move_layer_to_canvas(layer_id):
         layer['offset_y'] = 0
         layer['showOffsetX'] = 0
         layer['showOffsetY'] = 0
+        # Same panel re-anchor as the duplicate branch above.
+        _rebuild_layer_geometry_from_panel_states(layer)
         log_event('layer_move_to_canvas', {
             'layer_id': layer_id, 'target_canvas_id': target_id,
         })
