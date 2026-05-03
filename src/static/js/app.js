@@ -7621,10 +7621,16 @@ class LEDRasterApp {
         sendClientLog('save_blob_browser_download', { filename });
     }
 
-    async saveBlobWithPicker(blob, filename, mimeType) {
+    async saveBlobWithPicker(blobOrFn, filename, mimeType) {
         // Sanitize so a project name with "/" or other illegal chars doesn't
         // get rejected by showSaveFilePicker / OS file APIs.
         filename = this.sanitizeFilename(filename);
+        // blobOrFn can be a Blob OR an async function returning one. Lazy-blob
+        // form lets the caller defer expensive serialization (e.g. stringifying
+        // a 1MB project) until AFTER showSaveFilePicker resolves — keeping the
+        // user-activation gesture fresh for createWritable. See bug fix for
+        // 0-byte JSON saves on large multi-canvas projects.
+        const resolveBlob = async () => (typeof blobOrFn === 'function' ? await blobOrFn() : blobOrFn);
         // 1. Try the File System Access API (Chrome/Edge on secure contexts)
         if (window.showSaveFilePicker) {
             try {
@@ -7634,6 +7640,7 @@ class LEDRasterApp {
                     suggestedName: filename,
                     types: [{ description: 'File', accept: { [mimeType]: [`.${ext}`] } }]
                 });
+                const blob = await resolveBlob();
                 const writable = await handle.createWritable();
                 await writable.write(blob);
                 await writable.close();
@@ -7641,7 +7648,18 @@ class LEDRasterApp {
                 return;
             } catch (err) {
                 if (err && err.name === 'AbortError') return;
-                throw err;
+                // NotAllowedError on createWritable: Chrome already created the
+                // empty file via the picker but lost the user-activation needed
+                // to write to it. Fall through to native/browser fallback so we
+                // don't leave the user with a 0-byte file and nothing else.
+                sendClientLog('save_blob_picker_failed', {
+                    filename,
+                    name: err && err.name,
+                    message: err && err.message
+                });
+                // Try native dialog (Mac/Win/Linux) — opens a fresh dialog so
+                // we get our own gesture-bound path. If unavailable, use
+                // browserDownload as last resort.
             }
         }
         // 2. Use native server-side dialog (opens on the host machine)
@@ -7652,6 +7670,7 @@ class LEDRasterApp {
                 return;
             }
             sendClientLog('save_blob_native_dialog_selected', { filename, savePath });
+            const blob = await resolveBlob();
             const ok = await this.nativeWriteFile(savePath, blob);
             if (ok) {
                 sendClientLog('save_blob_native_dialog_success', { filename, savePath });
@@ -7660,6 +7679,15 @@ class LEDRasterApp {
             sendClientLog('save_blob_native_dialog_write_failed', { filename, savePath });
         } catch (err) {
             sendClientLog('save_blob_native_dialog_error', { filename, message: err.message });
+        }
+        // 3. Last resort: trigger a normal browser download so the user always
+        // ends up with a file (even if both the picker and the native dialog
+        // failed). Better than silently leaving a 0-byte stub on disk.
+        try {
+            const blob = await resolveBlob();
+            this.browserDownload(blob, filename);
+        } catch (err) {
+            sendClientLog('save_blob_browser_download_error', { filename, message: err && err.message });
         }
     }
 
@@ -11056,9 +11084,19 @@ class LEDRasterApp {
             this._warnedNoFilePicker = true;
             sendClientLog('save_picker_apis_unavailable_warning', {});
         }
-        const projectData = JSON.stringify(this.project, null, 2);
-        const blob = new Blob([projectData], { type: 'application/json' });
-        await this.saveBlobWithPicker(blob, `${this.project.name}.json`, 'application/json');
+        // Pass a lazy blob factory so JSON.stringify (slow on large multi-canvas
+        // projects, ~1MB) runs AFTER showSaveFilePicker resolves. This keeps
+        // Chrome's user-activation token fresh for createWritable; otherwise
+        // Chrome rejects the write with NotAllowedError and leaves a 0-byte file.
+        const project = this.project;
+        await this.saveBlobWithPicker(
+            () => {
+                const projectData = JSON.stringify(project, null, 2);
+                return new Blob([projectData], { type: 'application/json' });
+            },
+            `${this.project.name}.json`,
+            'application/json'
+        );
 
         this.addToRecentFiles(this.project);
         document.getElementById('status-message').textContent = 'Project saved to file';
