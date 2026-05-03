@@ -10392,8 +10392,13 @@ class LEDRasterApp {
             try { this.syncRasterFromProject(); } catch (_) {}
         }
         this.renderLayers();
-        if (this.render) {
-            try { this.render(); } catch (_) {}
+        // Re-render the workspace canvas. The previous `if (this.render)`
+        // check was always false (app has no .render method), so the
+        // workspace pixels never refreshed after a canvas CRUD response —
+        // most visibly: toggling a canvas's visibility updated state but
+        // never repainted the workspace, so the canvas appeared not to hide.
+        if (window.canvasRenderer && typeof window.canvasRenderer.render === 'function') {
+            try { window.canvasRenderer.render(); } catch (_) {}
         }
     }
 
