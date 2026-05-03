@@ -329,6 +329,34 @@ def test_duplicate_layer_to_canvas(client_with_layer):
     assert clone['offset_x'] == 0 and clone['offset_y'] == 0
 
 
+def test_duplicate_layer_to_canvas_resets_clone_offsets(client_with_layer):
+    """Slice 7: duplicate-to-canvas drops the clone at 0,0 even when the
+    source has non-zero offsets. The cross-canvas drag relies on this
+    server-side guarantee so the clone always lands at the new canvas's
+    top-left, regardless of where the user dropped it.
+    """
+    proj = client_with_layer.get('/api/project').get_json()
+    src_id = proj['layers'][0]['id']
+    client_with_layer.put(f'/api/layer/{src_id}', json={
+        'offset_x': 777, 'offset_y': 555,
+        'showOffsetX': 999, 'showOffsetY': 111,
+    })
+    client_with_layer.post('/api/canvas', json={})  # c2
+
+    resp = client_with_layer.put(f'/api/layer/{src_id}/canvas', json={
+        'canvas_id': 'c2', 'mode': 'duplicate',
+    })
+    assert resp.status_code == 200
+    proj = resp.get_json()
+    clone = next(l for l in proj['layers'] if l['id'] != src_id)
+    assert clone['canvas_id'] == 'c2'
+    assert clone['offset_x'] == 0 and clone['offset_y'] == 0
+    assert clone['showOffsetX'] == 0 and clone['showOffsetY'] == 0
+    # Source untouched
+    src = next(l for l in proj['layers'] if l['id'] == src_id)
+    assert src['offset_x'] == 777 and src['offset_y'] == 555
+
+
 def test_move_layer_to_unknown_canvas_404(client_with_layer):
     """Moving to a non-existent canvas returns 404."""
     proj = client_with_layer.get('/api/project').get_json()

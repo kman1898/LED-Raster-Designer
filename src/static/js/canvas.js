@@ -222,10 +222,19 @@ class CanvasRenderer {
         const h = (useShow && canvas.show_raster_height) || canvas.raster_height || 0;
         if (w <= 0 || h <= 0) return;
         const color = canvas.color || '#ff0000';
+        const isCrossDropTarget = !!(this._crossCanvasDropTarget
+            && this._crossCanvasDropTarget.id === canvas.id);
         this.ctx.save();
+        if (isCrossDropTarget) {
+            // Slice 7 hint: brighten outline + faint fill so the user sees
+            // where their shift+drag will land.
+            this.ctx.fillStyle = color + '22';
+            this.ctx.fillRect(0, 0, w, h);
+        }
         this.ctx.strokeStyle = color;
         const baseLW = Math.max(3, 5 / this.zoom);
-        this.ctx.lineWidth = isActive ? baseLW * 1.5 : baseLW;
+        this.ctx.lineWidth = isCrossDropTarget ? baseLW * 2.2
+            : (isActive ? baseLW * 1.5 : baseLW);
         this.ctx.setLineDash([10, 5]);
         this.ctx.strokeRect(0, 0, w, h);
         this.ctx.setLineDash([]);
@@ -903,6 +912,22 @@ class CanvasRenderer {
                     }
                 });
 
+                // Slice 7: track cross-canvas drop target for visual hint.
+                // Use the primary (current) layer's center in workspace coords.
+                const _primary = window.app.currentLayer;
+                const _primaryCanvas = window.app.project && Array.isArray(window.app.project.canvases)
+                    ? window.app.project.canvases.find(c => c && c.id === _primary.canvas_id)
+                    : null;
+                if (_primaryCanvas) {
+                    const _b = this.getLayerBoundsInActiveView(_primary);
+                    const _cx = (_primaryCanvas.workspace_x || 0) + _b.x + _b.width / 2;
+                    const _cy = (_primaryCanvas.workspace_y || 0) + _b.y + _b.height / 2;
+                    const _tgt = this._canvasAtPoint(_cx, _cy);
+                    this._crossCanvasDropTarget = (_tgt && _tgt.id !== _primary.canvas_id) ? _tgt : null;
+                } else {
+                    this._crossCanvasDropTarget = null;
+                }
+
                 this.render();
             }
         } else if (this.isDraggingScreenName) {
@@ -1189,7 +1214,8 @@ class CanvasRenderer {
             this.canvas.style.cursor = this.spacePressed ? 'grab' : 'default';
         } else if (this.isDraggingLayer) {
             this.isDraggingLayer = false;
-            
+            this._crossCanvasDropTarget = null;
+
             if (window.app && window.app.currentLayer) {
                 const dx = Math.round(this._unmirrorWorldX(((e.clientX - this.canvas.getBoundingClientRect().left) - this.panX) / this.zoom) - this.dragLayerStartX);
                 const dy = Math.round(((e.clientY - this.canvas.getBoundingClientRect().top) - this.panY) / this.zoom - this.dragLayerStartY);
@@ -1244,8 +1270,33 @@ class CanvasRenderer {
                     document.getElementById('offset-y').value = window.app.currentLayer.offset_y;
                 }
 
-                const toUpdate = window.app.getSelectedLayers ? window.app.getSelectedLayers() : [window.app.currentLayer];
-                window.app.updateLayers(toUpdate, false);
+                // Slice 7: cross-canvas drop check. If the primary layer's
+                // post-drag center lands inside a DIFFERENT canvas's rect,
+                // reassign (move) or duplicate it to that canvas instead of
+                // committing the within-canvas offset change.
+                const primary = window.app.currentLayer;
+                const primaryCanvas = window.app.project && Array.isArray(window.app.project.canvases)
+                    ? window.app.project.canvases.find(c => c && c.id === primary.canvas_id)
+                    : null;
+                let crossCanvasHandled = false;
+                if (primaryCanvas) {
+                    const bounds = this.getLayerBoundsInActiveView(primary);
+                    const cx = (primaryCanvas.workspace_x || 0) + bounds.x + bounds.width / 2;
+                    const cy = (primaryCanvas.workspace_y || 0) + bounds.y + bounds.height / 2;
+                    const targetCanvas = this._canvasAtPoint(cx, cy);
+                    if (targetCanvas && targetCanvas.id !== primary.canvas_id) {
+                        const mode = (e.metaKey || e.altKey) ? 'duplicate' : 'move';
+                        if (typeof window.app.moveLayerCrossCanvas === 'function') {
+                            window.app.moveLayerCrossCanvas(primary.id, targetCanvas.id, mode);
+                            crossCanvasHandled = true;
+                        }
+                    }
+                }
+
+                if (!crossCanvasHandled) {
+                    const toUpdate = window.app.getSelectedLayers ? window.app.getSelectedLayers() : [window.app.currentLayer];
+                    window.app.updateLayers(toUpdate, false);
+                }
                 this.dragLayerMode = null;
             }
         } else if (this.isDraggingScreenName) {

@@ -10456,6 +10456,42 @@ class LEDRasterApp {
     }
 
     /**
+     * Slice 7: reassign a layer to a different canvas via the existing
+     * Slice-2 endpoint. ``mode`` is "move" or "duplicate".
+     * - "move": same layer id, offsets reset to 0,0; selection follows.
+     * - "duplicate": new layer id appended in target canvas; original
+     *   stays put and remains selected.
+     */
+    moveLayerCrossCanvas(layerId, targetCanvasId, mode) {
+        const wantMove = (mode !== 'duplicate');
+        if (typeof this.saveState === 'function') {
+            this.saveState(wantMove ? 'Move Layer to Canvas' : 'Duplicate Layer to Canvas');
+        }
+        return fetch(`/api/layer/${layerId}/canvas`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ canvas_id: targetCanvasId, mode: wantMove ? 'move' : 'duplicate' })
+        }).then(r => r.json()).then(data => {
+            this._applyProjectUpdate(data);
+            // After move: the same layer id now lives in the target canvas;
+            // make sure it stays the current layer so the sidebar follows.
+            if (wantMove && this.project && Array.isArray(this.project.layers)) {
+                const moved = this.project.layers.find(l => l.id === layerId);
+                if (moved) {
+                    this.currentLayer = moved;
+                    if (this.project) this.project.active_canvas_id = targetCanvasId;
+                    if (typeof this.renderLayers === 'function') this.renderLayers();
+                    if (window.canvasRenderer && typeof window.canvasRenderer.render === 'function') {
+                        window.canvasRenderer.render();
+                    }
+                }
+            }
+            // For duplicate: leave selection on the original (default behavior).
+            return data;
+        });
+    }
+
+    /**
      * Slice 5: after a canvas-drag drop, warn (non-blocking) if the
      * dragged canvas's workspace bounds intersect any other visible
      * canvas's bounds. Does NOT auto-snap or reject — just toasts.
