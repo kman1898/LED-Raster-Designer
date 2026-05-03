@@ -2085,8 +2085,14 @@ class LEDRasterApp {
         // expand on demand via the header.
         const helpPanel = document.getElementById('help-tooltip-panel');
         const helpHeader = document.getElementById('help-tooltip-header');
-        if (helpPanel && helpHeader) {
-            helpHeader.addEventListener('click', () => helpPanel.classList.toggle('collapsed'));
+        const helpToggle = document.getElementById('help-tooltip-toggle');
+        if (helpPanel && helpHeader && helpToggle) {
+            const toggleHelp = () => {
+                helpPanel.classList.toggle('collapsed');
+                helpToggle.textContent = helpPanel.classList.contains('collapsed') ? '▶' : '▼';
+            };
+            helpToggle.addEventListener('click', (e) => { e.stopPropagation(); toggleHelp(); });
+            helpHeader.addEventListener('click', toggleHelp);
         }
 
         // View tabs
