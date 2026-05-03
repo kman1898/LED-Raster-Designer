@@ -5550,6 +5550,22 @@ class LEDRasterApp {
         return ordered;
     }
 
+    // v0.8: workspace offset for the layer's parent canvas. Used by every
+    // rect-test that compares workspace-coord rectangles against panel-coord
+    // (canvas-relative) panel positions. Returns {wx:0, wy:0} for legacy
+    // single-canvas projects so existing math is unaffected.
+    _getLayerWorkspaceOffset(layer) {
+        if (!layer || !this.project) return { wx: 0, wy: 0 };
+        const arr = this.project.canvases;
+        if (!Array.isArray(arr) || arr.length === 0) return { wx: 0, wy: 0 };
+        const cid = layer.canvas_id;
+        if (!cid) return { wx: 0, wy: 0 };
+        for (const c of arr) {
+            if (c && c.id === cid) return { wx: c.workspace_x || 0, wy: c.workspace_y || 0 };
+        }
+        return { wx: 0, wy: 0 };
+    }
+
     getLayerBounds(layer) {
         if (layer && (layer.type || 'screen') === 'image') {
             const scale = Number(layer.imageScale) || 1;
@@ -5599,7 +5615,12 @@ class LEDRasterApp {
         const hits = this.project.layers.filter(layer => {
             if (layer.visible === false) return false;
             const b = this.getLayerBounds(layer);
-            const intersects = b.x1 <= maxX && b.x2 >= minX && b.y1 <= maxY && b.y2 >= minY;
+            // Shift bounds by the layer's canvas's workspace offset so they
+            // line up with the workspace-coord rect (rect is in screen-world
+            // space; bounds are canvas-relative).
+            const off = this._getLayerWorkspaceOffset(layer);
+            const intersects = (b.x1 + off.wx) <= maxX && (b.x2 + off.wx) >= minX
+                && (b.y1 + off.wy) <= maxY && (b.y2 + off.wy) >= minY;
             return intersects;
         }).map(l => l.id);
 
@@ -9544,10 +9565,11 @@ class LEDRasterApp {
         if (!layer) return;
         if (!this.isCustomFlow(layer)) return;
         this.customSelection.clear();
-        const minX = Math.min(rect.x1, rect.x2);
-        const maxX = Math.max(rect.x1, rect.x2);
-        const minY = Math.min(rect.y1, rect.y2);
-        const maxY = Math.max(rect.y1, rect.y2);
+        const off = this._getLayerWorkspaceOffset(layer);
+        const minX = Math.min(rect.x1, rect.x2) - off.wx;
+        const maxX = Math.max(rect.x1, rect.x2) - off.wx;
+        const minY = Math.min(rect.y1, rect.y2) - off.wy;
+        const maxY = Math.max(rect.y1, rect.y2) - off.wy;
         layer.panels.forEach(panel => {
             if (panel.hidden) return;
             const intersects = panel.x <= maxX && (panel.x + panel.width) >= minX &&
@@ -9563,10 +9585,14 @@ class LEDRasterApp {
     selectPixelMapPanelsInRect(layer, rect) {
         if (!layer || !rect) return;
         this.pixelMapSelection.clear();
-        const minX = Math.min(rect.x1, rect.x2);
-        const maxX = Math.max(rect.x1, rect.x2);
-        const minY = Math.min(rect.y1, rect.y2);
-        const maxY = Math.max(rect.y1, rect.y2);
+        // rect is in workspace coords; panel coords are canvas-relative —
+        // shift by the layer's parent canvas's workspace offset before
+        // comparing. (No-op for single-canvas projects.)
+        const off = this._getLayerWorkspaceOffset(layer);
+        const minX = Math.min(rect.x1, rect.x2) - off.wx;
+        const maxX = Math.max(rect.x1, rect.x2) - off.wx;
+        const minY = Math.min(rect.y1, rect.y2) - off.wy;
+        const maxY = Math.max(rect.y1, rect.y2) - off.wy;
         // Include hidden ("blank") panels so they can be selected for bulk
         // restore via the sidebar / Alt+click action.
         (layer.panels || []).forEach(panel => {
@@ -9728,10 +9754,11 @@ class LEDRasterApp {
         if (!layer) return;
         if (!this.isCustomPower(layer)) return;
         this.powerCustomSelection.clear();
-        const minX = Math.min(rect.x1, rect.x2);
-        const maxX = Math.max(rect.x1, rect.x2);
-        const minY = Math.min(rect.y1, rect.y2);
-        const maxY = Math.max(rect.y1, rect.y2);
+        const off = this._getLayerWorkspaceOffset(layer);
+        const minX = Math.min(rect.x1, rect.x2) - off.wx;
+        const maxX = Math.max(rect.x1, rect.x2) - off.wx;
+        const minY = Math.min(rect.y1, rect.y2) - off.wy;
+        const maxY = Math.max(rect.y1, rect.y2) - off.wy;
         layer.panels.forEach(panel => {
             if (panel.hidden) return;
             const intersects = panel.x <= maxX && (panel.x + panel.width) >= minX &&

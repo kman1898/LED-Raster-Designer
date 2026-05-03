@@ -1432,6 +1432,33 @@ def _next_canvas_workspace_position():
     return (rightmost + gap, 0)
 
 
+def _next_duplicate_canvas_name(src_name):
+    """Pick a name for the duplicate of a canvas named ``src_name``.
+
+    Strips a trailing " <number>" from the source name to get the base,
+    then finds the highest existing trailing-number across all canvases
+    sharing that base, and returns "<base> <max+1>". Examples:
+
+        "Canvas 2" + ["Canvas 1", "Canvas 2"] → "Canvas 3"
+        "EDC"      + ["EDC"]                  → "EDC 1"
+        "EDC 1"    + ["EDC", "EDC 1"]         → "EDC 2"
+    """
+    import re
+    name = (src_name or 'Canvas').strip()
+    m = re.match(r'^(.*?)\s+(\d+)$', name)
+    base = (m.group(1) if m else name).strip() or 'Canvas'
+    canvases = current_project.get('canvases') or []
+    pat = re.compile(r'^' + re.escape(base) + r'(?:\s+(\d+))?$')
+    max_n = 0
+    for c in canvases:
+        cm = pat.match((c.get('name') or '').strip())
+        if cm:
+            n = int(cm.group(1)) if cm.group(1) else 0
+            if n > max_n:
+                max_n = n
+    return f"{base} {max_n + 1}"
+
+
 @app.route('/api/canvas', methods=['POST'])
 def create_canvas():
     data = request.json or {}
@@ -1534,7 +1561,7 @@ def duplicate_canvas(canvas_id):
     new_id = _next_canvas_id()
     new_canvas = json.loads(json.dumps(src))
     new_canvas['id'] = new_id
-    new_canvas['name'] = f"{src.get('name', 'Canvas')} Copy"
+    new_canvas['name'] = _next_duplicate_canvas_name(src.get('name', 'Canvas'))
     new_canvas['color'] = _next_canvas_color()
     # Auto-place the duplicate to the right of the existing canvases so it
     # doesn't visually overlap its source. (Computed BEFORE the duplicate is

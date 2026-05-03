@@ -249,7 +249,8 @@ def test_duplicate_canvas_clones_layers(client_with_layer):
     assert len(proj['canvases']) == 2
     new_canvas = proj['canvases'][1]
     assert new_canvas['id'] == 'c2'
-    assert new_canvas['name'].endswith('Copy')
+    # v0.8: smart name iteration. "Canvas 1" + dup → "Canvas 2".
+    assert new_canvas['name'] == 'Canvas 2'
     assert proj['active_canvas_id'] == 'c2'
     # Should now have two layers — original on c1, clone on c2 with new id.
     assert len(proj['layers']) == 2
@@ -466,3 +467,31 @@ def test_active_canvas_selection_scoping_rule_documented():
     # Marker assertion; the real verification is the manual UX checklist
     # in the slice 5 PR description (no headless browser in CI).
     assert True
+
+
+def test_duplicate_canvas_name_iterates_trailing_number(client_with_layer):
+    """Duplicating "Canvas 1" yields "Canvas 2" (next free trailing number)."""
+    r = client_with_layer.post('/api/canvas/c1/duplicate')
+    assert r.status_code == 200
+    p = r.get_json()
+    names = [c['name'] for c in p['canvases']]
+    assert names == ['Canvas 1', 'Canvas 2']
+    # Duplicating again → "Canvas 3"
+    r = client_with_layer.post('/api/canvas/c2/duplicate')
+    p = r.get_json()
+    names = [c['name'] for c in p['canvases']]
+    assert names == ['Canvas 1', 'Canvas 2', 'Canvas 3']
+
+
+def test_duplicate_canvas_name_appends_1_when_no_suffix(client_with_layer):
+    """Duplicating a custom-named canvas like "EDC" yields "EDC 1"."""
+    client_with_layer.put('/api/canvas/c1', json={'name': 'EDC'})
+    r = client_with_layer.post('/api/canvas/c1/duplicate')
+    p = r.get_json()
+    names = [c['name'] for c in p['canvases']]
+    assert names == ['EDC', 'EDC 1']
+    # And again → "EDC 2"
+    r = client_with_layer.post('/api/canvas/c2/duplicate')
+    p = r.get_json()
+    names = [c['name'] for c in p['canvases']]
+    assert names == ['EDC', 'EDC 1', 'EDC 2']
