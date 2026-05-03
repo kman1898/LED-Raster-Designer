@@ -3583,6 +3583,12 @@ class LEDRasterApp {
                     }
                 }
                 renderer.rasterWidth = width;
+                // Slice 3 patch: the renderer now reads each canvas's own
+                // raster_* fields (per-canvas outlines). Mirror the toolbar
+                // edit onto the active canvas so the visual size actually
+                // changes. Slice 6 will switch source-of-truth fully and
+                // remove the project-root writes above.
+                this._mirrorRasterToActiveCanvas(isShow ? 'show' : 'pixel', width, null, wasLinked);
                 if (this.project) this.saveProject();
                 this.saveRasterSize();
                 if (typeof sendClientLog === 'function') {
@@ -3611,6 +3617,7 @@ class LEDRasterApp {
                     }
                 }
                 renderer.rasterHeight = height;
+                this._mirrorRasterToActiveCanvas(isShow ? 'show' : 'pixel', null, height, wasLinked);
                 if (this.project) this.saveProject();
                 this.saveRasterSize();
                 if (typeof sendClientLog === 'function') {
@@ -10721,6 +10728,30 @@ class LEDRasterApp {
         this.saveProject();
     }
     
+    // Slice 3 helper: mirror a toolbar raster edit onto the active canvas's
+    // raster_* / show_raster_* fields so the visual canvas-rect actually
+    // resizes. Called by the toolbar Raster width/height change handlers.
+    // `view` is 'show' or 'pixel'. Pass the new width OR height; pass null
+    // for whichever axis isn't being changed. `wasLinked` mirrors the
+    // pixel-map → show-look auto-sync behavior already present at the
+    // project root.
+    _mirrorRasterToActiveCanvas(view, width, height, wasLinked) {
+        if (!this.project || !this.project.canvases || !this.project.active_canvas_id) return;
+        const c = this.project.canvases.find(c => c.id === this.project.active_canvas_id);
+        if (!c) return;
+        if (view === 'show') {
+            if (width != null)  c.show_raster_width  = width;
+            if (height != null) c.show_raster_height = height;
+        } else {
+            if (width != null)  c.raster_width  = width;
+            if (height != null) c.raster_height = height;
+            if (wasLinked) {
+                if (width != null)  c.show_raster_width  = width;
+                if (height != null) c.show_raster_height = height;
+            }
+        }
+    }
+
     saveProject() {
         fetch('/api/project', {
             method: 'POST',

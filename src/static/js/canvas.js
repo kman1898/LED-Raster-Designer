@@ -1580,10 +1580,22 @@ class CanvasRenderer {
             const c = cid ? _canvasById[cid] : null;
             return { wx: (c && c.workspace_x) || 0, wy: (c && c.workspace_y) || 0 };
         };
+        // Helper: returns true if this layer's canvas is hidden (canvas-level
+        // eye toggle off). Used to skip every per-layer post-pass for hidden
+        // canvases — without this, hiding a canvas removed only its outline
+        // while its layers continued to render at the canvas's workspace
+        // offset.
+        const _layerCanvasHidden = (layer) => {
+            const cid = layer && layer.canvas_id;
+            const c = cid ? _canvasById[cid] : null;
+            return c && c.visible === false;
+        };
         // Helper: wraps a per-layer drawing callback with the layer's
-        // canvas-workspace translate. Applies only when wx/wy are non-zero
-        // so single-canvas projects emit no extra ctx ops.
+        // canvas-workspace translate. Skips entirely if the layer's canvas
+        // is hidden. Applies translate only when wx/wy are non-zero so
+        // single-canvas projects emit no extra ctx ops.
         const _withLayerWs = (layer, fn) => {
+            if (_layerCanvasHidden(layer)) return;
             const { wx, wy } = _layerWs(layer);
             if (wx || wy) {
                 this.ctx.save();
@@ -1966,13 +1978,22 @@ class CanvasRenderer {
             const layer = window.app.currentLayer;
             // Zoom-to-layer in the active view, so it matches what's rendered.
             const bounds = this.getLayerBoundsInActiveView(layer);
+            // bounds.x/y are canvas-relative (in the layer's parent canvas's
+            // raster coords). Add the canvas's workspace_x/y so the pan
+            // centers on where the layer is actually drawn in the workspace —
+            // otherwise 1:1 zooms to the wrong canvas's slot.
+            let wx = 0, wy = 0;
+            if (window.app.project && window.app.project.canvases && layer.canvas_id) {
+                const c = window.app.project.canvases.find(c => c.id === layer.canvas_id);
+                if (c) { wx = c.workspace_x || 0; wy = c.workspace_y || 0; }
+            }
             const layerWidth = bounds.width;
             const layerHeight = bounds.height;
             const zoomX = (this.canvas.width * 0.9) / layerWidth;
             const zoomY = (this.canvas.height * 0.9) / layerHeight;
             this.zoom = Math.min(zoomX, zoomY);
-            const layerCenterX = bounds.x + layerWidth / 2;
-            const layerCenterY = bounds.y + layerHeight / 2;
+            const layerCenterX = bounds.x + wx + layerWidth / 2;
+            const layerCenterY = bounds.y + wy + layerHeight / 2;
             this.panX = this.canvas.width / 2 - layerCenterX * this.zoom;
             this.panY = this.canvas.height / 2 - layerCenterY * this.zoom;
         }
