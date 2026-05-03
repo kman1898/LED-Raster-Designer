@@ -1529,16 +1529,33 @@ def create_canvas():
         canvases[0] if canvases else None
     )
     ws_x, ws_y = _next_canvas_workspace_position()
+    # Resolve raster dimensions: explicit request body wins (so the client can
+    # honor the user's "Default Canvas Size" preference), otherwise fall back
+    # to the active canvas's raster, otherwise the hard-coded 1920x1080.
+    def _pos_int(value, fallback):
+        try:
+            n = int(value)
+            return n if n > 0 else fallback
+        except (TypeError, ValueError):
+            return fallback
+    rw_default = (active or {}).get('raster_width', 1920)
+    rh_default = (active or {}).get('raster_height', 1080)
+    sw_default = (active or {}).get('show_raster_width', rw_default)
+    sh_default = (active or {}).get('show_raster_height', rh_default)
+    raster_w = _pos_int(data.get('raster_width'), rw_default)
+    raster_h = _pos_int(data.get('raster_height'), rh_default)
+    show_w = _pos_int(data.get('show_raster_width'), sw_default if 'show_raster_width' not in data else raster_w)
+    show_h = _pos_int(data.get('show_raster_height'), sh_default if 'show_raster_height' not in data else raster_h)
     canvas = {
         'id': new_id,
         'name': data.get('name') or default_name,
         'color': data.get('color') or _next_canvas_color(),
         'workspace_x': ws_x,
         'workspace_y': ws_y,
-        'raster_width': (active or {}).get('raster_width', 1920),
-        'raster_height': (active or {}).get('raster_height', 1080),
-        'show_raster_width': (active or {}).get('show_raster_width', 1920),
-        'show_raster_height': (active or {}).get('show_raster_height', 1080),
+        'raster_width': raster_w,
+        'raster_height': raster_h,
+        'show_raster_width': show_w,
+        'show_raster_height': show_h,
         'data_flow_perspective': (active or {}).get('data_flow_perspective', 'front'),
         'power_perspective': (active or {}).get('power_perspective', 'front'),
         'visible': True,

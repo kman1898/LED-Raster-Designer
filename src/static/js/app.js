@@ -10463,10 +10463,23 @@ class LEDRasterApp {
 
     addCanvas() {
         if (typeof this.saveState === 'function') this.saveState('Add Canvas');
+        // Seed new canvases from the user's preferred default canvas size so
+        // every "+ Add Canvas" click matches the same baseline as a brand-new
+        // project, not whatever the currently active canvas happens to be.
+        const prefs = (typeof this.getPreferences === 'function') ? this.getPreferences() : null;
+        const body = {};
+        if (prefs && Number.isFinite(prefs.rasterWidth) && prefs.rasterWidth > 0) {
+            body.raster_width = prefs.rasterWidth;
+            body.show_raster_width = prefs.rasterWidth;
+        }
+        if (prefs && Number.isFinite(prefs.rasterHeight) && prefs.rasterHeight > 0) {
+            body.raster_height = prefs.rasterHeight;
+            body.show_raster_height = prefs.rasterHeight;
+        }
         return fetch('/api/canvas', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({})
+            body: JSON.stringify(body)
         }).then(r => r.json()).then(data => this._applyProjectUpdate(data));
     }
 
