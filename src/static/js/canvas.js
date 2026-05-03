@@ -403,7 +403,9 @@ class CanvasRenderer {
                     }
                     if ((!window.app.currentLayer || window.app.currentLayer.id !== layer.id)
                         && typeof window.app.selectLayer === 'function') {
-                        window.app.selectLayer(layer.id);
+                        // selectLayer takes the layer OBJECT, not the id
+                        // (the !layer.id guard rejects raw integers).
+                        window.app.selectLayer(layer);
                     }
                 }
             } else {
