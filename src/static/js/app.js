@@ -10455,6 +10455,42 @@ class LEDRasterApp {
         }).then(r => r.json()).then(data => this._applyProjectUpdate(data));
     }
 
+    /**
+     * Slice 5: after a canvas-drag drop, warn (non-blocking) if the
+     * dragged canvas's workspace bounds intersect any other visible
+     * canvas's bounds. Does NOT auto-snap or reject — just toasts.
+     * Bounds use the active view's raster (pixel-map vs show-look),
+     * matching what the user sees in `_drawCanvasOutline`.
+     */
+    _checkCanvasOverlapAndToast(canvasId) {
+        if (!this.project || !Array.isArray(this.project.canvases)) return;
+        const useShow = !!(window.canvasRenderer && typeof window.canvasRenderer.isShowLookView === 'function'
+            && window.canvasRenderer.isShowLookView());
+        const bounds = (c) => {
+            const w = (useShow && c.show_raster_width) || c.raster_width || 0;
+            const h = (useShow && c.show_raster_height) || c.raster_height || 0;
+            const x = c.workspace_x || 0;
+            const y = c.workspace_y || 0;
+            return { x, y, w, h };
+        };
+        const dragged = this.project.canvases.find(c => c && c.id === canvasId);
+        if (!dragged || dragged.visible === false) return;
+        const a = bounds(dragged);
+        if (a.w <= 0 || a.h <= 0) return;
+        const intersects = (a, b) =>
+            a.x < b.x + b.w && a.x + a.w > b.x &&
+            a.y < b.y + b.h && a.y + a.h > b.y;
+        for (const other of this.project.canvases) {
+            if (!other || other.id === canvasId || other.visible === false) continue;
+            const b = bounds(other);
+            if (b.w <= 0 || b.h <= 0) continue;
+            if (intersects(a, b)) {
+                this._toast('Canvases overlapping — visual rendering may be confusing.', true);
+                return;
+            }
+        }
+    }
+
     deleteCanvas(canvasId) {
         return fetch(`/api/canvas/${canvasId}`, { method: 'DELETE' })
             .then(r => r.json().then(body => ({ ok: r.ok, body })))

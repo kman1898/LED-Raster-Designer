@@ -350,6 +350,17 @@ def test_update_canvas_partial(client):
     assert proj['canvases'][0]['visible'] is False
 
 
+def test_update_canvas_persists_workspace_position(client):
+    """Slice 5: workspace_x / workspace_y written by canvas-drag drop persist."""
+    resp = client.put('/api/canvas/c1', json={
+        'workspace_x': 1234, 'workspace_y': -56,
+    })
+    assert resp.status_code == 200
+    proj = resp.get_json()
+    assert proj['canvases'][0]['workspace_x'] == 1234
+    assert proj['canvases'][0]['workspace_y'] == -56
+
+
 # -----------------------------------------------------------------------------
 # Slice 3 — auto-place new canvases horizontally with a configurable gap.
 # -----------------------------------------------------------------------------

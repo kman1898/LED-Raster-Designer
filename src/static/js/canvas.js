@@ -367,12 +367,82 @@ class CanvasRenderer {
         return null;
     }
 
+    /**
+     * Slice 5: hit-test a workspace point against the dashed outline edges
+     * of visible canvases. Returns the first canvas whose outline edge is
+     * within EDGE_HIT_PX (screen pixels, converted to world units via
+     * /this.zoom) of (worldX, worldY), or null.
+     *
+     * "Edge" = within `tol` of any of the four edges of the canvas rect,
+     * but the point must also be inside the rect-with-tolerance overall
+     * (so corners count). Inside the canvas body (more than `tol` away
+     * from every edge) does NOT count — that's reserved for body-click
+     * activate / panel selection.
+     */
+    _canvasEdgeAtPoint(worldX, worldY) {
+        if (!window.app || !window.app.project) return null;
+        const arr = window.app.project.canvases;
+        if (!Array.isArray(arr) || arr.length === 0) return null;
+        const EDGE_HIT_PX = 6;
+        const tol = EDGE_HIT_PX / Math.max(this.zoom, 0.0001);
+        const useShow = this.isShowLookView();
+        for (const c of arr) {
+            if (!c || c.visible === false) continue;
+            const w = (useShow && c.show_raster_width) || c.raster_width || 0;
+            const h = (useShow && c.show_raster_height) || c.raster_height || 0;
+            if (w <= 0 || h <= 0) continue;
+            const x = c.workspace_x || 0;
+            const y = c.workspace_y || 0;
+            // Outer bounds (rect + tol on every side)
+            if (worldX < x - tol || worldX > x + w + tol) continue;
+            if (worldY < y - tol || worldY > y + h + tol) continue;
+            // Inside any of the four edge bands?
+            const nearLeft   = Math.abs(worldX - x)       <= tol;
+            const nearRight  = Math.abs(worldX - (x + w)) <= tol;
+            const nearTop    = Math.abs(worldY - y)       <= tol;
+            const nearBottom = Math.abs(worldY - (y + h)) <= tol;
+            if (nearLeft || nearRight || nearTop || nearBottom) {
+                return c;
+            }
+        }
+        return null;
+    }
+
     handleMouseDown(e) {
         const rect = this.canvas.getBoundingClientRect();
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
         const worldX = this._unmirrorWorldX((mouseX - this.panX) / this.zoom);
         const worldY = (mouseY - this.panY) / this.zoom;
+
+        // Slice 5: dragging a canvas's dashed outline edge repositions
+        // the canvas in the workspace. Must be checked BEFORE the Slice 4
+        // panel/canvas-activate block so edge-drag wins over body-click
+        // activation. Skipped for pan (space), shift, and alt — those are
+        // existing drag/paint behaviors. Inside the canvas body still
+        // falls through to Slice 4.
+        if (e.button === 0 && !this.spacePressed && !e.shiftKey && !e.altKey) {
+            const edgeCanvas = this._canvasEdgeAtPoint(worldX, worldY);
+            if (edgeCanvas) {
+                this.isDraggingCanvas = true;
+                this.draggingCanvasId = edgeCanvas.id;
+                this.canvasDragStartX = worldX;
+                this.canvasDragStartY = worldY;
+                this.canvasDragStartWX = edgeCanvas.workspace_x || 0;
+                this.canvasDragStartWY = edgeCanvas.workspace_y || 0;
+                // Activate the dragged canvas so the sidebar reflects it.
+                if (window.app && window.app.project
+                    && window.app.project.active_canvas_id !== edgeCanvas.id
+                    && typeof window.app.setActiveCanvas === 'function') {
+                    window.app.setActiveCanvas(edgeCanvas.id);
+                }
+                this.canvas.style.cursor = 'grabbing';
+                if (typeof sendClientLog === 'function') {
+                    sendClientLog('canvas_drag_start', { canvasId: edgeCanvas.id });
+                }
+                return;
+            }
+        }
 
         // Slice 4 (+ multi-canvas hit-test fix): every left click in the
         // workspace either:
@@ -712,6 +782,22 @@ class CanvasRenderer {
         const worldX = this._unmirrorWorldX((mouseX - this.panX) / this.zoom);
         const worldY = (mouseY - this.panY) / this.zoom;
 
+        // Slice 5: live canvas-drag — update workspace_x/y on every move,
+        // but only PUT to the server on mouseup (avoid flooding).
+        if (this.isDraggingCanvas && this.draggingCanvasId) {
+            if (window.app && window.app.project) {
+                const c = window.app.project.canvases.find(c => c.id === this.draggingCanvasId);
+                if (c) {
+                    const dx = worldX - this.canvasDragStartX;
+                    const dy = worldY - this.canvasDragStartY;
+                    c.workspace_x = this.canvasDragStartWX + dx;
+                    c.workspace_y = this.canvasDragStartWY + dy;
+                    this.render();
+                }
+            }
+            return;
+        }
+
         if (this.isAltPainting) {
             const clickedPanel = this.getPanelAt(worldX, worldY);
             if (clickedPanel && clickedPanel.layerId === this.altPaintLayerId && !this.altPaintedPanelIds.has(clickedPanel.panel.id)) {
@@ -879,12 +965,50 @@ class CanvasRenderer {
         
         if (this.spacePressed && !this.isDragging) {
             this.canvas.style.cursor = 'grab';
-        } else if (!this.isDragging && !this.isDraggingLayer && !this.isDraggingScreenName) {
-            this.canvas.style.cursor = 'default';
+        } else if (!this.isDragging && !this.isDraggingLayer && !this.isDraggingScreenName && !this.isDraggingCanvas) {
+            // Slice 5: hovering a canvas's outline edge → show 'move' so
+            // the user knows they can grab it. Skip when a modifier is
+            // held (other actions own those gestures).
+            if (!e.shiftKey && !e.altKey && !this.isSelectingPanels && !this.isSelectingLayers
+                && this._canvasEdgeAtPoint(worldX, worldY)) {
+                this.canvas.style.cursor = 'move';
+            } else {
+                this.canvas.style.cursor = 'default';
+            }
         }
     }
     
     handleMouseUp(e) {
+        // Slice 5: commit canvas-drag drop. Live updates already happened
+        // during mousemove; here we round to integer (avoid sub-pixel
+        // drift), persist with a single PUT, and run an overlap check.
+        if (this.isDraggingCanvas) {
+            this.isDraggingCanvas = false;
+            const id = this.draggingCanvasId;
+            this.draggingCanvasId = null;
+            this.canvas.style.cursor = 'default';
+            if (window.app && window.app.project) {
+                const c = window.app.project.canvases.find(c => c.id === id);
+                if (c) {
+                    const wx = Math.round(c.workspace_x || 0);
+                    const wy = Math.round(c.workspace_y || 0);
+                    c.workspace_x = wx;
+                    c.workspace_y = wy;
+                    if (typeof window.app.updateCanvas === 'function') {
+                        window.app.updateCanvas(id, { workspace_x: wx, workspace_y: wy });
+                    }
+                    if (typeof window.app._checkCanvasOverlapAndToast === 'function') {
+                        window.app._checkCanvasOverlapAndToast(id);
+                    }
+                }
+            }
+            this.render();
+            if (typeof sendClientLog === 'function') {
+                sendClientLog('canvas_drag_end', { canvasId: id });
+            }
+            return;
+        }
+
         if (this.isAltPainting) {
             this.isAltPainting = false;
             if (window.app && this.altPaintedPanelIds && this.altPaintedPanelIds.size > 0) {
