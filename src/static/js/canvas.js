@@ -374,15 +374,39 @@ class CanvasRenderer {
         const worldX = this._unmirrorWorldX((mouseX - this.panX) / this.zoom);
         const worldY = (mouseY - this.panY) / this.zoom;
 
-        // Slice 4: clicking empty area inside a canvas's rect activates that
-        // canvas. Skipped for: pan (space), shift/alt modifiers (existing
-        // drag behaviors), and clicks that hit a panel (panel-select takes
-        // precedence; layer-click activation is wired separately in app.js
-        // selectLayer/toggleLayerSelection paths). Additive — the rest of
-        // mouse-down still runs, so panning/drag-select/etc. are unchanged.
+        // Slice 4 (+ multi-canvas hit-test fix): every left click in the
+        // workspace either:
+        //   (a) hits a panel in some canvas's layer → activate that canvas
+        //       and make that layer the currentLayer so the existing
+        //       panel-select / layer-action paths can run against it
+        //       without the user having to click the layer in the sidebar
+        //       first;
+        //   (b) hits empty area inside a canvas's rect → activate that
+        //       canvas;
+        //   (c) hits empty area outside any canvas → no canvas change.
+        // Skipped for pan (space) and shift/alt modifiers (existing drag
+        // behaviors). Additive — the rest of mouse-down still runs.
         if (e.button === 0 && !this.spacePressed && !e.shiftKey && !e.altKey) {
             const hitPanel = this.getPanelAt(worldX, worldY);
-            if (!hitPanel) {
+            if (hitPanel) {
+                // Panel hit: switch to its layer's canvas if needed, and
+                // promote its layer to currentLayer if needed. Both gates
+                // are no-ops when already in scope, so single-canvas /
+                // current-layer flows are unchanged.
+                const layer = window.app && window.app.project
+                    && window.app.project.layers.find(l => l.id === hitPanel.layerId);
+                if (layer) {
+                    if (layer.canvas_id
+                        && window.app.project.active_canvas_id !== layer.canvas_id
+                        && typeof window.app.setActiveCanvas === 'function') {
+                        window.app.setActiveCanvas(layer.canvas_id);
+                    }
+                    if ((!window.app.currentLayer || window.app.currentLayer.id !== layer.id)
+                        && typeof window.app.selectLayer === 'function') {
+                        window.app.selectLayer(layer.id);
+                    }
+                }
+            } else {
                 const hitCanvas = this._canvasAtPoint(worldX, worldY);
                 if (hitCanvas && hitCanvas.id
                     && window.app
