@@ -1910,7 +1910,12 @@ class CanvasRenderer {
                     if (_canvasesArr.length === 0) return true; // legacy fallback
                     return l.canvas_id === canvas.id;
                 });
-                if (layersInCanvas.length === 0) return;
+                // Empty canvases (no layers) still get drawn — outline +
+                // active tint — so the user can see the canvas exists and can
+                // drag layers into it. Slice 7 cross-canvas drag depends on
+                // this being a valid drop target. Originally Slice 3 skipped
+                // empty canvases entirely, but that hid them from the
+                // workspace which broke the drop-into-empty-canvas flow.
                 const wx = canvas.workspace_x || 0;
                 const wy = canvas.workspace_y || 0;
                 const needsCanvasShift = (wx !== 0 || wy !== 0);

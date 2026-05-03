@@ -195,7 +195,7 @@ The workspace shows **every visible canvas** at its `workspace_x, workspace_y` p
 
 In every case the screen position of a layer is `canvas.workspace_x + layer_offset_within_canvas`.
 
-**Canvas rect drawn only if canvas has at least one visible layer.** Empty canvases don't clutter the workspace but still exist (visible in the sidebar; the user can add layers to them).
+**Canvas rect always drawn (when `canvas.visible !== false`)** — even when the canvas has no layers. Empty canvases need to remain a valid drop target for cross-canvas layer drag (Slice 7). Hide via the canvas-level eye toggle if a canvas is in the way.
 
 ### 5.3 Color coding
 
