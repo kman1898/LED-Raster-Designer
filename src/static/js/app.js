@@ -7631,8 +7631,13 @@ class LEDRasterApp {
         // user-activation gesture fresh for createWritable. See bug fix for
         // 0-byte JSON saves on large multi-canvas projects.
         const resolveBlob = async () => (typeof blobOrFn === 'function' ? await blobOrFn() : blobOrFn);
-        // 1. Try the File System Access API (Chrome/Edge on secure contexts)
-        if (window.showSaveFilePicker) {
+        // 1. Try the File System Access API (Chrome/Edge on secure contexts).
+        //    Skip on localhost — we have a better server-side native dialog
+        //    available that doesn't break on cloud-synced folders (Nextcloud,
+        //    iCloud, Dropbox, OneDrive). Chrome's createWritable rejects with
+        //    NotAllowedError when the target lives under a sync agent's xattrs,
+        //    which produced 0-byte saves before this guard.
+        if (window.showSaveFilePicker && !this.isLocalConnection()) {
             try {
                 sendClientLog('save_blob_picker_start', { filename, mimeType });
                 const ext = filename.split('.').pop() || '';
