@@ -1367,6 +1367,26 @@ class CanvasRenderer {
         }
     }
     
+    /**
+     * v0.8 multi-canvas: return the workspace translate ({wx, wy}) for the
+     * canvas a layer belongs to. Layers without a canvas_id (legacy / orphan)
+     * and projects with no canvases array fall back to (0, 0) so single-canvas
+     * behaviour is unchanged.
+     */
+    _layerCanvasOffset(layer) {
+        if (!layer || !window.app || !window.app.project) return { wx: 0, wy: 0 };
+        const arr = window.app.project.canvases;
+        if (!Array.isArray(arr) || arr.length === 0) return { wx: 0, wy: 0 };
+        const cid = layer.canvas_id;
+        if (!cid) return { wx: 0, wy: 0 };
+        for (const c of arr) {
+            if (c && c.id === cid) {
+                return { wx: c.workspace_x || 0, wy: c.workspace_y || 0 };
+            }
+        }
+        return { wx: 0, wy: 0 };
+    }
+
     getPanelAt(worldX, worldY) {
         if (!window.app || !window.app.project) return null;
         for (let i = window.app.project.layers.length - 1; i >= 0; i--) {
@@ -1375,10 +1395,13 @@ class CanvasRenderer {
             if ((layer.type || 'screen') === 'image') continue;
             // Convert world coords back into the layer's processor space so we
             // can hit-test against panel.x/y (which are stored at processor
-            // position; show-look just renders with a translate).
+            // position; show-look renders with a translate AND, for v0.8
+            // multi-canvas, the per-layer render is wrapped in the parent
+            // canvas's workspace translate). Subtract both.
             const { dx, dy } = this.getLayerRenderOffset(layer);
-            const lx = worldX - dx;
-            const ly = worldY - dy;
+            const { wx, wy } = this._layerCanvasOffset(layer);
+            const lx = worldX - dx - wx;
+            const ly = worldY - dy - wy;
             for (const panel of layer.panels) {
                 // Don't skip hidden panels - they need to be clickable to toggle back
                 if (lx >= panel.x && lx <= panel.x + panel.width &&
@@ -1397,10 +1420,17 @@ class CanvasRenderer {
             if (!layer.visible) continue;
             // Hit-test against the layer's bounds in the *active view*, since
             // worldX/worldY are in the view's coord space (Show Look / Data /
-            // Power render at the show position).
+            // Power render at the show position). v0.8: bounds returned by
+            // getLayerBoundsInActiveView are in the canvas's local coord
+            // space; shift by the canvas's workspace_x/y so the comparison
+            // against worldX/worldY (which are in workspace coords) is right
+            // for canvases beyond the first.
             const bounds = this.getLayerBoundsInActiveView(layer);
-            if (worldX >= bounds.x && worldX <= bounds.x + bounds.width &&
-                worldY >= bounds.y && worldY <= bounds.y + bounds.height) {
+            const { wx, wy } = this._layerCanvasOffset(layer);
+            const bx = bounds.x + wx;
+            const by = bounds.y + wy;
+            if (worldX >= bx && worldX <= bx + bounds.width &&
+                worldY >= by && worldY <= by + bounds.height) {
                 return layer;
             }
         }

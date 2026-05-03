@@ -10455,6 +10455,43 @@ class LEDRasterApp {
             return Promise.resolve();
         }
         this.project.active_canvas_id = canvasId;
+        // Slice 5: active canvas constrains selection. Drop any selected
+        // layer ids that don't belong to the new active canvas, and clear
+        // currentLayer if it's now in a different canvas. Layers without a
+        // canvas_id (legacy / orphan) are kept on the safe side. This keeps
+        // the user's mental model consistent ("the active canvas is what
+        // I'm working in") and prevents stale highlights on the inactive
+        // canvas after a click.
+        if (Array.isArray(this.project.layers) && this.selectedLayerIds && this.selectedLayerIds.size > 0) {
+            const layerById = {};
+            for (const l of this.project.layers) layerById[l.id] = l;
+            const filtered = new Set();
+            for (const id of this.selectedLayerIds) {
+                const l = layerById[id];
+                if (!l) continue;
+                if (!l.canvas_id || l.canvas_id === canvasId) filtered.add(id);
+            }
+            this.selectedLayerIds = filtered;
+        }
+        if (this.currentLayer && this.currentLayer.canvas_id
+            && this.currentLayer.canvas_id !== canvasId) {
+            // Promote the most-recently-selected layer in the new active
+            // canvas (if any) to currentLayer, otherwise null.
+            let next = null;
+            if (this.selectedLayerIds && this.selectedLayerIds.size > 0
+                && Array.isArray(this.project.layers)) {
+                const lastId = this.lastSelectedLayerId;
+                if (lastId && this.selectedLayerIds.has(lastId)) {
+                    next = this.project.layers.find(l => l.id === lastId) || null;
+                }
+                if (!next) {
+                    const firstId = this.selectedLayerIds.values().next().value;
+                    next = this.project.layers.find(l => l.id === firstId) || null;
+                }
+            }
+            this.currentLayer = next;
+            if (!next) this.lastSelectedLayerId = null;
+        }
         // Slice 4: toolbar raster reflects the active canvas's raster.
         // Mirror the active canvas's raster_* into project root + renderer
         // so syncRasterFromProject populates the toolbar inputs correctly.

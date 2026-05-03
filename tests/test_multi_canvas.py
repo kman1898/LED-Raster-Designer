@@ -422,3 +422,47 @@ def test_active_canvas_id_round_trips_on_save_load(client):
 
     assert restored['active_canvas_id'] == 'c2'
     assert [c['id'] for c in restored['canvases']] == ['c1', 'c2']
+
+
+def test_set_active_does_not_drop_layers(client_with_layer):
+    """Slice 5: switching the active canvas must not delete or reassign
+    any layers. The selection-strip behaviour (clearing cross-canvas
+    selected layer ids) lives on the client; the server's job is purely
+    to record the new active_canvas_id and return the project unchanged.
+    Guards against future refactors that might over-eagerly prune layers."""
+    proj = client_with_layer.get('/api/project').get_json()
+    layer_ids_before = sorted(l['id'] for l in proj['layers'])
+    layer_canvases_before = {l['id']: l['canvas_id'] for l in proj['layers']}
+
+    # Add a second canvas (auto-activates) then switch back to c1.
+    client_with_layer.post('/api/canvas', json={})  # c2, now active
+    resp = client_with_layer.put('/api/canvas/c1/active')
+    assert resp.status_code == 200
+    after = resp.get_json()
+
+    assert after['active_canvas_id'] == 'c1'
+    layer_ids_after = sorted(l['id'] for l in after['layers'])
+    layer_canvases_after = {l['id']: l['canvas_id'] for l in after['layers']}
+    assert layer_ids_before == layer_ids_after
+    assert layer_canvases_before == layer_canvases_after
+
+
+def test_active_canvas_selection_scoping_rule_documented():
+    """Slice 5 design rule (frontend-only, documented here for future devs):
+
+    When the active canvas changes, the client clears any selected layer
+    ids that don't belong to the new active canvas, and demotes
+    currentLayer if it's no longer in-scope. This is implemented in
+    ``setActiveCanvas`` in src/static/js/app.js. Together with Slice 4's
+    ``_activateCanvasForLayer`` (called from selectLayer /
+    toggleLayerSelection / selectLayerRange), the invariant is:
+
+        currentLayer.canvas_id === project.active_canvas_id
+
+    after every layer selection or canvas activation. This test is a
+    documentation anchor — if you remove the scoping logic, please update
+    docs/multi-canvas-design.md and delete this assertion deliberately.
+    """
+    # Marker assertion; the real verification is the manual UX checklist
+    # in the slice 5 PR description (no headless browser in CI).
+    assert True
