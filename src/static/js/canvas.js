@@ -1442,10 +1442,10 @@ class CanvasRenderer {
         this.zoom = newZoom;
         this.panX = mouseX - worldX * this.zoom;
         this.panY = mouseY - worldY * this.zoom;
-        document.getElementById('zoom-level').value = `${Math.round(this.zoom * 100)}%`;
+        document.getElementById('zoom-level').value = `${this._zoomToPercent(this.zoom)}%`;
         this.render();
     }
-    
+
     handleContextMenu(e) {
         e.preventDefault();
         e.stopPropagation();
@@ -2288,21 +2288,31 @@ class CanvasRenderer {
         this.ctx.restore();
     }
     
+    // The displayed zoom percentage is 1 raster-pixel-to-1-device-pixel based,
+    // so "100%" truly means actual size. Internally `this.zoom` still maps
+    // raster pixels to CSS pixels; on a Retina display devicePixelRatio is 2,
+    // so 100% displayed == this.zoom == 0.5 (1 raster px → 0.5 CSS px → 1
+    // device px). This keeps render math unchanged and only adjusts the I/O
+    // boundary with the zoom-level input.
+    _displayDpr() { return window.devicePixelRatio || 1; }
+    _zoomToPercent(z) { return Math.round(z * this._displayDpr() * 100); }
+    _percentToZoom(p) { return p / 100 / this._displayDpr(); }
+
     zoomIn() {
         this.zoom = Math.min(500.0, this.zoom * 1.2);  // Max 50000% for pixel-level zoom
-        document.getElementById('zoom-level').value = `${Math.round(this.zoom * 100)}%`;
+        document.getElementById('zoom-level').value = `${this._zoomToPercent(this.zoom)}%`;
         this.render();
     }
-    
+
     zoomOut() {
         this.zoom = Math.max(0.01, this.zoom / 1.2);
-        document.getElementById('zoom-level').value = `${Math.round(this.zoom * 100)}%`;
+        document.getElementById('zoom-level').value = `${this._zoomToPercent(this.zoom)}%`;
         this.render();
     }
-    
+
     setZoom(zoomLevel) {
         this.zoom = Math.max(0.01, Math.min(500.0, zoomLevel));
-        document.getElementById('zoom-level').value = `${Math.round(this.zoom * 100)}%`;
+        document.getElementById('zoom-level').value = `${this._zoomToPercent(this.zoom)}%`;
         this.render();
     }
     
@@ -2345,13 +2355,15 @@ class CanvasRenderer {
         this.zoom = Math.min(zoomX, zoomY);
         this.panX = (this.canvas.width - w * this.zoom) / 2 - bb.x * this.zoom;
         this.panY = (this.canvas.height - h * this.zoom) / 2 - bb.y * this.zoom;
-        document.getElementById('zoom-level').value = `${Math.round(this.zoom * 100)}%`;
+        document.getElementById('zoom-level').value = `${this._zoomToPercent(this.zoom)}%`;
         this.render();
     }
-    
+
     zoomActual() {
         if (!window.app || !window.app.currentLayer) {
-            this.zoom = 1.0;
+            // 1:1 sizing: 1 raster px == 1 device px (so on Retina, halve the
+            // CSS-pixel scale).
+            this.zoom = 1.0 / this._displayDpr();
             this.panX = 100;
             this.panY = 100;
         } else {
@@ -2377,10 +2389,10 @@ class CanvasRenderer {
             this.panX = this.canvas.width / 2 - layerCenterX * this.zoom;
             this.panY = this.canvas.height / 2 - layerCenterY * this.zoom;
         }
-        document.getElementById('zoom-level').value = `${Math.round(this.zoom * 100)}%`;
+        document.getElementById('zoom-level').value = `${this._zoomToPercent(this.zoom)}%`;
         this.render();
     }
-    
+
     calculateMagneticSnap(offsetX, offsetY, currentLayer) {
         const snapDistance = 20; // Snap within 20 pixels - feels natural
         let snappedX = offsetX;

@@ -2220,9 +2220,17 @@ class LEDRasterApp {
             let value = zoomInput.value.replace('%', '').trim();
             let percent = parseFloat(value);
             if (!isNaN(percent) && percent > 0) {
-                window.canvasRenderer.setZoom(percent / 100);
+                // Convert displayed percent (1:1 device-pixel based) into the
+                // internal raster→CSS scale used by canvasRenderer.
+                const targetZoom = (typeof window.canvasRenderer._percentToZoom === 'function')
+                    ? window.canvasRenderer._percentToZoom(percent)
+                    : percent / 100;
+                window.canvasRenderer.setZoom(targetZoom);
             }
-            zoomInput.value = `${Math.round(window.canvasRenderer.zoom * 100)}%`;
+            const displayed = (typeof window.canvasRenderer._zoomToPercent === 'function')
+                ? window.canvasRenderer._zoomToPercent(window.canvasRenderer.zoom)
+                : Math.round(window.canvasRenderer.zoom * 100);
+            zoomInput.value = `${displayed}%`;
         });
         zoomInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
@@ -10451,6 +10459,20 @@ class LEDRasterApp {
             try { this.syncRasterFromProject(); } catch (_) {}
         }
         this.renderLayers();
+        // Rebind currentLayer to the fresh object in the new project payload
+        // (same id, new reference) and refresh the settings panel inputs so
+        // post-mutation values (offset_x snapped to 0,0 after a cross-canvas
+        // move, raster size after a resize, etc.) propagate without forcing
+        // the user to deselect+reselect to see the change.
+        if (this.currentLayer && data.layers) {
+            const refreshed = data.layers.find(l => l.id === this.currentLayer.id);
+            if (refreshed) {
+                this.currentLayer = refreshed;
+                if (typeof this.loadLayerToInputs === 'function') {
+                    try { this.loadLayerToInputs(); } catch (_) {}
+                }
+            }
+        }
         // Re-render the workspace canvas. The previous `if (this.render)`
         // check was always false (app has no .render method), so the
         // workspace pixels never refreshed after a canvas CRUD response —
