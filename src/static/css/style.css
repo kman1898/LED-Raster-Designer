@@ -118,7 +118,7 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 .checkbox-row input[type="checkbox"] { margin: 0; }
 .checkbox-row label { color: #e0e0e0; font-size: 12px; margin: 0; text-transform: none; cursor: pointer; }
 
-#layers-list { margin-bottom: 10px; max-height: 400px; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; }
+#layers-list { margin-bottom: 10px; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; }
 .layer-item { background: #1a1a1a; border: 1px solid #3a3a3a; border-radius: 4px; padding: 10px; margin-bottom: 8px; cursor: pointer; box-sizing: border-box; width: 100%; }
 .layer-item:hover { background: #2a2a2a; }
 .layer-item.active { border-color: #4A90E2; background: #1a2a3a; }
