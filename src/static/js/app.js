@@ -12103,10 +12103,23 @@ class LEDRasterApp {
             return;
         }
 
-        // Collect hidden panel positions (row, col) to apply to new layer
+        // Collect hidden panel positions (row, col) to apply to new layer.
+        // Backwards-compat: older server builds only knew about hiddenPanels.
         const hiddenPanels = layer.panels
             .filter(p => p.hidden)
             .map(p => ({ row: p.row, col: p.col }));
+        // v0.8.0 fix: half-tile state was being lost on duplicate. Build a
+        // full per-panel state list (halfTile + hidden + blank) so the
+        // server can rebuild the duplicate's geometry to match the source.
+        const panelStates = layer.panels
+            .filter(p => p.hidden || p.blank || (p.halfTile && p.halfTile !== 'none'))
+            .map(p => ({
+                row: p.row,
+                col: p.col,
+                halfTile: p.halfTile || 'none',
+                hidden: !!p.hidden,
+                blank: !!p.blank,
+            }));
         
         const duplicateData = {
             name: getNextName(layer.name),
@@ -12174,7 +12187,8 @@ class LEDRasterApp {
             powerLabelOverrides: JSON.parse(JSON.stringify(layer.powerLabelOverrides || {})),
             powerCustomPaths: JSON.parse(JSON.stringify(layer.powerCustomPaths || {})),
             powerCustomIndex: layer.powerCustomIndex,
-            hiddenPanels: hiddenPanels  // Pass hidden panel info
+            hiddenPanels: hiddenPanels,  // Pass hidden panel info (legacy)
+            panelStates: panelStates,    // Half-tile + hidden + blank (v0.8.0)
         };
         
         // Store client-side properties to copy after layer is created

@@ -1300,7 +1300,32 @@ def add_layer():
         for panel in layer['panels']:
             if (panel['row'], panel['col']) in hidden_positions:
                 panel['hidden'] = True
-    
+
+    # Apply per-panel state (halfTile + hidden + blank) for duplicate. This
+    # is the path that preserves half-tile geometry: half-tile width/height
+    # change column/row sizing inside _build_panels, so we rebuild the
+    # geometry from these states rather than just stamping flags onto
+    # already-built panels.
+    if 'panelStates' in data and data['panelStates']:
+        ps_dict = {}
+        for ps in data['panelStates']:
+            r = ps.get('row')
+            c = ps.get('col')
+            if r is None or c is None:
+                continue
+            entry = {}
+            ht = ps.get('halfTile')
+            if ht in ('width', 'height'):
+                entry['halfTile'] = ht
+            if ps.get('hidden'):
+                entry['hidden'] = True
+            if ps.get('blank'):
+                entry['blank'] = True
+            if entry:
+                ps_dict[(r, c)] = entry
+        if ps_dict:
+            layer['panels'] = _build_panels(layer, ps_dict)
+
     current_project['layers'].append(layer)
     current_project['is_pristine'] = False
     socketio.emit('layer_added', layer)
