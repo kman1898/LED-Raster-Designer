@@ -412,7 +412,26 @@ class CanvasRenderer {
     // un-mirrored screen space, so we have to flip them back into layer
     // coordinates before any hit-testing / drag math.
     _unmirrorWorldX(worldX) {
-        return this.isMirroredView() ? (this.rasterWidth - worldX) : worldX;
+        if (!this.isMirroredView()) return worldX;
+        // v0.8 Slice 8 fix: mirror axis is the workspace bounds, not the
+        // active canvas's raster — otherwise multi-canvas workspaces flip
+        // off-screen because workspace_x can be far past rasterWidth.
+        const k = this._mirrorAxisX();
+        return k - worldX;
+    }
+
+    /**
+     * The Canvas2D translate-X used as the mirror axis when Back perspective
+     * is active. We mirror around the workspace bounding box so points stay
+     * in the same x-range after the flip — single-canvas projects degrade to
+     * mirroring around rasterWidth (legacy behaviour) automatically because
+     * their bbox.x is 0 and bbox.w == rasterWidth.
+     */
+    _mirrorAxisX() {
+        const bb = this._workspaceBounds();
+        // K such that K - x maps left edge to right edge of bbox:
+        //   K - bbox.x = bbox.x + bbox.w  →  K = 2*bbox.x + bbox.w
+        return 2 * (bb.x || 0) + (bb.width || this.rasterWidth);
     }
 
     /**
@@ -1929,7 +1948,11 @@ class CanvasRenderer {
         // helpers below.
         this._mirror = this.isMirroredView();
         if (this._mirror) {
-            this.ctx.translate(this.rasterWidth, 0);
+            // v0.8 Slice 8: mirror axis is the workspace bounding-box right
+            // edge so multi-canvas workspaces stay on-screen when flipped.
+            // Single-canvas legacy projects naturally land at this.rasterWidth
+            // because their bbox is (0, 0, rasterWidth, rasterHeight).
+            this.ctx.translate(this._mirrorAxisX(), 0);
             this.ctx.scale(-1, 1);
         }
 
