@@ -29,6 +29,19 @@ Other devices on your local network can use the app by going to `http://[your-ip
 
 ## Features
 
+### Multi-Canvas (new in v0.8)
+
+A project can hold multiple independent **canvases**, each with its own raster size, workspace position, perspective, and layers. Think of one canvas per processor / per stage / per tour leg.
+
+- Right-sidebar **Screens** panel groups layers by canvas. Each canvas has a color swatch, name, eye toggle (visibility), and a **+ Add** button to drop new layers in.
+- Drag a canvas by its dashed outline to reposition it in the workspace. Magnetic snap aligns edges with neighboring canvases.
+- Drag (Shift+Drag) a screen layer onto another canvas to **move** it there. Cmd/Alt+Shift+Drag duplicates instead. The layer snaps to (0,0) in the new canvas.
+- Per-canvas raster: the toolbar **Raster: W x H** and the Show Look raster always reflect the active canvas. Each canvas can be sized independently.
+- Per-canvas Front/Back perspective for Data and Power. Switching the active canvas updates the toggle.
+- **Cross-canvas multi-select**: Shift+click layers in different canvases and bulk-edit them at once (panel size, voltage, processor type, etc.). The selection survives the active-canvas auto-switch.
+- **Hidden canvases** are excluded from the Data/Power totals and from exports by default.
+- **Per-canvas presets**: a new screen added to a canvas inherits hardware settings (voltage, amperage, panel size, processor type) from the most recent screen already in that canvas.
+
 ### Five View Modes
 
 | Tab | What it does |
@@ -115,12 +128,14 @@ Half-tiles count as **0.5 panel** for data/port math and **0.65 panel** for powe
 - Recent Files menu in the File menu
 - Auto-update check (notifies when a new release is available)
 - Per-panel state (hidden, half-tile) survives column/row resizes (state is anchored to grid position, not sequential id)
+- **v0.7 → v0.8 auto-migration** on load: opens any older project and converts it into the multi-canvas format with one canvas containing all the original layers. A one-time toast reminds you to save in the new format. v0.7 builds opening a v0.8 file get a clean "format newer than supported" error.
 
 ### Export
 - Multi-view PNG export, pick which views (Pixel Map, Cabinet ID, Show Look, Data, Power) to render in one go
-- PSD export with per-screen layers
-- PDF export
-- Resolume Arena Advanced Output XML export
+- **Multi-canvas aware** (v0.8): the Export dialog adds a Canvases section above Views. Each (canvas × view) is one PNG / one PSD / one PDF page. PDF page headers include canvas + view name. Resolume XML now emits one `<Screen>` per canvas, sized to that canvas's raster.
+- PSD export with per-screen layers (per-canvas filtered, only that canvas's layers in each PSD)
+- PDF export (multi-page across selected canvases × views)
+- Resolume Arena Advanced Output XML export (one `<Screen>` per canvas, named after the canvas)
 - NovaStar SCR export (sending-card mapping)
 - Configurable export filename suffixes per view (saved as defaults)
 - Project-name input flags illegal filename characters (\\ / : * ? " < > |) and auto-sanitizes them on export
