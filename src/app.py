@@ -3454,7 +3454,7 @@ if __name__ == '__main__':
     local_ip = get_local_ip()
 
     # Allow `--port N` (or `--port=N`) on the command line to override 8050.
-    # Useful when running under Claude Preview alongside other Flask apps.
+    # Useful when running alongside other Flask apps on the same machine.
     _port = 8050
     _argv = sys.argv[1:]
     for i, a in enumerate(_argv):

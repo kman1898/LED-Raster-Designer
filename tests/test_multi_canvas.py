@@ -393,7 +393,10 @@ def test_update_canvas_persists_workspace_position(client):
 # Slice 3, auto-place new canvases horizontally with a configurable gap.
 # -----------------------------------------------------------------------------
 
-DEFAULT_CANVAS_GAP = 50
+# v0.8 Slice 9: default canvas gap dropped 50 -> 0. Most LED installs are
+# abutting walls, not floating screens. The canvasGap preference still
+# overrides this when set (test_canvas_gap_preference covers that path).
+DEFAULT_CANVAS_GAP = 0
 
 
 def test_new_canvas_auto_placed_to_right(client):
