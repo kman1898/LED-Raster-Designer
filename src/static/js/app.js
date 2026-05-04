@@ -7964,7 +7964,15 @@ class LEDRasterApp {
             hasDirectoryPicker: !!window.showDirectoryPicker,
             hasSaveFilePicker: !!window.showSaveFilePicker
         });
-        if (window.showDirectoryPicker) {
+        // v0.8: same Chrome activation issue we hit on JSON saves — when
+        // the user is on localhost (this Flask app), the multi-canvas export
+        // burns the user-gesture token rendering all the canvases between
+        // showDirectoryPicker resolving and the per-file getFileHandle/
+        // createWritable calls. Chrome rejects with NotAllowedError and we
+        // get zero files on disk. Skip the FS Access API entirely on
+        // localhost and use the native server-side directory dialog, which
+        // doesn't have this restriction.
+        if (window.showDirectoryPicker && !this.isLocalConnection()) {
             try {
                 const dirHandle = await window.showDirectoryPicker();
                 for (const file of files) {
@@ -7977,9 +7985,35 @@ class LEDRasterApp {
                 return;
             } catch (err) {
                 if (err && err.name === 'AbortError') return;
-                throw err;
+                sendClientLog('save_multiple_files_directory_failed', {
+                    name: err && err.name, message: err && err.message
+                });
+                // fall through to native fallback so the user still gets files
             }
         }
+        // Use native server-side directory picker (opens on the host machine).
+        // Tried BEFORE per-file showSaveFilePicker because picking once is
+        // far less work than N separate save dialogs.
+        try {
+            const targetDir = await this.nativeSelectDirectory();
+            if (targetDir) {
+                for (const file of files) {
+                    const filePath = `${targetDir.replace(/[\\/]$/, '')}/${file.filename}`;
+                    const ok = await this.nativeWriteFile(filePath, file.blob);
+                    if (!ok) {
+                        sendClientLog('save_multiple_files_native_dialog_write_failed', { file: file.filename, filePath });
+                        throw new Error(`Native write failed for ${file.filename}`);
+                    }
+                }
+                sendClientLog('save_multiple_files_native_dialog_success', { count: files.length, directory: targetDir });
+                return;
+            }
+            sendClientLog('save_multiple_files_native_dialog_cancelled', { count: files.length });
+        } catch (err) {
+            sendClientLog('save_multiple_files_native_dialog_error', { message: err.message });
+        }
+        // Last resort: per-file saveBlobWithPicker (multiple dialogs) or
+        // browser download.
         if (window.showSaveFilePicker) {
             for (const file of files) {
                 const mimeType = file.blob && file.blob.type ? file.blob.type : 'application/octet-stream';
@@ -7988,24 +8022,8 @@ class LEDRasterApp {
             sendClientLog('save_multiple_files_picker_success', { count: files.length });
             return;
         }
-        // Use native server-side directory picker (opens on the host machine)
-        try {
-            const targetDir = await this.nativeSelectDirectory();
-            if (!targetDir) {
-                sendClientLog('save_multiple_files_native_dialog_cancelled', { count: files.length });
-                return;
-            }
-            for (const file of files) {
-                const filePath = `${targetDir.replace(/[\\/]$/, '')}/${file.filename}`;
-                const ok = await this.nativeWriteFile(filePath, file.blob);
-                if (!ok) {
-                    sendClientLog('save_multiple_files_native_dialog_write_failed', { file: file.filename, filePath });
-                    throw new Error(`Native write failed for ${file.filename}`);
-                }
-            }
-            sendClientLog('save_multiple_files_native_dialog_success', { count: files.length, directory: targetDir });
-        } catch (err) {
-            sendClientLog('save_multiple_files_native_dialog_error', { message: err.message });
+        for (const file of files) {
+            try { this.browserDownload(file.blob, file.filename); } catch (_) {}
         }
     }
 
