@@ -1457,6 +1457,26 @@ class CanvasRenderer {
                             // Duplicate is not supported here (mode is
                             // forced to 'move') since show-canvas reassign
                             // isn't a clone op.
+                            //
+                            // v0.8.5 fix: showOffsetX/Y are stored CANVAS-
+                            // RELATIVE (renderer adds canvas.workspace_x/y to
+                            // them). When we swap the layer's effective show
+                            // canvas, we MUST compensate the offsets by
+                            // (oldCanvas.workspace - newCanvas.workspace) or
+                            // the layer visually JUMPS to a wrong spot
+                            // because (newCanvas.workspace + sameOffset) !=
+                            // (oldCanvas.workspace + sameOffset). Without
+                            // this, dragging a c2 screen into c1's area
+                            // looked like the layer was still in c2's space
+                            // (or even way off-screen).
+                            const dxComp = (primaryCanvas.workspace_x || 0) - (targetCanvas.workspace_x || 0);
+                            const dyComp = (primaryCanvas.workspace_y || 0) - (targetCanvas.workspace_y || 0);
+                            movedIds.forEach(id => {
+                                const l = window.app.project.layers.find(x => x.id === id);
+                                if (!l) return;
+                                l.showOffsetX = (Number(l.showOffsetX) || 0) + dxComp;
+                                l.showOffsetY = (Number(l.showOffsetY) || 0) + dyComp;
+                            });
                             const toUpdate = window.app.getSelectedLayers
                                 ? window.app.getSelectedLayers()
                                 : [window.app.currentLayer];

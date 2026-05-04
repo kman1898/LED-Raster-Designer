@@ -1,6 +1,17 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.8.5.1 - May 4, 2026
+----------------------------
+- FIX: Cross-canvas Show Look drag correctly compensates the layer's
+  showOffsetX/Y for the canvas swap. showOffsets are stored relative to
+  the layer's canvas's workspace position; without compensation a layer
+  dropped from canvas 2 into canvas 1 in Show Look kept its c2-relative
+  offset, but rendered at (c1.workspace + that_offset), so it visually
+  jumped (often off-screen, with extreme negative offsets like -1220).
+  Now offsets are adjusted by (oldCanvas.workspace - newCanvas.workspace)
+  so the layer stays exactly where the user dropped it.
+
 v0.8.5 - May 4, 2026
 ----------------------------
 - FEATURE: Show Look (and Data + Power, which render at the show layout)
