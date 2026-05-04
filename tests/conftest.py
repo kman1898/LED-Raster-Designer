@@ -16,7 +16,7 @@ def pytest_addoption(parser):
     )
 
 import app as app_module
-from app import app, socketio, initialize_default_layer
+from app import app, socketio, initialize_default_layer, _build_initial_project
 
 
 @pytest.fixture()
@@ -27,13 +27,9 @@ def client():
     # Reset project state before each test.
     # Must set on the module directly because some endpoints reassign
     # the global (e.g. new_project, restore_project).
-    app_module.current_project = {
-        'name': 'Untitled Project',
-        'raster_width': 1920,
-        'raster_height': 1080,
-        'layers': [],
-        'is_pristine': True
-    }
+    # _build_initial_project() returns a v0.8-shaped dict (canvases +
+    # format_version) so tests reflect real app state.
+    app_module.current_project = _build_initial_project()
     app_module.next_layer_id = 1
 
     with app.test_client() as client:

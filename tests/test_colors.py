@@ -1,7 +1,7 @@
 """Tests for color property persistence across all layer operations.
 
 Verifies that every color property set on a layer is stored and returned
-with the exact value provided — no silent defaults, no color mangling.
+with the exact value provided, no silent defaults, no color mangling.
 """
 
 import json

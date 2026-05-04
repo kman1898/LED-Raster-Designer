@@ -39,7 +39,7 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 /* ── Collapsible side panels ─────────────────────────────────────────── */
 /* Each toggle button hugs the inner edge of its sidebar. Click to hide
    the entire panel; click again to bring it back. The two sides are
-   independent and the state persists across reloads (localStorage —
+   independent and the state persists across reloads (localStorage,
    see app.js initSidebarToggles). */
 .sidebar-toggle {
     position: fixed;
@@ -59,7 +59,7 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 }
 .sidebar-toggle:hover { background: #3a3a3a; color: #fff; }
 /* The actual left/right pixel positions are set in JS (initSidebarToggles)
-   based on the sidebar's live geometry — this lets the toggle hug the
+   based on the sidebar's live geometry, this lets the toggle hug the
    sidebar's inner edge regardless of monitor size, window resize, or any
    future change to sidebar width. */
 #left-sidebar-toggle { border-left: none; border-radius: 0 4px 4px 0; }
@@ -74,9 +74,11 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     border-right: none;
     border-left: none;
 }
-#right-sidebar > .panel { margin: 0 10px 0 10px; flex: 1; overflow-y: auto; min-height: 0; }
+#right-sidebar > .panel { margin: 0 10px 0 10px; flex: 1; overflow: hidden; min-height: 0; display: flex; flex-direction: column; }
+#right-sidebar > .panel > .panel-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+#right-sidebar > .panel > .panel-content > #layers-list { flex: 1; min-height: 0; overflow-y: auto; }
 .panel { background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 6px; margin-bottom: 10px; }
-.panel-header { padding: 12px; border-bottom: 1px solid #3a3a3a; }
+.panel-header { padding: 12px; border-bottom: 1px solid #3a3a3a; flex-shrink: 0; }
 .panel-header h2 { font-size: 12px; color: #4A90E2; text-transform: uppercase; margin: 0; }
 .panel-content { padding: 12px; box-sizing: border-box; }
 .image-only { display: none; }
@@ -116,7 +118,7 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 .checkbox-row input[type="checkbox"] { margin: 0; }
 .checkbox-row label { color: #e0e0e0; font-size: 12px; margin: 0; text-transform: none; cursor: pointer; }
 
-#layers-list { margin-bottom: 10px; max-height: 400px; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; }
+#layers-list { margin-bottom: 10px; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; }
 .layer-item { background: #1a1a1a; border: 1px solid #3a3a3a; border-radius: 4px; padding: 10px; margin-bottom: 8px; cursor: pointer; box-sizing: border-box; width: 100%; }
 .layer-item:hover { background: #2a2a2a; }
 .layer-item.active { border-color: #4A90E2; background: #1a2a3a; }
@@ -359,9 +361,20 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 }
 .layer-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
 .layer-name { font-size: 13px; color: #e0e0e0; font-weight: 600; }
-.layer-controls { display: flex; gap: 5px; }
+.layer-controls { display: flex; gap: 5px; align-items: center; }
 .layer-btn { background: transparent; border: none; color: #888; cursor: pointer; padding: 2px 6px; font-size: 14px; }
 .layer-btn:hover { color: #e0e0e0; }
+.layer-btn:disabled { color: #444; cursor: default; }
+.layer-btn:disabled:hover { color: #444; }
+/* Compact reorder arrows (Slice 2.5). Stacked vertically. */
+.layer-arrows { display: flex; flex-direction: column; gap: 1px; }
+.layer-btn.layer-move-up,
+.layer-btn.layer-move-down {
+    font-size: 9px;
+    padding: 0 4px;
+    line-height: 1;
+    height: 11px;
+}
 .layer-item.drag-over { outline: 2px solid #4A90E2; }
 .layer-item.drag-over { outline: none; }
 .layer-item.drag-over-top { box-shadow: inset 0 2px 0 0 #4A90E2; }
@@ -441,12 +454,21 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     background: #1e1e1e;
     border-top: 1px solid #3a3a3a;
     width: 260px;
-    min-height: 200px;
-    max-height: 280px;
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
+    /* Expanded state: bounded so it never grows past a reasonable preview
+       size, but the layer-groups list above gets every spare pixel. */
+    min-height: 0;
+    max-height: 200px;
 }
+#help-tooltip-panel.collapsed {
+    /* Collapsed: header only, body hidden. Matches the Notes panel idiom
+       so the user can still see "Help" and re-open it on demand. */
+    min-height: 36px;
+    max-height: 36px;
+}
+#help-tooltip-panel.collapsed #help-tooltip-body { display: none; }
 #help-tooltip-header {
     display: flex;
     justify-content: space-between;
@@ -456,7 +478,10 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     font-size: 13px;
     font-weight: 600;
     color: #ccc;
+    cursor: pointer;
+    flex-shrink: 0;
 }
+#help-tooltip-panel.collapsed #help-tooltip-header { border-bottom: none; }
 #help-tooltip-body {
     padding: 10px 12px;
     font-size: 12px;
@@ -719,3 +744,176 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     background: #2a2a2a;
     border-color: #555;
 }
+
+/* ----------------------------------------------------------------------
+ * Multi-canvas (v0.8 Slice 2), sidebar canvas group styling.
+ * Each canvas gets a header (color swatch, name, eye toggle, action menu,
+ * drag handle) and a body with its layers + a per-canvas + Add Screen.
+ * Active canvas is highlighted with a faint colored ring matching the
+ * canvas's color field.
+ * ---------------------------------------------------------------------- */
+.canvas-group {
+    --canvas-color: #4A90E2;
+    background: #161616;
+    border: 1px solid #2c2c2c;
+    border-radius: 6px;
+    margin-bottom: 12px;
+    overflow: hidden;
+    transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.canvas-group.active {
+    border-color: var(--canvas-color);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--canvas-color) 35%, transparent);
+}
+/* v0.8 Slice 9: dim only the layer rows + footer of a hidden canvas
+   group, leaving the header (and especially the eye toggle) crisp so
+   the user can re-enable visibility without hunting through faded UI. */
+.canvas-group.hidden .canvas-group-body,
+.canvas-group.hidden .canvas-group-footer { opacity: 0.45; }
+.canvas-group.dragging { opacity: 0.4; }
+.canvas-group.drag-target {
+    outline: 2px dashed var(--canvas-color);
+    outline-offset: -2px;
+}
+.canvas-group-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px;
+    background: linear-gradient(180deg, #1d1d1d 0%, #181818 100%);
+    border-bottom: 1px solid #262626;
+    cursor: pointer;
+    user-select: none;
+}
+.canvas-drag-handle {
+    color: #666;
+    font-size: 11px;
+    line-height: 1;
+    cursor: grab;
+    padding: 0 2px;
+}
+.canvas-drag-handle:active { cursor: grabbing; }
+.canvas-color-swatch {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.18);
+    flex: 0 0 auto;
+}
+.canvas-name-input {
+    flex: 1;
+    min-width: 0;
+    background: transparent;
+    border: 1px solid transparent;
+    color: #e8e8e8;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 2px 4px;
+    border-radius: 3px;
+}
+.canvas-name-input:not([readonly]) {
+    background: #1a1a1a;
+    border-color: #4A90E2;
+}
+.canvas-vis-btn,
+.canvas-menu-btn {
+    background: transparent;
+    border: none;
+    color: #999;
+    cursor: pointer;
+    padding: 2px 6px;
+    font-size: 13px;
+    line-height: 1;
+    border-radius: 3px;
+}
+.canvas-vis-btn:hover,
+.canvas-menu-btn:hover { background: #2a2a2a; color: #fff; }
+.canvas-group-body { padding: 8px 8px 0; }
+.canvas-group-body:empty { padding: 0; }
+.canvas-group-body .layer-item {
+    border-left: 3px solid var(--canvas-color);
+}
+.canvas-group-footer {
+    padding: 4px 8px 8px;
+}
+.canvas-group-footer .canvas-add-btn {
+    width: 100%;
+    font-size: 12px;
+    padding: 6px 8px;
+}
+
+/* Action menu popup (Rename / Duplicate / Change Color / Delete). */
+.canvas-menu-popup {
+    background: #1f1f1f;
+    border: 1px solid #3a3a3a;
+    border-radius: 5px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.45);
+    min-width: 160px;
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+}
+.canvas-menu-popup button {
+    background: transparent;
+    border: none;
+    color: #e0e0e0;
+    text-align: left;
+    padding: 7px 10px;
+    font-size: 12.5px;
+    border-radius: 3px;
+    cursor: pointer;
+}
+.canvas-menu-popup button:hover { background: #2c2c2c; }
+.canvas-menu-popup button.danger { color: #e57373; }
+.canvas-menu-popup button.danger:hover { background: #3a1f1f; color: #ffb4b4; }
+
+/* Color picker popup (palette swatches + hex). */
+.canvas-color-popup {
+    background: #1f1f1f;
+    border: 1px solid #3a3a3a;
+    border-radius: 5px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.45);
+    padding: 10px;
+    min-width: 200px;
+}
+.canvas-color-swatches {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+    margin-bottom: 8px;
+}
+.canvas-color-swatches .color-swatch {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 2px solid #2c2c2c;
+    cursor: pointer;
+    padding: 0;
+}
+.canvas-color-swatches .color-swatch:hover { border-color: #fff; }
+.canvas-color-hex-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.canvas-color-hex-row label { color: #aaa; font-size: 11px; }
+.canvas-color-hex-row input {
+    flex: 1;
+    background: #111;
+    border: 1px solid #333;
+    color: #e0e0e0;
+    border-radius: 3px;
+    padding: 4px 6px;
+    font-size: 12px;
+    font-family: monospace;
+}
+.canvas-color-hex-row .canvas-color-apply {
+    background: #2d4a7a;
+    border: none;
+    color: #fff;
+    padding: 4px 10px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 12px;
+}
+.canvas-color-hex-row .canvas-color-apply:hover { background: #3a5d96; }

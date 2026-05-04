@@ -17,7 +17,7 @@ def _make_layer(**overrides):
         'cabinet_height': 80,
         'offset_x': 0,
         'offset_y': 0,
-        # Legacy half flags — _build_panels migrates these to per-panel
+        # Legacy half flags, _build_panels migrates these to per-panel
         # halfTile values on first call and clears them. New code should
         # set halfTile per-panel via panel_states.
         'halfFirstColumn': False,
@@ -138,7 +138,7 @@ def test_build_panels_preserves_state():
 def test_build_panels_state_keyed_by_position():
     # Resizing columns shouldn't shuffle hidden/blank/halfTile state.
     # Build a 4-col layer with a hidden panel at (0, 2), then "resize" to
-    # 6 cols by passing the same states dict — the hidden panel should
+    # 6 cols by passing the same states dict, the hidden panel should
     # still be at (0, 2).
     layer = _make_layer(columns=4, rows=2)
     states = {(0, 2): {'hidden': True, 'blank': False, 'halfTile': 'none'}}

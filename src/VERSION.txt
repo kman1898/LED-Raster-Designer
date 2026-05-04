@@ -1,6 +1,72 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.8.0 - May 4, 2026
+----------------------------
+MULTI-CANVAS RELEASE. Projects can now contain multiple independent
+canvases (think Resolume Screens). Each canvas has its own raster size,
+its own workspace position, its own perspective, and exports as its own
+file (or its own page in PDF / its own Screen in Resolume XML).
+
+Highlights:
+- Multi-canvas project model (format_version: "0.8"). Auto-migrator
+  upgrades v0.7 projects on load and emits a one-time toast asking the
+  user to save in the new format. v0.7 builds opening a v0.8 file get a
+  clean "format newer than supported" error.
+- Canvas list in the right sidebar with per-canvas + Add, color swatch,
+  rename, delete, duplicate, drag-reorder, and visibility toggle.
+- Per-canvas raster (Pixel Map and Show Look). Toolbar Raster: WxH
+  reads/writes the active canvas. Each canvas's layers render relative
+  to its own origin.
+- Per-canvas perspective (Front/Back) for Data Flow + Power. Mirror axis
+  is the workspace bounding box so multi-canvas Back view stays on
+  screen and Fit-to-View works correctly.
+- Drag layers between canvases (workspace + sidebar). Snap to (0,0) on
+  drop. Cmd/Alt+drag to duplicate.
+- Drag canvases by their dashed outline. Magnetic snap to neighbor
+  edges (abut + align). Default gap between auto-placed new canvases is
+  zero (was 50 px).
+- Hidden canvases excluded from sidebar Totals, capacity / power tallies,
+  and exports. Sidebar layer rows dim with the eye toggle remaining
+  bright for re-enable.
+- Per-canvas + project Totals panels in the Data Flow and Power tabs.
+- Text-layer dynamic info gains a Scope dropdown: "This Canvas",
+  "All Canvases", or "Both" for the parent canvas's totals + project
+  totals.
+- Multi-canvas export: PNG (one file per canvas x view), PSD (per
+  canvas+view, layer list filtered to that canvas), PDF (multi-page,
+  one page per canvas x view, headed with the canvas name), and
+  Resolume XML (one <Screen> per canvas, named after the canvas, with
+  its own OutputDeviceVirtual sized to that canvas's raster).
+- New screens added to a canvas inherit hardware settings (processor,
+  voltage, amperage, panel size, panel watts) from the most recently
+  added screen in that same canvas, so each canvas behaves like its own
+  preset bucket.
+- "+ Add Canvas" honors a Default Canvas Size preference.
+
+Bug fixes the multi-canvas work uncovered:
+- Undo now reverts exactly one action. Previously every v0.8 mutation
+  (drag, canvas CRUD, cross-canvas move) called saveState BEFORE the
+  mutation, so one Cmd+Z silently reverted two actions. Every v0.8
+  saveState now runs AFTER the mutation, restoring v0.7 behaviour.
+- 0-byte JSON saves on cloud-synced folders fixed. Skip Chrome's
+  showSaveFilePicker on localhost (Chrome rejects createWritable on
+  Nextcloud / iCloud / Dropbox paths) and route through the native
+  server-side save dialog instead. Same fix applied to multi-file
+  exports.
+- "100%" zoom now means 1 raster pixel = 1 device pixel. Previously
+  100% on Retina rendered at 2x the actual pixel pitch.
+- Settings sidebar now refreshes after a cross-canvas drag's snap so
+  X/Y inputs match the new (0,0) without a deselect/reselect.
+- Custom port / power circuit assignment now rejects panels already
+  wired to a different port or circuit (toast names the conflict).
+- Text layer text now clips to its own box, no more spillover into
+  neighboring canvases.
+- Click-on-overlay (text/image floating on top of a screen) now selects
+  the overlay instead of starting a panel-select on the hidden screen
+  underneath.
+- Em dash characters removed everywhere (UI text, comments, docs).
+
 v0.7.7.4 - May 1, 2026
 ----------------------------
 - FIX: Show Look / Data / Power renders dropped pieces of layers whose
@@ -12,7 +78,7 @@ v0.7.7.4 - May 1, 2026
   *screen* space, so the right side of show-shifted layers got cut off
   whenever the raster was narrower than the layer's processor right
   edge. Symptom: shrink the show raster below a layer's processor
-  width, then grow it back — half the layer's panels and all its
+  width, then grow it back, half the layer's panels and all its
   labels stayed missing in Show Look / Data / Power even though the
   layer was visually inside the new raster bounds.
   Root cause: each renderer had its own
@@ -64,11 +130,11 @@ v0.7.7.2 - May 1, 2026
   if a newer catalog exists, the source tag turns into a blue
   "📦 Update available · click to apply" pill that swaps in the new
   data with a single click. Refreshed catalog persists in localStorage
-  so it survives reloads — per browser, not per project.
+  so it survives reloads, per browser, not per project.
 - FIX: Panel correction / new-panel submissions were silently dropping.
   The "Submit a correction or add a panel" link opens a pre-filled
   GitHub new-issue page, but users were closing the tab without
-  clicking the green "Submit new issue" button on GitHub itself —
+  clicking the green "Submit new issue" button on GitHub itself,
   so the submission never reached the repo. Added an explicit confirm
   dialog before opening the tab and an inline note under the link
   spelling out the extra step. Also created the missing
@@ -81,7 +147,7 @@ v0.7.7.1 - May 1, 2026
   any row in the Panel Catalog to add it to the left column alongside
   your saved presets. Hearted panels stay there forever (per user, not
   per project) so you don't have to scroll the catalog every time you
-  add the same panel. Drag any row in the left column to reorder —
+  add the same panel. Drag any row in the left column to reorder,
   favorites and presets mix freely. Click the filled heart to remove a
   favorite. Default is always pinned at the top.
 
@@ -117,7 +183,7 @@ v0.7.6.3 - May 1, 2026
   change to the Show Look offset while the two are still equal
   (linked). Without this, moving a layer in Pixel Map left Show Look /
   Data / Power rendering at the old position. Once you set a different
-  Show Look offset, the two stay independent — Pixel Map edits no
+  Show Look offset, the two stay independent, Pixel Map edits no
   longer touch Show Look.
 - FIX: Screen name labels and other per-layer labels were rendered
   off-center in Show Look / Data / Power because the per-layer ctx
@@ -128,7 +194,7 @@ v0.7.6.3 - May 1, 2026
   per-layer translate (selection bounding box, hit-test, magnetic
   snap, screen-name drag, zoom-to-fit).
 - FIX: "Reset to Pixel Map Position" appeared to put screens in the
-  wrong spot — same root cause as the label bug above. Now resets
+  wrong spot, same root cause as the label bug above. Now resets
   cleanly with screens visually matching their pixel-map positions.
 
 v0.7.6.2 - April 30, 2026
@@ -156,7 +222,7 @@ v0.7.6.0 - April 30, 2026
   you rearrange screen layers to match the real-world stage layout
   without affecting the processor's expected layout.
     - Pixel Map and Cabinet ID continue to use each layer's processor
-      position (offset_x / offset_y) — what the processor sends out.
+      position (offset_x / offset_y), what the processor sends out.
     - Show Look has its own per-layer position (showOffsetX / Y), which
       also drives the Data and Power views so the wiring/power maps
       match how the show is actually built on stage.
@@ -185,7 +251,7 @@ v0.7.5.3 - April 30, 2026
   plain click, or right-click in Pixel Map view, so there was no way to
   bulk-restore them via the sidebar buttons. Hidden panels can now be
   selected for bulk Restore. (Alt+Shift+click for half-tile still skips
-  hidden panels — half-tiling a hidden cell would have no visible effect.)
+  hidden panels, half-tiling a hidden cell would have no visible effect.)
 
 v0.7.5.2 - April 30, 2026
 ----------------------------
@@ -225,10 +291,10 @@ v0.7.5.0 - April 30, 2026
       badge in the canvas corner.
     - Right-click a panel (or selection) → context menu with the same
       actions.
-    - Alt + click toggles blank on a single panel (existing) — when a
+    - Alt + click toggles blank on a single panel (existing), when a
       multi-selection is active, applies to the entire selection.
     - Alt + Shift + click toggles half-tile (auto direction) on a single
-      panel — when a multi-selection is active, applies to the entire
+      panel, when a multi-selection is active, applies to the entire
       selection. Auto direction picks 'height' for top/bottom-edge panels
       and 'width' for left/right-edge panels.
     - Plain click on a panel resets selection to that single panel;
@@ -247,7 +313,7 @@ v0.7.5.0 - April 30, 2026
   pixel bounding rect (panel x/y/width/height) instead of the cabinet-
   cell shortcut. Half-tile cabinets correctly contribute half their
   full-cell pixel footprint to the port reservation rectangle.
-- FIX: Pre-existing bug — hidden ("blank") panels in the middle of a
+- FIX: Pre-existing bug, hidden ("blank") panels in the middle of a
   wall would scatter to other positions when columns or rows were
   resized. Panel state was preserved by sequential id, so the same id
   pointed to a different (row, col) cell after a grid resize. State
@@ -257,7 +323,7 @@ v0.7.5.0 - April 30, 2026
 v0.7.4.35 - April 29, 2026
 ----------------------------
 - FIX: Ports Required count and the port-rename editor showed too few
-  ports when using custom data flow paths — e.g. 8 custom paths drawn
+  ports when using custom data flow paths, e.g. 8 custom paths drawn
   but the count stayed at the auto-pattern's 5. The client-computed
   _portsRequired and _autoPortsRequired fields were being clobbered by
   the server's stale echo on every PUT round-trip (server's whitelist
@@ -283,7 +349,7 @@ v0.7.4.33 - April 29, 2026
   slash, backslash, colon, or other characters the OS rejects in
   filenames. Common case: project named "Foo/Bar" produced filenames like
   "Foo/Bar_pixel-map.png", which the File System Access API refuses.
-  Filenames are now sanitized — illegal characters are replaced with "_"
+  Filenames are now sanitized, illegal characters are replaced with "_"
   before being passed to the picker / directory handle. Single-file
   exports (PDF, JSON save, etc.) get the same treatment.
 
@@ -295,7 +361,7 @@ v0.7.4.32 - April 29, 2026
   other starting number ("S2-#", "MULTI3-#", etc.) fell back to a plain
   "#" → circuit-number substitution, so circuits 7+ rolled past 6 instead
   of starting a new soca. The auto-increment now works for any template
-  shaped <prefix><number><sep># — "S2-#" produces S2-1..S2-6, S3-1..S3-6;
+  shaped <prefix><number><sep>#, "S2-#" produces S2-1..S2-6, S3-1..S3-6;
   "MULTI3-#" produces MULTI3-1..MULTI3-6, MULTI4-1..MULTI4-6.
 
 v0.7.4.31 - April 27, 2026
@@ -324,11 +390,11 @@ v0.7.4.29 - April 28, 2026
   and "Info Label Size" to null whenever the selected layers had mixed
   values for those fields. The shared input shows blank for mixed values,
   parseInt('') returns NaN, and the NaN guard slipped past the null check
-  — so every selected layer ended up with labelsFontSize=null. Switched
+ , so every selected layer ended up with labelsFontSize=null. Switched
   both inputs to use the same readNumber() helper the other numeric
   fields in this code path already use, which correctly returns null for
   blank/NaN reads and skips the apply.
-- INTERNAL: Bumped GitHub Actions to Node.js 24-compatible majors —
+- INTERNAL: Bumped GitHub Actions to Node.js 24-compatible majors,
   upload-artifact v6→v7, download-artifact v6→v8, action-gh-release v2→v3
   (resolves the deprecation warning surfaced on PR #34).
 
@@ -340,11 +406,11 @@ v0.7.4.28 - April 25, 2026
   to attach. Issues land at github.com/kman1898/LED-Raster-Designer/issues
   with the spec-correction label, including the panel reference, the
   current catalog values, the user's notes, and the app version.
-- DATA: Leyard verified — CLI-1.9, CLI-2.6, CLO-3.9, CLM-6.9, CLA-1.9
+- DATA: Leyard verified, CLI-1.9, CLI-2.6, CLO-3.9, CLM-6.9, CLA-1.9
   all match Planar/eanixter PDFs. TVF1.5 watts corrected from 180.4W
   → 140W (per official Planar TVF data sheet). Duplicate CLA1.5 +
   CLA1.9 entries deduped (kept hyphenated form to match spec sheets).
-- DATA: Barco verified — X1.9, XT1.5 (renamed from "1.5XT"), X4, NX4
+- DATA: Barco verified, X1.9, XT1.5 (renamed from "1.5XT"), X4, NX4
   cross-checked against barco.com PDFs. X4 watts corrected from 60.5W
   → 188.9W (factor-of-3 error from the original extraction). NX4
   watts corrected from 300.3W → 244W.
@@ -355,7 +421,7 @@ v0.7.4.27 - April 25, 2026
 - FIX: ⭐ verified marker now correctly recognizes ROE panels sourced
   from roevisual.com (brochures + PDFs) and authoritative dealer
   datasheets (ledwallcentral, xled.pro). Verified panel count jumped
-  from ~28 to 75 — primarily 50 ROE models (Carbon, Topaz, Vanish,
+  from ~28 to 75, primarily 50 ROE models (Carbon, Topaz, Vanish,
   Black Pearl/Onyx, Ruby, Graphite, etc.) plus existing Absen / INFiLED
   / UniLumin / Gloshine entries. Entries flagged as "estimated" or
   "derived" are still excluded.
@@ -363,7 +429,7 @@ v0.7.4.27 - April 25, 2026
 v0.7.4.26 - April 25, 2026
 ----------------------------
 - NEW: Add Screen modal redesigned. Picking a panel from the built-in
-  catalog now happens in the same flow as picking a saved preset — two
+  catalog now happens in the same flow as picking a saved preset, two
   columns side by side. Search the catalog by name or manufacturer; pick
   one panel, click Add Screen, and the cabinet/pixel/weight/power values
   fill in automatically (grid size still comes from Preferences).
@@ -371,7 +437,7 @@ v0.7.4.26 - April 25, 2026
   the manufacturer's own published spec sheet/PDF show a star. Currently
   marks ~30 panels across Absen (JP, A3 Pro, A6T, VN), INFiLED (ART,
   AMT, DB), UniLumin (UGM), and Gloshine. Other catalog entries come from
-  FidoLED's database — accurate but occasionally older than current specs.
+  FidoLED's database, accurate but occasionally older than current specs.
 - DATA: Power values for all 2,536 panels re-validated. The original
   extraction missed a 110V voltage selection in FidoLED for a chunk of
   the catalog, leaving panels with corrupt watts (e.g. JP8 Pro showed
@@ -380,7 +446,7 @@ v0.7.4.26 - April 25, 2026
   manually-applied PDF values for the JP series.
 - DATA: 12 phantom panels removed (Mambo-* entries that don't actually
   exist in FidoLED's menus).
-- INTERNAL: clipboard_extract.sh hardened — Escape-key recovery to
+- INTERNAL: clipboard_extract.sh hardened, Escape-key recovery to
   prevent FidoLED popup wedge cascades, case-insensitive title verify,
   abort-on-cascade detection, skip-on-missing-power so we never overwrite
   good data with null. New post_batch.py + prep_no_source_batch.sh make
@@ -392,7 +458,7 @@ v0.7.4.25 - April 24, 2026
 - NEW: Built-in Panel Catalog now covers 2,543 panels across 180
   manufacturers (up from ~1,400). Every panel in FidoLED's database is
   represented with width, height, pixel count, weight, and max power.
-- INTERNAL: Added tools/panel_extractor for maintaining the catalog —
+- INTERNAL: Added tools/panel_extractor for maintaining the catalog,
   a clipboard-based AppleScript pipeline that drives FidoLED's Calculate
   + Copy to Clipboard flow, parses the output, and merges into
   src/static/data/panel_catalog.json.
@@ -417,7 +483,7 @@ v0.7.4.23 - April 22, 2026
   the server's PUT /api/layer/<id> endpoint had an incomplete whitelist that
   silently dropped these fields, so presets would appear to work until any
   subsequent server re-fetch (delete layer, project load) reset them.
-- FIX: Preset sync — `addLayer` now pushes the preset-enriched layer to the
+- FIX: Preset sync, `addLayer` now pushes the preset-enriched layer to the
   server immediately after creation, so the server has complete state instead
   of only the structural fields sent via `/api/layer/add`.
 - FIX: Preset serialization always includes `portMappingMode` and
@@ -454,7 +520,7 @@ v0.7.4.20 - April 16, 2026
   Presets are stored server-side in <app>/presets/*.json and shared across
   clients. Clicking "+ Add Screen" opens a picker showing each preset's
   dimensions and watts/panel; "💾 Save as Preset" captures ~90 layer
-  properties (colors, data flow, power, labels, etc.) — excludes identity,
+  properties (colors, data flow, power, labels, etc.), excludes identity,
   position, panels array, and runtime caches. Duplicate names prompt to
   overwrite; each preset row has a delete button.
 
@@ -505,13 +571,13 @@ v0.7.4.12 - April 6, 2026
 ----------------------------
 - FEATURE: Text/Label layer (#24). New layer type for adding text annotations to the canvas.
   Movable, resizable, with font controls (bold/italic/underline, alignment, size, colors).
-  Per-tab text content — each tab (Pixel Map, Cabinet ID, Data, Power) has its own text.
+  Per-tab text content, each tab (Pixel Map, Cabinet ID, Data, Power) has its own text.
   Per-tab visibility checkboxes. Dynamic info toggles: Raster Size, Project Name, Date,
   Primary Ports, Backup Ports, Circuits, Single Phase, Three Phase.
 - FEATURE: Project Notes panel in right sidebar (#24). Collapsible, resizable textarea
   between Screens and Help. Notes saved with the project file. Starts collapsed.
 - FEATURE: Seamless server restart when changing network interface or port in the
-  launcher menu. No app restart required — server hot-restarts and clients auto-reconnect.
+  launcher menu. No app restart required, server hot-restarts and clients auto-reconnect.
 - FIX: Remote/LAN file save. When accessing the app from another computer over the
   network, Save/Export now downloads files to the client browser instead of opening
   a file dialog on the server machine. Local access still uses native file dialogs.
@@ -541,7 +607,7 @@ v0.7.4.8 - April 1, 2026
 
 v0.7.4.7 - April 1, 2026
 ----------------------------
-- REVERT: Removed #20 focus preservation fixes — issue not reproducible on macOS.
+- REVERT: Removed #20 focus preservation fixes, issue not reproducible on macOS.
   Will revisit when Windows reproduction steps are available.
 
 v0.7.4.6 - April 1, 2026
@@ -565,7 +631,7 @@ v0.7.4.4 - April 1, 2026
 
 v0.7.4.3 - April 1, 2026
 ----------------------------
-- FIX: Per-tab Screen Name checkboxes are now independent — unchecking on one tab no longer
+- FIX: Per-tab Screen Name checkboxes are now independent, unchecking on one tab no longer
   affects other tabs. updateLayerFromInputs() no longer overwrites per-tab label properties.
 - FIX: Second resetApplicationState() now clears lastSelectedLayerId and selectionAnchorLayerId
   to match the primary reset method, preventing stale selection state after file load.
@@ -584,7 +650,7 @@ v0.7.4.2 - March 24, 2026
 
 v0.7.4.1 - March 24, 2026
 ----------------------------
-- NEW: Alt+Click+Drag to bulk hide/show panels — paint mode based on first panel state
+- NEW: Alt+Click+Drag to bulk hide/show panels, paint mode based on first panel state
 - NEW: Bulk panel visibility API endpoint for efficient server sync
 - Added to Keyboard Shortcuts modal
 
@@ -605,7 +671,7 @@ v0.6.5.18 - March 21, 2026
 
 v0.6.5.17 - March 21, 2026
 ----------------------------
-- NEW: Resolume Arena Advanced Output XML export — directly generates slice configuration from screen layers
+- NEW: Resolume Arena Advanced Output XML export, directly generates slice configuration from screen layers
 - Each screen layer maps to a Resolume Slice with matching name, position, and pixel dimensions
 - Export available in Export modal under "Resolume XML (Advanced Output)" format
 - View checkboxes hidden when Resolume XML selected (geometry only, no rendered images)
@@ -614,14 +680,14 @@ v0.6.5.17 - March 21, 2026
 
 v0.6.5.14 - March 21, 2026
 ----------------------------
-- FIX: Layer name editing — double-click to edit name, single-click/drag for reorder
+- FIX: Layer name editing, double-click to edit name, single-click/drag for reorder
 
 v0.6.5.13 - March 18, 2026
 ----------------------------
 - CHANGED: Reverted to separate launcher_mac.py (rumps) and launcher_pc.py (pystray)
-- CHANGED: Removed Tkinter launcher window — caused NSApplication crashes on macOS
-- CHANGED: Removed Start Minimized option — tray/menu bar apps are always minimized
-- CHANGED: Default network interface is localhost (127.0.0.1) — opt-in for network access
+- CHANGED: Removed Tkinter launcher window, caused NSApplication crashes on macOS
+- CHANGED: Removed Start Minimized option, tray/menu bar apps are always minimized
+- CHANGED: Default network interface is localhost (127.0.0.1), opt-in for network access
 - NEW: rumps menu bar with settings: network interface, port, run at login
 - NEW: pystray system tray with same settings on Windows/Linux
 - NEW: Network interface submenu with checkmarks for current selection
@@ -629,7 +695,7 @@ v0.6.5.13 - March 18, 2026
 - NEW: Run at Login toggle (macOS LaunchAgent / Windows registry)
 - NEW: Comprehensive CI build integrity checks (spec refs, version match, imports, static assets)
 - NEW: 21 launcher settings tests (persistence, network detection, Run at Login)
-- FIX: Slow macOS CI — cached get_network_interfaces() across test class
+- FIX: Slow macOS CI, cached get_network_interfaces() across test class
 - FIX: PyInstaller spec references restored for separate launchers
 - CHANGED: Settings persisted to JSON in platform config directory
 
@@ -693,12 +759,12 @@ v0.6.4.7 - March 17, 2026
  BUG FIXES:
  - Fixed color picker crash on Windows (hexToRgbLocal not defined).
  - Fixed clicking on the selection marker ring picking white/black instead of
-   the underlying wheel color — wheel is now redrawn clean before reading.
+   the underlying wheel color, wheel is now redrawn clean before reading.
  - Fixed color picker auto-applying color when opening "Show Colors" modal
-   on Windows — no longer changes the layer color until user picks one.
+   on Windows, no longer changes the layer color until user picks one.
  - Fixed vertical brightness slider not working on Windows/Chrome/Edge by
    using cross-browser vertical slider CSS.
- - Fixed help tooltip panel appearing in wrong position — now correctly
+ - Fixed help tooltip panel appearing in wrong position, now correctly
    sits at the bottom of the right sidebar below the Screens panel.
 
  UI IMPROVEMENTS:
@@ -712,7 +778,7 @@ v0.6.4.7 - March 17, 2026
  - Replaced gear icon with a standard Preferences button next to Export.
  - Moved Offset Labels into the Labels panel, removing the separate Offsets
    section for a cleaner sidebar.
- - Color picker is now non-blocking — canvas can be panned and zoomed while
+ - Color picker is now non-blocking, canvas can be panned and zoomed while
    the color picker is open. The color picker is also draggable by its header.
 
 v0.6.4.3 - March 17, 2026
@@ -727,7 +793,7 @@ v0.6.4.3 - March 17, 2026
 v0.6.4.2 - March 17, 2026
 ----------------------------
  BUG FIXES:
- - Fixed per-tab Screen Name checkbox cross-contamination — unchecking Screen Name
+ - Fixed per-tab Screen Name checkbox cross-contamination, unchecking Screen Name
    on one tab (e.g. Pixel Map) no longer affects other tabs (Cabinet ID, Data Flow,
    Power). Each tab's Screen Name toggle now operates independently.
  - Root cause: loadLayerToInputs() was overwriting the pixel-map checkbox with the
@@ -742,14 +808,14 @@ v0.6.4.1 - March 17, 2026
 v0.6.4.0 - March 16, 2026
 ----------------------------
  BUG FIXES:
- - Fixed PNG export including selection overlays — layer selection borders, drag
+ - Fixed PNG export including selection overlays, layer selection borders, drag
    highlights, multi-select rectangles, custom path selection overlays, and active
    port/circuit badges are now suppressed during export via the existing exportMode flag.
 
 v0.6.3.3 - March 13, 2026
 ----------------------------
  BUG FIXES:
- - Fixed raster size preferences not applying on startup — socket project_data event
+ - Fixed raster size preferences not applying on startup, socket project_data event
    was overwriting preference-applied raster with server default (1920x1080).
  - Socket reconnect now preserves current raster size instead of resetting to server default.
  - Preference enforcement now syncs raster size to server so subsequent socket events
@@ -770,7 +836,7 @@ v0.6.3.2 - March 12, 2026
 v0.6.3 - March 11, 2026
 ----------------------------
  NEW FEATURES:
- - Added automatic update checker — app checks GitHub Releases on startup for newer versions.
+ - Added automatic update checker, app checks GitHub Releases on startup for newer versions.
  - Added "Help" menu with "Check for Updates" button for manual update checks.
  - Added dismissable update notification banner with direct download link.
  - Update checker uses secure HTTPS with TLS 1.2+ and certificate pinning (certifi).
@@ -785,7 +851,7 @@ v0.6.3 - March 11, 2026
  - Added requirements-dev.txt for development dependencies.
 
  BUG FIXES:
- - Fixed float-to-int conversion bug in render_layer_to_image — fractional pixel
+ - Fixed float-to-int conversion bug in render_layer_to_image, fractional pixel
    coordinates now correctly convert to integers before drawing.
  - Removed unused global declarations in save_project and delete_layer.
  - Fixed undo/redo for inline layer rename (double-click rename).

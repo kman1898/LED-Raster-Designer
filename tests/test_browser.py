@@ -22,7 +22,7 @@ import pytest
 # Add src/ to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-# Try importing playwright — skip all tests if not installed
+# Try importing playwright, skip all tests if not installed
 pw = pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
 
@@ -186,7 +186,7 @@ def test_arrow_color_hex_input(page):
 
 
 def test_canvas_has_content(page):
-    """Canvas is not blank — at least some pixels are non-white."""
+    """Canvas is not blank, at least some pixels are non-white."""
     canvas = page.locator('canvas#main-canvas')
     if canvas.count() == 0:
         pytest.skip("No canvas found")
@@ -208,7 +208,7 @@ def test_canvas_has_content(page):
     }''')
     assert result is not None, "Could not read canvas pixel"
     # Canvas should have some content (alpha > 0 somewhere)
-    # We just verify we can read pixels — the rendering itself is visual
+    # We just verify we can read pixels, the rendering itself is visual
 
 
 # ── View tab tests ───────────────────────────────────────────────────────

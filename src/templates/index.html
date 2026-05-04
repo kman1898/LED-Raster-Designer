@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED Raster Designer v0.7.7.4</title>
+    <title>LED Raster Designer v0.8.0</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -84,7 +84,7 @@
 
         <div id="toolbar">
             <div class="toolbar-section toolbar-project">
-                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.7.7.4</span></h1>
+                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.8.0</span></h1>
                 <div style="position:relative;">
                     <input type="text" id="project-name" value="Untitled Project" class="editable-project-name">
                     <div id="project-name-warning" style="display:none; position:absolute; top:100%; left:0; margin-top:4px; padding:4px 8px; font-size:11px; color:#f5a623; background:#1a1a1a; border:1px solid #f5a623; border-radius:4px; white-space:nowrap; z-index:1000; pointer-events:none;"></div>
@@ -100,11 +100,11 @@
         </div>
 
         <div id="view-tabs">
-            <button class="view-tab active" data-mode="pixel-map" data-tooltip="Pixel map view — layout and positioning (the layout the processor expects)">Pixel Map</button>
-            <button class="view-tab" data-mode="cabinet-id" data-tooltip="Cabinet ID view — label and identify panels (matches Pixel Map layout)">Cabinet ID</button>
-            <button class="view-tab" data-mode="show-look" data-tooltip="Show Look — rearrange screens to the real-world stage layout. Drives the layout shown in Data and Power views.">Show Look</button>
-            <button class="view-tab" data-mode="data-flow" data-tooltip="Data flow view — signal routing and ports (uses Show Look layout)">Data</button>
-            <button class="view-tab" data-mode="power" data-tooltip="Power view — electrical distribution (uses Show Look layout)">Power</button>
+            <button class="view-tab active" data-mode="pixel-map" data-tooltip="Pixel map view, layout and positioning (the layout the processor expects)">Pixel Map</button>
+            <button class="view-tab" data-mode="cabinet-id" data-tooltip="Cabinet ID view, label and identify panels (matches Pixel Map layout)">Cabinet ID</button>
+            <button class="view-tab" data-mode="show-look" data-tooltip="Show Look, rearrange screens to the real-world stage layout. Drives the layout shown in Data and Power views.">Show Look</button>
+            <button class="view-tab" data-mode="data-flow" data-tooltip="Data flow view, signal routing and ports (uses Show Look layout)">Data</button>
+            <button class="view-tab" data-mode="power" data-tooltip="Power view, electrical distribution (uses Show Look layout)">Power</button>
         </div>
 
         <div id="main-container">
@@ -112,32 +112,32 @@
             <div id="left-sidebar">
                 <!-- Pixel Map Controls -->
                 <div class="panel tab-panel" data-tab="pixel-map">
-                    <div class="panel-header" data-tooltip="Screen Info — Set the position, cabinet size, grid layout, physical dimensions, and weight of the selected LED screen layer.">
+                    <div class="panel-header" data-tooltip="Screen Info, Set the position, cabinet size, grid layout, physical dimensions, and weight of the selected LED screen layer.">
                         <h2>Screen Info</h2>
                     </div>
                     <div class="panel-content">
-                        <div class="info-row screen-only" data-tooltip="Offset X — Horizontal position of the layer on the canvas in pixels.">
+                        <div class="info-row screen-only" data-tooltip="Offset X, Horizontal position of the layer on the canvas in pixels.">
                             <label>Offset X</label>
                             <input type="text" id="offset-x" value="0">
                         </div>
-                        <div class="info-row screen-only" data-tooltip="Offset Y — Vertical position of the layer on the canvas in pixels.">
+                        <div class="info-row screen-only" data-tooltip="Offset Y, Vertical position of the layer on the canvas in pixels.">
                             <label>Offset Y</label>
                             <input type="text" id="offset-y" value="0">
                         </div>
                         <div id="screen-grid-settings" class="screen-only">
-                            <div class="info-row" data-tooltip="Cabinet Width — Width of a single LED cabinet/panel in pixels.">
+                            <div class="info-row" data-tooltip="Cabinet Width, Width of a single LED cabinet/panel in pixels.">
                                 <label>Cabinet Width (px)</label>
                                 <input type="text" id="cabinet-width" value="128">
                             </div>
-                            <div class="info-row" data-tooltip="Cabinet Height — Height of a single LED cabinet/panel in pixels.">
+                            <div class="info-row" data-tooltip="Cabinet Height, Height of a single LED cabinet/panel in pixels.">
                                 <label>Cabinet Height (px)</label>
                                 <input type="text" id="cabinet-height" value="128">
                             </div>
-                            <div class="info-row" data-tooltip="Columns — Number of cabinets across the screen horizontally.">
+                            <div class="info-row" data-tooltip="Columns, Number of cabinets across the screen horizontally.">
                                 <label>Columns</label>
                                 <input type="text" id="screen-columns" value="8">
                             </div>
-                            <div class="info-row" data-tooltip="Rows — Number of cabinets down the screen vertically.">
+                            <div class="info-row" data-tooltip="Rows, Number of cabinets down the screen vertically.">
                                 <label>Rows</label>
                                 <input type="text" id="screen-rows" value="5">
                             </div>
@@ -151,25 +151,25 @@
                                     <span style="font-size:11px; color:#fff;"><span id="pixel-map-bulk-count">0</span> <span id="pixel-map-bulk-label">panels</span></span>
                                 </div>
                                 <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
-                                    <button id="bulk-set-blank" class="btn btn-secondary" style="font-size:11px; padding:6px 8px;" data-tooltip="Set Blank — Hide the selected panels (same as Alt+click).">🚫 Set Blank</button>
-                                    <button id="bulk-unset-blank" class="btn btn-secondary" style="font-size:11px; padding:6px 8px;" data-tooltip="Restore — Bring the selected panels back to visible.">↺ Restore</button>
-                                    <button id="bulk-set-half-auto" class="btn btn-secondary" style="font-size:11px; padding:6px 8px; grid-column: 1 / -1;" data-tooltip="Set Half-tile (auto) — Auto-detect width vs height per panel from its wall-edge position.">◐ Set Half-tile (auto)</button>
+                                    <button id="bulk-set-blank" class="btn btn-secondary" style="font-size:11px; padding:6px 8px;" data-tooltip="Set Blank, Hide the selected panels (same as Alt+click).">🚫 Set Blank</button>
+                                    <button id="bulk-unset-blank" class="btn btn-secondary" style="font-size:11px; padding:6px 8px;" data-tooltip="Restore, Bring the selected panels back to visible.">↺ Restore</button>
+                                    <button id="bulk-set-half-auto" class="btn btn-secondary" style="font-size:11px; padding:6px 8px; grid-column: 1 / -1;" data-tooltip="Set Half-tile (auto), Auto-detect width vs height per panel from its wall-edge position.">◐ Set Half-tile (auto)</button>
                                     <button id="bulk-set-half-width" class="btn btn-secondary" style="font-size:11px; padding:6px 8px;" data-tooltip="Force half-width on all selected panels.">◧ Half-Width</button>
                                     <button id="bulk-set-half-height" class="btn btn-secondary" style="font-size:11px; padding:6px 8px;" data-tooltip="Force half-height on all selected panels.">⬓ Half-Height</button>
-                                    <button id="bulk-clear-half" class="btn btn-secondary" style="font-size:11px; padding:6px 8px; grid-column: 1 / -1;" data-tooltip="Clear half-tile — Restore selected panels to full size.">◯ Restore Full</button>
+                                    <button id="bulk-clear-half" class="btn btn-secondary" style="font-size:11px; padding:6px 8px; grid-column: 1 / -1;" data-tooltip="Clear half-tile, Restore selected panels to full size.">◯ Restore Full</button>
                                 </div>
                                 <div style="margin-top:8px; font-size:10px; color:#888; line-height:1.4;">Esc to clear selection. Alt+Shift+click toggles half-tile on a single panel.</div>
                             </div>
 
-                            <div class="info-row" data-tooltip="Panel Width — Physical width of each cabinet in millimeters, used for real-world size labels.">
+                            <div class="info-row" data-tooltip="Panel Width, Physical width of each cabinet in millimeters, used for real-world size labels.">
                                 <label>Panel Width (mm)</label>
                                 <input type="number" id="panel-width-mm" value="500" step="0.1" autocomplete="off" style="width: 70px;">
                             </div>
-                            <div class="info-row" data-tooltip="Panel Height — Physical height of each cabinet in millimeters, used for real-world size labels.">
+                            <div class="info-row" data-tooltip="Panel Height, Physical height of each cabinet in millimeters, used for real-world size labels.">
                                 <label>Panel Height (mm)</label>
                                 <input type="number" id="panel-height-mm" value="500" step="0.1" autocomplete="off" style="width: 70px;">
                             </div>
-                            <div class="info-row" data-tooltip="Weight per Panel — Weight of a single cabinet, used for total weight calculations.">
+                            <div class="info-row" data-tooltip="Weight per Panel, Weight of a single cabinet, used for total weight calculations.">
                                 <label>Weight per Panel</label>
                                 <div style="display: flex; gap: 6px; align-items: center;">
                                     <input type="number" id="panel-weight-kg" value="20" step="0.1" autocomplete="off" style="width: 70px;">
@@ -183,11 +183,11 @@
                         <div id="image-layer-section" style="display: none;">
                             <div class="info-row" style="margin-top: 8px;">
                                 <label>Image/Logo</label>
-                                <button id="btn-replace-image" class="btn btn-secondary" style="width: 100%;" data-tooltip="Replace Image — Choose a new image file to replace the current image layer.">Replace Image</button>
+                                <button id="btn-replace-image" class="btn btn-secondary" style="width: 100%;" data-tooltip="Replace Image, Choose a new image file to replace the current image layer.">Replace Image</button>
                             </div>
                             <div class="info-row">
                                 <label>Image Size</label>
-                                <div id="image-size-display" style="color:#aaa; font-size: 12px;">—</div>
+                                <div id="image-size-display" style="color:#aaa; font-size: 12px;">-</div>
                             </div>
                             <div class="info-row">
                                 <label>Scale (%)</label>
@@ -197,11 +197,11 @@
                                 <input type="range" id="image-scale-range" min="10" max="500" value="100" step="1" style="width: 100%;">
                             </div>
                         </div>
-                        <div class="info-row checkbox-row screen-only" data-tooltip="Border — Show or hide grid lines between individual cabinets on the pixel map view.">
+                        <div class="info-row checkbox-row screen-only" data-tooltip="Border, Show or hide grid lines between individual cabinets on the pixel map view.">
                             <input type="checkbox" id="show-panel-borders">
                             <label for="show-panel-borders">Border</label>
                         </div>
-                        <div class="info-row checkbox-row screen-only" data-tooltip="Circle with X — Draw an X through each cabinet with a circle, useful for marking dead or unused panels.">
+                        <div class="info-row checkbox-row screen-only" data-tooltip="Circle with X, Draw an X through each cabinet with a circle, useful for marking dead or unused panels.">
                             <input type="checkbox" id="show-circle-with-x">
                             <label for="show-circle-with-x">Circle with X</label>
                         </div>
@@ -218,23 +218,23 @@
                 
                 <!-- Labels Section -->
                 <div class="panel tab-panel screen-only" data-tab="pixel-map">
-                    <div class="panel-header" data-tooltip="Labels — Control which information labels are displayed on each screen layer in the pixel map view.">
+                    <div class="panel-header" data-tooltip="Labels, Control which information labels are displayed on each screen layer in the pixel map view.">
                         <h2>Labels</h2>
                     </div>
                     <div class="panel-content">
-                        <div class="info-row checkbox-row" data-tooltip="Screen Name — Display the layer's name on the canvas. Each tab has its own independent toggle.">
+                        <div class="info-row checkbox-row" data-tooltip="Screen Name, Display the layer's name on the canvas. Each tab has its own independent toggle.">
                             <input type="checkbox" id="show-label-name" checked>
                             <label for="show-label-name">Screen Name</label>
                         </div>
-                        <div class="info-row checkbox-row" data-tooltip="Layer Size (px) — Show the total pixel dimensions of the screen layer.">
+                        <div class="info-row checkbox-row" data-tooltip="Layer Size (px), Show the total pixel dimensions of the screen layer.">
                             <input type="checkbox" id="show-label-size-px">
                             <label for="show-label-size-px">Layer Size (px)</label>
                         </div>
-                        <div class="info-row checkbox-row" data-tooltip="Layer Size (m) — Show the physical size of the screen in meters, based on panel dimensions.">
+                        <div class="info-row checkbox-row" data-tooltip="Layer Size (m), Show the physical size of the screen in meters, based on panel dimensions.">
                             <input type="checkbox" id="show-label-size-m">
                             <label for="show-label-size-m">Layer Size (m)</label>
                         </div>
-                        <div class="info-row checkbox-row" data-tooltip="Layer Size (ft) — Show the physical size in feet and inches. Enable Fractions to show fractional inches.">
+                        <div class="info-row checkbox-row" data-tooltip="Layer Size (ft), Show the physical size in feet and inches. Enable Fractions to show fractional inches.">
                             <input type="checkbox" id="show-label-size-ft">
                             <label for="show-label-size-ft">Layer Size (ft)</label>
                             <label style="margin-left: 10px; font-size: 11px; color: #888;">
@@ -242,33 +242,33 @@
                                 Fractions
                             </label>
                         </div>
-                        <div class="info-row checkbox-row" data-tooltip="Panel Weight — Show the total weight of all panels in the layer.">
+                        <div class="info-row checkbox-row" data-tooltip="Panel Weight, Show the total weight of all panels in the layer.">
                             <input type="checkbox" id="show-label-weight">
                             <label for="show-label-weight">Panel Weight</label>
                         </div>
-                        <div class="info-row checkbox-row" data-tooltip="Info — Show a custom info label on each layer. Adjust the font size with the number field.">
+                        <div class="info-row checkbox-row" data-tooltip="Info, Show a custom info label on each layer. Adjust the font size with the number field.">
                             <input type="checkbox" id="show-label-info">
                             <label for="show-label-info">Info</label>
                             <input type="number" id="info-label-size" min="8" max="200" value="14" autocomplete="off" style="margin-left: auto; width: 64px;">
                         </div>
                         <div style="margin-top: 10px; margin-bottom: 6px; color: #666; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;">Offset Labels</div>
-                        <div class="info-row checkbox-row" data-tooltip="Top Left — Show the pixel offset label at the top-left corner of the layer.">
+                        <div class="info-row checkbox-row" data-tooltip="Top Left, Show the pixel offset label at the top-left corner of the layer.">
                             <input type="checkbox" id="show-offset-tl">
                             <label for="show-offset-tl">Top Left</label>
                         </div>
-                        <div class="info-row checkbox-row" data-tooltip="Top Right — Show the pixel offset label at the top-right corner of the layer.">
+                        <div class="info-row checkbox-row" data-tooltip="Top Right, Show the pixel offset label at the top-right corner of the layer.">
                             <input type="checkbox" id="show-offset-tr">
                             <label for="show-offset-tr">Top Right</label>
                         </div>
-                        <div class="info-row checkbox-row" data-tooltip="Bottom Left — Show the pixel offset label at the bottom-left corner of the layer.">
+                        <div class="info-row checkbox-row" data-tooltip="Bottom Left, Show the pixel offset label at the bottom-left corner of the layer.">
                             <input type="checkbox" id="show-offset-bl">
                             <label for="show-offset-bl">Bottom Left</label>
                         </div>
-                        <div class="info-row checkbox-row" data-tooltip="Bottom Right — Show the pixel offset label at the bottom-right corner of the layer.">
+                        <div class="info-row checkbox-row" data-tooltip="Bottom Right, Show the pixel offset label at the bottom-right corner of the layer.">
                             <input type="checkbox" id="show-offset-br">
                             <label for="show-offset-br">Bottom Right</label>
                         </div>
-                        <div class="info-row" data-tooltip="Labels Color — Set the text color for all labels on this layer.">
+                        <div class="info-row" data-tooltip="Labels Color, Set the text color for all labels on this layer.">
                             <label>Labels Color</label>
                             <div style="display: flex; gap: 5px; align-items: center;">
                                 <input type="color" id="labels-color" value="#ffffff">
@@ -286,28 +286,28 @@
                 
                 <!-- Cabinet ID Controls -->
                 <div class="panel tab-panel screen-only" data-tab="cabinet-id" style="display: none;">
-                    <div class="panel-header" data-tooltip="Cabinet ID Settings — Configure cabinet identification labels, numbering style, position, and border appearance for the selected screen.">
+                    <div class="panel-header" data-tooltip="Cabinet ID Settings, Configure cabinet identification labels, numbering style, position, and border appearance for the selected screen.">
                         <h2>Cabinet ID Settings</h2>
                     </div>
                     <div class="panel-content">
-                        <div class="info-row checkbox-row" data-tooltip="Screen Name — Show or hide the screen layer name on the canvas in Cabinet ID view.">
+                        <div class="info-row checkbox-row" data-tooltip="Screen Name, Show or hide the screen layer name on the canvas in Cabinet ID view.">
                             <input type="checkbox" id="show-label-name-cabinet" checked>
                             <label for="show-label-name-cabinet">Screen Name</label>
                         </div>
 
-                        <div class="info-row" data-tooltip="Screen Name Size — Font size in pixels for the screen name label in Cabinet ID view.">
+                        <div class="info-row" data-tooltip="Screen Name Size, Font size in pixels for the screen name label in Cabinet ID view.">
                             <label>Screen Name Size</label>
                             <input type="number" id="screen-name-size-cabinet" value="30" min="8" max="200" autocomplete="off" style="width: 60px;">
                         </div>
                         
                         <p style="font-size: 11px; color: #888; margin: 4px 0 12px 0;">Shift+drag screen name to reposition</p>
                         
-                        <div class="info-row checkbox-row" data-tooltip="Show Cabinet ID — Display the column-row identifier label on each cabinet panel.">
+                        <div class="info-row checkbox-row" data-tooltip="Show Cabinet ID, Display the column-row identifier label on each cabinet panel.">
                             <input type="checkbox" id="show-numbers" checked>
                             <label for="show-numbers">Show Cabinet ID</label>
                         </div>
                         
-                        <div class="info-row" style="margin-top: 15px;" data-tooltip="Numbering Style — Choose how cabinets are labeled: column-row (A1, B1), row-column (A1, A2), or numeric row,col format.">
+                        <div class="info-row" style="margin-top: 15px;" data-tooltip="Numbering Style, Choose how cabinets are labeled: column-row (A1, B1), row-column (A1, A2), or numeric row,col format.">
                             <label style="font-weight: 600; margin-bottom: 8px; display: block;">Numbering Style</label>
                             <div style="display: flex; flex-direction: column; gap: 8px;">
                                 <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
@@ -325,7 +325,7 @@
                             </div>
                         </div>
                         
-                        <div class="info-row" style="margin-top: 15px;" data-tooltip="Label Position — Place the cabinet ID label at the top-left corner or centered within each panel.">
+                        <div class="info-row" style="margin-top: 15px;" data-tooltip="Label Position, Place the cabinet ID label at the top-left corner or centered within each panel.">
                             <label style="font-weight: 600; margin-bottom: 8px; display: block;">Label Position</label>
                             <div style="display: flex; flex-direction: column; gap: 8px;">
                                 <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
@@ -339,12 +339,12 @@
                             </div>
                         </div>
                         
-                        <div class="info-row" data-tooltip="Font Size — Size in pixels for the cabinet ID label text.">
+                        <div class="info-row" data-tooltip="Font Size, Size in pixels for the cabinet ID label text.">
                             <label>Font Size (px)</label>
                             <input type="number" id="number-size" value="30" min="8" max="200" autocomplete="off" style="width: 60px;">
                         </div>
 
-                        <div class="info-row" data-tooltip="Label Color — Color of the cabinet ID text drawn on each panel.">
+                        <div class="info-row" data-tooltip="Label Color, Color of the cabinet ID text drawn on each panel.">
                             <label>Label Color</label>
                             <div style="display: flex; gap: 5px; align-items: center;">
                                 <input type="color" id="cabinet-id-color" value="#ffffff">
@@ -355,11 +355,11 @@
                         
                         <hr style="border: none; border-top: 1px solid #3a3a3a; margin: 12px 0;">
                         
-                        <div class="info-row checkbox-row" data-tooltip="Border — Show or hide grid lines between cabinets in Cabinet ID view.">
+                        <div class="info-row checkbox-row" data-tooltip="Border, Show or hide grid lines between cabinets in Cabinet ID view.">
                             <input type="checkbox" id="show-panel-borders-cabinet" checked>
                             <label for="show-panel-borders-cabinet">Border</label>
                         </div>
-                        <div class="info-row" data-tooltip="Border Color — Color of the grid lines drawn between cabinets in Cabinet ID view.">
+                        <div class="info-row" data-tooltip="Border Color, Color of the grid lines drawn between cabinets in Cabinet ID view.">
                             <label>Border Color</label>
                             <div style="display: flex; gap: 5px; align-items: center;">
                                 <input type="color" id="border-color-cabinet" value="#ffffff">
@@ -383,18 +383,18 @@
 
                 <!-- Show Look Controls -->
                 <div class="panel tab-panel screen-only" data-tab="show-look" style="display: none;">
-                    <div class="panel-header" data-tooltip="Show Look — Rearrange screens to match the real-world stage layout. Pixel Map and Cabinet ID stay tied to the processor's expected layout; Show Look drives Data and Power.">
+                    <div class="panel-header" data-tooltip="Show Look, Rearrange screens to match the real-world stage layout. Pixel Map and Cabinet ID stay tied to the processor's expected layout; Show Look drives Data and Power.">
                         <h2>Show Look</h2>
                     </div>
                     <div class="panel-content">
                         <div style="color:#aaa; font-size: 11px; margin-bottom: 10px; line-height: 1.4;">
                             Shift-drag a screen on the canvas to position it for the real-world stage layout, or set the offsets here. Data and Power views render at this layout.
                         </div>
-                        <div class="info-row" data-tooltip="Show Offset X — Horizontal position of this screen in the Show Look layout.">
+                        <div class="info-row" data-tooltip="Show Offset X, Horizontal position of this screen in the Show Look layout.">
                             <label>Show Offset X</label>
                             <input type="text" id="show-offset-x" value="0">
                         </div>
-                        <div class="info-row" data-tooltip="Show Offset Y — Vertical position of this screen in the Show Look layout.">
+                        <div class="info-row" data-tooltip="Show Offset Y, Vertical position of this screen in the Show Look layout.">
                             <label>Show Offset Y</label>
                             <input type="text" id="show-offset-y" value="0">
                         </div>
@@ -406,7 +406,7 @@
 
                 <!-- Data Controls -->
                 <div class="panel tab-panel screen-only" data-tab="data-flow" style="display: none;">
-                    <div class="panel-header" data-tooltip="Data Settings — Configure data port mapping, flow patterns, port labels, and visual styling for the data flow overlay.">
+                    <div class="panel-header" data-tooltip="Data Settings, Configure data port mapping, flow patterns, port labels, and visual styling for the data flow overlay.">
                         <h2>Data Settings</h2>
                     </div>
                     <div class="panel-content">
@@ -419,16 +419,16 @@
                             </div>
                         </div>
 
-                        <div class="info-row checkbox-row" data-tooltip="Screen Name — Show or hide the screen layer name on the canvas in Data Flow view.">
+                        <div class="info-row checkbox-row" data-tooltip="Screen Name, Show or hide the screen layer name on the canvas in Data Flow view.">
                             <input type="checkbox" id="show-label-name-data" checked>
                             <label for="show-label-name-data">Screen Name</label>
                         </div>
 
-                        <div class="info-row" data-tooltip="Screen Name Size — Font size in pixels for the screen name label in Data Flow view.">
+                        <div class="info-row" data-tooltip="Screen Name Size, Font size in pixels for the screen name label in Data Flow view.">
                             <label>Screen Name Size</label>
                             <input type="number" id="screen-name-size" value="30" min="8" max="200" autocomplete="off" style="width: 60px;">
                         </div>
-                        <div class="info-row checkbox-row" data-tooltip="Show Port Info — Display pixel count and port capacity details on each data port region.">
+                        <div class="info-row checkbox-row" data-tooltip="Show Port Info, Display pixel count and port capacity details on each data port region.">
                             <input type="checkbox" id="show-data-flow-port-info">
                             <label for="show-data-flow-port-info">Show Port Info</label>
                         </div>
@@ -439,7 +439,7 @@
                         <div style="margin-top: 15px; padding: 12px; background: #1a1a1a; border-radius: 6px; border: 1px solid #333;">
                             <label style="font-weight: 600; margin-bottom: 10px; display: block; color: #4A90E2;">Port Capacity</label>
                             
-                            <div class="info-row" style="margin-bottom: 8px;" data-tooltip="Processing — Select the video processor model to calculate port pixel capacity.">
+                            <div class="info-row" style="margin-bottom: 8px;" data-tooltip="Processing, Select the video processor model to calculate port pixel capacity.">
                                 <label>Processing</label>
                                 <select id="processor-type" class="info-select" style="width: 100%;">
                                     <option value="novastar-armor">NovaStar (Legacy)</option>
@@ -452,7 +452,7 @@
                                 </select>
                             </div>
                             
-                            <div class="info-row" style="margin-bottom: 8px;" data-tooltip="Bit Depth — Color depth used by the processor; higher values reduce pixels per port.">
+                            <div class="info-row" style="margin-bottom: 8px;" data-tooltip="Bit Depth, Color depth used by the processor; higher values reduce pixels per port.">
                                 <label>Bit Depth</label>
                                 <select id="bit-depth" class="info-select" style="width: 100%;">
                                     <option value="8">8-bit</option>
@@ -461,7 +461,7 @@
                                 </select>
                             </div>
                             
-                            <div class="info-row" style="margin-bottom: 8px;" data-tooltip="Frame Rate — Output refresh rate in Hz; higher rates reduce pixels per port.">
+                            <div class="info-row" style="margin-bottom: 8px;" data-tooltip="Frame Rate, Output refresh rate in Hz; higher rates reduce pixels per port.">
                                 <label>Frame Rate</label>
                                 <select id="frame-rate" class="info-select" style="width: 100%;">
                                     <option value="23.976">23.976 Hz</option>
@@ -486,7 +486,7 @@
                                 </select>
                             </div>
                             
-                            <div class="info-row" style="margin-bottom: 8px;" data-tooltip="Port Mapping — Organized fills clean rows/columns per port; Max Capacity fills to the pixel limit.">
+                            <div class="info-row" style="margin-bottom: 8px;" data-tooltip="Port Mapping, Organized fills clean rows/columns per port; Max Capacity fills to the pixel limit.">
                                 <label>Port Mapping</label>
                                 <div style="display: flex; gap: 4px; width: 100%;">
                                     <button type="button" id="mapping-organized" class="mapping-mode-btn active" 
@@ -518,7 +518,7 @@
                             </div>
                         </div>
                         
-                        <div class="info-row" style="margin-top: 15px;" data-tooltip="Flow Pattern — Choose the serpentine direction data cables follow through the cabinets.">
+                        <div class="info-row" style="margin-top: 15px;" data-tooltip="Flow Pattern, Choose the serpentine direction data cables follow through the cabinets.">
                             <label style="font-weight: 600; margin-bottom: 12px; display: block;">Flow Pattern</label>
                             <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;">
                                 <!-- Row 1: Top start patterns -->
@@ -602,7 +602,7 @@
                             </div>
                         </div>
                         
-                        <div class="info-row" style="margin-top: 15px;" data-tooltip="Custom Path Mode — Manually assign cabinets to specific data ports by clicking panels on the canvas.">
+                        <div class="info-row" style="margin-top: 15px;" data-tooltip="Custom Path Mode, Manually assign cabinets to specific data ports by clicking panels on the canvas.">
                             <label style="font-weight: 600; margin-bottom: 8px; display: block;">Custom Path Mode</label>
                             <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
                                 <input type="checkbox" id="custom-flow-toggle" style="margin: 0;">
@@ -628,7 +628,7 @@
                             </div>
                         </div>
 
-                        <div class="info-row" style="margin-top: 15px;" data-tooltip="Port Labels — Customize the text labels shown on primary and return data ports using templates with # as the port number.">
+                        <div class="info-row" style="margin-top: 15px;" data-tooltip="Port Labels, Customize the text labels shown on primary and return data ports using templates with # as the port number.">
                             <label style="font-weight: 600; margin-bottom: 8px; display: block;">Port Labels</label>
                             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px;">
                                 <div>
@@ -662,7 +662,7 @@
                             <p style="font-size: 11px; color: #888; margin: 6px 0 0;">Use # for port number. Overrides apply per port.</p>
                         </div>
                         
-                        <div class="info-row" data-tooltip="Line Color — Color of the data flow connection lines drawn between cabinets.">
+                        <div class="info-row" data-tooltip="Line Color, Color of the data flow connection lines drawn between cabinets.">
                             <label>Line Color</label>
                             <div style="display: flex; gap: 5px; align-items: center;">
                                 <input type="color" id="data-flow-color" value="#FFFFFF">
@@ -671,7 +671,7 @@
                             </div>
                         </div>
                         
-                        <div class="info-row" data-tooltip="Arrow Color — Color of the directional arrows on the data flow lines.">
+                        <div class="info-row" data-tooltip="Arrow Color, Color of the directional arrows on the data flow lines.">
                             <label>Arrow Color</label>
                             <div style="display: flex; gap: 5px; align-items: center;">
                                 <input type="color" id="arrow-color" value="#0042AA">
@@ -680,17 +680,17 @@
                             </div>
                         </div>
                         
-                        <div class="info-row" data-tooltip="Line Width — Thickness in pixels of the data flow connection lines.">
+                        <div class="info-row" data-tooltip="Line Width, Thickness in pixels of the data flow connection lines.">
                             <label>Line Width</label>
                             <input type="number" id="arrow-line-width" value="6" min="1" max="10" autocomplete="off" style="width: 60px;">
                         </div>
 
-                        <div class="info-row" data-tooltip="Label Size — Font size in pixels for the data port number labels.">
+                        <div class="info-row" data-tooltip="Label Size, Font size in pixels for the data port number labels.">
                             <label>Label Size</label>
                             <input type="number" id="label-size" value="30" min="6" max="200" autocomplete="off" style="width: 60px;">
                         </div>
                         
-                        <div class="info-row" data-tooltip="Primary — Background color for primary data port regions on the canvas.">
+                        <div class="info-row" data-tooltip="Primary, Background color for primary data port regions on the canvas.">
                             <label>Primary</label>
                             <div style="display: flex; gap: 5px; align-items: center;">
                                 <input type="color" id="primary-color" value="#00FF00">
@@ -698,7 +698,7 @@
                                 <input type="text" id="primary-color-hex" value="#00FF00" maxlength="7" style="width: 70px; font-family: monospace;">
                             </div>
                         </div>
-                        <div class="info-row" data-tooltip="Primary Text — Text color for labels inside primary data port regions.">
+                        <div class="info-row" data-tooltip="Primary Text, Text color for labels inside primary data port regions.">
                             <label>Primary Text</label>
                             <div style="display: flex; gap: 5px; align-items: center;">
                                 <input type="color" id="primary-text-color" value="#000000">
@@ -707,7 +707,7 @@
                             </div>
                         </div>
                         
-                        <div class="info-row" data-tooltip="Redundancy — Background color for redundancy/return data port regions on the canvas.">
+                        <div class="info-row" data-tooltip="Redundancy, Background color for redundancy/return data port regions on the canvas.">
                             <label>Redundancy</label>
                             <div style="display: flex; gap: 5px; align-items: center;">
                                 <input type="color" id="backup-color" value="#FF0000">
@@ -715,7 +715,7 @@
                                 <input type="text" id="backup-color-hex" value="#FF0000" maxlength="7" style="width: 70px; font-family: monospace;">
                             </div>
                         </div>
-                        <div class="info-row" data-tooltip="Redundancy Text — Text color for labels inside redundancy/return data port regions.">
+                        <div class="info-row" data-tooltip="Redundancy Text, Text color for labels inside redundancy/return data port regions.">
                             <label>Redundancy Text</label>
                             <div style="display: flex; gap: 5px; align-items: center;">
                                 <input type="color" id="backup-text-color" value="#FFFFFF">
@@ -726,11 +726,11 @@
                         
                         <hr style="border: none; border-top: 1px solid #3a3a3a; margin: 12px 0;">
                         
-                        <div class="info-row checkbox-row" data-tooltip="Border — Show or hide grid lines between cabinets in Data Flow view.">
+                        <div class="info-row checkbox-row" data-tooltip="Border, Show or hide grid lines between cabinets in Data Flow view.">
                             <input type="checkbox" id="show-panel-borders-data" checked>
                             <label for="show-panel-borders-data">Border</label>
                         </div>
-                        <div class="info-row" data-tooltip="Border Color — Color of the grid lines drawn between cabinets in Data Flow view.">
+                        <div class="info-row" data-tooltip="Border Color, Color of the grid lines drawn between cabinets in Data Flow view.">
                             <label>Border Color</label>
                             <div style="display: flex; gap: 5px; align-items: center;">
                                 <input type="color" id="border-color-data" value="#ffffff">
@@ -751,7 +751,28 @@
                         </div>
                     </div>
                 </div>
-                
+
+                <!-- v0.8 Slice 10: data totals always visible on the Data Flow
+                     tab, broken out per active canvas + project. Numbers
+                     respect canvas visibility (hidden canvases excluded). -->
+                <div class="panel tab-panel" data-tab="data-flow" style="display: none;">
+                    <div class="panel-header" data-tooltip="Aggregated data port counts. 'This Canvas' shows only the active canvas; 'All Canvases' is the project total. Hidden canvases are excluded from both.">
+                        <h2>Totals</h2>
+                    </div>
+                    <div class="panel-content">
+                        <div style="padding: 8px; background: #111; border: 1px solid #333; border-radius: 4px; font-size: 12px; color: #ccc; margin-bottom: 8px;">
+                            <div style="font-weight: 600; color: #fff; margin-bottom: 4px;">This Canvas <span id="data-totals-canvas-name" style="color: #888; font-weight: 400;"></span></div>
+                            <div>Primary Ports: <span id="data-totals-canvas-primary">0</span></div>
+                            <div>Backup Ports: <span id="data-totals-canvas-backup">0</span></div>
+                        </div>
+                        <div style="padding: 8px; background: #111; border: 1px solid #333; border-radius: 4px; font-size: 12px; color: #ccc;">
+                            <div style="font-weight: 600; color: #fff; margin-bottom: 4px;">All Canvases</div>
+                            <div>Primary Ports: <span id="data-totals-project-primary">0</span></div>
+                            <div>Backup Ports: <span id="data-totals-project-backup">0</span></div>
+                        </div>
+                    </div>
+                </div>
+
                 <style>
                 .flow-pattern-btn {
                     background: #1a1a1a;
@@ -785,7 +806,7 @@
                 
                 <!-- Power Controls -->
                 <div class="panel tab-panel screen-only" data-tab="power" style="display: none;">
-                    <div class="panel-header" data-tooltip="Power Settings — Configure power circuit mapping, voltage, amperage, flow patterns, and visual styling for the power overlay.">
+                    <div class="panel-header" data-tooltip="Power Settings, Configure power circuit mapping, voltage, amperage, flow patterns, and visual styling for the power overlay.">
                         <h2>Power Settings</h2>
                     </div>
                     <div class="panel-content">
@@ -797,23 +818,23 @@
                             </div>
                         </div>
 
-                        <div class="info-row checkbox-row" data-tooltip="Screen Name — Show or hide the screen layer name on the canvas in Power view.">
+                        <div class="info-row checkbox-row" data-tooltip="Screen Name, Show or hide the screen layer name on the canvas in Power view.">
                             <input type="checkbox" id="show-label-name-power" checked>
                             <label for="show-label-name-power">Screen Name</label>
                         </div>
 
-                        <div class="info-row" data-tooltip="Screen Name Size — Font size in pixels for the screen name label in Power view.">
+                        <div class="info-row" data-tooltip="Screen Name Size, Font size in pixels for the screen name label in Power view.">
                             <label>Screen Name Size</label>
                             <input type="number" id="screen-name-size-power" value="30" min="8" max="200" autocomplete="off" style="width: 60px;">
                         </div>
-                        <div class="info-row checkbox-row" data-tooltip="Show Circuit Info — Display wattage and panel count details on each power circuit region.">
+                        <div class="info-row checkbox-row" data-tooltip="Show Circuit Info, Display wattage and panel count details on each power circuit region.">
                             <input type="checkbox" id="show-power-circuit-info">
                             <label for="show-power-circuit-info">Show Circuit Info</label>
                         </div>
                         
                         <p style="font-size: 11px; color: #888; margin: 4px 0 12px 0;">Shift+drag screen name to reposition</p>
 
-                        <div class="info-row" data-tooltip="Voltage — Supply voltage for circuit capacity calculations.">
+                        <div class="info-row" data-tooltip="Voltage, Supply voltage for circuit capacity calculations.">
                             <label>Voltage (V)</label>
                             <div style="display: flex; gap: 6px; align-items: center;">
                                 <select id="power-voltage-select" class="info-select" style="width: auto;">
@@ -827,7 +848,7 @@
                                 <input type="number" id="power-voltage-custom" value="110" min="0" autocomplete="off" style="width: 70px; display: none;">
                             </div>
                         </div>
-                        <div class="info-row" data-tooltip="Amperage — Circuit breaker rating used to calculate how many panels fit per circuit.">
+                        <div class="info-row" data-tooltip="Amperage, Circuit breaker rating used to calculate how many panels fit per circuit.">
                             <label>Amperage (A)</label>
                             <div style="display: flex; gap: 6px; align-items: center;">
                                 <select id="power-amperage-select" class="info-select" style="width: auto;">
@@ -838,7 +859,7 @@
                                 <input type="number" id="power-amperage-custom" value="15" min="0" step="0.1" autocomplete="off" style="width: 70px; display: none;">
                             </div>
                         </div>
-                        <div class="info-row" data-tooltip="Watts per Panel — Power draw of a single LED cabinet at full white, used to calculate circuits required. Math OK (e.g., 200+50, 500*2, 1000/3).">
+                        <div class="info-row" data-tooltip="Watts per Panel, Power draw of a single LED cabinet at full white, used to calculate circuits required. Math OK (e.g., 200+50, 500*2, 1000/3).">
                             <label>Watts per Panel</label>
                             <input type="text" inputmode="decimal" id="power-panel-watts" value="200" autocomplete="off" style="width: 100px;" placeholder="e.g., 200 or 200+50">
                         </div>
@@ -915,7 +936,7 @@
                                 <input type="checkbox" id="power-random-colors" style="margin: 0;">
                                 <label for="power-random-colors" style="margin: 0; font-size: 12px;">Random Colors</label>
                             </div>
-                            <div class="info-row checkbox-row" style="margin-top: 8px;" data-tooltip="Circuit Color View — Color-code each power circuit with a unique color on the canvas.">
+                            <div class="info-row checkbox-row" style="margin-top: 8px;" data-tooltip="Circuit Color View, Color-code each power circuit with a unique color on the canvas.">
                                 <input type="checkbox" id="power-color-coded-view">
                                 <label for="power-color-coded-view">Circuit Color View</label>
                             </div>
@@ -948,11 +969,11 @@
                                     <input type="text" id="power-circuit-color-custom-hex" value="#BC382F" maxlength="7" style="width: 80px; font-family: monospace;">
                                 </div>
                             </div>
-                            <div class="info-row checkbox-row" style="margin-top: 8px;" data-tooltip="Maximize Power Use — Fill each circuit to its maximum wattage capacity before starting a new circuit.">
+                            <div class="info-row checkbox-row" style="margin-top: 8px;" data-tooltip="Maximize Power Use, Fill each circuit to its maximum wattage capacity before starting a new circuit.">
                                 <input type="checkbox" id="power-maximize">
                                 <label for="power-maximize">Maximize Power Use</label>
                             </div>
-                            <div class="info-row checkbox-row" data-tooltip="Organized — Assign circuits in clean rows or columns instead of splitting mid-row.">
+                            <div class="info-row checkbox-row" data-tooltip="Organized, Assign circuits in clean rows or columns instead of splitting mid-row.">
                                 <input type="checkbox" id="power-organized" checked>
                                 <label for="power-organized">Organized</label>
                             </div>
@@ -1011,11 +1032,11 @@
 
                         <hr style="border: none; border-top: 1px solid #3a3a3a; margin: 12px 0;">
 
-                        <div class="info-row" data-tooltip="Line Width — Thickness in pixels of the power circuit connection lines.">
+                        <div class="info-row" data-tooltip="Line Width, Thickness in pixels of the power circuit connection lines.">
                             <label>Line Width</label>
                             <input type="number" id="power-line-width" value="8" min="1" max="16" autocomplete="off" style="width: 60px;">
                         </div>
-                        <div class="info-row" data-tooltip="Line Color — Color of the power circuit connection lines drawn between cabinets.">
+                        <div class="info-row" data-tooltip="Line Color, Color of the power circuit connection lines drawn between cabinets.">
                             <label>Line Color</label>
                             <div style="display: flex; gap: 5px; align-items: center;">
                                 <input type="color" id="power-line-color" value="#FF0000">
@@ -1023,7 +1044,7 @@
                                 <input type="text" id="power-line-color-hex" value="#FF0000" maxlength="7" style="width: 70px; font-family: monospace;">
                             </div>
                         </div>
-                        <div class="info-row" data-tooltip="Arrow Color — Color of the directional arrows on the power circuit lines.">
+                        <div class="info-row" data-tooltip="Arrow Color, Color of the directional arrows on the power circuit lines.">
                             <label>Arrow Color</label>
                             <div style="display: flex; gap: 5px; align-items: center;">
                                 <input type="color" id="power-arrow-color" value="#0042AA">
@@ -1031,11 +1052,11 @@
                                 <input type="text" id="power-arrow-color-hex" value="#0042AA" maxlength="7" style="width: 70px; font-family: monospace;">
                             </div>
                         </div>
-                        <div class="info-row" data-tooltip="Label Size — Font size in pixels for the power circuit number labels.">
+                        <div class="info-row" data-tooltip="Label Size, Font size in pixels for the power circuit number labels.">
                             <label>Label Size</label>
                             <input type="number" id="power-label-size" value="14" min="8" max="200" autocomplete="off" style="width: 60px;">
                         </div>
-                        <div class="info-row" data-tooltip="Label Background — Background color of the power circuit label badges.">
+                        <div class="info-row" data-tooltip="Label Background, Background color of the power circuit label badges.">
                             <label>Label Background</label>
                             <div style="display: flex; gap: 5px; align-items: center;">
                                 <input type="color" id="power-label-bg-color" value="#D95000">
@@ -1043,7 +1064,7 @@
                                 <input type="text" id="power-label-bg-color-hex" value="#D95000" maxlength="7" style="width: 70px; font-family: monospace;">
                             </div>
                         </div>
-                        <div class="info-row" data-tooltip="Label Text — Text color of the power circuit label badges.">
+                        <div class="info-row" data-tooltip="Label Text, Text color of the power circuit label badges.">
                             <label>Label Text</label>
                             <div style="display: flex; gap: 5px; align-items: center;">
                                 <input type="color" id="power-label-text-color" value="#000000">
@@ -1052,11 +1073,11 @@
                             </div>
                         </div>
                         
-                        <div class="info-row checkbox-row" data-tooltip="Border — Show or hide grid lines between cabinets in Power view.">
+                        <div class="info-row checkbox-row" data-tooltip="Border, Show or hide grid lines between cabinets in Power view.">
                             <input type="checkbox" id="show-panel-borders-power" checked>
                             <label for="show-panel-borders-power">Border</label>
                         </div>
-                        <div class="info-row" data-tooltip="Border Color — Color of the grid lines drawn between cabinets in Power view.">
+                        <div class="info-row" data-tooltip="Border Color, Color of the grid lines drawn between cabinets in Power view.">
                             <label>Border Color</label>
                             <div style="display: flex; gap: 5px; align-items: center;">
                                 <input type="color" id="border-color-power" value="#ffffff">
@@ -1077,14 +1098,39 @@
                         </div>
                     </div>
                 </div>
-                
+
+                <!-- v0.8 Slice 10: power totals always visible on the Power
+                     tab, broken out per active canvas + project. Numbers
+                     respect canvas visibility (hidden canvases excluded). -->
+                <div class="panel tab-panel" data-tab="power" style="display: none;">
+                    <div class="panel-header" data-tooltip="Aggregated power load. 'This Canvas' shows only the active canvas; 'All Canvases' is the project total. Hidden canvases are excluded from both.">
+                        <h2>Totals</h2>
+                    </div>
+                    <div class="panel-content">
+                        <div style="padding: 8px; background: #111; border: 1px solid #333; border-radius: 4px; font-size: 12px; color: #ccc; margin-bottom: 8px;">
+                            <div style="font-weight: 600; color: #fff; margin-bottom: 4px;">This Canvas <span id="power-totals-canvas-name" style="color: #888; font-weight: 400;"></span></div>
+                            <div>Watts: <span id="power-totals-canvas-watts">0</span></div>
+                            <div>Circuits: <span id="power-totals-canvas-circuits">0</span></div>
+                            <div>Amps (1φ): <span id="power-totals-canvas-1ph">0</span></div>
+                            <div>Amps (3φ): <span id="power-totals-canvas-3ph">0</span></div>
+                        </div>
+                        <div style="padding: 8px; background: #111; border: 1px solid #333; border-radius: 4px; font-size: 12px; color: #ccc;">
+                            <div style="font-weight: 600; color: #fff; margin-bottom: 4px;">All Canvases</div>
+                            <div>Watts: <span id="power-totals-project-watts">0</span></div>
+                            <div>Circuits: <span id="power-totals-project-circuits">0</span></div>
+                            <div>Amps (1φ): <span id="power-totals-project-1ph">0</span></div>
+                            <div>Amps (3φ): <span id="power-totals-project-3ph">0</span></div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Colors panel - only for Pixel Map -->
                 <div class="panel tab-panel screen-only" data-tab="pixel-map">
-                    <div class="panel-header" data-tooltip="Colors — Set the two alternating checkerboard colors used to distinguish cabinets in the pixel map view.">
+                    <div class="panel-header" data-tooltip="Colors, Set the two alternating checkerboard colors used to distinguish cabinets in the pixel map view.">
                         <h2>Colors</h2>
                     </div>
                     <div class="panel-content">
-                        <div class="info-row" data-tooltip="Color 1 — First checkerboard color used for alternating cabinet tiles in pixel map view.">
+                        <div class="info-row" data-tooltip="Color 1, First checkerboard color used for alternating cabinet tiles in pixel map view.">
                             <label>Color 1</label>
                             <div style="display: flex; gap: 5px; align-items: center;">
                                 <input type="color" id="color1-picker" value="#404680">
@@ -1092,7 +1138,7 @@
                                 <input type="text" id="color1-hex" value="#404680" maxlength="7" style="width: 70px; font-family: monospace;">
                             </div>
                         </div>
-                        <div class="info-row" data-tooltip="Color 2 — Second checkerboard color used for alternating cabinet tiles in pixel map view.">
+                        <div class="info-row" data-tooltip="Color 2, Second checkerboard color used for alternating cabinet tiles in pixel map view.">
                             <label>Color 2</label>
                             <div style="display: flex; gap: 5px; align-items: center;">
                                 <input type="color" id="color2-picker" value="#959CB8">
@@ -1105,7 +1151,7 @@
 
                 <!-- Text Layer Settings (shared across all tabs) -->
                 <div id="text-layer-panel" class="panel text-only" style="display: none;">
-                    <div class="panel-header" data-tooltip="Text Label — Configure text content, font, colors, and per-tab visibility for this text label.">
+                    <div class="panel-header" data-tooltip="Text Label, Configure text content, font, colors, and per-tab visibility for this text label.">
                         <h2>Text Label</h2>
                     </div>
                     <div class="panel-content">
@@ -1185,6 +1231,12 @@
                             <label style="display:flex; align-items:center; gap:6px; cursor:pointer; margin-bottom:4px;">
                                 <input type="checkbox" id="text-layer-show-date"> Date
                             </label>
+                            <label style="text-transform:uppercase; font-size:10px; color:#666; margin:8px 0 4px; display:block;">Data &amp; Power Scope</label>
+                            <select id="text-layer-dynamic-info-scope" style="width:100%; padding:4px 6px; background:#1a1a1a; border:1px solid #444; color:#ddd; border-radius:3px; font-size:12px; margin-bottom:6px;" data-tooltip="Choose which totals to inject into the text layer. 'This Canvas' uses the text layer's parent canvas; 'Both' renders both lines (e.g. 'Primary Ports (SR): 4' and 'Primary Ports (Total): 12').">
+                                <option value="canvas">This Canvas Only</option>
+                                <option value="project" selected>All Canvases (Project Total)</option>
+                                <option value="both">Both, This Canvas + Project Total</option>
+                            </select>
                             <label style="text-transform:uppercase; font-size:10px; color:#666; margin:8px 0 4px; display:block;">Data</label>
                             <label style="display:flex; align-items:center; gap:6px; cursor:pointer; margin-bottom:4px;">
                                 <input type="checkbox" id="text-layer-show-primary-ports"> Primary Ports
@@ -1227,14 +1279,14 @@
             <div id="canvas-container">
                 <div id="canvas-controls">
                     <span class="toolbar-label">Raster:</span>
-                    <input type="text" id="toolbar-raster-width" value="1920" class="canvas-raster-input" data-tooltip="Raster Width — Total canvas width in pixels. This is the output resolution width.">
+                    <input type="text" id="toolbar-raster-width" value="1920" class="canvas-raster-input" data-tooltip="Raster Width, Total canvas width in pixels. This is the output resolution width.">
                     <span class="toolbar-label">×</span>
-                    <input type="text" id="toolbar-raster-height" value="1080" class="canvas-raster-input" data-tooltip="Raster Height — Total canvas height in pixels. This is the output resolution height.">
+                    <input type="text" id="toolbar-raster-height" value="1080" class="canvas-raster-input" data-tooltip="Raster Height, Total canvas height in pixels. This is the output resolution height.">
                     <button id="btn-zoom-out" data-tooltip="Zoom out">-</button>
-                    <input type="text" id="zoom-level" value="100%" style="width: 60px; text-align: center; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px; padding: 2px 4px;" data-tooltip="Zoom Level — Current zoom percentage. Type a value or use +/- buttons. Scroll wheel to zoom on canvas.">
+                    <input type="text" id="zoom-level" value="100%" style="width: 60px; text-align: center; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px; padding: 2px 4px;" data-tooltip="Zoom Level, Current zoom percentage. Type a value or use +/- buttons. Scroll wheel to zoom on canvas.">
                     <button id="btn-zoom-in" data-tooltip="Zoom in">+</button>
                     <button id="btn-fit" data-tooltip="Fit raster to view (Ctrl/Cmd+Shift+1)">Fit</button>
-                    <button id="btn-zoom-actual" data-tooltip="Zoom to Selection — Zoom to fit the selected screen layer at actual size (Ctrl/Cmd+Shift+2)">1:1</button>
+                    <button id="btn-zoom-actual" data-tooltip="Zoom to Selection, Zoom to fit the selected screen layer at actual size (Ctrl/Cmd+Shift+2)">1:1</button>
                     <label class="magnet-toggle" style="margin-left: 15px;" data-tooltip="Snap layers to grid when dragging (Ctrl/Cmd+Shift+')">
                         <input type="checkbox" id="magnetic-snap" checked>
                         <span>🧲 Snap</span>
@@ -1249,7 +1301,7 @@
         <button id="right-sidebar-toggle" class="sidebar-toggle" data-side="right" title="Collapse right panel" aria-label="Toggle right panel">›</button>
         <div id="right-sidebar">
             <div class="panel">
-                <div class="panel-header" data-tooltip="Screens — Manage screen and image layers: reorder, lock, add, or remove layers in the design.">
+                <div class="panel-header" data-tooltip="Screens, Manage screen and image layers: reorder, lock, add, or remove layers in the design.">
                     <h2>Screens</h2>
                 </div>
                 <div class="panel-content">
@@ -1258,14 +1310,8 @@
                         <span style="color:#888; font-size:12px;">Lock Selected</span>
                     </div>
                     <div id="layers-list"></div>
-                    <div id="layer-order-controls" class="layer-order-controls">
-                        <button id="btn-layer-up" class="btn btn-secondary" data-tooltip="Move selected layer up in draw order">▲ Up</button>
-                        <button id="btn-layer-down" class="btn btn-secondary" data-tooltip="Move selected layer down in draw order">▼ Down</button>
-                    </div>
-                    <button id="btn-add-layer" class="btn btn-primary full-width" data-tooltip="Add a new LED screen layer — pick a saved preset or a panel from the built-in catalog (2,500+ panels)">+ Add Screen</button>
-                    <button id="btn-save-preset" class="btn btn-secondary full-width" style="margin-top: 8px;" data-tooltip="Save the currently selected layer's settings as a reusable preset">💾 Save as Preset</button>
-                    <button id="btn-add-image" class="btn btn-secondary full-width" style="margin-top: 8px;" data-tooltip="Add an image or logo layer">+ Add Image/Logo</button>
-                    <button id="btn-add-text" class="btn btn-secondary full-width" style="margin-top: 8px;" data-tooltip="Add a text label layer">+ Add Text Label</button>
+                    <button id="btn-add-canvas" class="btn btn-secondary full-width" style="margin-top: 8px;" data-tooltip="Add a new canvas (a separate raster / processor) to this project">+ Add Canvas</button>
+                    <button id="btn-save-preset" class="btn btn-secondary full-width" style="margin-top: 6px;" data-tooltip="Save the currently selected layer's settings as a reusable preset">💾 Save as Preset</button>
                 </div>
             </div>
 
@@ -1281,9 +1327,10 @@
             </div>
 
             <!-- Help Tooltip Panel (Resolume-style) -->
-            <div id="help-tooltip-panel">
+            <div id="help-tooltip-panel" class="collapsed">
                 <div id="help-tooltip-header">
                     <span>Help</span>
+                    <button id="help-tooltip-toggle" title="Toggle Help" style="background:none; border:none; color:#888; cursor:pointer; font-size:14px; padding:0 4px;">▶</button>
                 </div>
                 <div id="help-tooltip-body">
                     Move your mouse over the interface element that you would like more info about.
@@ -1315,7 +1362,15 @@
                 <label style="display: block; margin-bottom: 6px; color: #ccc; font-size: 13px;">Project Name:</label>
                 <input type="text" id="export-name" placeholder="Enter project name" style="width: 100%; padding: 10px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 4px; box-sizing: border-box;">
             </div>
-            
+
+            <!-- v0.8 Slice 11: Canvases to export. Filled dynamically by JS
+                 from project.canvases when the modal opens. Visible canvases
+                 default-checked; hidden default-unchecked but selectable. -->
+            <div id="export-canvases-section" style="margin-bottom: 18px;">
+                <label style="display: block; margin-bottom: 8px; color: #ccc; font-size: 13px;">Canvases to Export:</label>
+                <div id="export-canvases-list" class="export-views"></div>
+            </div>
+
             <!-- Views to Export -->
             <div id="export-views-section" style="margin-bottom: 18px;">
                 <label style="display: block; margin-bottom: 8px; color: #ccc; font-size: 13px;">Views to Export:</label>
@@ -1401,12 +1456,13 @@
             <h2 style="margin-top: 0; color: #fff; margin-bottom: 20px;">Preferences</h2>
             <div class="prefs-grid">
                 <div class="prefs-group">
-                    <label>Default Raster Size</label>
+                    <label>Default Canvas Size</label>
                     <div class="prefs-row">
                         <input type="text" id="pref-raster-width" placeholder="1920">
                         <span>×</span>
                         <input type="text" id="pref-raster-height" placeholder="1080">
                     </div>
+                    <div style="font-size: 11px; color: #888; margin-top: 4px;">Used for new projects and each new canvas added via + Add Canvas.</div>
                 </div>
                 <div class="prefs-group">
                     <label>Default Grid</label>
@@ -1524,6 +1580,13 @@
                     </div>
                 </div>
                 <div class="prefs-group">
+                    <label>Canvas gap (px)</label>
+                    <div class="prefs-row">
+                        <input type="number" id="pref-canvas-gap" placeholder="50" min="0" step="1">
+                        <span>px between auto-placed canvases</span>
+                    </div>
+                </div>
+                <div class="prefs-group">
                     <label>Default Power (V / A / W)</label>
                     <div class="prefs-row">
                         <select id="pref-power-voltage-select">
@@ -1584,6 +1647,10 @@
                     <tr><td style="padding: 4px 0;">Pan Canvas</td><td style="padding: 4px 0; text-align: right; color: #666;">Space + Drag</td></tr>
                     <tr><td style="padding: 4px 0;">Zoom In / Out</td><td style="padding: 4px 0; text-align: right; color: #666;">Scroll Wheel</td></tr>
                     <tr><td style="padding: 4px 0;">Move Layer</td><td style="padding: 4px 0; text-align: right; color: #666;">Shift + Drag</td></tr>
+                    <tr><td style="padding: 4px 0;">Move Layer to Another Canvas</td><td style="padding: 4px 0; text-align: right; color: #666;">Shift + Drag onto Canvas</td></tr>
+                    <tr><td style="padding: 4px 0;">Duplicate Layer to Another Canvas</td><td style="padding: 4px 0; text-align: right; color: #666;">Cmd/Alt + Shift + Drag onto Canvas</td></tr>
+                    <tr><td style="padding: 4px 0;">Move a Canvas</td><td style="padding: 4px 0; text-align: right; color: #666;">Drag the canvas's dashed outline</td></tr>
+                    <tr><td style="padding: 4px 0;">Cross-Canvas Multi-Select</td><td style="padding: 4px 0; text-align: right; color: #666;">Shift + Click layers in different canvases</td></tr>
                     <tr><td style="padding: 4px 0;">Toggle Panel</td><td style="padding: 4px 0; text-align: right; color: #666;">Option/Alt + Click</td></tr>
                     <tr><td style="padding: 4px 0;">Bulk Toggle Panels</td><td style="padding: 4px 0; text-align: right; color: #666;">Option/Alt + Click + Drag</td></tr>
                 </table>
@@ -1613,7 +1680,7 @@
                         <span style="display:flex; align-items:center; gap:8px; font-weight:normal; text-transform:none; letter-spacing:0;">
                             <span id="panel-catalog-source-tag" style="color:#777; font-size:10px;" title="Source of the panel catalog currently loaded">Bundled</span>
                             <button type="button" id="panel-catalog-refresh-btn" class="btn" style="background:#2a2a2a; border:1px solid #3a3a3a; color:#ccc; font-size:11px; padding:3px 8px;" title="Pull the latest panel catalog from GitHub">↻ Refresh</button>
-                            <span style="color:#777; font-size:11px;" title="Most panels come from FidoLED's database — accurate but sometimes slightly older than current manufacturer specs. ⭐ marks panels we've cross-checked against the manufacturer's own spec sheet.">⭐ = verified</span>
+                            <span style="color:#777; font-size:11px;" title="Most panels come from FidoLED's database, accurate but sometimes slightly older than current manufacturer specs. ⭐ marks panels we've cross-checked against the manufacturer's own spec sheet.">⭐ = verified</span>
                         </span>
                     </div>
                     <div style="display: flex; gap: 6px; margin-bottom: 6px;">
@@ -1627,12 +1694,12 @@
                     <div style="font-size: 11px; color: #777; margin-top: 6px; text-align: right;">
                         Bad specs or missing panel?
                         <a href="#" id="panel-submit-correction" style="color: #8ab4f8; text-decoration: none;">Submit a correction or add a panel →</a>
-                        <div style="color: #888; font-size: 10px; margin-top: 2px;">Opens GitHub in a new tab — you must be signed in and click <b>“Submit new issue”</b> for it to reach us.</div>
+                        <div style="color: #888; font-size: 10px; margin-top: 2px;">Opens GitHub in a new tab, you must be signed in and click <b>“Submit new issue”</b> for it to reach us.</div>
                     </div>
                 </div>
             </div>
             <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 14px; gap: 12px;">
-                <div id="preset-picker-summary" style="color: #888; font-size: 12px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Nothing selected — will use Default.</div>
+                <div id="preset-picker-summary" style="color: #888; font-size: 12px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Nothing selected, will use Default.</div>
                 <div style="display: flex; gap: 8px;">
                     <button id="preset-picker-cancel" class="btn" style="background: #3a3a3a; padding: 8px 16px;">Cancel</button>
                     <button id="preset-picker-add" class="btn btn-primary" style="padding: 8px 16px;">Add Screen</button>
@@ -1694,7 +1761,7 @@
                 </label>
                 <label style="color: #ccc; font-size: 12px;">Until:
                     <input id="logs-until" type="text" placeholder="e.g. 5 min ago (blank = now)"
-                           title="Relative or absolute. Blank means now — all entries after Since are shown."
+                           title="Relative or absolute. Blank means now, all entries after Since are shown."
                            style="background: #1a1a1a; border: 1px solid #333; color: #fff; padding: 4px 6px; border-radius: 4px; margin-left: 4px; width: 200px; font-family: inherit; font-size: 12px;">
                 </label>
                 <button id="logs-filter-clear" class="btn" style="background: #3a3a3a; padding: 4px 10px; font-size: 12px;">Clear filter</button>

@@ -266,7 +266,7 @@ def main():
     # Auto-open browser on launch
     webbrowser.open(get_display_url(settings))
 
-    # Run the menu bar app (blocks on main thread — required by macOS)
+    # Run the menu bar app (blocks on main thread, required by macOS)
     run_menubar(settings)
 
 
