@@ -9083,7 +9083,7 @@ class LEDRasterApp {
                         });
                         if (typeof this._toast === 'function') {
                             this._toast(
-                                'Project upgraded to multi-canvas format (v0.8). Save to keep changes — older app versions can no longer open this file.',
+                                'Project upgraded to multi-canvas format (v0.8). Save to keep changes. Older app versions can no longer open this file.',
                                 false,
                                 10000
                             );
@@ -11626,7 +11626,7 @@ class LEDRasterApp {
                                     });
                                     if (typeof this._toast === 'function') {
                                         this._toast(
-                                            'Project upgraded to multi-canvas format (v0.8). Save to keep changes — older app versions can no longer open this file.',
+                                            'Project upgraded to multi-canvas format (v0.8). Save to keep changes. Older app versions can no longer open this file.',
                                             false,
                                             10000
                                         );
