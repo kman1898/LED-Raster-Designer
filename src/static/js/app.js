@@ -1269,8 +1269,14 @@ class LEDRasterApp {
             textContent: layer.textContent,
             textContentPixelMap: layer.textContentPixelMap,
             textContentCabinetId: layer.textContentCabinetId,
+            textContentShowLook: layer.textContentShowLook,
             textContentDataFlow: layer.textContentDataFlow,
             textContentPower: layer.textContentPower,
+            textContentOverridePixelMap: layer.textContentOverridePixelMap,
+            textContentOverrideCabinetId: layer.textContentOverrideCabinetId,
+            textContentOverrideShowLook: layer.textContentOverrideShowLook,
+            textContentOverrideDataFlow: layer.textContentOverrideDataFlow,
+            textContentOverridePower: layer.textContentOverridePower,
             textWidth: layer.textWidth,
             textHeight: layer.textHeight,
             fontSize: layer.fontSize,
@@ -1284,6 +1290,7 @@ class LEDRasterApp {
             borderColor: layer.borderColor,
             showOnPixelMap: layer.showOnPixelMap,
             showOnCabinetId: layer.showOnCabinetId,
+            showOnShowLook: layer.showOnShowLook,
             showOnDataFlow: layer.showOnDataFlow,
             showOnPower: layer.showOnPower,
             showRasterSize: layer.showRasterSize,
@@ -1658,8 +1665,14 @@ class LEDRasterApp {
                 textContent: layer.textContent,
                 textContentPixelMap: layer.textContentPixelMap,
                 textContentCabinetId: layer.textContentCabinetId,
+                textContentShowLook: layer.textContentShowLook,
                 textContentDataFlow: layer.textContentDataFlow,
                 textContentPower: layer.textContentPower,
+                textContentOverridePixelMap: layer.textContentOverridePixelMap,
+                textContentOverrideCabinetId: layer.textContentOverrideCabinetId,
+                textContentOverrideShowLook: layer.textContentOverrideShowLook,
+                textContentOverrideDataFlow: layer.textContentOverrideDataFlow,
+                textContentOverridePower: layer.textContentOverridePower,
                 textWidth: layer.textWidth,
                 textHeight: layer.textHeight,
                 fontSize: layer.fontSize,
@@ -1673,6 +1686,7 @@ class LEDRasterApp {
                 borderColor: layer.borderColor,
                 showOnPixelMap: layer.showOnPixelMap,
                 showOnCabinetId: layer.showOnCabinetId,
+                showOnShowLook: layer.showOnShowLook,
                 showOnDataFlow: layer.showOnDataFlow,
                 showOnPower: layer.showOnPower,
                 showRasterSize: layer.showRasterSize,
@@ -5085,10 +5099,47 @@ class LEDRasterApp {
         const map = {
             'pixel-map': 'textContentPixelMap',
             'cabinet-id': 'textContentCabinetId',
+            'show-look': 'textContentShowLook',
             'data-flow': 'textContentDataFlow',
             'power': 'textContentPower'
         };
         return map[viewMode] || 'textContentPixelMap';
+    }
+
+    // v0.8.3: per-tab override flag prop name for the current view mode.
+    getTextContentOverridePropForTab() {
+        const viewMode = window.canvasRenderer ? window.canvasRenderer.viewMode : 'pixel-map';
+        const map = {
+            'pixel-map': 'textContentOverridePixelMap',
+            'cabinet-id': 'textContentOverrideCabinetId',
+            'show-look': 'textContentOverrideShowLook',
+            'data-flow': 'textContentOverrideDataFlow',
+            'power': 'textContentOverridePower'
+        };
+        return map[viewMode] || 'textContentOverridePixelMap';
+    }
+
+    // v0.8.3: resolve the text shown for `layer` on the active tab.
+    // If the tab override is on, use that tab's own field; else use the
+    // shared `textContent`. Falls back to any non-empty per-tab field for
+    // legacy projects (pre-v0.8.3) where shared was empty but per-tab had
+    // content.
+    resolveTextContentForActiveTab(layer) {
+        if (!layer) return '';
+        const overrideProp = this.getTextContentOverridePropForTab();
+        const tabProp = this.getTextContentPropForTab();
+        if (layer[overrideProp]) return layer[tabProp] || '';
+        if (layer.textContent) return layer.textContent;
+        // Legacy fallback: a project saved before v0.8.3 might have content
+        // only in the per-tab fields. Surface whatever's there so the user
+        // can see and edit it.
+        const legacyKeys = ['textContentPixelMap', 'textContentCabinetId',
+                            'textContentShowLook', 'textContentDataFlow',
+                            'textContentPower'];
+        for (const k of legacyKeys) {
+            if (layer[k]) return layer[k];
+        }
+        return '';
     }
 
     getTextTabLabel() {
@@ -5096,6 +5147,7 @@ class LEDRasterApp {
         const map = {
             'pixel-map': '(Pixel Map)',
             'cabinet-id': '(Cabinet ID)',
+            'show-look': '(Show Look)',
             'data-flow': '(Data)',
             'power': '(Power)'
         };
@@ -5103,20 +5155,56 @@ class LEDRasterApp {
     }
 
     setupTextLayerControls() {
-        // Per-tab text content textarea
+        // Text content textarea. v0.8.3: writes to the shared `textContent`
+        // field by default; if the per-tab override is on, writes to that
+        // tab's own `textContent<Tab>` instead.
         const contentEl = document.getElementById('text-layer-content');
         if (contentEl) {
             contentEl.addEventListener('input', () => {
                 if (!this.currentLayer || (this.currentLayer.type || 'screen') !== 'text') return;
-                const prop = this.getTextContentPropForTab();
+                const overrideProp = this.getTextContentOverridePropForTab();
+                const tabProp = this.getTextContentPropForTab();
                 const val = contentEl.value;
                 this.applyToSelectedLayers(layer => {
                     if ((layer.type || 'screen') !== 'text') return;
-                    layer[prop] = val;
+                    if (layer[overrideProp]) {
+                        layer[tabProp] = val;
+                    } else {
+                        layer.textContent = val;
+                    }
                 });
                 this.debouncedSaveState('Update Text Label');
                 this.saveClientSideProperties();
                 this.updateLayers(this.getSelectedLayers());
+                window.canvasRenderer.render();
+            });
+        }
+
+        // v0.8.3: per-tab content override checkbox. Toggling ON seeds the
+        // per-tab field with the currently displayed (shared) text so the
+        // user has something to edit instead of an empty box. Toggling OFF
+        // reverts the textarea to the shared text without touching the
+        // per-tab value (so re-enabling restores their previous override).
+        const overrideEl = document.getElementById('text-layer-content-override');
+        if (overrideEl) {
+            overrideEl.addEventListener('change', () => {
+                if (!this.currentLayer || (this.currentLayer.type || 'screen') !== 'text') return;
+                const overrideProp = this.getTextContentOverridePropForTab();
+                const tabProp = this.getTextContentPropForTab();
+                const enabling = overrideEl.checked;
+                this.applyToSelectedLayers(layer => {
+                    if ((layer.type || 'screen') !== 'text') return;
+                    layer[overrideProp] = enabling;
+                    if (enabling && !layer[tabProp]) {
+                        // Seed override with current shared value so user
+                        // doesn't lose context when flipping the checkbox.
+                        layer[tabProp] = layer.textContent || '';
+                    }
+                });
+                this.saveState('Toggle Text Tab Override');
+                this.saveClientSideProperties();
+                this.updateLayers(this.getSelectedLayers());
+                this.updateLayerControls();
                 window.canvasRenderer.render();
             });
         }
@@ -5143,6 +5231,7 @@ class LEDRasterApp {
             { id: 'text-layer-dynamic-info-scope', prop: 'dynamicInfoScope', type: 'select' },
             { id: 'text-layer-show-pixel-map', prop: 'showOnPixelMap', type: 'checkbox' },
             { id: 'text-layer-show-cabinet-id', prop: 'showOnCabinetId', type: 'checkbox' },
+            { id: 'text-layer-show-show-look', prop: 'showOnShowLook', type: 'checkbox' },
             { id: 'text-layer-show-data-flow', prop: 'showOnDataFlow', type: 'checkbox' },
             { id: 'text-layer-show-power', prop: 'showOnPower', type: 'checkbox' },
         ];
@@ -5223,13 +5312,21 @@ class LEDRasterApp {
         const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
         const setChecked = (id, val) => { const el = document.getElementById(id); if (el) el.checked = val; };
 
-        // Load per-tab text content
-        const contentProp = this.getTextContentPropForTab();
-        setVal('text-layer-content', layer[contentProp] || '');
+        // v0.8.3: textarea reflects shared content unless this tab is
+        // overridden, in which case it reflects this tab's own field.
+        const overrideProp = this.getTextContentOverridePropForTab();
+        const isOverride = !!layer[overrideProp];
+        setVal('text-layer-content', this.resolveTextContentForActiveTab(layer));
+        setChecked('text-layer-content-override', isOverride);
 
-        // Update tab indicator
+        // Update tab indicator: append "(override)" when active tab is on its
+        // own content so it's obvious why typing only affects this tab.
         const tabIndicator = document.getElementById('text-layer-tab-indicator');
-        if (tabIndicator) tabIndicator.textContent = this.getTextTabLabel();
+        if (tabIndicator) {
+            tabIndicator.textContent = isOverride
+                ? `${this.getTextTabLabel()} · OVERRIDE`
+                : '· SHARED ACROSS TABS';
+        }
 
         setVal('text-layer-font-size', layer.fontSize || 24);
         setVal('text-layer-align', layer.textAlign || 'left');
@@ -5247,6 +5344,7 @@ class LEDRasterApp {
         setChecked('text-layer-show-date', !!layer.showDate);
         setChecked('text-layer-show-pixel-map', layer.showOnPixelMap !== false);
         setChecked('text-layer-show-cabinet-id', layer.showOnCabinetId !== false);
+        setChecked('text-layer-show-show-look', layer.showOnShowLook !== false);
         setChecked('text-layer-show-data-flow', layer.showOnDataFlow !== false);
         setChecked('text-layer-show-power', layer.showOnPower !== false);
         setChecked('text-layer-show-primary-ports', !!layer.showPrimaryPorts);
@@ -12111,8 +12209,14 @@ class LEDRasterApp {
                 textContent: layer.textContent || '',
                 textContentPixelMap: layer.textContentPixelMap || '',
                 textContentCabinetId: layer.textContentCabinetId || '',
+                textContentShowLook: layer.textContentShowLook || '',
                 textContentDataFlow: layer.textContentDataFlow || '',
                 textContentPower: layer.textContentPower || '',
+                textContentOverridePixelMap: !!layer.textContentOverridePixelMap,
+                textContentOverrideCabinetId: !!layer.textContentOverrideCabinetId,
+                textContentOverrideShowLook: !!layer.textContentOverrideShowLook,
+                textContentOverrideDataFlow: !!layer.textContentOverrideDataFlow,
+                textContentOverridePower: !!layer.textContentOverridePower,
                 textWidth: layer.textWidth || 400,
                 textHeight: layer.textHeight || 100,
                 fontSize: layer.fontSize || 24,
@@ -12126,6 +12230,7 @@ class LEDRasterApp {
                 borderColor: layer.borderColor || '#555555',
                 showOnPixelMap: layer.showOnPixelMap !== false,
                 showOnCabinetId: layer.showOnCabinetId !== false,
+                showOnShowLook: layer.showOnShowLook !== false,
                 showOnDataFlow: layer.showOnDataFlow !== false,
                 showOnPower: layer.showOnPower !== false,
                 showRasterSize: !!layer.showRasterSize,
@@ -12400,8 +12505,14 @@ class LEDRasterApp {
                 textContent: this.clipboard.textContent || '',
                 textContentPixelMap: this.clipboard.textContentPixelMap || '',
                 textContentCabinetId: this.clipboard.textContentCabinetId || '',
+                textContentShowLook: this.clipboard.textContentShowLook || '',
                 textContentDataFlow: this.clipboard.textContentDataFlow || '',
                 textContentPower: this.clipboard.textContentPower || '',
+                textContentOverridePixelMap: !!this.clipboard.textContentOverridePixelMap,
+                textContentOverrideCabinetId: !!this.clipboard.textContentOverrideCabinetId,
+                textContentOverrideShowLook: !!this.clipboard.textContentOverrideShowLook,
+                textContentOverrideDataFlow: !!this.clipboard.textContentOverrideDataFlow,
+                textContentOverridePower: !!this.clipboard.textContentOverridePower,
                 textWidth: this.clipboard.textWidth || 400,
                 textHeight: this.clipboard.textHeight || 100,
                 fontSize: this.clipboard.fontSize || 24,
@@ -12415,6 +12526,7 @@ class LEDRasterApp {
                 borderColor: this.clipboard.borderColor || '#555555',
                 showOnPixelMap: this.clipboard.showOnPixelMap !== false,
                 showOnCabinetId: this.clipboard.showOnCabinetId !== false,
+                showOnShowLook: this.clipboard.showOnShowLook !== false,
                 showOnDataFlow: this.clipboard.showOnDataFlow !== false,
                 showOnPower: this.clipboard.showOnPower !== false,
                 showRasterSize: !!this.clipboard.showRasterSize,

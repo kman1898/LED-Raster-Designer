@@ -514,7 +514,12 @@ class CanvasRenderer {
         // activation. Skipped for pan (space), shift, and alt, those are
         // existing drag/paint behaviors. Inside the canvas body still
         // falls through to Slice 4.
-        if (e.button === 0 && !this.spacePressed && !e.shiftKey && !e.altKey) {
+        // v0.8.3: canvas-edge drag is only meaningful on the layout-driving
+        // tabs (Pixel Map = processor layout, Show Look = stage layout).
+        // On Cabinet ID / Data / Power the canvas position is derived from
+        // those two and grabbing the dashed outline there was confusing.
+        const canvasDragAllowed = (this.viewMode === 'pixel-map' || this.viewMode === 'show-look');
+        if (canvasDragAllowed && e.button === 0 && !this.spacePressed && !e.shiftKey && !e.altKey) {
             const edgeCanvas = this._canvasEdgeAtPoint(worldX, worldY);
             if (edgeCanvas) {
                 this.isDraggingCanvas = true;
@@ -599,8 +604,13 @@ class CanvasRenderer {
             // data-flow / power. On pixel-map and show-look, fall through so
             // shift+drag moves the entire layer (writing to offset_x/y or
             // showOffsetX/Y respectively).
+            // v0.8.3: text and image layers don't have per-tab screen-name
+            // labels, so shift+drag on them always moves the whole layer
+            // regardless of view mode.
             if (window.app && window.app.currentLayer) {
-                if (this.viewMode !== 'pixel-map' && this.viewMode !== 'show-look') {
+                const layerType = window.app.currentLayer.type || 'screen';
+                const isScreenLayer = layerType === 'screen';
+                if (isScreenLayer && this.viewMode !== 'pixel-map' && this.viewMode !== 'show-look') {
                     this.isDraggingScreenName = true;
                     this.dragScreenNameStartX = worldX;
                     this.dragScreenNameStartY = worldY;
@@ -708,7 +718,14 @@ class CanvasRenderer {
                 //   - pixel-map writes to offset_x/y (the processor position)
                 //   - show-look writes to showOffsetX/Y (the show position)
                 // On data-flow / power / cabinet-id: drag screen name label only.
-                if (this.viewMode === 'pixel-map' || this.viewMode === 'show-look') {
+                // v0.8.3: text and image layers always do whole-layer move on
+                // any tab (they don't have per-tab screen-name labels).
+                const layerType = window.app.currentLayer.type || 'screen';
+                const isScreenLayer = layerType === 'screen';
+                const wholeLayerMove = !isScreenLayer
+                    || this.viewMode === 'pixel-map'
+                    || this.viewMode === 'show-look';
+                if (wholeLayerMove) {
                     const selected = window.app.getSelectedLayers ? window.app.getSelectedLayers() : [window.app.currentLayer];
                     const uniqueSelected = [];
                     const seenIds = new Set();
@@ -1809,6 +1826,9 @@ class CanvasRenderer {
         if (viewMode === 'cabinet-id' && !layer.showOnCabinetId) return;
         if (viewMode === 'data-flow' && !layer.showOnDataFlow) return;
         if (viewMode === 'power' && !layer.showOnPower) return;
+        // v0.8.3: Show Look is its own tab and needs an independent gate.
+        // Default true so existing projects don't suddenly hide text on it.
+        if (viewMode === 'show-look' && layer.showOnShowLook === false) return;
 
         const x = Number(layer.offset_x) || 0;
         const y = Number(layer.offset_y) || 0;
@@ -1844,17 +1864,35 @@ class CanvasRenderer {
         //      sets a different value per tab). Without this third step,
         //      typing only in Pixel Map left Cabinet ID / Data Flow / Power
         //      / Show Look rendering blank.
+        // v0.8.3: shared `textContent` is the default for every tab. Each
+        // tab also has an override flag (`textContentOverride<Tab>`); when
+        // on, that tab uses its own `textContent<Tab>` field instead of the
+        // shared one. Legacy projects (pre-v0.8.3) may have content only in
+        // the per-tab fields with `textContent` empty: fall back to whichever
+        // per-tab field is non-empty so nothing visually disappears.
         const tabKey = (viewMode === 'pixel-map')  ? 'textContentPixelMap'
                      : (viewMode === 'cabinet-id') ? 'textContentCabinetId'
+                     : (viewMode === 'show-look')  ? 'textContentShowLook'
                      : (viewMode === 'data-flow')  ? 'textContentDataFlow'
                      : (viewMode === 'power')      ? 'textContentPower'
                      : null;
-        let text = (tabKey ? layer[tabKey] : '') || layer.textContent || '';
+        const overrideKey = (viewMode === 'pixel-map')  ? 'textContentOverridePixelMap'
+                          : (viewMode === 'cabinet-id') ? 'textContentOverrideCabinetId'
+                          : (viewMode === 'show-look')  ? 'textContentOverrideShowLook'
+                          : (viewMode === 'data-flow')  ? 'textContentOverrideDataFlow'
+                          : (viewMode === 'power')      ? 'textContentOverridePower'
+                          : null;
+        let text = '';
+        if (overrideKey && layer[overrideKey]) {
+            text = (tabKey ? layer[tabKey] : '') || '';
+        } else {
+            text = layer.textContent || '';
+        }
         if (!text) {
             const fallbackKeys = ['textContentPixelMap', 'textContentCabinetId',
-                                  'textContentDataFlow', 'textContentPower'];
+                                  'textContentShowLook', 'textContentDataFlow',
+                                  'textContentPower'];
             for (const k of fallbackKeys) {
-                if (k === tabKey) continue;
                 if (layer[k]) { text = layer[k]; break; }
             }
         }
