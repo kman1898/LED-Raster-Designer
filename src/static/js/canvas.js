@@ -1410,7 +1410,15 @@ class CanvasRenderer {
                     ? window.app.project.canvases.find(c => c && c.id === primary.canvas_id)
                     : null;
                 let crossCanvasHandled = false;
-                if (primaryCanvas) {
+                // v0.8.5: Pixel Map and Show Look layouts are independent.
+                // Cross-canvas reassignment is only meaningful for Pixel Map
+                // drags (which move the layer's processor position and so its
+                // canvas membership). Show Look drags only mutate showOffsetX/Y
+                // and must leave canvas_id alone, otherwise dropping a screen
+                // visually overlapping another canvas in Show Look silently
+                // re-parents it and shifts it on Pixel Map too.
+                const allowCanvasReassign = (this.dragLayerMode !== 'show');
+                if (primaryCanvas && allowCanvasReassign) {
                     // Mouse cursor world coords at drop (already computed
                     // above for the offset delta).
                     const cursorWX = this._unmirrorWorldX(((e.clientX - this.canvas.getBoundingClientRect().left) - this.panX) / this.zoom);
