@@ -1,6 +1,33 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.8.3 - May 4, 2026
+----------------------------
+- IMPROVE: Text label "Show On Tabs" group now includes Show Look. The
+  Show Look tab was missing from this list, so there was no way to hide
+  a text label there. Defaults to on so existing projects don't change.
+- IMPROVE: Moved the "Override content for this tab" checkbox down next
+  to the Show On Tabs group so the per-tab visibility and per-tab content
+  controls live together.
+- IMPROVE: Text label content is now shared across all tabs by default.
+  Type once and the same text shows on Pixel Map, Cabinet ID, Data, and
+  Power. A new "Override content for this tab" checkbox under the Text
+  Content field lets you break out an individual tab onto its own text
+  when needed (mirrors the existing per-tab visibility pattern). The tab
+  indicator now reads "SHARED ACROSS TABS" or "(tab) OVERRIDE" so it's
+  clear which mode you're editing in. Old projects still render: if a
+  pre-v0.8.3 file had content only in the per-tab fields, those values
+  are still picked up.
+- FIX: Shift+drag of a text label only moved the layer on Pixel Map and
+  Show Look. On Cabinet ID / Data / Power the click was hijacked by the
+  screen-name-label drag handler (which is meant for screen layers, not
+  text/image layers). Text and image layers now always move as a whole
+  layer on shift+drag regardless of view mode.
+- FIX: Canvas dashed-outline drag was active on every tab, so a stray
+  click near the edge of a canvas on Cabinet ID / Data / Power could
+  reposition the canvas in the workspace. Canvas drag is now restricted
+  to Pixel Map and Show Look (the two views that actually drive layout).
+
 v0.8.2 - May 4, 2026
 ----------------------------
 - FIX: Custom Data Flow + Custom Power buttons (Next/Prev circuit, Clear
