@@ -1,4 +1,4 @@
-# Multi-Canvas Design — v0.8
+# Multi-Canvas Design, v0.8
 
 Status: **DRAFT**, awaiting final approval.
 Branch: `feature/v0.8`.
@@ -11,7 +11,7 @@ This document is the source of truth for the multi-canvas feature. Edits here re
 ## 1. Goals
 
 - One project can contain **multiple canvases**, each representing a separate processor / output / raster.
-- A canvas is essentially a self-contained raster — same as today's single-canvas project, just one of many.
+- A canvas is essentially a self-contained raster, same as today's single-canvas project, just one of many.
 - Layers can be **dragged from one canvas to another** (move) or duplicated to another canvas (Cmd/Alt+drag).
 - Every view tab (Pixel Map, Cabinet ID, Show Look, Data, Power) renders **all canvases simultaneously** in the workspace.
 - Existing v0.7 single-canvas projects **auto-migrate** to one canvas on load.
@@ -20,7 +20,7 @@ This document is the source of truth for the multi-canvas feature. Edits here re
 
 - A single layer being a member of multiple canvases simultaneously (shared/aliased layers). One layer = one canvas. Future v0.9+.
 - Per-canvas Save (saving a single canvas to its own file). Future, optional.
-- Backwards compatibility with v0.7 — once a project is opened + saved as v0.8 it is no longer openable in v0.7.
+- Backwards compatibility with v0.7, once a project is opened + saved as v0.8 it is no longer openable in v0.7.
 - A separate project-level "show raster". The workspace itself is the stage.
 - SCR (NovaStar) export changes. Currently broken; out of scope.
 
@@ -124,7 +124,7 @@ This document is the source of truth for the multi-canvas feature. Edits here re
 
 Notes:
 - Processor type stays on each layer because: today a layer can override its canvas's defaults, and we don't want to lose that flexibility. Adding a layer to a canvas should *default* the layer's processor to the canvas's preferred type, but the user can still change it per-layer.
-- Per-canvas defaults (voltage / amperage / panel watts) live in the canvas object as **defaults applied to new layers added to that canvas** — actual values still live on the layer.
+- Per-canvas defaults (voltage / amperage / panel watts) live in the canvas object as **defaults applied to new layers added to that canvas**, actual values still live on the layer.
 
 ### 4.4 Migration (v0.7 → v0.8)
 
@@ -149,7 +149,7 @@ On project load:
 
 ## 5. UI architecture
 
-### 5.1 Right sidebar — Layer Groups
+### 5.1 Right sidebar, Layer Groups
 
 Replaces today's flat Screens list.
 
@@ -195,14 +195,14 @@ The workspace shows **every visible canvas** at its `workspace_x, workspace_y` p
 
 In every case the screen position of a layer is `canvas.workspace_x + layer_offset_within_canvas`.
 
-**Canvas rect always drawn (when `canvas.visible !== false`)** — even when the canvas has no layers. Empty canvases need to remain a valid drop target for cross-canvas layer drag (Slice 7). Hide via the canvas-level eye toggle if a canvas is in the way.
+**Canvas rect always drawn (when `canvas.visible !== false`)**, even when the canvas has no layers. Empty canvases need to remain a valid drop target for cross-canvas layer drag (Slice 7). Hide via the canvas-level eye toggle if a canvas is in the way.
 
 ### 5.3 Color coding
 
 - Each canvas has a `color` (hex string).
 - Default palette (auto-cycled for new canvases):
   - `#4A90E2` (blue), `#F5A623` (orange), `#7ED321` (green), `#BD10E0` (purple), `#D0021B` (red), `#50E3C2` (teal), `#F8E71C` (yellow), `#9013FE` (deep purple).
-  - After 8 canvases, cycle back to the start (collisions allowed — user can change manually).
+  - After 8 canvases, cycle back to the start (collisions allowed, user can change manually).
 - Color appears on:
   - The canvas's dashed-outline rectangle in the workspace
   - The layer name border / badge in the Screens panel (subtle left-edge stripe in the canvas's color)
@@ -227,7 +227,7 @@ The toolbar `Raster: [W] x [H]` field always edits the **active canvas's** raste
 
 - Hover a canvas's outline → cursor changes to "move" indicator on the outline edges (drag-by-edge model, like keynote-style artboards).
 - Drag → updates `canvas.workspace_x/y`. All layers stay glued (layer offsets are relative to the canvas, so they move with it).
-- **Overlap handling**: if the user drops a canvas overlapping another, show a non-blocking warning toast: *"Canvases overlapping — visual rendering may be confusing."* No auto-snap, no rejection. User decides.
+- **Overlap handling**: if the user drops a canvas overlapping another, show a non-blocking warning toast: *"Canvases overlapping, visual rendering may be confusing."* No auto-snap, no rejection. User decides.
 
 ### 5.6 Auto-layout for new canvases
 
@@ -251,7 +251,7 @@ The toolbar `Raster: [W] x [H]` field always edits the **active canvas's** raste
 - Canvas-level 👁 toggle in the sidebar.
 - Hiding a canvas:
   - Hides the canvas's rect in the workspace
-  - Hides all layers in that canvas (visually only — does not change `layer.visible`)
+  - Hides all layers in that canvas (visually only, does not change `layer.visible`)
   - Layers in the Screens panel under a hidden canvas group are dimmed
   - Hidden canvas not included in capacity / power totals or export selection by default
 - Toggling visible re-shows everything.
@@ -285,7 +285,7 @@ The toolbar `Raster: [W] x [H]` field always edits the **active canvas's** raste
 
 ### 6.4 Toolbar
 
-- `Raster: [W] x [H]` field edits **active canvas's** raster (Pixel Map raster on Pixel Map / Cabinet ID tabs; Show Look raster on Show Look / Data / Power tabs — same per-view behavior as today, just per-canvas).
+- `Raster: [W] x [H]` field edits **active canvas's** raster (Pixel Map raster on Pixel Map / Cabinet ID tabs; Show Look raster on Show Look / Data / Power tabs, same per-view behavior as today, just per-canvas).
 - Project name field unchanged.
 - Fit / 1:1 / zoom buttons operate on the workspace as a whole.
 
@@ -310,7 +310,7 @@ The toolbar `Raster: [W] x [H]` field always edits the **active canvas's** raste
 
 - Cross-canvas layer drag is undoable (restores previous canvas + previous offsets).
 - Canvas creation / deletion / rename / reorder / move / color change are all undoable.
-- Undo history is a single stack at the project level — does not split per canvas.
+- Undo history is a single stack at the project level, does not split per canvas.
 
 ---
 
@@ -395,7 +395,7 @@ After Slice 13, **multi-canvas is rock solid** and we move to the expanded proce
 
 ### 10.1 Per-slice version stance
 
-- Slices 1-12 ship as PRs into `feature/v0.8` (no version bump on each — feature branch is WIP).
+- Slices 1-12 ship as PRs into `feature/v0.8` (no version bump on each, feature branch is WIP).
 - Slice 13 (or whichever final slice ships v0.8.0) is the version bump + tag + release.
 
 ---
@@ -416,17 +416,17 @@ After Slice 13, **multi-canvas is rock solid** and we move to the expanded proce
 
 ## 12. Open questions
 
-(none — all design decisions locked through Round 3. This section reserved for issues found during implementation.)
+(none, all design decisions locked through Round 3. This section reserved for issues found during implementation.)
 
 ---
 
 ## 13. Out of scope (deferred)
 
 - **Sharing a layer across canvases** (one layer in two canvases simultaneously). Likely v0.9 if real demand emerges.
-- **Per-canvas Show Look toggle to "combine all canvases into one virtual stage"** — current model lets users do this manually by overlapping canvases or dragging layers cross-canvas.
-- **Export of a single layer in isolation** — user mentioned as a "not bad idea later." Out for v0.8.
-- **SCR (NovaStar sending card) export** — currently broken. Separate fix, not part of v0.8.
-- **Per-canvas keyboard shortcut** (e.g. Cmd+1 jumps to Canvas 1) — easy to add later if users want it.
+- **Per-canvas Show Look toggle to "combine all canvases into one virtual stage"**, current model lets users do this manually by overlapping canvases or dragging layers cross-canvas.
+- **Export of a single layer in isolation**, user mentioned as a "not bad idea later." Out for v0.8.
+- **SCR (NovaStar sending card) export**, currently broken. Separate fix, not part of v0.8.
+- **Per-canvas keyboard shortcut** (e.g. Cmd+1 jumps to Canvas 1), easy to add later if users want it.
 
 ---
 

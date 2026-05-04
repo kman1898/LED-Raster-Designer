@@ -1,8 +1,8 @@
-# LED Raster Designer — AI Development Handoff
+# LED Raster Designer, AI Development Handoff
 
 > **"LED Raster Designer" is a PLACEHOLDER NAME.** Final product name TBD.
 
-> **Last updated in this file:** v0.5.6.15 — February 10, 2026 (historical snapshot)
+> **Last updated in this file:** v0.5.6.15, February 10, 2026 (historical snapshot)
 >
 > **Current source of truth:**
 > - `README.md` (current behavior/features)
@@ -184,8 +184,8 @@
 
 This application is developed collaboratively between a human developer (Matt) and **two AI coding assistants working in tandem:**
 
-- **AI Assistant** — Primary development partner since project inception. All architecture decisions, core rendering, UI layout, export pipeline, and feature implementation to date have been done through AI-assisted conversations.
-- **Codex (OpenAI)** — Joining development as of v0.5.5.2 for expanded feature work, refactoring, and parallel development tasks.
+- **AI Assistant**, Primary development partner since project inception. All architecture decisions, core rendering, UI layout, export pipeline, and feature implementation to date have been done through AI-assisted conversations.
+- **Codex (OpenAI)**, Joining development as of v0.5.5.2 for expanded feature work, refactoring, and parallel development tasks.
 
 ### Workflow Rules
 
@@ -194,7 +194,7 @@ This application is developed collaboratively between a human developer (Matt) a
 3. **VERSION.txt tracks granular changes.** Check it for detailed per-version changelogs.
 4. **TODO.txt tracks the roadmap.** Check it before starting new features to avoid conflicts.
 5. **Don't assume the other AI's work is wrong.** If something looks unusual, it was probably an intentional design decision. Ask Matt before refactoring existing patterns.
-6. **Version numbering:** Update in TWO places in `index.html` — the `<title>` tag and the `<h1>` header span.
+6. **Version numbering:** Update in TWO places in `index.html`, the `<title>` tag and the `<h1>` header span.
 7. **Client-side properties** are a deliberate pattern, not a bug. Some layer properties live only in localStorage (see details below).
 8. **Archive zips are mandatory for every version.** When the version changes, create `Archive/led_raster_designer_vX.Y.Z.zip` in the parent folder.
 
@@ -238,17 +238,17 @@ python3 app.py
 
 ```
 led_raster_designer/
-├── app.py                      # Flask backend — API routes, project state, export endpoints
+├── app.py                      # Flask backend, API routes, project state, export endpoints
 ├── requirements.txt            # Python dependencies
 ├── start.sh                    # Shell startup script
 ├── templates/
-│   └── index.html              # Single-page app — ALL HTML/UI lives here (~700 lines)
+│   └── index.html              # Single-page app, ALL HTML/UI lives here (~700 lines)
 ├── static/
 │   ├── css/style.css           # All styling
 │   └── js/
-│       ├── app.js              # LEDRasterApp class — UI logic, state, port capacity (~3000 lines)
-│       └── canvas.js           # CanvasRenderer class — all drawing, zoom/pan (~1870 lines)
-├── CODEX_HANDOFF.md            # THIS FILE — primary reference for AI developers
+│       ├── app.js              # LEDRasterApp class, UI logic, state, port capacity (~3000 lines)
+│       └── canvas.js           # CanvasRenderer class, all drawing, zoom/pan (~1870 lines)
+├── CODEX_HANDOFF.md            # THIS FILE, primary reference for AI developers
 ├── DEVELOPER_HANDOFF.md        # Earlier handoff doc (human-focused)
 ├── TODO.txt                    # Feature roadmap with priorities
 ├── VERSION.txt                 # Detailed changelog (every version since v0.3.9.4)
@@ -299,7 +299,7 @@ There are **two types** of layer properties:
    - Tab-specific screen name sizes and positions
    - See `saveClientSideProperties()` and the load block in `handleProjectData()` in app.js
 
-This split is intentional — these are display/calculation settings that don't need server persistence for now. Eventually they should move server-side.
+This split is intentional, these are display/calculation settings that don't need server persistence for now. Eventually they should move server-side.
 
 ### Rendering Pipeline
 
@@ -336,17 +336,17 @@ render() in canvas.js:
 - Fit-to-view and 1:1 zoom buttons
 
 ### View Modes (4 tabs)
-1. **Pixel Map** — Checkerboard pattern, optional circle-with-X test pattern, corner offset labels (TL/TR/BL/BR showing pixel coordinates)
-2. **Cabinet ID** — Panel numbering with 3 schemes (A1/B2, 1-1/2-3, sequential 1/2/3), configurable position (center/corner) and color
-3. **Data Flow** — Serpentine data path visualization with 8 flow patterns (4 corners × horizontal/vertical), port capacity splitting, editable P/R port labels (use # for port number), custom path mode (click/arrow keys or apply patterns to selected panels), configurable colors and line widths
-4. **Power** — Placeholder (not yet implemented)
+1. **Pixel Map**, Checkerboard pattern, optional circle-with-X test pattern, corner offset labels (TL/TR/BL/BR showing pixel coordinates)
+2. **Cabinet ID**, Panel numbering with 3 schemes (A1/B2, 1-1/2-3, sequential 1/2/3), configurable position (center/corner) and color
+3. **Data Flow**, Serpentine data path visualization with 8 flow patterns (4 corners × horizontal/vertical), port capacity splitting, editable P/R port labels (use # for port number), custom path mode (click/arrow keys or apply patterns to selected panels), configurable colors and line widths
+4. **Power**, Placeholder (not yet implemented)
 
 ### Port Capacity System (v0.5.5.0+)
 Multi-processor support with manufacturer lookup tables:
 
 | Processor | Port Speed | Bit Depths | Rectangle Constraint |
 |---|---|---|---|
-| NovaStar Armor (MSD/MRV) | 1G | 8/10/12 (max 120 Hz) | YES — must fill complete rows/columns |
+| NovaStar Armor (MSD/MRV) | 1G | 8/10/12 (max 120 Hz) | YES, must fill complete rows/columns |
 | NovaStar COEX A10s/A8s | 1G | 8/10/12 | No |
 | NovaStar COEX CX40 | 5G | 8/10/12 | No |
 | Brompton Tessera | 1G | 8/10/12 | No |
@@ -357,8 +357,8 @@ Multi-processor support with manufacturer lookup tables:
 All capacity values are from official manufacturer documentation. Lookup tables in `portCapacityTables` in app.js. Frame rates that fall between table entries are linearly interpolated.
 
 ### Port Mapping Modes (v0.5.5.1+)
-- **Organized** — Ports fill complete rows (horizontal flow) or columns (vertical flow). No mid-row/column splits.
-- **Max Capacity** — Ports fill to maximum pixel count, can split anywhere in the flow.
+- **Organized**, Ports fill complete rows (horizontal flow) or columns (vertical flow). No mid-row/column splits.
+- **Max Capacity**, Ports fill to maximum pixel count, can split anywhere in the flow.
 - NovaStar 1G is always locked to organized/rectangle mode (buttons disabled).
 
 ### Hidden Panel Rules
@@ -377,16 +377,16 @@ All capacity values are from official manufacturer documentation. Lookup tables 
 - Corner offset indicators showing pixel coordinates
 
 ### Export
-- **PNG** — Single image or ZIP with all 4 view modes
-- **PDF** — Multi-page document with all views via reportlab
-- **PSD** — Layered Photoshop file, each screen as a separate layer at correct position/size (no background layer)
+- **PNG**, Single image or ZIP with all 4 view modes
+- **PDF**, Multi-page document with all views via reportlab
+- **PSD**, Layered Photoshop file, each screen as a separate layer at correct position/size (no background layer)
 - All exports use an offscreen canvas at exact raster dimensions for pixel accuracy
 
 ---
 
 ## Key Functions Reference
 
-### app.js — LEDRasterApp
+### app.js, LEDRasterApp
 
 | Function | Purpose |
 |---|---|
@@ -399,11 +399,11 @@ All capacity values are from official manufacturer documentation. Lookup tables 
 | `duplicateLayer(layer)` | Full deep copy including hidden panels |
 | `saveState(action)` / `undo()` / `redo()` | State stack management |
 
-### canvas.js — CanvasRenderer
+### canvas.js, CanvasRenderer
 
 | Function | Purpose |
 |---|---|
-| `render()` | Main render loop — clears, transforms, draws everything |
+| `render()` | Main render loop, clears, transforms, draws everything |
 | `renderPanel(panel, layer)` | Dispatches to view-mode-specific renderer |
 | `renderPixelMap(panel, layer)` | Checkerboard fill + borders (hidden = ghost outline) |
 | `renderCabinetID(panel, layer)` | Same fill + cabinet numbers rendered separately |
@@ -418,15 +418,15 @@ All capacity values are from official manufacturer documentation. Lookup tables 
 
 ## Known Issues & Gotchas
 
-1. **PSD export at native resolution** — The export is pixel-accurate at 1:1. Zooming in Photoshop will look blocky because that's actual LED pixels. This is correct behavior.
+1. **PSD export at native resolution**, The export is pixel-accurate at 1:1. Zooming in Photoshop will look blocky because that's actual LED pixels. This is correct behavior.
 
-2. **Client-side property split** — If localStorage is cleared, Data Flow settings (processor, flow pattern, colors) reset to defaults. Layer geometry survives because it's server-side.
+2. **Client-side property split**, If localStorage is cleared, Data Flow settings (processor, flow pattern, colors) reset to defaults. Layer geometry survives because it's server-side.
 
-3. **Raster boundary clipping** — Everything outside the raster is clipped. Offsets, labels, and panel fills all respect this boundary. The red dashed boundary line scales inversely with zoom to stay visible.
+3. **Raster boundary clipping**, Everything outside the raster is clipped. Offsets, labels, and panel fills all respect this boundary. The red dashed boundary line scales inversely with zoom to stay visible.
 
-4. **Data flow arrows still use organized layout internally** — The arrow rendering in `renderDataFlowArrows` splits by rows/columns. Max Capacity mode works for port assignment but the visual arrows use a simplified approach (slicing the ordered panel array by count). Complex non-rectangular port boundaries may not render perfectly in Max Capacity mode.
+4. **Data flow arrows still use organized layout internally**, The arrow rendering in `renderDataFlowArrows` splits by rows/columns. Max Capacity mode works for port assignment but the visual arrows use a simplified approach (slicing the ordered panel array by count). Complex non-rectangular port boundaries may not render perfectly in Max Capacity mode.
 
-5. **Version in two places** — Always update both `<title>` and `<h1>` in index.html.
+5. **Version in two places**, Always update both `<title>` and `<h1>` in index.html.
 
 ---
 
@@ -435,7 +435,7 @@ All capacity values are from official manufacturer documentation. Lookup tables 
 See `TODO.txt` for the full prioritized list. Key upcoming areas:
 
 **High Priority:**
-- Transform Mode (resize/rotate layers) — design doc in TRANSFORM_FEATURE_DESIGN.md
+- Transform Mode (resize/rotate layers), design doc in TRANSFORM_FEATURE_DESIGN.md
 - Power tab implementation
 - Top menu bar (File/Edit/View/Settings/Help)
 - Right-click context menus
@@ -458,17 +458,17 @@ See `TODO.txt` for the full prioritized list. Key upcoming areas:
 
 ## Development Guidelines
 
-1. **Test in the Data Flow tab** — This is the most complex view with capacity calculations, arrow rendering, and port splitting. Changes to layer/panel logic should be verified here.
+1. **Test in the Data Flow tab**, This is the most complex view with capacity calculations, arrow rendering, and port splitting. Changes to layer/panel logic should be verified here.
 
-2. **Hidden panels are tricky** — Different processors treat them differently. NovaStar 1G counts them, everything else skips them. Always check both paths.
+2. **Hidden panels are tricky**, Different processors treat them differently. NovaStar 1G counts them, everything else skips them. Always check both paths.
 
-3. **Export mode** — `this.exportMode` flag in canvas.js suppresses the raster boundary, grid, and selection highlight for clean output. Make sure new visual elements check this flag.
+3. **Export mode**, `this.exportMode` flag in canvas.js suppresses the raster boundary, grid, and selection highlight for clean output. Make sure new visual elements check this flag.
 
-4. **Zoom-independent elements** — Text, labels, and UI overlays should scale with `1/this.zoom` so they maintain constant screen size. World-space elements (panels, borders) scale naturally with zoom.
+4. **Zoom-independent elements**, Text, labels, and UI overlays should scale with `1/this.zoom` so they maintain constant screen size. World-space elements (panels, borders) scale naturally with zoom.
 
-5. **Flask runs on 0.0.0.0:8050** — Accessible from any network interface. The console shows both localhost and LAN URLs on startup.
+5. **Flask runs on 0.0.0.0:8050**, Accessible from any network interface. The console shows both localhost and LAN URLs on startup.
 
-6. **No build step** — Everything is vanilla JS/CSS/HTML served by Flask. Just edit and refresh. Python changes auto-reload in debug mode.
+6. **No build step**, Everything is vanilla JS/CSS/HTML served by Flask. Just edit and refresh. Python changes auto-reload in debug mode.
 
 ---
 

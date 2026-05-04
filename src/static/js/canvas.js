@@ -17,7 +17,7 @@ class CanvasRenderer {
         this.spacePressed = false;
         // Slice 6: rasterWidth/Height (and pixel/show variants) are now
         // accessor properties that read from the *active canvas* (or, during
-        // the per-canvas render loop, from `_activeRenderCanvas` — set by
+        // the per-canvas render loop, from `_activeRenderCanvas`, set by
         // render() so each canvas's panels clip against ITS own raster, not
         // the active canvas's). Backing fields below are the legacy
         // single-canvas fallback used only when the project has no canvases
@@ -65,7 +65,7 @@ class CanvasRenderer {
      * view tab; writes route to the active canvas via the project model so
      * the toolbar Raster: W x H field edits the active canvas's raster.
      *
-     * Fallback behaviour (no canvases array — legacy / pre-Slice-1 project):
+     * Fallback behaviour (no canvases array, legacy / pre-Slice-1 project):
      * read/write the _fallback* backing fields. Single-canvas behaviour is
      * preserved exactly.
      */
@@ -75,7 +75,7 @@ class CanvasRenderer {
             const proj = (window.app && window.app.project) || null;
             if (!proj || !Array.isArray(proj.canvases) || proj.canvases.length === 0) return null;
             // Per-canvas render loop sets _activeRenderCanvas so each canvas's
-            // panels clip against ITS OWN raster — not the active canvas's.
+            // panels clip against ITS OWN raster, not the active canvas's.
             if (self._activeRenderCanvas) return self._activeRenderCanvas;
             return proj.canvases.find(c => c.id === proj.active_canvas_id) || proj.canvases[0];
         };
@@ -203,7 +203,7 @@ class CanvasRenderer {
     /**
      * fillText that auto-un-mirrors when the canvas is in a mirrored
      * (back-view) render so label glyphs stay right-side-up. Anchor
-     * position is the same as ctx.fillText — pass the position you would
+     * position is the same as ctx.fillText, pass the position you would
      * have used in normal rendering. Text alignment ('center' is the most
      * common in this codebase) keeps its visual centering. Edge-aligned
      * text ('left'/'right') will flip its anchor side, which is the right
@@ -243,7 +243,7 @@ class CanvasRenderer {
      * in *screen* space, even when the caller is currently inside a per-layer
      * ctx.translate(dx, dy). Without this, a naive `ctx.rect(0,0,rasterWidth,
      * rasterHeight); ctx.clip()` ends up clipping in local (translated)
-     * coords — which means screen coords [dx, dx+rasterWidth] — and lops off
+     * coords, which means screen coords [dx, dx+rasterWidth], and lops off
      * any content drawn at low screen-x when the layer is shifted right (or
      * vice versa). All renderers that paint within the per-layer translate
      * (renderLayerLabels, renderDataFlowArrows, renderPowerArrows, etc.)
@@ -273,7 +273,7 @@ class CanvasRenderer {
      *
      * Uses the canvas's own raster_width/raster_height (not the renderer's
      * project-level rasterWidth) so each canvas's rect reflects its own
-     * size — even though Slice 3 keeps the source-of-truth at project root
+     * size, even though Slice 3 keeps the source-of-truth at project root
      * for the active canvas; per-canvas raster sizes are read straight from
      * the canvas object here.
      */
@@ -414,7 +414,7 @@ class CanvasRenderer {
     _unmirrorWorldX(worldX) {
         if (!this.isMirroredView()) return worldX;
         // v0.8 Slice 8 fix: mirror axis is the workspace bounds, not the
-        // active canvas's raster — otherwise multi-canvas workspaces flip
+        // active canvas's raster, otherwise multi-canvas workspaces flip
         // off-screen because workspace_x can be far past rasterWidth.
         const k = this._mirrorAxisX();
         return k - worldX;
@@ -423,7 +423,7 @@ class CanvasRenderer {
     /**
      * The Canvas2D translate-X used as the mirror axis when Back perspective
      * is active. We mirror around the workspace bounding box so points stay
-     * in the same x-range after the flip — single-canvas projects degrade to
+     * in the same x-range after the flip, single-canvas projects degrade to
      * mirroring around rasterWidth (legacy behaviour) automatically because
      * their bbox.x is 0 and bbox.w == rasterWidth.
      */
@@ -436,7 +436,7 @@ class CanvasRenderer {
 
     /**
      * Slice 4: hit-test a workspace point against the visible canvases.
-     * Returns the first canvas (in array order — earlier wins on overlap)
+     * Returns the first canvas (in array order, earlier wins on overlap)
      * whose rect contains (worldX, worldY), or null. Uses the same per-mode
      * raster fields _drawCanvasOutline does, including the workspace_x/y
      * offset so the rect is in workspace coords (matching worldX/worldY).
@@ -469,7 +469,7 @@ class CanvasRenderer {
      * "Edge" = within `tol` of any of the four edges of the canvas rect,
      * but the point must also be inside the rect-with-tolerance overall
      * (so corners count). Inside the canvas body (more than `tol` away
-     * from every edge) does NOT count — that's reserved for body-click
+     * from every edge) does NOT count, that's reserved for body-click
      * activate / panel selection.
      */
     _canvasEdgeAtPoint(worldX, worldY) {
@@ -511,7 +511,7 @@ class CanvasRenderer {
         // Slice 5: dragging a canvas's dashed outline edge repositions
         // the canvas in the workspace. Must be checked BEFORE the Slice 4
         // panel/canvas-activate block so edge-drag wins over body-click
-        // activation. Skipped for pan (space), shift, and alt — those are
+        // activation. Skipped for pan (space), shift, and alt, those are
         // existing drag/paint behaviors. Inside the canvas body still
         // falls through to Slice 4.
         if (e.button === 0 && !this.spacePressed && !e.shiftKey && !e.altKey) {
@@ -551,7 +551,7 @@ class CanvasRenderer {
         //       canvas;
         //   (c) hits empty area outside any canvas → no canvas change.
         // Skipped for pan (space) and shift/alt modifiers (existing drag
-        // behaviors). Additive — the rest of mouse-down still runs.
+        // behaviors). Additive, the rest of mouse-down still runs.
         if (e.button === 0 && !this.spacePressed && !e.shiftKey && !e.altKey) {
             const hitPanel = this.getPanelAt(worldX, worldY);
             if (hitPanel) {
@@ -655,13 +655,13 @@ class CanvasRenderer {
                 && this.viewMode === 'pixel-map'
                 && window.app && window.app.currentLayer) {
             const startPanel = this.getPanelAt(worldX, worldY);
-            // Allow drag-start on hidden ("blank") panels too — selecting them
+            // Allow drag-start on hidden ("blank") panels too, selecting them
             // is the only way to bulk-restore via the sidebar buttons.
             const onCurrentLayer = startPanel
                 && startPanel.layerId === window.app.currentLayer.id;
             // Don't capture the click for panel-select if there's a HIGHER-Z
             // layer (image / text / another screen later in project.layers)
-            // sitting on top of the current layer at this point — the user is
+            // sitting on top of the current layer at this point, the user is
             // clicking the visible top layer, not the panel buried beneath it.
             // Bug: with a text layer over a selected screen, clicks on text
             // were grabbed by the screen's panel-select instead of selecting
@@ -683,7 +683,7 @@ class CanvasRenderer {
         if (e.button === 0 && !this.spacePressed && !e.shiftKey && !e.altKey) {
             // Falling through to layer-select means the user clicked outside any
             // panel in pixel-map (or in another view). Drop any stale pixel-map
-            // panel selection so it doesn't sit around — fresh layer-drag should
+            // panel selection so it doesn't sit around, fresh layer-drag should
             // start without panel-state lingering.
             if (this.viewMode === 'pixel-map' && window.app && window.app.pixelMapSelection
                     && window.app.pixelMapSelection.size > 0) {
@@ -828,7 +828,7 @@ class CanvasRenderer {
         } else if (e.button === 0 && e.altKey) {
             // Alt+click/drag toggles "blank" (hidden) on the panel.
             // When a multi-selection is active, apply to the entire selection
-            // in one shot (no drag-painting in that mode — the selection is
+            // in one shot (no drag-painting in that mode, the selection is
             // already explicit).
             if (this.viewMode === 'pixel-map') {
                 const clickedPanel = this.getPanelAt(worldX, worldY);
@@ -891,7 +891,7 @@ class CanvasRenderer {
         const worldX = this._unmirrorWorldX((mouseX - this.panX) / this.zoom);
         const worldY = (mouseY - this.panY) / this.zoom;
 
-        // Slice 5: live canvas-drag — update workspace_x/y on every move,
+        // Slice 5: live canvas-drag, update workspace_x/y on every move,
         // but only PUT to the server on mouseup (avoid flooding).
         if (this.isDraggingCanvas && this.draggingCanvasId) {
             if (window.app && window.app.project) {
@@ -1001,7 +1001,7 @@ class CanvasRenderer {
                     const nextX = item.startX + snapDx;
                     const nextY = item.startY + snapDy;
                     if (showMode) {
-                        // Show Look drag — only the show position changes;
+                        // Show Look drag, only the show position changes;
                         // panels stay at their processor coords.
                         layer.showOffsetX = nextX;
                         layer.showOffsetY = nextY;
@@ -1040,7 +1040,7 @@ class CanvasRenderer {
             // Screen name dragging with snap positions - tab-specific
             if (window.app && window.app.currentLayer) {
                 const layer = window.app.currentLayer;
-                // Screen-name drag — bounds in the active view for snap calc.
+                // Screen-name drag, bounds in the active view for snap calc.
                 const bounds = this.getLayerBoundsInActiveView(layer);
                 const layerWidth = bounds.width;
                 const layerHeight = bounds.height;
@@ -1247,7 +1247,7 @@ class CanvasRenderer {
                     // Click without drag.
                     //  - Plain click on a panel: replace the selection with just that panel
                     //    (resets multi-select instead of confusingly toggling one panel out).
-                    //  - Cmd/Ctrl+click: additive — toggle that panel in/out of the selection.
+                    //  - Cmd/Ctrl+click: additive, toggle that panel in/out of the selection.
                     //  - Plain click on empty space: clear the selection.
                     const clickedPanel = this.getPanelAt(this.selectionRect.x1, this.selectionRect.y1);
                     const additive = e.metaKey || e.ctrlKey;
@@ -1381,7 +1381,7 @@ class CanvasRenderer {
 
                 // Slice 7 + multi-select fix: cross-canvas drop check. The
                 // hit-test uses the **mouse cursor position** at drop time,
-                // not the layer's geometric center — for a wide layer
+                // not the layer's geometric center, for a wide layer
                 // dragged onto a smaller canvas, the cursor lands inside
                 // the target rect long before the layer's center does, and
                 // the user expects "drop where I'm pointing". (Earlier
@@ -1508,7 +1508,7 @@ class CanvasRenderer {
             const worldX = this._unmirrorWorldX(((e.clientX - rect.left) - this.panX) / this.zoom);
             const worldY = ((e.clientY - rect.top) - this.panY) / this.zoom;
             const clicked = this.getPanelAt(worldX, worldY);
-            // Right-click works on hidden panels too — the menu shows
+            // Right-click works on hidden panels too, the menu shows
             // "Restore From Blank" so they can be brought back.
             if (clicked && clicked.layerId === window.app.currentLayer.id) {
                 const key = window.app.getPanelKey(clicked.panel);
@@ -1859,7 +1859,7 @@ class CanvasRenderer {
         }
         // v0.8 Slice 10: dynamic data/power stats now honor a per-layer
         // scope: 'canvas' (text layer's parent canvas), 'project' (all
-        // canvases — original behaviour, default), or 'both' (renders one
+        // canvases, original behaviour, default), or 'both' (renders one
         // line for the canvas, then one for the project total).
         const scope = layer.dynamicInfoScope || 'project';
         const wantsData = layer.showPrimaryPorts || layer.showBackupPorts;
@@ -2038,7 +2038,7 @@ class CanvasRenderer {
         };
         // Helper: returns true if this layer's canvas is hidden (canvas-level
         // eye toggle off). Used to skip every per-layer post-pass for hidden
-        // canvases — without this, hiding a canvas removed only its outline
+        // canvases, without this, hiding a canvas removed only its outline
         // while its layers continued to render at the canvas's workspace
         // offset.
         const _layerCanvasHidden = (layer) => {
@@ -2089,8 +2089,8 @@ class CanvasRenderer {
                     if (_canvasesArr.length === 0) return true; // legacy fallback
                     return l.canvas_id === canvas.id;
                 });
-                // Empty canvases (no layers) still get drawn — outline +
-                // active tint — so the user can see the canvas exists and can
+                // Empty canvases (no layers) still get drawn, outline +
+                // active tint, so the user can see the canvas exists and can
                 // drag layers into it. Slice 7 cross-canvas drag depends on
                 // this being a valid drop target. Originally Slice 3 skipped
                 // empty canvases entirely, but that hid them from the
@@ -2148,7 +2148,7 @@ class CanvasRenderer {
                     // uses raw panel.x vs rasterWidth and silently drops
                     // panels that sit beyond rasterWidth in processor coords
                     // even when the show-offset places them inside the
-                    // visible raster — caused panels to "vanish" in Show
+                    // visible raster, caused panels to "vanish" in Show
                     // Look after a temporary raster shrink.
                     this._renderDx = dx;
                     this._renderDy = dy;
@@ -2195,7 +2195,7 @@ class CanvasRenderer {
                 }
                 if (needsCanvasShift) this.ctx.restore();
             });
-            // Per-layer translates have been restored — clear the cached
+            // Per-layer translates have been restored, clear the cached
             // render offset so any later renderers (selection overlays,
             // error badges) that happen to call _clipToActiveRaster get
             // raster bounds in real screen space, not in the last layer's
@@ -2298,12 +2298,12 @@ class CanvasRenderer {
                 if (window.app && window.app.project) {
                     window.app.project.layers.forEach(layer => {
                         if (!layer.visible) return;
-                        // Active-view bounds — selection rect is in world coords
+                        // Active-view bounds, selection rect is in world coords
                         // matching the rendered (possibly show-shifted) layout.
                         // For multi-canvas, shift bounds into workspace coords
                         // so the intersection test compares apples-to-apples
                         // with the selection rect (which is in workspace coords
-                        // — captured from world-space mouse events).
+                        //, captured from world-space mouse events).
                         const { wx, wy } = _layerWs(layer);
                         const bounds = this.getLayerBoundsInActiveView(layer);
                         const layerWidth = bounds.width;
@@ -2462,7 +2462,7 @@ class CanvasRenderer {
             const bounds = this.getLayerBoundsInActiveView(layer);
             // bounds.x/y are canvas-relative (in the layer's parent canvas's
             // raster coords). Add the canvas's workspace_x/y so the pan
-            // centers on where the layer is actually drawn in the workspace —
+            // centers on where the layer is actually drawn in the workspace,
             // otherwise 1:1 zooms to the wrong canvas's slot.
             let wx = 0, wy = 0;
             if (window.app.project && window.app.project.canvases && layer.canvas_id) {
@@ -2486,7 +2486,7 @@ class CanvasRenderer {
     /**
      * v0.8 Slice 9: snap a dragged canvas's edges to abut (or align with)
      * neighboring canvases. Threshold scales with current zoom so the snap
-     * "feels" the same physical distance regardless of zoom level — ~14
+     * "feels" the same physical distance regardless of zoom level, ~14
      * device px on screen.
      *
      * Returns the (possibly snapped) {x, y} workspace position. Each axis is
@@ -2578,7 +2578,7 @@ class CanvasRenderer {
         // Snap to other layers - HARD EDGES ONLY
         // Other layers' bounds are compared against the dragged layer's
         // proposed offset (offsetX/Y), which is in the active view's
-        // coords — so use active-view bounds for the comparison.
+        // coords, so use active-view bounds for the comparison.
         if (window.app && window.app.project) {
             window.app.project.layers.forEach(layer => {
                 if (layer.id === currentLayer.id || !layer.visible) return;
@@ -2840,7 +2840,7 @@ class CanvasRenderer {
     // Render capacity error overlay ON TOP of everything (including labels)
     // This renders WITHOUT clipping so it's visible even outside raster bounds.
     // Called from the third render pass (outside the per-layer ctx.translate),
-    // so use show-translated bounds — getLayerBounds returns processor coords
+    // so use show-translated bounds, getLayerBounds returns processor coords
     // which would land the badge at the layer's pixel-map position even when
     // the layer renders at its show position in Data Flow / Power.
     renderCapacityErrorOverlay(layer) {
@@ -3324,7 +3324,7 @@ class CanvasRenderer {
         const err = layer._powerError;
         // Same as renderCapacityErrorOverlay: this is called from the third
         // render pass outside the per-layer translate, so we need the layer's
-        // active-view bounds (show offset already baked in) — using raw
+        // active-view bounds (show offset already baked in), using raw
         // processor bounds parks the badge at the wrong screen position when
         // the layer is moved in Show Look.
         const bounds = this.getLayerBoundsInActiveView(layer);
@@ -4255,7 +4255,7 @@ class CanvasRenderer {
     }
 
     /**
-     * Wiring perspective badge — "BACK VIEW" in screen-space corner when
+     * Wiring perspective badge, "BACK VIEW" in screen-space corner when
      * Data Flow / Power are rendering in back perspective. Shown in both
      * interactive view and export so the printed map is unambiguous.
      * Front view shows nothing (clutter-free default; Front is implied).
@@ -4392,7 +4392,7 @@ class CanvasRenderer {
         this.ctx.fillStyle = committed > 0 ? '#ffffff' : 'rgba(255, 255, 255, 0.7)';
         this.ctx.fillText(committedText, pillX + pillPadX, pillY + pillPadY - 2);
 
-        // Selected pill (yellow) — only when drag-select has picked panels
+        // Selected pill (yellow), only when drag-select has picked panels
         if (showSelected) {
             pillX += committedPillW + pillGap;
             this.ctx.fillStyle = 'rgba(255, 204, 0, 0.85)';

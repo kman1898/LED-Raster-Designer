@@ -39,7 +39,7 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 /* ── Collapsible side panels ─────────────────────────────────────────── */
 /* Each toggle button hugs the inner edge of its sidebar. Click to hide
    the entire panel; click again to bring it back. The two sides are
-   independent and the state persists across reloads (localStorage —
+   independent and the state persists across reloads (localStorage,
    see app.js initSidebarToggles). */
 .sidebar-toggle {
     position: fixed;
@@ -59,7 +59,7 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 }
 .sidebar-toggle:hover { background: #3a3a3a; color: #fff; }
 /* The actual left/right pixel positions are set in JS (initSidebarToggles)
-   based on the sidebar's live geometry — this lets the toggle hug the
+   based on the sidebar's live geometry, this lets the toggle hug the
    sidebar's inner edge regardless of monitor size, window resize, or any
    future change to sidebar width. */
 #left-sidebar-toggle { border-left: none; border-radius: 0 4px 4px 0; }
@@ -746,7 +746,7 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 }
 
 /* ----------------------------------------------------------------------
- * Multi-canvas (v0.8 Slice 2) — sidebar canvas group styling.
+ * Multi-canvas (v0.8 Slice 2), sidebar canvas group styling.
  * Each canvas gets a header (color swatch, name, eye toggle, action menu,
  * drag handle) and a body with its layers + a per-canvas + Add Screen.
  * Active canvas is highlighted with a faint colored ring matching the

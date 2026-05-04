@@ -65,7 +65,7 @@ def test_migrate_v07_project_creates_default_canvas(client):
 
 
 def test_migrate_preserves_root_fields(client):
-    """Slice 1 is additive — root raster/perspective fields must remain."""
+    """Slice 1 is additive, root raster/perspective fields must remain."""
     project = _v07_project()
     resp = client.put('/api/project', json=project)
     assert resp.status_code == 200
@@ -179,7 +179,7 @@ def test_refuse_newer_format_version(client):
 
 
 # -----------------------------------------------------------------------------
-# Slice 2 — canvas CRUD endpoints.
+# Slice 2, canvas CRUD endpoints.
 # -----------------------------------------------------------------------------
 
 
@@ -226,7 +226,7 @@ def test_delete_canvas_removes_layers(client_with_layer):
     assert proj['layers'][0]['canvas_id'] == 'c1'
     assert proj['active_canvas_id'] == 'c2'  # newly added is active
 
-    # Delete c1 — should remove its layer and reassign active to c2.
+    # Delete c1, should remove its layer and reassign active to c2.
     resp = client_with_layer.delete('/api/canvas/c1')
     assert resp.status_code == 200
     proj = resp.get_json()
@@ -252,7 +252,7 @@ def test_duplicate_canvas_clones_layers(client_with_layer):
     # v0.8: smart name iteration. "Canvas 1" + dup → "Canvas 2".
     assert new_canvas['name'] == 'Canvas 2'
     assert proj['active_canvas_id'] == 'c2'
-    # Should now have two layers — original on c1, clone on c2 with new id.
+    # Should now have two layers, original on c1, clone on c2 with new id.
     assert len(proj['layers']) == 2
     cloned = [l for l in proj['layers'] if l['canvas_id'] == 'c2']
     assert len(cloned) == 1
@@ -390,7 +390,7 @@ def test_update_canvas_persists_workspace_position(client):
 
 
 # -----------------------------------------------------------------------------
-# Slice 3 — auto-place new canvases horizontally with a configurable gap.
+# Slice 3, auto-place new canvases horizontally with a configurable gap.
 # -----------------------------------------------------------------------------
 
 DEFAULT_CANVAS_GAP = 50
@@ -500,7 +500,7 @@ def test_active_canvas_selection_scoping_rule_documented():
         currentLayer.canvas_id === project.active_canvas_id
 
     after every layer selection or canvas activation. This test is a
-    documentation anchor — if you remove the scoping logic, please update
+    documentation anchor, if you remove the scoping logic, please update
     docs/multi-canvas-design.md and delete this assertion deliberately.
     """
     # Marker assertion; the real verification is the manual UX checklist
@@ -537,7 +537,7 @@ def test_duplicate_canvas_name_appends_1_when_no_suffix(client_with_layer):
 
 
 # -----------------------------------------------------------------------------
-# Slice 6 — per-canvas raster (toolbar source-of-truth on active canvas).
+# Slice 6, per-canvas raster (toolbar source-of-truth on active canvas).
 # -----------------------------------------------------------------------------
 
 
@@ -549,7 +549,7 @@ def test_toolbar_raster_change_only_touches_active_canvas(client):
     client.post('/api/canvas', json={})  # c2 (auto-cloned from active = c1)
     client.put('/api/canvas/c2', json={'raster_width': 800, 'raster_height': 600})
 
-    # Activate c1 and "edit the toolbar" via the canvas update endpoint —
+    # Activate c1 and "edit the toolbar" via the canvas update endpoint,
     # mimics the Slice 6 client which routes the toolbar change to the
     # active canvas, not to project root.
     client.put('/api/canvas/c1/active')

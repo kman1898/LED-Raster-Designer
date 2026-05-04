@@ -148,7 +148,7 @@ def _build_panels(layer, panel_states=None):
         ps = panel_states.get((r, c), {}) if panel_states else {}
         return ps.get('halfTile', 'none')
 
-    # Per-panel width/height — half-tiles render at half cabinet size.
+    # Per-panel width/height, half-tiles render at half cabinet size.
     def panel_w(r, c):
         return cabinet_width / 2 if _half_at(r, c) == 'width' else cabinet_width
 
@@ -204,14 +204,14 @@ def _build_panels(layer, panel_states=None):
             y = row_y[r]
 
             # Anchor half-tiles to their neighbor side so the visible cabinet
-            # connects to the rest of the wall — the "missing" half sits on
+            # connects to the rest of the wall, the "missing" half sits on
             # the wall's outer edge (no neighbor side), not between this
             # cabinet and its neighbor.
             if half_tile == 'height' and ph < slot_h:
                 has_above = _has_visible_neighbor(r - 1, c)
                 has_below = _has_visible_neighbor(r + 1, c)
                 if not has_above and has_below:
-                    # Missing half on top — anchor to bottom of slot.
+                    # Missing half on top, anchor to bottom of slot.
                     y = row_y[r] + (slot_h - ph)
                 # else: anchor to top (default; covers top-anchored top edges
                 # and the interior/all-neighbors fallback).
@@ -219,7 +219,7 @@ def _build_panels(layer, panel_states=None):
                 has_left = _has_visible_neighbor(r, c - 1)
                 has_right = _has_visible_neighbor(r, c + 1)
                 if not has_left and has_right:
-                    # Missing half on left — anchor to right of slot.
+                    # Missing half on left, anchor to right of slot.
                     x = col_x[c] + (slot_w - pw)
                 # else: anchor to left (default).
 
@@ -326,7 +326,7 @@ next_layer_id = 1
 
 # Multi-canvas (v0.8) support. The project file format gains a `canvases`
 # array, a `format_version` string, and an `active_canvas_id`. v0.7 projects
-# are auto-migrated on load. Slice 1 is additive only — root-level
+# are auto-migrated on load. Slice 1 is additive only, root-level
 # raster_width/raster_height/show_raster_*/perspectives are still written so
 # the existing single-canvas client keeps working until later slices switch
 # the source-of-truth to per-canvas fields.
@@ -371,7 +371,7 @@ def _migrate_to_v0_8(project):
       every layer has a canvas_id, this is a no-op.
     - Otherwise: build a default canvas from the project's existing raster
       fields, assign every layer to it, set format_version/active_canvas_id.
-      Root-level raster fields are intentionally left in place — Slice 1 is
+      Root-level raster fields are intentionally left in place, Slice 1 is
       additive so the existing single-canvas client keeps reading them.
 
     Returns (project, did_migrate). did_migrate is True only when the
@@ -452,7 +452,7 @@ def _build_initial_project():
         'name': 'Untitled Project',
         'raster_width': 1920,
         'raster_height': 1080,
-        # Show Look has its own raster size — defaults to the same as the
+        # Show Look has its own raster size, defaults to the same as the
         # processor raster so existing projects open identically. The Show
         # Look raster is used as the export canvas size for the Show Look /
         # Data / Power views (which all render at the show position).
@@ -526,7 +526,7 @@ def _seed_data_with_canvas_defaults(data):
     already has screens, seed the request payload with hardware/processor
     settings from the most recently added screen in that canvas. Mutates
     and returns ``data``. This makes each canvas behave like its own preset
-    bucket — adding a second SR cabinet inherits SR's voltage/amperage/
+    bucket, adding a second SR cabinet inherits SR's voltage/amperage/
     panel size/etc. without the user reconfiguring.
 
     Runs BEFORE create_layer() so positional args (cabinet_width/height)
@@ -563,7 +563,7 @@ def _seed_data_with_canvas_defaults(data):
     )
     for field in inheritable:
         if field in data:
-            continue  # caller specified — respect it
+            continue  # caller specified, respect it
         if field in donor and donor[field] is not None:
             data[field] = donor[field]
     return data
@@ -596,7 +596,7 @@ def create_layer(name, columns, rows, cabinet_width, cabinet_height, offset_x=0,
         'cabinet_height': cabinet_height,
         'offset_x': offset_x,
         'offset_y': offset_y,
-        # Show Look position — used by the Show Look / Data / Power tabs.
+        # Show Look position, used by the Show Look / Data / Power tabs.
         # Defaults to the same values as offset_x/offset_y until the user
         # rearranges the layer in the Show Look view, at which point the
         # two positions diverge: pixel-map / cabinet-id keep using
@@ -1184,7 +1184,7 @@ def restore_project():
     current_project = data
     current_project['is_pristine'] = False
     # Backfill showOffsetX/Y on layers from older projects that pre-date the
-    # Show Look feature — default them to the layer's processor offset so
+    # Show Look feature, default them to the layer's processor offset so
     # existing projects open with the show layout = pixel layout.
     for layer in current_project.get('layers', []):
         if layer.get('showOffsetX') is None:
@@ -1221,7 +1221,7 @@ def restore_project():
     socketio.emit('project_updated', current_project)
     # Slice 12: surface a one-time migration notice to the client when the
     # incoming file lacked a v0.8 format_version. Carried as a top-level
-    # transient field on the response only — never stored on disk because
+    # transient field on the response only, never stored on disk because
     # the next save will write the now-present format_version, and future
     # loads of that same file won't re-migrate (and won't re-toast).
     response = dict(current_project)
@@ -1431,7 +1431,7 @@ def update_layer(layer_id):
             or 'halfFirstRow' in data or 'halfLastRow' in data):
         # Save existing panel states (hidden, blank, halfTile) before regenerating.
         # Key by (row, col) so state stays anchored to its grid cell when columns
-        # or rows change — keying by sequential id meant a column resize would
+        # or rows change, keying by sequential id meant a column resize would
         # shuffle blanks/half-tiles across the wall.
         old_panel_states = {}
         if 'panels' in layer:
@@ -1532,7 +1532,7 @@ def _next_canvas_workspace_position():
     Returns ``(workspace_x, workspace_y)``.
     """
     canvases = current_project.get('canvases') or []
-    # v0.8 Slice 9: default gap is 0 — most LED installs are abutting walls,
+    # v0.8 Slice 9: default gap is 0, most LED installs are abutting walls,
     # not floating screens. Server preference still wins when set.
     gap = 0
     try:
@@ -1753,7 +1753,7 @@ def set_active_canvas(canvas_id):
     if not _find_canvas(canvas_id):
         return jsonify({'error': 'Canvas not found'}), 404
     current_project['active_canvas_id'] = canvas_id
-    # Note: not flagging pristine — active canvas is a UI cursor, not data.
+    # Note: not flagging pristine, active canvas is a UI cursor, not data.
     log_event('canvas_set_active', {'id': canvas_id})
     socketio.emit('project_updated', current_project)
     return jsonify(current_project)
@@ -3159,7 +3159,7 @@ def generate_resolume_xml(project, project_name, raster_w, raster_h):
     OutputDeviceVirtual for each Screen is sized to that canvas's raster.
 
     The project-wide CurrentCompositionTextureSize is the workspace bounding
-    box of all visible canvases — that's the source-composition size the
+    box of all visible canvases, that's the source-composition size the
     user would feed in Resolume to drive every canvas at once.
 
     Legacy projects (no canvases array) fall through to a single synthetic
@@ -3177,7 +3177,7 @@ def generate_resolume_xml(project, project_name, raster_w, raster_h):
         if not layer.get('panels'):
             layer['panels'] = _build_panels(layer)
 
-    # Resolve canvases. Visible only — hiding a canvas in the sidebar is
+    # Resolve canvases. Visible only, hiding a canvas in the sidebar is
     # the user's signal that it shouldn't appear in the export. Legacy:
     # synthetic single canvas at (0, 0) using project-root raster.
     project_canvases = project.get('canvases') or []

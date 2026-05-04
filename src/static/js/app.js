@@ -1008,7 +1008,7 @@ class LEDRasterApp {
                 // The CSS width transition runs ~180ms. Reposition the
                 // toggle and resize the canvas at multiple points during /
                 // after the animation so the canvas always fills the
-                // available wrapper width — otherwise the canvas keeps its
+                // available wrapper width, otherwise the canvas keeps its
                 // pre-collapse pixel dimensions and the user sees a black
                 // strip on the side where the sidebar used to be.
                 requestAnimationFrame(() => { positionToggle(); resizeCanvas(); });
@@ -1067,11 +1067,11 @@ class LEDRasterApp {
             const prefResp = await fetch('/api/preferences');
             const serverPrefs = await prefResp.json();
             if (serverPrefs && Object.keys(serverPrefs).length > 0) {
-                // Server has preferences — use them (overrides localStorage)
+                // Server has preferences, use them (overrides localStorage)
                 this._serverPreferences = serverPrefs;
                 console.log('Loaded server-side preferences:', Object.keys(serverPrefs));
             } else {
-                // No server prefs yet — seed from localStorage if available
+                // No server prefs yet, seed from localStorage if available
                 const localPrefs = this.getLocalPreferences();
                 if (Object.keys(localPrefs).length > 0) {
                     this._serverPreferences = localPrefs;
@@ -1139,7 +1139,7 @@ class LEDRasterApp {
             }
 
             // Restore client-side properties and layer defaults.
-            // On reconnect (after sleep), skip preference enforcement — the project
+            // On reconnect (after sleep), skip preference enforcement, the project
             // already has the correct state from before the disconnect.
             this.loadClientSideProperties({ skipPreferences: this._initialLoadComplete });
             
@@ -1326,7 +1326,7 @@ class LEDRasterApp {
                 // Save initial state for undo/redo
                 this.resetHistory('Initial State');
 
-                // Mark initial load complete — subsequent socket project_data
+                // Mark initial load complete, subsequent socket project_data
                 // events are reconnects and should not re-apply preferences.
                 this._initialLoadComplete = true;
 
@@ -1505,7 +1505,7 @@ class LEDRasterApp {
             if (layer.infoLabelSize === undefined) layer.infoLabelSize = 14;
             if (layer.showDataFlowPortInfo === undefined) layer.showDataFlowPortInfo = false;
             if (layer.showPowerCircuitInfo === undefined) layer.showPowerCircuitInfo = false;
-            // Show Look position — default to processor offset for older
+            // Show Look position, default to processor offset for older
             // projects so they open looking identical to before.
             if (layer.showOffsetX === undefined || layer.showOffsetX === null) {
                 layer.showOffsetX = layer.offset_x || 0;
@@ -1708,8 +1708,8 @@ class LEDRasterApp {
      * show_raster_* on the active canvas so older projects (where show
      * raster was never set) open with show = pixel.
      *
-     * Renderer fields are accessor-backed (Slice 6) — they read straight
-     * from the active canvas — so no per-renderer assignment is needed.
+     * Renderer fields are accessor-backed (Slice 6), they read straight
+     * from the active canvas, so no per-renderer assignment is needed.
      * Legacy fallback (no canvases array): seed the renderer's _fallback*
      * backing fields from the project root so single-canvas pre-Slice-1
      * projects still display.
@@ -1726,7 +1726,7 @@ class LEDRasterApp {
                 if (!c.show_raster_height) c.show_raster_height = c.raster_height;
             }
         } else {
-            // Pre-Slice-1 project — seed the renderer's fallback backing
+            // Pre-Slice-1 project, seed the renderer's fallback backing
             // fields so the legacy single-canvas getter path returns sane
             // values until the project gets migrated by the server.
             const pw = Number(this.project.raster_width) || 1920;
@@ -1746,7 +1746,7 @@ class LEDRasterApp {
     
     // Load raster size from localStorage (checks version first).
     //
-    // Slice 6: at boot the project hasn't loaded yet — the active canvas's
+    // Slice 6: at boot the project hasn't loaded yet, the active canvas's
     // raster is the source of truth and we must NOT clobber it with stale
     // localStorage. So we only seed the renderer's fallback backing fields
     // (used when no canvases array exists yet) and refresh the toolbar
@@ -1953,7 +1953,7 @@ class LEDRasterApp {
         this.renderLayers();
         this.loadTextLayerToInputs();
         // Slice 10: keep the Totals panels (Data Flow + Power tabs) in sync
-        // with whatever just changed. Always cheap — two aggregations over
+        // with whatever just changed. Always cheap, two aggregations over
         // the visible screen layers, plus a handful of textContent writes.
         if (typeof this.refreshTotalsSidebar === 'function') {
             try { this.refreshTotalsSidebar(); } catch (_) {}
@@ -2073,7 +2073,7 @@ class LEDRasterApp {
      * v0.8 Slice 10: paint the Totals panels on the Data Flow + Power tabs.
      * Two columns each: active canvas + project-wide. Numbers come from
      * getPortCounts/getPowerCounts which already exclude hidden canvases.
-     * Cheap to call on every updateUI — the Totals panels are display:none
+     * Cheap to call on every updateUI, the Totals panels are display:none
      * unless the user is on the relevant tab.
      */
     refreshTotalsSidebar() {
@@ -2092,7 +2092,7 @@ class LEDRasterApp {
         setText('data-totals-canvas-backup', dataCanvas.backup);
         setText('data-totals-project-primary', dataProject.primary);
         setText('data-totals-project-backup', dataProject.backup);
-        // Power totals — show "0" cleanly when there's no active canvas / no
+        // Power totals, show "0" cleanly when there's no active canvas / no
         // load yet. Amps formatted to 2 decimals to match the per-layer
         // capacity readout.
         const pwrCanvas = activeId ? this.getPowerCounts(activeId)
@@ -2181,7 +2181,7 @@ class LEDRasterApp {
             document.getElementById('notes-panel-header').addEventListener('click', toggleNotes);
         }
 
-        // Help panel — same collapse pattern as Notes. Defaults to collapsed
+        // Help panel, same collapse pattern as Notes. Defaults to collapsed
         // so the layer-groups list above gets the spare space; user can
         // expand on demand via the header.
         const helpPanel = document.getElementById('help-tooltip-panel');
@@ -2613,7 +2613,7 @@ class LEDRasterApp {
             }
         });
         
-        // Screen Name checkboxes on other tabs — each writes its own per-tab property
+        // Screen Name checkboxes on other tabs, each writes its own per-tab property
         const tabLabelMap = {
             'show-label-name-cabinet': 'showLabelNameCabinet',
             'show-label-name-data': 'showLabelNameDataFlow',
@@ -3687,11 +3687,11 @@ class LEDRasterApp {
                 // Slice 6: the toolbar Raster: W x H field is the active
                 // canvas's raster (Pixel Map raster on pixel-map / cabinet-id;
                 // Show Look raster on show-look / data / power). Writes go
-                // straight to the active canvas via PUT /api/canvas/<id> —
+                // straight to the active canvas via PUT /api/canvas/<id>,
                 // no project-root mirror, no _mirrorRasterToActiveCanvas hack.
                 //
                 // While show raster equals pixel raster ("linked"), changing
-                // the pixel raster also updates the show raster — Show Look
+                // the pixel raster also updates the show raster, Show Look
                 // tracks Pixel Map by default until the user splits them.
                 const renderer = window.canvasRenderer;
                 const isShow = renderer.isShowLookView();
@@ -3773,7 +3773,7 @@ class LEDRasterApp {
                 format
             });
             
-            // Resolume XML export — no views needed, just geometry
+            // Resolume XML export, no views needed, just geometry
             if (format === 'resolume-xml') {
                 document.getElementById('export-modal').style.display = 'none';
                 document.getElementById('status-message').textContent = 'Exporting Resolume XML...';
@@ -3805,7 +3805,7 @@ class LEDRasterApp {
             // Slice 11: collect selected canvas IDs from the dynamic
             // checklist. If the project has no canvases array (legacy /
             // pre-Slice-1 fallback), pass [null] so performExport treats it
-            // as a single synthetic canvas using project-root raster dims —
+            // as a single synthetic canvas using project-root raster dims,
             // matching v0.7 export behaviour exactly.
             const canvasIds = this.getSelectedExportCanvasIds();
             if (canvasIds.length === 0) {
@@ -4110,7 +4110,7 @@ class LEDRasterApp {
         if (!modal || !list) return;
         list.innerHTML = '<div style="padding: 12px; color: #888; font-size: 12px;">Loading…</div>';
         modal.style.display = 'block';
-        // Selection model: { type: 'preset'|'panel', key } — default preset is always '__default__'
+        // Selection model: { type: 'preset'|'panel', key }, default preset is always '__default__'
         this._pickerSelection = { type: 'preset', key: '__default__' };
         this._updatePickerSummary();
         this._renderPresetPickerLeftColumn();
@@ -4174,7 +4174,7 @@ class LEDRasterApp {
                 item.dataset.kind = row.kind;
                 item.dataset.id = row.id;
                 item.style.cssText = 'padding: 10px 12px; border-radius: 4px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 8px;';
-                // Default + non-default rows get drag enabled (except default — it stays pinned)
+                // Default + non-default rows get drag enabled (except default, it stays pinned)
                 if (row.kind !== 'default') {
                     item.draggable = true;
                     this._wirePresetRowDrag(item);
@@ -4184,7 +4184,7 @@ class LEDRasterApp {
                 leftCol.style.cssText = 'flex: 1; min-width: 0; overflow: hidden;';
                 leftCol.innerHTML = `<div style="color:#fff; font-size:13px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${this.escapeHtml(row.label)}</div><div style="color:#888; font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${row.sublabel}</div>`;
                 item.appendChild(leftCol);
-                // Heart on favorite rows (always filled — clicking removes from favorites)
+                // Heart on favorite rows (always filled, clicking removes from favorites)
                 if (row.kind === 'favorite') {
                     const heartBtn = document.createElement('button');
                     heartBtn.className = 'btn';
@@ -4366,7 +4366,7 @@ class LEDRasterApp {
         });
     }
 
-    // Background check on app boot — fetches the upstream catalog SHA and
+    // Background check on app boot, fetches the upstream catalog SHA and
     // stashes the fresh catalog in localStorage if it differs from what the
     // user currently has loaded. Sets `_catalogUpdateAvailable` so the picker
     // can show an "Update available" badge next time it's opened.
@@ -4396,7 +4396,7 @@ class LEDRasterApp {
             }).catch(() => ({}));
         infoFetch.then(() => fetch('/api/panel-catalog/refresh').then(r => r.ok ? r.json() : Promise.reject(r)))
             .then(apply)
-            .catch(() => { /* offline / blocked — silently keep current */ });
+            .catch(() => { /* offline / blocked, silently keep current */ });
     }
 
     // Manual user-triggered refresh from the button in the catalog header.
@@ -4433,13 +4433,13 @@ class LEDRasterApp {
                 this._renderCatalogSourceTag();
                 if (!opts.silent) {
                     const count = payload.panelCount || 0;
-                    this._toast(`Catalog refreshed — ${count.toLocaleString()} panels`);
+                    this._toast(`Catalog refreshed, ${count.toLocaleString()} panels`);
                 }
             })
             .catch((err) => {
                 if (!opts.silent) {
                     const detail = err && err.error ? ` (${err.error})` : '';
-                    this._toast(`Couldn’t reach GitHub — keeping current catalog${detail}`, true);
+                    this._toast(`Couldn’t reach GitHub, keeping current catalog${detail}`, true);
                 }
             })
             .finally(() => {
@@ -4478,7 +4478,7 @@ class LEDRasterApp {
                     this._loadPanelCatalog();
                     this._toast('Catalog updated');
                 } else {
-                    // Pending data wasn't stashed (boot check failed?) — fall back to a fresh refresh
+                    // Pending data wasn't stashed (boot check failed?), fall back to a fresh refresh
                     this.refreshPanelCatalogNow();
                 }
             };
@@ -4529,7 +4529,7 @@ class LEDRasterApp {
         // source string mentions an authoritative site.
         if (/\b(est|estimated|derived|same as|inferred|approx)\b/.test(s)) return false;
         if (/\+\s*(frame|air frame|t4|ladder|windbrace|spotlight)/.test(s)) return false;
-        // Trusted sources — manufacturer's own site / PDF, or a reputable
+        // Trusted sources, manufacturer's own site / PDF, or a reputable
         // third-party dealer that publishes the full datasheet.
         if (s.startsWith('official:')) return true;
         if (s.startsWith('roevisual')) return true;          // roevisual.com (ROE)
@@ -4641,11 +4641,11 @@ class LEDRasterApp {
             if (p.pixels_w != null) parts.push(`${p.pixels_w}×${p.pixels_h}px`);
             if (p.weight_kg != null) parts.push(`${p.weight_kg}kg`);
             if (p.watts_max != null) parts.push(`${p.watts_max}W`);
-            summary.textContent = `Panel: ${sel.label} — ${parts.join(' · ')}`;
+            summary.textContent = `Panel: ${sel.label}, ${parts.join(' · ')}`;
         } else if (sel.type === 'preset' && sel.key && sel.key !== '__default__') {
             summary.textContent = `Preset: ${sel.label || sel.key}`;
         } else {
-            summary.textContent = 'Default — uses your Preferences values.';
+            summary.textContent = 'Default, uses your Preferences values.';
         }
     }
 
@@ -4747,8 +4747,8 @@ class LEDRasterApp {
         }
 
         const notesPrompt = (mode === 'fix')
-            ? `What's wrong with "${panelRef}"?\n\nDescribe the discrepancy. After you click OK we'll open a GitHub issue — drag any spec sheet PDF or a photo of the panel back into the comment box there to attach it.`
-            : `Tell us about "${panelRef}" — paste any specs you have (cabinet mm, pixels, weight, max watts).\n\nAfter you click OK we'll open a GitHub issue — drag the official spec sheet PDF or a photo of the panel back into the comment box to attach it.`;
+            ? `What's wrong with "${panelRef}"?\n\nDescribe the discrepancy. After you click OK we'll open a GitHub issue, drag any spec sheet PDF or a photo of the panel back into the comment box there to attach it.`
+            : `Tell us about "${panelRef}", paste any specs you have (cabinet mm, pixels, weight, max watts).\n\nAfter you click OK we'll open a GitHub issue, drag the official spec sheet PDF or a photo of the panel back into the comment box to attach it.`;
         const notes = window.prompt(notesPrompt, '');
         if (notes === null) return;  // cancelled
 
@@ -4759,7 +4759,7 @@ class LEDRasterApp {
             `**Panel:** ${panelRef}`,
             '',
             '**Current catalog values:**',
-            currentValues || '_(no panel selected — please paste the catalog values you saw)_',
+            currentValues || '_(no panel selected, please paste the catalog values you saw)_',
             '',
             '**What\'s wrong:**',
             notes || '_(left blank)_',
@@ -4789,7 +4789,7 @@ class LEDRasterApp {
             body: bodyLines.join('\n'),
         });
         const url = `https://github.com/kman1898/LED-Raster-Designer/issues/new?${params.toString()}`;
-        // Make sure the user knows the GitHub tab is the actual submission —
+        // Make sure the user knows the GitHub tab is the actual submission,
         // we've had submissions get lost because the user filled out the
         // app-side prompts and assumed that was enough.
         const ok = confirm(
@@ -5780,7 +5780,7 @@ class LEDRasterApp {
         this.selectedLayerIds = new Set([layer.id]);
         this.lastSelectedLayerId = layer.id;
         this.selectionAnchorLayerId = layer.id;
-        // Slice 4: auto-activate this layer's canvas. Idempotent — short-
+        // Slice 4: auto-activate this layer's canvas. Idempotent, short-
         // circuits when already active so programmatic selectLayer calls
         // (post-load, post-create, post-delete) don't fire spurious PUTs.
         this._activateCanvasForLayer(layer);
@@ -5904,7 +5904,7 @@ class LEDRasterApp {
         // Repopulate the active view's per-layer label editor so the port-rename
         // (data-flow view) or circuit-rename (power view) sidebar reflects the
         // newly selected layer immediately. Without this, the editor only
-        // refreshed the next time something else nudged it — which made the
+        // refreshed the next time something else nudged it, which made the
         // first click after a layer-change appear empty until a second click.
         const viewMode = window.canvasRenderer && window.canvasRenderer.viewMode;
         if (viewMode === 'data-flow') {
@@ -6205,7 +6205,7 @@ class LEDRasterApp {
 
         const requests = layers.map(layer => {
             const preservedProps = {
-                // Show Look position — keep in sync across the server
+                // Show Look position, keep in sync across the server
                 // round-trip (server whitelists the field, but echoing the
                 // same value is safer than dropping it).
                 showOffsetX: layer.showOffsetX,
@@ -6274,7 +6274,7 @@ class LEDRasterApp {
                 _powerTotalAmps3: layer._powerTotalAmps3,
                 _powerCircuitsRequired: layer._powerCircuitsRequired,
                 // Preserve client-computed port counts across the server
-                // roundtrip — server doesn't whitelist these fields, so its
+                // roundtrip, server doesn't whitelist these fields, so its
                 // echo carries stale values that would otherwise overwrite
                 // the freshly recomputed numbers (causes ports-required and
                 // the port-rename editor to show too few ports in custom
@@ -6584,7 +6584,7 @@ class LEDRasterApp {
             if (!el) return;
             if (common.mixed) {
                 el.value = '';
-                el.placeholder = '—';
+                el.placeholder = '-';
             } else {
                 el.value = common.value;
                 el.placeholder = '';
@@ -6604,7 +6604,7 @@ class LEDRasterApp {
 
         setTextInput('offset-x', getCommon(l => l.offset_x));
         setTextInput('offset-y', getCommon(l => l.offset_y));
-        // Show Look offsets — separate from processor offsets (Pixel Map).
+        // Show Look offsets, separate from processor offsets (Pixel Map).
         setTextInput('show-offset-x', getCommon(l => (l.showOffsetX ?? l.offset_x) || 0));
         setTextInput('show-offset-y', getCommon(l => (l.showOffsetY ?? l.offset_y) || 0));
 
@@ -6616,7 +6616,7 @@ class LEDRasterApp {
             const scaleCommon = getCommon(l => Math.round((l.imageScale || 1) * 100));
             if (imageScaleEl) {
                 imageScaleEl.value = scaleCommon.mixed ? '' : scaleCommon.value;
-                imageScaleEl.placeholder = scaleCommon.mixed ? '—' : '';
+                imageScaleEl.placeholder = scaleCommon.mixed ? '-' : '';
             }
             if (imageScaleRangeEl) {
                 imageScaleRangeEl.value = scaleCommon.mixed ? '100' : String(scaleCommon.value);
@@ -6635,7 +6635,7 @@ class LEDRasterApp {
                 imageScaleRangeEl.value = '100';
             }
             if (imageSizeEl) {
-                imageSizeEl.textContent = '—';
+                imageSizeEl.textContent = '-';
             }
         }
         setTextInput('cabinet-width', getCommon(l => l.cabinet_width));
@@ -6702,7 +6702,7 @@ class LEDRasterApp {
             if (hex) {
                 if (common.mixed) {
                     hex.value = '';
-                    hex.placeholder = '—';
+                    hex.placeholder = '-';
                 } else {
                     hex.value = value.toUpperCase();
                     hex.placeholder = '';
@@ -6756,7 +6756,7 @@ class LEDRasterApp {
         setCheckbox('show-offset-bl', getCommon(l => l.showOffsetBL || false));
         setCheckbox('show-offset-br', getCommon(l => l.showOffsetBR || false));
         
-        // Update Screen Name checkboxes on other tabs — each reads its own per-tab property
+        // Update Screen Name checkboxes on other tabs, each reads its own per-tab property
         // with fallback to global showLabelName → true (backwards compat with old project files)
         if (document.getElementById('show-label-name-cabinet')) {
             setCheckbox('show-label-name-cabinet', getCommon(l => _tabLabel(l, 'showLabelNameCabinet')));
@@ -7358,7 +7358,7 @@ class LEDRasterApp {
                 const candidateLoad = calcBoundingRectLoad(candidateIndices);
 
                 if (current.unitIndices.length > 0 && candidateLoad > portCapacity) {
-                    // Adding this unit would exceed capacity — start new port
+                    // Adding this unit would exceed capacity, start new port
                     current.load = calcBoundingRectLoad(current.unitIndices);
                     ports.push(current);
                     current = { unitIndices: [unitIdx], load: singleUnitLoad };
@@ -7601,7 +7601,7 @@ class LEDRasterApp {
             // placeholder so the user understands what's being exported.
             const note = document.createElement('div');
             note.style.cssText = 'font-size:11px;color:#888;padding:6px 0;';
-            note.textContent = 'Single-canvas project — entire workspace will be exported.';
+            note.textContent = 'Single-canvas project, entire workspace will be exported.';
             list.appendChild(note);
             return;
         }
@@ -7739,7 +7739,7 @@ class LEDRasterApp {
                         : `${projectName} ${suffix}`;
                     // PDF page label includes canvas + view when multi.
                     const pdfLabel = (multiCanvas && canvasName)
-                        ? `${canvasName} — ${suffix}`
+                        ? `${canvasName}, ${suffix}`
                         : suffix;
                     renderedItems.push({
                         canvasId: cid,
@@ -7773,7 +7773,7 @@ class LEDRasterApp {
         }
 
         // Dispatch to format-specific writer. Multi-canvas just means
-        // more items — each writer already loops over them.
+        // more items, each writer already loops over them.
         if (format === 'png') {
             await this.downloadRenderedPNGs(renderedItems);
         } else if (format === 'pdf') {
@@ -7876,12 +7876,12 @@ class LEDRasterApp {
         filename = this.sanitizeFilename(filename);
         // blobOrFn can be a Blob OR an async function returning one. Lazy-blob
         // form lets the caller defer expensive serialization (e.g. stringifying
-        // a 1MB project) until AFTER showSaveFilePicker resolves — keeping the
+        // a 1MB project) until AFTER showSaveFilePicker resolves, keeping the
         // user-activation gesture fresh for createWritable. See bug fix for
         // 0-byte JSON saves on large multi-canvas projects.
         const resolveBlob = async () => (typeof blobOrFn === 'function' ? await blobOrFn() : blobOrFn);
         // 1. Try the File System Access API (Chrome/Edge on secure contexts).
-        //    Skip on localhost — we have a better server-side native dialog
+        //    Skip on localhost, we have a better server-side native dialog
         //    available that doesn't break on cloud-synced folders (Nextcloud,
         //    iCloud, Dropbox, OneDrive). Chrome's createWritable rejects with
         //    NotAllowedError when the target lives under a sync agent's xattrs,
@@ -7911,7 +7911,7 @@ class LEDRasterApp {
                     name: err && err.name,
                     message: err && err.message
                 });
-                // Try native dialog (Mac/Win/Linux) — opens a fresh dialog so
+                // Try native dialog (Mac/Win/Linux), opens a fresh dialog so
                 // we get our own gesture-bound path. If unavailable, use
                 // browserDownload as last resort.
             }
@@ -7965,7 +7965,7 @@ class LEDRasterApp {
             hasDirectoryPicker: !!window.showDirectoryPicker,
             hasSaveFilePicker: !!window.showSaveFilePicker
         });
-        // v0.8: same Chrome activation issue we hit on JSON saves — when
+        // v0.8: same Chrome activation issue we hit on JSON saves, when
         // the user is on localhost (this Flask app), the multi-canvas export
         // burns the user-gesture token rendering all the canvases between
         // showDirectoryPicker resolving and the per-file getFileHandle/
@@ -8072,7 +8072,7 @@ class LEDRasterApp {
         const files = [];
         for (const view of renderedViews) {
             // Slice 11: when exporting per-canvas, only include layers from
-            // that canvas in the PSD layer list — otherwise the PSD reports
+            // that canvas in the PSD layer list, otherwise the PSD reports
             // sibling canvases' layers as if they were in this image.
             // Legacy / single-canvas: include every layer (canvasId is null).
             const psdLayers = this.project.layers.filter(l => {
@@ -8531,7 +8531,7 @@ class LEDRasterApp {
     updateShortcutLabels() {
         const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform) || /Mac/.test(navigator.userAgent);
         document.querySelectorAll('.menu-option[data-label]').forEach(option => {
-            // Skip options with submenus — they manage their own content
+            // Skip options with submenus, they manage their own content
             if (option.classList.contains('menu-has-submenu')) return;
             const label = option.getAttribute('data-label') || '';
             const shortcut = isMac ? option.getAttribute('data-shortcut-mac') : option.getAttribute('data-shortcut-win');
@@ -9176,9 +9176,9 @@ class LEDRasterApp {
             const capacityEl = document.getElementById('port-capacity');
             const panelsPerPortEl = document.getElementById('panels-per-port');
             const portsRequiredEl = document.getElementById('ports-required');
-            if (capacityEl) capacityEl.textContent = '—';
-            if (panelsPerPortEl) panelsPerPortEl.textContent = '—';
-            if (portsRequiredEl) portsRequiredEl.textContent = '—';
+            if (capacityEl) capacityEl.textContent = '-';
+            if (panelsPerPortEl) panelsPerPortEl.textContent = '-';
+            if (portsRequiredEl) portsRequiredEl.textContent = '-';
             return;
         }
         
@@ -9303,11 +9303,11 @@ class LEDRasterApp {
             const circuitsEl = document.getElementById('power-circuits-required');
             const amps1El = document.getElementById('power-total-amps-1ph');
             const amps3El = document.getElementById('power-total-amps-3ph');
-            if (wattsEl) wattsEl.textContent = '—';
-            if (panelsEl) panelsEl.textContent = '—';
-            if (circuitsEl) circuitsEl.textContent = '—';
-            if (amps1El) amps1El.textContent = '—';
-            if (amps3El) amps3El.textContent = '—';
+            if (wattsEl) wattsEl.textContent = '-';
+            if (panelsEl) panelsEl.textContent = '-';
+            if (circuitsEl) circuitsEl.textContent = '-';
+            if (amps1El) amps1El.textContent = '-';
+            if (amps3El) amps3El.textContent = '-';
             return;
         }
         const layer = this.currentLayer;
@@ -9437,7 +9437,7 @@ class LEDRasterApp {
         if (overrides && overrides[circuitNum]) return overrides[circuitNum];
         // A multi/soca has 6 ports, so labels wrap every 6 circuits and the
         // soca number in the template increments. Works for any template
-        // shaped like <prefix><number><separator># — e.g. S1-#, S2-#, MULTI3-#.
+        // shaped like <prefix><number><separator>#, e.g. S1-#, S2-#, MULTI3-#.
         const m = String(template).match(/^(.*?)(\d+)([^#\d]*)#(.*)$/);
         if (m) {
             const prefix = m[1];
@@ -9905,7 +9905,7 @@ class LEDRasterApp {
     selectPixelMapPanelsInRect(layer, rect) {
         if (!layer || !rect) return;
         this.pixelMapSelection.clear();
-        // rect is in workspace coords; panel coords are canvas-relative —
+        // rect is in workspace coords; panel coords are canvas-relative,
         // shift by the layer's parent canvas's workspace offset before
         // comparing. (No-op for single-canvas projects.)
         const off = this._getLayerWorkspaceOffset(layer);
@@ -9970,7 +9970,7 @@ class LEDRasterApp {
         const horizontalEdge = !hasLeft || !hasRight;
         if (verticalEdge && !horizontalEdge) return 'height';
         if (horizontalEdge && !verticalEdge) return 'width';
-        // Corner or interior — default to 'height' (top/bottom edges are the common case).
+        // Corner or interior, default to 'height' (top/bottom edges are the common case).
         return 'height';
     }
 
@@ -10019,7 +10019,7 @@ class LEDRasterApp {
     }
 
     /**
-     * Bulk hide/show panels — what the UI calls "Set Blank" (matching the
+     * Bulk hide/show panels, what the UI calls "Set Blank" (matching the
      * Alt+click behaviour, which toggles the per-panel `hidden` flag so the
      * cabinet disappears from the wall layout).
      */
@@ -10132,7 +10132,7 @@ class LEDRasterApp {
         const key = this.getPanelKey(panel);
         const exists = this.currentLayer.customPortPaths[portNum].some(p => `${p.row},${p.col}` === key);
         if (exists) return;
-        // Reject if the panel already belongs to a different port — user
+        // Reject if the panel already belongs to a different port, user
         // must clear the existing assignment first. Avoids silent
         // double-mapping that the user has to undo manually.
         const conflict = this._findPanelOwnerPort(this.currentLayer, panel, portNum);
@@ -10257,7 +10257,7 @@ class LEDRasterApp {
                 .map(c => `R${c.row + 1}C${c.col + 1}→port ${c.owner}`).join(', ');
             const more = conflicts.length > 3 ? ` (+${conflicts.length - 3} more)` : '';
             if (typeof this._toast === 'function') {
-                this._toast(`Cannot apply: ${conflicts.length} panel${conflicts.length === 1 ? '' : 's'} already wired to other ports — ${sample}${more}.`, true);
+                this._toast(`Cannot apply: ${conflicts.length} panel${conflicts.length === 1 ? '' : 's'} already wired to other ports, ${sample}${more}.`, true);
             }
             return;
         }
@@ -10308,7 +10308,7 @@ class LEDRasterApp {
 
         const circuitNum = this.currentLayer.powerCustomIndex || 1;
         // Reject if any selected panel already belongs to a different
-        // circuit — same policy as data-flow custom pattern apply.
+        // circuit, same policy as data-flow custom pattern apply.
         const conflicts = [];
         for (const p of ordered) {
             const owner = this._findPanelOwnerCircuit(this.currentLayer, p, circuitNum);
@@ -10319,7 +10319,7 @@ class LEDRasterApp {
                 .map(c => `R${c.row + 1}C${c.col + 1}→circuit ${c.owner}`).join(', ');
             const more = conflicts.length > 3 ? ` (+${conflicts.length - 3} more)` : '';
             if (typeof this._toast === 'function') {
-                this._toast(`Cannot apply: ${conflicts.length} panel${conflicts.length === 1 ? '' : 's'} already wired to other circuits — ${sample}${more}.`, true);
+                this._toast(`Cannot apply: ${conflicts.length} panel${conflicts.length === 1 ? '' : 's'} already wired to other circuits, ${sample}${more}.`, true);
             }
             return;
         }
@@ -10611,7 +10611,7 @@ class LEDRasterApp {
         });
 
         // v0.8 Slice 2: regroup the flat layer list by canvas. The existing
-        // layer items above are preserved as-is — we just lift them into
+        // layer items above are preserved as-is, we just lift them into
         // per-canvas group containers and add canvas headers + per-canvas
         // "+ Add Screen" buttons + cross-canvas drag/drop.
         this.regroupLayersByCanvas(container);
@@ -10620,7 +10620,7 @@ class LEDRasterApp {
     }
 
     // -------------------------------------------------------------------
-    // Multi-canvas (v0.8 Slice 2) — sidebar canvas grouping.
+    // Multi-canvas (v0.8 Slice 2), sidebar canvas grouping.
     //
     // Slice 2 keeps workspace rendering unchanged; the sidebar restructure
     // is the entire visible deliverable. Each canvas gets a header row
@@ -10645,7 +10645,7 @@ class LEDRasterApp {
         container.innerHTML = '';
 
         // Sidebar shows canvases in array order, with each canvas's
-        // (reverse-ordered) layers underneath — matches the existing
+        // (reverse-ordered) layers underneath, matches the existing
         // newest-on-top convention.
         project.canvases.forEach(canvas => {
             const group = this.buildCanvasGroupEl(canvas, activeId === canvas.id);
@@ -10653,7 +10653,7 @@ class LEDRasterApp {
             const body = group.querySelector('.canvas-group-body');
 
             // Append matching layer nodes in reverse render order
-            // (Photoshop style — newest on top).
+            // (Photoshop style, newest on top).
             const reversed = [...project.layers].reverse();
             reversed.forEach(layer => {
                 if (layer.canvas_id !== canvas.id) return;
@@ -10786,7 +10786,7 @@ class LEDRasterApp {
             }
             // Cross-canvas layer drop?
             // Only handle when the drop landed on the canvas header / footer
-            // (not on an existing layer-item inside this canvas) — otherwise
+            // (not on an existing layer-item inside this canvas), otherwise
             // we would double-fire alongside the within-list reorder handler.
             if (this.dragLayerId != null) {
                 const onLayerItem = e.target.closest && e.target.closest('.layer-item');
@@ -10823,7 +10823,7 @@ class LEDRasterApp {
             try { this.loadClientSideProperties && this.loadClientSideProperties({ skipPreferences: true }); } catch (_) {}
         }
         // If the active canvas's properties changed, sync raster size for
-        // the workspace toolbar (Slice 4 will deepen this — Slice 2 just
+        // the workspace toolbar (Slice 4 will deepen this, Slice 2 just
         // keeps the sidebar consistent).
         if (data.raster_width && data.raster_height && this.syncRasterFromProject) {
             try { this.syncRasterFromProject(); } catch (_) {}
@@ -10851,7 +10851,7 @@ class LEDRasterApp {
         }
         // Re-render the workspace canvas. The previous `if (this.render)`
         // check was always false (app has no .render method), so the
-        // workspace pixels never refreshed after a canvas CRUD response —
+        // workspace pixels never refreshed after a canvas CRUD response,
         // most visibly: toggling a canvas's visibility updated state but
         // never repainted the workspace, so the canvas appeared not to hide.
         if (window.canvasRenderer && typeof window.canvasRenderer.render === 'function') {
@@ -10993,7 +10993,7 @@ class LEDRasterApp {
     /**
      * Slice 5: after a canvas-drag drop, warn (non-blocking) if the
      * dragged canvas's workspace bounds intersect any other visible
-     * canvas's bounds. Does NOT auto-snap or reject — just toasts.
+     * canvas's bounds. Does NOT auto-snap or reject, just toasts.
      * Bounds use the active view's raster (pixel-map vs show-look),
      * matching what the user sees in `_drawCanvasOutline`.
      */
@@ -11020,7 +11020,7 @@ class LEDRasterApp {
             const b = bounds(other);
             if (b.w <= 0 || b.h <= 0) continue;
             if (intersects(a, b)) {
-                this._toast('Canvases overlapping — visual rendering may be confusing.', true);
+                this._toast('Canvases overlapping, visual rendering may be confusing.', true);
                 return;
             }
         }
@@ -11098,7 +11098,7 @@ class LEDRasterApp {
         // syncRasterFromProject reads straight from the active canvas now,
         // so no project-root mirror needed.
         try { this.syncRasterFromProject(); } catch (_) {}
-        // Slice 8: per-canvas perspective — sync the Front/Back toggle state
+        // Slice 8: per-canvas perspective, sync the Front/Back toggle state
         // when the active canvas changes so the sidebar reflects the canvas
         // the user is now editing.
         if (typeof this.refreshPerspectiveButtons === 'function') {
@@ -11116,18 +11116,18 @@ class LEDRasterApp {
     }
 
     /**
-     * Slice 6: deprecated — kept as a no-op so any lingering callers don't
+     * Slice 6: deprecated, kept as a no-op so any lingering callers don't
      * crash during the deprecation window. The renderer reads straight from
      * the active canvas via accessors now, so there is no project-root copy
      * to keep in sync.
      */
     _syncRootRasterFromActiveCanvas() {
-        // intentionally empty — see syncRasterFromProject().
+        // intentionally empty, see syncRasterFromProject().
     }
 
     /**
      * Slice 4: when a layer becomes the user-selected layer, also activate
-     * its canvas (if different). Idempotent — setActiveCanvas short-circuits
+     * its canvas (if different). Idempotent, setActiveCanvas short-circuits
      * when already active, so we won't spam PUTs from re-selecting the same
      * layer or selecting siblings inside the already-active canvas.
      */
@@ -11172,7 +11172,7 @@ class LEDRasterApp {
     // v0.8 Slice 2.5: per-canvas "+ Add" chooser (Screen / Image / Text).
     // Routes to the existing add flows after activating the target canvas
     // so the new layer always lands in the canvas whose "+ Add" was clicked
-    // (mirrors the Slice 2 add-screen pattern — server uses active_canvas_id
+    // (mirrors the Slice 2 add-screen pattern, server uses active_canvas_id
     // when assigning new layers).
     openCanvasAddMenu(canvas, anchor) {
         document.querySelectorAll('.canvas-add-popup, .canvas-menu-popup, .canvas-color-popup').forEach(el => el.remove());
@@ -11347,7 +11347,7 @@ class LEDRasterApp {
         // top-most layer of each canvas group, the down arrow on the
         // bottom-most. Display order in the sidebar is reverse of the layer
         // array (newest on top), so within a canvas the FIRST displayed
-        // layer is the LAST one in the array — the up arrow on that one is
+        // layer is the LAST one in the array, the up arrow on that one is
         // disabled, etc.
         if (!this.project || !this.project.canvases) return;
         // Group layer ids by canvas, in display order (reverse-array).
@@ -11434,7 +11434,7 @@ class LEDRasterApp {
     
     /**
      * Slice 6: write a toolbar Raster: W x H change to the active canvas via
-     * PUT /api/canvas/<id>. Source-of-truth lives on the canvas object — no
+     * PUT /api/canvas/<id>. Source-of-truth lives on the canvas object, no
      * project-root mirror. `axis` is 'width' or 'height'; `value` is the new
      * dimension; `isShow` selects show_raster_* vs raster_*.
      *
@@ -12494,7 +12494,7 @@ class LEDRasterApp {
         // Reject dangerous patterns (consecutive operators other than a leading unary minus in a sub-expr)
         if (/[*/]{2,}|\+{2,}|-{3,}|[-+*/]$|^[*/]/.test(cleaned)) return null;
         try {
-            // Function constructor with no scope access — still safer than eval(),
+            // Function constructor with no scope access, still safer than eval(),
             // and the regex above guarantees only arithmetic characters are present.
             // eslint-disable-next-line no-new-func
             const result = Function('"use strict"; return (' + cleaned + ');')();

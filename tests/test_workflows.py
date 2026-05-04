@@ -1,4 +1,4 @@
-"""Tests for complete user workflows — multi-step sequences that simulate
+"""Tests for complete user workflows, multi-step sequences that simulate
 real usage patterns like creating a project, configuring layers, and exporting."""
 
 import io
@@ -88,7 +88,7 @@ def test_full_project_lifecycle(client):
     assert project['name'] == 'Concert Stage'
     assert len(project['layers']) == 3
 
-    # 9. Start a new project — everything resets
+    # 9. Start a new project, everything resets
     resp = client.post('/api/project/new')
     project = resp.get_json()
     assert project['name'] == 'Untitled Project'
@@ -543,7 +543,7 @@ def test_hidden_layer_excluded_from_export(client):
     # Hide the second layer
     client.put(f'/api/layer/{hidden_id}', json={'visible': False})
 
-    # Export ZIP — manifest should only include visible layer
+    # Export ZIP, manifest should only include visible layer
     resp = client.post('/api/export/zip', json={'include_borders': False})
     assert resp.status_code == 200
     zf = zipfile.ZipFile(io.BytesIO(resp.data))
