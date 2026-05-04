@@ -1857,28 +1857,52 @@ class CanvasRenderer {
         if (layer.showDate) {
             dynamicLines.push(new Date().toLocaleDateString());
         }
-        // Data port stats
-        if ((layer.showPrimaryPorts || layer.showBackupPorts) && window.app) {
-            const counts = window.app.getPortCounts();
-            if (layer.showPrimaryPorts && counts.primary > 0) {
-                dynamicLines.push(`Primary Ports: ${counts.primary}`);
+        // v0.8 Slice 10: dynamic data/power stats now honor a per-layer
+        // scope: 'canvas' (text layer's parent canvas), 'project' (all
+        // canvases — original behaviour, default), or 'both' (renders one
+        // line for the canvas, then one for the project total).
+        const scope = layer.dynamicInfoScope || 'project';
+        const wantsData = layer.showPrimaryPorts || layer.showBackupPorts;
+        const wantsPower = layer.showCircuits || layer.showSinglePhase || layer.showThreePhase;
+        if ((wantsData || wantsPower) && window.app) {
+            // Resolve the canvas this text layer sits on. For "canvas" /
+            // "both" scopes we need to pass canvas_id into the aggregators.
+            const ownCanvasId = layer.canvas_id || null;
+            const ownCanvas = (ownCanvasId && window.app._activeCanvas)
+                ? (window.app.project && window.app.project.canvases || []).find(c => c && c.id === ownCanvasId)
+                : null;
+            const canvasLabel = ownCanvas ? (ownCanvas.name || 'Canvas') : 'Canvas';
+            const passes = []; // [{ key: 'canvas'|'project', label: '... (X)' or '... (Total)' }]
+            if (scope === 'canvas') passes.push({ key: 'canvas', suffix: ` (${canvasLabel})` });
+            else if (scope === 'project') passes.push({ key: 'project', suffix: '' });
+            else { // 'both'
+                passes.push({ key: 'canvas', suffix: ` (${canvasLabel})` });
+                passes.push({ key: 'project', suffix: ' (Total)' });
             }
-            if (layer.showBackupPorts && counts.backup > 0) {
-                dynamicLines.push(`Backup Ports: ${counts.backup}`);
-            }
-        }
-        // Power stats
-        if ((layer.showCircuits || layer.showSinglePhase || layer.showThreePhase) && window.app) {
-            const pwr = window.app.getPowerCounts();
-            if (layer.showCircuits && pwr.circuits > 0) {
-                dynamicLines.push(`Circuits: ${pwr.circuits} @ ${pwr.voltage}V`);
-            }
-            if (layer.showSinglePhase && pwr.circuits > 0) {
-                dynamicLines.push(`1-Phase: ${pwr.singlePhaseAmps.toFixed(2)}A`);
-            }
-            if (layer.showThreePhase && pwr.circuits >= 3) {
-                dynamicLines.push(`3-Phase: ${pwr.threePhaseAmps.toFixed(2)}A`);
-            }
+            passes.forEach(pass => {
+                const filter = pass.key === 'canvas' ? ownCanvasId : undefined;
+                if (wantsData) {
+                    const counts = window.app.getPortCounts(filter);
+                    if (layer.showPrimaryPorts && counts.primary > 0) {
+                        dynamicLines.push(`Primary Ports${pass.suffix}: ${counts.primary}`);
+                    }
+                    if (layer.showBackupPorts && counts.backup > 0) {
+                        dynamicLines.push(`Backup Ports${pass.suffix}: ${counts.backup}`);
+                    }
+                }
+                if (wantsPower) {
+                    const pwr = window.app.getPowerCounts(filter);
+                    if (layer.showCircuits && pwr.circuits > 0) {
+                        dynamicLines.push(`Circuits${pass.suffix}: ${pwr.circuits} @ ${pwr.voltage}V`);
+                    }
+                    if (layer.showSinglePhase && pwr.circuits > 0) {
+                        dynamicLines.push(`1-Phase${pass.suffix}: ${pwr.singlePhaseAmps.toFixed(2)}A`);
+                    }
+                    if (layer.showThreePhase && pwr.circuits >= 3) {
+                        dynamicLines.push(`3-Phase${pass.suffix}: ${pwr.threePhaseAmps.toFixed(2)}A`);
+                    }
+                }
+            });
         }
         if (dynamicLines.length > 0) {
             text = text ? `${text}\n${dynamicLines.join('\n')}` : dynamicLines.join('\n');

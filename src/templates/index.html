@@ -1231,6 +1231,12 @@
                             <label style="display:flex; align-items:center; gap:6px; cursor:pointer; margin-bottom:4px;">
                                 <input type="checkbox" id="text-layer-show-date"> Date
                             </label>
+                            <label style="text-transform:uppercase; font-size:10px; color:#666; margin:8px 0 4px; display:block;">Data &amp; Power Scope</label>
+                            <select id="text-layer-dynamic-info-scope" style="width:100%; padding:4px 6px; background:#1a1a1a; border:1px solid #444; color:#ddd; border-radius:3px; font-size:12px; margin-bottom:6px;" data-tooltip="Choose which totals to inject into the text layer. 'This Canvas' uses the text layer's parent canvas; 'Both' renders both lines (e.g. 'Primary Ports (SR): 4' and 'Primary Ports (Total): 12').">
+                                <option value="canvas">This Canvas Only</option>
+                                <option value="project" selected>All Canvases (Project Total)</option>
+                                <option value="both">Both — This Canvas + Project Total</option>
+                            </select>
                             <label style="text-transform:uppercase; font-size:10px; color:#666; margin:8px 0 4px; display:block;">Data</label>
                             <label style="display:flex; align-items:center; gap:6px; cursor:pointer; margin-bottom:4px;">
                                 <input type="checkbox" id="text-layer-show-primary-ports"> Primary Ports

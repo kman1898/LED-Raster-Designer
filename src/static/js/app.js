@@ -5080,6 +5080,10 @@ class LEDRasterApp {
             { id: 'text-layer-show-circuits', prop: 'showCircuits', type: 'checkbox' },
             { id: 'text-layer-show-single-phase', prop: 'showSinglePhase', type: 'checkbox' },
             { id: 'text-layer-show-three-phase', prop: 'showThreePhase', type: 'checkbox' },
+            // Slice 10: scope dropdown for the dynamic data/power lines.
+            // 'canvas' = text layer's parent canvas, 'project' = all canvases,
+            // 'both' = render both lines per metric.
+            { id: 'text-layer-dynamic-info-scope', prop: 'dynamicInfoScope', type: 'select' },
             { id: 'text-layer-show-pixel-map', prop: 'showOnPixelMap', type: 'checkbox' },
             { id: 'text-layer-show-cabinet-id', prop: 'showOnCabinetId', type: 'checkbox' },
             { id: 'text-layer-show-data-flow', prop: 'showOnDataFlow', type: 'checkbox' },
@@ -5088,7 +5092,7 @@ class LEDRasterApp {
         fields.forEach(f => {
             const el = document.getElementById(f.id);
             if (!el) return;
-            const event = f.type === 'checkbox' ? 'change' : 'input';
+            const event = f.type === 'checkbox' ? 'change' : (f.type === 'select' ? 'change' : 'input');
             el.addEventListener(event, () => {
                 if (!this.currentLayer || (this.currentLayer.type || 'screen') !== 'text') return;
                 let val;
@@ -5193,6 +5197,8 @@ class LEDRasterApp {
         setChecked('text-layer-show-circuits', !!layer.showCircuits);
         setChecked('text-layer-show-single-phase', !!layer.showSinglePhase);
         setChecked('text-layer-show-three-phase', !!layer.showThreePhase);
+        const scopeSel = document.getElementById('text-layer-dynamic-info-scope');
+        if (scopeSel) scopeSel.value = layer.dynamicInfoScope || 'project';
 
         // Style toggle buttons
         const boldBtn = document.getElementById('text-layer-bold');
