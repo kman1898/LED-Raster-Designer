@@ -1952,6 +1952,12 @@ class LEDRasterApp {
 
         this.renderLayers();
         this.loadTextLayerToInputs();
+        // Slice 10: keep the Totals panels (Data Flow + Power tabs) in sync
+        // with whatever just changed. Always cheap — two aggregations over
+        // the visible screen layers, plus a handful of textContent writes.
+        if (typeof this.refreshTotalsSidebar === 'function') {
+            try { this.refreshTotalsSidebar(); } catch (_) {}
+        }
 
         if (window.canvasRenderer) {
             if (window.canvasRenderer.viewMode === 'data-flow' && this.currentLayer) {
@@ -2061,6 +2067,48 @@ class LEDRasterApp {
             if (c && c.visible === false && c.id) set.add(c.id);
         });
         return set;
+    }
+
+    /**
+     * v0.8 Slice 10: paint the Totals panels on the Data Flow + Power tabs.
+     * Two columns each: active canvas + project-wide. Numbers come from
+     * getPortCounts/getPowerCounts which already exclude hidden canvases.
+     * Cheap to call on every updateUI — the Totals panels are display:none
+     * unless the user is on the relevant tab.
+     */
+    refreshTotalsSidebar() {
+        const setText = (id, value) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = value;
+        };
+        const active = (typeof this._activeCanvas === 'function') ? this._activeCanvas() : null;
+        const activeId = active ? active.id : null;
+        const activeName = active ? `(${active.name || 'Canvas'})` : '(no active canvas)';
+        // Data Flow totals
+        const dataCanvas = activeId ? this.getPortCounts(activeId) : { primary: 0, backup: 0 };
+        const dataProject = this.getPortCounts();
+        setText('data-totals-canvas-name', activeName);
+        setText('data-totals-canvas-primary', dataCanvas.primary);
+        setText('data-totals-canvas-backup', dataCanvas.backup);
+        setText('data-totals-project-primary', dataProject.primary);
+        setText('data-totals-project-backup', dataProject.backup);
+        // Power totals — show "0" cleanly when there's no active canvas / no
+        // load yet. Amps formatted to 2 decimals to match the per-layer
+        // capacity readout.
+        const pwrCanvas = activeId ? this.getPowerCounts(activeId)
+            : { circuits: 0, totalWatts: 0, singlePhaseAmps: 0, threePhaseAmps: 0 };
+        const pwrProject = this.getPowerCounts();
+        const fmtAmps = (a) => (a > 0) ? `${a.toFixed(2)} A` : '0';
+        const fmtWatts = (w) => (w > 0) ? `${Math.round(w).toLocaleString()} W` : '0';
+        setText('power-totals-canvas-name', activeName);
+        setText('power-totals-canvas-watts', fmtWatts(pwrCanvas.totalWatts));
+        setText('power-totals-canvas-circuits', pwrCanvas.circuits);
+        setText('power-totals-canvas-1ph', fmtAmps(pwrCanvas.singlePhaseAmps));
+        setText('power-totals-canvas-3ph', fmtAmps(pwrCanvas.threePhaseAmps));
+        setText('power-totals-project-watts', fmtWatts(pwrProject.totalWatts));
+        setText('power-totals-project-circuits', pwrProject.circuits);
+        setText('power-totals-project-1ph', fmtAmps(pwrProject.singlePhaseAmps));
+        setText('power-totals-project-3ph', fmtAmps(pwrProject.threePhaseAmps));
     }
 
     /**
@@ -5156,9 +5204,9 @@ class LEDRasterApp {
     }
 
     // Aggregate data port counts across all visible screen layers.
-    // Slice 9: exclude layers whose canvas is hidden — totals should match
-    // what's drawn on screen and what the user expects to ship.
-    getPortCounts() {
+    // Slice 9: exclude layers whose canvas is hidden.
+    // Slice 10: optional onlyCanvasId filter for per-canvas sidebar totals.
+    getPortCounts(onlyCanvasId) {
         if (!this.project || !this.project.layers) return { primary: 0, backup: 0 };
         let totalPrimary = 0;
         const hiddenCanvasIds = this._hiddenCanvasIdSet();
@@ -5166,6 +5214,7 @@ class LEDRasterApp {
             if ((layer.type || 'screen') !== 'screen') return;
             if (!layer.visible) return;
             if (layer.canvas_id && hiddenCanvasIds.has(layer.canvas_id)) return;
+            if (onlyCanvasId && layer.canvas_id !== onlyCanvasId) return;
             const activePanels = (layer.panels || []).filter(p => !p.blank && !p.hidden);
             if (activePanels.length === 0) return;
             const assignments = this.calculatePortAssignments(layer);
@@ -5181,9 +5230,9 @@ class LEDRasterApp {
     }
 
     // Aggregate power stats across all visible screen layers.
-    // Slice 9: exclude layers whose canvas is hidden so totals match the
-    // visible workspace.
-    getPowerCounts() {
+    // Slice 9: exclude layers whose canvas is hidden.
+    // Slice 10: optional onlyCanvasId filter for per-canvas sidebar totals.
+    getPowerCounts(onlyCanvasId) {
         if (!this.project || !this.project.layers) return { circuits: 0, totalWatts: 0, singlePhaseAmps: 0, threePhaseAmps: 0, voltage: 0 };
         let totalCircuits = 0;
         let totalWattsAll = 0;
@@ -5193,6 +5242,7 @@ class LEDRasterApp {
             if ((layer.type || 'screen') !== 'screen') return;
             if (!layer.visible) return;
             if (layer.canvas_id && hiddenCanvasIds.has(layer.canvas_id)) return;
+            if (onlyCanvasId && layer.canvas_id !== onlyCanvasId) return;
             const activePanels = (layer.panels || []).filter(p => !p.blank && !p.hidden);
             if (activePanels.length === 0) return;
             const voltage = Number(layer.powerVoltage) || 110;

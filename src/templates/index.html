@@ -751,7 +751,28 @@
                         </div>
                     </div>
                 </div>
-                
+
+                <!-- v0.8 Slice 10: data totals always visible on the Data Flow
+                     tab, broken out per active canvas + project. Numbers
+                     respect canvas visibility (hidden canvases excluded). -->
+                <div class="panel tab-panel" data-tab="data-flow" style="display: none;">
+                    <div class="panel-header" data-tooltip="Aggregated data port counts. 'This Canvas' shows only the active canvas; 'All Canvases' is the project total. Hidden canvases are excluded from both.">
+                        <h2>Totals</h2>
+                    </div>
+                    <div class="panel-content">
+                        <div style="padding: 8px; background: #111; border: 1px solid #333; border-radius: 4px; font-size: 12px; color: #ccc; margin-bottom: 8px;">
+                            <div style="font-weight: 600; color: #fff; margin-bottom: 4px;">This Canvas <span id="data-totals-canvas-name" style="color: #888; font-weight: 400;"></span></div>
+                            <div>Primary Ports: <span id="data-totals-canvas-primary">0</span></div>
+                            <div>Backup Ports: <span id="data-totals-canvas-backup">0</span></div>
+                        </div>
+                        <div style="padding: 8px; background: #111; border: 1px solid #333; border-radius: 4px; font-size: 12px; color: #ccc;">
+                            <div style="font-weight: 600; color: #fff; margin-bottom: 4px;">All Canvases</div>
+                            <div>Primary Ports: <span id="data-totals-project-primary">0</span></div>
+                            <div>Backup Ports: <span id="data-totals-project-backup">0</span></div>
+                        </div>
+                    </div>
+                </div>
+
                 <style>
                 .flow-pattern-btn {
                     background: #1a1a1a;
@@ -1077,7 +1098,32 @@
                         </div>
                     </div>
                 </div>
-                
+
+                <!-- v0.8 Slice 10: power totals always visible on the Power
+                     tab, broken out per active canvas + project. Numbers
+                     respect canvas visibility (hidden canvases excluded). -->
+                <div class="panel tab-panel" data-tab="power" style="display: none;">
+                    <div class="panel-header" data-tooltip="Aggregated power load. 'This Canvas' shows only the active canvas; 'All Canvases' is the project total. Hidden canvases are excluded from both.">
+                        <h2>Totals</h2>
+                    </div>
+                    <div class="panel-content">
+                        <div style="padding: 8px; background: #111; border: 1px solid #333; border-radius: 4px; font-size: 12px; color: #ccc; margin-bottom: 8px;">
+                            <div style="font-weight: 600; color: #fff; margin-bottom: 4px;">This Canvas <span id="power-totals-canvas-name" style="color: #888; font-weight: 400;"></span></div>
+                            <div>Watts: <span id="power-totals-canvas-watts">0</span></div>
+                            <div>Circuits: <span id="power-totals-canvas-circuits">0</span></div>
+                            <div>Amps (1φ): <span id="power-totals-canvas-1ph">0</span></div>
+                            <div>Amps (3φ): <span id="power-totals-canvas-3ph">0</span></div>
+                        </div>
+                        <div style="padding: 8px; background: #111; border: 1px solid #333; border-radius: 4px; font-size: 12px; color: #ccc;">
+                            <div style="font-weight: 600; color: #fff; margin-bottom: 4px;">All Canvases</div>
+                            <div>Watts: <span id="power-totals-project-watts">0</span></div>
+                            <div>Circuits: <span id="power-totals-project-circuits">0</span></div>
+                            <div>Amps (1φ): <span id="power-totals-project-1ph">0</span></div>
+                            <div>Amps (3φ): <span id="power-totals-project-3ph">0</span></div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Colors panel - only for Pixel Map -->
                 <div class="panel tab-panel screen-only" data-tab="pixel-map">
                     <div class="panel-header" data-tooltip="Colors — Set the two alternating checkerboard colors used to distinguish cabinets in the pixel map view.">

@@ -1874,6 +1874,16 @@ class CanvasRenderer {
         }
 
         if (text) {
+            // Clip text rendering to the text-layer's own box so overlong
+            // content can't spill onto neighboring canvases or out of the
+            // layer's raster footprint. The clip is scoped to a separate
+            // save() so the background + border (already drawn above) are
+            // unaffected.
+            this.ctx.save();
+            this.ctx.beginPath();
+            this.ctx.rect(x, y, w, h);
+            this.ctx.clip();
+
             this.ctx.fillStyle = fontColor;
             // Build font string with bold/italic
             let fontStyle = '';
@@ -1891,24 +1901,26 @@ class CanvasRenderer {
 
             lines.forEach((line, i) => {
                 const ty = y + padding + i * lineHeight;
-                if (ty + lineHeight <= y + h + lineHeight) {
-                    this._fillText(line, textX, ty);
-                    // Underline
-                    if (layer.fontUnderline && line.length > 0) {
-                        const metrics = this.ctx.measureText(line);
-                        let ulX = textX;
-                        if (textAlign === 'center') ulX = textX - metrics.width / 2;
-                        else if (textAlign === 'right') ulX = textX - metrics.width;
-                        const ulY = ty + fontSize + 2;
-                        this.ctx.beginPath();
-                        this.ctx.strokeStyle = fontColor;
-                        this.ctx.lineWidth = Math.max(1, fontSize / 15);
-                        this.ctx.moveTo(ulX, ulY);
-                        this.ctx.lineTo(ulX + metrics.width, ulY);
-                        this.ctx.stroke();
-                    }
+                // Cheap vertical-overflow short-circuit so we don't measure +
+                // fillText for lines fully below the box (clip would suppress
+                // them anyway, but skipping saves work on big text dumps).
+                if (ty > y + h) return;
+                this._fillText(line, textX, ty);
+                if (layer.fontUnderline && line.length > 0) {
+                    const metrics = this.ctx.measureText(line);
+                    let ulX = textX;
+                    if (textAlign === 'center') ulX = textX - metrics.width / 2;
+                    else if (textAlign === 'right') ulX = textX - metrics.width;
+                    const ulY = ty + fontSize + 2;
+                    this.ctx.beginPath();
+                    this.ctx.strokeStyle = fontColor;
+                    this.ctx.lineWidth = Math.max(1, fontSize / 15);
+                    this.ctx.moveTo(ulX, ulY);
+                    this.ctx.lineTo(ulX + metrics.width, ulY);
+                    this.ctx.stroke();
                 }
             });
+            this.ctx.restore();
         }
 
         this.ctx.restore();
