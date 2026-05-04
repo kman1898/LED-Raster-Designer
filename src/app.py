@@ -1332,7 +1332,7 @@ def add_text_layer():
     for key in ('fontSize', 'fontFamily', 'fontColor', 'bgColor', 'bgOpacity',
                 'textAlign', 'textPadding', 'showBorder', 'borderColor',
                 'showOnPixelMap', 'showOnCabinetId', 'showOnDataFlow', 'showOnPower',
-                'showRasterSize'):
+                'showRasterSize', 'dynamicInfoScope'):
         if key in data:
             layer[key] = data[key]
     _assign_canvas_id(layer, data)
@@ -1380,6 +1380,7 @@ def update_layer(layer_id):
                 'showProjectName', 'showDate',
                 'showPrimaryPorts', 'showBackupPorts',
                 'showCircuits', 'showSinglePhase', 'showThreePhase',
+                'dynamicInfoScope',
                 'fontBold', 'fontItalic', 'fontUnderline',
                 # Data flow / processing settings (previously silently dropped on PUT
                 # which broke preset application and label updates on re-fetch)
