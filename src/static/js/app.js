@@ -9846,6 +9846,39 @@ class LEDRasterApp {
         window.canvasRenderer.render();
     }
 
+    /**
+     * Find the OTHER port number (if any) that already owns this panel in
+     * the layer's custom data-flow paths. Returns the conflicting port's
+     * number, or null if the panel is unassigned (or only assigned to the
+     * caller-supplied excludePortNum, which we treat as "not a conflict").
+     */
+    _findPanelOwnerPort(layer, panel, excludePortNum) {
+        if (!layer || !layer.customPortPaths || !panel) return null;
+        const key = `${panel.row},${panel.col}`;
+        for (const portNumStr of Object.keys(layer.customPortPaths)) {
+            const portNum = Number(portNumStr) || portNumStr;
+            if (portNum === excludePortNum) continue;
+            const path = layer.customPortPaths[portNumStr] || [];
+            if (path.some(p => `${p.row},${p.col}` === key)) return portNum;
+        }
+        return null;
+    }
+
+    /**
+     * Same as _findPanelOwnerPort but for power circuits.
+     */
+    _findPanelOwnerCircuit(layer, panel, excludeCircuitNum) {
+        if (!layer || !layer.powerCustomPaths || !panel) return null;
+        const key = `${panel.row},${panel.col}`;
+        for (const circuitNumStr of Object.keys(layer.powerCustomPaths)) {
+            const circuitNum = Number(circuitNumStr) || circuitNumStr;
+            if (circuitNum === excludeCircuitNum) continue;
+            const path = layer.powerCustomPaths[circuitNumStr] || [];
+            if (path.some(p => `${p.row},${p.col}` === key)) return circuitNum;
+        }
+        return null;
+    }
+
     addPanelToCustomPath(panel) {
         if (!this.currentLayer || !panel || panel.hidden) return;
         if (!this.isCustomFlow(this.currentLayer)) return;
@@ -9855,16 +9888,25 @@ class LEDRasterApp {
         if (!this.currentLayer.customPortPaths[portNum]) this.currentLayer.customPortPaths[portNum] = [];
         const key = this.getPanelKey(panel);
         const exists = this.currentLayer.customPortPaths[portNum].some(p => `${p.row},${p.col}` === key);
-        if (!exists) {
-            this.currentLayer.customPortPaths[portNum].push({ row: panel.row, col: panel.col });
-            this.saveState('Custom Path Edit');
-            this.saveClientSideProperties();
-            if (this.customDebug) {
-                console.log('[CustomFlow] Add panel', { portNum, row: panel.row, col: panel.col });
+        if (exists) return;
+        // Reject if the panel already belongs to a different port — user
+        // must clear the existing assignment first. Avoids silent
+        // double-mapping that the user has to undo manually.
+        const conflict = this._findPanelOwnerPort(this.currentLayer, panel, portNum);
+        if (conflict !== null) {
+            if (typeof this._toast === 'function') {
+                this._toast(`Panel R${panel.row + 1}C${panel.col + 1} is already wired to port ${conflict}. Clear it from port ${conflict} first.`, true);
             }
-            this.updatePortLabelEditor();
-            window.canvasRenderer.render();
+            return;
         }
+        this.currentLayer.customPortPaths[portNum].push({ row: panel.row, col: panel.col });
+        this.saveState('Custom Path Edit');
+        this.saveClientSideProperties();
+        if (this.customDebug) {
+            console.log('[CustomFlow] Add panel', { portNum, row: panel.row, col: panel.col });
+        }
+        this.updatePortLabelEditor();
+        window.canvasRenderer.render();
     }
 
     addPanelToCustomPowerPath(panel) {
@@ -9876,15 +9918,21 @@ class LEDRasterApp {
         if (!this.currentLayer.powerCustomPaths[circuitNum]) this.currentLayer.powerCustomPaths[circuitNum] = [];
         const key = this.getPanelKey(panel);
         const exists = this.currentLayer.powerCustomPaths[circuitNum].some(p => `${p.row},${p.col}` === key);
-        if (!exists) {
-            this.currentLayer.powerCustomPaths[circuitNum].push({ row: panel.row, col: panel.col });
-            this.saveState('Power Custom Path Edit');
-            this.saveClientSideProperties();
-            if (this.powerCustomDebug) {
-                console.log('[CustomPower] Add panel', { circuitNum, row: panel.row, col: panel.col });
+        if (exists) return;
+        const conflict = this._findPanelOwnerCircuit(this.currentLayer, panel, circuitNum);
+        if (conflict !== null) {
+            if (typeof this._toast === 'function') {
+                this._toast(`Panel R${panel.row + 1}C${panel.col + 1} is already wired to circuit ${conflict}. Clear it from circuit ${conflict} first.`, true);
             }
-            window.canvasRenderer.render();
+            return;
         }
+        this.currentLayer.powerCustomPaths[circuitNum].push({ row: panel.row, col: panel.col });
+        this.saveState('Power Custom Path Edit');
+        this.saveClientSideProperties();
+        if (this.powerCustomDebug) {
+            console.log('[CustomPower] Add panel', { circuitNum, row: panel.row, col: panel.col });
+        }
+        window.canvasRenderer.render();
     }
 
     handleCustomArrowKey(e) {
@@ -9954,6 +10002,22 @@ class LEDRasterApp {
         if (ordered.length === 0) return;
 
         const portNum = this.currentLayer.customPortIndex || 1;
+        // Reject the entire pattern apply if any selected panel already
+        // belongs to a different port. Prevents silent double-mapping.
+        const conflicts = [];
+        for (const p of ordered) {
+            const owner = this._findPanelOwnerPort(this.currentLayer, p, portNum);
+            if (owner !== null) conflicts.push({ row: p.row, col: p.col, owner });
+        }
+        if (conflicts.length > 0) {
+            const sample = conflicts.slice(0, 3)
+                .map(c => `R${c.row + 1}C${c.col + 1}→port ${c.owner}`).join(', ');
+            const more = conflicts.length > 3 ? ` (+${conflicts.length - 3} more)` : '';
+            if (typeof this._toast === 'function') {
+                this._toast(`Cannot apply: ${conflicts.length} panel${conflicts.length === 1 ? '' : 's'} already wired to other ports — ${sample}${more}.`, true);
+            }
+            return;
+        }
         this.currentLayer.customPortPaths[portNum] = ordered.map(p => ({ row: p.row, col: p.col }));
         this.saveState('Custom Pattern Apply');
         this.saveClientSideProperties();
@@ -10000,6 +10064,22 @@ class LEDRasterApp {
         if (ordered.length === 0) return;
 
         const circuitNum = this.currentLayer.powerCustomIndex || 1;
+        // Reject if any selected panel already belongs to a different
+        // circuit — same policy as data-flow custom pattern apply.
+        const conflicts = [];
+        for (const p of ordered) {
+            const owner = this._findPanelOwnerCircuit(this.currentLayer, p, circuitNum);
+            if (owner !== null) conflicts.push({ row: p.row, col: p.col, owner });
+        }
+        if (conflicts.length > 0) {
+            const sample = conflicts.slice(0, 3)
+                .map(c => `R${c.row + 1}C${c.col + 1}→circuit ${c.owner}`).join(', ');
+            const more = conflicts.length > 3 ? ` (+${conflicts.length - 3} more)` : '';
+            if (typeof this._toast === 'function') {
+                this._toast(`Cannot apply: ${conflicts.length} panel${conflicts.length === 1 ? '' : 's'} already wired to other circuits — ${sample}${more}.`, true);
+            }
+            return;
+        }
         this.currentLayer.powerCustomPaths[circuitNum] = ordered.map(p => ({ row: p.row, col: p.col }));
         this.saveState('Power Custom Pattern Apply');
         this.saveClientSideProperties();
