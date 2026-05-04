@@ -1362,7 +1362,15 @@
                 <label style="display: block; margin-bottom: 6px; color: #ccc; font-size: 13px;">Project Name:</label>
                 <input type="text" id="export-name" placeholder="Enter project name" style="width: 100%; padding: 10px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 4px; box-sizing: border-box;">
             </div>
-            
+
+            <!-- v0.8 Slice 11: Canvases to export. Filled dynamically by JS
+                 from project.canvases when the modal opens. Visible canvases
+                 default-checked; hidden default-unchecked but selectable. -->
+            <div id="export-canvases-section" style="margin-bottom: 18px;">
+                <label style="display: block; margin-bottom: 8px; color: #ccc; font-size: 13px;">Canvases to Export:</label>
+                <div id="export-canvases-list" class="export-views"></div>
+            </div>
+
             <!-- Views to Export -->
             <div id="export-views-section" style="margin-bottom: 18px;">
                 <label style="display: block; margin-bottom: 8px; color: #ccc; font-size: 13px;">Views to Export:</label>

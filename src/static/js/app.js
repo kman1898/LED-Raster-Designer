@@ -3737,6 +3737,9 @@ class LEDRasterApp {
             // Set project name from current project
             document.getElementById('export-name').value = this.project.name || 'Untitled Project';
             this.loadExportSuffixesToUI();
+            // Slice 11: rebuild canvas checklist on every open so renames /
+            // additions / deletions show up. Visible canvases default-checked.
+            this.populateExportCanvasesList();
             // Update preview
             this.updateExportPreview();
         });
@@ -3799,6 +3802,17 @@ class LEDRasterApp {
                 return;
             }
 
+            // Slice 11: collect selected canvas IDs from the dynamic
+            // checklist. If the project has no canvases array (legacy /
+            // pre-Slice-1 fallback), pass [null] so performExport treats it
+            // as a single synthetic canvas using project-root raster dims —
+            // matching v0.7 export behaviour exactly.
+            const canvasIds = this.getSelectedExportCanvasIds();
+            if (canvasIds.length === 0) {
+                alert('Please select at least one canvas to export.');
+                return;
+            }
+
             if (!this.supportsFilePickerAPIs() && !this.supportsDirectoryPickerAPIs() && !this._warnedNoFilePickerExport) {
                 this._warnedNoFilePickerExport = true;
                 sendClientLog('export_picker_apis_unavailable_warning', {});
@@ -3808,7 +3822,7 @@ class LEDRasterApp {
             document.getElementById('status-message').textContent = 'Exporting...';
 
             try {
-                await this.performExport(projectName, format, views);
+                await this.performExport(projectName, format, views, canvasIds);
                 
                 document.getElementById('status-message').textContent = 'Export complete!';
                 setTimeout(() => {
@@ -7427,31 +7441,44 @@ class LEDRasterApp {
 
         preview.style.color = '#4A90E2';
 
+        // Slice 11: factor selected canvases into the preview. Each
+        // (canvas, view) combo is one file (PNG/PSD) or one page (PDF).
+        const canvasIds = (typeof this.getSelectedExportCanvasIds === 'function')
+            ? this.getSelectedExportCanvasIds() : [null];
+        if (canvasIds.length === 0) {
+            preview.textContent = '(Select at least one canvas)';
+            preview.style.color = '#ff6b6b';
+            return;
+        }
+        const projectCanvases = (this.project && Array.isArray(this.project.canvases))
+            ? this.project.canvases : [];
+        const canvasNameOf = (cid) => {
+            if (!cid) return '';
+            const c = projectCanvases.find(x => x && x.id === cid);
+            return c ? this.sanitizeFilename(c.name || 'Canvas') : '';
+        };
+        const multiCanvas = canvasIds.length > 1 && canvasIds[0] !== null;
+        const buildName = (cid, suffix, ext) => {
+            const cname = canvasNameOf(cid);
+            return (multiCanvas && cname)
+                ? `${projectName} - ${cname} - ${suffix}.${ext}`
+                : `${projectName} ${suffix}.${ext}`;
+        };
+
         if (format === 'pdf') {
-            // PDF combines all views
-            preview.textContent = `${projectName}.pdf (${views.length} page${views.length > 1 ? 's' : ''})`;
-        } else if (format === 'psd') {
-            // PSD - one file per view, layers inside
-            if (views.length === 1) {
-                const suffix = this.getExportSuffixForView(views[0], suffixes, viewNames);
-                preview.textContent = `${projectName} ${suffix}.psd`;
-            } else {
-                preview.innerHTML = views.map(v => {
+            const pageCount = canvasIds.length * views.length;
+            preview.textContent = `${projectName}.pdf (${pageCount} page${pageCount > 1 ? 's' : ''})`;
+        } else if (format === 'psd' || format === 'png') {
+            const ext = format;
+            const lines = [];
+            for (const cid of canvasIds) {
+                for (const v of views) {
                     const suffix = this.getExportSuffixForView(v, suffixes, viewNames);
-                    return `${projectName} ${suffix}.psd`;
-                }).join('<br>');
+                    lines.push(buildName(cid, suffix, ext));
+                }
             }
-        } else {
-            // PNG - one file per view
-            if (views.length === 1) {
-                const suffix = this.getExportSuffixForView(views[0], suffixes, viewNames);
-                preview.textContent = `${projectName} ${suffix}.png`;
-            } else {
-                preview.innerHTML = views.map(v => {
-                    const suffix = this.getExportSuffixForView(v, suffixes, viewNames);
-                    return `${projectName} ${suffix}.png`;
-                }).join('<br>');
-            }
+            if (lines.length === 1) preview.textContent = lines[0];
+            else preview.innerHTML = lines.join('<br>');
         }
     }
 
@@ -7556,92 +7583,202 @@ class LEDRasterApp {
     }
 
     // Perform export using client-side canvas capture at 1:1 pixel scale
-    async performExport(projectName, format, views) {
+    /**
+     * Slice 11: build the dynamic Canvases checklist in the export modal.
+     * Visible canvases are checked, hidden ones unchecked but still
+     * selectable. Each row gets a stable id so the export-confirm handler
+     * can read them.
+     */
+    populateExportCanvasesList() {
+        const list = document.getElementById('export-canvases-list');
+        if (!list) return;
+        list.innerHTML = '';
+        const canvases = (this.project && Array.isArray(this.project.canvases))
+            ? this.project.canvases : [];
+        if (canvases.length === 0) {
+            // Legacy / pre-Slice-1 project: no canvas list. Show a static
+            // placeholder so the user understands what's being exported.
+            const note = document.createElement('div');
+            note.style.cssText = 'font-size:11px;color:#888;padding:6px 0;';
+            note.textContent = 'Single-canvas project — entire workspace will be exported.';
+            list.appendChild(note);
+            return;
+        }
+        canvases.forEach((c, idx) => {
+            if (!c || !c.id) return;
+            const row = document.createElement('div');
+            row.className = 'export-view-row';
+            const isHidden = c.visible === false;
+            const label = document.createElement('label');
+            label.className = 'export-view-label';
+            label.style.gap = '6px';
+            const swatch = document.createElement('span');
+            swatch.style.cssText = `display:inline-block;width:10px;height:10px;border-radius:2px;background:${c.color || '#4A90E2'};flex:none;`;
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.checked = !isHidden;
+            checkbox.dataset.canvasId = c.id;
+            checkbox.className = 'export-canvas-checkbox';
+            checkbox.addEventListener('change', () => this.updateExportPreview());
+            const text = document.createElement('span');
+            text.textContent = (c.name || `Canvas ${idx + 1}`) + (isHidden ? '  (hidden)' : '');
+            if (isHidden) text.style.color = '#888';
+            label.appendChild(checkbox);
+            label.appendChild(swatch);
+            label.appendChild(text);
+            row.appendChild(label);
+            list.appendChild(row);
+        });
+    }
+
+    /**
+     * Slice 11: read the canvas checkboxes back. Returns array of canvas
+     * ids in their project.canvases order. Returns [null] for legacy
+     * projects so performExport falls into single-canvas mode.
+     */
+    getSelectedExportCanvasIds() {
+        const canvases = (this.project && Array.isArray(this.project.canvases))
+            ? this.project.canvases : [];
+        if (canvases.length === 0) return [null];
+        const checked = new Set();
+        document.querySelectorAll('.export-canvas-checkbox').forEach(cb => {
+            if (cb.checked && cb.dataset.canvasId) checked.add(cb.dataset.canvasId);
+        });
+        // Preserve project.canvases order in the output.
+        return canvases.filter(c => c && checked.has(c.id)).map(c => c.id);
+    }
+
+    /**
+     * Slice 11: multi-canvas-aware export. Iterates canvases × views,
+     * temporarily hiding the OTHER canvases per pass and translating the
+     * render so each canvas becomes its own export image at its native
+     * raster size. canvasIds=[null] is the legacy single-canvas path.
+     */
+    async performExport(projectName, format, views, canvasIds) {
         const viewNames = this.getExportViewNames();
         const suffixes = this.getExportSuffixesFromUI();
-        
-        // Store current state
+
+        // Store current renderer state.
         const originalViewMode = window.canvasRenderer.viewMode;
         const originalZoom = window.canvasRenderer.zoom;
         const originalPanX = window.canvasRenderer.panX;
         const originalPanY = window.canvasRenderer.panY;
-        
-        // Get exact raster dimensions
-        const rasterWidth = window.canvasRenderer.rasterWidth;
-        const rasterHeight = window.canvasRenderer.rasterHeight;
-        
-        // Store original canvas reference
+        const originalActiveCanvasId = (this.project && this.project.active_canvas_id) || null;
         const mainCanvas = window.canvasRenderer.canvas;
         const originalCtx = window.canvasRenderer.ctx;
-        
-        // Check if transparent background is requested
+
         const transparentBg = document.getElementById('export-transparent-bg');
         const useTransparentBg = transparentBg && transparentBg.checked;
 
-        // Create a fresh offscreen canvas at exact raster size
+        // Snapshot every canvas's visibility so we can flip them per pass
+        // and restore at the end. Legacy projects skip this entirely.
+        const canvases = (this.project && Array.isArray(this.project.canvases))
+            ? this.project.canvases : [];
+        const visibilitySnapshot = canvases.map(c => ({ id: c.id, visible: c.visible }));
+
         const exportCanvas = document.createElement('canvas');
-        exportCanvas.width = rasterWidth;
-        exportCanvas.height = rasterHeight;
         const exportCtx = exportCanvas.getContext('2d', { alpha: useTransparentBg });
-        
-        // Swap to export canvas
         window.canvasRenderer.canvas = exportCanvas;
         window.canvasRenderer.ctx = exportCtx;
-        
-        // Set zoom to exactly 1.0 and pan to 0,0 (top-left corner)
         window.canvasRenderer.zoom = 1.0;
-        window.canvasRenderer.panX = 0;
-        window.canvasRenderer.panY = 0;
-        
-        // Enable export mode (hides grid and raster boundary)
         window.canvasRenderer.exportMode = true;
         window.canvasRenderer.exportTransparentBg = useTransparentBg;
-        
-        // Render each view and collect images
-        const renderedViews = [];
-        
-        for (const view of views) {
-            // Set view mode
-            window.canvasRenderer.viewMode = view;
-            
-            // Render at 1:1 to the export canvas
-            window.canvasRenderer.render();
-            
-            // Log dimensions for debugging
-            console.log(`Export: ${view} - Canvas: ${exportCanvas.width}x${exportCanvas.height}, Raster: ${rasterWidth}x${rasterHeight}`);
-            
-            // Get image data directly from canvas
-            const dataUrl = exportCanvas.toDataURL('image/png');
-            const suffix = this.getExportSuffixForView(view, suffixes, viewNames);
-            renderedViews.push({
-                view,
-                suffix,
-                fileBase: `${projectName} ${suffix}`,
-                dataUrl,
-                width: rasterWidth,
-                height: rasterHeight
+
+        const renderedItems = [];
+        const multiCanvas = canvasIds.length > 1 && canvasIds[0] !== null;
+
+        try {
+            for (const cid of canvasIds) {
+                // Resolve target canvas. cid===null means legacy single-
+                // canvas: use project-root raster fields, no workspace shift.
+                const targetCanvas = cid
+                    ? canvases.find(c => c && c.id === cid)
+                    : null;
+                if (cid && !targetCanvas) continue;
+
+                if (cid) {
+                    // Make ONLY this canvas visible during the per-view loop
+                    // so other canvases' layers don't bleed into the export
+                    // (handles overlap, cross-canvas labels, etc.). Active
+                    // canvas swap drives the rasterWidth/Height accessors
+                    // that decide export-canvas dimensions per view.
+                    canvases.forEach(c => { c.visible = (c.id === cid); });
+                    this.project.active_canvas_id = cid;
+                }
+
+                for (const view of views) {
+                    window.canvasRenderer.viewMode = view;
+                    // rasterWidth/Height read from the active canvas (Slice 6)
+                    // and pick show_raster_* automatically when view is
+                    // show-look (so Show Look exports at its own resolution).
+                    const rasterWidth = window.canvasRenderer.rasterWidth || 1920;
+                    const rasterHeight = window.canvasRenderer.rasterHeight || 1080;
+                    exportCanvas.width = rasterWidth;
+                    exportCanvas.height = rasterHeight;
+                    // Translate the workspace so this canvas's top-left
+                    // (workspace_x, workspace_y) lands at (0, 0) in the
+                    // export canvas. Legacy: pan to 0,0.
+                    const wsx = targetCanvas ? (targetCanvas.workspace_x || 0) : 0;
+                    const wsy = targetCanvas ? (targetCanvas.workspace_y || 0) : 0;
+                    window.canvasRenderer.panX = -wsx;
+                    window.canvasRenderer.panY = -wsy;
+
+                    window.canvasRenderer.render();
+
+                    const dataUrl = exportCanvas.toDataURL('image/png');
+                    const suffix = this.getExportSuffixForView(view, suffixes, viewNames);
+                    const canvasName = targetCanvas
+                        ? this.sanitizeFilename(targetCanvas.name || 'Canvas')
+                        : null;
+                    // Filename: include canvas token only when exporting
+                    // more than one. Single-canvas exports keep the v0.7
+                    // naming so existing user workflows aren't disrupted.
+                    const fileBase = (multiCanvas && canvasName)
+                        ? `${projectName} - ${canvasName} - ${suffix}`
+                        : `${projectName} ${suffix}`;
+                    // PDF page label includes canvas + view when multi.
+                    const pdfLabel = (multiCanvas && canvasName)
+                        ? `${canvasName} — ${suffix}`
+                        : suffix;
+                    renderedItems.push({
+                        canvasId: cid,
+                        canvasName,
+                        view,
+                        suffix,
+                        fileBase,
+                        pdfLabel,
+                        dataUrl,
+                        width: rasterWidth,
+                        height: rasterHeight,
+                    });
+                }
+            }
+        } finally {
+            // Restore canvas visibility, active canvas, renderer state.
+            visibilitySnapshot.forEach(s => {
+                const c = canvases.find(c => c && c.id === s.id);
+                if (c) c.visible = s.visible;
             });
+            if (this.project) this.project.active_canvas_id = originalActiveCanvasId;
+            window.canvasRenderer.canvas = mainCanvas;
+            window.canvasRenderer.ctx = originalCtx;
+            window.canvasRenderer.exportMode = false;
+            window.canvasRenderer.exportTransparentBg = false;
+            window.canvasRenderer.viewMode = originalViewMode;
+            window.canvasRenderer.zoom = originalZoom;
+            window.canvasRenderer.panX = originalPanX;
+            window.canvasRenderer.panY = originalPanY;
+            window.canvasRenderer.render();
         }
-        
-        // Restore original canvas and context
-        window.canvasRenderer.canvas = mainCanvas;
-        window.canvasRenderer.ctx = originalCtx;
-        window.canvasRenderer.exportMode = false;
-        window.canvasRenderer.exportTransparentBg = false;
-        window.canvasRenderer.viewMode = originalViewMode;
-        window.canvasRenderer.zoom = originalZoom;
-        window.canvasRenderer.panX = originalPanX;
-        window.canvasRenderer.panY = originalPanY;
-        window.canvasRenderer.render();
-        
-        // Handle the export based on format
+
+        // Dispatch to format-specific writer. Multi-canvas just means
+        // more items — each writer already loops over them.
         if (format === 'png') {
-            await this.downloadRenderedPNGs(renderedViews);
+            await this.downloadRenderedPNGs(renderedItems);
         } else if (format === 'pdf') {
-            // Send to server to create PDF
-            await this.downloadAsPdf(projectName, renderedViews);
+            await this.downloadAsPdf(projectName, renderedItems);
         } else if (format === 'psd') {
-            await this.downloadAsPsd(projectName, renderedViews);
+            await this.downloadAsPsd(projectName, renderedItems);
         }
     }
     
@@ -7886,13 +8023,17 @@ class LEDRasterApp {
     }
     
     async downloadAsPdf(projectName, renderedViews) {
+        // Slice 11: multi-canvas PDF. Each rendered item contributes one
+        // page; the per-page name uses canvas + view when multi-canvas
+        // (set on renderedItem.pdfLabel by performExport), else just the
+        // view suffix. Server already handles variable per-page sizes.
         const response = await fetch('/api/export/pdf-from-images', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 project_name: projectName,
                 images: renderedViews.map(v => ({
-                    name: v.suffix,
+                    name: v.pdfLabel || v.suffix,
                     data: v.dataUrl,
                     width: v.width || window.canvasRenderer.rasterWidth,
                     height: v.height || window.canvasRenderer.rasterHeight
@@ -7901,9 +8042,9 @@ class LEDRasterApp {
                 height: window.canvasRenderer.rasterHeight
             })
         });
-        
+
         if (!response.ok) throw new Error('Failed to create PDF');
-        
+
         const blob = await response.blob();
         await this.saveBlobWithPicker(blob, `${projectName}.pdf`, 'application/pdf');
     }
@@ -7911,6 +8052,24 @@ class LEDRasterApp {
     async downloadAsPsd(projectName, renderedViews) {
         const files = [];
         for (const view of renderedViews) {
+            // Slice 11: when exporting per-canvas, only include layers from
+            // that canvas in the PSD layer list — otherwise the PSD reports
+            // sibling canvases' layers as if they were in this image.
+            // Legacy / single-canvas: include every layer (canvasId is null).
+            const psdLayers = this.project.layers.filter(l => {
+                if (!view.canvasId) return true;
+                return l.canvas_id === view.canvasId;
+            }).map(l => {
+                const b = this.getLayerBounds(l);
+                return {
+                    name: l.name,
+                    offset_x: b.x1,
+                    offset_y: b.y1,
+                    width: b.x2 - b.x1,
+                    height: b.y2 - b.y1,
+                    visible: l.visible
+                };
+            });
             const response = await fetch('/api/export/psd-from-image', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -7920,17 +8079,7 @@ class LEDRasterApp {
                     image_data: view.dataUrl,
                     width: view.width || window.canvasRenderer.rasterWidth,
                     height: view.height || window.canvasRenderer.rasterHeight,
-                    layers: this.project.layers.map(l => {
-                        const b = this.getLayerBounds(l);
-                        return {
-                            name: l.name,
-                            offset_x: b.x1,
-                            offset_y: b.y1,
-                            width: b.x2 - b.x1,
-                            height: b.y2 - b.y1,
-                            visible: l.visible
-                        };
-                    })
+                    layers: psdLayers
                 })
             });
             if (!response.ok) throw new Error('Failed to create PSD');
