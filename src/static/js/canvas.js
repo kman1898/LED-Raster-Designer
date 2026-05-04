@@ -495,13 +495,9 @@ class CanvasRenderer {
                 this.canvasDragStartY = worldY;
                 this.canvasDragStartWX = edgeCanvas.workspace_x || 0;
                 this.canvasDragStartWY = edgeCanvas.workspace_y || 0;
-                // Snapshot pre-drag state so undo restores the canvas's
-                // original workspace position. mouseUp passes
-                // skipSaveState:true to the updateCanvas commit so we
-                // don't get a duplicate post-drag snapshot.
-                if (window.app && typeof window.app.saveState === 'function') {
-                    window.app.saveState('Move Canvas');
-                }
+                // saveState moved to canvas-drag END (in updateCanvas .then())
+                // so the snapshot is the POST-drag workspace position. Pre-drag
+                // saveState was off-by-one and made undo skip past the drag.
                 // Activate the dragged canvas so the sidebar reflects it.
                 if (window.app && window.app.project
                     && window.app.project.active_canvas_id !== edgeCanvas.id
@@ -691,10 +687,12 @@ class CanvasRenderer {
                     }
                     this.isDraggingLayer = true;
                     this.dragLayerMode = (this.viewMode === 'show-look') ? 'show' : 'processor';
-                    // Save state BEFORE the drag starts so undo reverts to pre-move positions
-                    if (typeof window.app.saveState === 'function') {
-                        window.app.saveState(this.dragLayerMode === 'show' ? 'Move Layers (Show Look)' : 'Move Layers');
-                    }
+                    // saveState moved to drag-END so the snapshot captures the
+                    // POST-drag project state. Undo decrements then restores
+                    // the previous post-state, which matches the user's
+                    // expectation of "one Cmd+Z reverts one drag." Pre-drag
+                    // saveState was off-by-one and made undo skip past the
+                    // most recent action.
                     this.dragLayerStartX = worldX;
                     this.dragLayerStartY = worldY;
                     const useShow = this.dragLayerMode === 'show';
@@ -1078,10 +1076,10 @@ class CanvasRenderer {
                     c.workspace_x = wx;
                     c.workspace_y = wy;
                     if (typeof window.app.updateCanvas === 'function') {
-                        // Skip the helper's own saveState — drag-start already
-                        // captured a 'Move Canvas' snapshot, so adding another
-                        // here would create a no-op duplicate history entry.
-                        window.app.updateCanvas(id, { workspace_x: wx, workspace_y: wy }, { skipSaveState: true });
+                        // updateCanvas now snapshots POST-mutation state in
+                        // its server-response .then() so a single Cmd+Z reverts
+                        // exactly this drag. No skipSaveState needed.
+                        window.app.updateCanvas(id, { workspace_x: wx, workspace_y: wy });
                     }
                     if (typeof window.app._checkCanvasOverlapAndToast === 'function') {
                         window.app._checkCanvasOverlapAndToast(id);
@@ -1367,22 +1365,24 @@ class CanvasRenderer {
                                 }
                             });
                         }
-                        // Pass skipSaveState — the drag-start saveState
-                        // ('Move Layers' at line ~689) is the correct
-                        // pre-drag snapshot. Without skip, the helper
-                        // would push a SECOND mid-drag snapshot and undo
-                        // would restore weird intermediate coords.
+                        // Cross-canvas helpers now snapshot post-action state
+                        // themselves (in their .then() after the server
+                        // round-trip), so we don't pass skipSaveState anymore.
                         if (movedIds.length > 1 && typeof window.app.moveLayersCrossCanvas === 'function') {
-                            window.app.moveLayersCrossCanvas(movedIds, targetCanvas.id, mode, { skipSaveState: true });
+                            window.app.moveLayersCrossCanvas(movedIds, targetCanvas.id, mode);
                             crossCanvasHandled = true;
                         } else if (typeof window.app.moveLayerCrossCanvas === 'function') {
-                            window.app.moveLayerCrossCanvas(primary.id, targetCanvas.id, mode, { skipSaveState: true });
+                            window.app.moveLayerCrossCanvas(primary.id, targetCanvas.id, mode);
                             crossCanvasHandled = true;
                         }
                     }
                 }
 
                 if (!crossCanvasHandled) {
+                    // Snapshot POST-drag state so one Cmd+Z reverts this drag.
+                    if (typeof window.app.saveState === 'function') {
+                        window.app.saveState(this.dragLayerMode === 'show' ? 'Move Layers (Show Look)' : 'Move Layers');
+                    }
                     const toUpdate = window.app.getSelectedLayers ? window.app.getSelectedLayers() : [window.app.currentLayer];
                     window.app.updateLayers(toUpdate, false);
                 }

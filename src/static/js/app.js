@@ -10484,7 +10484,6 @@ class LEDRasterApp {
     }
 
     addCanvas() {
-        if (typeof this.saveState === 'function') this.saveState('Add Canvas');
         // Seed new canvases from the user's preferred default canvas size so
         // every "+ Add Canvas" click matches the same baseline as a brand-new
         // project, not whatever the currently active canvas happens to be.
@@ -10502,32 +10501,35 @@ class LEDRasterApp {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body)
-        }).then(r => r.json()).then(data => this._applyProjectUpdate(data));
+        }).then(r => r.json()).then(data => {
+            this._applyProjectUpdate(data);
+            // saveState AFTER mutation so the snapshot captures the new canvas.
+            // One Cmd+Z then reverts exactly this Add.
+            if (typeof this.saveState === 'function') this.saveState('Add Canvas');
+        });
     }
 
     // Canvas mutation routed through one helper so every mutating call
-    // gets an undo entry. Most callers don't pass `opts`; canvas-drag
-    // mouseup passes skipSaveState because a 'Move Canvas' snapshot was
-    // already taken at drag-start.
-    updateCanvas(canvasId, patch, opts) {
-        if (typeof this.saveState === 'function' && !(opts && opts.skipSaveState)) {
-            // Pick the most informative undo label from the patch keys.
-            const keys = patch ? Object.keys(patch) : [];
-            let label = 'Update Canvas';
-            if (keys.includes('name')) label = 'Rename Canvas';
-            else if (keys.includes('color')) label = 'Change Canvas Color';
-            else if (keys.includes('visible')) label = 'Toggle Canvas Visibility';
-            else if (keys.includes('workspace_x') || keys.includes('workspace_y')) label = 'Move Canvas';
-            else if (keys.includes('raster_width') || keys.includes('raster_height')
-                || keys.includes('show_raster_width') || keys.includes('show_raster_height')) label = 'Resize Canvas';
-            else if (keys.includes('data_flow_perspective') || keys.includes('power_perspective')) label = 'Change Perspective';
-            this.saveState(label);
-        }
+    // gets one (and only one) post-mutation undo entry.
+    updateCanvas(canvasId, patch) {
+        // Pick the most informative undo label from the patch keys.
+        const keys = patch ? Object.keys(patch) : [];
+        let label = 'Update Canvas';
+        if (keys.includes('name')) label = 'Rename Canvas';
+        else if (keys.includes('color')) label = 'Change Canvas Color';
+        else if (keys.includes('visible')) label = 'Toggle Canvas Visibility';
+        else if (keys.includes('workspace_x') || keys.includes('workspace_y')) label = 'Move Canvas';
+        else if (keys.includes('raster_width') || keys.includes('raster_height')
+            || keys.includes('show_raster_width') || keys.includes('show_raster_height')) label = 'Resize Canvas';
+        else if (keys.includes('data_flow_perspective') || keys.includes('power_perspective')) label = 'Change Perspective';
         return fetch(`/api/canvas/${canvasId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(patch || {})
-        }).then(r => r.json()).then(data => this._applyProjectUpdate(data));
+        }).then(r => r.json()).then(data => {
+            this._applyProjectUpdate(data);
+            if (typeof this.saveState === 'function') this.saveState(label);
+        });
     }
 
     /**
@@ -10537,18 +10539,8 @@ class LEDRasterApp {
      * - "duplicate": new layer id appended in target canvas; original
      *   stays put and remains selected.
      */
-    moveLayerCrossCanvas(layerId, targetCanvasId, mode, opts) {
+    moveLayerCrossCanvas(layerId, targetCanvasId, mode) {
         const wantMove = (mode !== 'duplicate');
-        // Canvas-drag callers pass skipSaveState:true because the drag-start
-        // already pushed a 'Move Layers' snapshot. Without this option we'd
-        // capture a SECOND snapshot here mid-drag, which contains the
-        // dragged-but-not-yet-cross-canvas state (offset_x at the dragged
-        // position, layer still in source canvas) — so single undo flew
-        // the layer to weird intermediate coords instead of jumping back
-        // to pre-drag.
-        if (typeof this.saveState === 'function' && !(opts && opts.skipSaveState)) {
-            this.saveState(wantMove ? 'Move Layer to Canvas' : 'Duplicate Layer to Canvas');
-        }
         return fetch(`/api/layer/${layerId}/canvas`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
@@ -10568,6 +10560,12 @@ class LEDRasterApp {
                     }
                 }
             }
+            // saveState AFTER server applies the cross-canvas move so the
+            // snapshot includes the canvas_id swap + the snap-to-(0,0) offset
+            // reset. Single Cmd+Z reverts the whole operation.
+            if (typeof this.saveState === 'function') {
+                this.saveState(wantMove ? 'Move Layer to Canvas' : 'Duplicate Layer to Canvas');
+            }
             // For duplicate: leave selection on the original (default behavior).
             return data;
         });
@@ -10579,16 +10577,9 @@ class LEDRasterApp {
      * layers stay selected and the active canvas follows. Mode applies
      * to ALL layers in the batch (move OR duplicate, not mixed).
      */
-    async moveLayersCrossCanvas(layerIds, targetCanvasId, mode, opts) {
+    async moveLayersCrossCanvas(layerIds, targetCanvasId, mode) {
         const wantMove = (mode !== 'duplicate');
         if (!Array.isArray(layerIds) || layerIds.length === 0) return;
-        // Same skipSaveState convention as moveLayerCrossCanvas — canvas-drag
-        // callers already snapshotted pre-drag.
-        if (typeof this.saveState === 'function' && !(opts && opts.skipSaveState)) {
-            this.saveState(wantMove
-                ? `Move ${layerIds.length} Layers to Canvas`
-                : `Duplicate ${layerIds.length} Layers to Canvas`);
-        }
         let lastData = null;
         for (const id of layerIds) {
             const r = await fetch(`/api/layer/${id}/canvas`, {
@@ -10611,6 +10602,13 @@ class LEDRasterApp {
                 if (window.canvasRenderer && typeof window.canvasRenderer.render === 'function') {
                     window.canvasRenderer.render();
                 }
+            }
+            // saveState AFTER all PUTs settle so one Cmd+Z reverts the whole
+            // multi-layer cross-canvas move/duplicate.
+            if (typeof this.saveState === 'function') {
+                this.saveState(wantMove
+                    ? `Move ${layerIds.length} Layers to Canvas`
+                    : `Duplicate ${layerIds.length} Layers to Canvas`);
             }
         }
         return lastData;
@@ -10653,7 +10651,6 @@ class LEDRasterApp {
     }
 
     deleteCanvas(canvasId) {
-        if (typeof this.saveState === 'function') this.saveState('Delete Canvas');
         return fetch(`/api/canvas/${canvasId}`, { method: 'DELETE' })
             .then(r => r.json().then(body => ({ ok: r.ok, body })))
             .then(({ ok, body }) => {
@@ -10662,13 +10659,16 @@ class LEDRasterApp {
                     return;
                 }
                 this._applyProjectUpdate(body);
+                if (typeof this.saveState === 'function') this.saveState('Delete Canvas');
             });
     }
 
     duplicateCanvas(canvasId) {
-        if (typeof this.saveState === 'function') this.saveState('Duplicate Canvas');
         return fetch(`/api/canvas/${canvasId}/duplicate`, { method: 'POST' })
-            .then(r => r.json()).then(data => this._applyProjectUpdate(data));
+            .then(r => r.json()).then(data => {
+                this._applyProjectUpdate(data);
+                if (typeof this.saveState === 'function') this.saveState('Duplicate Canvas');
+            });
     }
 
     setActiveCanvas(canvasId, opts = {}) {
@@ -10764,23 +10764,27 @@ class LEDRasterApp {
         if (from < 0 || to < 0 || from === to) return;
         ids.splice(from, 1);
         ids.splice(ids.indexOf(targetId), 0, draggedId);
-        if (typeof this.saveState === 'function') this.saveState('Reorder Canvases');
         return fetch('/api/canvas/reorder', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ canvas_ids: ids })
-        }).then(r => r.json()).then(data => this._applyProjectUpdate(data));
+        }).then(r => r.json()).then(data => {
+            this._applyProjectUpdate(data);
+            if (typeof this.saveState === 'function') this.saveState('Reorder Canvases');
+        });
     }
 
     moveLayerToCanvas(layerId, canvasId, mode = 'move') {
-        if (typeof this.saveState === 'function') {
-            this.saveState(mode === 'duplicate' ? 'Duplicate Layer to Canvas' : 'Move Layer to Canvas');
-        }
         return fetch(`/api/layer/${layerId}/canvas`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ canvas_id: canvasId, mode })
-        }).then(r => r.json()).then(data => this._applyProjectUpdate(data));
+        }).then(r => r.json()).then(data => {
+            this._applyProjectUpdate(data);
+            if (typeof this.saveState === 'function') {
+                this.saveState(mode === 'duplicate' ? 'Duplicate Layer to Canvas' : 'Move Layer to Canvas');
+            }
+        });
     }
 
     // v0.8 Slice 2.5: per-canvas "+ Add" chooser (Screen / Image / Text).
