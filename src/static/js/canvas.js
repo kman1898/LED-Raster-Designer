@@ -15,17 +15,18 @@ class CanvasRenderer {
         this.layerSelectionRect = null;
         this.magneticSnap = true; // Magnetic snapping enabled by default
         this.spacePressed = false;
-        // rasterWidth/Height are the *currently active* view's raster size.
-        // The actual storage lives in pixelRasterWidth/Height and
-        // showRasterWidth/Height; setViewMode() swaps the active fields so
-        // pixel-map/cabinet-id render against the processor raster while
-        // show-look/data-flow/power render against the show raster.
-        this.pixelRasterWidth = 1920;
-        this.pixelRasterHeight = 1080;
-        this.showRasterWidth = 1920;
-        this.showRasterHeight = 1080;
-        this.rasterWidth = 1920;
-        this.rasterHeight = 1080;
+        // Slice 6: rasterWidth/Height (and pixel/show variants) are now
+        // accessor properties that read from the *active canvas* (or, during
+        // the per-canvas render loop, from `_activeRenderCanvas`, set by
+        // render() so each canvas's panels clip against ITS own raster, not
+        // the active canvas's). Backing fields below are the legacy
+        // single-canvas fallback used only when the project has no canvases
+        // array (extremely old / pre-Slice-1 projects).
+        this._fallbackPixelRasterWidth = 1920;
+        this._fallbackPixelRasterHeight = 1080;
+        this._fallbackShowRasterWidth = 1920;
+        this._fallbackShowRasterHeight = 1080;
+        this._activeRenderCanvas = null;
         this.showGrid = true;
         this.viewMode = 'pixel-map'; // Default view mode
         this.exportMode = false; // When true, hides grid and raster boundary for clean export
@@ -45,9 +46,64 @@ class CanvasRenderer {
         this.showOffsetTR = false;
         this.showOffsetBL = false;
         this.showOffsetBR = false;
-        
+
+        // Slice 6: install raster getters/setters that route to the active
+        // canvas. Done in the constructor so every CanvasRenderer instance
+        // gets them on its own object (cannot be on the prototype because
+        // they shadow plain assignments).
+        this._installRasterAccessors();
+
         this.setupCanvas();
         this.setupEventListeners();
+    }
+
+    /**
+     * Slice 6 (multi-canvas v0.8): rasterWidth / rasterHeight and the
+     * pixel/show variants used to be plain instance fields. They are now
+     * computed from the active canvas (or the canvas currently being rendered
+     * in the per-canvas loop). Reads return the right value for the current
+     * view tab; writes route to the active canvas via the project model so
+     * the toolbar Raster: W x H field edits the active canvas's raster.
+     *
+     * Fallback behaviour (no canvases array, legacy / pre-Slice-1 project):
+     * read/write the _fallback* backing fields. Single-canvas behaviour is
+     * preserved exactly.
+     */
+    _installRasterAccessors() {
+        const self = this;
+        const active = () => {
+            const proj = (window.app && window.app.project) || null;
+            if (!proj || !Array.isArray(proj.canvases) || proj.canvases.length === 0) return null;
+            // Per-canvas render loop sets _activeRenderCanvas so each canvas's
+            // panels clip against ITS OWN raster, not the active canvas's.
+            if (self._activeRenderCanvas) return self._activeRenderCanvas;
+            return proj.canvases.find(c => c.id === proj.active_canvas_id) || proj.canvases[0];
+        };
+        const isShow = () => self.isShowLookView();
+        const def = (name, read, write) => Object.defineProperty(self, name, {
+            configurable: true,
+            enumerable: true,
+            get: read,
+            set: write,
+        });
+        def('pixelRasterWidth',
+            () => { const c = active(); return c ? (Number(c.raster_width) || 0) : self._fallbackPixelRasterWidth; },
+            (v) => { const c = active(); if (c) c.raster_width = Number(v) || 0; else self._fallbackPixelRasterWidth = Number(v) || 0; });
+        def('pixelRasterHeight',
+            () => { const c = active(); return c ? (Number(c.raster_height) || 0) : self._fallbackPixelRasterHeight; },
+            (v) => { const c = active(); if (c) c.raster_height = Number(v) || 0; else self._fallbackPixelRasterHeight = Number(v) || 0; });
+        def('showRasterWidth',
+            () => { const c = active(); return c ? (Number(c.show_raster_width) || Number(c.raster_width) || 0) : self._fallbackShowRasterWidth; },
+            (v) => { const c = active(); if (c) c.show_raster_width = Number(v) || 0; else self._fallbackShowRasterWidth = Number(v) || 0; });
+        def('showRasterHeight',
+            () => { const c = active(); return c ? (Number(c.show_raster_height) || Number(c.raster_height) || 0) : self._fallbackShowRasterHeight; },
+            (v) => { const c = active(); if (c) c.show_raster_height = Number(v) || 0; else self._fallbackShowRasterHeight = Number(v) || 0; });
+        def('rasterWidth',
+            () => isShow() ? self.showRasterWidth : self.pixelRasterWidth,
+            (v) => { if (isShow()) self.showRasterWidth = v; else self.pixelRasterWidth = v; });
+        def('rasterHeight',
+            () => isShow() ? self.showRasterHeight : self.pixelRasterHeight,
+            (v) => { if (isShow()) self.showRasterHeight = v; else self.pixelRasterHeight = v; });
     }
     
     setupCanvas() {
@@ -126,11 +182,20 @@ class CanvasRenderer {
      */
     isMirroredView() {
         if (!window.app || !window.app.project) return false;
+        // v0.8 Slice 8: perspective is per-canvas. Read from the active
+        // canvas first; fall back to the project root for legacy projects
+        // that haven't been migrated (and the synthetic canvasesToRender
+        // entry built at render() for pre-Slice-1 fallbacks).
+        const proj = window.app.project;
+        const active = (typeof window.app._activeCanvas === 'function')
+            ? window.app._activeCanvas() : null;
         if (this.viewMode === 'data-flow') {
-            return window.app.project.data_flow_perspective === 'back';
+            const v = (active && active.data_flow_perspective) || proj.data_flow_perspective;
+            return v === 'back';
         }
         if (this.viewMode === 'power') {
-            return window.app.project.power_perspective === 'back';
+            const v = (active && active.power_perspective) || proj.power_perspective;
+            return v === 'back';
         }
         return false;
     }
@@ -138,7 +203,7 @@ class CanvasRenderer {
     /**
      * fillText that auto-un-mirrors when the canvas is in a mirrored
      * (back-view) render so label glyphs stay right-side-up. Anchor
-     * position is the same as ctx.fillText — pass the position you would
+     * position is the same as ctx.fillText, pass the position you would
      * have used in normal rendering. Text alignment ('center' is the most
      * common in this codebase) keeps its visual centering. Edge-aligned
      * text ('left'/'right') will flip its anchor side, which is the right
@@ -178,7 +243,7 @@ class CanvasRenderer {
      * in *screen* space, even when the caller is currently inside a per-layer
      * ctx.translate(dx, dy). Without this, a naive `ctx.rect(0,0,rasterWidth,
      * rasterHeight); ctx.clip()` ends up clipping in local (translated)
-     * coords — which means screen coords [dx, dx+rasterWidth] — and lops off
+     * coords, which means screen coords [dx, dx+rasterWidth], and lops off
      * any content drawn at low screen-x when the layer is shifted right (or
      * vice versa). All renderers that paint within the per-layer translate
      * (renderLayerLabels, renderDataFlowArrows, renderPowerArrows, etc.)
@@ -199,6 +264,68 @@ class CanvasRenderer {
      * showOffset - offset_x/y delta so selection rects, hit-tests, and
      * magnetic snap line up with the rendered position.
      */
+    /**
+     * Multi-canvas (v0.8 Slice 3): draw a single canvas's dashed outline at
+     * the origin of the current ctx (caller is expected to have already
+     * translated to canvas.workspace_x/y). The outline color matches
+     * canvas.color; the active canvas gets a 1.5x bolder stroke. Skipped in
+     * exportMode by the caller.
+     *
+     * Uses the canvas's own raster_width/raster_height (not the renderer's
+     * project-level rasterWidth) so each canvas's rect reflects its own
+     * size, even though Slice 3 keeps the source-of-truth at project root
+     * for the active canvas; per-canvas raster sizes are read straight from
+     * the canvas object here.
+     */
+    _drawCanvasOutline(canvas, isActive) {
+        if (!canvas) return;
+        // For Slice 3, pixel-map / cabinet-id views use raster_width/height;
+        // show-look / data-flow / power use show_raster_width/height. Falls
+        // back to raster_width/height if the show-raster fields are missing.
+        const useShow = this.isShowLookView();
+        const w = (useShow && canvas.show_raster_width) || canvas.raster_width || 0;
+        const h = (useShow && canvas.show_raster_height) || canvas.raster_height || 0;
+        if (w <= 0 || h <= 0) return;
+        const color = canvas.color || '#ff0000';
+        const isCrossDropTarget = !!(this._crossCanvasDropTarget
+            && this._crossCanvasDropTarget.id === canvas.id);
+        this.ctx.save();
+        if (isCrossDropTarget) {
+            // Slice 7 hint: brighten outline + faint fill so the user sees
+            // where their shift+drag will land.
+            this.ctx.fillStyle = color + '22';
+            this.ctx.fillRect(0, 0, w, h);
+        }
+        this.ctx.strokeStyle = color;
+        const baseLW = Math.max(3, 5 / this.zoom);
+        this.ctx.lineWidth = isCrossDropTarget ? baseLW * 2.2
+            : (isActive ? baseLW * 1.5 : baseLW);
+        this.ctx.setLineDash([10, 5]);
+        this.ctx.strokeRect(0, 0, w, h);
+        this.ctx.setLineDash([]);
+        this.ctx.restore();
+    }
+
+    /**
+     * Faint background tint for the active canvas. Painted BEFORE layers
+     * (so layers paint over it) so the tint is visible only in empty
+     * regions of the active canvas's raster.
+     */
+    _drawActiveCanvasTint(canvas) {
+        if (!canvas) return;
+        const useShow = this.isShowLookView();
+        const w = (useShow && canvas.show_raster_width) || canvas.raster_width || 0;
+        const h = (useShow && canvas.show_raster_height) || canvas.raster_height || 0;
+        if (w <= 0 || h <= 0) return;
+        const color = canvas.color || '#ff0000';
+        // ~6% alpha (0F in 8-digit hex). Caller already translated to canvas
+        // origin, so fill at (0, 0).
+        this.ctx.save();
+        this.ctx.fillStyle = color + '0F';
+        this.ctx.fillRect(0, 0, w, h);
+        this.ctx.restore();
+    }
+
     getLayerBoundsInActiveView(layer) {
         const b = this.getLayerBounds(layer);
         const { dx, dy } = this.getLayerRenderOffset(layer);
@@ -285,7 +412,93 @@ class CanvasRenderer {
     // un-mirrored screen space, so we have to flip them back into layer
     // coordinates before any hit-testing / drag math.
     _unmirrorWorldX(worldX) {
-        return this.isMirroredView() ? (this.rasterWidth - worldX) : worldX;
+        if (!this.isMirroredView()) return worldX;
+        // v0.8 Slice 8 fix: mirror axis is the workspace bounds, not the
+        // active canvas's raster, otherwise multi-canvas workspaces flip
+        // off-screen because workspace_x can be far past rasterWidth.
+        const k = this._mirrorAxisX();
+        return k - worldX;
+    }
+
+    /**
+     * The Canvas2D translate-X used as the mirror axis when Back perspective
+     * is active. We mirror around the workspace bounding box so points stay
+     * in the same x-range after the flip, single-canvas projects degrade to
+     * mirroring around rasterWidth (legacy behaviour) automatically because
+     * their bbox.x is 0 and bbox.w == rasterWidth.
+     */
+    _mirrorAxisX() {
+        const bb = this._workspaceBounds();
+        // K such that K - x maps left edge to right edge of bbox:
+        //   K - bbox.x = bbox.x + bbox.w  →  K = 2*bbox.x + bbox.w
+        return 2 * (bb.x || 0) + (bb.width || this.rasterWidth);
+    }
+
+    /**
+     * Slice 4: hit-test a workspace point against the visible canvases.
+     * Returns the first canvas (in array order, earlier wins on overlap)
+     * whose rect contains (worldX, worldY), or null. Uses the same per-mode
+     * raster fields _drawCanvasOutline does, including the workspace_x/y
+     * offset so the rect is in workspace coords (matching worldX/worldY).
+     */
+    _canvasAtPoint(worldX, worldY) {
+        if (!window.app || !window.app.project) return null;
+        const arr = window.app.project.canvases;
+        if (!Array.isArray(arr) || arr.length === 0) return null;
+        const useShow = this.isShowLookView();
+        for (const c of arr) {
+            if (!c || c.visible === false) continue;
+            const w = (useShow && c.show_raster_width) || c.raster_width || 0;
+            const h = (useShow && c.show_raster_height) || c.raster_height || 0;
+            if (w <= 0 || h <= 0) continue;
+            const x = c.workspace_x || 0;
+            const y = c.workspace_y || 0;
+            if (worldX >= x && worldX <= x + w && worldY >= y && worldY <= y + h) {
+                return c;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Slice 5: hit-test a workspace point against the dashed outline edges
+     * of visible canvases. Returns the first canvas whose outline edge is
+     * within EDGE_HIT_PX (screen pixels, converted to world units via
+     * /this.zoom) of (worldX, worldY), or null.
+     *
+     * "Edge" = within `tol` of any of the four edges of the canvas rect,
+     * but the point must also be inside the rect-with-tolerance overall
+     * (so corners count). Inside the canvas body (more than `tol` away
+     * from every edge) does NOT count, that's reserved for body-click
+     * activate / panel selection.
+     */
+    _canvasEdgeAtPoint(worldX, worldY) {
+        if (!window.app || !window.app.project) return null;
+        const arr = window.app.project.canvases;
+        if (!Array.isArray(arr) || arr.length === 0) return null;
+        const EDGE_HIT_PX = 6;
+        const tol = EDGE_HIT_PX / Math.max(this.zoom, 0.0001);
+        const useShow = this.isShowLookView();
+        for (const c of arr) {
+            if (!c || c.visible === false) continue;
+            const w = (useShow && c.show_raster_width) || c.raster_width || 0;
+            const h = (useShow && c.show_raster_height) || c.raster_height || 0;
+            if (w <= 0 || h <= 0) continue;
+            const x = c.workspace_x || 0;
+            const y = c.workspace_y || 0;
+            // Outer bounds (rect + tol on every side)
+            if (worldX < x - tol || worldX > x + w + tol) continue;
+            if (worldY < y - tol || worldY > y + h + tol) continue;
+            // Inside any of the four edge bands?
+            const nearLeft   = Math.abs(worldX - x)       <= tol;
+            const nearRight  = Math.abs(worldX - (x + w)) <= tol;
+            const nearTop    = Math.abs(worldY - y)       <= tol;
+            const nearBottom = Math.abs(worldY - (y + h)) <= tol;
+            if (nearLeft || nearRight || nearTop || nearBottom) {
+                return c;
+            }
+        }
+        return null;
     }
 
     handleMouseDown(e) {
@@ -294,7 +507,85 @@ class CanvasRenderer {
         const mouseY = e.clientY - rect.top;
         const worldX = this._unmirrorWorldX((mouseX - this.panX) / this.zoom);
         const worldY = (mouseY - this.panY) / this.zoom;
-        
+
+        // Slice 5: dragging a canvas's dashed outline edge repositions
+        // the canvas in the workspace. Must be checked BEFORE the Slice 4
+        // panel/canvas-activate block so edge-drag wins over body-click
+        // activation. Skipped for pan (space), shift, and alt, those are
+        // existing drag/paint behaviors. Inside the canvas body still
+        // falls through to Slice 4.
+        if (e.button === 0 && !this.spacePressed && !e.shiftKey && !e.altKey) {
+            const edgeCanvas = this._canvasEdgeAtPoint(worldX, worldY);
+            if (edgeCanvas) {
+                this.isDraggingCanvas = true;
+                this.draggingCanvasId = edgeCanvas.id;
+                this.canvasDragStartX = worldX;
+                this.canvasDragStartY = worldY;
+                this.canvasDragStartWX = edgeCanvas.workspace_x || 0;
+                this.canvasDragStartWY = edgeCanvas.workspace_y || 0;
+                // saveState moved to canvas-drag END (in updateCanvas .then())
+                // so the snapshot is the POST-drag workspace position. Pre-drag
+                // saveState was off-by-one and made undo skip past the drag.
+                // Activate the dragged canvas so the sidebar reflects it.
+                if (window.app && window.app.project
+                    && window.app.project.active_canvas_id !== edgeCanvas.id
+                    && typeof window.app.setActiveCanvas === 'function') {
+                    window.app.setActiveCanvas(edgeCanvas.id);
+                }
+                this.canvas.style.cursor = 'grabbing';
+                if (typeof sendClientLog === 'function') {
+                    sendClientLog('canvas_drag_start', { canvasId: edgeCanvas.id });
+                }
+                return;
+            }
+        }
+
+        // Slice 4 (+ multi-canvas hit-test fix): every left click in the
+        // workspace either:
+        //   (a) hits a panel in some canvas's layer → activate that canvas
+        //       and make that layer the currentLayer so the existing
+        //       panel-select / layer-action paths can run against it
+        //       without the user having to click the layer in the sidebar
+        //       first;
+        //   (b) hits empty area inside a canvas's rect → activate that
+        //       canvas;
+        //   (c) hits empty area outside any canvas → no canvas change.
+        // Skipped for pan (space) and shift/alt modifiers (existing drag
+        // behaviors). Additive, the rest of mouse-down still runs.
+        if (e.button === 0 && !this.spacePressed && !e.shiftKey && !e.altKey) {
+            const hitPanel = this.getPanelAt(worldX, worldY);
+            if (hitPanel) {
+                // Panel hit: switch to its layer's canvas if needed, and
+                // promote its layer to currentLayer if needed. Both gates
+                // are no-ops when already in scope, so single-canvas /
+                // current-layer flows are unchanged.
+                const layer = window.app && window.app.project
+                    && window.app.project.layers.find(l => l.id === hitPanel.layerId);
+                if (layer) {
+                    if (layer.canvas_id
+                        && window.app.project.active_canvas_id !== layer.canvas_id
+                        && typeof window.app.setActiveCanvas === 'function') {
+                        window.app.setActiveCanvas(layer.canvas_id);
+                    }
+                    if ((!window.app.currentLayer || window.app.currentLayer.id !== layer.id)
+                        && typeof window.app.selectLayer === 'function') {
+                        // selectLayer takes the layer OBJECT, not the id
+                        // (the !layer.id guard rejects raw integers).
+                        window.app.selectLayer(layer);
+                    }
+                }
+            } else {
+                const hitCanvas = this._canvasAtPoint(worldX, worldY);
+                if (hitCanvas && hitCanvas.id
+                    && window.app
+                    && window.app.project
+                    && hitCanvas.id !== window.app.project.active_canvas_id
+                    && typeof window.app.setActiveCanvas === 'function') {
+                    window.app.setActiveCanvas(hitCanvas.id);
+                }
+            }
+        }
+
         if (e.button === 0 && this.spacePressed) {
             this.isDragging = true;
             this.dragStartX = mouseX;
@@ -364,11 +655,22 @@ class CanvasRenderer {
                 && this.viewMode === 'pixel-map'
                 && window.app && window.app.currentLayer) {
             const startPanel = this.getPanelAt(worldX, worldY);
-            // Allow drag-start on hidden ("blank") panels too — selecting them
+            // Allow drag-start on hidden ("blank") panels too, selecting them
             // is the only way to bulk-restore via the sidebar buttons.
             const onCurrentLayer = startPanel
                 && startPanel.layerId === window.app.currentLayer.id;
-            if (onCurrentLayer) {
+            // Don't capture the click for panel-select if there's a HIGHER-Z
+            // layer (image / text / another screen later in project.layers)
+            // sitting on top of the current layer at this point, the user is
+            // clicking the visible top layer, not the panel buried beneath it.
+            // Bug: with a text layer over a selected screen, clicks on text
+            // were grabbed by the screen's panel-select instead of selecting
+            // the text layer.
+            const topLayer = this.getLayerAt(worldX, worldY);
+            const topIsHigher = topLayer && window.app.project
+                && window.app.project.layers.indexOf(topLayer)
+                    > window.app.project.layers.indexOf(window.app.currentLayer);
+            if (onCurrentLayer && !topIsHigher) {
                 this.isSelectingPixelMapPanels = true;
                 this.selectionRect = { x1: worldX, y1: worldY, x2: worldX, y2: worldY };
                 if (typeof sendClientLog === 'function') {
@@ -381,7 +683,7 @@ class CanvasRenderer {
         if (e.button === 0 && !this.spacePressed && !e.shiftKey && !e.altKey) {
             // Falling through to layer-select means the user clicked outside any
             // panel in pixel-map (or in another view). Drop any stale pixel-map
-            // panel selection so it doesn't sit around — fresh layer-drag should
+            // panel selection so it doesn't sit around, fresh layer-drag should
             // start without panel-state lingering.
             if (this.viewMode === 'pixel-map' && window.app && window.app.pixelMapSelection
                     && window.app.pixelMapSelection.size > 0) {
@@ -424,10 +726,12 @@ class CanvasRenderer {
                     }
                     this.isDraggingLayer = true;
                     this.dragLayerMode = (this.viewMode === 'show-look') ? 'show' : 'processor';
-                    // Save state BEFORE the drag starts so undo reverts to pre-move positions
-                    if (typeof window.app.saveState === 'function') {
-                        window.app.saveState(this.dragLayerMode === 'show' ? 'Move Layers (Show Look)' : 'Move Layers');
-                    }
+                    // saveState moved to drag-END so the snapshot captures the
+                    // POST-drag project state. Undo decrements then restores
+                    // the previous post-state, which matches the user's
+                    // expectation of "one Cmd+Z reverts one drag." Pre-drag
+                    // saveState was off-by-one and made undo skip past the
+                    // most recent action.
                     this.dragLayerStartX = worldX;
                     this.dragLayerStartY = worldY;
                     const useShow = this.dragLayerMode === 'show';
@@ -524,7 +828,7 @@ class CanvasRenderer {
         } else if (e.button === 0 && e.altKey) {
             // Alt+click/drag toggles "blank" (hidden) on the panel.
             // When a multi-selection is active, apply to the entire selection
-            // in one shot (no drag-painting in that mode — the selection is
+            // in one shot (no drag-painting in that mode, the selection is
             // already explicit).
             if (this.viewMode === 'pixel-map') {
                 const clickedPanel = this.getPanelAt(worldX, worldY);
@@ -586,6 +890,33 @@ class CanvasRenderer {
         const mouseY = e.clientY - rect.top;
         const worldX = this._unmirrorWorldX((mouseX - this.panX) / this.zoom);
         const worldY = (mouseY - this.panY) / this.zoom;
+
+        // Slice 5: live canvas-drag, update workspace_x/y on every move,
+        // but only PUT to the server on mouseup (avoid flooding).
+        if (this.isDraggingCanvas && this.draggingCanvasId) {
+            if (window.app && window.app.project) {
+                const c = window.app.project.canvases.find(c => c.id === this.draggingCanvasId);
+                if (c) {
+                    const dx = worldX - this.canvasDragStartX;
+                    const dy = worldY - this.canvasDragStartY;
+                    let nextX = this.canvasDragStartWX + dx;
+                    let nextY = this.canvasDragStartWY + dy;
+                    // v0.8 Slice 9: snap dragged canvas edges to neighbor
+                    // canvas edges (left↔right, right↔left, top↔bottom,
+                    // bottom↔top, plus aligned-edge snap). Honors the global
+                    // magnetic-snap toggle so users can disable it.
+                    if (this.magneticSnap) {
+                        const snapped = this._snapCanvasToNeighbors(c, nextX, nextY);
+                        nextX = snapped.x;
+                        nextY = snapped.y;
+                    }
+                    c.workspace_x = nextX;
+                    c.workspace_y = nextY;
+                    this.render();
+                }
+            }
+            return;
+        }
 
         if (this.isAltPainting) {
             const clickedPanel = this.getPanelAt(worldX, worldY);
@@ -670,7 +1001,7 @@ class CanvasRenderer {
                     const nextX = item.startX + snapDx;
                     const nextY = item.startY + snapDy;
                     if (showMode) {
-                        // Show Look drag — only the show position changes;
+                        // Show Look drag, only the show position changes;
                         // panels stay at their processor coords.
                         layer.showOffsetX = nextX;
                         layer.showOffsetY = nextY;
@@ -692,13 +1023,24 @@ class CanvasRenderer {
                     }
                 });
 
+                // Track cross-canvas drop target for visual hint. Match the
+                // mouseUp drop logic: hit-test the **mouse cursor**, not the
+                // layer center (so wide layers feel responsive).
+                const _primary = window.app.currentLayer;
+                if (_primary) {
+                    const _tgt = this._canvasAtPoint(worldX, worldY);
+                    this._crossCanvasDropTarget = (_tgt && _tgt.id !== _primary.canvas_id) ? _tgt : null;
+                } else {
+                    this._crossCanvasDropTarget = null;
+                }
+
                 this.render();
             }
         } else if (this.isDraggingScreenName) {
             // Screen name dragging with snap positions - tab-specific
             if (window.app && window.app.currentLayer) {
                 const layer = window.app.currentLayer;
-                // Screen-name drag — bounds in the active view for snap calc.
+                // Screen-name drag, bounds in the active view for snap calc.
                 const bounds = this.getLayerBoundsInActiveView(layer);
                 const layerWidth = bounds.width;
                 const layerHeight = bounds.height;
@@ -754,12 +1096,53 @@ class CanvasRenderer {
         
         if (this.spacePressed && !this.isDragging) {
             this.canvas.style.cursor = 'grab';
-        } else if (!this.isDragging && !this.isDraggingLayer && !this.isDraggingScreenName) {
-            this.canvas.style.cursor = 'default';
+        } else if (!this.isDragging && !this.isDraggingLayer && !this.isDraggingScreenName && !this.isDraggingCanvas) {
+            // Slice 5: hovering a canvas's outline edge → show 'move' so
+            // the user knows they can grab it. Skip when a modifier is
+            // held (other actions own those gestures).
+            if (!e.shiftKey && !e.altKey && !this.isSelectingPanels && !this.isSelectingLayers
+                && this._canvasEdgeAtPoint(worldX, worldY)) {
+                this.canvas.style.cursor = 'move';
+            } else {
+                this.canvas.style.cursor = 'default';
+            }
         }
     }
     
     handleMouseUp(e) {
+        // Slice 5: commit canvas-drag drop. Live updates already happened
+        // during mousemove; here we round to integer (avoid sub-pixel
+        // drift), persist with a single PUT, and run an overlap check.
+        if (this.isDraggingCanvas) {
+            this.isDraggingCanvas = false;
+            const id = this.draggingCanvasId;
+            this.draggingCanvasId = null;
+            this.canvas.style.cursor = 'default';
+            if (window.app && window.app.project) {
+                const c = window.app.project.canvases.find(c => c.id === id);
+                if (c) {
+                    const wx = Math.round(c.workspace_x || 0);
+                    const wy = Math.round(c.workspace_y || 0);
+                    c.workspace_x = wx;
+                    c.workspace_y = wy;
+                    if (typeof window.app.updateCanvas === 'function') {
+                        // updateCanvas now snapshots POST-mutation state in
+                        // its server-response .then() so a single Cmd+Z reverts
+                        // exactly this drag. No skipSaveState needed.
+                        window.app.updateCanvas(id, { workspace_x: wx, workspace_y: wy });
+                    }
+                    if (typeof window.app._checkCanvasOverlapAndToast === 'function') {
+                        window.app._checkCanvasOverlapAndToast(id);
+                    }
+                }
+            }
+            this.render();
+            if (typeof sendClientLog === 'function') {
+                sendClientLog('canvas_drag_end', { canvasId: id });
+            }
+            return;
+        }
+
         if (this.isAltPainting) {
             this.isAltPainting = false;
             if (window.app && this.altPaintedPanelIds && this.altPaintedPanelIds.size > 0) {
@@ -864,7 +1247,7 @@ class CanvasRenderer {
                     // Click without drag.
                     //  - Plain click on a panel: replace the selection with just that panel
                     //    (resets multi-select instead of confusingly toggling one panel out).
-                    //  - Cmd/Ctrl+click: additive — toggle that panel in/out of the selection.
+                    //  - Cmd/Ctrl+click: additive, toggle that panel in/out of the selection.
                     //  - Plain click on empty space: clear the selection.
                     const clickedPanel = this.getPanelAt(this.selectionRect.x1, this.selectionRect.y1);
                     const additive = e.metaKey || e.ctrlKey;
@@ -940,7 +1323,8 @@ class CanvasRenderer {
             this.canvas.style.cursor = this.spacePressed ? 'grab' : 'default';
         } else if (this.isDraggingLayer) {
             this.isDraggingLayer = false;
-            
+            this._crossCanvasDropTarget = null;
+
             if (window.app && window.app.currentLayer) {
                 const dx = Math.round(this._unmirrorWorldX(((e.clientX - this.canvas.getBoundingClientRect().left) - this.panX) / this.zoom) - this.dragLayerStartX);
                 const dy = Math.round(((e.clientY - this.canvas.getBoundingClientRect().top) - this.panY) / this.zoom - this.dragLayerStartY);
@@ -995,8 +1379,63 @@ class CanvasRenderer {
                     document.getElementById('offset-y').value = window.app.currentLayer.offset_y;
                 }
 
-                const toUpdate = window.app.getSelectedLayers ? window.app.getSelectedLayers() : [window.app.currentLayer];
-                window.app.updateLayers(toUpdate, false);
+                // Slice 7 + multi-select fix: cross-canvas drop check. The
+                // hit-test uses the **mouse cursor position** at drop time,
+                // not the layer's geometric center, for a wide layer
+                // dragged onto a smaller canvas, the cursor lands inside
+                // the target rect long before the layer's center does, and
+                // the user expects "drop where I'm pointing". (Earlier
+                // implementation used layer center and felt unresponsive
+                // on big layers.) Layers in OTHER canvases keep their
+                // normal within-canvas offset change.
+                const primary = window.app.currentLayer;
+                const primaryCanvas = window.app.project && Array.isArray(window.app.project.canvases)
+                    ? window.app.project.canvases.find(c => c && c.id === primary.canvas_id)
+                    : null;
+                let crossCanvasHandled = false;
+                if (primaryCanvas) {
+                    // Mouse cursor world coords at drop (already computed
+                    // above for the offset delta).
+                    const cursorWX = this._unmirrorWorldX(((e.clientX - this.canvas.getBoundingClientRect().left) - this.panX) / this.zoom);
+                    const cursorWY = ((e.clientY - this.canvas.getBoundingClientRect().top) - this.panY) / this.zoom;
+                    const targetCanvas = this._canvasAtPoint(cursorWX, cursorWY);
+                    if (targetCanvas && targetCanvas.id !== primary.canvas_id) {
+                        const mode = (e.metaKey || e.altKey) ? 'duplicate' : 'move';
+                        // Collect all selected layer ids that share the
+                        // primary's canvas (so the whole multi-selection
+                        // travels together). Primary first so it stays the
+                        // currentLayer in the target.
+                        const movedIds = [primary.id];
+                        if (window.app.selectedLayerIds && window.app.selectedLayerIds.size > 1) {
+                            window.app.selectedLayerIds.forEach(id => {
+                                if (id === primary.id) return;
+                                const l = window.app.project.layers.find(x => x.id === id);
+                                if (l && l.canvas_id === primary.canvas_id && !l.locked) {
+                                    movedIds.push(id);
+                                }
+                            });
+                        }
+                        // Cross-canvas helpers now snapshot post-action state
+                        // themselves (in their .then() after the server
+                        // round-trip), so we don't pass skipSaveState anymore.
+                        if (movedIds.length > 1 && typeof window.app.moveLayersCrossCanvas === 'function') {
+                            window.app.moveLayersCrossCanvas(movedIds, targetCanvas.id, mode);
+                            crossCanvasHandled = true;
+                        } else if (typeof window.app.moveLayerCrossCanvas === 'function') {
+                            window.app.moveLayerCrossCanvas(primary.id, targetCanvas.id, mode);
+                            crossCanvasHandled = true;
+                        }
+                    }
+                }
+
+                if (!crossCanvasHandled) {
+                    // Snapshot POST-drag state so one Cmd+Z reverts this drag.
+                    if (typeof window.app.saveState === 'function') {
+                        window.app.saveState(this.dragLayerMode === 'show' ? 'Move Layers (Show Look)' : 'Move Layers');
+                    }
+                    const toUpdate = window.app.getSelectedLayers ? window.app.getSelectedLayers() : [window.app.currentLayer];
+                    window.app.updateLayers(toUpdate, false);
+                }
                 this.dragLayerMode = null;
             }
         } else if (this.isDraggingScreenName) {
@@ -1053,10 +1492,10 @@ class CanvasRenderer {
         this.zoom = newZoom;
         this.panX = mouseX - worldX * this.zoom;
         this.panY = mouseY - worldY * this.zoom;
-        document.getElementById('zoom-level').value = `${Math.round(this.zoom * 100)}%`;
+        document.getElementById('zoom-level').value = `${this._zoomToPercent(this.zoom)}%`;
         this.render();
     }
-    
+
     handleContextMenu(e) {
         e.preventDefault();
         e.stopPropagation();
@@ -1069,7 +1508,7 @@ class CanvasRenderer {
             const worldX = this._unmirrorWorldX(((e.clientX - rect.left) - this.panX) / this.zoom);
             const worldY = ((e.clientY - rect.top) - this.panY) / this.zoom;
             const clicked = this.getPanelAt(worldX, worldY);
-            // Right-click works on hidden panels too — the menu shows
+            // Right-click works on hidden panels too, the menu shows
             // "Restore From Blank" so they can be brought back.
             if (clicked && clicked.layerId === window.app.currentLayer.id) {
                 const key = window.app.getPanelKey(clicked.panel);
@@ -1268,6 +1707,26 @@ class CanvasRenderer {
         }
     }
     
+    /**
+     * v0.8 multi-canvas: return the workspace translate ({wx, wy}) for the
+     * canvas a layer belongs to. Layers without a canvas_id (legacy / orphan)
+     * and projects with no canvases array fall back to (0, 0) so single-canvas
+     * behaviour is unchanged.
+     */
+    _layerCanvasOffset(layer) {
+        if (!layer || !window.app || !window.app.project) return { wx: 0, wy: 0 };
+        const arr = window.app.project.canvases;
+        if (!Array.isArray(arr) || arr.length === 0) return { wx: 0, wy: 0 };
+        const cid = layer.canvas_id;
+        if (!cid) return { wx: 0, wy: 0 };
+        for (const c of arr) {
+            if (c && c.id === cid) {
+                return { wx: c.workspace_x || 0, wy: c.workspace_y || 0 };
+            }
+        }
+        return { wx: 0, wy: 0 };
+    }
+
     getPanelAt(worldX, worldY) {
         if (!window.app || !window.app.project) return null;
         for (let i = window.app.project.layers.length - 1; i >= 0; i--) {
@@ -1276,10 +1735,13 @@ class CanvasRenderer {
             if ((layer.type || 'screen') === 'image') continue;
             // Convert world coords back into the layer's processor space so we
             // can hit-test against panel.x/y (which are stored at processor
-            // position; show-look just renders with a translate).
+            // position; show-look renders with a translate AND, for v0.8
+            // multi-canvas, the per-layer render is wrapped in the parent
+            // canvas's workspace translate). Subtract both.
             const { dx, dy } = this.getLayerRenderOffset(layer);
-            const lx = worldX - dx;
-            const ly = worldY - dy;
+            const { wx, wy } = this._layerCanvasOffset(layer);
+            const lx = worldX - dx - wx;
+            const ly = worldY - dy - wy;
             for (const panel of layer.panels) {
                 // Don't skip hidden panels - they need to be clickable to toggle back
                 if (lx >= panel.x && lx <= panel.x + panel.width &&
@@ -1298,10 +1760,17 @@ class CanvasRenderer {
             if (!layer.visible) continue;
             // Hit-test against the layer's bounds in the *active view*, since
             // worldX/worldY are in the view's coord space (Show Look / Data /
-            // Power render at the show position).
+            // Power render at the show position). v0.8: bounds returned by
+            // getLayerBoundsInActiveView are in the canvas's local coord
+            // space; shift by the canvas's workspace_x/y so the comparison
+            // against worldX/worldY (which are in workspace coords) is right
+            // for canvases beyond the first.
             const bounds = this.getLayerBoundsInActiveView(layer);
-            if (worldX >= bounds.x && worldX <= bounds.x + bounds.width &&
-                worldY >= bounds.y && worldY <= bounds.y + bounds.height) {
+            const { wx, wy } = this._layerCanvasOffset(layer);
+            const bx = bounds.x + wx;
+            const by = bounds.y + wy;
+            if (worldX >= bx && worldX <= bx + bounds.width &&
+                worldY >= by && worldY <= by + bounds.height) {
                 return layer;
             }
         }
@@ -1388,34 +1857,68 @@ class CanvasRenderer {
         if (layer.showDate) {
             dynamicLines.push(new Date().toLocaleDateString());
         }
-        // Data port stats
-        if ((layer.showPrimaryPorts || layer.showBackupPorts) && window.app) {
-            const counts = window.app.getPortCounts();
-            if (layer.showPrimaryPorts && counts.primary > 0) {
-                dynamicLines.push(`Primary Ports: ${counts.primary}`);
+        // v0.8 Slice 10: dynamic data/power stats now honor a per-layer
+        // scope: 'canvas' (text layer's parent canvas), 'project' (all
+        // canvases, original behaviour, default), or 'both' (renders one
+        // line for the canvas, then one for the project total).
+        const scope = layer.dynamicInfoScope || 'project';
+        const wantsData = layer.showPrimaryPorts || layer.showBackupPorts;
+        const wantsPower = layer.showCircuits || layer.showSinglePhase || layer.showThreePhase;
+        if ((wantsData || wantsPower) && window.app) {
+            // Resolve the canvas this text layer sits on. For "canvas" /
+            // "both" scopes we need to pass canvas_id into the aggregators.
+            const ownCanvasId = layer.canvas_id || null;
+            const ownCanvas = (ownCanvasId && window.app._activeCanvas)
+                ? (window.app.project && window.app.project.canvases || []).find(c => c && c.id === ownCanvasId)
+                : null;
+            const canvasLabel = ownCanvas ? (ownCanvas.name || 'Canvas') : 'Canvas';
+            const passes = []; // [{ key: 'canvas'|'project', label: '... (X)' or '... (Total)' }]
+            if (scope === 'canvas') passes.push({ key: 'canvas', suffix: ` (${canvasLabel})` });
+            else if (scope === 'project') passes.push({ key: 'project', suffix: '' });
+            else { // 'both'
+                passes.push({ key: 'canvas', suffix: ` (${canvasLabel})` });
+                passes.push({ key: 'project', suffix: ' (Total)' });
             }
-            if (layer.showBackupPorts && counts.backup > 0) {
-                dynamicLines.push(`Backup Ports: ${counts.backup}`);
-            }
-        }
-        // Power stats
-        if ((layer.showCircuits || layer.showSinglePhase || layer.showThreePhase) && window.app) {
-            const pwr = window.app.getPowerCounts();
-            if (layer.showCircuits && pwr.circuits > 0) {
-                dynamicLines.push(`Circuits: ${pwr.circuits} @ ${pwr.voltage}V`);
-            }
-            if (layer.showSinglePhase && pwr.circuits > 0) {
-                dynamicLines.push(`1-Phase: ${pwr.singlePhaseAmps.toFixed(2)}A`);
-            }
-            if (layer.showThreePhase && pwr.circuits >= 3) {
-                dynamicLines.push(`3-Phase: ${pwr.threePhaseAmps.toFixed(2)}A`);
-            }
+            passes.forEach(pass => {
+                const filter = pass.key === 'canvas' ? ownCanvasId : undefined;
+                if (wantsData) {
+                    const counts = window.app.getPortCounts(filter);
+                    if (layer.showPrimaryPorts && counts.primary > 0) {
+                        dynamicLines.push(`Primary Ports${pass.suffix}: ${counts.primary}`);
+                    }
+                    if (layer.showBackupPorts && counts.backup > 0) {
+                        dynamicLines.push(`Backup Ports${pass.suffix}: ${counts.backup}`);
+                    }
+                }
+                if (wantsPower) {
+                    const pwr = window.app.getPowerCounts(filter);
+                    if (layer.showCircuits && pwr.circuits > 0) {
+                        dynamicLines.push(`Circuits${pass.suffix}: ${pwr.circuits} @ ${pwr.voltage}V`);
+                    }
+                    if (layer.showSinglePhase && pwr.circuits > 0) {
+                        dynamicLines.push(`1-Phase${pass.suffix}: ${pwr.singlePhaseAmps.toFixed(2)}A`);
+                    }
+                    if (layer.showThreePhase && pwr.circuits >= 3) {
+                        dynamicLines.push(`3-Phase${pass.suffix}: ${pwr.threePhaseAmps.toFixed(2)}A`);
+                    }
+                }
+            });
         }
         if (dynamicLines.length > 0) {
             text = text ? `${text}\n${dynamicLines.join('\n')}` : dynamicLines.join('\n');
         }
 
         if (text) {
+            // Clip text rendering to the text-layer's own box so overlong
+            // content can't spill onto neighboring canvases or out of the
+            // layer's raster footprint. The clip is scoped to a separate
+            // save() so the background + border (already drawn above) are
+            // unaffected.
+            this.ctx.save();
+            this.ctx.beginPath();
+            this.ctx.rect(x, y, w, h);
+            this.ctx.clip();
+
             this.ctx.fillStyle = fontColor;
             // Build font string with bold/italic
             let fontStyle = '';
@@ -1433,24 +1936,26 @@ class CanvasRenderer {
 
             lines.forEach((line, i) => {
                 const ty = y + padding + i * lineHeight;
-                if (ty + lineHeight <= y + h + lineHeight) {
-                    this._fillText(line, textX, ty);
-                    // Underline
-                    if (layer.fontUnderline && line.length > 0) {
-                        const metrics = this.ctx.measureText(line);
-                        let ulX = textX;
-                        if (textAlign === 'center') ulX = textX - metrics.width / 2;
-                        else if (textAlign === 'right') ulX = textX - metrics.width;
-                        const ulY = ty + fontSize + 2;
-                        this.ctx.beginPath();
-                        this.ctx.strokeStyle = fontColor;
-                        this.ctx.lineWidth = Math.max(1, fontSize / 15);
-                        this.ctx.moveTo(ulX, ulY);
-                        this.ctx.lineTo(ulX + metrics.width, ulY);
-                        this.ctx.stroke();
-                    }
+                // Cheap vertical-overflow short-circuit so we don't measure +
+                // fillText for lines fully below the box (clip would suppress
+                // them anyway, but skipping saves work on big text dumps).
+                if (ty > y + h) return;
+                this._fillText(line, textX, ty);
+                if (layer.fontUnderline && line.length > 0) {
+                    const metrics = this.ctx.measureText(line);
+                    let ulX = textX;
+                    if (textAlign === 'center') ulX = textX - metrics.width / 2;
+                    else if (textAlign === 'right') ulX = textX - metrics.width;
+                    const ulY = ty + fontSize + 2;
+                    this.ctx.beginPath();
+                    this.ctx.strokeStyle = fontColor;
+                    this.ctx.lineWidth = Math.max(1, fontSize / 15);
+                    this.ctx.moveTo(ulX, ulY);
+                    this.ctx.lineTo(ulX + metrics.width, ulY);
+                    this.ctx.stroke();
                 }
             });
+            this.ctx.restore();
         }
 
         this.ctx.restore();
@@ -1501,26 +2006,114 @@ class CanvasRenderer {
         // helpers below.
         this._mirror = this.isMirroredView();
         if (this._mirror) {
-            this.ctx.translate(this.rasterWidth, 0);
+            // v0.8 Slice 8: mirror axis is the workspace bounding-box right
+            // edge so multi-canvas workspaces stay on-screen when flipped.
+            // Single-canvas legacy projects naturally land at this.rasterWidth
+            // because their bbox is (0, 0, rasterWidth, rasterHeight).
+            this.ctx.translate(this._mirrorAxisX(), 0);
             this.ctx.scale(-1, 1);
         }
 
         // Disable image smoothing to prevent anti-aliasing artifacts (seams between panels)
         this.ctx.imageSmoothingEnabled = false;
         
-        // Raster boundary - skip in export mode
-        if (!this.exportMode) {
-            this.ctx.strokeStyle = '#ff0000';
-            // Scale inversely with zoom so it's always visible (min 3px on screen)
-            this.ctx.lineWidth = Math.max(3, 5 / this.zoom);
-            this.ctx.setLineDash([10, 5]);
-            this.ctx.strokeRect(0, 0, this.rasterWidth, this.rasterHeight);
-            this.ctx.setLineDash([]);
-        }
-        
+        // Multi-canvas (v0.8 Slice 3): build a lookup so per-layer post-passes
+        // (selection overlays, error badges, pixel grid) can translate to
+        // the layer's own canvas's workspace position. For pre-v0.8 projects
+        // that haven't been migrated yet, fall back to a synthetic canvas at
+        // (0, 0) so single-canvas behaviour is unchanged.
+        const _canvasesArr = (window.app && window.app.project && Array.isArray(window.app.project.canvases))
+            ? window.app.project.canvases
+            : [];
+        const _canvasById = {};
+        _canvasesArr.forEach(c => { if (c && c.id) _canvasById[c.id] = c; });
+        const _activeCanvasId = (window.app && window.app.project)
+            ? window.app.project.active_canvas_id : null;
+        // Helper: returns the workspace translate for a layer (or 0,0 for
+        // legacy / orphan layers). Used by the post-pass wrappers below.
+        const _layerWs = (layer) => {
+            const cid = layer && layer.canvas_id;
+            const c = cid ? _canvasById[cid] : null;
+            return { wx: (c && c.workspace_x) || 0, wy: (c && c.workspace_y) || 0 };
+        };
+        // Helper: returns true if this layer's canvas is hidden (canvas-level
+        // eye toggle off). Used to skip every per-layer post-pass for hidden
+        // canvases, without this, hiding a canvas removed only its outline
+        // while its layers continued to render at the canvas's workspace
+        // offset.
+        const _layerCanvasHidden = (layer) => {
+            const cid = layer && layer.canvas_id;
+            const c = cid ? _canvasById[cid] : null;
+            return c && c.visible === false;
+        };
+        // Helper: wraps a per-layer drawing callback with the layer's
+        // canvas-workspace translate. Skips entirely if the layer's canvas
+        // is hidden. Applies translate only when wx/wy are non-zero so
+        // single-canvas projects emit no extra ctx ops.
+        const _withLayerWs = (layer, fn) => {
+            if (_layerCanvasHidden(layer)) return;
+            const { wx, wy } = _layerWs(layer);
+            if (wx || wy) {
+                this.ctx.save();
+                this.ctx.translate(wx, wy);
+                fn();
+                this.ctx.restore();
+            } else {
+                fn();
+            }
+        };
+
         if (window.app && window.app.project && window.app.project.layers) {
-            // First pass: render all panels and mode-specific content (except labels)
-            window.app.project.layers.forEach(layer => {
+            // Per-canvas loop (Slice 3): translate to each canvas's
+            // workspace position, render that canvas's layers (existing
+            // per-layer body, unmodified), then draw the canvas's dashed
+            // outline ON TOP. Empty + hidden canvases are skipped.
+            // Pre-Slice-1 projects with no `canvases` array fall back to a
+            // synthetic single canvas using project root raster fields so
+            // legacy single-canvas behaviour is identical to v0.7.7.4.
+            const canvasesToRender = (_canvasesArr.length > 0)
+                ? _canvasesArr
+                : [{
+                    id: null,
+                    workspace_x: 0,
+                    workspace_y: 0,
+                    raster_width: this.rasterWidth,
+                    raster_height: this.rasterHeight,
+                    color: '#ff0000',
+                    visible: true,
+                }];
+            canvasesToRender.forEach(canvas => {
+                if (canvas.visible === false) return;
+                const layersInCanvas = window.app.project.layers.filter(l => {
+                    if (!l.visible) return false;
+                    if (_canvasesArr.length === 0) return true; // legacy fallback
+                    return l.canvas_id === canvas.id;
+                });
+                // Empty canvases (no layers) still get drawn, outline +
+                // active tint, so the user can see the canvas exists and can
+                // drag layers into it. Slice 7 cross-canvas drag depends on
+                // this being a valid drop target. Originally Slice 3 skipped
+                // empty canvases entirely, but that hid them from the
+                // workspace which broke the drop-into-empty-canvas flow.
+                const wx = canvas.workspace_x || 0;
+                const wy = canvas.workspace_y || 0;
+                const needsCanvasShift = (wx !== 0 || wy !== 0);
+                if (needsCanvasShift) {
+                    this.ctx.save();
+                    this.ctx.translate(wx, wy);
+                }
+                // Slice 6: scope rasterWidth/Height (via the getter) to THIS
+                // canvas during its render pass so per-panel clipping uses
+                // this canvas's raster, not the active canvas's. Cleared at
+                // the end of the pass.
+                this._activeRenderCanvas = canvas.id ? canvas : null;
+                // Active-canvas tint (BEFORE layers so layers paint over it
+                // but the tint shows through in empty regions).
+                if (!this.exportMode && canvas.id && canvas.id === _activeCanvasId) {
+                    this._drawActiveCanvasTint(canvas);
+                }
+                // First pass: render all panels and mode-specific content (except labels)
+                layersInCanvas.forEach(layer => {
                 if (layer.visible) {
                     if (this.viewMode === 'power') {
                         this.preparePowerLayerRenderData(layer);
@@ -1555,7 +2148,7 @@ class CanvasRenderer {
                     // uses raw panel.x vs rasterWidth and silently drops
                     // panels that sit beyond rasterWidth in processor coords
                     // even when the show-offset places them inside the
-                    // visible raster — caused panels to "vanish" in Show
+                    // visible raster, caused panels to "vanish" in Show
                     // Look after a temporary raster shrink.
                     this._renderDx = dx;
                     this._renderDy = dy;
@@ -1594,14 +2187,25 @@ class CanvasRenderer {
                     this.renderLayerLabels(layer);
                     if (needsShift) this.ctx.restore();
                 }
+                });
+                // Canvas outline drawn LAST so it sits on top of any
+                // layer content that bleeds outside the raster bounds.
+                if (!this.exportMode) {
+                    this._drawCanvasOutline(canvas, canvas.id === _activeCanvasId);
+                }
+                if (needsCanvasShift) this.ctx.restore();
             });
-            // Per-layer translates have been restored — clear the cached
+            // Per-layer translates have been restored, clear the cached
             // render offset so any later renderers (selection overlays,
             // error badges) that happen to call _clipToActiveRaster get
             // raster bounds in real screen space, not in the last layer's
             // translated space.
             this._renderDx = 0;
             this._renderDy = 0;
+            // Slice 6: clear the per-canvas raster scope so any post-pass
+            // (overlays, badges, hit-testing during this render) sees the
+            // active canvas's raster via the getter again.
+            this._activeRenderCanvas = null;
 
             if (!this.exportMode && this.viewMode === 'data-flow') {
                 this.renderCustomSelectionOverlay();
@@ -1626,18 +2230,18 @@ class CanvasRenderer {
             if (this.viewMode === 'data-flow') {
                 window.app.project.layers.forEach(layer => {
                     if (layer.visible) {
-                        this.renderCapacityErrorOverlay(layer);
+                        _withLayerWs(layer, () => this.renderCapacityErrorOverlay(layer));
                     }
                 });
             }
             if (this.viewMode === 'power') {
                 window.app.project.layers.forEach(layer => {
                     if (layer.visible) {
-                        this.renderPowerErrorOverlay(layer);
+                        _withLayerWs(layer, () => this.renderPowerErrorOverlay(layer));
                     }
                 });
             }
-            
+
             // Draw bounding boxes around selected layers (skip during export)
             // These render OUTSIDE the per-layer ctx.translate, so use the
             // active-view bounds.
@@ -1646,14 +2250,16 @@ class CanvasRenderer {
                 window.app.project.layers.forEach(layer => {
                     if (!layer.visible) return;
                     if (!selectedIds.has(layer.id)) return;
-                    const bounds = this.getLayerBoundsInActiveView(layer);
-                    const layerWidth = bounds.width;
-                    const layerHeight = bounds.height;
-                    this.ctx.strokeStyle = (window.app.currentLayer && window.app.currentLayer.id === layer.id) ? '#00ccff' : '#4A90E2';
-                    this.ctx.lineWidth = 2 / this.zoom;
-                    this.ctx.setLineDash([8 / this.zoom, 4 / this.zoom]);
-                    this.ctx.strokeRect(bounds.x, bounds.y, layerWidth, layerHeight);
-                    this.ctx.setLineDash([]);
+                    _withLayerWs(layer, () => {
+                        const bounds = this.getLayerBoundsInActiveView(layer);
+                        const layerWidth = bounds.width;
+                        const layerHeight = bounds.height;
+                        this.ctx.strokeStyle = (window.app.currentLayer && window.app.currentLayer.id === layer.id) ? '#00ccff' : '#4A90E2';
+                        this.ctx.lineWidth = 2 / this.zoom;
+                        this.ctx.setLineDash([8 / this.zoom, 4 / this.zoom]);
+                        this.ctx.strokeRect(bounds.x, bounds.y, layerWidth, layerHeight);
+                        this.ctx.setLineDash([]);
+                    });
                 });
             }
 
@@ -1661,20 +2267,22 @@ class CanvasRenderer {
             if (!this.exportMode && this.isDraggingLayer && window.app && window.app.currentLayer) {
                 const selectedLayer = window.app.currentLayer;
                 if (selectedLayer.visible) {
-                    const bounds = this.getLayerBoundsInActiveView(selectedLayer);
-                    const layerWidth = bounds.width;
-                    const layerHeight = bounds.height;
+                    _withLayerWs(selectedLayer, () => {
+                        const bounds = this.getLayerBoundsInActiveView(selectedLayer);
+                        const layerWidth = bounds.width;
+                        const layerHeight = bounds.height;
 
-                    this.ctx.strokeStyle = '#4A90E2';  // Blue highlight color
-                    this.ctx.lineWidth = 3 / this.zoom;  // Scale with zoom
-                    this.ctx.setLineDash([10 / this.zoom, 5 / this.zoom]);
-                    this.ctx.strokeRect(
-                        bounds.x,
-                        bounds.y,
-                        layerWidth,
-                        layerHeight
-                    );
-                    this.ctx.setLineDash([]);
+                        this.ctx.strokeStyle = '#4A90E2';  // Blue highlight color
+                        this.ctx.lineWidth = 3 / this.zoom;  // Scale with zoom
+                        this.ctx.setLineDash([10 / this.zoom, 5 / this.zoom]);
+                        this.ctx.strokeRect(
+                            bounds.x,
+                            bounds.y,
+                            layerWidth,
+                            layerHeight
+                        );
+                        this.ctx.setLineDash([]);
+                    });
                 }
             }
 
@@ -1690,13 +2298,18 @@ class CanvasRenderer {
                 if (window.app && window.app.project) {
                     window.app.project.layers.forEach(layer => {
                         if (!layer.visible) return;
-                        // Active-view bounds — selection rect is in world coords
+                        // Active-view bounds, selection rect is in world coords
                         // matching the rendered (possibly show-shifted) layout.
+                        // For multi-canvas, shift bounds into workspace coords
+                        // so the intersection test compares apples-to-apples
+                        // with the selection rect (which is in workspace coords
+                        //, captured from world-space mouse events).
+                        const { wx, wy } = _layerWs(layer);
                         const bounds = this.getLayerBoundsInActiveView(layer);
                         const layerWidth = bounds.width;
                         const layerHeight = bounds.height;
-                        const x1 = bounds.x;
-                        const y1 = bounds.y;
+                        const x1 = bounds.x + wx;
+                        const y1 = bounds.y + wy;
                         const x2 = x1 + layerWidth;
                         const y2 = y1 + layerHeight;
                         const intersects = x1 <= maxX && x2 >= minX && y1 <= maxY && y2 >= minY;
@@ -1719,7 +2332,7 @@ class CanvasRenderer {
             if (this.zoom >= 10) {
                 window.app.project.layers.forEach(layer => {
                     if (layer.visible) {
-                        this.renderPixelGrid(layer);
+                        _withLayerWs(layer, () => this.renderPixelGrid(layer));
                     }
                 });
             }
@@ -1765,57 +2378,169 @@ class CanvasRenderer {
         this.ctx.restore();
     }
     
+    // The displayed zoom percentage is 1 raster-pixel-to-1-device-pixel based,
+    // so "100%" truly means actual size. Internally `this.zoom` still maps
+    // raster pixels to CSS pixels; on a Retina display devicePixelRatio is 2,
+    // so 100% displayed == this.zoom == 0.5 (1 raster px → 0.5 CSS px → 1
+    // device px). This keeps render math unchanged and only adjusts the I/O
+    // boundary with the zoom-level input.
+    _displayDpr() { return window.devicePixelRatio || 1; }
+    _zoomToPercent(z) { return Math.round(z * this._displayDpr() * 100); }
+    _percentToZoom(p) { return p / 100 / this._displayDpr(); }
+
     zoomIn() {
         this.zoom = Math.min(500.0, this.zoom * 1.2);  // Max 50000% for pixel-level zoom
-        document.getElementById('zoom-level').value = `${Math.round(this.zoom * 100)}%`;
+        document.getElementById('zoom-level').value = `${this._zoomToPercent(this.zoom)}%`;
         this.render();
     }
-    
+
     zoomOut() {
         this.zoom = Math.max(0.01, this.zoom / 1.2);
-        document.getElementById('zoom-level').value = `${Math.round(this.zoom * 100)}%`;
+        document.getElementById('zoom-level').value = `${this._zoomToPercent(this.zoom)}%`;
         this.render();
     }
-    
+
     setZoom(zoomLevel) {
         this.zoom = Math.max(0.01, Math.min(500.0, zoomLevel));
-        document.getElementById('zoom-level').value = `${Math.round(this.zoom * 100)}%`;
+        document.getElementById('zoom-level').value = `${this._zoomToPercent(this.zoom)}%`;
         this.render();
     }
     
+    /**
+     * Compute the workspace bounding box of all visible canvases. Returns
+     * {x, y, width, height} of the union. Falls back to a synthetic box at
+     * (0, 0, rasterWidth, rasterHeight) for projects with no canvases array
+     * (pre-Slice-1) or when no canvases are visible.
+     */
+    _workspaceBounds() {
+        const proj = window.app && window.app.project;
+        const canvases = (proj && Array.isArray(proj.canvases)) ? proj.canvases : [];
+        const visible = canvases.filter(c => c && c.visible !== false);
+        if (visible.length === 0) {
+            return { x: 0, y: 0, width: this.rasterWidth, height: this.rasterHeight };
+        }
+        const useShow = this.isShowLookView();
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        visible.forEach(c => {
+            const wx = c.workspace_x || 0;
+            const wy = c.workspace_y || 0;
+            const w = (useShow && c.show_raster_width) || c.raster_width || 0;
+            const h = (useShow && c.show_raster_height) || c.raster_height || 0;
+            if (wx < minX) minX = wx;
+            if (wy < minY) minY = wy;
+            if (wx + w > maxX) maxX = wx + w;
+            if (wy + h > maxY) maxY = wy + h;
+        });
+        return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+    }
+
     fitToView() {
-        const zoomX = (this.canvas.width * 0.9) / this.rasterWidth;
-        const zoomY = (this.canvas.height * 0.9) / this.rasterHeight;
+        // Multi-canvas (v0.8 Slice 3): fit to the union bbox of all visible
+        // canvases instead of just the active canvas's raster.
+        const bb = this._workspaceBounds();
+        const w = bb.width || this.rasterWidth;
+        const h = bb.height || this.rasterHeight;
+        const zoomX = (this.canvas.width * 0.9) / w;
+        const zoomY = (this.canvas.height * 0.9) / h;
         this.zoom = Math.min(zoomX, zoomY);
-        this.panX = (this.canvas.width - this.rasterWidth * this.zoom) / 2;
-        this.panY = (this.canvas.height - this.rasterHeight * this.zoom) / 2;
-        document.getElementById('zoom-level').value = `${Math.round(this.zoom * 100)}%`;
+        this.panX = (this.canvas.width - w * this.zoom) / 2 - bb.x * this.zoom;
+        this.panY = (this.canvas.height - h * this.zoom) / 2 - bb.y * this.zoom;
+        document.getElementById('zoom-level').value = `${this._zoomToPercent(this.zoom)}%`;
         this.render();
     }
-    
+
     zoomActual() {
         if (!window.app || !window.app.currentLayer) {
-            this.zoom = 1.0;
+            // 1:1 sizing: 1 raster px == 1 device px (so on Retina, halve the
+            // CSS-pixel scale).
+            this.zoom = 1.0 / this._displayDpr();
             this.panX = 100;
             this.panY = 100;
         } else {
             const layer = window.app.currentLayer;
             // Zoom-to-layer in the active view, so it matches what's rendered.
             const bounds = this.getLayerBoundsInActiveView(layer);
+            // bounds.x/y are canvas-relative (in the layer's parent canvas's
+            // raster coords). Add the canvas's workspace_x/y so the pan
+            // centers on where the layer is actually drawn in the workspace,
+            // otherwise 1:1 zooms to the wrong canvas's slot.
+            let wx = 0, wy = 0;
+            if (window.app.project && window.app.project.canvases && layer.canvas_id) {
+                const c = window.app.project.canvases.find(c => c.id === layer.canvas_id);
+                if (c) { wx = c.workspace_x || 0; wy = c.workspace_y || 0; }
+            }
             const layerWidth = bounds.width;
             const layerHeight = bounds.height;
             const zoomX = (this.canvas.width * 0.9) / layerWidth;
             const zoomY = (this.canvas.height * 0.9) / layerHeight;
             this.zoom = Math.min(zoomX, zoomY);
-            const layerCenterX = bounds.x + layerWidth / 2;
-            const layerCenterY = bounds.y + layerHeight / 2;
+            const layerCenterX = bounds.x + wx + layerWidth / 2;
+            const layerCenterY = bounds.y + wy + layerHeight / 2;
             this.panX = this.canvas.width / 2 - layerCenterX * this.zoom;
             this.panY = this.canvas.height / 2 - layerCenterY * this.zoom;
         }
-        document.getElementById('zoom-level').value = `${Math.round(this.zoom * 100)}%`;
+        document.getElementById('zoom-level').value = `${this._zoomToPercent(this.zoom)}%`;
         this.render();
     }
-    
+
+    /**
+     * v0.8 Slice 9: snap a dragged canvas's edges to abut (or align with)
+     * neighboring canvases. Threshold scales with current zoom so the snap
+     * "feels" the same physical distance regardless of zoom level, ~14
+     * device px on screen.
+     *
+     * Returns the (possibly snapped) {x, y} workspace position. Each axis is
+     * checked independently so you can snap one side without locking the
+     * other.
+     */
+    _snapCanvasToNeighbors(dragged, proposedX, proposedY) {
+        if (!window.app || !window.app.project || !Array.isArray(window.app.project.canvases)) {
+            return { x: proposedX, y: proposedY };
+        }
+        const useShow = this.isShowLookView();
+        const draggedW = (useShow && dragged.show_raster_width) || dragged.raster_width || 0;
+        const draggedH = (useShow && dragged.show_raster_height) || dragged.raster_height || 0;
+        if (draggedW <= 0 || draggedH <= 0) return { x: proposedX, y: proposedY };
+        // Snap threshold in workspace coords (zoom-corrected so on-screen
+        // feel is consistent at any zoom).
+        const threshold = 14 / Math.max(this.zoom, 0.0001);
+        const draggedLeft = proposedX;
+        const draggedRight = proposedX + draggedW;
+        const draggedTop = proposedY;
+        const draggedBottom = proposedY + draggedH;
+        let bestDx = null, bestDy = null;
+        const consider = (delta, current) => {
+            if (Math.abs(delta) > threshold) return current;
+            if (current === null || Math.abs(delta) < Math.abs(current)) return delta;
+            return current;
+        };
+        for (const other of window.app.project.canvases) {
+            if (!other || other.id === dragged.id || other.visible === false) continue;
+            const ox = other.workspace_x || 0;
+            const oy = other.workspace_y || 0;
+            const ow = (useShow && other.show_raster_width) || other.raster_width || 0;
+            const oh = (useShow && other.show_raster_height) || other.raster_height || 0;
+            if (ow <= 0 || oh <= 0) continue;
+            const otherLeft = ox, otherRight = ox + ow;
+            const otherTop = oy, otherBottom = oy + oh;
+            // X-axis snap candidates: abut (left-to-right, right-to-left)
+            // plus aligned edges (left↔left, right↔right, centerline).
+            bestDx = consider(otherRight - draggedLeft, bestDx);   // dragged.left snaps to other.right (abut)
+            bestDx = consider(otherLeft - draggedRight, bestDx);   // dragged.right snaps to other.left (abut)
+            bestDx = consider(otherLeft - draggedLeft, bestDx);    // align lefts
+            bestDx = consider(otherRight - draggedRight, bestDx);  // align rights
+            // Y-axis snap candidates
+            bestDy = consider(otherBottom - draggedTop, bestDy);   // dragged.top snaps to other.bottom (abut)
+            bestDy = consider(otherTop - draggedBottom, bestDy);   // dragged.bottom snaps to other.top (abut)
+            bestDy = consider(otherTop - draggedTop, bestDy);      // align tops
+            bestDy = consider(otherBottom - draggedBottom, bestDy);// align bottoms
+        }
+        return {
+            x: proposedX + (bestDx || 0),
+            y: proposedY + (bestDy || 0),
+        };
+    }
+
     calculateMagneticSnap(offsetX, offsetY, currentLayer) {
         const snapDistance = 20; // Snap within 20 pixels - feels natural
         let snappedX = offsetX;
@@ -1853,7 +2578,7 @@ class CanvasRenderer {
         // Snap to other layers - HARD EDGES ONLY
         // Other layers' bounds are compared against the dragged layer's
         // proposed offset (offsetX/Y), which is in the active view's
-        // coords — so use active-view bounds for the comparison.
+        // coords, so use active-view bounds for the comparison.
         if (window.app && window.app.project) {
             window.app.project.layers.forEach(layer => {
                 if (layer.id === currentLayer.id || !layer.visible) return;
@@ -1888,18 +2613,11 @@ class CanvasRenderer {
     
     setViewMode(mode) {
         this.viewMode = mode;
-        // Swap the active raster to match the view. Show-look and the
-        // downstream tabs (data-flow, power) render at the show raster;
-        // pixel-map and cabinet-id render at the processor raster.
-        if (this.isShowLookView(mode)) {
-            this.rasterWidth = this.showRasterWidth;
-            this.rasterHeight = this.showRasterHeight;
-        } else {
-            this.rasterWidth = this.pixelRasterWidth;
-            this.rasterHeight = this.pixelRasterHeight;
-        }
-        // Reflect the active raster in the toolbar inputs so the user sees
-        // the right numbers when switching tabs.
+        // Slice 6: rasterWidth/Height now read view-aware from the active
+        // canvas via getters (pixel raster on pixel-map/cabinet-id, show
+        // raster on show-look/data-flow/power), so no manual swap needed.
+        // Refresh the toolbar inputs so the user sees the right numbers when
+        // switching tabs.
         const rw = document.getElementById('toolbar-raster-width');
         const rh = document.getElementById('toolbar-raster-height');
         if (rw) rw.value = this.rasterWidth;
@@ -2122,7 +2840,7 @@ class CanvasRenderer {
     // Render capacity error overlay ON TOP of everything (including labels)
     // This renders WITHOUT clipping so it's visible even outside raster bounds.
     // Called from the third render pass (outside the per-layer ctx.translate),
-    // so use show-translated bounds — getLayerBounds returns processor coords
+    // so use show-translated bounds, getLayerBounds returns processor coords
     // which would land the badge at the layer's pixel-map position even when
     // the layer renders at its show position in Data Flow / Power.
     renderCapacityErrorOverlay(layer) {
@@ -2606,7 +3324,7 @@ class CanvasRenderer {
         const err = layer._powerError;
         // Same as renderCapacityErrorOverlay: this is called from the third
         // render pass outside the per-layer translate, so we need the layer's
-        // active-view bounds (show offset already baked in) — using raw
+        // active-view bounds (show offset already baked in), using raw
         // processor bounds parks the badge at the wrong screen position when
         // the layer is moved in Show Look.
         const bounds = this.getLayerBoundsInActiveView(layer);
@@ -3477,10 +4195,14 @@ class CanvasRenderer {
         const selection = window.app.pixelMapSelection;
         if (!selection || selection.size === 0) return;
         const layer = window.app.currentLayer;
+        // v0.8 multi-canvas: panels are drawn at canvas-relative coords; the
+        // workspace position of the layer's parent canvas needs to be applied
+        // so the overlay lands ON the layer the user is editing instead of
+        // at workspace (0,0) where it visually overlapped Canvas 1's panels.
+        const wsOff = (typeof window.app._getLayerWorkspaceOffset === 'function')
+            ? window.app._getLayerWorkspaceOffset(layer) : { wx: 0, wy: 0 };
         this.ctx.save();
-        this.ctx.beginPath();
-        this.ctx.rect(0, 0, this.rasterWidth, this.rasterHeight);
-        this.ctx.clip();
+        if (wsOff.wx || wsOff.wy) this.ctx.translate(wsOff.wx, wsOff.wy);
         this.ctx.lineWidth = 2 / this.zoom;
         selection.forEach(key => {
             const [row, col] = key.split(',').map(n => parseInt(n, 10));
@@ -3533,7 +4255,7 @@ class CanvasRenderer {
     }
 
     /**
-     * Wiring perspective badge — "BACK VIEW" in screen-space corner when
+     * Wiring perspective badge, "BACK VIEW" in screen-space corner when
      * Data Flow / Power are rendering in back perspective. Shown in both
      * interactive view and export so the printed map is unambiguous.
      * Front view shows nothing (clutter-free default; Front is implied).
@@ -3670,7 +4392,7 @@ class CanvasRenderer {
         this.ctx.fillStyle = committed > 0 ? '#ffffff' : 'rgba(255, 255, 255, 0.7)';
         this.ctx.fillText(committedText, pillX + pillPadX, pillY + pillPadY - 2);
 
-        // Selected pill (yellow) — only when drag-select has picked panels
+        // Selected pill (yellow), only when drag-select has picked panels
         if (showSelected) {
             pillX += committedPillW + pillGap;
             this.ctx.fillStyle = 'rgba(255, 204, 0, 0.85)';

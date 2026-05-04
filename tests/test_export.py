@@ -139,7 +139,15 @@ def test_export_resolume_xml(client_with_layer):
 
 
 def test_export_resolume_xml_has_slice(client_with_layer):
-    """Resolume XML contains a Slice for the screen layer."""
+    """Resolume XML contains a Slice for the screen layer.
+
+    v0.8 Slice 11: the wrapping <Screen> element is named after the canvas
+    (default 'Canvas 1' for a fresh project, not the old hard-coded
+    'Screen 1'); the layer's own name lives on the inner Polygon/Slice
+    Common Params block. Verify both: the per-canvas Screen wrapper exists,
+    and the Slice carries the layer's name from the conftest fixture
+    ('TestScreen').
+    """
     resp = client_with_layer.post('/api/export/resolume', json={
         'project_name': 'Test',
         'raster_width': 1920,
@@ -147,7 +155,8 @@ def test_export_resolume_xml_has_slice(client_with_layer):
     })
     xml = resp.data.decode('utf-8')
     assert '<Slice' in xml
-    assert 'value="Screen1"' in xml or 'value="Screen 1"' in xml
+    assert '<Screen name="Canvas 1"' in xml
+    assert 'value="TestScreen"' in xml
 
 
 def test_export_resolume_xml_correct_rect(client_with_layer):

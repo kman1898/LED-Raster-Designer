@@ -1008,7 +1008,7 @@ class LEDRasterApp {
                 // The CSS width transition runs ~180ms. Reposition the
                 // toggle and resize the canvas at multiple points during /
                 // after the animation so the canvas always fills the
-                // available wrapper width — otherwise the canvas keeps its
+                // available wrapper width, otherwise the canvas keeps its
                 // pre-collapse pixel dimensions and the user sees a black
                 // strip on the side where the sidebar used to be.
                 requestAnimationFrame(() => { positionToggle(); resizeCanvas(); });
@@ -1067,11 +1067,11 @@ class LEDRasterApp {
             const prefResp = await fetch('/api/preferences');
             const serverPrefs = await prefResp.json();
             if (serverPrefs && Object.keys(serverPrefs).length > 0) {
-                // Server has preferences — use them (overrides localStorage)
+                // Server has preferences, use them (overrides localStorage)
                 this._serverPreferences = serverPrefs;
                 console.log('Loaded server-side preferences:', Object.keys(serverPrefs));
             } else {
-                // No server prefs yet — seed from localStorage if available
+                // No server prefs yet, seed from localStorage if available
                 const localPrefs = this.getLocalPreferences();
                 if (Object.keys(localPrefs).length > 0) {
                     this._serverPreferences = localPrefs;
@@ -1139,7 +1139,7 @@ class LEDRasterApp {
             }
 
             // Restore client-side properties and layer defaults.
-            // On reconnect (after sleep), skip preference enforcement — the project
+            // On reconnect (after sleep), skip preference enforcement, the project
             // already has the correct state from before the disconnect.
             this.loadClientSideProperties({ skipPreferences: this._initialLoadComplete });
             
@@ -1326,7 +1326,7 @@ class LEDRasterApp {
                 // Save initial state for undo/redo
                 this.resetHistory('Initial State');
 
-                // Mark initial load complete — subsequent socket project_data
+                // Mark initial load complete, subsequent socket project_data
                 // events are reconnects and should not re-apply preferences.
                 this._initialLoadComplete = true;
 
@@ -1505,7 +1505,7 @@ class LEDRasterApp {
             if (layer.infoLabelSize === undefined) layer.infoLabelSize = 14;
             if (layer.showDataFlowPortInfo === undefined) layer.showDataFlowPortInfo = false;
             if (layer.showPowerCircuitInfo === undefined) layer.showPowerCircuitInfo = false;
-            // Show Look position — default to processor offset for older
+            // Show Look position, default to processor offset for older
             // projects so they open looking identical to before.
             if (layer.showOffsetX === undefined || layer.showOffsetX === null) {
                 layer.showOffsetX = layer.offset_x || 0;
@@ -1702,35 +1702,41 @@ class LEDRasterApp {
     }
 
     /**
-     * Sync the canvas renderer's pixel/show raster backing fields from the
-     * loaded project. Older projects pre-date the show raster, so default
-     * the show fields to the pixel fields when missing. Also refresh the
-     * toolbar input to match the currently active view's raster.
+     * Slice 6: refresh the toolbar Raster: W x H inputs from the active
+     * canvas's raster (Pixel Map raster on pixel-map / cabinet-id, Show
+     * Look raster on show-look / data / power). Also seeds any missing
+     * show_raster_* on the active canvas so older projects (where show
+     * raster was never set) open with show = pixel.
+     *
+     * Renderer fields are accessor-backed (Slice 6), they read straight
+     * from the active canvas, so no per-renderer assignment is needed.
+     * Legacy fallback (no canvases array): seed the renderer's _fallback*
+     * backing fields from the project root so single-canvas pre-Slice-1
+     * projects still display.
      */
     syncRasterFromProject() {
         if (!this.project) return;
         const r = window.canvasRenderer;
         if (!r) return;
-        const pw = Number(this.project.raster_width) || r.pixelRasterWidth || 1920;
-        const ph = Number(this.project.raster_height) || r.pixelRasterHeight || 1080;
-        const sw = Number(this.project.show_raster_width) || pw;
-        const sh = Number(this.project.show_raster_height) || ph;
-        r.pixelRasterWidth = pw;
-        r.pixelRasterHeight = ph;
-        r.showRasterWidth = sw;
-        r.showRasterHeight = sh;
-        // Make sure the project dict carries both — older projects may have
-        // been opened without going through the server migration.
-        this.project.raster_width = pw;
-        this.project.raster_height = ph;
-        this.project.show_raster_width = sw;
-        this.project.show_raster_height = sh;
-        if (r.isShowLookView()) {
-            r.rasterWidth = sw;
-            r.rasterHeight = sh;
+        const canvases = Array.isArray(this.project.canvases) ? this.project.canvases : [];
+        if (canvases.length > 0) {
+            const c = canvases.find(x => x.id === this.project.active_canvas_id) || canvases[0];
+            if (c) {
+                if (!c.show_raster_width)  c.show_raster_width  = c.raster_width;
+                if (!c.show_raster_height) c.show_raster_height = c.raster_height;
+            }
         } else {
-            r.rasterWidth = pw;
-            r.rasterHeight = ph;
+            // Pre-Slice-1 project, seed the renderer's fallback backing
+            // fields so the legacy single-canvas getter path returns sane
+            // values until the project gets migrated by the server.
+            const pw = Number(this.project.raster_width) || 1920;
+            const ph = Number(this.project.raster_height) || 1080;
+            const sw = Number(this.project.show_raster_width) || pw;
+            const sh = Number(this.project.show_raster_height) || ph;
+            r._fallbackPixelRasterWidth = pw;
+            r._fallbackPixelRasterHeight = ph;
+            r._fallbackShowRasterWidth = sw;
+            r._fallbackShowRasterHeight = sh;
         }
         const rwIn = document.getElementById('toolbar-raster-width');
         const rhIn = document.getElementById('toolbar-raster-height');
@@ -1738,45 +1744,53 @@ class LEDRasterApp {
         if (rhIn) rhIn.value = r.rasterHeight;
     }
     
-    // Load raster size from localStorage (checks version first)
+    // Load raster size from localStorage (checks version first).
+    //
+    // Slice 6: at boot the project hasn't loaded yet, the active canvas's
+    // raster is the source of truth and we must NOT clobber it with stale
+    // localStorage. So we only seed the renderer's fallback backing fields
+    // (used when no canvases array exists yet) and refresh the toolbar
+    // inputs. Once loadProject() runs, syncRasterFromProject() takes over
+    // and the toolbar reflects the active canvas.
     loadRasterSize() {
-        // Check version first - if mismatch, clear all saved settings including raster size
         const savedVersion = localStorage.getItem('ledRasterPropsVersion');
-        const currentVersion = '0.4.7'; // Must match version in loadClientSideProperties
-        
+        const currentVersion = '0.4.7';
+
+        const seed = (w, h) => {
+            const r = window.canvasRenderer;
+            if (!r) return;
+            r._fallbackPixelRasterWidth = w;
+            r._fallbackPixelRasterHeight = h;
+            r._fallbackShowRasterWidth = w;
+            r._fallbackShowRasterHeight = h;
+            const wIn = document.getElementById('toolbar-raster-width');
+            const hIn = document.getElementById('toolbar-raster-height');
+            if (wIn) wIn.value = w;
+            if (hIn) hIn.value = h;
+        };
+
         if (savedVersion !== currentVersion) {
             console.log('Version mismatch in loadRasterSize - clearing ALL localStorage');
             localStorage.removeItem('ledRasterSize');
             localStorage.removeItem('ledRasterClientProps');
             localStorage.setItem('ledRasterPropsVersion', currentVersion);
             const prefs = this.getPreferences();
-            window.canvasRenderer.rasterWidth = prefs.rasterWidth;
-            window.canvasRenderer.rasterHeight = prefs.rasterHeight;
-            document.getElementById('toolbar-raster-width').value = prefs.rasterWidth;
-            document.getElementById('toolbar-raster-height').value = prefs.rasterHeight;
+            seed(prefs.rasterWidth, prefs.rasterHeight);
             this.saveRasterSize();
             return;
         }
-        
+
         const saved = localStorage.getItem('ledRasterSize');
         if (saved) {
             try {
                 const size = JSON.parse(saved);
-                if (size.width && size.height) {
-                    window.canvasRenderer.rasterWidth = size.width;
-                    window.canvasRenderer.rasterHeight = size.height;
-                    document.getElementById('toolbar-raster-width').value = size.width;
-                    document.getElementById('toolbar-raster-height').value = size.height;
-                }
+                if (size.width && size.height) seed(size.width, size.height);
             } catch (e) {
                 console.error('Error loading raster size:', e);
             }
         } else {
             const prefs = this.getPreferences();
-            window.canvasRenderer.rasterWidth = prefs.rasterWidth;
-            window.canvasRenderer.rasterHeight = prefs.rasterHeight;
-            document.getElementById('toolbar-raster-width').value = prefs.rasterWidth;
-            document.getElementById('toolbar-raster-height').value = prefs.rasterHeight;
+            seed(prefs.rasterWidth, prefs.rasterHeight);
             this.saveRasterSize();
         }
     }
@@ -1938,6 +1952,12 @@ class LEDRasterApp {
 
         this.renderLayers();
         this.loadTextLayerToInputs();
+        // Slice 10: keep the Totals panels (Data Flow + Power tabs) in sync
+        // with whatever just changed. Always cheap, two aggregations over
+        // the visible screen layers, plus a handful of textContent writes.
+        if (typeof this.refreshTotalsSidebar === 'function') {
+            try { this.refreshTotalsSidebar(); } catch (_) {}
+        }
 
         if (window.canvasRenderer) {
             if (window.canvasRenderer.viewMode === 'data-flow' && this.currentLayer) {
@@ -1999,13 +2019,26 @@ class LEDRasterApp {
                 const target = btn.getAttribute('data-target');
                 const value = btn.getAttribute('data-perspective');
                 if (!target || !value || !this.project) return;
-                if (this.project[target] === value) return;
+                // v0.8 Slice 8: perspective is per-canvas. Write to the active
+                // canvas (which routes through updateCanvas → server PUT, undo
+                // entry, and a re-render via _applyProjectUpdate). Mirror
+                // project-root field too so legacy code paths keep working
+                // until they're all migrated to read from active canvas.
+                const active = this._activeCanvas();
+                const currentVal = (active && active[target]) || this.project[target] || 'front';
+                if (currentVal === value) return;
                 this.project[target] = value;
-                this.refreshPerspectiveButtons();
-                this.saveProject();
-                if (window.canvasRenderer) window.canvasRenderer.render();
+                if (active && typeof this.updateCanvas === 'function') {
+                    this.updateCanvas(active.id, { [target]: value });
+                } else {
+                    this.refreshPerspectiveButtons();
+                    this.saveProject();
+                    if (window.canvasRenderer) window.canvasRenderer.render();
+                }
                 if (typeof sendClientLog === 'function') {
-                    sendClientLog('perspective_change', { target, value });
+                    sendClientLog('perspective_change', {
+                        target, value, canvasId: active && active.id
+                    });
                 }
             });
         });
@@ -2013,17 +2046,85 @@ class LEDRasterApp {
     }
 
     /**
-     * Reflect the project's current perspective values on the toggle
-     * buttons (active state). Called after the project loads or the user
-     * toggles.
+     * Find the active canvas object, or null. v0.8 Slice 8 helper.
+     */
+    _activeCanvas() {
+        if (!this.project || !Array.isArray(this.project.canvases)) return null;
+        const id = this.project.active_canvas_id;
+        if (!id) return this.project.canvases[0] || null;
+        return this.project.canvases.find(c => c && c.id === id) || null;
+    }
+
+    /**
+     * v0.8 Slice 9: ids of all canvases whose visibility is explicitly off.
+     * Used by aggregate counters (data ports, power totals) to exclude
+     * hidden canvases so the numbers in the sidebar match what's drawn.
+     */
+    _hiddenCanvasIdSet() {
+        const set = new Set();
+        if (!this.project || !Array.isArray(this.project.canvases)) return set;
+        this.project.canvases.forEach(c => {
+            if (c && c.visible === false && c.id) set.add(c.id);
+        });
+        return set;
+    }
+
+    /**
+     * v0.8 Slice 10: paint the Totals panels on the Data Flow + Power tabs.
+     * Two columns each: active canvas + project-wide. Numbers come from
+     * getPortCounts/getPowerCounts which already exclude hidden canvases.
+     * Cheap to call on every updateUI, the Totals panels are display:none
+     * unless the user is on the relevant tab.
+     */
+    refreshTotalsSidebar() {
+        const setText = (id, value) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = value;
+        };
+        const active = (typeof this._activeCanvas === 'function') ? this._activeCanvas() : null;
+        const activeId = active ? active.id : null;
+        const activeName = active ? `(${active.name || 'Canvas'})` : '(no active canvas)';
+        // Data Flow totals
+        const dataCanvas = activeId ? this.getPortCounts(activeId) : { primary: 0, backup: 0 };
+        const dataProject = this.getPortCounts();
+        setText('data-totals-canvas-name', activeName);
+        setText('data-totals-canvas-primary', dataCanvas.primary);
+        setText('data-totals-canvas-backup', dataCanvas.backup);
+        setText('data-totals-project-primary', dataProject.primary);
+        setText('data-totals-project-backup', dataProject.backup);
+        // Power totals, show "0" cleanly when there's no active canvas / no
+        // load yet. Amps formatted to 2 decimals to match the per-layer
+        // capacity readout.
+        const pwrCanvas = activeId ? this.getPowerCounts(activeId)
+            : { circuits: 0, totalWatts: 0, singlePhaseAmps: 0, threePhaseAmps: 0 };
+        const pwrProject = this.getPowerCounts();
+        const fmtAmps = (a) => (a > 0) ? `${a.toFixed(2)} A` : '0';
+        const fmtWatts = (w) => (w > 0) ? `${Math.round(w).toLocaleString()} W` : '0';
+        setText('power-totals-canvas-name', activeName);
+        setText('power-totals-canvas-watts', fmtWatts(pwrCanvas.totalWatts));
+        setText('power-totals-canvas-circuits', pwrCanvas.circuits);
+        setText('power-totals-canvas-1ph', fmtAmps(pwrCanvas.singlePhaseAmps));
+        setText('power-totals-canvas-3ph', fmtAmps(pwrCanvas.threePhaseAmps));
+        setText('power-totals-project-watts', fmtWatts(pwrProject.totalWatts));
+        setText('power-totals-project-circuits', pwrProject.circuits);
+        setText('power-totals-project-1ph', fmtAmps(pwrProject.singlePhaseAmps));
+        setText('power-totals-project-3ph', fmtAmps(pwrProject.threePhaseAmps));
+    }
+
+    /**
+     * Reflect the active canvas's perspective values on the toggle buttons.
+     * Falls back to the project root for pre-Slice-1 / legacy projects that
+     * have no canvas list yet. Called on project load and on every active-
+     * canvas switch.
      */
     refreshPerspectiveButtons() {
         if (!this.project) return;
+        const active = this._activeCanvas();
         document.querySelectorAll('.perspective-btn').forEach(btn => {
             const target = btn.getAttribute('data-target');
             const value = btn.getAttribute('data-perspective');
             if (!target || !value) return;
-            const current = this.project[target] || 'front';
+            const current = (active && active[target]) || this.project[target] || 'front';
             btn.classList.toggle('active', current === value);
         });
     }
@@ -2080,6 +2181,21 @@ class LEDRasterApp {
             document.getElementById('notes-panel-header').addEventListener('click', toggleNotes);
         }
 
+        // Help panel, same collapse pattern as Notes. Defaults to collapsed
+        // so the layer-groups list above gets the spare space; user can
+        // expand on demand via the header.
+        const helpPanel = document.getElementById('help-tooltip-panel');
+        const helpHeader = document.getElementById('help-tooltip-header');
+        const helpToggle = document.getElementById('help-tooltip-toggle');
+        if (helpPanel && helpHeader && helpToggle) {
+            const toggleHelp = () => {
+                helpPanel.classList.toggle('collapsed');
+                helpToggle.textContent = helpPanel.classList.contains('collapsed') ? '▶' : '▼';
+            };
+            helpToggle.addEventListener('click', (e) => { e.stopPropagation(); toggleHelp(); });
+            helpHeader.addEventListener('click', toggleHelp);
+        }
+
         // View tabs
         document.querySelectorAll('.view-tab').forEach(tab => {
             tab.addEventListener('click', () => {
@@ -2133,21 +2249,22 @@ class LEDRasterApp {
             });
         });
         
-        document.getElementById('btn-add-layer').addEventListener('click', () => {
-            this.openPresetPicker();
-        });
+        // v0.8 Slice 2.5: the global "+ Add Screen / + Add Image / + Add Text"
+        // and "▲ Up / ▼ Down" buttons were removed. Per-canvas "+ Add" chooser
+        // (built in buildCanvasGroupEl) and per-layer ▲▼ arrows now own those
+        // affordances. We still wire the file-input change handler because
+        // the per-canvas "Image / Logo" chooser entry reuses it.
+        const addCanvasBtn = document.getElementById('btn-add-canvas');
+        if (addCanvasBtn) {
+            addCanvasBtn.addEventListener('click', () => this.addCanvas());
+        }
         const savePresetBtn = document.getElementById('btn-save-preset');
         if (savePresetBtn) {
             savePresetBtn.addEventListener('click', () => this.openPresetSaveModal());
         }
         this.setupPresetModals();
-        const addImageBtn = document.getElementById('btn-add-image');
         const addImageInput = document.getElementById('add-image-input');
-        if (addImageBtn && addImageInput) {
-            addImageBtn.addEventListener('click', () => {
-                this.imageFileAction = 'add';
-                addImageInput.click();
-            });
+        if (addImageInput) {
             addImageInput.addEventListener('change', (e) => {
                 this.handleImageFileSelection(e);
             });
@@ -2161,30 +2278,8 @@ class LEDRasterApp {
             });
         }
 
-        const addTextBtn = document.getElementById('btn-add-text');
-        if (addTextBtn) {
-            addTextBtn.addEventListener('click', () => this.addTextLayer());
-        }
-
         // Text layer sidebar controls
         this.setupTextLayerControls();
-
-        const layerUpBtn = document.getElementById('btn-layer-up');
-        const layerDownBtn = document.getElementById('btn-layer-down');
-        if (layerUpBtn) {
-            layerUpBtn.addEventListener('click', () => {
-                if (this.currentLayer) {
-                    this.moveLayerById(this.currentLayer.id, -1);
-                }
-            });
-        }
-        if (layerDownBtn) {
-            layerDownBtn.addEventListener('click', () => {
-                if (this.currentLayer) {
-                    this.moveLayerById(this.currentLayer.id, 1);
-                }
-            });
-        }
 
         const toggleLockBtn = document.getElementById('toggle-lock-selected');
         if (toggleLockBtn) {
@@ -2212,9 +2307,17 @@ class LEDRasterApp {
             let value = zoomInput.value.replace('%', '').trim();
             let percent = parseFloat(value);
             if (!isNaN(percent) && percent > 0) {
-                window.canvasRenderer.setZoom(percent / 100);
+                // Convert displayed percent (1:1 device-pixel based) into the
+                // internal raster→CSS scale used by canvasRenderer.
+                const targetZoom = (typeof window.canvasRenderer._percentToZoom === 'function')
+                    ? window.canvasRenderer._percentToZoom(percent)
+                    : percent / 100;
+                window.canvasRenderer.setZoom(targetZoom);
             }
-            zoomInput.value = `${Math.round(window.canvasRenderer.zoom * 100)}%`;
+            const displayed = (typeof window.canvasRenderer._zoomToPercent === 'function')
+                ? window.canvasRenderer._zoomToPercent(window.canvasRenderer.zoom)
+                : Math.round(window.canvasRenderer.zoom * 100);
+            zoomInput.value = `${displayed}%`;
         });
         zoomInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
@@ -2510,7 +2613,7 @@ class LEDRasterApp {
             }
         });
         
-        // Screen Name checkboxes on other tabs — each writes its own per-tab property
+        // Screen Name checkboxes on other tabs, each writes its own per-tab property
         const tabLabelMap = {
             'show-label-name-cabinet': 'showLabelNameCabinet',
             'show-label-name-data': 'showLabelNameDataFlow',
@@ -3581,34 +3684,18 @@ class LEDRasterApp {
             rasterWidthInput.addEventListener('change', () => {
                 const width = evaluateMathExpression(rasterWidthInput.value) || 1920;
                 rasterWidthInput.value = width;
-                // The toolbar edits the raster for the *current* view: pixel-map
-                // / cabinet-id edit the processor raster, show-look / data /
-                // power edit the show raster.
+                // Slice 6: the toolbar Raster: W x H field is the active
+                // canvas's raster (Pixel Map raster on pixel-map / cabinet-id;
+                // Show Look raster on show-look / data / power). Writes go
+                // straight to the active canvas via PUT /api/canvas/<id>,
+                // no project-root mirror, no _mirrorRasterToActiveCanvas hack.
                 //
                 // While show raster equals pixel raster ("linked"), changing
-                // the pixel raster also updates the show raster — Show Look
-                // tracks Pixel Map by default. Once they're set to different
-                // values they stay independent.
+                // the pixel raster also updates the show raster, Show Look
+                // tracks Pixel Map by default until the user splits them.
                 const renderer = window.canvasRenderer;
                 const isShow = renderer.isShowLookView();
-                const wasLinked = renderer.pixelRasterWidth === renderer.showRasterWidth;
-                if (isShow) {
-                    renderer.showRasterWidth = width;
-                    if (this.project) this.project.show_raster_width = width;
-                } else {
-                    renderer.pixelRasterWidth = width;
-                    if (this.project) this.project.raster_width = width;
-                    if (wasLinked) {
-                        renderer.showRasterWidth = width;
-                        if (this.project) this.project.show_raster_width = width;
-                    }
-                }
-                renderer.rasterWidth = width;
-                if (this.project) this.saveProject();
-                this.saveRasterSize();
-                if (typeof sendClientLog === 'function') {
-                    sendClientLog('raster_change', { width, height: renderer.rasterHeight, source: 'toolbar-width', view: renderer.viewMode, autoSyncedShow: !isShow && wasLinked });
-                }
+                this._writeToolbarRasterToActiveCanvas('width', width, isShow);
                 renderer.render();
             });
         }
@@ -3619,24 +3706,7 @@ class LEDRasterApp {
                 rasterHeightInput.value = height;
                 const renderer = window.canvasRenderer;
                 const isShow = renderer.isShowLookView();
-                const wasLinked = renderer.pixelRasterHeight === renderer.showRasterHeight;
-                if (isShow) {
-                    renderer.showRasterHeight = height;
-                    if (this.project) this.project.show_raster_height = height;
-                } else {
-                    renderer.pixelRasterHeight = height;
-                    if (this.project) this.project.raster_height = height;
-                    if (wasLinked) {
-                        renderer.showRasterHeight = height;
-                        if (this.project) this.project.show_raster_height = height;
-                    }
-                }
-                renderer.rasterHeight = height;
-                if (this.project) this.saveProject();
-                this.saveRasterSize();
-                if (typeof sendClientLog === 'function') {
-                    sendClientLog('raster_change', { width: renderer.rasterWidth, height, source: 'toolbar-height', view: renderer.viewMode, autoSyncedShow: !isShow && wasLinked });
-                }
+                this._writeToolbarRasterToActiveCanvas('height', height, isShow);
                 renderer.render();
             });
         }
@@ -3667,6 +3737,9 @@ class LEDRasterApp {
             // Set project name from current project
             document.getElementById('export-name').value = this.project.name || 'Untitled Project';
             this.loadExportSuffixesToUI();
+            // Slice 11: rebuild canvas checklist on every open so renames /
+            // additions / deletions show up. Visible canvases default-checked.
+            this.populateExportCanvasesList();
             // Update preview
             this.updateExportPreview();
         });
@@ -3700,7 +3773,7 @@ class LEDRasterApp {
                 format
             });
             
-            // Resolume XML export — no views needed, just geometry
+            // Resolume XML export, no views needed, just geometry
             if (format === 'resolume-xml') {
                 document.getElementById('export-modal').style.display = 'none';
                 document.getElementById('status-message').textContent = 'Exporting Resolume XML...';
@@ -3729,6 +3802,17 @@ class LEDRasterApp {
                 return;
             }
 
+            // Slice 11: collect selected canvas IDs from the dynamic
+            // checklist. If the project has no canvases array (legacy /
+            // pre-Slice-1 fallback), pass [null] so performExport treats it
+            // as a single synthetic canvas using project-root raster dims,
+            // matching v0.7 export behaviour exactly.
+            const canvasIds = this.getSelectedExportCanvasIds();
+            if (canvasIds.length === 0) {
+                alert('Please select at least one canvas to export.');
+                return;
+            }
+
             if (!this.supportsFilePickerAPIs() && !this.supportsDirectoryPickerAPIs() && !this._warnedNoFilePickerExport) {
                 this._warnedNoFilePickerExport = true;
                 sendClientLog('export_picker_apis_unavailable_warning', {});
@@ -3738,7 +3822,7 @@ class LEDRasterApp {
             document.getElementById('status-message').textContent = 'Exporting...';
 
             try {
-                await this.performExport(projectName, format, views);
+                await this.performExport(projectName, format, views, canvasIds);
                 
                 document.getElementById('status-message').textContent = 'Export complete!';
                 setTimeout(() => {
@@ -4026,7 +4110,7 @@ class LEDRasterApp {
         if (!modal || !list) return;
         list.innerHTML = '<div style="padding: 12px; color: #888; font-size: 12px;">Loading…</div>';
         modal.style.display = 'block';
-        // Selection model: { type: 'preset'|'panel', key } — default preset is always '__default__'
+        // Selection model: { type: 'preset'|'panel', key }, default preset is always '__default__'
         this._pickerSelection = { type: 'preset', key: '__default__' };
         this._updatePickerSummary();
         this._renderPresetPickerLeftColumn();
@@ -4090,7 +4174,7 @@ class LEDRasterApp {
                 item.dataset.kind = row.kind;
                 item.dataset.id = row.id;
                 item.style.cssText = 'padding: 10px 12px; border-radius: 4px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 8px;';
-                // Default + non-default rows get drag enabled (except default — it stays pinned)
+                // Default + non-default rows get drag enabled (except default, it stays pinned)
                 if (row.kind !== 'default') {
                     item.draggable = true;
                     this._wirePresetRowDrag(item);
@@ -4100,7 +4184,7 @@ class LEDRasterApp {
                 leftCol.style.cssText = 'flex: 1; min-width: 0; overflow: hidden;';
                 leftCol.innerHTML = `<div style="color:#fff; font-size:13px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${this.escapeHtml(row.label)}</div><div style="color:#888; font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${row.sublabel}</div>`;
                 item.appendChild(leftCol);
-                // Heart on favorite rows (always filled — clicking removes from favorites)
+                // Heart on favorite rows (always filled, clicking removes from favorites)
                 if (row.kind === 'favorite') {
                     const heartBtn = document.createElement('button');
                     heartBtn.className = 'btn';
@@ -4282,7 +4366,7 @@ class LEDRasterApp {
         });
     }
 
-    // Background check on app boot — fetches the upstream catalog SHA and
+    // Background check on app boot, fetches the upstream catalog SHA and
     // stashes the fresh catalog in localStorage if it differs from what the
     // user currently has loaded. Sets `_catalogUpdateAvailable` so the picker
     // can show an "Update available" badge next time it's opened.
@@ -4312,7 +4396,7 @@ class LEDRasterApp {
             }).catch(() => ({}));
         infoFetch.then(() => fetch('/api/panel-catalog/refresh').then(r => r.ok ? r.json() : Promise.reject(r)))
             .then(apply)
-            .catch(() => { /* offline / blocked — silently keep current */ });
+            .catch(() => { /* offline / blocked, silently keep current */ });
     }
 
     // Manual user-triggered refresh from the button in the catalog header.
@@ -4349,13 +4433,13 @@ class LEDRasterApp {
                 this._renderCatalogSourceTag();
                 if (!opts.silent) {
                     const count = payload.panelCount || 0;
-                    this._toast(`Catalog refreshed — ${count.toLocaleString()} panels`);
+                    this._toast(`Catalog refreshed, ${count.toLocaleString()} panels`);
                 }
             })
             .catch((err) => {
                 if (!opts.silent) {
                     const detail = err && err.error ? ` (${err.error})` : '';
-                    this._toast(`Couldn’t reach GitHub — keeping current catalog${detail}`, true);
+                    this._toast(`Couldn’t reach GitHub, keeping current catalog${detail}`, true);
                 }
             })
             .finally(() => {
@@ -4394,7 +4478,7 @@ class LEDRasterApp {
                     this._loadPanelCatalog();
                     this._toast('Catalog updated');
                 } else {
-                    // Pending data wasn't stashed (boot check failed?) — fall back to a fresh refresh
+                    // Pending data wasn't stashed (boot check failed?), fall back to a fresh refresh
                     this.refreshPanelCatalogNow();
                 }
             };
@@ -4413,7 +4497,7 @@ class LEDRasterApp {
         }
     }
 
-    _toast(msg, isError) {
+    _toast(msg, isError, durationMs) {
         let host = document.getElementById('app-toast-host');
         if (!host) {
             host = document.createElement('div');
@@ -4422,14 +4506,15 @@ class LEDRasterApp {
             document.body.appendChild(host);
         }
         const t = document.createElement('div');
-        t.style.cssText = `padding:10px 16px; border-radius:6px; font-size:13px; color:#fff; background:${isError ? '#a8324b' : '#2d4a7a'}; box-shadow:0 2px 12px rgba(0,0,0,0.4); opacity:0; transition:opacity 0.18s ease;`;
+        t.style.cssText = `padding:10px 16px; border-radius:6px; font-size:13px; color:#fff; background:${isError ? '#a8324b' : '#2d4a7a'}; box-shadow:0 2px 12px rgba(0,0,0,0.4); opacity:0; transition:opacity 0.18s ease; max-width: 520px; text-align: center;`;
         t.textContent = msg;
         host.appendChild(t);
         requestAnimationFrame(() => { t.style.opacity = '1'; });
+        const lifetime = (typeof durationMs === 'number' && durationMs > 0) ? durationMs : 2400;
         setTimeout(() => {
             t.style.opacity = '0';
             setTimeout(() => t.remove(), 220);
-        }, 2400);
+        }, lifetime);
     }
 
     // A panel is "verified" if its `source` flags it as cross-checked against
@@ -4444,7 +4529,7 @@ class LEDRasterApp {
         // source string mentions an authoritative site.
         if (/\b(est|estimated|derived|same as|inferred|approx)\b/.test(s)) return false;
         if (/\+\s*(frame|air frame|t4|ladder|windbrace|spotlight)/.test(s)) return false;
-        // Trusted sources — manufacturer's own site / PDF, or a reputable
+        // Trusted sources, manufacturer's own site / PDF, or a reputable
         // third-party dealer that publishes the full datasheet.
         if (s.startsWith('official:')) return true;
         if (s.startsWith('roevisual')) return true;          // roevisual.com (ROE)
@@ -4556,11 +4641,11 @@ class LEDRasterApp {
             if (p.pixels_w != null) parts.push(`${p.pixels_w}×${p.pixels_h}px`);
             if (p.weight_kg != null) parts.push(`${p.weight_kg}kg`);
             if (p.watts_max != null) parts.push(`${p.watts_max}W`);
-            summary.textContent = `Panel: ${sel.label} — ${parts.join(' · ')}`;
+            summary.textContent = `Panel: ${sel.label}, ${parts.join(' · ')}`;
         } else if (sel.type === 'preset' && sel.key && sel.key !== '__default__') {
             summary.textContent = `Preset: ${sel.label || sel.key}`;
         } else {
-            summary.textContent = 'Default — uses your Preferences values.';
+            summary.textContent = 'Default, uses your Preferences values.';
         }
     }
 
@@ -4662,8 +4747,8 @@ class LEDRasterApp {
         }
 
         const notesPrompt = (mode === 'fix')
-            ? `What's wrong with "${panelRef}"?\n\nDescribe the discrepancy. After you click OK we'll open a GitHub issue — drag any spec sheet PDF or a photo of the panel back into the comment box there to attach it.`
-            : `Tell us about "${panelRef}" — paste any specs you have (cabinet mm, pixels, weight, max watts).\n\nAfter you click OK we'll open a GitHub issue — drag the official spec sheet PDF or a photo of the panel back into the comment box to attach it.`;
+            ? `What's wrong with "${panelRef}"?\n\nDescribe the discrepancy. After you click OK we'll open a GitHub issue, drag any spec sheet PDF or a photo of the panel back into the comment box there to attach it.`
+            : `Tell us about "${panelRef}", paste any specs you have (cabinet mm, pixels, weight, max watts).\n\nAfter you click OK we'll open a GitHub issue, drag the official spec sheet PDF or a photo of the panel back into the comment box to attach it.`;
         const notes = window.prompt(notesPrompt, '');
         if (notes === null) return;  // cancelled
 
@@ -4674,7 +4759,7 @@ class LEDRasterApp {
             `**Panel:** ${panelRef}`,
             '',
             '**Current catalog values:**',
-            currentValues || '_(no panel selected — please paste the catalog values you saw)_',
+            currentValues || '_(no panel selected, please paste the catalog values you saw)_',
             '',
             '**What\'s wrong:**',
             notes || '_(left blank)_',
@@ -4704,7 +4789,7 @@ class LEDRasterApp {
             body: bodyLines.join('\n'),
         });
         const url = `https://github.com/kman1898/LED-Raster-Designer/issues/new?${params.toString()}`;
-        // Make sure the user knows the GitHub tab is the actual submission —
+        // Make sure the user knows the GitHub tab is the actual submission,
         // we've had submissions get lost because the user filled out the
         // app-side prompts and assumed that was enough.
         const ok = confirm(
@@ -5010,6 +5095,10 @@ class LEDRasterApp {
             { id: 'text-layer-show-circuits', prop: 'showCircuits', type: 'checkbox' },
             { id: 'text-layer-show-single-phase', prop: 'showSinglePhase', type: 'checkbox' },
             { id: 'text-layer-show-three-phase', prop: 'showThreePhase', type: 'checkbox' },
+            // Slice 10: scope dropdown for the dynamic data/power lines.
+            // 'canvas' = text layer's parent canvas, 'project' = all canvases,
+            // 'both' = render both lines per metric.
+            { id: 'text-layer-dynamic-info-scope', prop: 'dynamicInfoScope', type: 'select' },
             { id: 'text-layer-show-pixel-map', prop: 'showOnPixelMap', type: 'checkbox' },
             { id: 'text-layer-show-cabinet-id', prop: 'showOnCabinetId', type: 'checkbox' },
             { id: 'text-layer-show-data-flow', prop: 'showOnDataFlow', type: 'checkbox' },
@@ -5018,7 +5107,7 @@ class LEDRasterApp {
         fields.forEach(f => {
             const el = document.getElementById(f.id);
             if (!el) return;
-            const event = f.type === 'checkbox' ? 'change' : 'input';
+            const event = f.type === 'checkbox' ? 'change' : (f.type === 'select' ? 'change' : 'input');
             el.addEventListener(event, () => {
                 if (!this.currentLayer || (this.currentLayer.type || 'screen') !== 'text') return;
                 let val;
@@ -5123,6 +5212,8 @@ class LEDRasterApp {
         setChecked('text-layer-show-circuits', !!layer.showCircuits);
         setChecked('text-layer-show-single-phase', !!layer.showSinglePhase);
         setChecked('text-layer-show-three-phase', !!layer.showThreePhase);
+        const scopeSel = document.getElementById('text-layer-dynamic-info-scope');
+        if (scopeSel) scopeSel.value = layer.dynamicInfoScope || 'project';
 
         // Style toggle buttons
         const boldBtn = document.getElementById('text-layer-bold');
@@ -5133,13 +5224,18 @@ class LEDRasterApp {
         if (underlineBtn) underlineBtn.classList.toggle('active', !!layer.fontUnderline);
     }
 
-    // Aggregate data port counts across all visible screen layers
-    getPortCounts() {
+    // Aggregate data port counts across all visible screen layers.
+    // Slice 9: exclude layers whose canvas is hidden.
+    // Slice 10: optional onlyCanvasId filter for per-canvas sidebar totals.
+    getPortCounts(onlyCanvasId) {
         if (!this.project || !this.project.layers) return { primary: 0, backup: 0 };
         let totalPrimary = 0;
+        const hiddenCanvasIds = this._hiddenCanvasIdSet();
         this.project.layers.forEach(layer => {
             if ((layer.type || 'screen') !== 'screen') return;
             if (!layer.visible) return;
+            if (layer.canvas_id && hiddenCanvasIds.has(layer.canvas_id)) return;
+            if (onlyCanvasId && layer.canvas_id !== onlyCanvasId) return;
             const activePanels = (layer.panels || []).filter(p => !p.blank && !p.hidden);
             if (activePanels.length === 0) return;
             const assignments = this.calculatePortAssignments(layer);
@@ -5154,15 +5250,20 @@ class LEDRasterApp {
         return { primary: totalPrimary, backup: totalPrimary };
     }
 
-    // Aggregate power stats across all visible screen layers
-    getPowerCounts() {
+    // Aggregate power stats across all visible screen layers.
+    // Slice 9: exclude layers whose canvas is hidden.
+    // Slice 10: optional onlyCanvasId filter for per-canvas sidebar totals.
+    getPowerCounts(onlyCanvasId) {
         if (!this.project || !this.project.layers) return { circuits: 0, totalWatts: 0, singlePhaseAmps: 0, threePhaseAmps: 0, voltage: 0 };
         let totalCircuits = 0;
         let totalWattsAll = 0;
         const voltages = new Set();
+        const hiddenCanvasIds = this._hiddenCanvasIdSet();
         this.project.layers.forEach(layer => {
             if ((layer.type || 'screen') !== 'screen') return;
             if (!layer.visible) return;
+            if (layer.canvas_id && hiddenCanvasIds.has(layer.canvas_id)) return;
+            if (onlyCanvasId && layer.canvas_id !== onlyCanvasId) return;
             const activePanels = (layer.panels || []).filter(p => !p.blank && !p.hidden);
             if (activePanels.length === 0) return;
             const voltage = Number(layer.powerVoltage) || 110;
@@ -5386,6 +5487,13 @@ class LEDRasterApp {
         if (!this.selectionAnchorLayerId) {
             this.selectionAnchorLayerId = layer.id;
         }
+        // Slice 4 + Slice 13: auto-activate this layer's canvas, but PRESERVE
+        // any existing cross-canvas multi-selection. Without this flag,
+        // setActiveCanvas would drop selected layers in other canvases - which
+        // breaks the "select layers across canvases and bulk-edit them" flow
+        // (e.g. shift-click SR in c1, then DJ in c2, then change panel size on
+        // both at once).
+        this._activateCanvasForLayer(this.currentLayer, { preserveSelection: true });
         this.renderLayers();
         this.loadLayerToInputs();
         window.canvasRenderer.render();
@@ -5406,6 +5514,11 @@ class LEDRasterApp {
         this.selectedLayerIds = new Set(rangeIds);
         this.currentLayer = layer;
         this.lastSelectedLayerId = layer.id;
+        // Slice 4 + Slice 13: same preserveSelection trick as
+        // toggleLayerSelection so a shift-click range selection that crosses
+        // canvas boundaries doesn't get its other-canvas members culled
+        // when the active canvas auto-switches.
+        this._activateCanvasForLayer(layer, { preserveSelection: true });
         this.renderLayers();
         this.loadLayerToInputs();
         window.canvasRenderer.render();
@@ -5560,6 +5673,22 @@ class LEDRasterApp {
         return ordered;
     }
 
+    // v0.8: workspace offset for the layer's parent canvas. Used by every
+    // rect-test that compares workspace-coord rectangles against panel-coord
+    // (canvas-relative) panel positions. Returns {wx:0, wy:0} for legacy
+    // single-canvas projects so existing math is unaffected.
+    _getLayerWorkspaceOffset(layer) {
+        if (!layer || !this.project) return { wx: 0, wy: 0 };
+        const arr = this.project.canvases;
+        if (!Array.isArray(arr) || arr.length === 0) return { wx: 0, wy: 0 };
+        const cid = layer.canvas_id;
+        if (!cid) return { wx: 0, wy: 0 };
+        for (const c of arr) {
+            if (c && c.id === cid) return { wx: c.workspace_x || 0, wy: c.workspace_y || 0 };
+        }
+        return { wx: 0, wy: 0 };
+    }
+
     getLayerBounds(layer) {
         if (layer && (layer.type || 'screen') === 'image') {
             const scale = Number(layer.imageScale) || 1;
@@ -5609,7 +5738,12 @@ class LEDRasterApp {
         const hits = this.project.layers.filter(layer => {
             if (layer.visible === false) return false;
             const b = this.getLayerBounds(layer);
-            const intersects = b.x1 <= maxX && b.x2 >= minX && b.y1 <= maxY && b.y2 >= minY;
+            // Shift bounds by the layer's canvas's workspace offset so they
+            // line up with the workspace-coord rect (rect is in screen-world
+            // space; bounds are canvas-relative).
+            const off = this._getLayerWorkspaceOffset(layer);
+            const intersects = (b.x1 + off.wx) <= maxX && (b.x2 + off.wx) >= minX
+                && (b.y1 + off.wy) <= maxY && (b.y2 + off.wy) >= minY;
             return intersects;
         }).map(l => l.id);
 
@@ -5635,6 +5769,8 @@ class LEDRasterApp {
         if (!this.selectionAnchorLayerId && this.currentLayer) {
             this.selectionAnchorLayerId = this.currentLayer.id;
         }
+        // Slice 4: auto-activate the canvas of the new primary layer.
+        this._activateCanvasForLayer(this.currentLayer);
         this.renderLayers();
         this.loadLayerToInputs();
         this.loadTextLayerToInputs();
@@ -5647,11 +5783,15 @@ class LEDRasterApp {
             console.error('SELECT LAYER: Invalid layer', layer);
             return;
         }
-        
+
         this.currentLayer = layer;
         this.selectedLayerIds = new Set([layer.id]);
         this.lastSelectedLayerId = layer.id;
         this.selectionAnchorLayerId = layer.id;
+        // Slice 4: auto-activate this layer's canvas. Idempotent, short-
+        // circuits when already active so programmatic selectLayer calls
+        // (post-load, post-create, post-delete) don't fire spurious PUTs.
+        this._activateCanvasForLayer(layer);
         sendClientLog('select_layer_before_defaults', {
             layerId: layer.id,
             processorType: layer.processorType,
@@ -5772,7 +5912,7 @@ class LEDRasterApp {
         // Repopulate the active view's per-layer label editor so the port-rename
         // (data-flow view) or circuit-rename (power view) sidebar reflects the
         // newly selected layer immediately. Without this, the editor only
-        // refreshed the next time something else nudged it — which made the
+        // refreshed the next time something else nudged it, which made the
         // first click after a layer-change appear empty until a second click.
         const viewMode = window.canvasRenderer && window.canvasRenderer.viewMode;
         if (viewMode === 'data-flow') {
@@ -6073,7 +6213,7 @@ class LEDRasterApp {
 
         const requests = layers.map(layer => {
             const preservedProps = {
-                // Show Look position — keep in sync across the server
+                // Show Look position, keep in sync across the server
                 // round-trip (server whitelists the field, but echoing the
                 // same value is safer than dropping it).
                 showOffsetX: layer.showOffsetX,
@@ -6142,7 +6282,7 @@ class LEDRasterApp {
                 _powerTotalAmps3: layer._powerTotalAmps3,
                 _powerCircuitsRequired: layer._powerCircuitsRequired,
                 // Preserve client-computed port counts across the server
-                // roundtrip — server doesn't whitelist these fields, so its
+                // roundtrip, server doesn't whitelist these fields, so its
                 // echo carries stale values that would otherwise overwrite
                 // the freshly recomputed numbers (causes ports-required and
                 // the port-rename editor to show too few ports in custom
@@ -6452,7 +6592,7 @@ class LEDRasterApp {
             if (!el) return;
             if (common.mixed) {
                 el.value = '';
-                el.placeholder = '—';
+                el.placeholder = '-';
             } else {
                 el.value = common.value;
                 el.placeholder = '';
@@ -6472,7 +6612,7 @@ class LEDRasterApp {
 
         setTextInput('offset-x', getCommon(l => l.offset_x));
         setTextInput('offset-y', getCommon(l => l.offset_y));
-        // Show Look offsets — separate from processor offsets (Pixel Map).
+        // Show Look offsets, separate from processor offsets (Pixel Map).
         setTextInput('show-offset-x', getCommon(l => (l.showOffsetX ?? l.offset_x) || 0));
         setTextInput('show-offset-y', getCommon(l => (l.showOffsetY ?? l.offset_y) || 0));
 
@@ -6484,7 +6624,7 @@ class LEDRasterApp {
             const scaleCommon = getCommon(l => Math.round((l.imageScale || 1) * 100));
             if (imageScaleEl) {
                 imageScaleEl.value = scaleCommon.mixed ? '' : scaleCommon.value;
-                imageScaleEl.placeholder = scaleCommon.mixed ? '—' : '';
+                imageScaleEl.placeholder = scaleCommon.mixed ? '-' : '';
             }
             if (imageScaleRangeEl) {
                 imageScaleRangeEl.value = scaleCommon.mixed ? '100' : String(scaleCommon.value);
@@ -6503,7 +6643,7 @@ class LEDRasterApp {
                 imageScaleRangeEl.value = '100';
             }
             if (imageSizeEl) {
-                imageSizeEl.textContent = '—';
+                imageSizeEl.textContent = '-';
             }
         }
         setTextInput('cabinet-width', getCommon(l => l.cabinet_width));
@@ -6570,7 +6710,7 @@ class LEDRasterApp {
             if (hex) {
                 if (common.mixed) {
                     hex.value = '';
-                    hex.placeholder = '—';
+                    hex.placeholder = '-';
                 } else {
                     hex.value = value.toUpperCase();
                     hex.placeholder = '';
@@ -6624,7 +6764,7 @@ class LEDRasterApp {
         setCheckbox('show-offset-bl', getCommon(l => l.showOffsetBL || false));
         setCheckbox('show-offset-br', getCommon(l => l.showOffsetBR || false));
         
-        // Update Screen Name checkboxes on other tabs — each reads its own per-tab property
+        // Update Screen Name checkboxes on other tabs, each reads its own per-tab property
         // with fallback to global showLabelName → true (backwards compat with old project files)
         if (document.getElementById('show-label-name-cabinet')) {
             setCheckbox('show-label-name-cabinet', getCommon(l => _tabLabel(l, 'showLabelNameCabinet')));
@@ -7226,7 +7366,7 @@ class LEDRasterApp {
                 const candidateLoad = calcBoundingRectLoad(candidateIndices);
 
                 if (current.unitIndices.length > 0 && candidateLoad > portCapacity) {
-                    // Adding this unit would exceed capacity — start new port
+                    // Adding this unit would exceed capacity, start new port
                     current.load = calcBoundingRectLoad(current.unitIndices);
                     ports.push(current);
                     current = { unitIndices: [unitIdx], load: singleUnitLoad };
@@ -7310,31 +7450,44 @@ class LEDRasterApp {
 
         preview.style.color = '#4A90E2';
 
+        // Slice 11: factor selected canvases into the preview. Each
+        // (canvas, view) combo is one file (PNG/PSD) or one page (PDF).
+        const canvasIds = (typeof this.getSelectedExportCanvasIds === 'function')
+            ? this.getSelectedExportCanvasIds() : [null];
+        if (canvasIds.length === 0) {
+            preview.textContent = '(Select at least one canvas)';
+            preview.style.color = '#ff6b6b';
+            return;
+        }
+        const projectCanvases = (this.project && Array.isArray(this.project.canvases))
+            ? this.project.canvases : [];
+        const canvasNameOf = (cid) => {
+            if (!cid) return '';
+            const c = projectCanvases.find(x => x && x.id === cid);
+            return c ? this.sanitizeFilename(c.name || 'Canvas') : '';
+        };
+        const multiCanvas = canvasIds.length > 1 && canvasIds[0] !== null;
+        const buildName = (cid, suffix, ext) => {
+            const cname = canvasNameOf(cid);
+            return (multiCanvas && cname)
+                ? `${projectName} - ${cname} - ${suffix}.${ext}`
+                : `${projectName} ${suffix}.${ext}`;
+        };
+
         if (format === 'pdf') {
-            // PDF combines all views
-            preview.textContent = `${projectName}.pdf (${views.length} page${views.length > 1 ? 's' : ''})`;
-        } else if (format === 'psd') {
-            // PSD - one file per view, layers inside
-            if (views.length === 1) {
-                const suffix = this.getExportSuffixForView(views[0], suffixes, viewNames);
-                preview.textContent = `${projectName} ${suffix}.psd`;
-            } else {
-                preview.innerHTML = views.map(v => {
+            const pageCount = canvasIds.length * views.length;
+            preview.textContent = `${projectName}.pdf (${pageCount} page${pageCount > 1 ? 's' : ''})`;
+        } else if (format === 'psd' || format === 'png') {
+            const ext = format;
+            const lines = [];
+            for (const cid of canvasIds) {
+                for (const v of views) {
                     const suffix = this.getExportSuffixForView(v, suffixes, viewNames);
-                    return `${projectName} ${suffix}.psd`;
-                }).join('<br>');
+                    lines.push(buildName(cid, suffix, ext));
+                }
             }
-        } else {
-            // PNG - one file per view
-            if (views.length === 1) {
-                const suffix = this.getExportSuffixForView(views[0], suffixes, viewNames);
-                preview.textContent = `${projectName} ${suffix}.png`;
-            } else {
-                preview.innerHTML = views.map(v => {
-                    const suffix = this.getExportSuffixForView(v, suffixes, viewNames);
-                    return `${projectName} ${suffix}.png`;
-                }).join('<br>');
-            }
+            if (lines.length === 1) preview.textContent = lines[0];
+            else preview.innerHTML = lines.join('<br>');
         }
     }
 
@@ -7439,92 +7592,202 @@ class LEDRasterApp {
     }
 
     // Perform export using client-side canvas capture at 1:1 pixel scale
-    async performExport(projectName, format, views) {
+    /**
+     * Slice 11: build the dynamic Canvases checklist in the export modal.
+     * Visible canvases are checked, hidden ones unchecked but still
+     * selectable. Each row gets a stable id so the export-confirm handler
+     * can read them.
+     */
+    populateExportCanvasesList() {
+        const list = document.getElementById('export-canvases-list');
+        if (!list) return;
+        list.innerHTML = '';
+        const canvases = (this.project && Array.isArray(this.project.canvases))
+            ? this.project.canvases : [];
+        if (canvases.length === 0) {
+            // Legacy / pre-Slice-1 project: no canvas list. Show a static
+            // placeholder so the user understands what's being exported.
+            const note = document.createElement('div');
+            note.style.cssText = 'font-size:11px;color:#888;padding:6px 0;';
+            note.textContent = 'Single-canvas project, entire workspace will be exported.';
+            list.appendChild(note);
+            return;
+        }
+        canvases.forEach((c, idx) => {
+            if (!c || !c.id) return;
+            const row = document.createElement('div');
+            row.className = 'export-view-row';
+            const isHidden = c.visible === false;
+            const label = document.createElement('label');
+            label.className = 'export-view-label';
+            label.style.gap = '6px';
+            const swatch = document.createElement('span');
+            swatch.style.cssText = `display:inline-block;width:10px;height:10px;border-radius:2px;background:${c.color || '#4A90E2'};flex:none;`;
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.checked = !isHidden;
+            checkbox.dataset.canvasId = c.id;
+            checkbox.className = 'export-canvas-checkbox';
+            checkbox.addEventListener('change', () => this.updateExportPreview());
+            const text = document.createElement('span');
+            text.textContent = (c.name || `Canvas ${idx + 1}`) + (isHidden ? '  (hidden)' : '');
+            if (isHidden) text.style.color = '#888';
+            label.appendChild(checkbox);
+            label.appendChild(swatch);
+            label.appendChild(text);
+            row.appendChild(label);
+            list.appendChild(row);
+        });
+    }
+
+    /**
+     * Slice 11: read the canvas checkboxes back. Returns array of canvas
+     * ids in their project.canvases order. Returns [null] for legacy
+     * projects so performExport falls into single-canvas mode.
+     */
+    getSelectedExportCanvasIds() {
+        const canvases = (this.project && Array.isArray(this.project.canvases))
+            ? this.project.canvases : [];
+        if (canvases.length === 0) return [null];
+        const checked = new Set();
+        document.querySelectorAll('.export-canvas-checkbox').forEach(cb => {
+            if (cb.checked && cb.dataset.canvasId) checked.add(cb.dataset.canvasId);
+        });
+        // Preserve project.canvases order in the output.
+        return canvases.filter(c => c && checked.has(c.id)).map(c => c.id);
+    }
+
+    /**
+     * Slice 11: multi-canvas-aware export. Iterates canvases × views,
+     * temporarily hiding the OTHER canvases per pass and translating the
+     * render so each canvas becomes its own export image at its native
+     * raster size. canvasIds=[null] is the legacy single-canvas path.
+     */
+    async performExport(projectName, format, views, canvasIds) {
         const viewNames = this.getExportViewNames();
         const suffixes = this.getExportSuffixesFromUI();
-        
-        // Store current state
+
+        // Store current renderer state.
         const originalViewMode = window.canvasRenderer.viewMode;
         const originalZoom = window.canvasRenderer.zoom;
         const originalPanX = window.canvasRenderer.panX;
         const originalPanY = window.canvasRenderer.panY;
-        
-        // Get exact raster dimensions
-        const rasterWidth = window.canvasRenderer.rasterWidth;
-        const rasterHeight = window.canvasRenderer.rasterHeight;
-        
-        // Store original canvas reference
+        const originalActiveCanvasId = (this.project && this.project.active_canvas_id) || null;
         const mainCanvas = window.canvasRenderer.canvas;
         const originalCtx = window.canvasRenderer.ctx;
-        
-        // Check if transparent background is requested
+
         const transparentBg = document.getElementById('export-transparent-bg');
         const useTransparentBg = transparentBg && transparentBg.checked;
 
-        // Create a fresh offscreen canvas at exact raster size
+        // Snapshot every canvas's visibility so we can flip them per pass
+        // and restore at the end. Legacy projects skip this entirely.
+        const canvases = (this.project && Array.isArray(this.project.canvases))
+            ? this.project.canvases : [];
+        const visibilitySnapshot = canvases.map(c => ({ id: c.id, visible: c.visible }));
+
         const exportCanvas = document.createElement('canvas');
-        exportCanvas.width = rasterWidth;
-        exportCanvas.height = rasterHeight;
         const exportCtx = exportCanvas.getContext('2d', { alpha: useTransparentBg });
-        
-        // Swap to export canvas
         window.canvasRenderer.canvas = exportCanvas;
         window.canvasRenderer.ctx = exportCtx;
-        
-        // Set zoom to exactly 1.0 and pan to 0,0 (top-left corner)
         window.canvasRenderer.zoom = 1.0;
-        window.canvasRenderer.panX = 0;
-        window.canvasRenderer.panY = 0;
-        
-        // Enable export mode (hides grid and raster boundary)
         window.canvasRenderer.exportMode = true;
         window.canvasRenderer.exportTransparentBg = useTransparentBg;
-        
-        // Render each view and collect images
-        const renderedViews = [];
-        
-        for (const view of views) {
-            // Set view mode
-            window.canvasRenderer.viewMode = view;
-            
-            // Render at 1:1 to the export canvas
-            window.canvasRenderer.render();
-            
-            // Log dimensions for debugging
-            console.log(`Export: ${view} - Canvas: ${exportCanvas.width}x${exportCanvas.height}, Raster: ${rasterWidth}x${rasterHeight}`);
-            
-            // Get image data directly from canvas
-            const dataUrl = exportCanvas.toDataURL('image/png');
-            const suffix = this.getExportSuffixForView(view, suffixes, viewNames);
-            renderedViews.push({
-                view,
-                suffix,
-                fileBase: `${projectName} ${suffix}`,
-                dataUrl,
-                width: rasterWidth,
-                height: rasterHeight
+
+        const renderedItems = [];
+        const multiCanvas = canvasIds.length > 1 && canvasIds[0] !== null;
+
+        try {
+            for (const cid of canvasIds) {
+                // Resolve target canvas. cid===null means legacy single-
+                // canvas: use project-root raster fields, no workspace shift.
+                const targetCanvas = cid
+                    ? canvases.find(c => c && c.id === cid)
+                    : null;
+                if (cid && !targetCanvas) continue;
+
+                if (cid) {
+                    // Make ONLY this canvas visible during the per-view loop
+                    // so other canvases' layers don't bleed into the export
+                    // (handles overlap, cross-canvas labels, etc.). Active
+                    // canvas swap drives the rasterWidth/Height accessors
+                    // that decide export-canvas dimensions per view.
+                    canvases.forEach(c => { c.visible = (c.id === cid); });
+                    this.project.active_canvas_id = cid;
+                }
+
+                for (const view of views) {
+                    window.canvasRenderer.viewMode = view;
+                    // rasterWidth/Height read from the active canvas (Slice 6)
+                    // and pick show_raster_* automatically when view is
+                    // show-look (so Show Look exports at its own resolution).
+                    const rasterWidth = window.canvasRenderer.rasterWidth || 1920;
+                    const rasterHeight = window.canvasRenderer.rasterHeight || 1080;
+                    exportCanvas.width = rasterWidth;
+                    exportCanvas.height = rasterHeight;
+                    // Translate the workspace so this canvas's top-left
+                    // (workspace_x, workspace_y) lands at (0, 0) in the
+                    // export canvas. Legacy: pan to 0,0.
+                    const wsx = targetCanvas ? (targetCanvas.workspace_x || 0) : 0;
+                    const wsy = targetCanvas ? (targetCanvas.workspace_y || 0) : 0;
+                    window.canvasRenderer.panX = -wsx;
+                    window.canvasRenderer.panY = -wsy;
+
+                    window.canvasRenderer.render();
+
+                    const dataUrl = exportCanvas.toDataURL('image/png');
+                    const suffix = this.getExportSuffixForView(view, suffixes, viewNames);
+                    const canvasName = targetCanvas
+                        ? this.sanitizeFilename(targetCanvas.name || 'Canvas')
+                        : null;
+                    // Filename: include canvas token only when exporting
+                    // more than one. Single-canvas exports keep the v0.7
+                    // naming so existing user workflows aren't disrupted.
+                    const fileBase = (multiCanvas && canvasName)
+                        ? `${projectName} - ${canvasName} - ${suffix}`
+                        : `${projectName} ${suffix}`;
+                    // PDF page label includes canvas + view when multi.
+                    const pdfLabel = (multiCanvas && canvasName)
+                        ? `${canvasName}, ${suffix}`
+                        : suffix;
+                    renderedItems.push({
+                        canvasId: cid,
+                        canvasName,
+                        view,
+                        suffix,
+                        fileBase,
+                        pdfLabel,
+                        dataUrl,
+                        width: rasterWidth,
+                        height: rasterHeight,
+                    });
+                }
+            }
+        } finally {
+            // Restore canvas visibility, active canvas, renderer state.
+            visibilitySnapshot.forEach(s => {
+                const c = canvases.find(c => c && c.id === s.id);
+                if (c) c.visible = s.visible;
             });
+            if (this.project) this.project.active_canvas_id = originalActiveCanvasId;
+            window.canvasRenderer.canvas = mainCanvas;
+            window.canvasRenderer.ctx = originalCtx;
+            window.canvasRenderer.exportMode = false;
+            window.canvasRenderer.exportTransparentBg = false;
+            window.canvasRenderer.viewMode = originalViewMode;
+            window.canvasRenderer.zoom = originalZoom;
+            window.canvasRenderer.panX = originalPanX;
+            window.canvasRenderer.panY = originalPanY;
+            window.canvasRenderer.render();
         }
-        
-        // Restore original canvas and context
-        window.canvasRenderer.canvas = mainCanvas;
-        window.canvasRenderer.ctx = originalCtx;
-        window.canvasRenderer.exportMode = false;
-        window.canvasRenderer.exportTransparentBg = false;
-        window.canvasRenderer.viewMode = originalViewMode;
-        window.canvasRenderer.zoom = originalZoom;
-        window.canvasRenderer.panX = originalPanX;
-        window.canvasRenderer.panY = originalPanY;
-        window.canvasRenderer.render();
-        
-        // Handle the export based on format
+
+        // Dispatch to format-specific writer. Multi-canvas just means
+        // more items, each writer already loops over them.
         if (format === 'png') {
-            await this.downloadRenderedPNGs(renderedViews);
+            await this.downloadRenderedPNGs(renderedItems);
         } else if (format === 'pdf') {
-            // Send to server to create PDF
-            await this.downloadAsPdf(projectName, renderedViews);
+            await this.downloadAsPdf(projectName, renderedItems);
         } else if (format === 'psd') {
-            await this.downloadAsPsd(projectName, renderedViews);
+            await this.downloadAsPsd(projectName, renderedItems);
         }
     }
     
@@ -7615,12 +7878,23 @@ class LEDRasterApp {
         sendClientLog('save_blob_browser_download', { filename });
     }
 
-    async saveBlobWithPicker(blob, filename, mimeType) {
+    async saveBlobWithPicker(blobOrFn, filename, mimeType) {
         // Sanitize so a project name with "/" or other illegal chars doesn't
         // get rejected by showSaveFilePicker / OS file APIs.
         filename = this.sanitizeFilename(filename);
-        // 1. Try the File System Access API (Chrome/Edge on secure contexts)
-        if (window.showSaveFilePicker) {
+        // blobOrFn can be a Blob OR an async function returning one. Lazy-blob
+        // form lets the caller defer expensive serialization (e.g. stringifying
+        // a 1MB project) until AFTER showSaveFilePicker resolves, keeping the
+        // user-activation gesture fresh for createWritable. See bug fix for
+        // 0-byte JSON saves on large multi-canvas projects.
+        const resolveBlob = async () => (typeof blobOrFn === 'function' ? await blobOrFn() : blobOrFn);
+        // 1. Try the File System Access API (Chrome/Edge on secure contexts).
+        //    Skip on localhost, we have a better server-side native dialog
+        //    available that doesn't break on cloud-synced folders (Nextcloud,
+        //    iCloud, Dropbox, OneDrive). Chrome's createWritable rejects with
+        //    NotAllowedError when the target lives under a sync agent's xattrs,
+        //    which produced 0-byte saves before this guard.
+        if (window.showSaveFilePicker && !this.isLocalConnection()) {
             try {
                 sendClientLog('save_blob_picker_start', { filename, mimeType });
                 const ext = filename.split('.').pop() || '';
@@ -7628,6 +7902,7 @@ class LEDRasterApp {
                     suggestedName: filename,
                     types: [{ description: 'File', accept: { [mimeType]: [`.${ext}`] } }]
                 });
+                const blob = await resolveBlob();
                 const writable = await handle.createWritable();
                 await writable.write(blob);
                 await writable.close();
@@ -7635,7 +7910,18 @@ class LEDRasterApp {
                 return;
             } catch (err) {
                 if (err && err.name === 'AbortError') return;
-                throw err;
+                // NotAllowedError on createWritable: Chrome already created the
+                // empty file via the picker but lost the user-activation needed
+                // to write to it. Fall through to native/browser fallback so we
+                // don't leave the user with a 0-byte file and nothing else.
+                sendClientLog('save_blob_picker_failed', {
+                    filename,
+                    name: err && err.name,
+                    message: err && err.message
+                });
+                // Try native dialog (Mac/Win/Linux), opens a fresh dialog so
+                // we get our own gesture-bound path. If unavailable, use
+                // browserDownload as last resort.
             }
         }
         // 2. Use native server-side dialog (opens on the host machine)
@@ -7646,6 +7932,7 @@ class LEDRasterApp {
                 return;
             }
             sendClientLog('save_blob_native_dialog_selected', { filename, savePath });
+            const blob = await resolveBlob();
             const ok = await this.nativeWriteFile(savePath, blob);
             if (ok) {
                 sendClientLog('save_blob_native_dialog_success', { filename, savePath });
@@ -7654,6 +7941,15 @@ class LEDRasterApp {
             sendClientLog('save_blob_native_dialog_write_failed', { filename, savePath });
         } catch (err) {
             sendClientLog('save_blob_native_dialog_error', { filename, message: err.message });
+        }
+        // 3. Last resort: trigger a normal browser download so the user always
+        // ends up with a file (even if both the picker and the native dialog
+        // failed). Better than silently leaving a 0-byte stub on disk.
+        try {
+            const blob = await resolveBlob();
+            this.browserDownload(blob, filename);
+        } catch (err) {
+            sendClientLog('save_blob_browser_download_error', { filename, message: err && err.message });
         }
     }
 
@@ -7677,7 +7973,15 @@ class LEDRasterApp {
             hasDirectoryPicker: !!window.showDirectoryPicker,
             hasSaveFilePicker: !!window.showSaveFilePicker
         });
-        if (window.showDirectoryPicker) {
+        // v0.8: same Chrome activation issue we hit on JSON saves, when
+        // the user is on localhost (this Flask app), the multi-canvas export
+        // burns the user-gesture token rendering all the canvases between
+        // showDirectoryPicker resolving and the per-file getFileHandle/
+        // createWritable calls. Chrome rejects with NotAllowedError and we
+        // get zero files on disk. Skip the FS Access API entirely on
+        // localhost and use the native server-side directory dialog, which
+        // doesn't have this restriction.
+        if (window.showDirectoryPicker && !this.isLocalConnection()) {
             try {
                 const dirHandle = await window.showDirectoryPicker();
                 for (const file of files) {
@@ -7690,9 +7994,35 @@ class LEDRasterApp {
                 return;
             } catch (err) {
                 if (err && err.name === 'AbortError') return;
-                throw err;
+                sendClientLog('save_multiple_files_directory_failed', {
+                    name: err && err.name, message: err && err.message
+                });
+                // fall through to native fallback so the user still gets files
             }
         }
+        // Use native server-side directory picker (opens on the host machine).
+        // Tried BEFORE per-file showSaveFilePicker because picking once is
+        // far less work than N separate save dialogs.
+        try {
+            const targetDir = await this.nativeSelectDirectory();
+            if (targetDir) {
+                for (const file of files) {
+                    const filePath = `${targetDir.replace(/[\\/]$/, '')}/${file.filename}`;
+                    const ok = await this.nativeWriteFile(filePath, file.blob);
+                    if (!ok) {
+                        sendClientLog('save_multiple_files_native_dialog_write_failed', { file: file.filename, filePath });
+                        throw new Error(`Native write failed for ${file.filename}`);
+                    }
+                }
+                sendClientLog('save_multiple_files_native_dialog_success', { count: files.length, directory: targetDir });
+                return;
+            }
+            sendClientLog('save_multiple_files_native_dialog_cancelled', { count: files.length });
+        } catch (err) {
+            sendClientLog('save_multiple_files_native_dialog_error', { message: err.message });
+        }
+        // Last resort: per-file saveBlobWithPicker (multiple dialogs) or
+        // browser download.
         if (window.showSaveFilePicker) {
             for (const file of files) {
                 const mimeType = file.blob && file.blob.type ? file.blob.type : 'application/octet-stream';
@@ -7701,24 +8031,8 @@ class LEDRasterApp {
             sendClientLog('save_multiple_files_picker_success', { count: files.length });
             return;
         }
-        // Use native server-side directory picker (opens on the host machine)
-        try {
-            const targetDir = await this.nativeSelectDirectory();
-            if (!targetDir) {
-                sendClientLog('save_multiple_files_native_dialog_cancelled', { count: files.length });
-                return;
-            }
-            for (const file of files) {
-                const filePath = `${targetDir.replace(/[\\/]$/, '')}/${file.filename}`;
-                const ok = await this.nativeWriteFile(filePath, file.blob);
-                if (!ok) {
-                    sendClientLog('save_multiple_files_native_dialog_write_failed', { file: file.filename, filePath });
-                    throw new Error(`Native write failed for ${file.filename}`);
-                }
-            }
-            sendClientLog('save_multiple_files_native_dialog_success', { count: files.length, directory: targetDir });
-        } catch (err) {
-            sendClientLog('save_multiple_files_native_dialog_error', { message: err.message });
+        for (const file of files) {
+            try { this.browserDownload(file.blob, file.filename); } catch (_) {}
         }
     }
 
@@ -7736,13 +8050,17 @@ class LEDRasterApp {
     }
     
     async downloadAsPdf(projectName, renderedViews) {
+        // Slice 11: multi-canvas PDF. Each rendered item contributes one
+        // page; the per-page name uses canvas + view when multi-canvas
+        // (set on renderedItem.pdfLabel by performExport), else just the
+        // view suffix. Server already handles variable per-page sizes.
         const response = await fetch('/api/export/pdf-from-images', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 project_name: projectName,
                 images: renderedViews.map(v => ({
-                    name: v.suffix,
+                    name: v.pdfLabel || v.suffix,
                     data: v.dataUrl,
                     width: v.width || window.canvasRenderer.rasterWidth,
                     height: v.height || window.canvasRenderer.rasterHeight
@@ -7751,9 +8069,9 @@ class LEDRasterApp {
                 height: window.canvasRenderer.rasterHeight
             })
         });
-        
+
         if (!response.ok) throw new Error('Failed to create PDF');
-        
+
         const blob = await response.blob();
         await this.saveBlobWithPicker(blob, `${projectName}.pdf`, 'application/pdf');
     }
@@ -7761,6 +8079,24 @@ class LEDRasterApp {
     async downloadAsPsd(projectName, renderedViews) {
         const files = [];
         for (const view of renderedViews) {
+            // Slice 11: when exporting per-canvas, only include layers from
+            // that canvas in the PSD layer list, otherwise the PSD reports
+            // sibling canvases' layers as if they were in this image.
+            // Legacy / single-canvas: include every layer (canvasId is null).
+            const psdLayers = this.project.layers.filter(l => {
+                if (!view.canvasId) return true;
+                return l.canvas_id === view.canvasId;
+            }).map(l => {
+                const b = this.getLayerBounds(l);
+                return {
+                    name: l.name,
+                    offset_x: b.x1,
+                    offset_y: b.y1,
+                    width: b.x2 - b.x1,
+                    height: b.y2 - b.y1,
+                    visible: l.visible
+                };
+            });
             const response = await fetch('/api/export/psd-from-image', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -7770,17 +8106,7 @@ class LEDRasterApp {
                     image_data: view.dataUrl,
                     width: view.width || window.canvasRenderer.rasterWidth,
                     height: view.height || window.canvasRenderer.rasterHeight,
-                    layers: this.project.layers.map(l => {
-                        const b = this.getLayerBounds(l);
-                        return {
-                            name: l.name,
-                            offset_x: b.x1,
-                            offset_y: b.y1,
-                            width: b.x2 - b.x1,
-                            height: b.y2 - b.y1,
-                            visible: l.visible
-                        };
-                    })
+                    layers: psdLayers
                 })
             });
             if (!response.ok) throw new Error('Failed to create PSD');
@@ -7822,7 +8148,8 @@ class LEDRasterApp {
             frameRate: 60,
             powerVoltage: 110,
             powerAmperage: 15,
-            powerWatts: 200
+            powerWatts: 200,
+            canvasGap: 0
         };
     }
 
@@ -8064,6 +8391,7 @@ class LEDRasterApp {
             amperageCustom.style.display = (!amperageSelect || amperageSelect.value === 'custom') ? 'inline-block' : 'none';
         }
         setVal('pref-power-watts', prefs.powerWatts);
+        setVal('pref-canvas-gap', prefs.canvasGap);
         const modal = document.getElementById('preferences-modal');
         if (modal) modal.style.display = 'block';
     }
@@ -8117,7 +8445,8 @@ class LEDRasterApp {
             frameRate: readNum('pref-frame-rate', defaults.frameRate),
             powerVoltage: Number.isFinite(voltageVal) && voltageVal > 0 ? voltageVal : defaults.powerVoltage,
             powerAmperage: Number.isFinite(amperageVal) && amperageVal > 0 ? amperageVal : defaults.powerAmperage,
-            powerWatts: readNum('pref-power-watts', defaults.powerWatts)
+            powerWatts: readNum('pref-power-watts', defaults.powerWatts),
+            canvasGap: readNum('pref-canvas-gap', defaults.canvasGap)
         };
     }
 
@@ -8210,7 +8539,7 @@ class LEDRasterApp {
     updateShortcutLabels() {
         const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform) || /Mac/.test(navigator.userAgent);
         document.querySelectorAll('.menu-option[data-label]').forEach(option => {
-            // Skip options with submenus — they manage their own content
+            // Skip options with submenus, they manage their own content
             if (option.classList.contains('menu-has-submenu')) return;
             const label = option.getAttribute('data-label') || '';
             const shortcut = isMac ? option.getAttribute('data-shortcut-mac') : option.getAttribute('data-shortcut-win');
@@ -8749,6 +9078,25 @@ class LEDRasterApp {
                     setTimeout(() => {
                         document.getElementById('status-message').textContent = 'Ready';
                     }, 2000);
+                    // Slice 12: same migration toast path as loadProjectFromFile.
+                    // Recent-file loads also go through PUT /api/project so the
+                    // server emits _migration_notice when the cached payload
+                    // lacked format_version: "0.8".
+                    if (data && data._migration_notice) {
+                        delete this.project._migration_notice;
+                        sendClientLog('migration_notice_shown', {
+                            name: this.project.name,
+                            layers: this.project.layers ? this.project.layers.length : 0,
+                            source: 'recent'
+                        });
+                        if (typeof this._toast === 'function') {
+                            this._toast(
+                                'Project upgraded to multi-canvas format (v0.8). Save to keep changes. Older app versions can no longer open this file.',
+                                false,
+                                10000
+                            );
+                        }
+                    }
                 })
                 .catch(() => {
                     this.resetHistory('Initial State');
@@ -8836,9 +9184,9 @@ class LEDRasterApp {
             const capacityEl = document.getElementById('port-capacity');
             const panelsPerPortEl = document.getElementById('panels-per-port');
             const portsRequiredEl = document.getElementById('ports-required');
-            if (capacityEl) capacityEl.textContent = '—';
-            if (panelsPerPortEl) panelsPerPortEl.textContent = '—';
-            if (portsRequiredEl) portsRequiredEl.textContent = '—';
+            if (capacityEl) capacityEl.textContent = '-';
+            if (panelsPerPortEl) panelsPerPortEl.textContent = '-';
+            if (portsRequiredEl) portsRequiredEl.textContent = '-';
             return;
         }
         
@@ -8963,11 +9311,11 @@ class LEDRasterApp {
             const circuitsEl = document.getElementById('power-circuits-required');
             const amps1El = document.getElementById('power-total-amps-1ph');
             const amps3El = document.getElementById('power-total-amps-3ph');
-            if (wattsEl) wattsEl.textContent = '—';
-            if (panelsEl) panelsEl.textContent = '—';
-            if (circuitsEl) circuitsEl.textContent = '—';
-            if (amps1El) amps1El.textContent = '—';
-            if (amps3El) amps3El.textContent = '—';
+            if (wattsEl) wattsEl.textContent = '-';
+            if (panelsEl) panelsEl.textContent = '-';
+            if (circuitsEl) circuitsEl.textContent = '-';
+            if (amps1El) amps1El.textContent = '-';
+            if (amps3El) amps3El.textContent = '-';
             return;
         }
         const layer = this.currentLayer;
@@ -9097,7 +9445,7 @@ class LEDRasterApp {
         if (overrides && overrides[circuitNum]) return overrides[circuitNum];
         // A multi/soca has 6 ports, so labels wrap every 6 circuits and the
         // soca number in the template increments. Works for any template
-        // shaped like <prefix><number><separator># — e.g. S1-#, S2-#, MULTI3-#.
+        // shaped like <prefix><number><separator>#, e.g. S1-#, S2-#, MULTI3-#.
         const m = String(template).match(/^(.*?)(\d+)([^#\d]*)#(.*)$/);
         if (m) {
             const prefix = m[1];
@@ -9545,10 +9893,11 @@ class LEDRasterApp {
         if (!layer) return;
         if (!this.isCustomFlow(layer)) return;
         this.customSelection.clear();
-        const minX = Math.min(rect.x1, rect.x2);
-        const maxX = Math.max(rect.x1, rect.x2);
-        const minY = Math.min(rect.y1, rect.y2);
-        const maxY = Math.max(rect.y1, rect.y2);
+        const off = this._getLayerWorkspaceOffset(layer);
+        const minX = Math.min(rect.x1, rect.x2) - off.wx;
+        const maxX = Math.max(rect.x1, rect.x2) - off.wx;
+        const minY = Math.min(rect.y1, rect.y2) - off.wy;
+        const maxY = Math.max(rect.y1, rect.y2) - off.wy;
         layer.panels.forEach(panel => {
             if (panel.hidden) return;
             const intersects = panel.x <= maxX && (panel.x + panel.width) >= minX &&
@@ -9564,10 +9913,14 @@ class LEDRasterApp {
     selectPixelMapPanelsInRect(layer, rect) {
         if (!layer || !rect) return;
         this.pixelMapSelection.clear();
-        const minX = Math.min(rect.x1, rect.x2);
-        const maxX = Math.max(rect.x1, rect.x2);
-        const minY = Math.min(rect.y1, rect.y2);
-        const maxY = Math.max(rect.y1, rect.y2);
+        // rect is in workspace coords; panel coords are canvas-relative,
+        // shift by the layer's parent canvas's workspace offset before
+        // comparing. (No-op for single-canvas projects.)
+        const off = this._getLayerWorkspaceOffset(layer);
+        const minX = Math.min(rect.x1, rect.x2) - off.wx;
+        const maxX = Math.max(rect.x1, rect.x2) - off.wx;
+        const minY = Math.min(rect.y1, rect.y2) - off.wy;
+        const maxY = Math.max(rect.y1, rect.y2) - off.wy;
         // Include hidden ("blank") panels so they can be selected for bulk
         // restore via the sidebar / Alt+click action.
         (layer.panels || []).forEach(panel => {
@@ -9625,7 +9978,7 @@ class LEDRasterApp {
         const horizontalEdge = !hasLeft || !hasRight;
         if (verticalEdge && !horizontalEdge) return 'height';
         if (horizontalEdge && !verticalEdge) return 'width';
-        // Corner or interior — default to 'height' (top/bottom edges are the common case).
+        // Corner or interior, default to 'height' (top/bottom edges are the common case).
         return 'height';
     }
 
@@ -9674,7 +10027,7 @@ class LEDRasterApp {
     }
 
     /**
-     * Bulk hide/show panels — what the UI calls "Set Blank" (matching the
+     * Bulk hide/show panels, what the UI calls "Set Blank" (matching the
      * Alt+click behaviour, which toggles the per-panel `hidden` flag so the
      * cabinet disappears from the wall layout).
      */
@@ -9729,10 +10082,11 @@ class LEDRasterApp {
         if (!layer) return;
         if (!this.isCustomPower(layer)) return;
         this.powerCustomSelection.clear();
-        const minX = Math.min(rect.x1, rect.x2);
-        const maxX = Math.max(rect.x1, rect.x2);
-        const minY = Math.min(rect.y1, rect.y2);
-        const maxY = Math.max(rect.y1, rect.y2);
+        const off = this._getLayerWorkspaceOffset(layer);
+        const minX = Math.min(rect.x1, rect.x2) - off.wx;
+        const maxX = Math.max(rect.x1, rect.x2) - off.wx;
+        const minY = Math.min(rect.y1, rect.y2) - off.wy;
+        const maxY = Math.max(rect.y1, rect.y2) - off.wy;
         layer.panels.forEach(panel => {
             if (panel.hidden) return;
             const intersects = panel.x <= maxX && (panel.x + panel.width) >= minX &&
@@ -9741,6 +10095,39 @@ class LEDRasterApp {
         });
         this.updateCustomPowerUI();
         window.canvasRenderer.render();
+    }
+
+    /**
+     * Find the OTHER port number (if any) that already owns this panel in
+     * the layer's custom data-flow paths. Returns the conflicting port's
+     * number, or null if the panel is unassigned (or only assigned to the
+     * caller-supplied excludePortNum, which we treat as "not a conflict").
+     */
+    _findPanelOwnerPort(layer, panel, excludePortNum) {
+        if (!layer || !layer.customPortPaths || !panel) return null;
+        const key = `${panel.row},${panel.col}`;
+        for (const portNumStr of Object.keys(layer.customPortPaths)) {
+            const portNum = Number(portNumStr) || portNumStr;
+            if (portNum === excludePortNum) continue;
+            const path = layer.customPortPaths[portNumStr] || [];
+            if (path.some(p => `${p.row},${p.col}` === key)) return portNum;
+        }
+        return null;
+    }
+
+    /**
+     * Same as _findPanelOwnerPort but for power circuits.
+     */
+    _findPanelOwnerCircuit(layer, panel, excludeCircuitNum) {
+        if (!layer || !layer.powerCustomPaths || !panel) return null;
+        const key = `${panel.row},${panel.col}`;
+        for (const circuitNumStr of Object.keys(layer.powerCustomPaths)) {
+            const circuitNum = Number(circuitNumStr) || circuitNumStr;
+            if (circuitNum === excludeCircuitNum) continue;
+            const path = layer.powerCustomPaths[circuitNumStr] || [];
+            if (path.some(p => `${p.row},${p.col}` === key)) return circuitNum;
+        }
+        return null;
     }
 
     addPanelToCustomPath(panel) {
@@ -9752,16 +10139,25 @@ class LEDRasterApp {
         if (!this.currentLayer.customPortPaths[portNum]) this.currentLayer.customPortPaths[portNum] = [];
         const key = this.getPanelKey(panel);
         const exists = this.currentLayer.customPortPaths[portNum].some(p => `${p.row},${p.col}` === key);
-        if (!exists) {
-            this.currentLayer.customPortPaths[portNum].push({ row: panel.row, col: panel.col });
-            this.saveState('Custom Path Edit');
-            this.saveClientSideProperties();
-            if (this.customDebug) {
-                console.log('[CustomFlow] Add panel', { portNum, row: panel.row, col: panel.col });
+        if (exists) return;
+        // Reject if the panel already belongs to a different port, user
+        // must clear the existing assignment first. Avoids silent
+        // double-mapping that the user has to undo manually.
+        const conflict = this._findPanelOwnerPort(this.currentLayer, panel, portNum);
+        if (conflict !== null) {
+            if (typeof this._toast === 'function') {
+                this._toast(`Panel R${panel.row + 1}C${panel.col + 1} is already wired to port ${conflict}. Clear it from port ${conflict} first.`, true);
             }
-            this.updatePortLabelEditor();
-            window.canvasRenderer.render();
+            return;
         }
+        this.currentLayer.customPortPaths[portNum].push({ row: panel.row, col: panel.col });
+        this.saveState('Custom Path Edit');
+        this.saveClientSideProperties();
+        if (this.customDebug) {
+            console.log('[CustomFlow] Add panel', { portNum, row: panel.row, col: panel.col });
+        }
+        this.updatePortLabelEditor();
+        window.canvasRenderer.render();
     }
 
     addPanelToCustomPowerPath(panel) {
@@ -9773,15 +10169,21 @@ class LEDRasterApp {
         if (!this.currentLayer.powerCustomPaths[circuitNum]) this.currentLayer.powerCustomPaths[circuitNum] = [];
         const key = this.getPanelKey(panel);
         const exists = this.currentLayer.powerCustomPaths[circuitNum].some(p => `${p.row},${p.col}` === key);
-        if (!exists) {
-            this.currentLayer.powerCustomPaths[circuitNum].push({ row: panel.row, col: panel.col });
-            this.saveState('Power Custom Path Edit');
-            this.saveClientSideProperties();
-            if (this.powerCustomDebug) {
-                console.log('[CustomPower] Add panel', { circuitNum, row: panel.row, col: panel.col });
+        if (exists) return;
+        const conflict = this._findPanelOwnerCircuit(this.currentLayer, panel, circuitNum);
+        if (conflict !== null) {
+            if (typeof this._toast === 'function') {
+                this._toast(`Panel R${panel.row + 1}C${panel.col + 1} is already wired to circuit ${conflict}. Clear it from circuit ${conflict} first.`, true);
             }
-            window.canvasRenderer.render();
+            return;
         }
+        this.currentLayer.powerCustomPaths[circuitNum].push({ row: panel.row, col: panel.col });
+        this.saveState('Power Custom Path Edit');
+        this.saveClientSideProperties();
+        if (this.powerCustomDebug) {
+            console.log('[CustomPower] Add panel', { circuitNum, row: panel.row, col: panel.col });
+        }
+        window.canvasRenderer.render();
     }
 
     handleCustomArrowKey(e) {
@@ -9851,6 +10253,22 @@ class LEDRasterApp {
         if (ordered.length === 0) return;
 
         const portNum = this.currentLayer.customPortIndex || 1;
+        // Reject the entire pattern apply if any selected panel already
+        // belongs to a different port. Prevents silent double-mapping.
+        const conflicts = [];
+        for (const p of ordered) {
+            const owner = this._findPanelOwnerPort(this.currentLayer, p, portNum);
+            if (owner !== null) conflicts.push({ row: p.row, col: p.col, owner });
+        }
+        if (conflicts.length > 0) {
+            const sample = conflicts.slice(0, 3)
+                .map(c => `R${c.row + 1}C${c.col + 1}→port ${c.owner}`).join(', ');
+            const more = conflicts.length > 3 ? ` (+${conflicts.length - 3} more)` : '';
+            if (typeof this._toast === 'function') {
+                this._toast(`Cannot apply: ${conflicts.length} panel${conflicts.length === 1 ? '' : 's'} already wired to other ports, ${sample}${more}.`, true);
+            }
+            return;
+        }
         this.currentLayer.customPortPaths[portNum] = ordered.map(p => ({ row: p.row, col: p.col }));
         this.saveState('Custom Pattern Apply');
         this.saveClientSideProperties();
@@ -9897,6 +10315,22 @@ class LEDRasterApp {
         if (ordered.length === 0) return;
 
         const circuitNum = this.currentLayer.powerCustomIndex || 1;
+        // Reject if any selected panel already belongs to a different
+        // circuit, same policy as data-flow custom pattern apply.
+        const conflicts = [];
+        for (const p of ordered) {
+            const owner = this._findPanelOwnerCircuit(this.currentLayer, p, circuitNum);
+            if (owner !== null) conflicts.push({ row: p.row, col: p.col, owner });
+        }
+        if (conflicts.length > 0) {
+            const sample = conflicts.slice(0, 3)
+                .map(c => `R${c.row + 1}C${c.col + 1}→circuit ${c.owner}`).join(', ');
+            const more = conflicts.length > 3 ? ` (+${conflicts.length - 3} more)` : '';
+            if (typeof this._toast === 'function') {
+                this._toast(`Cannot apply: ${conflicts.length} panel${conflicts.length === 1 ? '' : 's'} already wired to other circuits, ${sample}${more}.`, true);
+            }
+            return;
+        }
         this.currentLayer.powerCustomPaths[circuitNum] = ordered.map(p => ({ row: p.row, col: p.col }));
         this.saveState('Power Custom Pattern Apply');
         this.saveClientSideProperties();
@@ -10023,6 +10457,10 @@ class LEDRasterApp {
                 infoText = `${layer.columns}x${layer.rows} (${activePanels} panels) • ${layer.cabinet_width}×${layer.cabinet_height}px`;
             }
             const lockBadge = layer.locked ? '<span title="Locked" style="margin-left: 6px; color:#bbb;">🔒</span>' : '';
+            // v0.8 Slice 2.5: per-layer ▲▼ arrows replace the global Up/Down
+            // buttons. Disabled state (top/bottom of the layer's canvas group)
+            // is computed in updateLayerOrderControls() after the regroup pass
+            // so we know the within-canvas ordering.
             layerDiv.innerHTML = `
                 <div class="layer-header">
                     <div style="display:flex; align-items:center; gap:4px; flex:1; min-width:0;">
@@ -10030,6 +10468,10 @@ class LEDRasterApp {
                         ${lockBadge}
                     </div>
                     <div class="layer-controls">
+                        <div class="layer-arrows">
+                            <button class="layer-btn layer-move-up" data-layer-id="${layer.id}" title="Move up within canvas">▲</button>
+                            <button class="layer-btn layer-move-down" data-layer-id="${layer.id}" title="Move down within canvas">▼</button>
+                        </div>
                         <button class="layer-btn" onclick="app.toggleLayerVisibility(${layer.id})" title="Toggle Visibility">
                             ${layer.visible ? '👁' : '👁‍🗨'}
                         </button>
@@ -10040,6 +10482,24 @@ class LEDRasterApp {
                 </div>
             `;
             
+            // Per-layer reorder arrows (Slice 2.5).
+            const upArrow = layerDiv.querySelector('.layer-move-up');
+            const downArrow = layerDiv.querySelector('.layer-move-down');
+            if (upArrow) {
+                upArrow.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (upArrow.disabled) return;
+                    this.moveLayerWithinCanvas(layer.id, -1);
+                });
+            }
+            if (downArrow) {
+                downArrow.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (downArrow.disabled) return;
+                    this.moveLayerWithinCanvas(layer.id, 1);
+                });
+            }
+
             // Single click to select
             layerDiv.addEventListener('click', (e) => {
                 if (!e.target.classList.contains('layer-btn') && !e.target.classList.contains('layer-name-input')) {
@@ -10158,26 +10618,800 @@ class LEDRasterApp {
             container.appendChild(layerDiv);
         });
 
+        // v0.8 Slice 2: regroup the flat layer list by canvas. The existing
+        // layer items above are preserved as-is, we just lift them into
+        // per-canvas group containers and add canvas headers + per-canvas
+        // "+ Add Screen" buttons + cross-canvas drag/drop.
+        this.regroupLayersByCanvas(container);
+
         this.updateLayerOrderControls();
     }
 
+    // -------------------------------------------------------------------
+    // Multi-canvas (v0.8 Slice 2), sidebar canvas grouping.
+    //
+    // Slice 2 keeps workspace rendering unchanged; the sidebar restructure
+    // is the entire visible deliverable. Each canvas gets a header row
+    // (color swatch / name / 👁 / ⋮ / drag handle), its layers underneath
+    // (filtered by layer.canvas_id), and a per-canvas "+ Add Screen"
+    // button. A canvas drag handle reorders canvases. Layers can be
+    // dragged onto another group's header to move them cross-canvas
+    // (Cmd/Alt = duplicate).
+    // -------------------------------------------------------------------
+
+    regroupLayersByCanvas(container) {
+        const project = this.project;
+        if (!project || !Array.isArray(project.canvases) || project.canvases.length === 0) return;
+        const activeId = project.active_canvas_id;
+
+        // Snapshot the existing rendered layer items, keyed by id, then clear.
+        const layerNodes = new Map();
+        container.querySelectorAll('.layer-item').forEach(el => {
+            const lid = parseInt(el.dataset.layerId, 10);
+            if (Number.isFinite(lid)) layerNodes.set(lid, el);
+        });
+        container.innerHTML = '';
+
+        // Sidebar shows canvases in array order, with each canvas's
+        // (reverse-ordered) layers underneath, matches the existing
+        // newest-on-top convention.
+        project.canvases.forEach(canvas => {
+            const group = this.buildCanvasGroupEl(canvas, activeId === canvas.id);
+            container.appendChild(group);
+            const body = group.querySelector('.canvas-group-body');
+
+            // Append matching layer nodes in reverse render order
+            // (Photoshop style, newest on top).
+            const reversed = [...project.layers].reverse();
+            reversed.forEach(layer => {
+                if (layer.canvas_id !== canvas.id) return;
+                const node = layerNodes.get(layer.id);
+                if (node) body.appendChild(node);
+            });
+        });
+    }
+
+    buildCanvasGroupEl(canvas, isActive) {
+        const wrap = document.createElement('div');
+        wrap.className = 'canvas-group' + (isActive ? ' active' : '');
+        if (canvas.visible === false) wrap.classList.add('hidden');
+        wrap.dataset.canvasId = canvas.id;
+        wrap.style.setProperty('--canvas-color', canvas.color || '#4A90E2');
+
+        const layerCount = (this.project.layers || []).filter(l => l.canvas_id === canvas.id).length;
+        wrap.innerHTML = `
+            <div class="canvas-group-header" draggable="true" title="Click to activate · Drag to reorder">
+                <span class="canvas-drag-handle" title="Drag to reorder">⋮⋮</span>
+                <span class="canvas-color-swatch" style="background:${canvas.color || '#4A90E2'};"></span>
+                <input class="canvas-name-input" type="text" value="${this._escapeAttr(canvas.name || 'Canvas')}" readonly>
+                <button class="canvas-vis-btn" title="Toggle canvas visibility">${canvas.visible === false ? '👁‍🗨' : '👁'}</button>
+                <button class="canvas-menu-btn" title="Canvas actions">⋮</button>
+            </div>
+            <div class="canvas-group-body"></div>
+            <div class="canvas-group-footer">
+                <button class="btn btn-secondary canvas-add-btn" title="Add a layer to this canvas">+ Add</button>
+            </div>
+        `;
+        this._wireCanvasGroupEl(wrap, canvas, layerCount);
+        return wrap;
+    }
+
+    _escapeAttr(s) {
+        return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+            .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    _wireCanvasGroupEl(wrap, canvas, layerCount) {
+        const header = wrap.querySelector('.canvas-group-header');
+        const nameInput = wrap.querySelector('.canvas-name-input');
+        const visBtn = wrap.querySelector('.canvas-vis-btn');
+        const menuBtn = wrap.querySelector('.canvas-menu-btn');
+        const addBtn = wrap.querySelector('.canvas-add-btn');
+
+        // Click header anywhere except on inputs/buttons => activate canvas.
+        header.addEventListener('click', (e) => {
+            if (e.target.closest('button') || e.target.closest('input')) return;
+            this.setActiveCanvas(canvas.id);
+        });
+
+        // Double-click name to rename inline.
+        nameInput.addEventListener('dblclick', (e) => {
+            e.stopPropagation();
+            nameInput.readOnly = false;
+            nameInput.focus();
+            nameInput.select();
+        });
+        const commitName = () => {
+            nameInput.readOnly = true;
+            const newName = nameInput.value.trim();
+            if (newName && newName !== canvas.name) {
+                this.updateCanvas(canvas.id, { name: newName });
+            } else {
+                nameInput.value = canvas.name || '';
+            }
+        };
+        nameInput.addEventListener('blur', commitName);
+        nameInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); nameInput.blur(); }
+            else if (e.key === 'Escape') { nameInput.value = canvas.name || ''; nameInput.blur(); }
+            if (!nameInput.readOnly) e.stopPropagation();
+        });
+
+        visBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.updateCanvas(canvas.id, { visible: canvas.visible === false });
+        });
+
+        menuBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.openCanvasMenu(canvas, menuBtn);
+        });
+
+        addBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.openCanvasAddMenu(canvas, addBtn);
+        });
+
+        // -- Drag & drop --
+        // Drag canvas header => reorder canvases.
+        header.addEventListener('dragstart', (e) => {
+            // If the drag originated from the name input (when readonly was true
+            // and user grabbed the field), still treat as canvas reorder.
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('application/x-canvas-id', canvas.id);
+            e.dataTransfer.setData('text/plain', `canvas:${canvas.id}`);
+            this._dragCanvasId = canvas.id;
+            wrap.classList.add('dragging');
+        });
+        header.addEventListener('dragend', () => {
+            wrap.classList.remove('dragging');
+            this._dragCanvasId = null;
+        });
+
+        // Drop target: canvas header accepts canvas-reorder OR layer drop.
+        wrap.addEventListener('dragover', (e) => {
+            // Layer being dragged onto this canvas => indicate cross-canvas drop.
+            const isCanvas = !!this._dragCanvasId;
+            const isLayer = this.dragLayerId != null && !isCanvas;
+            if (!isCanvas && !isLayer) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = (isLayer && (e.metaKey || e.altKey)) ? 'copy' : 'move';
+            wrap.classList.add('drag-target');
+        });
+        wrap.addEventListener('dragleave', (e) => {
+            // Only clear the highlight when leaving the wrap entirely.
+            if (!wrap.contains(e.relatedTarget)) wrap.classList.remove('drag-target');
+        });
+        wrap.addEventListener('drop', (e) => {
+            wrap.classList.remove('drag-target');
+            // Canvas reorder?
+            const draggedCanvasId = this._dragCanvasId
+                || e.dataTransfer.getData('application/x-canvas-id');
+            if (draggedCanvasId && draggedCanvasId !== canvas.id) {
+                e.preventDefault();
+                this.reorderCanvasBeforeTarget(draggedCanvasId, canvas.id);
+                return;
+            }
+            // Cross-canvas layer drop?
+            // Only handle when the drop landed on the canvas header / footer
+            // (not on an existing layer-item inside this canvas), otherwise
+            // we would double-fire alongside the within-list reorder handler.
+            if (this.dragLayerId != null) {
+                const onLayerItem = e.target.closest && e.target.closest('.layer-item');
+                if (onLayerItem) return;
+                const draggedLayer = (this.project.layers || []).find(l => l.id === this.dragLayerId);
+                if (draggedLayer && draggedLayer.canvas_id !== canvas.id) {
+                    e.preventDefault();
+                    const mode = (e.metaKey || e.altKey) ? 'duplicate' : 'move';
+                    this.moveLayerToCanvas(draggedLayer.id, canvas.id, mode);
+                }
+            }
+        });
+    }
+
+    // -------------------------------------------------------------------
+    // Canvas API helpers (Slice 2). All call backend endpoints introduced
+    // in /api/canvas* and update this.project from the response.
+    // -------------------------------------------------------------------
+
+    _applyProjectUpdate(data) {
+        if (!data) return;
+        // Preserve client-side properties that may be on existing layers
+        // before we overwrite the project reference.
+        const savedClientProps = {};
+        if (this.project && this.project.layers) {
+            this.project.layers.forEach(l => {
+                savedClientProps[l.id] = this.extractClientSideProps
+                    ? this.extractClientSideProps(l) : null;
+            });
+        }
+        this.project = data;
+        if (data.layers && this.applyClientSideProperties) {
+            // re-apply localStorage-side overrides if available
+            try { this.loadClientSideProperties && this.loadClientSideProperties({ skipPreferences: true }); } catch (_) {}
+        }
+        // If the active canvas's properties changed, sync raster size for
+        // the workspace toolbar (Slice 4 will deepen this, Slice 2 just
+        // keeps the sidebar consistent).
+        if (data.raster_width && data.raster_height && this.syncRasterFromProject) {
+            try { this.syncRasterFromProject(); } catch (_) {}
+        }
+        this.renderLayers();
+        // Rebind currentLayer to the fresh object in the new project payload
+        // (same id, new reference) and refresh the settings panel inputs so
+        // post-mutation values (offset_x snapped to 0,0 after a cross-canvas
+        // move, raster size after a resize, etc.) propagate without forcing
+        // the user to deselect+reselect to see the change.
+        if (this.currentLayer && data.layers) {
+            const refreshed = data.layers.find(l => l.id === this.currentLayer.id);
+            if (refreshed) {
+                this.currentLayer = refreshed;
+                if (typeof this.loadLayerToInputs === 'function') {
+                    try { this.loadLayerToInputs(); } catch (_) {}
+                }
+            }
+        }
+        // Slice 8: re-sync perspective toggles after any canvas mutation
+        // (perspective edited on a sibling canvas, active canvas swapped on
+        // server, etc.).
+        if (typeof this.refreshPerspectiveButtons === 'function') {
+            try { this.refreshPerspectiveButtons(); } catch (_) {}
+        }
+        // Re-render the workspace canvas. The previous `if (this.render)`
+        // check was always false (app has no .render method), so the
+        // workspace pixels never refreshed after a canvas CRUD response,
+        // most visibly: toggling a canvas's visibility updated state but
+        // never repainted the workspace, so the canvas appeared not to hide.
+        if (window.canvasRenderer && typeof window.canvasRenderer.render === 'function') {
+            try { window.canvasRenderer.render(); } catch (_) {}
+        }
+    }
+
+    addCanvas() {
+        // Seed new canvases from the user's preferred default canvas size so
+        // every "+ Add Canvas" click matches the same baseline as a brand-new
+        // project, not whatever the currently active canvas happens to be.
+        const prefs = (typeof this.getPreferences === 'function') ? this.getPreferences() : null;
+        const body = {};
+        if (prefs && Number.isFinite(prefs.rasterWidth) && prefs.rasterWidth > 0) {
+            body.raster_width = prefs.rasterWidth;
+            body.show_raster_width = prefs.rasterWidth;
+        }
+        if (prefs && Number.isFinite(prefs.rasterHeight) && prefs.rasterHeight > 0) {
+            body.raster_height = prefs.rasterHeight;
+            body.show_raster_height = prefs.rasterHeight;
+        }
+        return fetch('/api/canvas', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        }).then(r => r.json()).then(data => {
+            this._applyProjectUpdate(data);
+            // saveState AFTER mutation so the snapshot captures the new canvas.
+            // One Cmd+Z then reverts exactly this Add.
+            if (typeof this.saveState === 'function') this.saveState('Add Canvas');
+        });
+    }
+
+    // Canvas mutation routed through one helper so every mutating call
+    // gets one (and only one) post-mutation undo entry.
+    updateCanvas(canvasId, patch) {
+        // Pick the most informative undo label from the patch keys.
+        const keys = patch ? Object.keys(patch) : [];
+        let label = 'Update Canvas';
+        if (keys.includes('name')) label = 'Rename Canvas';
+        else if (keys.includes('color')) label = 'Change Canvas Color';
+        else if (keys.includes('visible')) label = 'Toggle Canvas Visibility';
+        else if (keys.includes('workspace_x') || keys.includes('workspace_y')) label = 'Move Canvas';
+        else if (keys.includes('raster_width') || keys.includes('raster_height')
+            || keys.includes('show_raster_width') || keys.includes('show_raster_height')) label = 'Resize Canvas';
+        else if (keys.includes('data_flow_perspective') || keys.includes('power_perspective')) label = 'Change Perspective';
+        return fetch(`/api/canvas/${canvasId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(patch || {})
+        }).then(r => r.json()).then(data => {
+            this._applyProjectUpdate(data);
+            if (typeof this.saveState === 'function') this.saveState(label);
+        });
+    }
+
+    /**
+     * Slice 7: reassign a layer to a different canvas via the existing
+     * Slice-2 endpoint. ``mode`` is "move" or "duplicate".
+     * - "move": same layer id, offsets reset to 0,0; selection follows.
+     * - "duplicate": new layer id appended in target canvas; original
+     *   stays put and remains selected.
+     */
+    moveLayerCrossCanvas(layerId, targetCanvasId, mode) {
+        const wantMove = (mode !== 'duplicate');
+        return fetch(`/api/layer/${layerId}/canvas`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ canvas_id: targetCanvasId, mode: wantMove ? 'move' : 'duplicate' })
+        }).then(r => r.json()).then(data => {
+            this._applyProjectUpdate(data);
+            // After move: the same layer id now lives in the target canvas;
+            // make sure it stays the current layer so the sidebar follows.
+            if (wantMove && this.project && Array.isArray(this.project.layers)) {
+                const moved = this.project.layers.find(l => l.id === layerId);
+                if (moved) {
+                    this.currentLayer = moved;
+                    if (this.project) this.project.active_canvas_id = targetCanvasId;
+                    if (typeof this.renderLayers === 'function') this.renderLayers();
+                    if (window.canvasRenderer && typeof window.canvasRenderer.render === 'function') {
+                        window.canvasRenderer.render();
+                    }
+                }
+            }
+            // saveState AFTER server applies the cross-canvas move so the
+            // snapshot includes the canvas_id swap + the snap-to-(0,0) offset
+            // reset. Single Cmd+Z reverts the whole operation.
+            if (typeof this.saveState === 'function') {
+                this.saveState(wantMove ? 'Move Layer to Canvas' : 'Duplicate Layer to Canvas');
+            }
+            // For duplicate: leave selection on the original (default behavior).
+            return data;
+        });
+    }
+
+    /**
+     * Multi-select cross-canvas drag: PUT each selected layer's canvas
+     * sequentially (avoids server race), then sync state so all moved
+     * layers stay selected and the active canvas follows. Mode applies
+     * to ALL layers in the batch (move OR duplicate, not mixed).
+     */
+    async moveLayersCrossCanvas(layerIds, targetCanvasId, mode) {
+        const wantMove = (mode !== 'duplicate');
+        if (!Array.isArray(layerIds) || layerIds.length === 0) return;
+        let lastData = null;
+        for (const id of layerIds) {
+            const r = await fetch(`/api/layer/${id}/canvas`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ canvas_id: targetCanvasId, mode: wantMove ? 'move' : 'duplicate' })
+            });
+            lastData = await r.json();
+        }
+        if (lastData) {
+            this._applyProjectUpdate(lastData);
+            if (wantMove && this.project && Array.isArray(this.project.layers)) {
+                // Re-select all moved layers (same ids); set active canvas
+                // to target so the sidebar reflects the destination.
+                this.project.active_canvas_id = targetCanvasId;
+                this.selectedLayerIds = new Set(layerIds);
+                const primary = this.project.layers.find(l => l.id === layerIds[0]);
+                if (primary) this.currentLayer = primary;
+                if (typeof this.renderLayers === 'function') this.renderLayers();
+                if (window.canvasRenderer && typeof window.canvasRenderer.render === 'function') {
+                    window.canvasRenderer.render();
+                }
+            }
+            // saveState AFTER all PUTs settle so one Cmd+Z reverts the whole
+            // multi-layer cross-canvas move/duplicate.
+            if (typeof this.saveState === 'function') {
+                this.saveState(wantMove
+                    ? `Move ${layerIds.length} Layers to Canvas`
+                    : `Duplicate ${layerIds.length} Layers to Canvas`);
+            }
+        }
+        return lastData;
+    }
+
+    /**
+     * Slice 5: after a canvas-drag drop, warn (non-blocking) if the
+     * dragged canvas's workspace bounds intersect any other visible
+     * canvas's bounds. Does NOT auto-snap or reject, just toasts.
+     * Bounds use the active view's raster (pixel-map vs show-look),
+     * matching what the user sees in `_drawCanvasOutline`.
+     */
+    _checkCanvasOverlapAndToast(canvasId) {
+        if (!this.project || !Array.isArray(this.project.canvases)) return;
+        const useShow = !!(window.canvasRenderer && typeof window.canvasRenderer.isShowLookView === 'function'
+            && window.canvasRenderer.isShowLookView());
+        const bounds = (c) => {
+            const w = (useShow && c.show_raster_width) || c.raster_width || 0;
+            const h = (useShow && c.show_raster_height) || c.raster_height || 0;
+            const x = c.workspace_x || 0;
+            const y = c.workspace_y || 0;
+            return { x, y, w, h };
+        };
+        const dragged = this.project.canvases.find(c => c && c.id === canvasId);
+        if (!dragged || dragged.visible === false) return;
+        const a = bounds(dragged);
+        if (a.w <= 0 || a.h <= 0) return;
+        const intersects = (a, b) =>
+            a.x < b.x + b.w && a.x + a.w > b.x &&
+            a.y < b.y + b.h && a.y + a.h > b.y;
+        for (const other of this.project.canvases) {
+            if (!other || other.id === canvasId || other.visible === false) continue;
+            const b = bounds(other);
+            if (b.w <= 0 || b.h <= 0) continue;
+            if (intersects(a, b)) {
+                this._toast('Canvases overlapping, visual rendering may be confusing.', true);
+                return;
+            }
+        }
+    }
+
+    deleteCanvas(canvasId) {
+        return fetch(`/api/canvas/${canvasId}`, { method: 'DELETE' })
+            .then(r => r.json().then(body => ({ ok: r.ok, body })))
+            .then(({ ok, body }) => {
+                if (!ok) {
+                    this._toast(body && body.error ? body.error : 'Cannot delete canvas', true);
+                    return;
+                }
+                this._applyProjectUpdate(body);
+                if (typeof this.saveState === 'function') this.saveState('Delete Canvas');
+            });
+    }
+
+    duplicateCanvas(canvasId) {
+        return fetch(`/api/canvas/${canvasId}/duplicate`, { method: 'POST' })
+            .then(r => r.json()).then(data => {
+                this._applyProjectUpdate(data);
+                if (typeof this.saveState === 'function') this.saveState('Duplicate Canvas');
+            });
+    }
+
+    setActiveCanvas(canvasId, opts = {}) {
+        // Optimistic UI update so the highlight feels instant; backend
+        // confirms.
+        if (!this.project) return Promise.resolve();
+        if (this.project.active_canvas_id === canvasId && !opts.force) {
+            // No-op: already active. Skip the network round-trip and
+            // re-render to avoid spamming PUTs from layer-selection paths.
+            return Promise.resolve();
+        }
+        this.project.active_canvas_id = canvasId;
+        // Slice 5: active canvas constrains selection. Drop any selected
+        // layer ids that don't belong to the new active canvas, and clear
+        // currentLayer if it's now in a different canvas. Layers without a
+        // canvas_id (legacy / orphan) are kept on the safe side. This keeps
+        // the user's mental model consistent ("the active canvas is what
+        // I'm working in") and prevents stale highlights on the inactive
+        // canvas after a click.
+        // Slice 13 escape hatch: callers performing an explicit cross-canvas
+        // multi-select (shift-click toggle / shift-click range) pass
+        // preserveSelection:true to keep their full selection alive, so the
+        // user can bulk-edit screens across canvases at once.
+        if (!opts.preserveSelection
+                && Array.isArray(this.project.layers)
+                && this.selectedLayerIds && this.selectedLayerIds.size > 0) {
+            const layerById = {};
+            for (const l of this.project.layers) layerById[l.id] = l;
+            const filtered = new Set();
+            for (const id of this.selectedLayerIds) {
+                const l = layerById[id];
+                if (!l) continue;
+                if (!l.canvas_id || l.canvas_id === canvasId) filtered.add(id);
+            }
+            this.selectedLayerIds = filtered;
+        }
+        if (!opts.preserveSelection
+                && this.currentLayer && this.currentLayer.canvas_id
+                && this.currentLayer.canvas_id !== canvasId) {
+            // Promote the most-recently-selected layer in the new active
+            // canvas (if any) to currentLayer, otherwise null.
+            let next = null;
+            if (this.selectedLayerIds && this.selectedLayerIds.size > 0
+                && Array.isArray(this.project.layers)) {
+                const lastId = this.lastSelectedLayerId;
+                if (lastId && this.selectedLayerIds.has(lastId)) {
+                    next = this.project.layers.find(l => l.id === lastId) || null;
+                }
+                if (!next) {
+                    const firstId = this.selectedLayerIds.values().next().value;
+                    next = this.project.layers.find(l => l.id === firstId) || null;
+                }
+            }
+            this.currentLayer = next;
+            if (!next) this.lastSelectedLayerId = null;
+        }
+        // Slice 6: toolbar raster reflects the active canvas's raster.
+        // syncRasterFromProject reads straight from the active canvas now,
+        // so no project-root mirror needed.
+        try { this.syncRasterFromProject(); } catch (_) {}
+        // Slice 8: per-canvas perspective, sync the Front/Back toggle state
+        // when the active canvas changes so the sidebar reflects the canvas
+        // the user is now editing.
+        if (typeof this.refreshPerspectiveButtons === 'function') {
+            try { this.refreshPerspectiveButtons(); } catch (_) {}
+        }
+        if (!opts.silent) {
+            this.renderLayers();
+            if (window.canvasRenderer) window.canvasRenderer.render();
+        }
+        return fetch(`/api/canvas/${canvasId}/active`, { method: 'PUT' })
+            .then(r => r.json()).then(data => {
+                // Quietly absorb server state without re-rendering twice.
+                if (data && data.canvases) this.project = data;
+            });
+    }
+
+    /**
+     * Slice 6: deprecated, kept as a no-op so any lingering callers don't
+     * crash during the deprecation window. The renderer reads straight from
+     * the active canvas via accessors now, so there is no project-root copy
+     * to keep in sync.
+     */
+    _syncRootRasterFromActiveCanvas() {
+        // intentionally empty, see syncRasterFromProject().
+    }
+
+    /**
+     * Slice 4: when a layer becomes the user-selected layer, also activate
+     * its canvas (if different). Idempotent, setActiveCanvas short-circuits
+     * when already active, so we won't spam PUTs from re-selecting the same
+     * layer or selecting siblings inside the already-active canvas.
+     */
+    _activateCanvasForLayer(layer, opts) {
+        if (!layer || !layer.canvas_id) return;
+        if (!this.project) return;
+        if (layer.canvas_id === this.project.active_canvas_id) return;
+        this.setActiveCanvas(layer.canvas_id, opts);
+    }
+
+    reorderCanvasBeforeTarget(draggedId, targetId) {
+        if (!this.project || !this.project.canvases) return;
+        const ids = this.project.canvases.map(c => c.id);
+        const from = ids.indexOf(draggedId);
+        const to = ids.indexOf(targetId);
+        if (from < 0 || to < 0 || from === to) return;
+        ids.splice(from, 1);
+        ids.splice(ids.indexOf(targetId), 0, draggedId);
+        return fetch('/api/canvas/reorder', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ canvas_ids: ids })
+        }).then(r => r.json()).then(data => {
+            this._applyProjectUpdate(data);
+            if (typeof this.saveState === 'function') this.saveState('Reorder Canvases');
+        });
+    }
+
+    moveLayerToCanvas(layerId, canvasId, mode = 'move') {
+        return fetch(`/api/layer/${layerId}/canvas`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ canvas_id: canvasId, mode })
+        }).then(r => r.json()).then(data => {
+            this._applyProjectUpdate(data);
+            if (typeof this.saveState === 'function') {
+                this.saveState(mode === 'duplicate' ? 'Duplicate Layer to Canvas' : 'Move Layer to Canvas');
+            }
+        });
+    }
+
+    // v0.8 Slice 2.5: per-canvas "+ Add" chooser (Screen / Image / Text).
+    // Routes to the existing add flows after activating the target canvas
+    // so the new layer always lands in the canvas whose "+ Add" was clicked
+    // (mirrors the Slice 2 add-screen pattern, server uses active_canvas_id
+    // when assigning new layers).
+    openCanvasAddMenu(canvas, anchor) {
+        document.querySelectorAll('.canvas-add-popup, .canvas-menu-popup, .canvas-color-popup').forEach(el => el.remove());
+        const menu = document.createElement('div');
+        menu.className = 'canvas-menu-popup canvas-add-popup';
+        menu.innerHTML = `
+            <button data-action="screen">Screen…</button>
+            <button data-action="image">Image / Logo…</button>
+            <button data-action="text">Text</button>
+        `;
+        document.body.appendChild(menu);
+        const r = anchor.getBoundingClientRect();
+        menu.style.position = 'fixed';
+        menu.style.top = `${r.bottom + 4}px`;
+        menu.style.left = `${Math.max(8, r.left)}px`;
+        menu.style.zIndex = '12000';
+
+        const close = () => {
+            menu.remove();
+            document.removeEventListener('mousedown', onOutside, true);
+            document.removeEventListener('keydown', onKey, true);
+        };
+        const onOutside = (e) => { if (!menu.contains(e.target)) close(); };
+        const onKey = (e) => { if (e.key === 'Escape') close(); };
+        setTimeout(() => {
+            document.addEventListener('mousedown', onOutside, true);
+            document.addEventListener('keydown', onKey, true);
+        }, 0);
+
+        menu.querySelectorAll('button').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const act = btn.dataset.action;
+                close();
+                this._handleCanvasAddAction(canvas, act);
+            });
+        });
+    }
+
+    _handleCanvasAddAction(canvas, action) {
+        // Activate the target canvas so the existing add flows (which look
+        // at active_canvas_id server-side) place the layer correctly.
+        const after = () => {
+            if (action === 'screen') {
+                this.openPresetPicker();
+            } else if (action === 'image') {
+                this.imageFileAction = 'add';
+                const input = document.getElementById('add-image-input');
+                if (input) input.click();
+            } else if (action === 'text') {
+                this.addTextLayer();
+            }
+        };
+        Promise.resolve(this.setActiveCanvas(canvas.id, { silent: true })).then(after);
+    }
+
+    openCanvasMenu(canvas, anchor) {
+        // Close any pre-existing menu.
+        document.querySelectorAll('.canvas-menu-popup').forEach(el => el.remove());
+        const menu = document.createElement('div');
+        menu.className = 'canvas-menu-popup';
+        menu.innerHTML = `
+            <button data-action="rename">Rename</button>
+            <button data-action="duplicate">Duplicate</button>
+            <button data-action="color">Change Color…</button>
+            <button data-action="delete" class="danger">Delete</button>
+        `;
+        document.body.appendChild(menu);
+        const r = anchor.getBoundingClientRect();
+        menu.style.position = 'fixed';
+        menu.style.top = `${r.bottom + 4}px`;
+        menu.style.left = `${Math.max(8, r.right - 160)}px`;
+        menu.style.zIndex = '12000';
+
+        const close = () => {
+            menu.remove();
+            document.removeEventListener('mousedown', onOutside, true);
+            document.removeEventListener('keydown', onKey, true);
+        };
+        const onOutside = (e) => { if (!menu.contains(e.target)) close(); };
+        const onKey = (e) => { if (e.key === 'Escape') close(); };
+        // Defer to avoid catching the click that opened us.
+        setTimeout(() => {
+            document.addEventListener('mousedown', onOutside, true);
+            document.addEventListener('keydown', onKey, true);
+        }, 0);
+
+        menu.querySelectorAll('button').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const act = btn.dataset.action;
+                close();
+                this._handleCanvasMenuAction(canvas, act);
+            });
+        });
+    }
+
+    _handleCanvasMenuAction(canvas, action) {
+        if (action === 'rename') {
+            const input = document.querySelector(`.canvas-group[data-canvas-id="${canvas.id}"] .canvas-name-input`);
+            if (input) {
+                input.readOnly = false;
+                input.focus();
+                input.select();
+            }
+        } else if (action === 'duplicate') {
+            this.duplicateCanvas(canvas.id);
+        } else if (action === 'color') {
+            this.openCanvasColorPicker(canvas);
+        } else if (action === 'delete') {
+            const layerCount = (this.project.layers || []).filter(l => l.canvas_id === canvas.id).length;
+            const msg = layerCount > 0
+                ? `Delete canvas '${canvas.name}' and its ${layerCount} layer${layerCount === 1 ? '' : 's'}? This cannot be undone.`
+                : `Delete canvas '${canvas.name}'?`;
+            if (window.confirm(msg)) this.deleteCanvas(canvas.id);
+        }
+    }
+
+    openCanvasColorPicker(canvas) {
+        document.querySelectorAll('.canvas-color-popup').forEach(el => el.remove());
+        const palette = ['#4A90E2', '#F5A623', '#7ED321', '#BD10E0',
+                         '#D0021B', '#50E3C2', '#F8E71C', '#9013FE'];
+        const popup = document.createElement('div');
+        popup.className = 'canvas-color-popup';
+        popup.innerHTML = `
+            <div class="canvas-color-swatches">
+                ${palette.map(c => `<button class="color-swatch" data-color="${c}" style="background:${c};" title="${c}"></button>`).join('')}
+            </div>
+            <div class="canvas-color-hex-row">
+                <label>Hex:</label>
+                <input type="text" class="canvas-color-hex" value="${canvas.color || ''}" maxlength="7">
+                <button class="canvas-color-apply">Apply</button>
+            </div>
+        `;
+        document.body.appendChild(popup);
+        const anchor = document.querySelector(`.canvas-group[data-canvas-id="${canvas.id}"] .canvas-menu-btn`);
+        if (anchor) {
+            const r = anchor.getBoundingClientRect();
+            popup.style.position = 'fixed';
+            popup.style.top = `${r.bottom + 4}px`;
+            popup.style.left = `${Math.max(8, r.right - 200)}px`;
+            popup.style.zIndex = '12000';
+        }
+        const close = () => {
+            popup.remove();
+            document.removeEventListener('mousedown', onOutside, true);
+        };
+        const onOutside = (e) => { if (!popup.contains(e.target)) close(); };
+        setTimeout(() => document.addEventListener('mousedown', onOutside, true), 0);
+
+        popup.querySelectorAll('.color-swatch').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.updateCanvas(canvas.id, { color: btn.dataset.color });
+                close();
+            });
+        });
+        popup.querySelector('.canvas-color-apply').addEventListener('click', (e) => {
+            e.stopPropagation();
+            const hex = popup.querySelector('.canvas-color-hex').value.trim();
+            if (/^#[0-9A-Fa-f]{6}$/.test(hex)) {
+                this.updateCanvas(canvas.id, { color: hex });
+                close();
+            } else {
+                this._toast('Invalid hex color (expected #RRGGBB)', true);
+            }
+        });
+    }
+
     updateLayerOrderControls() {
-        const upBtn = document.getElementById('btn-layer-up');
-        const downBtn = document.getElementById('btn-layer-down');
-        if (!upBtn || !downBtn) return;
-        const hasSelection = !!this.currentLayer;
-        upBtn.disabled = !hasSelection;
-        downBtn.disabled = !hasSelection;
+        // v0.8 Slice 2.5: per-layer ▲▼ arrows. Disable the up arrow on the
+        // top-most layer of each canvas group, the down arrow on the
+        // bottom-most. Display order in the sidebar is reverse of the layer
+        // array (newest on top), so within a canvas the FIRST displayed
+        // layer is the LAST one in the array, the up arrow on that one is
+        // disabled, etc.
+        if (!this.project || !this.project.canvases) return;
+        // Group layer ids by canvas, in display order (reverse-array).
+        const reversed = [...(this.project.layers || [])].reverse();
+        const byCanvas = new Map();
+        reversed.forEach(l => {
+            if (!byCanvas.has(l.canvas_id)) byCanvas.set(l.canvas_id, []);
+            byCanvas.get(l.canvas_id).push(l.id);
+        });
+        document.querySelectorAll('#layers-list .layer-item').forEach(el => {
+            const lid = parseInt(el.dataset.layerId, 10);
+            const layer = (this.project.layers || []).find(l => l.id === lid);
+            if (!layer) return;
+            const ids = byCanvas.get(layer.canvas_id) || [];
+            const idx = ids.indexOf(lid);
+            const up = el.querySelector('.layer-move-up');
+            const down = el.querySelector('.layer-move-down');
+            if (up) up.disabled = idx <= 0;
+            if (down) down.disabled = idx < 0 || idx >= ids.length - 1;
+        });
     }
 
     moveLayerById(layerId, delta) {
+        // Kept for backward compatibility (keyboard shortcuts may call this).
+        // Delegates to within-canvas reorder so cross-canvas hops never
+        // happen via arrow-key reorder either.
+        this.moveLayerWithinCanvas(layerId, delta);
+    }
+
+    // v0.8 Slice 2.5: reorder a layer up/down by one slot, but only within
+    // its own canvas group. Display order is reverse of array order, so
+    // delta=-1 (visual up) corresponds to a HIGHER array index swap.
+    moveLayerWithinCanvas(layerId, delta) {
         if (!this.project || !this.project.layers) return;
-        const displayIds = [...document.querySelectorAll('#layers-list .layer-item')].map(el => parseInt(el.dataset.layerId, 10));
-        const idx = displayIds.indexOf(layerId);
-        if (idx < 0) return;
-        const nextIdx = idx + delta;
-        if (nextIdx < 0 || nextIdx >= displayIds.length) return;
-        displayIds.splice(nextIdx, 0, displayIds.splice(idx, 1)[0]);
+        const layer = this.project.layers.find(l => l.id === layerId);
+        if (!layer) return;
+        // Build the within-canvas display-order id list.
+        const reversed = [...this.project.layers].reverse();
+        const sameCanvasIds = reversed.filter(l => l.canvas_id === layer.canvas_id).map(l => l.id);
+        const localIdx = sameCanvasIds.indexOf(layerId);
+        const nextLocal = localIdx + delta;
+        if (localIdx < 0 || nextLocal < 0 || nextLocal >= sameCanvasIds.length) return;
+        const swapWithId = sameCanvasIds[nextLocal];
+        // Build the full display-order id list and swap just those two.
+        const displayIds = reversed.map(l => l.id);
+        const a = displayIds.indexOf(layerId);
+        const b = displayIds.indexOf(swapWithId);
+        if (a < 0 || b < 0) return;
+        [displayIds[a], displayIds[b]] = [displayIds[b], displayIds[a]];
         this.applyDisplayOrder(displayIds, 'Reorder Layers');
     }
 
@@ -10213,6 +11447,57 @@ class LEDRasterApp {
         this.saveProject();
     }
     
+    /**
+     * Slice 6: write a toolbar Raster: W x H change to the active canvas via
+     * PUT /api/canvas/<id>. Source-of-truth lives on the canvas object, no
+     * project-root mirror. `axis` is 'width' or 'height'; `value` is the new
+     * dimension; `isShow` selects show_raster_* vs raster_*.
+     *
+     * Auto-link behaviour: when the pixel and show rasters were equal
+     * before this change ("linked"), a pixel-raster edit also updates the
+     * show raster on the same axis so Show Look keeps tracking Pixel Map
+     * until the user explicitly splits them.
+     */
+    _writeToolbarRasterToActiveCanvas(axis, value, isShow) {
+        if (!this.project || !Array.isArray(this.project.canvases)) return;
+        const canvasId = this.project.active_canvas_id;
+        const c = this.project.canvases.find(x => x.id === canvasId);
+        if (!c) return;
+        const patch = {};
+        if (isShow) {
+            if (axis === 'width')  patch.show_raster_width  = value;
+            if (axis === 'height') patch.show_raster_height = value;
+        } else {
+            // Detect linked-state on the *active canvas* before mutating it.
+            const wasLinked = (axis === 'width')
+                ? ((Number(c.raster_width) || 0) === (Number(c.show_raster_width) || 0))
+                : ((Number(c.raster_height) || 0) === (Number(c.show_raster_height) || 0));
+            if (axis === 'width') {
+                patch.raster_width = value;
+                if (wasLinked) patch.show_raster_width = value;
+            } else {
+                patch.raster_height = value;
+                if (wasLinked) patch.show_raster_height = value;
+            }
+        }
+        // Optimistic local update so the renderer (which reads from the
+        // canvas object via getters) repaints immediately, before the PUT
+        // round-trip. The server response will overwrite this with the
+        // canonical state.
+        Object.assign(c, patch);
+        this.saveRasterSize();
+        if (typeof sendClientLog === 'function') {
+            sendClientLog('raster_change', {
+                axis, value, isShow,
+                view: window.canvasRenderer && window.canvasRenderer.viewMode,
+                canvas_id: canvasId,
+            });
+        }
+        if (typeof this.updateCanvas === 'function') {
+            this.updateCanvas(canvasId, patch);
+        }
+    }
+
     saveProject() {
         fetch('/api/project', {
             method: 'POST',
@@ -10240,9 +11525,19 @@ class LEDRasterApp {
             this._warnedNoFilePicker = true;
             sendClientLog('save_picker_apis_unavailable_warning', {});
         }
-        const projectData = JSON.stringify(this.project, null, 2);
-        const blob = new Blob([projectData], { type: 'application/json' });
-        await this.saveBlobWithPicker(blob, `${this.project.name}.json`, 'application/json');
+        // Pass a lazy blob factory so JSON.stringify (slow on large multi-canvas
+        // projects, ~1MB) runs AFTER showSaveFilePicker resolves. This keeps
+        // Chrome's user-activation token fresh for createWritable; otherwise
+        // Chrome rejects the write with NotAllowedError and leaves a 0-byte file.
+        const project = this.project;
+        await this.saveBlobWithPicker(
+            () => {
+                const projectData = JSON.stringify(project, null, 2);
+                return new Blob([projectData], { type: 'application/json' });
+            },
+            `${this.project.name}.json`,
+            'application/json'
+        );
 
         this.addToRecentFiles(this.project);
         document.getElementById('status-message').textContent = 'Project saved to file';
@@ -10331,6 +11626,27 @@ class LEDRasterApp {
                                 }, 2000);
                                 this.addToRecentFiles(this.project);
                                 sendClientLog('load_project_file_success', { name: this.project.name, layers: this.project.layers ? this.project.layers.length : 0 });
+                                // Slice 12: server flagged this file as
+                                // freshly migrated from v0.7. Show a one-time
+                                // toast and strip the transient flag so it
+                                // never ends up in the saved JSON. The toast
+                                // is suppressed automatically on subsequent
+                                // loads because the saved file now carries
+                                // format_version: "0.8".
+                                if (data && data._migration_notice) {
+                                    delete this.project._migration_notice;
+                                    sendClientLog('migration_notice_shown', {
+                                        name: this.project.name,
+                                        layers: this.project.layers ? this.project.layers.length : 0
+                                    });
+                                    if (typeof this._toast === 'function') {
+                                        this._toast(
+                                            'Project upgraded to multi-canvas format (v0.8). Save to keep changes. Older app versions can no longer open this file.',
+                                            false,
+                                            10000
+                                        );
+                                    }
+                                }
                             })
                             .catch((err) => {
                                 sendClientLog('load_project_file_error', { message: err.message });
@@ -11193,7 +12509,7 @@ class LEDRasterApp {
         // Reject dangerous patterns (consecutive operators other than a leading unary minus in a sub-expr)
         if (/[*/]{2,}|\+{2,}|-{3,}|[-+*/]$|^[*/]/.test(cleaned)) return null;
         try {
-            // Function constructor with no scope access — still safer than eval(),
+            // Function constructor with no scope access, still safer than eval(),
             // and the regex above guarantees only arithmetic characters are present.
             // eslint-disable-next-line no-new-func
             const result = Function('"use strict"; return (' + cleaned + ');')();

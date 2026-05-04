@@ -1,5 +1,5 @@
 /**
- * LED Raster Designer — Update Checker
+ * LED Raster Designer, Update Checker
  *
  * Checks /api/update/check on startup and when the user clicks
  * Help → Check for Updates. Shows a dismissable banner when a

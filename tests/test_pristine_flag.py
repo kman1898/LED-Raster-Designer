@@ -214,7 +214,7 @@ def test_socket_reconnect_after_file_load_not_pristine():
                         'offset_x': 0, 'offset_y': 0, 'panels': []}]
         })
 
-    # Simulate reconnect — new socket connection
+    # Simulate reconnect, new socket connection
     ws = socketio.test_client(app)
     received = ws.get_received()
     project_events = [r for r in received if r['name'] == 'project_data']

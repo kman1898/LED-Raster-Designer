@@ -148,7 +148,7 @@ def _build_panels(layer, panel_states=None):
         ps = panel_states.get((r, c), {}) if panel_states else {}
         return ps.get('halfTile', 'none')
 
-    # Per-panel width/height — half-tiles render at half cabinet size.
+    # Per-panel width/height, half-tiles render at half cabinet size.
     def panel_w(r, c):
         return cabinet_width / 2 if _half_at(r, c) == 'width' else cabinet_width
 
@@ -204,14 +204,14 @@ def _build_panels(layer, panel_states=None):
             y = row_y[r]
 
             # Anchor half-tiles to their neighbor side so the visible cabinet
-            # connects to the rest of the wall — the "missing" half sits on
+            # connects to the rest of the wall, the "missing" half sits on
             # the wall's outer edge (no neighbor side), not between this
             # cabinet and its neighbor.
             if half_tile == 'height' and ph < slot_h:
                 has_above = _has_visible_neighbor(r - 1, c)
                 has_below = _has_visible_neighbor(r + 1, c)
                 if not has_above and has_below:
-                    # Missing half on top — anchor to bottom of slot.
+                    # Missing half on top, anchor to bottom of slot.
                     y = row_y[r] + (slot_h - ph)
                 # else: anchor to top (default; covers top-anchored top edges
                 # and the interior/all-neighbors fallback).
@@ -219,7 +219,7 @@ def _build_panels(layer, panel_states=None):
                 has_left = _has_visible_neighbor(r, c - 1)
                 has_right = _has_visible_neighbor(r, c + 1)
                 if not has_left and has_right:
-                    # Missing half on left — anchor to right of slot.
+                    # Missing half on left, anchor to right of slot.
                     x = col_x[c] + (slot_w - pw)
                 # else: anchor to left (default).
 
@@ -324,26 +324,158 @@ SERVER_START_TIME = int(time.time() * 1000)  # milliseconds
 # Counter for unique layer IDs - never reuses IDs
 next_layer_id = 1
 
-current_project = {
-    'name': 'Untitled Project',
-    'raster_width': 1920,
-    'raster_height': 1080,
-    # Show Look has its own raster size — defaults to the same as the
-    # processor raster so existing projects open identically. The Show Look
-    # raster is used as the export canvas size for the Show Look / Data /
-    # Power views (which all render at the show position).
-    'show_raster_width': 1920,
-    'show_raster_height': 1080,
-    # Wiring view perspective per tab. 'front' shows the layout as the
-    # audience sees it (matching Show Look). 'back' horizontally mirrors
-    # the geometry so the techs working behind the wall see it from their
-    # perspective. Labels stay readable in either view. Per-tab so a Data
-    # tech and a Power tech can configure independently.
-    'data_flow_perspective': 'front',
-    'power_perspective': 'front',
-    'layers': [],
-    'is_pristine': True
-}
+# Multi-canvas (v0.8) support. The project file format gains a `canvases`
+# array, a `format_version` string, and an `active_canvas_id`. v0.7 projects
+# are auto-migrated on load. Slice 1 is additive only, root-level
+# raster_width/raster_height/show_raster_*/perspectives are still written so
+# the existing single-canvas client keeps working until later slices switch
+# the source-of-truth to per-canvas fields.
+CURRENT_FORMAT_VERSION = "0.8"
+DEFAULT_CANVAS_PALETTE = [
+    "#4A90E2", "#F5A623", "#7ED321", "#BD10E0",
+    "#D0021B", "#50E3C2", "#F8E71C", "#9013FE",
+]
+
+
+def _make_default_canvas(project, idx=0):
+    """Build a canvas dict from a project's current root-level raster fields.
+
+    Used both when constructing a fresh project (idx=0) and when migrating a
+    v0.7 project. The canvas inherits the project's existing raster /
+    perspective values so the migration is loss-free.
+    """
+    return {
+        'id': f'c{idx + 1}',
+        'name': f'Canvas {idx + 1}',
+        'color': DEFAULT_CANVAS_PALETTE[idx % len(DEFAULT_CANVAS_PALETTE)],
+        'workspace_x': 0,
+        'workspace_y': 0,
+        'raster_width': project.get('raster_width', 1920),
+        'raster_height': project.get('raster_height', 1080),
+        'show_raster_width': project.get(
+            'show_raster_width', project.get('raster_width', 1920)
+        ),
+        'show_raster_height': project.get(
+            'show_raster_height', project.get('raster_height', 1080)
+        ),
+        'data_flow_perspective': project.get('data_flow_perspective', 'front'),
+        'power_perspective': project.get('power_perspective', 'front'),
+        'visible': True,
+    }
+
+
+def _migrate_to_v0_8(project):
+    """Idempotent additive migrator from v0.7 to v0.8.
+
+    - If the project already declares format_version 0.8 AND has canvases AND
+      every layer has a canvas_id, this is a no-op.
+    - Otherwise: build a default canvas from the project's existing raster
+      fields, assign every layer to it, set format_version/active_canvas_id.
+      Root-level raster fields are intentionally left in place, Slice 1 is
+      additive so the existing single-canvas client keeps reading them.
+
+    Returns (project, did_migrate). did_migrate is True only when the
+    structure actually changed, so callers can avoid noisy log spam.
+    """
+    if not isinstance(project, dict):
+        return project, False
+    canvases = project.get('canvases')
+    layers = project.get('layers') or []
+    has_canvases = isinstance(canvases, list) and len(canvases) > 0
+    all_layers_assigned = all(
+        isinstance(l, dict) and l.get('canvas_id') for l in layers
+    )
+    if (
+        project.get('format_version') == CURRENT_FORMAT_VERSION
+        and has_canvases
+        and all_layers_assigned
+    ):
+        return project, False
+
+    if not has_canvases:
+        canvas = _make_default_canvas(project, 0)
+        project['canvases'] = [canvas]
+        project['active_canvas_id'] = canvas['id']
+    else:
+        # Canvases exist but format_version may be older or layers unassigned.
+        if not project.get('active_canvas_id'):
+            project['active_canvas_id'] = project['canvases'][0]['id']
+
+    default_canvas_id = project['canvases'][0]['id']
+    for layer in layers:
+        if isinstance(layer, dict) and not layer.get('canvas_id'):
+            layer['canvas_id'] = default_canvas_id
+
+    project['format_version'] = CURRENT_FORMAT_VERSION
+    _mirror_active_canvas_to_root(project)
+    return project, True
+
+
+def _mirror_active_canvas_to_root(project):
+    """Slice 6 compatibility shim.
+
+    Source-of-truth for raster fields moved to the per-canvas object. The
+    server keeps writing the mirrored values back onto the project root
+    (raster_width, raster_height, show_raster_*, *_perspective) so that:
+      - Older test code reading project['raster_width'] keeps working.
+      - A client that hasn't yet upgraded to per-canvas reads still sees
+        sane numbers (the active canvas's raster).
+      - The PNG / PDF / PSD export paths (which still read root raster
+        for the export size) keep working until they're rewritten per
+        canvas in a later slice.
+
+    No-op on projects with no canvases (pre-Slice-1 legacy state).
+    """
+    if not isinstance(project, dict):
+        return project
+    canvases = project.get('canvases') or []
+    if not canvases:
+        return project
+    active_id = project.get('active_canvas_id')
+    active = next((c for c in canvases if isinstance(c, dict) and c.get('id') == active_id), None)
+    if active is None:
+        active = canvases[0]
+    for key in (
+        'raster_width', 'raster_height',
+        'show_raster_width', 'show_raster_height',
+        'data_flow_perspective', 'power_perspective',
+    ):
+        val = active.get(key)
+        if val is not None:
+            project[key] = val
+    return project
+
+
+def _build_initial_project():
+    """Build the in-memory project dict used at app startup and by /new."""
+    project = {
+        'name': 'Untitled Project',
+        'raster_width': 1920,
+        'raster_height': 1080,
+        # Show Look has its own raster size, defaults to the same as the
+        # processor raster so existing projects open identically. The Show
+        # Look raster is used as the export canvas size for the Show Look /
+        # Data / Power views (which all render at the show position).
+        'show_raster_width': 1920,
+        'show_raster_height': 1080,
+        # Wiring view perspective per tab. 'front' shows the layout as the
+        # audience sees it (matching Show Look). 'back' horizontally mirrors
+        # the geometry so the techs working behind the wall see it from their
+        # perspective. Labels stay readable in either view. Per-tab so a Data
+        # tech and a Power tech can configure independently.
+        'data_flow_perspective': 'front',
+        'power_perspective': 'front',
+        'layers': [],
+        'is_pristine': True,
+    }
+    # Pre-populate v0.8 fields so a fresh project already passes the
+    # migrator as a no-op. Root raster fields are still present for the
+    # client's current single-canvas code paths.
+    _migrate_to_v0_8(project)
+    return project
+
+
+current_project = _build_initial_project()
 
 # Add a default layer on startup
 def initialize_default_layer():
@@ -358,7 +490,84 @@ def initialize_default_layer():
             offset_x=0,
             offset_y=0
         )
+        # Assign to the active canvas. _build_initial_project / migrator
+        # guarantees at least one canvas exists at this point.
+        canvases = current_project.get('canvases') or []
+        if canvases:
+            default_layer['canvas_id'] = current_project.get(
+                'active_canvas_id', canvases[0]['id']
+            )
         current_project['layers'].append(default_layer)
+
+def _assign_canvas_id(layer, data=None):
+    """Stamp a layer with a canvas_id (caller-provided or active canvas).
+
+    Centralised so all add-layer paths (screen / image / text) get the same
+    behaviour: respect a client-supplied canvas_id if it matches an existing
+    canvas, otherwise fall back to the project's active canvas. Guarantees
+    layer['canvas_id'] is set to a non-empty string when at least one
+    canvas exists.
+    """
+    canvases = current_project.get('canvases') or []
+    if not canvases:
+        return
+    valid_ids = {c.get('id') for c in canvases if isinstance(c, dict)}
+    requested = (data or {}).get('canvas_id') if isinstance(data, dict) else None
+    if requested and requested in valid_ids:
+        layer['canvas_id'] = requested
+    else:
+        layer['canvas_id'] = current_project.get(
+            'active_canvas_id', canvases[0].get('id')
+        )
+
+
+def _seed_data_with_canvas_defaults(data):
+    """v0.8 Slice 8: when the client adds a NEW screen layer to a canvas that
+    already has screens, seed the request payload with hardware/processor
+    settings from the most recently added screen in that canvas. Mutates
+    and returns ``data``. This makes each canvas behave like its own preset
+    bucket, adding a second SR cabinet inherits SR's voltage/amperage/
+    panel size/etc. without the user reconfiguring.
+
+    Runs BEFORE create_layer() so positional args (cabinet_width/height)
+    flow through correctly and panels are built at the right size. Only
+    fills fields the caller did NOT explicitly provide, so duplicates and
+    pastes (which carry full settings) are unaffected.
+    """
+    if not isinstance(data, dict):
+        return data
+    canvas_id = data.get('canvas_id') or current_project.get('active_canvas_id')
+    if not canvas_id:
+        return data
+    siblings = [
+        l for l in current_project.get('layers', [])
+        if isinstance(l, dict)
+        and l.get('canvas_id') == canvas_id
+        and (l.get('type') or 'screen') == 'screen'
+    ]
+    if not siblings:
+        return data
+    # Most recently added sibling = highest id.
+    try:
+        donor = max(siblings, key=lambda l: int(l.get('id') or 0))
+    except Exception:
+        donor = siblings[-1]
+    inheritable = (
+        'processorType', 'bitDepth', 'frameRate',
+        'powerVoltage', 'powerVoltageCustom', 'powerAmperage', 'powerAmperageCustom',
+        'panelWatts',
+        'panel_width_mm', 'panel_height_mm', 'panel_weight', 'weight_unit',
+        'cabinet_width', 'cabinet_height',
+        'border_color', 'border_color_pixel', 'border_color_cabinet',
+        'border_color_data', 'border_color_power',
+    )
+    for field in inheritable:
+        if field in data:
+            continue  # caller specified, respect it
+        if field in donor and donor[field] is not None:
+            data[field] = donor[field]
+    return data
+
 
 def sync_next_layer_id():
     """Rebase next_layer_id to avoid duplicate IDs after project load/restore."""
@@ -387,7 +596,7 @@ def create_layer(name, columns, rows, cabinet_width, cabinet_height, offset_x=0,
         'cabinet_height': cabinet_height,
         'offset_x': offset_x,
         'offset_y': offset_y,
-        # Show Look position — used by the Show Look / Data / Power tabs.
+        # Show Look position, used by the Show Look / Data / Power tabs.
         # Defaults to the same values as offset_x/offset_y until the user
         # rearranges the layer in the Show Look view, at which point the
         # two positions diverge: pixel-map / cabinet-id keep using
@@ -919,17 +1128,7 @@ def reveal_logs_folder():
 def new_project():
     global current_project, next_layer_id
     next_layer_id = 1  # Reset counter for new project
-    current_project = {
-        'name': 'Untitled Project',
-        'raster_width': 1920,
-        'raster_height': 1080,
-        'show_raster_width': 1920,
-        'show_raster_height': 1080,
-        'data_flow_perspective': 'front',
-        'power_perspective': 'front',
-        'layers': [],
-        'is_pristine': True
-    }
+    current_project = _build_initial_project()
     # Add default layer to new projects
     initialize_default_layer()
     log_event('new_project')
@@ -938,9 +1137,29 @@ def new_project():
 
 @app.route('/api/project', methods=['POST'])
 def save_project():
-    data = request.json
+    data = request.json or {}
+    # Slice 6: source-of-truth for raster lives on the active canvas. If the
+    # client sent root-level raster_* fields without a canvases payload
+    # (backwards-compat clients / older tests), propagate those into the
+    # active canvas so the canvas object reflects the new values. Then
+    # re-mirror canvas → root so root stays consistent.
+    canvases = current_project.get('canvases') or []
+    if canvases and not data.get('canvases'):
+        active_id = current_project.get('active_canvas_id')
+        active = next(
+            (c for c in canvases if isinstance(c, dict) and c.get('id') == active_id),
+            canvases[0],
+        )
+        for key in (
+            'raster_width', 'raster_height',
+            'show_raster_width', 'show_raster_height',
+            'data_flow_perspective', 'power_perspective',
+        ):
+            if key in data and data[key] is not None:
+                active[key] = data[key]
     current_project.update(data)
     current_project['is_pristine'] = False
+    _mirror_active_canvas_to_root(current_project)
     sync_next_layer_id()
     log_event('save_project', {'name': current_project.get('name')})
     return jsonify({'status': 'success'})
@@ -949,11 +1168,23 @@ def save_project():
 def restore_project():
     """Restore entire project state (used by undo/redo and file load)"""
     global current_project
-    data = request.json
+    data = request.json or {}
+    # Refuse to load projects authored by a newer app version. Simple string
+    # comparison is fine for the foreseeable "0.x" range; revisit if we ever
+    # ship a 0.10 / 1.0.
+    incoming_version = data.get('format_version') if isinstance(data, dict) else None
+    if incoming_version and incoming_version > CURRENT_FORMAT_VERSION:
+        return jsonify({
+            'error': (
+                f'Project format {incoming_version} is newer than this '
+                f'version supports ({CURRENT_FORMAT_VERSION}). '
+                f'Please update the app.'
+            )
+        }), 400
     current_project = data
     current_project['is_pristine'] = False
     # Backfill showOffsetX/Y on layers from older projects that pre-date the
-    # Show Look feature — default them to the layer's processor offset so
+    # Show Look feature, default them to the layer's processor offset so
     # existing projects open with the show layout = pixel layout.
     for layer in current_project.get('layers', []):
         if layer.get('showOffsetX') is None:
@@ -972,6 +1203,15 @@ def restore_project():
         current_project['data_flow_perspective'] = 'front'
     if current_project.get('power_perspective') not in ('front', 'back'):
         current_project['power_perspective'] = 'front'
+    # Multi-canvas migration. Additive: leaves root-level raster fields in
+    # place so the existing single-canvas client keeps working. Slice 6 will
+    # switch the source-of-truth to per-canvas fields.
+    current_project, did_migrate = _migrate_to_v0_8(current_project)
+    if did_migrate:
+        log_event('project_migrated', {
+            'from_version': '<0.8',
+            'to_version': CURRENT_FORMAT_VERSION,
+        })
     sync_next_layer_id()
     log_event('restore_project', {
         'name': current_project.get('name', '?'),
@@ -979,11 +1219,24 @@ def restore_project():
         'layer_names': [l.get('name', '?') for l in current_project.get('layers', [])]
     })
     socketio.emit('project_updated', current_project)
-    return jsonify(current_project)
+    # Slice 12: surface a one-time migration notice to the client when the
+    # incoming file lacked a v0.8 format_version. Carried as a top-level
+    # transient field on the response only, never stored on disk because
+    # the next save will write the now-present format_version, and future
+    # loads of that same file won't re-migrate (and won't re-toast).
+    response = dict(current_project)
+    if did_migrate:
+        response['_migration_notice'] = True
+    return jsonify(response)
 
 @app.route('/api/layer/add', methods=['POST'])
 def add_layer():
-    data = request.json
+    data = request.json or {}
+    # Slice 8: seed payload with the active canvas's preset bucket BEFORE
+    # create_layer so cabinet_width/height flow into panel construction.
+    # Only fills fields the caller didn't already set, so duplicate/paste
+    # paths (which send full data) are unaffected.
+    _seed_data_with_canvas_defaults(data)
     layer = create_layer(
         name=data.get('name', f'Screen{len(current_project["layers"]) + 1}'),
         columns=data.get('columns', 8),
@@ -993,7 +1246,8 @@ def add_layer():
         offset_x=data.get('offset_x', 0),
         offset_y=data.get('offset_y', 0)
     )
-    
+    _assign_canvas_id(layer, data)
+
     # Apply additional settings from request (for duplicate/paste)
     optional_fields = [
         'color1', 'color2', 'panel_width_mm', 'panel_height_mm', 'panel_weight',
@@ -1065,6 +1319,7 @@ def add_image_layer():
     )
     if 'imageScale' in data:
         layer['imageScale'] = data['imageScale']
+    _assign_canvas_id(layer, data)
     log_event('add_image_layer', {'name': layer.get('name'), 'id': layer.get('id')})
     current_project['layers'].append(layer)
     current_project['is_pristine'] = False
@@ -1085,9 +1340,10 @@ def add_text_layer():
     for key in ('fontSize', 'fontFamily', 'fontColor', 'bgColor', 'bgOpacity',
                 'textAlign', 'textPadding', 'showBorder', 'borderColor',
                 'showOnPixelMap', 'showOnCabinetId', 'showOnDataFlow', 'showOnPower',
-                'showRasterSize'):
+                'showRasterSize', 'dynamicInfoScope'):
         if key in data:
             layer[key] = data[key]
+    _assign_canvas_id(layer, data)
     log_event('add_text_layer', {'name': layer.get('name'), 'id': layer.get('id')})
     current_project['layers'].append(layer)
     current_project['is_pristine'] = False
@@ -1132,6 +1388,7 @@ def update_layer(layer_id):
                 'showProjectName', 'showDate',
                 'showPrimaryPorts', 'showBackupPorts',
                 'showCircuits', 'showSinglePhase', 'showThreePhase',
+                'dynamicInfoScope',
                 'fontBold', 'fontItalic', 'fontUnderline',
                 # Data flow / processing settings (previously silently dropped on PUT
                 # which broke preset application and label updates on re-fetch)
@@ -1174,7 +1431,7 @@ def update_layer(layer_id):
             or 'halfFirstRow' in data or 'halfLastRow' in data):
         # Save existing panel states (hidden, blank, halfTile) before regenerating.
         # Key by (row, col) so state stays anchored to its grid cell when columns
-        # or rows change — keying by sequential id meant a column resize would
+        # or rows change, keying by sequential id meant a column resize would
         # shuffle blanks/half-tiles across the wall.
         old_panel_states = {}
         if 'panels' in layer:
@@ -1212,6 +1469,350 @@ def delete_layer(layer_id):
     log_event('delete_layer', {'id': layer_id, 'name': deleted_name, 'remaining_layers': len(current_project['layers'])})
     socketio.emit('layer_deleted', {'id': layer_id})
     return jsonify(current_project)
+
+# ---------------------------------------------------------------------------
+# Multi-canvas (v0.8) Slice 2: canvas CRUD endpoints.
+#
+# These mutate ``current_project['canvases']`` in place. The sidebar UI
+# routes all canvas operations through these endpoints; layer rendering in
+# the workspace is unchanged in Slice 2.
+# ---------------------------------------------------------------------------
+
+
+def _next_canvas_id():
+    """Pick the next free canvas id of the form ``c<N>``.
+
+    Scans existing canvases, finds the max numeric suffix, and returns one
+    above. Falls back to ``c1`` if the array is empty.
+    """
+    canvases = current_project.get('canvases') or []
+    max_n = 0
+    for c in canvases:
+        cid = (c or {}).get('id', '')
+        if isinstance(cid, str) and cid.startswith('c'):
+            try:
+                n = int(cid[1:])
+                if n > max_n:
+                    max_n = n
+            except ValueError:
+                pass
+    return f'c{max_n + 1}'
+
+
+def _next_canvas_color():
+    """Pick the first palette color not already used by another canvas.
+
+    If all 8 palette colors are taken, falls back to palette[N % 8] where N
+    is the count of existing canvases (so we still pick a sensible default
+    without surprising the user with random hex values).
+    """
+    canvases = current_project.get('canvases') or []
+    used = {(c or {}).get('color') for c in canvases}
+    for color in DEFAULT_CANVAS_PALETTE:
+        if color not in used:
+            return color
+    return DEFAULT_CANVAS_PALETTE[len(canvases) % len(DEFAULT_CANVAS_PALETTE)]
+
+
+def _find_canvas(canvas_id):
+    for c in current_project.get('canvases') or []:
+        if c.get('id') == canvas_id:
+            return c
+    return None
+
+
+def _next_canvas_workspace_position():
+    """Pick a workspace position for a freshly created canvas.
+
+    Auto-places the new canvas to the right of the existing rightmost
+    canvas, leaving a horizontal gap controlled by the ``canvasGap``
+    server preference (default 50 px). Vertical position resets to 0
+    so canvases line up along the workspace's top edge by default.
+
+    Returns ``(workspace_x, workspace_y)``.
+    """
+    canvases = current_project.get('canvases') or []
+    # v0.8 Slice 9: default gap is 0, most LED installs are abutting walls,
+    # not floating screens. Server preference still wins when set.
+    gap = 0
+    try:
+        pref_gap = (server_preferences or {}).get('canvasGap')
+        if pref_gap is not None:
+            pref_gap = float(pref_gap)
+            if pref_gap >= 0:
+                gap = pref_gap
+    except (TypeError, ValueError):
+        pass
+    if not canvases:
+        return (0, 0)
+    rightmost = max(
+        (c.get('workspace_x') or 0) + (c.get('raster_width') or 0)
+        for c in canvases
+    )
+    return (rightmost + gap, 0)
+
+
+def _next_duplicate_canvas_name(src_name):
+    """Pick a name for the duplicate of a canvas named ``src_name``.
+
+    Strips a trailing " <number>" from the source name to get the base,
+    then finds the highest existing trailing-number across all canvases
+    sharing that base, and returns "<base> <max+1>". Examples:
+
+        "Canvas 2" + ["Canvas 1", "Canvas 2"] → "Canvas 3"
+        "EDC"      + ["EDC"]                  → "EDC 1"
+        "EDC 1"    + ["EDC", "EDC 1"]         → "EDC 2"
+    """
+    import re
+    name = (src_name or 'Canvas').strip()
+    m = re.match(r'^(.*?)\s+(\d+)$', name)
+    base = (m.group(1) if m else name).strip() or 'Canvas'
+    canvases = current_project.get('canvases') or []
+    pat = re.compile(r'^' + re.escape(base) + r'(?:\s+(\d+))?$')
+    max_n = 0
+    for c in canvases:
+        cm = pat.match((c.get('name') or '').strip())
+        if cm:
+            n = int(cm.group(1)) if cm.group(1) else 0
+            if n > max_n:
+                max_n = n
+    return f"{base} {max_n + 1}"
+
+
+@app.route('/api/canvas', methods=['POST'])
+def create_canvas():
+    data = request.json or {}
+    canvases = current_project.setdefault('canvases', [])
+    new_id = _next_canvas_id()
+    # Default name: "Canvas <N>" where N matches the numeric id suffix.
+    default_name = f'Canvas {new_id[1:]}'
+    # Inherit raster defaults from the active canvas so a freshly added
+    # canvas feels like a clone of the user's current setup. Slice 5 will
+    # add real workspace placement; for now stack at 0,0.
+    active = _find_canvas(current_project.get('active_canvas_id')) or (
+        canvases[0] if canvases else None
+    )
+    ws_x, ws_y = _next_canvas_workspace_position()
+    # Resolve raster dimensions: explicit request body wins (so the client can
+    # honor the user's "Default Canvas Size" preference), otherwise fall back
+    # to the active canvas's raster, otherwise the hard-coded 1920x1080.
+    def _pos_int(value, fallback):
+        try:
+            n = int(value)
+            return n if n > 0 else fallback
+        except (TypeError, ValueError):
+            return fallback
+    rw_default = (active or {}).get('raster_width', 1920)
+    rh_default = (active or {}).get('raster_height', 1080)
+    sw_default = (active or {}).get('show_raster_width', rw_default)
+    sh_default = (active or {}).get('show_raster_height', rh_default)
+    raster_w = _pos_int(data.get('raster_width'), rw_default)
+    raster_h = _pos_int(data.get('raster_height'), rh_default)
+    show_w = _pos_int(data.get('show_raster_width'), sw_default if 'show_raster_width' not in data else raster_w)
+    show_h = _pos_int(data.get('show_raster_height'), sh_default if 'show_raster_height' not in data else raster_h)
+    canvas = {
+        'id': new_id,
+        'name': data.get('name') or default_name,
+        'color': data.get('color') or _next_canvas_color(),
+        'workspace_x': ws_x,
+        'workspace_y': ws_y,
+        'raster_width': raster_w,
+        'raster_height': raster_h,
+        'show_raster_width': show_w,
+        'show_raster_height': show_h,
+        'data_flow_perspective': (active or {}).get('data_flow_perspective', 'front'),
+        'power_perspective': (active or {}).get('power_perspective', 'front'),
+        'visible': True,
+    }
+    canvases.append(canvas)
+    current_project['active_canvas_id'] = new_id
+    current_project['is_pristine'] = False
+    log_event('canvas_create', {'id': new_id, 'name': canvas['name']})
+    socketio.emit('project_updated', current_project)
+    return jsonify(current_project)
+
+
+@app.route('/api/canvas/<canvas_id>', methods=['PUT'])
+def update_canvas(canvas_id):
+    canvas = _find_canvas(canvas_id)
+    if not canvas:
+        return jsonify({'error': 'Canvas not found'}), 404
+    data = request.json or {}
+    allowed = {
+        'name', 'color', 'visible',
+        'workspace_x', 'workspace_y',
+        'raster_width', 'raster_height',
+        'show_raster_width', 'show_raster_height',
+        'data_flow_perspective', 'power_perspective',
+    }
+    changed = {}
+    for key, val in data.items():
+        if key in allowed:
+            canvas[key] = val
+            changed[key] = val
+    current_project['is_pristine'] = False
+    # Slice 6: keep the project-root raster mirror in sync so any
+    # client/test still reading root sees the latest active-canvas values.
+    _mirror_active_canvas_to_root(current_project)
+    log_event('canvas_update', {'id': canvas_id, 'changed': changed})
+    socketio.emit('project_updated', current_project)
+    return jsonify(current_project)
+
+
+@app.route('/api/canvas/<canvas_id>', methods=['DELETE'])
+def delete_canvas(canvas_id):
+    canvases = current_project.get('canvases') or []
+    if len(canvases) <= 1:
+        return jsonify({
+            'error': 'Cannot delete the last remaining canvas. '
+                     'A project must contain at least one canvas.'
+        }), 400
+    canvas = _find_canvas(canvas_id)
+    if not canvas:
+        return jsonify({'error': 'Canvas not found'}), 404
+    deleted_name = canvas.get('name', '?')
+    # Remove the canvas itself.
+    current_project['canvases'] = [c for c in canvases if c.get('id') != canvas_id]
+    # Remove all layers belonging to this canvas.
+    layers_before = len(current_project.get('layers', []))
+    current_project['layers'] = [
+        l for l in current_project.get('layers', [])
+        if l.get('canvas_id') != canvas_id
+    ]
+    layers_removed = layers_before - len(current_project['layers'])
+    # Reassign active_canvas_id to the next remaining canvas.
+    if current_project.get('active_canvas_id') == canvas_id:
+        current_project['active_canvas_id'] = current_project['canvases'][0]['id']
+    current_project['is_pristine'] = False
+    log_event('canvas_delete', {
+        'id': canvas_id, 'name': deleted_name,
+        'layers_removed': layers_removed,
+    })
+    socketio.emit('project_updated', current_project)
+    return jsonify(current_project)
+
+
+@app.route('/api/canvas/<canvas_id>/duplicate', methods=['POST'])
+def duplicate_canvas(canvas_id):
+    global next_layer_id
+    src = _find_canvas(canvas_id)
+    if not src:
+        return jsonify({'error': 'Canvas not found'}), 404
+    new_id = _next_canvas_id()
+    new_canvas = json.loads(json.dumps(src))
+    new_canvas['id'] = new_id
+    new_canvas['name'] = _next_duplicate_canvas_name(src.get('name', 'Canvas'))
+    new_canvas['color'] = _next_canvas_color()
+    # Auto-place the duplicate to the right of the existing canvases so it
+    # doesn't visually overlap its source. (Computed BEFORE the duplicate is
+    # appended, so the rightmost-edge calc covers existing canvases only.)
+    ws_x, ws_y = _next_canvas_workspace_position()
+    new_canvas['workspace_x'] = ws_x
+    new_canvas['workspace_y'] = ws_y
+    current_project['canvases'].append(new_canvas)
+    # Clone every layer in the source canvas, with a new layer id.
+    src_layers = [
+        l for l in current_project.get('layers', [])
+        if l.get('canvas_id') == canvas_id
+    ]
+    for src_layer in src_layers:
+        clone = json.loads(json.dumps(src_layer))
+        clone['id'] = next_layer_id
+        next_layer_id += 1
+        clone['canvas_id'] = new_id
+        current_project['layers'].append(clone)
+    current_project['active_canvas_id'] = new_id
+    current_project['is_pristine'] = False
+    log_event('canvas_duplicate', {
+        'src_id': canvas_id, 'new_id': new_id,
+        'layers_cloned': len(src_layers),
+    })
+    socketio.emit('project_updated', current_project)
+    return jsonify(current_project)
+
+
+@app.route('/api/canvas/reorder', methods=['POST'])
+def reorder_canvases():
+    data = request.json or {}
+    canvas_ids = data.get('canvas_ids') or []
+    canvases = current_project.get('canvases') or []
+    by_id = {c.get('id'): c for c in canvases}
+    if set(canvas_ids) != set(by_id.keys()):
+        return jsonify({
+            'error': 'canvas_ids must be a permutation of existing canvas ids',
+        }), 400
+    current_project['canvases'] = [by_id[cid] for cid in canvas_ids]
+    current_project['is_pristine'] = False
+    log_event('canvas_reorder', {'order': canvas_ids})
+    socketio.emit('project_updated', current_project)
+    return jsonify(current_project)
+
+
+@app.route('/api/canvas/<canvas_id>/active', methods=['PUT'])
+def set_active_canvas(canvas_id):
+    if not _find_canvas(canvas_id):
+        return jsonify({'error': 'Canvas not found'}), 404
+    current_project['active_canvas_id'] = canvas_id
+    # Note: not flagging pristine, active canvas is a UI cursor, not data.
+    log_event('canvas_set_active', {'id': canvas_id})
+    socketio.emit('project_updated', current_project)
+    return jsonify(current_project)
+
+
+@app.route('/api/layer/<int:layer_id>/canvas', methods=['PUT'])
+def move_layer_to_canvas(layer_id):
+    """Move or duplicate a layer onto a different canvas.
+
+    Body: ``{canvas_id: "...", mode: "move" | "duplicate"}``. For "move",
+    the layer's ``canvas_id`` is updated and offset_x/y + showOffsetX/Y are
+    reset to 0,0 (per design Section 5.7). For "duplicate", a clone with a
+    fresh layer id is appended at 0,0 in the target canvas.
+    """
+    global next_layer_id
+    data = request.json or {}
+    target_id = data.get('canvas_id')
+    mode = data.get('mode', 'move')
+    if not _find_canvas(target_id):
+        return jsonify({'error': 'Target canvas not found'}), 404
+    layer = next((l for l in current_project['layers'] if l.get('id') == layer_id), None)
+    if not layer:
+        return jsonify({'error': 'Layer not found'}), 404
+    if mode == 'duplicate':
+        clone = json.loads(json.dumps(layer))
+        clone['id'] = next_layer_id
+        next_layer_id += 1
+        clone['canvas_id'] = target_id
+        clone['offset_x'] = 0
+        clone['offset_y'] = 0
+        clone['showOffsetX'] = 0
+        clone['showOffsetY'] = 0
+        # Re-anchor panel coordinates to the clone's new (0, 0) origin in
+        # the target canvas. Without this rebuild, panel.x / panel.y stay
+        # at their pre-drag absolute positions and the layer renders far
+        # off in the new canvas instead of snapping to the top-left.
+        # _rebuild_layer_geometry_from_panel_states preserves per-panel
+        # hidden / blank / halfTile state.
+        _rebuild_layer_geometry_from_panel_states(clone)
+        current_project['layers'].append(clone)
+        log_event('layer_duplicate_to_canvas', {
+            'src_layer_id': layer_id, 'new_layer_id': clone['id'],
+            'target_canvas_id': target_id,
+        })
+    else:
+        layer['canvas_id'] = target_id
+        layer['offset_x'] = 0
+        layer['offset_y'] = 0
+        layer['showOffsetX'] = 0
+        layer['showOffsetY'] = 0
+        # Same panel re-anchor as the duplicate branch above.
+        _rebuild_layer_geometry_from_panel_states(layer)
+        log_event('layer_move_to_canvas', {
+            'layer_id': layer_id, 'target_canvas_id': target_id,
+        })
+    current_project['is_pristine'] = False
+    socketio.emit('project_updated', current_project)
+    return jsonify(current_project)
+
 
 @app.route('/api/layer/<int:layer_id>/panel/<int:panel_id>/toggle', methods=['POST'])
 def toggle_panel_blank(layer_id, panel_id):
@@ -2549,9 +3150,23 @@ def _resolume_slice(layer, unique_id):
     )
 
 def generate_resolume_xml(project, project_name, raster_w, raster_h):
-    """Generate Resolume Arena Advanced Output XML from project layers."""
+    """Generate Resolume Arena Advanced Output XML from project layers.
+
+    v0.8 (Slice 11): one <Screen> per project canvas. Each Screen's layers
+    are the screen-type layers belonging to that canvas; coordinates inside
+    the Polygon/Slice are CANVAS-LOCAL (panel.x/y are stored that way after
+    Slice 6), which matches the per-canvas Resolume composition model. The
+    OutputDeviceVirtual for each Screen is sized to that canvas's raster.
+
+    The project-wide CurrentCompositionTextureSize is the workspace bounding
+    box of all visible canvases, that's the source-composition size the
+    user would feed in Resolume to drive every canvas at once.
+
+    Legacy projects (no canvases array) fall through to a single synthetic
+    Screen using the project-root raster dimensions, byte-equivalent to the
+    pre-Slice-11 export so v0.7 workflows aren't disrupted.
+    """
     import random
-    screen_id = random.randint(1000000000000, 9999999999999)
 
     layers = project.get('layers', [])
     # Filter to visible screen layers only
@@ -2562,15 +3177,41 @@ def generate_resolume_xml(project, project_name, raster_w, raster_h):
         if not layer.get('panels'):
             layer['panels'] = _build_panels(layer)
 
-    slices_xml = ""
-    for layer in screen_layers:
-        slice_id = random.randint(1000000000000, 9999999999999)
-        if _layer_has_hidden_panels(layer):
-            slices_xml += _resolume_polygon(layer, slice_id)
-        else:
-            slices_xml += _resolume_slice(layer, slice_id)
+    # Resolve canvases. Visible only, hiding a canvas in the sidebar is
+    # the user's signal that it shouldn't appear in the export. Legacy:
+    # synthetic single canvas at (0, 0) using project-root raster.
+    project_canvases = project.get('canvases') or []
+    if project_canvases:
+        export_canvases = [
+            c for c in project_canvases
+            if isinstance(c, dict) and c.get('visible', True) is not False
+        ]
+    else:
+        export_canvases = [{
+            'id': None,
+            'name': 'Screen 1',
+            'workspace_x': 0,
+            'workspace_y': 0,
+            'raster_width': raster_w,
+            'raster_height': raster_h,
+        }]
 
-    # Screen-level output params
+    # Workspace bounding box -> CurrentCompositionTextureSize. If no canvases
+    # have content yet, fall back to the client-supplied raster_w/h (which
+    # comes from the toolbar, i.e. the active canvas).
+    if export_canvases:
+        min_x = min((c.get('workspace_x') or 0) for c in export_canvases)
+        min_y = min((c.get('workspace_y') or 0) for c in export_canvases)
+        max_x = max((c.get('workspace_x') or 0) + (c.get('raster_width') or 0)
+                    for c in export_canvases)
+        max_y = max((c.get('workspace_y') or 0) + (c.get('raster_height') or 0)
+                    for c in export_canvases)
+        composition_w = max(int(max_x - min_x), int(raster_w))
+        composition_h = max(int(max_y - min_y), int(raster_h))
+    else:
+        composition_w, composition_h = int(raster_w), int(raster_h)
+
+    # Screen-level output params (used for every Screen block)
     def screen_param_range(name, default="0", value="0", min_val="-1", max_val="1"):
         return (
             f'\t\t\t\t\t<ParamRange name="{name}" T="DOUBLE" default="{default}" value="{value}">\n'
@@ -2603,7 +3244,73 @@ def generate_resolume_xml(project, project_name, raster_w, raster_h):
             f'\t\t\t\t\t\t</ParamRange>\n'
         )
 
-    device_hash = random.randint(1000000000000000000, 9999999999999999999)
+    # Build one <Screen> per canvas with its scoped layers.
+    screens_xml = ""
+    for canvas in export_canvases:
+        canvas_id = canvas.get('id')
+        canvas_name = canvas.get('name') or 'Screen'
+        canvas_w = int(canvas.get('raster_width') or raster_w)
+        canvas_h = int(canvas.get('raster_height') or raster_h)
+        # Screen-scoped layers: visible screen-type layers in this canvas.
+        # Legacy synthetic canvas (id=None) takes every visible layer so
+        # pre-multi-canvas projects export identically to v0.7.
+        if canvas_id:
+            canvas_layers = [l for l in screen_layers if l.get('canvas_id') == canvas_id]
+        else:
+            canvas_layers = screen_layers
+
+        slices_xml = ""
+        for layer in canvas_layers:
+            slice_id = random.randint(1000000000000, 9999999999999)
+            if _layer_has_hidden_panels(layer):
+                slices_xml += _resolume_polygon(layer, slice_id)
+            else:
+                slices_xml += _resolume_slice(layer, slice_id)
+
+        screen_unique_id = random.randint(1000000000000, 9999999999999)
+        device_hash = random.randint(1000000000000000000, 9999999999999999999)
+        # Escape any "&", quote chars in the canvas name for XML attributes.
+        safe_name = (str(canvas_name)
+                     .replace('&', '&amp;').replace('<', '&lt;')
+                     .replace('>', '&gt;').replace('"', '&quot;'))
+
+        screens_xml += (
+            f'\t\t\t<Screen name="{safe_name}" uniqueId="{screen_unique_id}">\n'
+            f'\t\t\t\t<Params name="Params">\n'
+            f'\t\t\t\t\t<Param name="Name" T="STRING" default="" value="{safe_name}"/>\n'
+            f'\t\t\t\t\t<Param name="Enabled" T="BOOL" default="1" value="1"/>\n'
+            f'\t\t\t\t\t<Param name="Hidden" T="BOOL" default="0" value="0"/>\n'
+            f'\t\t\t\t</Params>\n'
+            f'\t\t\t\t<Params name="Output">\n'
+            f'{screen_output}'
+            f'\t\t\t\t</Params>\n'
+            f'\t\t\t\t<guides>\n'
+            f'\t\t\t\t\t<ScreenGuide name="ScreenGuide" type="0">\n'
+            f'\t\t\t\t\t\t<Params name="Params">\n'
+            f'\t\t\t\t\t\t\t<ParamPixels name="Image"/>\n'
+            f'\t\t\t\t\t\t\t<ParamRange name="Opacity" T="DOUBLE" default="0.25" value="0.25">\n'
+            f'\t\t\t\t\t\t\t\t<PhaseSourceStatic name="PhaseSourceStatic"/>\n'
+            f'\t\t\t\t\t\t\t\t<BehaviourDouble name="BehaviourDouble"/>\n'
+            f'\t\t\t\t\t\t\t\t<ValueRange name="defaultRange" min="0" max="1"/>\n'
+            f'\t\t\t\t\t\t\t\t<ValueRange name="minMax" min="0" max="1"/>\n'
+            f'\t\t\t\t\t\t\t\t<ValueRange name="startStop" min="0" max="1"/>\n'
+            f'\t\t\t\t\t\t\t</ParamRange>\n'
+            f'\t\t\t\t\t\t</Params>\n'
+            f'\t\t\t\t\t</ScreenGuide>\n'
+            f'\t\t\t\t</guides>\n'
+            f'\t\t\t\t<layers>\n'
+            f'{slices_xml}'
+            f'\t\t\t\t</layers>\n'
+            f'\t\t\t\t<OutputDevice>\n'
+            f'\t\t\t\t\t<OutputDeviceVirtual name="{safe_name}" deviceId="Virtual{safe_name}" idHash="{device_hash}" width="{canvas_w}" height="{canvas_h}">\n'
+            f'\t\t\t\t\t\t<Params name="Params">\n'
+            f'{device_param_range("Width", "800", str(canvas_w))}'
+            f'{device_param_range("Height", "600", str(canvas_h))}'
+            f'\t\t\t\t\t\t</Params>\n'
+            f'\t\t\t\t\t</OutputDeviceVirtual>\n'
+            f'\t\t\t\t</OutputDevice>\n'
+            f'\t\t\t</Screen>\n'
+        )
 
     # SoftEdging params
     def soft_edge_param(name, default, value, min_val, max_val):
@@ -2623,43 +3330,9 @@ def generate_resolume_xml(project, project_name, raster_w, raster_h):
         f'\t<versionInfo name="Resolume Arena" majorVersion="7" minorVersion="24" microVersion="3" revision="63742"/>\n'
         f'\t<ScreenSetup name="ScreenSetup">\n'
         f'\t\t<Params name="ScreenSetupParams"/>\n'
-        f'\t\t<CurrentCompositionTextureSize width="{raster_w}" height="{raster_h}"/>\n'
+        f'\t\t<CurrentCompositionTextureSize width="{composition_w}" height="{composition_h}"/>\n'
         f'\t\t<screens>\n'
-        f'\t\t\t<Screen name="Screen 1" uniqueId="{screen_id}">\n'
-        f'\t\t\t\t<Params name="Params">\n'
-        f'\t\t\t\t\t<Param name="Name" T="STRING" default="" value="Screen 1"/>\n'
-        f'\t\t\t\t\t<Param name="Enabled" T="BOOL" default="1" value="1"/>\n'
-        f'\t\t\t\t\t<Param name="Hidden" T="BOOL" default="0" value="0"/>\n'
-        f'\t\t\t\t</Params>\n'
-        f'\t\t\t\t<Params name="Output">\n'
-        f'{screen_output}'
-        f'\t\t\t\t</Params>\n'
-        f'\t\t\t\t<guides>\n'
-        f'\t\t\t\t\t<ScreenGuide name="ScreenGuide" type="0">\n'
-        f'\t\t\t\t\t\t<Params name="Params">\n'
-        f'\t\t\t\t\t\t\t<ParamPixels name="Image"/>\n'
-        f'\t\t\t\t\t\t\t<ParamRange name="Opacity" T="DOUBLE" default="0.25" value="0.25">\n'
-        f'\t\t\t\t\t\t\t\t<PhaseSourceStatic name="PhaseSourceStatic"/>\n'
-        f'\t\t\t\t\t\t\t\t<BehaviourDouble name="BehaviourDouble"/>\n'
-        f'\t\t\t\t\t\t\t\t<ValueRange name="defaultRange" min="0" max="1"/>\n'
-        f'\t\t\t\t\t\t\t\t<ValueRange name="minMax" min="0" max="1"/>\n'
-        f'\t\t\t\t\t\t\t\t<ValueRange name="startStop" min="0" max="1"/>\n'
-        f'\t\t\t\t\t\t\t</ParamRange>\n'
-        f'\t\t\t\t\t\t</Params>\n'
-        f'\t\t\t\t\t</ScreenGuide>\n'
-        f'\t\t\t\t</guides>\n'
-        f'\t\t\t\t<layers>\n'
-        f'{slices_xml}'
-        f'\t\t\t\t</layers>\n'
-        f'\t\t\t\t<OutputDevice>\n'
-        f'\t\t\t\t\t<OutputDeviceVirtual name="Screen 1" deviceId="VirtualScreen 1" idHash="{device_hash}" width="{raster_w}" height="{raster_h}">\n'
-        f'\t\t\t\t\t\t<Params name="Params">\n'
-        f'{device_param_range("Width", "800", str(raster_w))}'
-        f'{device_param_range("Height", "600", str(raster_h))}'
-        f'\t\t\t\t\t\t</Params>\n'
-        f'\t\t\t\t\t</OutputDeviceVirtual>\n'
-        f'\t\t\t\t</OutputDevice>\n'
-        f'\t\t\t</Screen>\n'
+        f'{screens_xml}'
         f'\t\t</screens>\n'
         f'\t\t<SoftEdging>\n'
         f'\t\t\t<Params name="Soft Edge">\n'
@@ -2781,7 +3454,7 @@ if __name__ == '__main__':
     local_ip = get_local_ip()
 
     # Allow `--port N` (or `--port=N`) on the command line to override 8050.
-    # Useful when running under Claude Preview alongside other Flask apps.
+    # Useful when running alongside other Flask apps on the same machine.
     _port = 8050
     _argv = sys.argv[1:]
     for i, a in enumerate(_argv):

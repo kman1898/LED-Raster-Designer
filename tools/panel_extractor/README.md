@@ -9,7 +9,7 @@ weight, max power) from FidoLED and merge it into
 FidoLED exposes a "Copy to Clipboard" button on its Calculate results window
 that outputs clean plain text. We drive the app via AppleScript: select a
 (manufacturer, panel) pair, click Calculate, click Copy to Clipboard, read
-`pbpaste`, parse, merge. Works against the stock `/Applications/FidoLED.app` —
+`pbpaste`, parse, merge. Works against the stock `/Applications/FidoLED.app`,
 no re-signing needed.
 
 An earlier memory-dump approach (lldb `process save-core` + SQLite page
@@ -38,19 +38,19 @@ a JSON batch, and merges into the main catalog.
 
 ## Files
 
-- `clipboard_extract.sh` — drives FidoLED for one batch, parses clipboard
+- `clipboard_extract.sh`, drives FidoLED for one batch, parses clipboard
   output, emits JSON.
-- `clipboard_loop.sh` — runs `clipboard_extract.sh` in a loop until no
+- `clipboard_loop.sh`, runs `clipboard_extract.sh` in a loop until no
   panels remain.
-- `next_batch.py` — picks the next N missing (manufacturer, panel) pairs
+- `next_batch.py`, picks the next N missing (manufacturer, panel) pairs
   into `/tmp/panel_batch.txt`, excluding anything in `skip_list.txt`.
-- `merge_web.py` — merges an extraction batch (or manually curated JSON)
+- `merge_web.py`, merges an extraction batch (or manually curated JSON)
   into the catalog, grouped by manufacturer.
-- `skip_list.txt` — panels known to fail extraction; excluded from batches.
+- `skip_list.txt`, panels known to fail extraction; excluded from batches.
 
 ## Catalog file
 
-`src/static/data/panel_catalog.json` — grouped by manufacturer:
+`src/static/data/panel_catalog.json`, grouped by manufacturer:
 
 ```json
 {
@@ -71,6 +71,6 @@ a JSON batch, and merges into the main catalog.
 }
 ```
 
-`src/static/data/panel_catalog_full_list.txt` — tab-separated
+`src/static/data/panel_catalog_full_list.txt`, tab-separated
 (manufacturer, panel_name) for every panel in FidoLED's dropdown. Used as
 the source-of-truth of what's missing.

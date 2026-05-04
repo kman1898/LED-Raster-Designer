@@ -12,8 +12,8 @@
    make install-mac
    ```
 4. When it finishes you get:
-   - **LED Raster Designer.app** in the `dist/` folder — double-click to launch
-   - **Mac LED Raster Designer Installer.zip** — upload this to GitHub Releases
+   - **LED Raster Designer.app** in the `dist/` folder, double-click to launch
+   - **Mac LED Raster Designer Installer.zip**, upload this to GitHub Releases
 
 ## Windows
 
@@ -33,8 +33,8 @@
    pyinstaller led_raster_designer.spec --noconfirm
    ```
 4. When it finishes you get:
-   - **LED Raster Designer.exe** in `dist\LED Raster Designer\` — double-click to launch
-   - **PC LED Raster Designer Installer.zip** — upload this to GitHub Releases
+   - **LED Raster Designer.exe** in `dist\LED Raster Designer\`, double-click to launch
+   - **PC LED Raster Designer Installer.zip**, upload this to GitHub Releases
 
 ## Prerequisites
 
