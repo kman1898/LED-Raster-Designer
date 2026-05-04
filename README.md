@@ -1,4 +1,4 @@
-# LED Raster Designer v0.8.3
+# LED Raster Designer v0.8.4
 
 A professional LED video wall layout designer for live events, concerts, and installations.
 

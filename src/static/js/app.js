@@ -5909,8 +5909,13 @@ class LEDRasterApp {
         if (!this.selectionAnchorLayerId && this.currentLayer) {
             this.selectionAnchorLayerId = this.currentLayer.id;
         }
-        // Slice 4: auto-activate the canvas of the new primary layer.
-        this._activateCanvasForLayer(this.currentLayer);
+        // Slice 4 + v0.8.3: auto-activate the canvas of the new primary
+        // layer, but pass preserveSelection so a marquee that crosses
+        // canvas boundaries doesn't clobber the multi-layer selection
+        // we just built. Without this, the first drag-select on Data /
+        // Power / Cabinet ID would silently drop everything from the
+        // non-active canvas.
+        this._activateCanvasForLayer(this.currentLayer, { preserveSelection: true });
         this.renderLayers();
         this.loadLayerToInputs();
         this.loadTextLayerToInputs();

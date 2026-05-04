@@ -1,6 +1,17 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.8.4 - May 4, 2026
+----------------------------
+- FIX: Drag-selecting layers with a marquee on Data / Power / Cabinet ID
+  / Show Look would silently drop any layers belonging to the non-active
+  canvas on the first try (the second attempt would catch them). Cause:
+  selectLayersInRect auto-activated the new primary layer's canvas
+  WITHOUT preserveSelection, so the cross-canvas selection it had just
+  built was wiped by the canvas switch. Now passes preserveSelection so
+  the multi-layer marquee works first try across canvas boundaries on
+  every tab.
+
 v0.8.3 - May 4, 2026
 ----------------------------
 - IMPROVE: Text label "Show On Tabs" group now includes Show Look. The
