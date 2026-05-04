@@ -888,8 +888,19 @@ class CanvasRenderer {
                 if (c) {
                     const dx = worldX - this.canvasDragStartX;
                     const dy = worldY - this.canvasDragStartY;
-                    c.workspace_x = this.canvasDragStartWX + dx;
-                    c.workspace_y = this.canvasDragStartWY + dy;
+                    let nextX = this.canvasDragStartWX + dx;
+                    let nextY = this.canvasDragStartWY + dy;
+                    // v0.8 Slice 9: snap dragged canvas edges to neighbor
+                    // canvas edges (left↔right, right↔left, top↔bottom,
+                    // bottom↔top, plus aligned-edge snap). Honors the global
+                    // magnetic-snap toggle so users can disable it.
+                    if (this.magneticSnap) {
+                        const snapped = this._snapCanvasToNeighbors(c, nextX, nextY);
+                        nextX = snapped.x;
+                        nextY = snapped.y;
+                    }
+                    c.workspace_x = nextX;
+                    c.workspace_y = nextY;
                     this.render();
                 }
             }
@@ -2423,6 +2434,64 @@ class CanvasRenderer {
         }
         document.getElementById('zoom-level').value = `${this._zoomToPercent(this.zoom)}%`;
         this.render();
+    }
+
+    /**
+     * v0.8 Slice 9: snap a dragged canvas's edges to abut (or align with)
+     * neighboring canvases. Threshold scales with current zoom so the snap
+     * "feels" the same physical distance regardless of zoom level — ~14
+     * device px on screen.
+     *
+     * Returns the (possibly snapped) {x, y} workspace position. Each axis is
+     * checked independently so you can snap one side without locking the
+     * other.
+     */
+    _snapCanvasToNeighbors(dragged, proposedX, proposedY) {
+        if (!window.app || !window.app.project || !Array.isArray(window.app.project.canvases)) {
+            return { x: proposedX, y: proposedY };
+        }
+        const useShow = this.isShowLookView();
+        const draggedW = (useShow && dragged.show_raster_width) || dragged.raster_width || 0;
+        const draggedH = (useShow && dragged.show_raster_height) || dragged.raster_height || 0;
+        if (draggedW <= 0 || draggedH <= 0) return { x: proposedX, y: proposedY };
+        // Snap threshold in workspace coords (zoom-corrected so on-screen
+        // feel is consistent at any zoom).
+        const threshold = 14 / Math.max(this.zoom, 0.0001);
+        const draggedLeft = proposedX;
+        const draggedRight = proposedX + draggedW;
+        const draggedTop = proposedY;
+        const draggedBottom = proposedY + draggedH;
+        let bestDx = null, bestDy = null;
+        const consider = (delta, current) => {
+            if (Math.abs(delta) > threshold) return current;
+            if (current === null || Math.abs(delta) < Math.abs(current)) return delta;
+            return current;
+        };
+        for (const other of window.app.project.canvases) {
+            if (!other || other.id === dragged.id || other.visible === false) continue;
+            const ox = other.workspace_x || 0;
+            const oy = other.workspace_y || 0;
+            const ow = (useShow && other.show_raster_width) || other.raster_width || 0;
+            const oh = (useShow && other.show_raster_height) || other.raster_height || 0;
+            if (ow <= 0 || oh <= 0) continue;
+            const otherLeft = ox, otherRight = ox + ow;
+            const otherTop = oy, otherBottom = oy + oh;
+            // X-axis snap candidates: abut (left-to-right, right-to-left)
+            // plus aligned edges (left↔left, right↔right, centerline).
+            bestDx = consider(otherRight - draggedLeft, bestDx);   // dragged.left snaps to other.right (abut)
+            bestDx = consider(otherLeft - draggedRight, bestDx);   // dragged.right snaps to other.left (abut)
+            bestDx = consider(otherLeft - draggedLeft, bestDx);    // align lefts
+            bestDx = consider(otherRight - draggedRight, bestDx);  // align rights
+            // Y-axis snap candidates
+            bestDy = consider(otherBottom - draggedTop, bestDy);   // dragged.top snaps to other.bottom (abut)
+            bestDy = consider(otherTop - draggedBottom, bestDy);   // dragged.bottom snaps to other.top (abut)
+            bestDy = consider(otherTop - draggedTop, bestDy);      // align tops
+            bestDy = consider(otherBottom - draggedBottom, bestDy);// align bottoms
+        }
+        return {
+            x: proposedX + (bestDx || 0),
+            y: proposedY + (bestDy || 0),
+        };
     }
 
     calculateMagneticSnap(offsetX, offsetY, currentLayer) {

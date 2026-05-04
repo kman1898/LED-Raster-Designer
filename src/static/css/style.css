@@ -765,7 +765,11 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     border-color: var(--canvas-color);
     box-shadow: 0 0 0 1px color-mix(in srgb, var(--canvas-color) 35%, transparent);
 }
-.canvas-group.hidden { opacity: 0.55; }
+/* v0.8 Slice 9: dim only the layer rows + footer of a hidden canvas
+   group, leaving the header (and especially the eye toggle) crisp so
+   the user can re-enable visibility without hunting through faded UI. */
+.canvas-group.hidden .canvas-group-body,
+.canvas-group.hidden .canvas-group-footer { opacity: 0.45; }
 .canvas-group.dragging { opacity: 0.4; }
 .canvas-group.drag-target {
     outline: 2px dashed var(--canvas-color);

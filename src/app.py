@@ -1523,7 +1523,9 @@ def _next_canvas_workspace_position():
     Returns ``(workspace_x, workspace_y)``.
     """
     canvases = current_project.get('canvases') or []
-    gap = 50
+    # v0.8 Slice 9: default gap is 0 — most LED installs are abutting walls,
+    # not floating screens. Server preference still wins when set.
+    gap = 0
     try:
         pref_gap = (server_preferences or {}).get('canvasGap')
         if pref_gap is not None:
