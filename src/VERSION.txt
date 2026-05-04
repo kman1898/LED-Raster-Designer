@@ -1,6 +1,15 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.8.1 - May 4, 2026
+----------------------------
+- FIX: Duplicating a screen layer that contained half-tile panels
+  stripped the half-tile state from the new layer, the duplicate came
+  back with all panels at full size. Client now sends a full per-panel
+  state list (halfTile + hidden + blank) and the server rebuilds the
+  duplicate's panel geometry from those states so column widths and
+  row heights match the source.
+
 v0.8.0 - May 4, 2026
 ----------------------------
 MULTI-CANVAS RELEASE. Projects can now contain multiple independent
