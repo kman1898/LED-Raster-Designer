@@ -3142,9 +3142,23 @@ def _resolume_slice(layer, unique_id):
     )
 
 def generate_resolume_xml(project, project_name, raster_w, raster_h):
-    """Generate Resolume Arena Advanced Output XML from project layers."""
+    """Generate Resolume Arena Advanced Output XML from project layers.
+
+    v0.8 (Slice 11): one <Screen> per project canvas. Each Screen's layers
+    are the screen-type layers belonging to that canvas; coordinates inside
+    the Polygon/Slice are CANVAS-LOCAL (panel.x/y are stored that way after
+    Slice 6), which matches the per-canvas Resolume composition model. The
+    OutputDeviceVirtual for each Screen is sized to that canvas's raster.
+
+    The project-wide CurrentCompositionTextureSize is the workspace bounding
+    box of all visible canvases — that's the source-composition size the
+    user would feed in Resolume to drive every canvas at once.
+
+    Legacy projects (no canvases array) fall through to a single synthetic
+    Screen using the project-root raster dimensions, byte-equivalent to the
+    pre-Slice-11 export so v0.7 workflows aren't disrupted.
+    """
     import random
-    screen_id = random.randint(1000000000000, 9999999999999)
 
     layers = project.get('layers', [])
     # Filter to visible screen layers only
@@ -3155,15 +3169,41 @@ def generate_resolume_xml(project, project_name, raster_w, raster_h):
         if not layer.get('panels'):
             layer['panels'] = _build_panels(layer)
 
-    slices_xml = ""
-    for layer in screen_layers:
-        slice_id = random.randint(1000000000000, 9999999999999)
-        if _layer_has_hidden_panels(layer):
-            slices_xml += _resolume_polygon(layer, slice_id)
-        else:
-            slices_xml += _resolume_slice(layer, slice_id)
+    # Resolve canvases. Visible only — hiding a canvas in the sidebar is
+    # the user's signal that it shouldn't appear in the export. Legacy:
+    # synthetic single canvas at (0, 0) using project-root raster.
+    project_canvases = project.get('canvases') or []
+    if project_canvases:
+        export_canvases = [
+            c for c in project_canvases
+            if isinstance(c, dict) and c.get('visible', True) is not False
+        ]
+    else:
+        export_canvases = [{
+            'id': None,
+            'name': 'Screen 1',
+            'workspace_x': 0,
+            'workspace_y': 0,
+            'raster_width': raster_w,
+            'raster_height': raster_h,
+        }]
 
-    # Screen-level output params
+    # Workspace bounding box -> CurrentCompositionTextureSize. If no canvases
+    # have content yet, fall back to the client-supplied raster_w/h (which
+    # comes from the toolbar, i.e. the active canvas).
+    if export_canvases:
+        min_x = min((c.get('workspace_x') or 0) for c in export_canvases)
+        min_y = min((c.get('workspace_y') or 0) for c in export_canvases)
+        max_x = max((c.get('workspace_x') or 0) + (c.get('raster_width') or 0)
+                    for c in export_canvases)
+        max_y = max((c.get('workspace_y') or 0) + (c.get('raster_height') or 0)
+                    for c in export_canvases)
+        composition_w = max(int(max_x - min_x), int(raster_w))
+        composition_h = max(int(max_y - min_y), int(raster_h))
+    else:
+        composition_w, composition_h = int(raster_w), int(raster_h)
+
+    # Screen-level output params (used for every Screen block)
     def screen_param_range(name, default="0", value="0", min_val="-1", max_val="1"):
         return (
             f'\t\t\t\t\t<ParamRange name="{name}" T="DOUBLE" default="{default}" value="{value}">\n'
@@ -3196,7 +3236,73 @@ def generate_resolume_xml(project, project_name, raster_w, raster_h):
             f'\t\t\t\t\t\t</ParamRange>\n'
         )
 
-    device_hash = random.randint(1000000000000000000, 9999999999999999999)
+    # Build one <Screen> per canvas with its scoped layers.
+    screens_xml = ""
+    for canvas in export_canvases:
+        canvas_id = canvas.get('id')
+        canvas_name = canvas.get('name') or 'Screen'
+        canvas_w = int(canvas.get('raster_width') or raster_w)
+        canvas_h = int(canvas.get('raster_height') or raster_h)
+        # Screen-scoped layers: visible screen-type layers in this canvas.
+        # Legacy synthetic canvas (id=None) takes every visible layer so
+        # pre-multi-canvas projects export identically to v0.7.
+        if canvas_id:
+            canvas_layers = [l for l in screen_layers if l.get('canvas_id') == canvas_id]
+        else:
+            canvas_layers = screen_layers
+
+        slices_xml = ""
+        for layer in canvas_layers:
+            slice_id = random.randint(1000000000000, 9999999999999)
+            if _layer_has_hidden_panels(layer):
+                slices_xml += _resolume_polygon(layer, slice_id)
+            else:
+                slices_xml += _resolume_slice(layer, slice_id)
+
+        screen_unique_id = random.randint(1000000000000, 9999999999999)
+        device_hash = random.randint(1000000000000000000, 9999999999999999999)
+        # Escape any "&", quote chars in the canvas name for XML attributes.
+        safe_name = (str(canvas_name)
+                     .replace('&', '&amp;').replace('<', '&lt;')
+                     .replace('>', '&gt;').replace('"', '&quot;'))
+
+        screens_xml += (
+            f'\t\t\t<Screen name="{safe_name}" uniqueId="{screen_unique_id}">\n'
+            f'\t\t\t\t<Params name="Params">\n'
+            f'\t\t\t\t\t<Param name="Name" T="STRING" default="" value="{safe_name}"/>\n'
+            f'\t\t\t\t\t<Param name="Enabled" T="BOOL" default="1" value="1"/>\n'
+            f'\t\t\t\t\t<Param name="Hidden" T="BOOL" default="0" value="0"/>\n'
+            f'\t\t\t\t</Params>\n'
+            f'\t\t\t\t<Params name="Output">\n'
+            f'{screen_output}'
+            f'\t\t\t\t</Params>\n'
+            f'\t\t\t\t<guides>\n'
+            f'\t\t\t\t\t<ScreenGuide name="ScreenGuide" type="0">\n'
+            f'\t\t\t\t\t\t<Params name="Params">\n'
+            f'\t\t\t\t\t\t\t<ParamPixels name="Image"/>\n'
+            f'\t\t\t\t\t\t\t<ParamRange name="Opacity" T="DOUBLE" default="0.25" value="0.25">\n'
+            f'\t\t\t\t\t\t\t\t<PhaseSourceStatic name="PhaseSourceStatic"/>\n'
+            f'\t\t\t\t\t\t\t\t<BehaviourDouble name="BehaviourDouble"/>\n'
+            f'\t\t\t\t\t\t\t\t<ValueRange name="defaultRange" min="0" max="1"/>\n'
+            f'\t\t\t\t\t\t\t\t<ValueRange name="minMax" min="0" max="1"/>\n'
+            f'\t\t\t\t\t\t\t\t<ValueRange name="startStop" min="0" max="1"/>\n'
+            f'\t\t\t\t\t\t\t</ParamRange>\n'
+            f'\t\t\t\t\t\t</Params>\n'
+            f'\t\t\t\t\t</ScreenGuide>\n'
+            f'\t\t\t\t</guides>\n'
+            f'\t\t\t\t<layers>\n'
+            f'{slices_xml}'
+            f'\t\t\t\t</layers>\n'
+            f'\t\t\t\t<OutputDevice>\n'
+            f'\t\t\t\t\t<OutputDeviceVirtual name="{safe_name}" deviceId="Virtual{safe_name}" idHash="{device_hash}" width="{canvas_w}" height="{canvas_h}">\n'
+            f'\t\t\t\t\t\t<Params name="Params">\n'
+            f'{device_param_range("Width", "800", str(canvas_w))}'
+            f'{device_param_range("Height", "600", str(canvas_h))}'
+            f'\t\t\t\t\t\t</Params>\n'
+            f'\t\t\t\t\t</OutputDeviceVirtual>\n'
+            f'\t\t\t\t</OutputDevice>\n'
+            f'\t\t\t</Screen>\n'
+        )
 
     # SoftEdging params
     def soft_edge_param(name, default, value, min_val, max_val):
@@ -3216,43 +3322,9 @@ def generate_resolume_xml(project, project_name, raster_w, raster_h):
         f'\t<versionInfo name="Resolume Arena" majorVersion="7" minorVersion="24" microVersion="3" revision="63742"/>\n'
         f'\t<ScreenSetup name="ScreenSetup">\n'
         f'\t\t<Params name="ScreenSetupParams"/>\n'
-        f'\t\t<CurrentCompositionTextureSize width="{raster_w}" height="{raster_h}"/>\n'
+        f'\t\t<CurrentCompositionTextureSize width="{composition_w}" height="{composition_h}"/>\n'
         f'\t\t<screens>\n'
-        f'\t\t\t<Screen name="Screen 1" uniqueId="{screen_id}">\n'
-        f'\t\t\t\t<Params name="Params">\n'
-        f'\t\t\t\t\t<Param name="Name" T="STRING" default="" value="Screen 1"/>\n'
-        f'\t\t\t\t\t<Param name="Enabled" T="BOOL" default="1" value="1"/>\n'
-        f'\t\t\t\t\t<Param name="Hidden" T="BOOL" default="0" value="0"/>\n'
-        f'\t\t\t\t</Params>\n'
-        f'\t\t\t\t<Params name="Output">\n'
-        f'{screen_output}'
-        f'\t\t\t\t</Params>\n'
-        f'\t\t\t\t<guides>\n'
-        f'\t\t\t\t\t<ScreenGuide name="ScreenGuide" type="0">\n'
-        f'\t\t\t\t\t\t<Params name="Params">\n'
-        f'\t\t\t\t\t\t\t<ParamPixels name="Image"/>\n'
-        f'\t\t\t\t\t\t\t<ParamRange name="Opacity" T="DOUBLE" default="0.25" value="0.25">\n'
-        f'\t\t\t\t\t\t\t\t<PhaseSourceStatic name="PhaseSourceStatic"/>\n'
-        f'\t\t\t\t\t\t\t\t<BehaviourDouble name="BehaviourDouble"/>\n'
-        f'\t\t\t\t\t\t\t\t<ValueRange name="defaultRange" min="0" max="1"/>\n'
-        f'\t\t\t\t\t\t\t\t<ValueRange name="minMax" min="0" max="1"/>\n'
-        f'\t\t\t\t\t\t\t\t<ValueRange name="startStop" min="0" max="1"/>\n'
-        f'\t\t\t\t\t\t\t</ParamRange>\n'
-        f'\t\t\t\t\t\t</Params>\n'
-        f'\t\t\t\t\t</ScreenGuide>\n'
-        f'\t\t\t\t</guides>\n'
-        f'\t\t\t\t<layers>\n'
-        f'{slices_xml}'
-        f'\t\t\t\t</layers>\n'
-        f'\t\t\t\t<OutputDevice>\n'
-        f'\t\t\t\t\t<OutputDeviceVirtual name="Screen 1" deviceId="VirtualScreen 1" idHash="{device_hash}" width="{raster_w}" height="{raster_h}">\n'
-        f'\t\t\t\t\t\t<Params name="Params">\n'
-        f'{device_param_range("Width", "800", str(raster_w))}'
-        f'{device_param_range("Height", "600", str(raster_h))}'
-        f'\t\t\t\t\t\t</Params>\n'
-        f'\t\t\t\t\t</OutputDeviceVirtual>\n'
-        f'\t\t\t\t</OutputDevice>\n'
-        f'\t\t\t</Screen>\n'
+        f'{screens_xml}'
         f'\t\t</screens>\n'
         f'\t\t<SoftEdging>\n'
         f'\t\t\t<Params name="Soft Edge">\n'
