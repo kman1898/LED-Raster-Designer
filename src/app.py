@@ -521,6 +521,54 @@ def _assign_canvas_id(layer, data=None):
         )
 
 
+def _seed_data_with_canvas_defaults(data):
+    """v0.8 Slice 8: when the client adds a NEW screen layer to a canvas that
+    already has screens, seed the request payload with hardware/processor
+    settings from the most recently added screen in that canvas. Mutates
+    and returns ``data``. This makes each canvas behave like its own preset
+    bucket — adding a second SR cabinet inherits SR's voltage/amperage/
+    panel size/etc. without the user reconfiguring.
+
+    Runs BEFORE create_layer() so positional args (cabinet_width/height)
+    flow through correctly and panels are built at the right size. Only
+    fills fields the caller did NOT explicitly provide, so duplicates and
+    pastes (which carry full settings) are unaffected.
+    """
+    if not isinstance(data, dict):
+        return data
+    canvas_id = data.get('canvas_id') or current_project.get('active_canvas_id')
+    if not canvas_id:
+        return data
+    siblings = [
+        l for l in current_project.get('layers', [])
+        if isinstance(l, dict)
+        and l.get('canvas_id') == canvas_id
+        and (l.get('type') or 'screen') == 'screen'
+    ]
+    if not siblings:
+        return data
+    # Most recently added sibling = highest id.
+    try:
+        donor = max(siblings, key=lambda l: int(l.get('id') or 0))
+    except Exception:
+        donor = siblings[-1]
+    inheritable = (
+        'processorType', 'bitDepth', 'frameRate',
+        'powerVoltage', 'powerVoltageCustom', 'powerAmperage', 'powerAmperageCustom',
+        'panelWatts',
+        'panel_width_mm', 'panel_height_mm', 'panel_weight', 'weight_unit',
+        'cabinet_width', 'cabinet_height',
+        'border_color', 'border_color_pixel', 'border_color_cabinet',
+        'border_color_data', 'border_color_power',
+    )
+    for field in inheritable:
+        if field in data:
+            continue  # caller specified — respect it
+        if field in donor and donor[field] is not None:
+            data[field] = donor[field]
+    return data
+
+
 def sync_next_layer_id():
     """Rebase next_layer_id to avoid duplicate IDs after project load/restore."""
     global next_layer_id
@@ -1175,7 +1223,12 @@ def restore_project():
 
 @app.route('/api/layer/add', methods=['POST'])
 def add_layer():
-    data = request.json
+    data = request.json or {}
+    # Slice 8: seed payload with the active canvas's preset bucket BEFORE
+    # create_layer so cabinet_width/height flow into panel construction.
+    # Only fills fields the caller didn't already set, so duplicate/paste
+    # paths (which send full data) are unaffected.
+    _seed_data_with_canvas_defaults(data)
     layer = create_layer(
         name=data.get('name', f'Screen{len(current_project["layers"]) + 1}'),
         columns=data.get('columns', 8),

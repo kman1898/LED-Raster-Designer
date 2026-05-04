@@ -2013,13 +2013,26 @@ class LEDRasterApp {
                 const target = btn.getAttribute('data-target');
                 const value = btn.getAttribute('data-perspective');
                 if (!target || !value || !this.project) return;
-                if (this.project[target] === value) return;
+                // v0.8 Slice 8: perspective is per-canvas. Write to the active
+                // canvas (which routes through updateCanvas → server PUT, undo
+                // entry, and a re-render via _applyProjectUpdate). Mirror
+                // project-root field too so legacy code paths keep working
+                // until they're all migrated to read from active canvas.
+                const active = this._activeCanvas();
+                const currentVal = (active && active[target]) || this.project[target] || 'front';
+                if (currentVal === value) return;
                 this.project[target] = value;
-                this.refreshPerspectiveButtons();
-                this.saveProject();
-                if (window.canvasRenderer) window.canvasRenderer.render();
+                if (active && typeof this.updateCanvas === 'function') {
+                    this.updateCanvas(active.id, { [target]: value });
+                } else {
+                    this.refreshPerspectiveButtons();
+                    this.saveProject();
+                    if (window.canvasRenderer) window.canvasRenderer.render();
+                }
                 if (typeof sendClientLog === 'function') {
-                    sendClientLog('perspective_change', { target, value });
+                    sendClientLog('perspective_change', {
+                        target, value, canvasId: active && active.id
+                    });
                 }
             });
         });
@@ -2027,17 +2040,29 @@ class LEDRasterApp {
     }
 
     /**
-     * Reflect the project's current perspective values on the toggle
-     * buttons (active state). Called after the project loads or the user
-     * toggles.
+     * Find the active canvas object, or null. v0.8 Slice 8 helper.
+     */
+    _activeCanvas() {
+        if (!this.project || !Array.isArray(this.project.canvases)) return null;
+        const id = this.project.active_canvas_id;
+        if (!id) return this.project.canvases[0] || null;
+        return this.project.canvases.find(c => c && c.id === id) || null;
+    }
+
+    /**
+     * Reflect the active canvas's perspective values on the toggle buttons.
+     * Falls back to the project root for pre-Slice-1 / legacy projects that
+     * have no canvas list yet. Called on project load and on every active-
+     * canvas switch.
      */
     refreshPerspectiveButtons() {
         if (!this.project) return;
+        const active = this._activeCanvas();
         document.querySelectorAll('.perspective-btn').forEach(btn => {
             const target = btn.getAttribute('data-target');
             const value = btn.getAttribute('data-perspective');
             if (!target || !value) return;
-            const current = this.project[target] || 'front';
+            const current = (active && active[target]) || this.project[target] || 'front';
             btn.classList.toggle('active', current === value);
         });
     }
@@ -10473,6 +10498,12 @@ class LEDRasterApp {
                 }
             }
         }
+        // Slice 8: re-sync perspective toggles after any canvas mutation
+        // (perspective edited on a sibling canvas, active canvas swapped on
+        // server, etc.).
+        if (typeof this.refreshPerspectiveButtons === 'function') {
+            try { this.refreshPerspectiveButtons(); } catch (_) {}
+        }
         // Re-render the workspace canvas. The previous `if (this.render)`
         // check was always false (app has no .render method), so the
         // workspace pixels never refreshed after a canvas CRUD response —
@@ -10722,6 +10753,12 @@ class LEDRasterApp {
         // syncRasterFromProject reads straight from the active canvas now,
         // so no project-root mirror needed.
         try { this.syncRasterFromProject(); } catch (_) {}
+        // Slice 8: per-canvas perspective — sync the Front/Back toggle state
+        // when the active canvas changes so the sidebar reflects the canvas
+        // the user is now editing.
+        if (typeof this.refreshPerspectiveButtons === 'function') {
+            try { this.refreshPerspectiveButtons(); } catch (_) {}
+        }
         if (!opts.silent) {
             this.renderLayers();
             if (window.canvasRenderer) window.canvasRenderer.render();

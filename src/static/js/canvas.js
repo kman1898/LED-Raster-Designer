@@ -182,11 +182,20 @@ class CanvasRenderer {
      */
     isMirroredView() {
         if (!window.app || !window.app.project) return false;
+        // v0.8 Slice 8: perspective is per-canvas. Read from the active
+        // canvas first; fall back to the project root for legacy projects
+        // that haven't been migrated (and the synthetic canvasesToRender
+        // entry built at render() for pre-Slice-1 fallbacks).
+        const proj = window.app.project;
+        const active = (typeof window.app._activeCanvas === 'function')
+            ? window.app._activeCanvas() : null;
         if (this.viewMode === 'data-flow') {
-            return window.app.project.data_flow_perspective === 'back';
+            const v = (active && active.data_flow_perspective) || proj.data_flow_perspective;
+            return v === 'back';
         }
         if (this.viewMode === 'power') {
-            return window.app.project.power_perspective === 'back';
+            const v = (active && active.power_perspective) || proj.power_perspective;
+            return v === 'back';
         }
         return false;
     }
