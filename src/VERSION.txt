@@ -3,13 +3,26 @@ LED RASTER DESIGNER - VERSION HISTORY
 
 v0.8.5 - May 4, 2026
 ----------------------------
-- FIX: Show Look drags were silently re-parenting screen layers to whichever
-  canvas they visually overlapped. Pixel Map and Show Look layouts are
-  meant to be independent (Pixel Map = processor layout, Show Look = stage
-  layout), but the cross-canvas drop logic fired regardless of drag mode,
-  so dragging a screen in Show Look could change its canvas_id and shift
-  its position in Pixel Map too. Cross-canvas reassignment is now gated to
-  Pixel Map drags only; Show Look drags only mutate showOffsetX/Y.
+- FEATURE: Show Look (and Data + Power, which render at the show layout)
+  now has its own independent canvas membership per layer, separate from
+  Pixel Map / Cabinet ID. New `show_canvas_id` field per layer, defaults
+  to null (= mirror canvas_id). Cross-canvas drag in Show Look sets it
+  WITHOUT touching canvas_id, offset_x/y, or panel geometry — so a screen
+  you drag from canvas 2 into canvas 1 in Show Look is in canvas 1 for
+  Show Look / Data / Power but stays in canvas 2 for Pixel Map / Cabinet
+  ID. Cross-canvas drag in Pixel Map keeps the existing behavior of
+  fully reparenting (resets show_canvas_id too).
+- IMPROVE: "Reset to Pixel Map Position" button in the Show Look sidebar
+  now also clears show_canvas_id, so one click fully snaps the layer back
+  to mirror its Pixel Map canvas + position.
+- New endpoint: PUT /api/layer/<id>/show_canvas accepts {show_canvas_id:
+  "..." | null}. Sends a single layer_move_to_show_canvas log event.
+- Renderer: per-canvas layer grouping, layer-canvas workspace offset,
+  hidden-canvas filter, zoom-to-layer, and cross-canvas drop hint all
+  resolve via the new helper `_effectiveLayerCanvasId(layer)` which
+  returns show_canvas_id || canvas_id when in a show-look-like view.
+- PSD export per-canvas filter respects show_canvas_id when exporting
+  Show Look / Data / Power views.
 
 v0.8.4 - May 4, 2026
 ----------------------------
