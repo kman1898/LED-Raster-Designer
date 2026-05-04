@@ -5487,8 +5487,13 @@ class LEDRasterApp {
         if (!this.selectionAnchorLayerId) {
             this.selectionAnchorLayerId = layer.id;
         }
-        // Slice 4: auto-activate this layer's canvas (no-op if already active).
-        this._activateCanvasForLayer(this.currentLayer);
+        // Slice 4 + Slice 13: auto-activate this layer's canvas, but PRESERVE
+        // any existing cross-canvas multi-selection. Without this flag,
+        // setActiveCanvas would drop selected layers in other canvases - which
+        // breaks the "select layers across canvases and bulk-edit them" flow
+        // (e.g. shift-click SR in c1, then DJ in c2, then change panel size on
+        // both at once).
+        this._activateCanvasForLayer(this.currentLayer, { preserveSelection: true });
         this.renderLayers();
         this.loadLayerToInputs();
         window.canvasRenderer.render();
@@ -5509,8 +5514,11 @@ class LEDRasterApp {
         this.selectedLayerIds = new Set(rangeIds);
         this.currentLayer = layer;
         this.lastSelectedLayerId = layer.id;
-        // Slice 4: auto-activate the canvas of the new primary layer.
-        this._activateCanvasForLayer(layer);
+        // Slice 4 + Slice 13: same preserveSelection trick as
+        // toggleLayerSelection so a shift-click range selection that crosses
+        // canvas boundaries doesn't get its other-canvas members culled
+        // when the active canvas auto-switches.
+        this._activateCanvasForLayer(layer, { preserveSelection: true });
         this.renderLayers();
         this.loadLayerToInputs();
         window.canvasRenderer.render();
@@ -11064,7 +11072,13 @@ class LEDRasterApp {
         // the user's mental model consistent ("the active canvas is what
         // I'm working in") and prevents stale highlights on the inactive
         // canvas after a click.
-        if (Array.isArray(this.project.layers) && this.selectedLayerIds && this.selectedLayerIds.size > 0) {
+        // Slice 13 escape hatch: callers performing an explicit cross-canvas
+        // multi-select (shift-click toggle / shift-click range) pass
+        // preserveSelection:true to keep their full selection alive, so the
+        // user can bulk-edit screens across canvases at once.
+        if (!opts.preserveSelection
+                && Array.isArray(this.project.layers)
+                && this.selectedLayerIds && this.selectedLayerIds.size > 0) {
             const layerById = {};
             for (const l of this.project.layers) layerById[l.id] = l;
             const filtered = new Set();
@@ -11075,8 +11089,9 @@ class LEDRasterApp {
             }
             this.selectedLayerIds = filtered;
         }
-        if (this.currentLayer && this.currentLayer.canvas_id
-            && this.currentLayer.canvas_id !== canvasId) {
+        if (!opts.preserveSelection
+                && this.currentLayer && this.currentLayer.canvas_id
+                && this.currentLayer.canvas_id !== canvasId) {
             // Promote the most-recently-selected layer in the new active
             // canvas (if any) to currentLayer, otherwise null.
             let next = null;
@@ -11131,11 +11146,11 @@ class LEDRasterApp {
      * when already active, so we won't spam PUTs from re-selecting the same
      * layer or selecting siblings inside the already-active canvas.
      */
-    _activateCanvasForLayer(layer) {
+    _activateCanvasForLayer(layer, opts) {
         if (!layer || !layer.canvas_id) return;
         if (!this.project) return;
         if (layer.canvas_id === this.project.active_canvas_id) return;
-        this.setActiveCanvas(layer.canvas_id);
+        this.setActiveCanvas(layer.canvas_id, opts);
     }
 
     reorderCanvasBeforeTarget(draggedId, targetId) {

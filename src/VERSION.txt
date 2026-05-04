@@ -1,6 +1,72 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.8.0 - May 4, 2026
+----------------------------
+MULTI-CANVAS RELEASE. Projects can now contain multiple independent
+canvases (think Resolume Screens). Each canvas has its own raster size,
+its own workspace position, its own perspective, and exports as its own
+file (or its own page in PDF / its own Screen in Resolume XML).
+
+Highlights:
+- Multi-canvas project model (format_version: "0.8"). Auto-migrator
+  upgrades v0.7 projects on load and emits a one-time toast asking the
+  user to save in the new format. v0.7 builds opening a v0.8 file get a
+  clean "format newer than supported" error.
+- Canvas list in the right sidebar with per-canvas + Add, color swatch,
+  rename, delete, duplicate, drag-reorder, and visibility toggle.
+- Per-canvas raster (Pixel Map and Show Look). Toolbar Raster: WxH
+  reads/writes the active canvas. Each canvas's layers render relative
+  to its own origin.
+- Per-canvas perspective (Front/Back) for Data Flow + Power. Mirror axis
+  is the workspace bounding box so multi-canvas Back view stays on
+  screen and Fit-to-View works correctly.
+- Drag layers between canvases (workspace + sidebar). Snap to (0,0) on
+  drop. Cmd/Alt+drag to duplicate.
+- Drag canvases by their dashed outline. Magnetic snap to neighbor
+  edges (abut + align). Default gap between auto-placed new canvases is
+  zero (was 50 px).
+- Hidden canvases excluded from sidebar Totals, capacity / power tallies,
+  and exports. Sidebar layer rows dim with the eye toggle remaining
+  bright for re-enable.
+- Per-canvas + project Totals panels in the Data Flow and Power tabs.
+- Text-layer dynamic info gains a Scope dropdown: "This Canvas",
+  "All Canvases", or "Both" for the parent canvas's totals + project
+  totals.
+- Multi-canvas export: PNG (one file per canvas x view), PSD (per
+  canvas+view, layer list filtered to that canvas), PDF (multi-page,
+  one page per canvas x view, headed with the canvas name), and
+  Resolume XML (one <Screen> per canvas, named after the canvas, with
+  its own OutputDeviceVirtual sized to that canvas's raster).
+- New screens added to a canvas inherit hardware settings (processor,
+  voltage, amperage, panel size, panel watts) from the most recently
+  added screen in that same canvas, so each canvas behaves like its own
+  preset bucket.
+- "+ Add Canvas" honors a Default Canvas Size preference.
+
+Bug fixes the multi-canvas work uncovered:
+- Undo now reverts exactly one action. Previously every v0.8 mutation
+  (drag, canvas CRUD, cross-canvas move) called saveState BEFORE the
+  mutation, so one Cmd+Z silently reverted two actions. Every v0.8
+  saveState now runs AFTER the mutation, restoring v0.7 behaviour.
+- 0-byte JSON saves on cloud-synced folders fixed. Skip Chrome's
+  showSaveFilePicker on localhost (Chrome rejects createWritable on
+  Nextcloud / iCloud / Dropbox paths) and route through the native
+  server-side save dialog instead. Same fix applied to multi-file
+  exports.
+- "100%" zoom now means 1 raster pixel = 1 device pixel. Previously
+  100% on Retina rendered at 2x the actual pixel pitch.
+- Settings sidebar now refreshes after a cross-canvas drag's snap so
+  X/Y inputs match the new (0,0) without a deselect/reselect.
+- Custom port / power circuit assignment now rejects panels already
+  wired to a different port or circuit (toast names the conflict).
+- Text layer text now clips to its own box, no more spillover into
+  neighboring canvases.
+- Click-on-overlay (text/image floating on top of a screen) now selects
+  the overlay instead of starting a panel-select on the hidden screen
+  underneath.
+- Em dash characters removed everywhere (UI text, comments, docs).
+
 v0.7.7.4 - May 1, 2026
 ----------------------------
 - FIX: Show Look / Data / Power renders dropped pieces of layers whose
