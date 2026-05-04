@@ -1,6 +1,23 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.8.2 - May 4, 2026
+----------------------------
+- FIX: Custom Data Flow + Custom Power buttons (Next/Prev circuit, Clear
+  Circuit, Clear All, jump-to-circuit, panel click, Pattern Apply,
+  keyboard shortcut step) only mutated client-side state and never PUT
+  to the server. The next time something else triggered a real PUT (Mode
+  Toggle, layer reselect, etc.), the server's stale view would either
+  overwrite the client or the client would push a collapsed snapshot of
+  the current circuit/port back, wiping all the other circuits/ports
+  the user had just configured. Every Custom mutation now PUTs after
+  the local change so the server stays authoritative.
+- FIX: Custom mode toggle (Data Flow + Power) was firing twice per
+  click on some platforms (observed: macOS WKWebView, two change events
+  ~370ms apart). Single click ended up flipping state back to where it
+  started. Added a 600ms re-entrancy guard on each toggle so the second
+  spurious change event is dropped.
+
 v0.8.1 - May 4, 2026
 ----------------------------
 - FIX: Duplicating a screen layer that contained half-tile panels

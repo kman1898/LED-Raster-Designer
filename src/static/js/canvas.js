@@ -1836,13 +1836,28 @@ class CanvasRenderer {
             this.ctx.strokeRect(x, y, w, h);
         }
 
-        // Per-tab text content
-        let text = '';
-        if (viewMode === 'pixel-map') text = layer.textContentPixelMap || layer.textContent || '';
-        else if (viewMode === 'cabinet-id') text = layer.textContentCabinetId || layer.textContent || '';
-        else if (viewMode === 'data-flow') text = layer.textContentDataFlow || layer.textContent || '';
-        else if (viewMode === 'power') text = layer.textContentPower || layer.textContent || '';
-        else text = layer.textContent || '';
+        // Per-tab text content. Fallback chain:
+        //   1. This tab's own textContent<Tab> (explicit per-tab override)
+        //   2. The global textContent (legacy default)
+        //   3. ANY other per-tab field that's non-empty (so typing into one
+        //      tab carries over to the others until the user explicitly
+        //      sets a different value per tab). Without this third step,
+        //      typing only in Pixel Map left Cabinet ID / Data Flow / Power
+        //      / Show Look rendering blank.
+        const tabKey = (viewMode === 'pixel-map')  ? 'textContentPixelMap'
+                     : (viewMode === 'cabinet-id') ? 'textContentCabinetId'
+                     : (viewMode === 'data-flow')  ? 'textContentDataFlow'
+                     : (viewMode === 'power')      ? 'textContentPower'
+                     : null;
+        let text = (tabKey ? layer[tabKey] : '') || layer.textContent || '';
+        if (!text) {
+            const fallbackKeys = ['textContentPixelMap', 'textContentCabinetId',
+                                  'textContentDataFlow', 'textContentPower'];
+            for (const k of fallbackKeys) {
+                if (k === tabKey) continue;
+                if (layer[k]) { text = layer[k]; break; }
+            }
+        }
 
         // Append dynamic info lines
         const dynamicLines = [];

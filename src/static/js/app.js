@@ -2911,7 +2911,19 @@ class LEDRasterApp {
         if (customModeToggle) {
             customModeToggle.addEventListener('change', () => {
                 if (!this.currentLayer) return;
-                this.toggleCustomFlowMode(customModeToggle.checked);
+                // v0.8.2 Re-entrancy guard: when the change event re-fires
+                // mid-flight (browser quirk on some platforms — observed on
+                // mac WKWebView clicking the toggle once produced two change
+                // events 367ms apart), the second invocation immediately
+                // flips the state back so the user's single click ended up
+                // disabling Custom mode. Drop the second event entirely.
+                if (this._customFlowToggleInFlight) return;
+                this._customFlowToggleInFlight = true;
+                try {
+                    this.toggleCustomFlowMode(customModeToggle.checked);
+                } finally {
+                    setTimeout(() => { this._customFlowToggleInFlight = false; }, 600);
+                }
             });
         }
         if (customPrevPortBtn) {
@@ -2921,6 +2933,12 @@ class LEDRasterApp {
                 this.currentLayer.customPortIndex = Math.max(1, (this.currentLayer.customPortIndex || 1) - 1);
                 this.saveState('Custom Port Change');
                 this.saveClientSideProperties();
+                // v0.8.2: PUT to the server. Without this, all the local
+                // mutations (Next/Prev/Clear/Apply) accumulate only on the
+                // client; the next time something else triggers a real PUT
+                // (Mode Toggle, tab switch with stale state, etc.) the
+                // client's view collapses or contradicts the server's.
+                this.updateLayers(this.getSelectedLayers());
                 this.updateCustomFlowUI();
                 this.updatePortLabelEditor();
                 window.canvasRenderer.render();
@@ -2933,6 +2951,7 @@ class LEDRasterApp {
                 this.currentLayer.customPortIndex = (this.currentLayer.customPortIndex || 1) + 1;
                 this.saveState('Custom Port Change');
                 this.saveClientSideProperties();
+                this.updateLayers(this.getSelectedLayers());
                 this.updateCustomFlowUI();
                 this.updatePortLabelEditor();
                 window.canvasRenderer.render();
@@ -2946,6 +2965,7 @@ class LEDRasterApp {
                 this.currentLayer.customPortPaths[portNum] = [];
                 this.saveState('Custom Clear Port');
                 this.saveClientSideProperties();
+                this.updateLayers(this.getSelectedLayers());
                 this.updateCustomFlowUI();
                 this.updatePortLabelEditor();
                 window.canvasRenderer.render();
@@ -2960,6 +2980,7 @@ class LEDRasterApp {
                 this.customSelection.clear();
                 this.saveState('Custom Clear All');
                 this.saveClientSideProperties();
+                this.updateLayers(this.getSelectedLayers());
                 this.updateCustomFlowUI();
                 this.updatePortLabelEditor();
                 window.canvasRenderer.render();
@@ -2981,6 +3002,7 @@ class LEDRasterApp {
                     this.currentLayer.customPortIndex = nextVal;
                     this.saveState('Custom Port Change');
                     this.saveClientSideProperties();
+                    this.updateLayers(this.getSelectedLayers());
                     this.updateCustomFlowUI();
                     this.updatePortLabelEditor();
                     window.canvasRenderer.render();
@@ -3420,7 +3442,17 @@ class LEDRasterApp {
         if (powerCustomToggle) {
             powerCustomToggle.addEventListener('change', () => {
                 if (!this.currentLayer) return;
-                this.toggleCustomPowerMode(powerCustomToggle.checked);
+                // v0.8.2: re-entrancy guard — single click was producing two
+                // change events 367ms apart, with the second flipping the
+                // state back to the opposite of what the user wanted. See
+                // matching guard in customModeToggle handler above.
+                if (this._customPowerToggleInFlight) return;
+                this._customPowerToggleInFlight = true;
+                try {
+                    this.toggleCustomPowerMode(powerCustomToggle.checked);
+                } finally {
+                    setTimeout(() => { this._customPowerToggleInFlight = false; }, 600);
+                }
             });
         }
         if (powerCustomPrev) {
@@ -3430,6 +3462,12 @@ class LEDRasterApp {
                 this.currentLayer.powerCustomIndex = Math.max(1, (this.currentLayer.powerCustomIndex || 1) - 1);
                 this.saveState('Power Custom Circuit Change');
                 this.saveClientSideProperties();
+                // v0.8.2: PUT to the server. See matching comment on the data-
+                // flow Custom handlers above. Without this, every Next/Prev/
+                // Clear Circuit/Clear All/Pattern Apply mutated only the
+                // client; the next Mode Toggle would then PUT a single-circuit
+                // collapsed view of layer.powerCustomPaths.
+                this.updateLayers(this.getSelectedLayers());
                 this.updateCustomPowerUI();
                 window.canvasRenderer.render();
             });
@@ -3441,6 +3479,7 @@ class LEDRasterApp {
                 this.currentLayer.powerCustomIndex = (this.currentLayer.powerCustomIndex || 1) + 1;
                 this.saveState('Power Custom Circuit Change');
                 this.saveClientSideProperties();
+                this.updateLayers(this.getSelectedLayers());
                 this.updateCustomPowerUI();
                 window.canvasRenderer.render();
             });
@@ -3453,6 +3492,7 @@ class LEDRasterApp {
                 this.currentLayer.powerCustomPaths[circuitNum] = [];
                 this.saveState('Power Custom Clear Circuit');
                 this.saveClientSideProperties();
+                this.updateLayers(this.getSelectedLayers());
                 this.updateCustomPowerUI();
                 window.canvasRenderer.render();
             });
@@ -3466,6 +3506,7 @@ class LEDRasterApp {
                 this.powerCustomSelection.clear();
                 this.saveState('Power Custom Clear All');
                 this.saveClientSideProperties();
+                this.updateLayers(this.getSelectedLayers());
                 this.updateCustomPowerUI();
                 window.canvasRenderer.render();
             });
@@ -3486,6 +3527,7 @@ class LEDRasterApp {
                     this.currentLayer.powerCustomIndex = nextVal;
                     this.saveState('Power Custom Circuit Change');
                     this.saveClientSideProperties();
+                    this.updateLayers(this.getSelectedLayers());
                     this.updateCustomPowerUI();
                     window.canvasRenderer.render();
                 }
@@ -9162,6 +9204,9 @@ class LEDRasterApp {
             this.currentLayer.customPortIndex = Math.max(1, (this.currentLayer.customPortIndex || 1) + delta);
             this.saveState('Custom Port Change');
             this.saveClientSideProperties();
+            // v0.8.2: PUT to server (keyboard shortcut path needs the same
+            // server sync as the on-screen Next/Prev buttons).
+            this.updateLayers(this.getSelectedLayers());
             this.updateCustomFlowUI();
             this.updatePortLabelEditor();
             window.canvasRenderer.render();
@@ -9170,6 +9215,7 @@ class LEDRasterApp {
             this.currentLayer.powerCustomIndex = Math.max(1, (this.currentLayer.powerCustomIndex || 1) + delta);
             this.saveState('Power Custom Circuit Change');
             this.saveClientSideProperties();
+            this.updateLayers(this.getSelectedLayers());
             this.updateCustomPowerUI();
             window.canvasRenderer.render();
         }
@@ -10153,6 +10199,8 @@ class LEDRasterApp {
         this.currentLayer.customPortPaths[portNum].push({ row: panel.row, col: panel.col });
         this.saveState('Custom Path Edit');
         this.saveClientSideProperties();
+        // v0.8.2: PUT to server so per-panel port assignments persist.
+        this.updateLayers(this.getSelectedLayers());
         if (this.customDebug) {
             console.log('[CustomFlow] Add panel', { portNum, row: panel.row, col: panel.col });
         }
@@ -10180,6 +10228,8 @@ class LEDRasterApp {
         this.currentLayer.powerCustomPaths[circuitNum].push({ row: panel.row, col: panel.col });
         this.saveState('Power Custom Path Edit');
         this.saveClientSideProperties();
+        // v0.8.2: PUT to server so per-panel circuit assignments persist.
+        this.updateLayers(this.getSelectedLayers());
         if (this.powerCustomDebug) {
             console.log('[CustomPower] Add panel', { circuitNum, row: panel.row, col: panel.col });
         }
@@ -10272,6 +10322,8 @@ class LEDRasterApp {
         this.currentLayer.customPortPaths[portNum] = ordered.map(p => ({ row: p.row, col: p.col }));
         this.saveState('Custom Pattern Apply');
         this.saveClientSideProperties();
+        // v0.8.2: PUT to server so the bulk pattern assignment persists.
+        this.updateLayers(this.getSelectedLayers());
         if (this.customDebug) {
             const first = ordered[0];
             const last = ordered[ordered.length - 1];
@@ -10334,6 +10386,8 @@ class LEDRasterApp {
         this.currentLayer.powerCustomPaths[circuitNum] = ordered.map(p => ({ row: p.row, col: p.col }));
         this.saveState('Power Custom Pattern Apply');
         this.saveClientSideProperties();
+        // v0.8.2: PUT to server so the bulk pattern assignment persists.
+        this.updateLayers(this.getSelectedLayers());
         if (this.powerCustomDebug) {
             const first = ordered[0];
             const last = ordered[ordered.length - 1];
