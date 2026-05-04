@@ -4497,7 +4497,7 @@ class LEDRasterApp {
         }
     }
 
-    _toast(msg, isError) {
+    _toast(msg, isError, durationMs) {
         let host = document.getElementById('app-toast-host');
         if (!host) {
             host = document.createElement('div');
@@ -4506,14 +4506,15 @@ class LEDRasterApp {
             document.body.appendChild(host);
         }
         const t = document.createElement('div');
-        t.style.cssText = `padding:10px 16px; border-radius:6px; font-size:13px; color:#fff; background:${isError ? '#a8324b' : '#2d4a7a'}; box-shadow:0 2px 12px rgba(0,0,0,0.4); opacity:0; transition:opacity 0.18s ease;`;
+        t.style.cssText = `padding:10px 16px; border-radius:6px; font-size:13px; color:#fff; background:${isError ? '#a8324b' : '#2d4a7a'}; box-shadow:0 2px 12px rgba(0,0,0,0.4); opacity:0; transition:opacity 0.18s ease; max-width: 520px; text-align: center;`;
         t.textContent = msg;
         host.appendChild(t);
         requestAnimationFrame(() => { t.style.opacity = '1'; });
+        const lifetime = (typeof durationMs === 'number' && durationMs > 0) ? durationMs : 2400;
         setTimeout(() => {
             t.style.opacity = '0';
             setTimeout(() => t.remove(), 220);
-        }, 2400);
+        }, lifetime);
     }
 
     // A panel is "verified" if its `source` flags it as cross-checked against
@@ -9069,6 +9070,25 @@ class LEDRasterApp {
                     setTimeout(() => {
                         document.getElementById('status-message').textContent = 'Ready';
                     }, 2000);
+                    // Slice 12: same migration toast path as loadProjectFromFile.
+                    // Recent-file loads also go through PUT /api/project so the
+                    // server emits _migration_notice when the cached payload
+                    // lacked format_version: "0.8".
+                    if (data && data._migration_notice) {
+                        delete this.project._migration_notice;
+                        sendClientLog('migration_notice_shown', {
+                            name: this.project.name,
+                            layers: this.project.layers ? this.project.layers.length : 0,
+                            source: 'recent'
+                        });
+                        if (typeof this._toast === 'function') {
+                            this._toast(
+                                'Project upgraded to multi-canvas format (v0.8). Save to keep changes — older app versions can no longer open this file.',
+                                false,
+                                10000
+                            );
+                        }
+                    }
                 })
                 .catch(() => {
                     this.resetHistory('Initial State');
@@ -11591,6 +11611,27 @@ class LEDRasterApp {
                                 }, 2000);
                                 this.addToRecentFiles(this.project);
                                 sendClientLog('load_project_file_success', { name: this.project.name, layers: this.project.layers ? this.project.layers.length : 0 });
+                                // Slice 12: server flagged this file as
+                                // freshly migrated from v0.7. Show a one-time
+                                // toast and strip the transient flag so it
+                                // never ends up in the saved JSON. The toast
+                                // is suppressed automatically on subsequent
+                                // loads because the saved file now carries
+                                // format_version: "0.8".
+                                if (data && data._migration_notice) {
+                                    delete this.project._migration_notice;
+                                    sendClientLog('migration_notice_shown', {
+                                        name: this.project.name,
+                                        layers: this.project.layers ? this.project.layers.length : 0
+                                    });
+                                    if (typeof this._toast === 'function') {
+                                        this._toast(
+                                            'Project upgraded to multi-canvas format (v0.8). Save to keep changes — older app versions can no longer open this file.',
+                                            false,
+                                            10000
+                                        );
+                                    }
+                                }
                             })
                             .catch((err) => {
                                 sendClientLog('load_project_file_error', { message: err.message });

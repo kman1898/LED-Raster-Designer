@@ -1219,7 +1219,15 @@ def restore_project():
         'layer_names': [l.get('name', '?') for l in current_project.get('layers', [])]
     })
     socketio.emit('project_updated', current_project)
-    return jsonify(current_project)
+    # Slice 12: surface a one-time migration notice to the client when the
+    # incoming file lacked a v0.8 format_version. Carried as a top-level
+    # transient field on the response only — never stored on disk because
+    # the next save will write the now-present format_version, and future
+    # loads of that same file won't re-migrate (and won't re-toast).
+    response = dict(current_project)
+    if did_migrate:
+        response['_migration_notice'] = True
+    return jsonify(response)
 
 @app.route('/api/layer/add', methods=['POST'])
 def add_layer():
