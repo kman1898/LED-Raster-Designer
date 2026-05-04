@@ -1284,8 +1284,12 @@ def add_layer():
         'customPortPaths', 'customPortIndex',
         'randomDataColors',
         'showOffsetX', 'showOffsetY',
+        # v0.8.5: per-layer override for which canvas the layer belongs to
+        # in Show Look (and Data + Power, which render at the show layout).
+        # null/missing = mirror canvas_id.
+        'show_canvas_id',
     ]
-    
+
     half_fields = {'halfFirstColumn', 'halfLastColumn', 'halfFirstRow', 'halfLastRow'}
     needs_rebuild = False
     for field in optional_fields:
@@ -1847,6 +1851,33 @@ def move_layer_to_canvas(layer_id):
         log_event('layer_move_to_canvas', {
             'layer_id': layer_id, 'target_canvas_id': target_id,
         })
+    current_project['is_pristine'] = False
+    socketio.emit('project_updated', current_project)
+    return jsonify(current_project)
+
+
+@app.route('/api/layer/<int:layer_id>/show_canvas', methods=['PUT'])
+def move_layer_to_show_canvas(layer_id):
+    """v0.8.5: Reassign a layer's *Show Look* canvas without touching its
+    Pixel Map / Cabinet ID canvas membership or its panel geometry.
+
+    Body: ``{show_canvas_id: "..." | null}``. ``null`` clears the override
+    so Show Look falls back to mirroring ``canvas_id``. Does NOT mutate
+    ``canvas_id``, ``offset_x/y``, ``panels``, or ``showOffsetX/Y`` (the
+    drag has already updated showOffsetX/Y in-place via the regular PUT
+    path; this endpoint only stamps the new show-canvas membership).
+    """
+    data = request.json or {}
+    target_id = data.get('show_canvas_id')  # may be None
+    if target_id is not None and not _find_canvas(target_id):
+        return jsonify({'error': 'Target canvas not found'}), 404
+    layer = next((l for l in current_project['layers'] if l.get('id') == layer_id), None)
+    if not layer:
+        return jsonify({'error': 'Layer not found'}), 404
+    layer['show_canvas_id'] = target_id
+    log_event('layer_move_to_show_canvas', {
+        'layer_id': layer_id, 'target_show_canvas_id': target_id,
+    })
     current_project['is_pristine'] = False
     socketio.emit('project_updated', current_project)
     return jsonify(current_project)

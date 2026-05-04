@@ -1046,7 +1046,11 @@ class CanvasRenderer {
                 const _primary = window.app.currentLayer;
                 if (_primary) {
                     const _tgt = this._canvasAtPoint(worldX, worldY);
-                    this._crossCanvasDropTarget = (_tgt && _tgt.id !== _primary.canvas_id) ? _tgt : null;
+                    // v0.8.5: in Show Look / Data / Power the cross-canvas
+                    // hint compares against the layer's effective show
+                    // canvas, matching where it renders.
+                    const _primaryCid = this._effectiveLayerCanvasId(_primary);
+                    this._crossCanvasDropTarget = (_tgt && _tgt.id !== _primaryCid) ? _tgt : null;
                 } else {
                     this._crossCanvasDropTarget = null;
                 }
@@ -1406,8 +1410,17 @@ class CanvasRenderer {
                 // on big layers.) Layers in OTHER canvases keep their
                 // normal within-canvas offset change.
                 const primary = window.app.currentLayer;
+                // v0.8.5: Pixel Map and Show Look maintain INDEPENDENT canvas
+                // membership. The Show Look canvas (used for show-look /
+                // data / power rendering) is the layer's `show_canvas_id`,
+                // falling back to `canvas_id` when null (the default).
+                // Pixel Map / Cabinet ID always use `canvas_id`.
+                const isShowMode = (this.dragLayerMode === 'show');
+                const primaryCanvasId = isShowMode
+                    ? (primary.show_canvas_id || primary.canvas_id)
+                    : primary.canvas_id;
                 const primaryCanvas = window.app.project && Array.isArray(window.app.project.canvases)
-                    ? window.app.project.canvases.find(c => c && c.id === primary.canvas_id)
+                    ? window.app.project.canvases.find(c => c && c.id === primaryCanvasId)
                     : null;
                 let crossCanvasHandled = false;
                 if (primaryCanvas) {
@@ -1416,31 +1429,55 @@ class CanvasRenderer {
                     const cursorWX = this._unmirrorWorldX(((e.clientX - this.canvas.getBoundingClientRect().left) - this.panX) / this.zoom);
                     const cursorWY = ((e.clientY - this.canvas.getBoundingClientRect().top) - this.panY) / this.zoom;
                     const targetCanvas = this._canvasAtPoint(cursorWX, cursorWY);
-                    if (targetCanvas && targetCanvas.id !== primary.canvas_id) {
+                    if (targetCanvas && targetCanvas.id !== primaryCanvasId) {
                         const mode = (e.metaKey || e.altKey) ? 'duplicate' : 'move';
                         // Collect all selected layer ids that share the
                         // primary's canvas (so the whole multi-selection
                         // travels together). Primary first so it stays the
                         // currentLayer in the target.
+                        const peerCanvasId = (l) => isShowMode
+                            ? (l.show_canvas_id || l.canvas_id)
+                            : l.canvas_id;
                         const movedIds = [primary.id];
                         if (window.app.selectedLayerIds && window.app.selectedLayerIds.size > 1) {
                             window.app.selectedLayerIds.forEach(id => {
                                 if (id === primary.id) return;
                                 const l = window.app.project.layers.find(x => x.id === id);
-                                if (l && l.canvas_id === primary.canvas_id && !l.locked) {
+                                if (l && peerCanvasId(l) === primaryCanvasId && !l.locked) {
                                     movedIds.push(id);
                                 }
                             });
                         }
-                        // Cross-canvas helpers now snapshot post-action state
-                        // themselves (in their .then() after the server
-                        // round-trip), so we don't pass skipSaveState anymore.
-                        if (movedIds.length > 1 && typeof window.app.moveLayersCrossCanvas === 'function') {
-                            window.app.moveLayersCrossCanvas(movedIds, targetCanvas.id, mode);
+                        if (isShowMode) {
+                            // Show Look drag: persist the freshly-dragged
+                            // showOffsetX/Y first (no saveState on this PUT
+                            // — the moveLayerShowCanvas .then() will snapshot
+                            // post-everything state), then PUT show_canvas_id
+                            // so canvas_id, offset_x/y, panels stay put.
+                            // Duplicate is not supported here (mode is
+                            // forced to 'move') since show-canvas reassign
+                            // isn't a clone op.
+                            const toUpdate = window.app.getSelectedLayers
+                                ? window.app.getSelectedLayers()
+                                : [window.app.currentLayer];
+                            window.app.updateLayers(toUpdate, false);
+                            if (movedIds.length > 1 && typeof window.app.moveLayersShowCanvas === 'function') {
+                                window.app.moveLayersShowCanvas(movedIds, targetCanvas.id);
+                            } else if (typeof window.app.moveLayerShowCanvas === 'function') {
+                                window.app.moveLayerShowCanvas(primary.id, targetCanvas.id);
+                            }
                             crossCanvasHandled = true;
-                        } else if (typeof window.app.moveLayerCrossCanvas === 'function') {
-                            window.app.moveLayerCrossCanvas(primary.id, targetCanvas.id, mode);
-                            crossCanvasHandled = true;
+                        } else {
+                            // Pixel Map drag: full processor reparent
+                            // (resets offset_x/y, rebuilds panel geometry
+                            // at the new canvas's origin).
+                            if (movedIds.length > 1 && typeof window.app.moveLayersCrossCanvas === 'function') {
+                                window.app.moveLayersCrossCanvas(movedIds, targetCanvas.id, mode);
+                                crossCanvasHandled = true;
+                            } else if (typeof window.app.moveLayerCrossCanvas === 'function') {
+                                window.app.moveLayerCrossCanvas(primary.id, targetCanvas.id, mode);
+                                crossCanvasHandled = true;
+                            }
                         }
                     }
                 }
@@ -1730,11 +1767,26 @@ class CanvasRenderer {
      * and projects with no canvases array fall back to (0, 0) so single-canvas
      * behaviour is unchanged.
      */
+    /**
+     * v0.8.5: which canvas does this layer "live in" for the active view?
+     * Pixel Map / Cabinet ID always use the processor canvas (canvas_id).
+     * Show Look / Data / Power use the layer's `show_canvas_id` override
+     * (set by Show Look cross-canvas drops); when null/missing, falls back
+     * to canvas_id so the layer mirrors its Pixel Map canvas.
+     */
+    _effectiveLayerCanvasId(layer) {
+        if (!layer) return null;
+        if (this.isShowLookView() && layer.show_canvas_id) {
+            return layer.show_canvas_id;
+        }
+        return layer.canvas_id || null;
+    }
+
     _layerCanvasOffset(layer) {
         if (!layer || !window.app || !window.app.project) return { wx: 0, wy: 0 };
         const arr = window.app.project.canvases;
         if (!Array.isArray(arr) || arr.length === 0) return { wx: 0, wy: 0 };
-        const cid = layer.canvas_id;
+        const cid = this._effectiveLayerCanvasId(layer);
         if (!cid) return { wx: 0, wy: 0 };
         for (const c of arr) {
             if (c && c.id === cid) {
@@ -2085,7 +2137,7 @@ class CanvasRenderer {
         // Helper: returns the workspace translate for a layer (or 0,0 for
         // legacy / orphan layers). Used by the post-pass wrappers below.
         const _layerWs = (layer) => {
-            const cid = layer && layer.canvas_id;
+            const cid = this._effectiveLayerCanvasId(layer);
             const c = cid ? _canvasById[cid] : null;
             return { wx: (c && c.workspace_x) || 0, wy: (c && c.workspace_y) || 0 };
         };
@@ -2095,7 +2147,7 @@ class CanvasRenderer {
         // while its layers continued to render at the canvas's workspace
         // offset.
         const _layerCanvasHidden = (layer) => {
-            const cid = layer && layer.canvas_id;
+            const cid = this._effectiveLayerCanvasId(layer);
             const c = cid ? _canvasById[cid] : null;
             return c && c.visible === false;
         };
@@ -2140,7 +2192,11 @@ class CanvasRenderer {
                 const layersInCanvas = window.app.project.layers.filter(l => {
                     if (!l.visible) return false;
                     if (_canvasesArr.length === 0) return true; // legacy fallback
-                    return l.canvas_id === canvas.id;
+                    // v0.8.5: in Show Look / Data / Power, group by the
+                    // layer's effective show canvas (show_canvas_id ||
+                    // canvas_id). Pixel Map / Cabinet ID still group by
+                    // canvas_id — the helper handles the view-mode pick.
+                    return this._effectiveLayerCanvasId(l) === canvas.id;
                 });
                 // Empty canvases (no layers) still get drawn, outline +
                 // active tint, so the user can see the canvas exists and can
@@ -2518,8 +2574,12 @@ class CanvasRenderer {
             // centers on where the layer is actually drawn in the workspace,
             // otherwise 1:1 zooms to the wrong canvas's slot.
             let wx = 0, wy = 0;
-            if (window.app.project && window.app.project.canvases && layer.canvas_id) {
-                const c = window.app.project.canvases.find(c => c.id === layer.canvas_id);
+            // v0.8.5: zoom-to-layer in Show Look / Data / Power must use
+            // the layer's effective show canvas (show_canvas_id), since the
+            // layer renders at THAT canvas's workspace position there.
+            const zoomCanvasId = this._effectiveLayerCanvasId(layer);
+            if (window.app.project && window.app.project.canvases && zoomCanvasId) {
+                const c = window.app.project.canvases.find(c => c.id === zoomCanvasId);
                 if (c) { wx = c.workspace_x || 0; wy = c.workspace_y || 0; }
             }
             const layerWidth = bounds.width;

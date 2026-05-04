@@ -7,6 +7,16 @@ on:
   pull_request:
     branches: [main]
 
+# Dedupe runs. When a push to dev/draft triggers CI and that same commit
+# is also the head of an open PR, GitHub fires both events and every job
+# runs twice. The concurrency group is keyed on the workflow + ref so a
+# second event for the same commit cancels the first run instead of
+# stacking up. Pushes to main (where the SHA is the merge commit) get
+# their own group, so release-tag CI is unaffected.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 

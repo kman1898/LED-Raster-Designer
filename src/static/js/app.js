@@ -2369,6 +2369,10 @@ class LEDRasterApp {
                 layers.forEach(l => {
                     l.showOffsetX = l.offset_x;
                     l.showOffsetY = l.offset_y;
+                    // v0.8.5: also clear the Show Look canvas override so
+                    // the layer falls back to mirroring its Pixel Map
+                    // canvas membership (canvas_id).
+                    l.show_canvas_id = null;
                 });
                 this.updateLayers(layers, false);
                 this.loadLayerToInputs();
@@ -8230,7 +8234,14 @@ class LEDRasterApp {
             // Legacy / single-canvas: include every layer (canvasId is null).
             const psdLayers = this.project.layers.filter(l => {
                 if (!view.canvasId) return true;
-                return l.canvas_id === view.canvasId;
+                // v0.8.5: Show Look / Data / Power exports use the layer's
+                // effective show canvas (show_canvas_id || canvas_id) so a
+                // layer reassigned in Show Look exports under its show
+                // canvas's PSD instead of its Pixel Map canvas's.
+                const isShowView = view.viewMode === 'show-look'
+                    || view.viewMode === 'data-flow' || view.viewMode === 'power';
+                const cid = (isShowView && l.show_canvas_id) ? l.show_canvas_id : l.canvas_id;
+                return cid === view.canvasId;
             }).map(l => {
                 const b = this.getLayerBounds(l);
                 return {
@@ -11080,6 +11091,59 @@ class LEDRasterApp {
      * - "duplicate": new layer id appended in target canvas; original
      *   stays put and remains selected.
      */
+    /**
+     * v0.8.5: Reassign a layer's Show Look canvas membership. Used by
+     * cross-canvas drops on the Show Look / Data / Power tabs. Does not
+     * touch canvas_id, offset_x/y, or panel geometry, so the layer's
+     * Pixel Map / Cabinet ID position and processor membership stay
+     * exactly where they were. Pass null to clear the override and let
+     * Show Look fall back to mirroring canvas_id.
+     */
+    moveLayerShowCanvas(layerId, targetCanvasId) {
+        return fetch(`/api/layer/${layerId}/show_canvas`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ show_canvas_id: targetCanvasId })
+        }).then(r => r.json()).then(data => {
+            this._applyProjectUpdate(data);
+            if (typeof this.renderLayers === 'function') this.renderLayers();
+            if (window.canvasRenderer && typeof window.canvasRenderer.render === 'function') {
+                window.canvasRenderer.render();
+            }
+            if (typeof this.saveState === 'function') {
+                this.saveState('Move Layer (Show Look) to Canvas');
+            }
+            return data;
+        });
+    }
+
+    /**
+     * v0.8.5: Multi-layer Show Look canvas reassign (mirrors moveLayersCrossCanvas).
+     */
+    async moveLayersShowCanvas(layerIds, targetCanvasId) {
+        if (!Array.isArray(layerIds) || layerIds.length === 0) return;
+        let lastData = null;
+        for (const id of layerIds) {
+            const r = await fetch(`/api/layer/${id}/show_canvas`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ show_canvas_id: targetCanvasId })
+            });
+            lastData = await r.json();
+        }
+        if (lastData) {
+            this._applyProjectUpdate(lastData);
+            if (typeof this.renderLayers === 'function') this.renderLayers();
+            if (window.canvasRenderer && typeof window.canvasRenderer.render === 'function') {
+                window.canvasRenderer.render();
+            }
+            if (typeof this.saveState === 'function') {
+                this.saveState(`Move ${layerIds.length} Layers (Show Look) to Canvas`);
+            }
+        }
+        return lastData;
+    }
+
     moveLayerCrossCanvas(layerId, targetCanvasId, mode) {
         const wantMove = (mode !== 'duplicate');
         return fetch(`/api/layer/${layerId}/canvas`, {
