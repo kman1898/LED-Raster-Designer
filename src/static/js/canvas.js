@@ -659,7 +659,18 @@ class CanvasRenderer {
             // is the only way to bulk-restore via the sidebar buttons.
             const onCurrentLayer = startPanel
                 && startPanel.layerId === window.app.currentLayer.id;
-            if (onCurrentLayer) {
+            // Don't capture the click for panel-select if there's a HIGHER-Z
+            // layer (image / text / another screen later in project.layers)
+            // sitting on top of the current layer at this point — the user is
+            // clicking the visible top layer, not the panel buried beneath it.
+            // Bug: with a text layer over a selected screen, clicks on text
+            // were grabbed by the screen's panel-select instead of selecting
+            // the text layer.
+            const topLayer = this.getLayerAt(worldX, worldY);
+            const topIsHigher = topLayer && window.app.project
+                && window.app.project.layers.indexOf(topLayer)
+                    > window.app.project.layers.indexOf(window.app.currentLayer);
+            if (onCurrentLayer && !topIsHigher) {
                 this.isSelectingPixelMapPanels = true;
                 this.selectionRect = { x1: worldX, y1: worldY, x2: worldX, y2: worldY };
                 if (typeof sendClientLog === 'function') {
