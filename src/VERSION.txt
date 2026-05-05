@@ -1,6 +1,27 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.8.6 - May 5, 2026
+----------------------------
+- FEATURE: Per-canvas wiring perspective. Front / Back perspective is now
+  truly independent per canvas in Data Flow and Power views — c1 can show
+  Front while c2 shows Back at the same time on screen. Previously the
+  perspective field was per-canvas in data, but the renderer applied a
+  single global mirror to the whole workspace based on the active canvas,
+  so toggling Back on one canvas visually flipped them all (or none).
+- FEATURE: Per-canvas perspective overrides in the Export dialog. Each
+  canvas row in the Canvases section now has Data: Front/Back and
+  Power: Front/Back dropdowns. Set them per canvas before export — the
+  values are applied just for the export pass and then restored.
+  Defaults to whatever the canvas currently shows on screen.
+- CHANGE: BACK VIEW badge anchors to each mirrored canvas's top-right
+  corner instead of the global viewport corner. Mixed-perspective
+  workspaces show one badge per back-view canvas.
+- INTERNAL: Hit-testing (Shift+Drag, marquee, right-click on Data /
+  Power) now picks the mirror axis from the canvas under the cursor
+  instead of the workspace bounding box, so cross-canvas drags land
+  correctly when canvases are in different perspectives.
+
 v0.8.5.4 - May 4, 2026
 ----------------------------
 - FIX: Multi-view export (PNG / PSD / PDF) on Show Look / Data / Power
