@@ -451,8 +451,10 @@ class CanvasRenderer {
             const w = (useShow && c.show_raster_width) || c.raster_width || 0;
             const h = (useShow && c.show_raster_height) || c.raster_height || 0;
             if (w <= 0 || h <= 0) continue;
-            const x = c.workspace_x || 0;
-            const y = c.workspace_y || 0;
+            // v0.8.5.3: Show Look uses its own workspace position when set.
+            const ws = this._canvasWorkspace(c);
+            const x = ws.wx;
+            const y = ws.wy;
             if (worldX >= x && worldX <= x + w && worldY >= y && worldY <= y + h) {
                 return c;
             }
@@ -484,8 +486,10 @@ class CanvasRenderer {
             const w = (useShow && c.show_raster_width) || c.raster_width || 0;
             const h = (useShow && c.show_raster_height) || c.raster_height || 0;
             if (w <= 0 || h <= 0) continue;
-            const x = c.workspace_x || 0;
-            const y = c.workspace_y || 0;
+            // v0.8.5.3: Show Look uses its own workspace position when set.
+            const ws = this._canvasWorkspace(c);
+            const x = ws.wx;
+            const y = ws.wy;
             // Outer bounds (rect + tol on every side)
             if (worldX < x - tol || worldX > x + w + tol) continue;
             if (worldY < y - tol || worldY > y + h + tol) continue;
@@ -526,8 +530,13 @@ class CanvasRenderer {
                 this.draggingCanvasId = edgeCanvas.id;
                 this.canvasDragStartX = worldX;
                 this.canvasDragStartY = worldY;
-                this.canvasDragStartWX = edgeCanvas.workspace_x || 0;
-                this.canvasDragStartWY = edgeCanvas.workspace_y || 0;
+                // v0.8.5.3: drag uses the active view's workspace position
+                // (Show Look has its own show_workspace_x/y).
+                {
+                    const _ws = this._canvasWorkspace(edgeCanvas);
+                    this.canvasDragStartWX = _ws.wx;
+                    this.canvasDragStartWY = _ws.wy;
+                }
                 // saveState moved to canvas-drag END (in updateCanvas .then())
                 // so the snapshot is the POST-drag workspace position. Pre-drag
                 // saveState was off-by-one and made undo skip past the drag.
@@ -927,8 +936,15 @@ class CanvasRenderer {
                         nextX = snapped.x;
                         nextY = snapped.y;
                     }
-                    c.workspace_x = nextX;
-                    c.workspace_y = nextY;
+                    // v0.8.5.3: Show Look canvas drag writes show_workspace
+                    // so Pixel Map's workspace stays put.
+                    if (this.isShowLookView()) {
+                        c.show_workspace_x = nextX;
+                        c.show_workspace_y = nextY;
+                    } else {
+                        c.workspace_x = nextX;
+                        c.workspace_y = nextY;
+                    }
                     this.render();
                 }
             }
@@ -1142,15 +1158,26 @@ class CanvasRenderer {
             if (window.app && window.app.project) {
                 const c = window.app.project.canvases.find(c => c.id === id);
                 if (c) {
-                    const wx = Math.round(c.workspace_x || 0);
-                    const wy = Math.round(c.workspace_y || 0);
-                    c.workspace_x = wx;
-                    c.workspace_y = wy;
+                    // v0.8.5.3: persist to the right field per view.
+                    const isShow = this.isShowLookView();
+                    const _ws = this._canvasWorkspace(c);
+                    const wx = Math.round(_ws.wx);
+                    const wy = Math.round(_ws.wy);
+                    if (isShow) {
+                        c.show_workspace_x = wx;
+                        c.show_workspace_y = wy;
+                    } else {
+                        c.workspace_x = wx;
+                        c.workspace_y = wy;
+                    }
                     if (typeof window.app.updateCanvas === 'function') {
                         // updateCanvas now snapshots POST-mutation state in
                         // its server-response .then() so a single Cmd+Z reverts
                         // exactly this drag. No skipSaveState needed.
-                        window.app.updateCanvas(id, { workspace_x: wx, workspace_y: wy });
+                        const patch = isShow
+                            ? { show_workspace_x: wx, show_workspace_y: wy }
+                            : { workspace_x: wx, workspace_y: wy };
+                        window.app.updateCanvas(id, patch);
                     }
                     if (typeof window.app._checkCanvasOverlapAndToast === 'function') {
                         window.app._checkCanvasOverlapAndToast(id);
@@ -1469,8 +1496,13 @@ class CanvasRenderer {
                             // this, dragging a c2 screen into c1's area
                             // looked like the layer was still in c2's space
                             // (or even way off-screen).
-                            const dxComp = (primaryCanvas.workspace_x || 0) - (targetCanvas.workspace_x || 0);
-                            const dyComp = (primaryCanvas.workspace_y || 0) - (targetCanvas.workspace_y || 0);
+                            // v0.8.5.3: compensation must use the SHOW-LOOK
+                            // workspace of each canvas (the one the layer is
+                            // actually rendered against in this view).
+                            const _ws1 = this._canvasWorkspace(primaryCanvas);
+                            const _ws2 = this._canvasWorkspace(targetCanvas);
+                            const dxComp = _ws1.wx - _ws2.wx;
+                            const dyComp = _ws1.wy - _ws2.wy;
                             movedIds.forEach(id => {
                                 const l = window.app.project.layers.find(x => x.id === id);
                                 if (!l) return;
@@ -1788,6 +1820,25 @@ class CanvasRenderer {
      * behaviour is unchanged.
      */
     /**
+     * v0.8.5.3: which workspace position does this canvas use in the active
+     * view? Show Look (and Data + Power, which render at the show layout)
+     * use `show_workspace_x/y` when set; otherwise mirror `workspace_x/y`.
+     * Pixel Map / Cabinet ID always use `workspace_x/y`. Returns {wx, wy}.
+     */
+    _canvasWorkspace(canvas) {
+        if (!canvas) return { wx: 0, wy: 0 };
+        if (this.isShowLookView()) {
+            const swx = canvas.show_workspace_x;
+            const swy = canvas.show_workspace_y;
+            return {
+                wx: (swx == null ? (canvas.workspace_x || 0) : (swx || 0)),
+                wy: (swy == null ? (canvas.workspace_y || 0) : (swy || 0)),
+            };
+        }
+        return { wx: canvas.workspace_x || 0, wy: canvas.workspace_y || 0 };
+    }
+
+    /**
      * v0.8.5: which canvas does this layer "live in" for the active view?
      * Pixel Map / Cabinet ID always use the processor canvas (canvas_id).
      * Show Look / Data / Power use the layer's `show_canvas_id` override
@@ -1810,7 +1861,8 @@ class CanvasRenderer {
         if (!cid) return { wx: 0, wy: 0 };
         for (const c of arr) {
             if (c && c.id === cid) {
-                return { wx: c.workspace_x || 0, wy: c.workspace_y || 0 };
+                // v0.8.5.3: Show Look uses its own canvas workspace position.
+                return this._canvasWorkspace(c);
             }
         }
         return { wx: 0, wy: 0 };
@@ -2159,7 +2211,8 @@ class CanvasRenderer {
         const _layerWs = (layer) => {
             const cid = this._effectiveLayerCanvasId(layer);
             const c = cid ? _canvasById[cid] : null;
-            return { wx: (c && c.workspace_x) || 0, wy: (c && c.workspace_y) || 0 };
+            // v0.8.5.3: pick the right workspace position per view.
+            return this._canvasWorkspace(c);
         };
         // Helper: returns true if this layer's canvas is hidden (canvas-level
         // eye toggle off). Used to skip every per-layer post-pass for hidden
@@ -2224,8 +2277,10 @@ class CanvasRenderer {
                 // this being a valid drop target. Originally Slice 3 skipped
                 // empty canvases entirely, but that hid them from the
                 // workspace which broke the drop-into-empty-canvas flow.
-                const wx = canvas.workspace_x || 0;
-                const wy = canvas.workspace_y || 0;
+                // v0.8.5.3: in Show Look use the canvas's show workspace pos.
+                const _ws = this._canvasWorkspace(canvas);
+                const wx = _ws.wx;
+                const wy = _ws.wy;
                 const needsCanvasShift = (wx !== 0 || wy !== 0);
                 if (needsCanvasShift) {
                     this.ctx.save();
@@ -2551,8 +2606,10 @@ class CanvasRenderer {
         const useShow = this.isShowLookView();
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
         visible.forEach(c => {
-            const wx = c.workspace_x || 0;
-            const wy = c.workspace_y || 0;
+            // v0.8.5.3: workspace bbox uses the active view's canvas position.
+            const ws = this._canvasWorkspace(c);
+            const wx = ws.wx;
+            const wy = ws.wy;
             const w = (useShow && c.show_raster_width) || c.raster_width || 0;
             const h = (useShow && c.show_raster_height) || c.raster_height || 0;
             if (wx < minX) minX = wx;
@@ -2600,7 +2657,11 @@ class CanvasRenderer {
             const zoomCanvasId = this._effectiveLayerCanvasId(layer);
             if (window.app.project && window.app.project.canvases && zoomCanvasId) {
                 const c = window.app.project.canvases.find(c => c.id === zoomCanvasId);
-                if (c) { wx = c.workspace_x || 0; wy = c.workspace_y || 0; }
+                if (c) {
+                    // v0.8.5.3: pick the right workspace position per view.
+                    const ws = this._canvasWorkspace(c);
+                    wx = ws.wx; wy = ws.wy;
+                }
             }
             const layerWidth = bounds.width;
             const layerHeight = bounds.height;
@@ -2649,8 +2710,15 @@ class CanvasRenderer {
         };
         for (const other of window.app.project.canvases) {
             if (!other || other.id === dragged.id || other.visible === false) continue;
-            const ox = other.workspace_x || 0;
-            const oy = other.workspace_y || 0;
+            // v0.8.5.3: snap-to-neighbor in Show Look uses each canvas's
+            // show workspace position (falls back to workspace_x/y when
+            // null). Without this, snapping in Show Look targeted Pixel
+            // Map positions and the just-dropped canvas could trigger a
+            // false "overlap" toast against a neighbor's stale pixel-map
+            // bounds that no longer reflects its show position.
+            const _ws = this._canvasWorkspace(other);
+            const ox = _ws.wx;
+            const oy = _ws.wy;
             const ow = (useShow && other.show_raster_width) || other.raster_width || 0;
             const oh = (useShow && other.show_raster_height) || other.raster_height || 0;
             if (ow <= 0 || oh <= 0) continue;

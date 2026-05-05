@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED Raster Designer v0.8.5.1</title>
+    <title>LED Raster Designer v0.8.5.3</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -84,7 +84,7 @@
 
         <div id="toolbar">
             <div class="toolbar-section toolbar-project">
-                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.8.5.1</span></h1>
+                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.8.5.3</span></h1>
                 <div style="position:relative;">
                     <input type="text" id="project-name" value="Untitled Project" class="editable-project-name">
                     <div id="project-name-warning" style="display:none; position:absolute; top:100%; left:0; margin-top:4px; padding:4px 8px; font-size:11px; color:#f5a623; background:#1a1a1a; border:1px solid #f5a623; border-radius:4px; white-space:nowrap; z-index:1000; pointer-events:none;"></div>
@@ -399,7 +399,10 @@
                             <input type="text" id="show-offset-y" value="0">
                         </div>
                         <div style="margin-top: 12px;">
-                            <button id="show-look-reset" class="btn" style="width:100%;" data-tooltip="Reset this screen's Show Look position to match its Pixel Map position.">Reset to Pixel Map Position</button>
+                            <button id="show-look-reset" class="btn" style="width:100%;" data-tooltip="Reset this screen's Show Look position to match its Pixel Map position. Also re-links its canvas's Show Look raster to its Pixel Map raster.">Reset to Pixel Map Position</button>
+                        </div>
+                        <div style="margin-top: 6px;">
+                            <button id="show-look-reset-all" class="btn" style="width:100%;" data-tooltip="Reset the ENTIRE Show Look across every canvas: all layer positions, show-canvas overrides, and show-raster sizes snap back to mirror Pixel Map. Undoable.">Reset Entire Show Look</button>
                         </div>
                     </div>
                 </div>
