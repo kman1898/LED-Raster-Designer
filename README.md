@@ -136,7 +136,6 @@ Half-tiles count as **0.5 panel** for data/port math and **0.65 panel** for powe
 - PSD export with per-screen layers (per-canvas filtered, only that canvas's layers in each PSD)
 - PDF export (multi-page across selected canvases × views)
 - Resolume Arena Advanced Output XML export (one `<Screen>` per canvas, named after the canvas)
-- NovaStar SCR export (sending-card mapping)
 - Configurable export filename suffixes per view (saved as defaults)
 - Project-name input flags illegal filename characters (\\ / : * ? " < > |) and auto-sanitizes them on export
 
