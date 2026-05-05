@@ -12,6 +12,14 @@ import subprocess
 from PIL import Image
 import numpy as np
 
+# v0.8.7: Pillow's default decompression-bomb guard refuses images larger
+# than ~89 megapixels. Our PSD scale feature legitimately produces images
+# up to PSD's 30000×30000 limit (~900 megapixels), and the input is our
+# own renderer (no untrusted file path). Disable the guard so high-scale
+# PSD exports don't fail with "Image size exceeds limit ... could be
+# decompression bomb DOS attack".
+Image.MAX_IMAGE_PIXELS = None
+
 # Support PyInstaller --onedir bundle: resolve templates/static from _MEIPASS
 if getattr(sys, 'frozen', False):
     BASE_DIR = sys._MEIPASS
@@ -2583,15 +2591,38 @@ def native_dialog_select_directory():
 
 @app.route('/api/native-dialog/write-file', methods=['POST'])
 def native_dialog_write_file():
-    data = request.get_json() or {}
-    file_path = data.get('path')
-    data_url = data.get('data_url')
-    if not file_path or not data_url:
-        log_event('native_dialog_write_file_invalid', {'has_path': bool(file_path), 'has_data': bool(data_url)})
-        return jsonify({'ok': False, 'error': 'path and data_url are required'}), 400
+    """Write blob bytes to a chosen path on disk.
+
+    Accepts EITHER:
+      - JSON body with {path, data_url} where data_url is a base64 data URI
+        (legacy v0.8.6 path; works for small blobs but blows up JSON.stringify
+        on the client when the blob exceeds ~25 MB).
+      - multipart/form-data with `path` field and `file` field (v0.8.7+).
+        This skips the JSON string allocation and is the only path large PSD
+        exports survive — the client streams the raw blob to the server.
+    """
+    file_path = None
+    content = None
+    if request.content_type and request.content_type.startswith('multipart/form-data'):
+        file_path = request.form.get('path')
+        f = request.files.get('file')
+        if f is not None:
+            content = f.read()
+    else:
+        data = request.get_json(silent=True) or {}
+        file_path = data.get('path')
+        data_url = data.get('data_url')
+        if data_url:
+            try:
+                content = decode_base64_bytes(data_url)
+            except Exception as e:
+                log_event('native_dialog_write_file_decode_error', {'error': str(e)})
+                content = None
+    if not file_path or content is None:
+        log_event('native_dialog_write_file_invalid', {'has_path': bool(file_path), 'has_data': content is not None})
+        return jsonify({'ok': False, 'error': 'path and file/data_url are required'}), 400
     try:
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
-        content = decode_base64_bytes(data_url)
         with open(file_path, 'wb') as f:
             f.write(content)
         exists = os.path.exists(file_path)

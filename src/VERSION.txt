@@ -1,6 +1,46 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.8.7 - May 5, 2026
+----------------------------
+- FEATURE: PSD export Resolution Scale option (1x / 2x / 4x / 8x).
+  When chosen, the PSD is rendered at scale × native raster resolution.
+  Vector content (panels, labels, arrows, text) renders crisp at the
+  higher size — no upscaling artifacts when zooming in or printing
+  large in Photoshop. Image layers will sample up from their source
+  resolution, so they look softer if the source is lower res.
+  PSD layer metadata (offsets / widths / heights) is scaled to match
+  so layer rectangles still line up with the rendered pixels.
+  Scale option is hidden for PNG / PDF / Resolume XML formats.
+  Auto-clamps per canvas + view to keep PSD dimensions under 16000px
+  (browsers cap 2D canvas dimensions at 16384 in Chrome / 32767 in
+  Firefox, so we use the conservative limit; PSD format itself goes
+  to 30000 but the rendered image has to fit in a browser canvas
+  first). A status message reports the actual scale used if it had
+  to be reduced.
+- FIX: Pillow's default 89-megapixel "decompression bomb" guard was
+  rejecting large PSD scale exports server-side. Disabled for our own
+  trusted renderer input.
+- FIX: Per-canvas Front/Back perspective dropdowns in the Export modal
+  now update the filename preview live (was reading the underlying
+  canvas state, ignoring the user's modal override).
+- FIX: Screen-name labels on Cabinet ID / Data Flow / Power were
+  snapping back to their previous position whenever the user clicked a
+  layer in a different canvas. `setActiveCanvas` was overwriting the
+  whole `this.project` object with the server response (which doesn't
+  carry the client-side-only `screenNameOffset*` per-view fields), so
+  the freshly-dragged label position got wiped every canvas switch.
+  Now syncs only `active_canvas_id` from that response.
+- FIX: Native-save-dialog file write was failing on large PSD blobs
+  (26 MB+) because the client was JSON-encoding the entire base64 data
+  URI and the resulting ~36 MB JSON string allocation either OOM'd or
+  arrived at the server with an empty body (logged as
+  `has_data: false`). Switched to multipart/form-data so the blob
+  streams to the server without the giant string allocation.
+- FIX: PSD export errors now surface the actual server error message
+  (e.g., dimension limit, out-of-memory) instead of a generic
+  "Failed to create PSD".
+
 v0.8.6.3 - May 5, 2026
 ----------------------------
 Audit follow-ups for the Show Look canvas-membership refactor. Several

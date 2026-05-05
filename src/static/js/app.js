@@ -3890,6 +3890,10 @@ class LEDRasterApp {
             // Slice 11: rebuild canvas checklist on every open so renames /
             // additions / deletions show up. Visible canvases default-checked.
             this.populateExportCanvasesList();
+            // v0.8.7: re-evaluate Scale row visibility on open (the user
+            // may have changed format last session and reopened later).
+            const _f = document.getElementById('export-format');
+            if (_f) _f.dispatchEvent(new Event('change'));
             // Update preview
             this.updateExportPreview();
         });
@@ -3909,6 +3913,20 @@ class LEDRasterApp {
                 });
             }
         });
+
+        // v0.8.7: PSD-only Resolution Scale row. Hide it for any other
+        // format so the option only surfaces when it actually applies.
+        const _toggleScaleRow = () => {
+            const formatEl = document.getElementById('export-format');
+            const scaleRow = document.getElementById('export-scale-row');
+            if (!formatEl || !scaleRow) return;
+            scaleRow.style.display = (formatEl.value === 'psd') ? '' : 'none';
+        };
+        const _formatEl = document.getElementById('export-format');
+        if (_formatEl) {
+            _formatEl.addEventListener('change', _toggleScaleRow);
+            _toggleScaleRow();
+        }
         
         document.getElementById('export-cancel').addEventListener('click', () => {
             document.getElementById('export-modal').style.display = 'none';
@@ -7756,6 +7774,26 @@ class LEDRasterApp {
                 : `${projectName} ${suffix}.${ext}`;
         };
 
+        // v0.8.7.1: read per-canvas perspective dropdowns so the filename
+        // preview reflects the user's modal override, not the underlying
+        // canvas state. Build a synthetic canvas object per cid with the
+        // override applied for the suffix calculation.
+        const overrideByCid = {};
+        document.querySelectorAll('.export-canvas-perspective').forEach(sel => {
+            const cid = sel.dataset.canvasId;
+            const kind = sel.dataset.kind;
+            if (!cid || !kind) return;
+            if (!overrideByCid[cid]) overrideByCid[cid] = {};
+            const key = kind === 'data' ? 'data_flow_perspective' : 'power_perspective';
+            overrideByCid[cid][key] = (sel.value === 'back') ? 'back' : 'front';
+        });
+        const canvasForSuffix = (cid) => {
+            if (!cid) return null;
+            const c = (this.project && this.project.canvases || []).find(x => x && x.id === cid);
+            if (!c) return null;
+            return Object.assign({}, c, overrideByCid[cid] || {});
+        };
+
         if (format === 'pdf') {
             const pageCount = canvasIds.length * views.length;
             preview.textContent = `${projectName}.pdf (${pageCount} page${pageCount > 1 ? 's' : ''})`;
@@ -7763,8 +7801,9 @@ class LEDRasterApp {
             const ext = format;
             const lines = [];
             for (const cid of canvasIds) {
+                const cForSuffix = canvasForSuffix(cid);
                 for (const v of views) {
-                    const suffix = this.getExportSuffixForView(v, suffixes, viewNames);
+                    const suffix = this.getExportSuffixForView(v, suffixes, viewNames, cForSuffix);
                     lines.push(buildName(cid, suffix, ext));
                 }
             }
@@ -7947,6 +7986,9 @@ class LEDRasterApp {
                     if (v === current) o.selected = true;
                     sel.appendChild(o);
                 });
+                // v0.8.7.1: refresh filename preview when this dropdown
+                // changes so the user sees _back / no-suffix instantly.
+                sel.addEventListener('change', () => this.updateExportPreview());
                 wrap.appendChild(lbl);
                 wrap.appendChild(sel);
                 return wrap;
@@ -8034,7 +8076,24 @@ class LEDRasterApp {
         const exportCtx = exportCanvas.getContext('2d', { alpha: useTransparentBg });
         window.canvasRenderer.canvas = exportCanvas;
         window.canvasRenderer.ctx = exportCtx;
-        window.canvasRenderer.zoom = 1.0;
+        // v0.8.7: optional resolution-scale multiplier (PSD only). Native
+        // scale = 1 (existing behavior for PNG/PDF). Higher values render
+        // PSD at scale × native raster so vector content (panels, labels,
+        // arrows, text) stays crisp at higher zoom in Photoshop. PNG/PDF
+        // skip the scale (their use cases don't benefit and the larger
+        // file sizes would surprise users).
+        // The actual scale used is clamped per pass to keep PSD dimensions
+        // under PSD format's 30000×30000 hard limit (PSB is bigger but
+        // pytoshop only writes classic PSD). Computed inside the loop.
+        const scaleSel = document.getElementById('export-scale');
+        const requestedScale = scaleSel ? Math.max(1, Math.min(8, Number(scaleSel.value) || 1)) : 1;
+        // v0.8.7: PSD format max dimension is 30000px, but browsers cap
+        // 2D canvas at much lower (Chrome: 16384, Safari/FF higher). The
+        // toDataURL on an oversized canvas silently returns "data:," and
+        // the server can't parse the empty image. Use 16000 to stay
+        // within Chrome's hard cap with a safety margin.
+        const PSD_MAX_DIM = 16000;
+        let scaleClampedAnywhere = false;
         window.canvasRenderer.exportMode = true;
         window.canvasRenderer.exportTransparentBg = useTransparentBg;
 
@@ -8067,8 +8126,25 @@ class LEDRasterApp {
                     // show-look (so Show Look exports at its own resolution).
                     const rasterWidth = window.canvasRenderer.rasterWidth || 1920;
                     const rasterHeight = window.canvasRenderer.rasterHeight || 1080;
-                    exportCanvas.width = rasterWidth;
-                    exportCanvas.height = rasterHeight;
+                    // v0.8.7: per-pass PSD scale, clamped so the resulting
+                    // image dimensions stay under PSD's 30000×30000 hard
+                    // limit. PNG/PDF always run at 1x. If the user picked
+                    // 8x but the canvas is too big, we silently use the
+                    // largest scale that fits and surface a single status
+                    // message after the export completes.
+                    let exportScale = (format === 'psd') ? requestedScale : 1;
+                    if (exportScale > 1) {
+                        const maxScaleByWidth = Math.floor(PSD_MAX_DIM / rasterWidth);
+                        const maxScaleByHeight = Math.floor(PSD_MAX_DIM / rasterHeight);
+                        const maxSafe = Math.max(1, Math.min(maxScaleByWidth, maxScaleByHeight));
+                        if (exportScale > maxSafe) {
+                            exportScale = maxSafe;
+                            scaleClampedAnywhere = true;
+                        }
+                    }
+                    window.canvasRenderer.zoom = exportScale;
+                    exportCanvas.width = rasterWidth * exportScale;
+                    exportCanvas.height = rasterHeight * exportScale;
                     // Translate the workspace so this canvas's top-left
                     // (workspace_x, workspace_y) lands at (0, 0) in the
                     // export canvas. Legacy: pan to 0,0.
@@ -8092,8 +8168,12 @@ class LEDRasterApp {
                             wsy = targetCanvas.workspace_y || 0;
                         }
                     }
-                    window.canvasRenderer.panX = -wsx;
-                    window.canvasRenderer.panY = -wsy;
+                    // v0.8.7: panX/panY are in screen pixels. With zoom =
+                    // exportScale the workspace origin needs to land at
+                    // -wsx*scale screen pixels for the canvas's top-left
+                    // to render at (0, 0) of the export image.
+                    window.canvasRenderer.panX = -wsx * exportScale;
+                    window.canvasRenderer.panY = -wsy * exportScale;
 
                     window.canvasRenderer.render();
 
@@ -8120,8 +8200,9 @@ class LEDRasterApp {
                         fileBase,
                         pdfLabel,
                         dataUrl,
-                        width: rasterWidth,
-                        height: rasterHeight,
+                        width: rasterWidth * exportScale,
+                        height: rasterHeight * exportScale,
+                        scale: exportScale,
                     });
                 }
             }
@@ -8147,6 +8228,23 @@ class LEDRasterApp {
             window.canvasRenderer.panX = originalPanX;
             window.canvasRenderer.panY = originalPanY;
             window.canvasRenderer.render();
+        }
+
+        // v0.8.7: notify the user if any pass had to clamp the requested
+        // PSD scale to fit PSD's 30000×30000 dimension limit. We don't
+        // block — we just report the actual scale used so the file lands
+        // and the user knows.
+        if (scaleClampedAnywhere) {
+            const usedScales = [...new Set(renderedItems.map(i => i.scale))].sort((a, b) => a - b);
+            const status = document.getElementById('status-message');
+            if (status) {
+                status.textContent = `PSD scale reduced (max ${usedScales[usedScales.length - 1]}x) — PSD format max is 30000px`;
+                setTimeout(() => { if (status.textContent.startsWith('PSD scale')) status.textContent = 'Ready'; }, 6000);
+            }
+            sendClientLog && sendClientLog('export_psd_scale_clamped', {
+                requested: requestedScale,
+                used: usedScales,
+            });
         }
 
         // Dispatch to format-specific writer. Multi-canvas just means
@@ -8219,11 +8317,18 @@ class LEDRasterApp {
     }
 
     async nativeWriteFile(path, blob) {
-        const dataUrl = await this.blobToDataUrl(blob);
+        // v0.8.7: send the blob as raw multipart bytes instead of a base64
+        // data URI. The old JSON path JSON.stringify-ed a ~36MB base64
+        // string for a 26MB PSD, which blows up to "out of memory" or
+        // sends an empty body on some browsers (we saw `has_data: false`
+        // in server logs for 8x PSD exports). FormData streams the blob
+        // directly without a giant string allocation.
+        const fd = new FormData();
+        fd.append('path', path);
+        fd.append('file', blob);
         const response = await fetch('/api/native-dialog/write-file', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ path, data_url: dataUrl })
+            body: fd,
         });
         if (!response.ok) return false;
         const data = await response.json();
@@ -8484,6 +8589,13 @@ class LEDRasterApp {
                     x1 += dx; x2 += dx;
                     y1 += dy; y2 += dy;
                 }
+                // v0.8.7: when PSD export is rendered at scale > 1, the
+                // image is scale × native; layer rectangles must scale to
+                // match or they'll cover only the top-left corner.
+                const s = Number(view.scale) || 1;
+                if (s !== 1) {
+                    x1 *= s; x2 *= s; y1 *= s; y2 *= s;
+                }
                 return {
                     name: l.name,
                     offset_x: x1,
@@ -8505,7 +8617,17 @@ class LEDRasterApp {
                     layers: psdLayers
                 })
             });
-            if (!response.ok) throw new Error('Failed to create PSD');
+            if (!response.ok) {
+                // v0.8.7: surface the server error so the user sees what
+                // actually went wrong (e.g. PSD dimension limits, OOM)
+                // instead of a generic message.
+                let detail = '';
+                try {
+                    const j = await response.clone().json();
+                    if (j && j.error) detail = `: ${j.error}`;
+                } catch (_) {}
+                throw new Error(`Failed to create PSD${detail}`);
+            }
             const blob = await response.blob();
             files.push({ filename: `${view.fileBase}.psd`, blob });
         }
@@ -9513,7 +9635,11 @@ class LEDRasterApp {
     openExportModalWithFormat(format) {
         const modal = document.getElementById('export-modal');
         const formatSelect = document.getElementById('export-format');
-        if (formatSelect) formatSelect.value = format;
+        if (formatSelect) {
+            formatSelect.value = format;
+            // v0.8.7: re-evaluate the PSD-only Scale row visibility.
+            formatSelect.dispatchEvent(new Event('change'));
+        }
         if (modal) {
             modal.style.display = 'block';
             document.getElementById('export-name').value = this.project.name || 'Untitled Project';
@@ -11635,8 +11761,19 @@ class LEDRasterApp {
         }
         return fetch(`/api/canvas/${canvasId}/active`, { method: 'PUT' })
             .then(r => r.json()).then(data => {
-                // Quietly absorb server state without re-rendering twice.
-                if (data && data.canvases) this.project = data;
+                // v0.8.7: previously did `this.project = data` here, which
+                // wiped client-side-only properties (screenNameOffsetX/Y
+                // per view, etc.) every time the user activated a different
+                // canvas — visible as the screen-name label snapping back
+                // to its previous spot the moment you clicked away after
+                // dragging it. The PUT only changes active_canvas_id; just
+                // sync that one field instead of clobbering the whole
+                // project. _applyProjectUpdate-style merges aren't needed
+                // because we already optimistically updated this.project
+                // before the fetch.
+                if (data && data.active_canvas_id) {
+                    this.project.active_canvas_id = data.active_canvas_id;
+                }
             });
     }
 

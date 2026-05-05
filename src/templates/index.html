@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED Raster Designer v0.8.6.3</title>
+    <title>LED Raster Designer v0.8.7</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -84,7 +84,7 @@
 
         <div id="toolbar">
             <div class="toolbar-section toolbar-project">
-                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.8.6.3</span></h1>
+                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.8.7</span></h1>
                 <div style="position:relative;">
                     <input type="text" id="project-name" value="Untitled Project" class="editable-project-name">
                     <div id="project-name-warning" style="display:none; position:absolute; top:100%; left:0; margin-top:4px; padding:4px 8px; font-size:11px; color:#f5a623; background:#1a1a1a; border:1px solid #f5a623; border-radius:4px; white-space:nowrap; z-index:1000; pointer-events:none;"></div>
@@ -1442,6 +1442,20 @@
                     <option value="pdf">PDF (All views combined)</option>
                     <option value="resolume-xml">Resolume XML (Advanced Output)</option>
                 </select>
+            </div>
+
+            <!-- Export Scale (v0.8.7) — multiplies output resolution. Vector
+                 content (panels, labels, arrows, text) stays crisp; bitmap
+                 image layers will sample up. Resolume XML ignores scale. -->
+            <div style="margin-bottom: 18px;" id="export-scale-row">
+                <label style="display: block; margin-bottom: 6px; color: #ccc; font-size: 13px;">Resolution Scale:</label>
+                <select id="export-scale" style="width: 100%; padding: 10px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 4px;">
+                    <option value="1">1x (native raster)</option>
+                    <option value="2">2x</option>
+                    <option value="4">4x</option>
+                    <option value="8">8x</option>
+                </select>
+                <div style="margin-top: 4px; font-size: 11px; color: #777;">Renders the PSD at higher resolution for cleaner Photoshop / print output. Auto-clamped to keep dimensions under PSD's 30000px limit (a status message tells you if a smaller scale was used).</div>
             </div>
             
             <!-- File naming preview -->
