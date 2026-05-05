@@ -181,22 +181,32 @@ class CanvasRenderer {
      * / _strokeText so they stay readable.
      */
     isMirroredView() {
+        // v0.8.6: perspective is fully per-canvas. The legacy global-mirror
+        // path is gone (each canvas applies its own mirror inside the render
+        // loop). This now answers "is ANY visible canvas mirrored in the
+        // current view" — used to gate the BACK VIEW badge layer and to
+        // short-circuit hit-test unmirror when nothing is mirrored.
+        if (this.viewMode !== 'data-flow' && this.viewMode !== 'power') return false;
         if (!window.app || !window.app.project) return false;
-        // v0.8 Slice 8: perspective is per-canvas. Read from the active
-        // canvas first; fall back to the project root for legacy projects
-        // that haven't been migrated (and the synthetic canvasesToRender
-        // entry built at render() for pre-Slice-1 fallbacks).
         const proj = window.app.project;
-        const active = (typeof window.app._activeCanvas === 'function')
-            ? window.app._activeCanvas() : null;
-        if (this.viewMode === 'data-flow') {
-            const v = (active && active.data_flow_perspective) || proj.data_flow_perspective;
-            return v === 'back';
+        const arr = Array.isArray(proj.canvases) ? proj.canvases : [];
+        if (arr.length === 0) {
+            // Pre-Slice-1 legacy projects: read project-root field.
+            const key = this.viewMode === 'data-flow' ? 'data_flow_perspective' : 'power_perspective';
+            return proj[key] === 'back';
         }
-        if (this.viewMode === 'power') {
-            const v = (active && active.power_perspective) || proj.power_perspective;
-            return v === 'back';
-        }
+        return arr.some(c => c && c.visible !== false && this._isCanvasMirrored(c));
+    }
+
+    /**
+     * v0.8.6: per-canvas perspective check. Each canvas can independently
+     * be in Front or Back view. Used by the per-canvas mirror transform
+     * applied during render and by hit-testing.
+     */
+    _isCanvasMirrored(canvas) {
+        if (!canvas) return false;
+        if (this.viewMode === 'data-flow') return canvas.data_flow_perspective === 'back';
+        if (this.viewMode === 'power') return canvas.power_perspective === 'back';
         return false;
     }
 
@@ -407,30 +417,50 @@ class CanvasRenderer {
         };
     }
     
-    // When the active view is mirrored (Back perspective), the canvas is
-    // flipped horizontally for display only. Mouse coordinates are still in
-    // un-mirrored screen space, so we have to flip them back into layer
-    // coordinates before any hit-testing / drag math.
-    _unmirrorWorldX(worldX) {
+    // When the canvas under the cursor is in Back perspective, its content
+    // is flipped horizontally for display only. Mouse coordinates are still
+    // in un-mirrored screen space, so we have to flip them back into layer
+    // coordinates before any hit-testing / drag math. v0.8.6: per-canvas
+    // — find the canvas under the cursor and mirror around its own right
+    // edge. Points outside any canvas (or over an unmirrored canvas) pass
+    // through unchanged.
+    _unmirrorWorldX(worldX, worldY) {
         if (!this.isMirroredView()) return worldX;
-        // v0.8 Slice 8 fix: mirror axis is the workspace bounds, not the
-        // active canvas's raster, otherwise multi-canvas workspaces flip
-        // off-screen because workspace_x can be far past rasterWidth.
-        const k = this._mirrorAxisX();
-        return k - worldX;
+        // Legacy single-canvas projects: keep the old workspace-bbox mirror.
+        const arr = (window.app && window.app.project && window.app.project.canvases) || [];
+        if (!Array.isArray(arr) || arr.length === 0) {
+            const k = this._mirrorAxisX();
+            return k - worldX;
+        }
+        if (worldY == null) {
+            // Caller didn't pass worldY (legacy callsite). Fall back to the
+            // active canvas, since most interactions happen in it.
+            const active = (window.app && typeof window.app._activeCanvas === 'function')
+                ? window.app._activeCanvas() : null;
+            if (active && this._isCanvasMirrored(active)) {
+                const ws = this._canvasWorkspace(active);
+                const useShow = this.isShowLookView();
+                const w = (useShow && active.show_raster_width) || active.raster_width || 0;
+                return 2 * ws.wx + w - worldX;
+            }
+            return worldX;
+        }
+        const c = this._canvasAtPoint(worldX, worldY);
+        if (!c || !this._isCanvasMirrored(c)) return worldX;
+        const ws = this._canvasWorkspace(c);
+        const useShow = this.isShowLookView();
+        const w = (useShow && c.show_raster_width) || c.raster_width || 0;
+        return 2 * ws.wx + w - worldX;
     }
 
     /**
-     * The Canvas2D translate-X used as the mirror axis when Back perspective
-     * is active. We mirror around the workspace bounding box so points stay
-     * in the same x-range after the flip, single-canvas projects degrade to
-     * mirroring around rasterWidth (legacy behaviour) automatically because
-     * their bbox.x is 0 and bbox.w == rasterWidth.
+     * Legacy mirror axis for pre-Slice-1 single-canvas projects only.
+     * Multi-canvas projects (v0.8+) mirror per-canvas around each canvas's
+     * own right edge — see _unmirrorWorldX and the per-canvas mirror block
+     * inside the render loop.
      */
     _mirrorAxisX() {
         const bb = this._workspaceBounds();
-        // K such that K - x maps left edge to right edge of bbox:
-        //   K - bbox.x = bbox.x + bbox.w  →  K = 2*bbox.x + bbox.w
         return 2 * (bb.x || 0) + (bb.width || this.rasterWidth);
     }
 
@@ -509,8 +539,8 @@ class CanvasRenderer {
         const rect = this.canvas.getBoundingClientRect();
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
-        const worldX = this._unmirrorWorldX((mouseX - this.panX) / this.zoom);
         const worldY = (mouseY - this.panY) / this.zoom;
+        const worldX = this._unmirrorWorldX((mouseX - this.panX) / this.zoom, worldY);
 
         // Slice 5: dragging a canvas's dashed outline edge repositions
         // the canvas in the workspace. Must be checked BEFORE the Slice 4
@@ -914,8 +944,8 @@ class CanvasRenderer {
         const rect = this.canvas.getBoundingClientRect();
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
-        const worldX = this._unmirrorWorldX((mouseX - this.panX) / this.zoom);
         const worldY = (mouseY - this.panY) / this.zoom;
+        const worldX = this._unmirrorWorldX((mouseX - this.panX) / this.zoom, worldY);
 
         // Slice 5: live canvas-drag, update workspace_x/y on every move,
         // but only PUT to the server on mouseup (avoid flooding).
@@ -1374,8 +1404,9 @@ class CanvasRenderer {
             this._crossCanvasDropTarget = null;
 
             if (window.app && window.app.currentLayer) {
-                const dx = Math.round(this._unmirrorWorldX(((e.clientX - this.canvas.getBoundingClientRect().left) - this.panX) / this.zoom) - this.dragLayerStartX);
-                const dy = Math.round(((e.clientY - this.canvas.getBoundingClientRect().top) - this.panY) / this.zoom - this.dragLayerStartY);
+                const _dropWY = ((e.clientY - this.canvas.getBoundingClientRect().top) - this.panY) / this.zoom;
+                const dx = Math.round(this._unmirrorWorldX(((e.clientX - this.canvas.getBoundingClientRect().left) - this.panX) / this.zoom, _dropWY) - this.dragLayerStartX);
+                const dy = Math.round(_dropWY - this.dragLayerStartY);
                 
                 let snapDx = dx;
                 let snapDy = dy;
@@ -1453,8 +1484,8 @@ class CanvasRenderer {
                 if (primaryCanvas) {
                     // Mouse cursor world coords at drop (already computed
                     // above for the offset delta).
-                    const cursorWX = this._unmirrorWorldX(((e.clientX - this.canvas.getBoundingClientRect().left) - this.panX) / this.zoom);
                     const cursorWY = ((e.clientY - this.canvas.getBoundingClientRect().top) - this.panY) / this.zoom;
+                    const cursorWX = this._unmirrorWorldX(((e.clientX - this.canvas.getBoundingClientRect().left) - this.panX) / this.zoom, cursorWY);
                     const targetCanvas = this._canvasAtPoint(cursorWX, cursorWY);
                     if (targetCanvas && targetCanvas.id !== primaryCanvasId) {
                         const mode = (e.metaKey || e.altKey) ? 'duplicate' : 'move';
@@ -1611,8 +1642,8 @@ class CanvasRenderer {
         // single-panel selection so the menu actions target it.
         if (this.viewMode === 'pixel-map' && window.app.currentLayer) {
             const rect = this.canvas.getBoundingClientRect();
-            const worldX = this._unmirrorWorldX(((e.clientX - rect.left) - this.panX) / this.zoom);
             const worldY = ((e.clientY - rect.top) - this.panY) / this.zoom;
+            const worldX = this._unmirrorWorldX(((e.clientX - rect.left) - this.panX) / this.zoom, worldY);
             const clicked = this.getPanelAt(worldX, worldY);
             // Right-click works on hidden panels too, the menu shows
             // "Restore From Blank" so they can be brought back.
@@ -2175,18 +2206,23 @@ class CanvasRenderer {
         // Round pan values to prevent sub-pixel anti-aliasing seams between panels
         this.ctx.setTransform(this.zoom, 0, 0, this.zoom, Math.round(this.panX), Math.round(this.panY));
 
-        // Wiring view perspective: in 'back' view, mirror the entire
-        // geometry around the right edge of the raster so techs working
-        // behind the wall see things from their perspective. _fillText /
-        // _strokeText un-mirror text glyphs so labels stay readable. The
-        // _mirror flag drives both the canvas transform and the text
-        // helpers below.
-        this._mirror = this.isMirroredView();
-        if (this._mirror) {
-            // v0.8 Slice 8: mirror axis is the workspace bounding-box right
-            // edge so multi-canvas workspaces stay on-screen when flipped.
-            // Single-canvas legacy projects naturally land at this.rasterWidth
-            // because their bbox is (0, 0, rasterWidth, rasterHeight).
+        // v0.8.6: Wiring-view perspective is per-canvas. Each canvas
+        // independently applies its own mirror transform inside the
+        // per-canvas render loop below (around its own right edge), so c1
+        // can show Front while c2 shows Back simultaneously. The legacy
+        // global-mirror block here used to flip the entire workspace
+        // around the bbox right edge, which forced every canvas into the
+        // same perspective. _fillText / _strokeText still key off
+        // this._mirror — that flag is now toggled on/off per canvas as the
+        // loop enters/exits each canvas's draw scope.
+        this._mirror = false;
+        // Legacy single-canvas projects (no canvases array) keep the old
+        // global mirror so v0.7 fallbacks render correctly.
+        const _legacyNoCanvases = !window.app || !window.app.project
+            || !Array.isArray(window.app.project.canvases)
+            || window.app.project.canvases.length === 0;
+        if (_legacyNoCanvases && this.isMirroredView()) {
+            this._mirror = true;
             this.ctx.translate(this._mirrorAxisX(), 0);
             this.ctx.scale(-1, 1);
         }
@@ -2231,10 +2267,26 @@ class CanvasRenderer {
         const _withLayerWs = (layer, fn) => {
             if (_layerCanvasHidden(layer)) return;
             const { wx, wy } = _layerWs(layer);
-            if (wx || wy) {
+            // v0.8.6: post-passes (capacity error overlay, selection
+            // bounds) run AFTER the per-canvas render loop popped its
+            // mirror, so re-apply the layer's canvas mirror here too —
+            // otherwise overlays render in un-mirrored space and float
+            // detached from the layer they're badging.
+            const _cid = this._effectiveLayerCanvasId(layer);
+            const _c = _cid ? _canvasById[_cid] : null;
+            const _layerMirror = _c && this._isCanvasMirrored(_c);
+            if (wx || wy || _layerMirror) {
                 this.ctx.save();
-                this.ctx.translate(wx, wy);
+                if (wx || wy) this.ctx.translate(wx, wy);
+                if (_layerMirror) {
+                    const _crw = (this.isShowLookView() && _c.show_raster_width)
+                        || _c.raster_width || 0;
+                    this.ctx.translate(_crw, 0);
+                    this.ctx.scale(-1, 1);
+                    this._mirror = true;
+                }
                 fn();
+                if (_layerMirror) this._mirror = false;
                 this.ctx.restore();
             } else {
                 fn();
@@ -2295,6 +2347,20 @@ class CanvasRenderer {
                 // but the tint shows through in empty regions).
                 if (!this.exportMode && canvas.id && canvas.id === _activeCanvasId) {
                     this._drawActiveCanvasTint(canvas);
+                }
+                // v0.8.6: per-canvas mirror. Each canvas applies its own
+                // Front/Back transform around its own right edge so other
+                // canvases are unaffected. _mirror flag drives label
+                // un-mirroring inside _fillText / _strokeText for the
+                // duration of this canvas's layer pass.
+                const _canvasMirror = this._isCanvasMirrored(canvas);
+                if (_canvasMirror) {
+                    this.ctx.save();
+                    const _crw = (this.isShowLookView() && canvas.show_raster_width)
+                        || canvas.raster_width || 0;
+                    this.ctx.translate(_crw, 0);
+                    this.ctx.scale(-1, 1);
+                    this._mirror = true;
                 }
                 // First pass: render all panels and mode-specific content (except labels)
                 layersInCanvas.forEach(layer => {
@@ -2372,6 +2438,13 @@ class CanvasRenderer {
                     if (needsShift) this.ctx.restore();
                 }
                 });
+                // v0.8.6: pop per-canvas mirror so the outline draws in
+                // un-mirrored space (and so the next canvas's mirror
+                // decision is independent).
+                if (_canvasMirror) {
+                    this.ctx.restore();
+                    this._mirror = false;
+                }
                 // Canvas outline drawn LAST so it sits on top of any
                 // layer content that bleeds outside the raster bounds.
                 if (!this.exportMode) {
@@ -4462,20 +4535,47 @@ class CanvasRenderer {
      * Front view shows nothing (clutter-free default; Front is implied).
      */
     renderPerspectiveBadge() {
+        if (this.viewMode !== 'data-flow' && this.viewMode !== 'power') return;
         if (!this.isMirroredView()) return;
         const label = 'BACK VIEW';
+        const arr = (window.app && window.app.project && Array.isArray(window.app.project.canvases))
+            ? window.app.project.canvases : [];
+        // v0.8.6: per-canvas badge so a mixed-perspective workspace makes
+        // it obvious which canvas is flipped. Legacy single-canvas
+        // projects fall back to the original viewport-corner badge.
+        if (arr.length === 0) {
+            this._drawBackBadgeAt(label, this.canvas.width - 20, 20, 'right');
+            return;
+        }
+        const useShow = this.isShowLookView();
+        arr.forEach(c => {
+            if (!c || c.visible === false) return;
+            if (!this._isCanvasMirrored(c)) return;
+            const ws = this._canvasWorkspace(c);
+            const w = (useShow && c.show_raster_width) || c.raster_width || 0;
+            // World top-right of canvas → screen coords (account for pan/zoom).
+            const screenX = (ws.wx + w) * this.zoom + this.panX;
+            const screenY = ws.wy * this.zoom + this.panY;
+            // Anchor to canvas corner with a small inset; clamp so badge
+            // stays visible if the canvas top-right is offscreen.
+            const x = Math.max(20, Math.min(this.canvas.width - 20, screenX - 8));
+            const y = Math.max(20, Math.min(this.canvas.height - 60, screenY + 8));
+            this._drawBackBadgeAt(label, x, y, 'right');
+        });
+    }
+
+    _drawBackBadgeAt(label, anchorX, anchorY, align) {
         this.ctx.save();
         this.ctx.setTransform(1, 0, 0, 1, 0, 0);
-        const padX = 18;
-        const padY = 10;
-        const fontPx = 16;
+        const padX = 14;
+        const padY = 7;
+        const fontPx = 13;
         this.ctx.font = `700 ${fontPx}px -apple-system, "Segoe UI", sans-serif`;
         const textWidth = this.ctx.measureText(label).width;
         const boxW = textWidth + padX * 2;
         const boxH = fontPx + padY * 2;
-        // Top-right corner so it doesn't overlap the selection badge.
-        const x = this.canvas.width - boxW - 20;
-        const y = 20;
+        const x = align === 'right' ? (anchorX - boxW) : anchorX;
+        const y = anchorY;
         this.ctx.fillStyle = 'rgba(217, 80, 0, 0.95)';
         this.ctx.beginPath();
         if (this.ctx.roundRect) this.ctx.roundRect(x, y, boxW, boxH, 6);

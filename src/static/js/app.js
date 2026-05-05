@@ -7786,16 +7786,22 @@ class LEDRasterApp {
         };
     }
 
-    getExportSuffixForView(view, suffixes, viewNames) {
+    getExportSuffixForView(view, suffixes, viewNames, canvas) {
         const raw = (suffixes && typeof suffixes[view] === 'string') ? suffixes[view].trim() : '';
         let suffix = raw || viewNames[view];
-        // Append _back when this view is in back perspective
-        if (this.project) {
-            const perspectiveKey = view === 'data-flow' ? 'data_flow_perspective'
-                : view === 'power' ? 'power_perspective'
-                : null;
-            if (perspectiveKey && this.project[perspectiveKey] === 'back') {
-                if (!/_back$/i.test(suffix)) suffix = `${suffix}_back`;
+        // v0.8.6: perspective is per-canvas. When exporting a specific
+        // canvas, read THAT canvas's perspective (not the project-root
+        // legacy field). For legacy single-canvas projects (canvas=null)
+        // fall back to the project root field.
+        const perspectiveKey = view === 'data-flow' ? 'data_flow_perspective'
+            : view === 'power' ? 'power_perspective'
+            : null;
+        if (perspectiveKey) {
+            const value = canvas
+                ? canvas[perspectiveKey]
+                : (this.project && this.project[perspectiveKey]);
+            if (value === 'back' && !/_back$/i.test(suffix)) {
+                suffix = `${suffix}_back`;
             }
         }
         return suffix;
@@ -7869,6 +7875,38 @@ class LEDRasterApp {
             label.appendChild(swatch);
             label.appendChild(text);
             row.appendChild(label);
+            // v0.8.6: per-canvas perspective overrides for Data + Power
+            // exports. Default to whatever the canvas currently has.
+            // These dropdowns set/restore the canvas's perspective during
+            // export only — they don't persist back to the project.
+            const persp = document.createElement('div');
+            persp.style.cssText = 'display:flex;gap:8px;margin-left:22px;font-size:11px;color:#aaa;align-items:center;';
+            const mkSel = (kind, current) => {
+                const wrap = document.createElement('span');
+                wrap.style.cssText = 'display:inline-flex;gap:4px;align-items:center;';
+                const lbl = document.createElement('span');
+                lbl.textContent = kind === 'data' ? 'Data:' : 'Power:';
+                const sel = document.createElement('select');
+                sel.className = `export-canvas-perspective export-canvas-perspective-${kind}`;
+                sel.dataset.canvasId = c.id;
+                sel.dataset.kind = kind;
+                sel.style.cssText = 'background:#222;color:#ddd;border:1px solid #444;border-radius:3px;padding:1px 4px;font-size:11px;';
+                ['front', 'back'].forEach(v => {
+                    const o = document.createElement('option');
+                    o.value = v;
+                    o.textContent = v === 'front' ? 'Front' : 'Back';
+                    if (v === current) o.selected = true;
+                    sel.appendChild(o);
+                });
+                wrap.appendChild(lbl);
+                wrap.appendChild(sel);
+                return wrap;
+            };
+            const curData = (c.data_flow_perspective === 'back') ? 'back' : 'front';
+            const curPower = (c.power_perspective === 'back') ? 'back' : 'front';
+            persp.appendChild(mkSel('data', curData));
+            persp.appendChild(mkSel('power', curPower));
+            row.appendChild(persp);
             list.appendChild(row);
         });
     }
@@ -7917,6 +7955,31 @@ class LEDRasterApp {
         const canvases = (this.project && Array.isArray(this.project.canvases))
             ? this.project.canvases : [];
         const visibilitySnapshot = canvases.map(c => ({ id: c.id, visible: c.visible }));
+        // v0.8.6: snapshot every canvas's perspective so we can apply the
+        // export-dialog overrides per pass and restore at the end. Read
+        // the per-canvas perspective dropdowns once up-front.
+        const perspectiveSnapshot = canvases.map(c => ({
+            id: c.id,
+            data_flow_perspective: c.data_flow_perspective,
+            power_perspective: c.power_perspective,
+        }));
+        const perspectiveOverrides = {};
+        document.querySelectorAll('.export-canvas-perspective').forEach(sel => {
+            const cid = sel.dataset.canvasId;
+            const kind = sel.dataset.kind;
+            if (!cid || !kind) return;
+            if (!perspectiveOverrides[cid]) perspectiveOverrides[cid] = {};
+            const key = kind === 'data' ? 'data_flow_perspective' : 'power_perspective';
+            perspectiveOverrides[cid][key] = (sel.value === 'back') ? 'back' : 'front';
+        });
+        // Apply overrides to every canvas BEFORE the per-canvas/per-view
+        // loop so each render call sees the user's chosen perspective.
+        canvases.forEach(c => {
+            const o = perspectiveOverrides[c.id];
+            if (!o) return;
+            if (o.data_flow_perspective) c.data_flow_perspective = o.data_flow_perspective;
+            if (o.power_perspective) c.power_perspective = o.power_perspective;
+        });
 
         const exportCanvas = document.createElement('canvas');
         const exportCtx = exportCanvas.getContext('2d', { alpha: useTransparentBg });
@@ -7986,7 +8049,7 @@ class LEDRasterApp {
                     window.canvasRenderer.render();
 
                     const dataUrl = exportCanvas.toDataURL('image/png');
-                    const suffix = this.getExportSuffixForView(view, suffixes, viewNames);
+                    const suffix = this.getExportSuffixForView(view, suffixes, viewNames, targetCanvas);
                     const canvasName = targetCanvas
                         ? this.sanitizeFilename(targetCanvas.name || 'Canvas')
                         : null;
@@ -8014,10 +8077,16 @@ class LEDRasterApp {
                 }
             }
         } finally {
-            // Restore canvas visibility, active canvas, renderer state.
+            // Restore canvas visibility, perspective, active canvas, renderer state.
             visibilitySnapshot.forEach(s => {
                 const c = canvases.find(c => c && c.id === s.id);
                 if (c) c.visible = s.visible;
+            });
+            perspectiveSnapshot.forEach(s => {
+                const c = canvases.find(c => c && c.id === s.id);
+                if (!c) return;
+                c.data_flow_perspective = s.data_flow_perspective;
+                c.power_perspective = s.power_perspective;
             });
             if (this.project) this.project.active_canvas_id = originalActiveCanvasId;
             window.canvasRenderer.canvas = mainCanvas;
