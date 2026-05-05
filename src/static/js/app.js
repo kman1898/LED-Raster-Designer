@@ -2375,6 +2375,90 @@ class LEDRasterApp {
                     l.show_canvas_id = null;
                 });
                 this.updateLayers(layers, false);
+                // v0.8.5.2: also re-link the Show Look raster of every
+                // canvas touched by these layers back to its Pixel Map
+                // raster, so a single Reset click fully restores Show Look
+                // to mirror Pixel Map (position + canvas membership +
+                // raster size). Pushed via the canvas PUT endpoint.
+                if (this.project && Array.isArray(this.project.canvases)
+                        && typeof this.updateCanvas === 'function') {
+                    const canvasIds = new Set();
+                    layers.forEach(l => { if (l && l.canvas_id) canvasIds.add(l.canvas_id); });
+                    canvasIds.forEach(cid => {
+                        const c = this.project.canvases.find(x => x && x.id === cid);
+                        if (!c) return;
+                        const rw = Number(c.raster_width) || 0;
+                        const rh = Number(c.raster_height) || 0;
+                        const sw = Number(c.show_raster_width) || 0;
+                        const sh = Number(c.show_raster_height) || 0;
+                        const patch = {};
+                        if (rw && rw !== sw) patch.show_raster_width = rw;
+                        if (rh && rh !== sh) patch.show_raster_height = rh;
+                        // v0.8.5.3: also re-link show workspace position to
+                        // the Pixel Map workspace position (clear override).
+                        if (c.show_workspace_x != null) {
+                            c.show_workspace_x = null;
+                            patch.show_workspace_x = null;
+                        }
+                        if (c.show_workspace_y != null) {
+                            c.show_workspace_y = null;
+                            patch.show_workspace_y = null;
+                        }
+                        if (Object.keys(patch).length === 0) return;
+                        Object.assign(c, patch);
+                        this.updateCanvas(cid, patch);
+                    });
+                }
+                this.loadLayerToInputs();
+                if (window.canvasRenderer) window.canvasRenderer.render();
+            });
+        }
+        // v0.8.5.2: project-wide Show Look reset. Resets EVERY layer's
+        // showOffset to its offset_x/y, clears every show_canvas_id, and
+        // re-links every canvas's show_raster_* to its raster_* — one
+        // click puts the entire Show Look (and Data + Power, which render
+        // at the show layout) back to mirroring Pixel Map.
+        const showResetAllBtn = document.getElementById('show-look-reset-all');
+        if (showResetAllBtn) {
+            showResetAllBtn.addEventListener('click', () => {
+                if (!this.project) return;
+                this.saveState('Reset Entire Show Look');
+                const allLayers = (this.project.layers || []).filter(
+                    l => (l.type || 'screen') === 'screen'
+                );
+                allLayers.forEach(l => {
+                    l.showOffsetX = l.offset_x;
+                    l.showOffsetY = l.offset_y;
+                    l.show_canvas_id = null;
+                });
+                if (allLayers.length > 0) this.updateLayers(allLayers, false);
+                if (Array.isArray(this.project.canvases)
+                        && typeof this.updateCanvas === 'function') {
+                    this.project.canvases.forEach(c => {
+                        if (!c) return;
+                        const rw = Number(c.raster_width) || 0;
+                        const rh = Number(c.raster_height) || 0;
+                        const sw = Number(c.show_raster_width) || 0;
+                        const sh = Number(c.show_raster_height) || 0;
+                        const patch = {};
+                        if (rw && rw !== sw) patch.show_raster_width = rw;
+                        if (rh && rh !== sh) patch.show_raster_height = rh;
+                        // v0.8.5.3: clear the Show Look workspace override
+                        // so canvases visually re-pin to their Pixel Map
+                        // positions in Show Look / Data / Power.
+                        if (c.show_workspace_x != null) {
+                            c.show_workspace_x = null;
+                            patch.show_workspace_x = null;
+                        }
+                        if (c.show_workspace_y != null) {
+                            c.show_workspace_y = null;
+                            patch.show_workspace_y = null;
+                        }
+                        if (Object.keys(patch).length === 0) return;
+                        Object.assign(c, patch);
+                        this.updateCanvas(c.id, patch);
+                    });
+                }
                 this.loadLayerToInputs();
                 if (window.canvasRenderer) window.canvasRenderer.render();
             });
@@ -11233,8 +11317,18 @@ class LEDRasterApp {
         const bounds = (c) => {
             const w = (useShow && c.show_raster_width) || c.raster_width || 0;
             const h = (useShow && c.show_raster_height) || c.raster_height || 0;
-            const x = c.workspace_x || 0;
-            const y = c.workspace_y || 0;
+            // v0.8.5.3: in Show Look use the canvas's show workspace
+            // position (falls back to workspace_x/y when null). The check
+            // was reading workspace_x/y in both views, which gave false
+            // overlap toasts when only the show position had moved.
+            let x, y;
+            if (useShow) {
+                x = (c.show_workspace_x == null ? (c.workspace_x || 0) : (c.show_workspace_x || 0));
+                y = (c.show_workspace_y == null ? (c.workspace_y || 0) : (c.show_workspace_y || 0));
+            } else {
+                x = c.workspace_x || 0;
+                y = c.workspace_y || 0;
+            }
             return { x, y, w, h };
         };
         const dragged = this.project.canvases.find(c => c && c.id === canvasId);
@@ -11674,10 +11768,10 @@ class LEDRasterApp {
      * project-root mirror. `axis` is 'width' or 'height'; `value` is the new
      * dimension; `isShow` selects show_raster_* vs raster_*.
      *
-     * Auto-link behaviour: when the pixel and show rasters were equal
-     * before this change ("linked"), a pixel-raster edit also updates the
-     * show raster on the same axis so Show Look keeps tracking Pixel Map
-     * until the user explicitly splits them.
+     * v0.8.5.2: Pixel Map and Show Look rasters are fully independent.
+     * Editing one never auto-syncs the other (previously a "linked" edit
+     * on Pixel Map also wrote show_raster_*; that contradicted the design
+     * goal of independent layouts).
      */
     _writeToolbarRasterToActiveCanvas(axis, value, isShow) {
         if (!this.project || !Array.isArray(this.project.canvases)) return;
@@ -11689,17 +11783,8 @@ class LEDRasterApp {
             if (axis === 'width')  patch.show_raster_width  = value;
             if (axis === 'height') patch.show_raster_height = value;
         } else {
-            // Detect linked-state on the *active canvas* before mutating it.
-            const wasLinked = (axis === 'width')
-                ? ((Number(c.raster_width) || 0) === (Number(c.show_raster_width) || 0))
-                : ((Number(c.raster_height) || 0) === (Number(c.show_raster_height) || 0));
-            if (axis === 'width') {
-                patch.raster_width = value;
-                if (wasLinked) patch.show_raster_width = value;
-            } else {
-                patch.raster_height = value;
-                if (wasLinked) patch.show_raster_height = value;
-            }
+            if (axis === 'width')  patch.raster_width  = value;
+            if (axis === 'height') patch.raster_height = value;
         }
         // Optimistic local update so the renderer (which reads from the
         // canvas object via getters) repaints immediately, before the PUT

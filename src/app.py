@@ -1446,6 +1446,8 @@ def update_layer(layer_id):
                 'screenNameSize',
                 # Show Look position (separate from offset_x/y).
                 'showOffsetX', 'showOffsetY',
+                # v0.8.5: per-layer Show Look canvas override. null clears.
+                'show_canvas_id',
                 'showDataFlowPortInfo', 'showPowerCircuitInfo']:
         if key in data:
             layer[key] = data[key]
@@ -1683,6 +1685,9 @@ def update_canvas(canvas_id):
     allowed = {
         'name', 'color', 'visible',
         'workspace_x', 'workspace_y',
+        # v0.8.5.3: per-canvas Show Look workspace position (independent
+        # from Pixel Map's workspace_x/y). null clears.
+        'show_workspace_x', 'show_workspace_y',
         'raster_width', 'raster_height',
         'show_raster_width', 'show_raster_height',
         'data_flow_perspective', 'power_perspective',

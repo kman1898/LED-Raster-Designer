@@ -1,6 +1,51 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.8.5.3 - May 4, 2026
+----------------------------
+- FIX: Dragging a canvas in Show Look also moved it on Pixel Map.
+  Canvases had a single workspace_x/y field shared across both views.
+  Now canvases have a per-view workspace position: workspace_x/y for
+  Pixel Map / Cabinet ID, and an optional show_workspace_x/y for
+  Show Look / Data / Power (falls back to workspace_x/y when null).
+  Show Look canvas drags only write the show_workspace fields. Pixel
+  Map drags only write workspace.
+- FIX: PUT /api/layer/<id> writable list was missing show_canvas_id,
+  so the per-layer Reset button was setting it to null on the client
+  but the server silently ignored the null and the show-canvas
+  override stayed in place. Reset now actually clears it.
+- IMPROVE: Both Reset buttons (per-layer and project-wide) also clear
+  the new show_workspace_x/y override so canvas positions in Show Look
+  re-pin to their Pixel Map positions.
+- Renderer helpers: new _canvasWorkspace(canvas) returns the right
+  workspace position for the active view; used by canvas hit-tests,
+  edge-drag start, layer workspace offset, layer-canvas zoom, workspace
+  bounding box, and the canvas render loop.
+- FIX: Canvas overlap toast and snap-to-neighbor on Show Look were
+  reading workspace_x/y instead of show_workspace_x/y, which gave false
+  "Canvases overlapping" warnings (especially when snapping) because
+  the bounds reflected the stale pixel-map positions instead of the
+  actual show-look positions.
+
+v0.8.5.2 - May 4, 2026
+----------------------------
+- FIX: Pixel Map and Show Look rasters are now fully independent. The
+  toolbar raster edit had an "auto-link" path: when the two raster sizes
+  matched before the edit, changing the Pixel Map raster also wrote the
+  Show Look raster on the same axis. This contradicted the v0.8.5
+  independence design (Pixel Map = processor layout, Show Look = stage
+  layout). Each toolbar edit now writes ONLY the raster for the view
+  the user is on.
+- IMPROVE: "Reset to Pixel Map Position" button now ALSO re-links the
+  Show Look raster of every canvas touched by the selected layer(s)
+  back to its Pixel Map raster. One click fully restores Show Look to
+  mirror Pixel Map (position + canvas membership + raster size).
+- FEATURE: New "Reset Entire Show Look" button in the Show Look sidebar
+  (under the per-layer Reset). One click resets EVERY screen layer's
+  show position to its Pixel Map position, clears every show_canvas_id
+  override, and re-links every canvas's show raster to its Pixel Map
+  raster across the whole project. Undoable in one Cmd+Z step.
+
 v0.8.5.1 - May 4, 2026
 ----------------------------
 - FIX: Cross-canvas Show Look drag correctly compensates the layer's
