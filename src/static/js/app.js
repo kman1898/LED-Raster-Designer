@@ -5465,11 +5465,18 @@ class LEDRasterApp {
         if (!this.project || !this.project.layers) return { primary: 0, backup: 0 };
         let totalPrimary = 0;
         const hiddenCanvasIds = this._hiddenCanvasIdSet();
+        // v0.8.6.3: Data Flow renders at Show Look position and groups by
+        // show_canvas_id, so per-canvas Data totals on that tab should
+        // count by show_canvas_id || canvas_id, not by Pixel Map canvas_id.
+        const isShowView = !!(window.canvasRenderer && window.canvasRenderer.isShowLookView
+            && window.canvasRenderer.isShowLookView());
+        const effCid = (l) => (isShowView && l.show_canvas_id) ? l.show_canvas_id : l.canvas_id;
         this.project.layers.forEach(layer => {
             if ((layer.type || 'screen') !== 'screen') return;
             if (!layer.visible) return;
-            if (layer.canvas_id && hiddenCanvasIds.has(layer.canvas_id)) return;
-            if (onlyCanvasId && layer.canvas_id !== onlyCanvasId) return;
+            const lcid = effCid(layer);
+            if (lcid && hiddenCanvasIds.has(lcid)) return;
+            if (onlyCanvasId && lcid !== onlyCanvasId) return;
             const activePanels = (layer.panels || []).filter(p => !p.blank && !p.hidden);
             if (activePanels.length === 0) return;
             const assignments = this.calculatePortAssignments(layer);
@@ -5493,11 +5500,16 @@ class LEDRasterApp {
         let totalWattsAll = 0;
         const voltages = new Set();
         const hiddenCanvasIds = this._hiddenCanvasIdSet();
+        // v0.8.6.3: same Show-Look-aware grouping as getPortCounts.
+        const isShowView = !!(window.canvasRenderer && window.canvasRenderer.isShowLookView
+            && window.canvasRenderer.isShowLookView());
+        const effCid = (l) => (isShowView && l.show_canvas_id) ? l.show_canvas_id : l.canvas_id;
         this.project.layers.forEach(layer => {
             if ((layer.type || 'screen') !== 'screen') return;
             if (!layer.visible) return;
-            if (layer.canvas_id && hiddenCanvasIds.has(layer.canvas_id)) return;
-            if (onlyCanvasId && layer.canvas_id !== onlyCanvasId) return;
+            const lcid = effCid(layer);
+            if (lcid && hiddenCanvasIds.has(lcid)) return;
+            if (onlyCanvasId && lcid !== onlyCanvasId) return;
             const activePanels = (layer.panels || []).filter(p => !p.blank && !p.hidden);
             if (activePanels.length === 0) return;
             const voltage = Number(layer.powerVoltage) || 110;
@@ -8440,24 +8452,44 @@ class LEDRasterApp {
             // that canvas in the PSD layer list, otherwise the PSD reports
             // sibling canvases' layers as if they were in this image.
             // Legacy / single-canvas: include every layer (canvasId is null).
+            // v0.8.6.3: the rendered item stores the view string in
+            // `view.view` (set by performExport), NOT `view.viewMode`. The
+            // old isShowView check read the wrong field and was always
+            // false, so PSD layer metadata always grouped by Pixel Map
+            // canvas_id even for Show Look / Data / Power exports.
+            const isShowView = view.view === 'show-look'
+                || view.view === 'data-flow' || view.view === 'power';
             const psdLayers = this.project.layers.filter(l => {
                 if (!view.canvasId) return true;
-                // v0.8.5: Show Look / Data / Power exports use the layer's
+                // Show Look / Data / Power exports use the layer's
                 // effective show canvas (show_canvas_id || canvas_id) so a
                 // layer reassigned in Show Look exports under its show
                 // canvas's PSD instead of its Pixel Map canvas's.
-                const isShowView = view.viewMode === 'show-look'
-                    || view.viewMode === 'data-flow' || view.viewMode === 'power';
                 const cid = (isShowView && l.show_canvas_id) ? l.show_canvas_id : l.canvas_id;
                 return cid === view.canvasId;
             }).map(l => {
                 const b = this.getLayerBounds(l);
+                let x1 = b.x1, y1 = b.y1, x2 = b.x2, y2 = b.y2;
+                // v0.8.6.3: in Show Look the rendered image places each
+                // layer at panel + (showOffset - layer.offset). PSD layer
+                // metadata must reflect that shift so layer rectangles in
+                // the resulting PSD line up with the pixels.
+                if (isShowView) {
+                    const procX = Number(l.offset_x) || 0;
+                    const procY = Number(l.offset_y) || 0;
+                    const showX = (l.showOffsetX != null) ? Number(l.showOffsetX) : procX;
+                    const showY = (l.showOffsetY != null) ? Number(l.showOffsetY) : procY;
+                    const dx = showX - procX;
+                    const dy = showY - procY;
+                    x1 += dx; x2 += dx;
+                    y1 += dy; y2 += dy;
+                }
                 return {
                     name: l.name,
-                    offset_x: b.x1,
-                    offset_y: b.y1,
-                    width: b.x2 - b.x1,
-                    height: b.y2 - b.y1,
+                    offset_x: x1,
+                    offset_y: y1,
+                    width: x2 - x1,
+                    height: y2 - y1,
                     visible: l.visible
                 };
             });
@@ -11546,6 +11578,13 @@ class LEDRasterApp {
         // multi-select (shift-click toggle / shift-click range) pass
         // preserveSelection:true to keep their full selection alive, so the
         // user can bulk-edit screens across canvases at once.
+        // v0.8.6.3: in show views, prune by show_canvas_id || canvas_id so
+        // a layer reassigned to a different Show Look canvas is kept when
+        // its Show Look home becomes active (and dropped when something
+        // else does), matching what's drawn and grouped in the sidebar.
+        const _isShowView = !!(window.canvasRenderer && window.canvasRenderer.isShowLookView
+            && window.canvasRenderer.isShowLookView());
+        const _effCid = (l) => (_isShowView && l.show_canvas_id) ? l.show_canvas_id : l.canvas_id;
         if (!opts.preserveSelection
                 && Array.isArray(this.project.layers)
                 && this.selectedLayerIds && this.selectedLayerIds.size > 0) {
@@ -11555,13 +11594,14 @@ class LEDRasterApp {
             for (const id of this.selectedLayerIds) {
                 const l = layerById[id];
                 if (!l) continue;
-                if (!l.canvas_id || l.canvas_id === canvasId) filtered.add(id);
+                const cid = _effCid(l);
+                if (!cid || cid === canvasId) filtered.add(id);
             }
             this.selectedLayerIds = filtered;
         }
         if (!opts.preserveSelection
-                && this.currentLayer && this.currentLayer.canvas_id
-                && this.currentLayer.canvas_id !== canvasId) {
+                && this.currentLayer && _effCid(this.currentLayer)
+                && _effCid(this.currentLayer) !== canvasId) {
             // Promote the most-recently-selected layer in the new active
             // canvas (if any) to currentLayer, otherwise null.
             let next = null;
@@ -11617,10 +11657,19 @@ class LEDRasterApp {
      * layer or selecting siblings inside the already-active canvas.
      */
     _activateCanvasForLayer(layer, opts) {
-        if (!layer || !layer.canvas_id) return;
+        if (!layer) return;
         if (!this.project) return;
-        if (layer.canvas_id === this.project.active_canvas_id) return;
-        this.setActiveCanvas(layer.canvas_id, opts);
+        // v0.8.6.3: in show views, activate the layer's Show Look canvas
+        // (show_canvas_id || canvas_id) so clicking a Show-Look-reassigned
+        // layer activates the canvas it actually lives in on screen.
+        const isShowView = !!(window.canvasRenderer && window.canvasRenderer.isShowLookView
+            && window.canvasRenderer.isShowLookView());
+        const targetCid = (isShowView && layer.show_canvas_id)
+            ? layer.show_canvas_id
+            : layer.canvas_id;
+        if (!targetCid) return;
+        if (targetCid === this.project.active_canvas_id) return;
+        this.setActiveCanvas(targetCid, opts);
     }
 
     reorderCanvasBeforeTarget(draggedId, targetId) {
@@ -11835,18 +11884,25 @@ class LEDRasterApp {
         // layer is the LAST one in the array, the up arrow on that one is
         // disabled, etc.
         if (!this.project || !this.project.canvases) return;
+        // v0.8.6.3: group by view-effective canvas (show_canvas_id ||
+        // canvas_id in show views) so the ▲▼ arrow enable/disable matches
+        // the sidebar group the layer is currently shown in.
+        const isShowView = !!(window.canvasRenderer && window.canvasRenderer.isShowLookView
+            && window.canvasRenderer.isShowLookView());
+        const effCid = (l) => (isShowView && l.show_canvas_id) ? l.show_canvas_id : l.canvas_id;
         // Group layer ids by canvas, in display order (reverse-array).
         const reversed = [...(this.project.layers || [])].reverse();
         const byCanvas = new Map();
         reversed.forEach(l => {
-            if (!byCanvas.has(l.canvas_id)) byCanvas.set(l.canvas_id, []);
-            byCanvas.get(l.canvas_id).push(l.id);
+            const cid = effCid(l);
+            if (!byCanvas.has(cid)) byCanvas.set(cid, []);
+            byCanvas.get(cid).push(l.id);
         });
         document.querySelectorAll('#layers-list .layer-item').forEach(el => {
             const lid = parseInt(el.dataset.layerId, 10);
             const layer = (this.project.layers || []).find(l => l.id === lid);
             if (!layer) return;
-            const ids = byCanvas.get(layer.canvas_id) || [];
+            const ids = byCanvas.get(effCid(layer)) || [];
             const idx = ids.indexOf(lid);
             const up = el.querySelector('.layer-move-up');
             const down = el.querySelector('.layer-move-down');
@@ -11869,9 +11925,15 @@ class LEDRasterApp {
         if (!this.project || !this.project.layers) return;
         const layer = this.project.layers.find(l => l.id === layerId);
         if (!layer) return;
+        // v0.8.6.3: route through view-effective canvas so reorder
+        // operates on the same group the sidebar shows in show views.
+        const isShowView = !!(window.canvasRenderer && window.canvasRenderer.isShowLookView
+            && window.canvasRenderer.isShowLookView());
+        const effCid = (l) => (isShowView && l.show_canvas_id) ? l.show_canvas_id : l.canvas_id;
+        const ownCid = effCid(layer);
         // Build the within-canvas display-order id list.
         const reversed = [...this.project.layers].reverse();
-        const sameCanvasIds = reversed.filter(l => l.canvas_id === layer.canvas_id).map(l => l.id);
+        const sameCanvasIds = reversed.filter(l => effCid(l) === ownCid).map(l => l.id);
         const localIdx = sameCanvasIds.indexOf(layerId);
         const nextLocal = localIdx + delta;
         if (localIdx < 0 || nextLocal < 0 || nextLocal >= sameCanvasIds.length) return;
@@ -12485,6 +12547,18 @@ class LEDRasterApp {
             }
         };
 
+        // v0.8.6.3: helper to carry Show Look state across duplicate/paste
+        // so a layer dragged in Show Look (showOffset / show_canvas_id) is
+        // copied with its Show Look position intact, not snapped back to
+        // mirror Pixel Map.
+        const _carryShow = (l, dx, dy) => {
+            const out = {};
+            if (l.showOffsetX != null) out.showOffsetX = (Number(l.showOffsetX) || 0) + (dx || 0);
+            if (l.showOffsetY != null) out.showOffsetY = (Number(l.showOffsetY) || 0) + (dy || 0);
+            if (l.show_canvas_id) out.show_canvas_id = l.show_canvas_id;
+            return out;
+        };
+
         if ((layer.type || 'screen') === 'image') {
             const duplicateData = {
                 name: getNextName(layer.name),
@@ -12493,7 +12567,8 @@ class LEDRasterApp {
                 imageHeight: layer.imageHeight,
                 imageScale: layer.imageScale || 1.0,
                 offset_x: layer.offset_x + 50,
-                offset_y: layer.offset_y + 50
+                offset_y: layer.offset_y + 50,
+                ..._carryShow(layer, 50, 50),
             };
             fetch('/api/layer/add-image', {
                 method: 'POST',
@@ -12552,7 +12627,8 @@ class LEDRasterApp {
                 showThreePhase: !!layer.showThreePhase,
                 fontBold: !!layer.fontBold,
                 fontItalic: !!layer.fontItalic,
-                fontUnderline: !!layer.fontUnderline
+                fontUnderline: !!layer.fontUnderline,
+                ..._carryShow(layer, 50, 50),
             };
             fetch('/api/layer/add-text', {
                 method: 'POST',
@@ -12721,7 +12797,8 @@ class LEDRasterApp {
             customPortPaths: JSON.parse(JSON.stringify(layer.customPortPaths || {})),
             customPortIndex: layer.customPortIndex,
             randomDataColors: !!layer.randomDataColors,
-            arrowSize: layer.arrowSize
+            arrowSize: layer.arrowSize,
+            ..._carryShow(layer, 50, 50),
         };
 
         fetch('/api/layer/add', {
@@ -12768,7 +12845,7 @@ class LEDRasterApp {
     
     pasteLayer() {
         if (!this.clipboard) return;
-        
+
         // Smart name incrementing (same logic as duplicate)
         const getNextName = (baseName) => {
             const match = baseName.match(/^(.*?)(\d+)$/);
@@ -12780,7 +12857,16 @@ class LEDRasterApp {
                 return `${baseName} 1`;
             }
         };
-        
+
+        // v0.8.6.3: same Show Look carry-over as duplicateLayer.
+        const _carryShow = (l, dx, dy) => {
+            const out = {};
+            if (l.showOffsetX != null) out.showOffsetX = (Number(l.showOffsetX) || 0) + (dx || 0);
+            if (l.showOffsetY != null) out.showOffsetY = (Number(l.showOffsetY) || 0) + (dy || 0);
+            if (l.show_canvas_id) out.show_canvas_id = l.show_canvas_id;
+            return out;
+        };
+
         if ((this.clipboard.type || 'screen') === 'image') {
             const pasteData = {
                 name: getNextName(this.clipboard.name),
@@ -12789,7 +12875,8 @@ class LEDRasterApp {
                 imageHeight: this.clipboard.imageHeight,
                 imageScale: this.clipboard.imageScale || 1.0,
                 offset_x: (this.clipboard.offset_x || 0) + 50,
-                offset_y: (this.clipboard.offset_y || 0) + 50
+                offset_y: (this.clipboard.offset_y || 0) + 50,
+                ..._carryShow(this.clipboard, 50, 50),
             };
             fetch('/api/layer/add-image', {
                 method: 'POST',
@@ -12848,7 +12935,8 @@ class LEDRasterApp {
                 showThreePhase: !!this.clipboard.showThreePhase,
                 fontBold: !!this.clipboard.fontBold,
                 fontItalic: !!this.clipboard.fontItalic,
-                fontUnderline: !!this.clipboard.fontUnderline
+                fontUnderline: !!this.clipboard.fontUnderline,
+                ..._carryShow(this.clipboard, 50, 50),
             };
             fetch('/api/layer/add-text', {
                 method: 'POST',
@@ -12939,7 +13027,8 @@ class LEDRasterApp {
             customPortPaths: JSON.parse(JSON.stringify(this.clipboard.customPortPaths || {})),
             customPortIndex: this.clipboard.customPortIndex,
             randomDataColors: !!this.clipboard.randomDataColors,
-            arrowSize: this.clipboard.arrowSize
+            arrowSize: this.clipboard.arrowSize,
+            ..._carryShow(this.clipboard, 50, 50),
         };
         const pasteClientProps = {
             border_color_pixel: this.clipboard.border_color_pixel,

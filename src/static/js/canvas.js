@@ -1489,10 +1489,16 @@ class CanvasRenderer {
                     const targetCanvas = this._canvasAtPoint(cursorWX, cursorWY);
                     if (targetCanvas && targetCanvas.id !== primaryCanvasId) {
                         const mode = (e.metaKey || e.altKey) ? 'duplicate' : 'move';
-                        // Collect all selected layer ids that share the
-                        // primary's canvas (so the whole multi-selection
-                        // travels together). Primary first so it stays the
-                        // currentLayer in the target.
+                        // v0.8.6.3: in Show Look, include ALL unlocked
+                        // selected layers in the multi-canvas drop,
+                        // regardless of source canvas. Layers coming from
+                        // different source canvases each get their own
+                        // showOffset compensation based on their own source
+                        // canvas's show_workspace (computed below).
+                        // Pixel Map drag still requires same-source-canvas
+                        // because Pixel Map reparent rewrites offset_x/y
+                        // relative to the new canvas's origin and the bulk
+                        // reparent endpoint expects a single source.
                         const peerCanvasId = (l) => isShowMode
                             ? (l.show_canvas_id || l.canvas_id)
                             : l.canvas_id;
@@ -1501,7 +1507,11 @@ class CanvasRenderer {
                             window.app.selectedLayerIds.forEach(id => {
                                 if (id === primary.id) return;
                                 const l = window.app.project.layers.find(x => x.id === id);
-                                if (l && peerCanvasId(l) === primaryCanvasId && !l.locked) {
+                                if (!l || l.locked) return;
+                                if (peerCanvasId(l) === targetCanvas.id) return; // already there
+                                if (isShowMode) {
+                                    movedIds.push(id);
+                                } else if (peerCanvasId(l) === primaryCanvasId) {
                                     movedIds.push(id);
                                 }
                             });
@@ -1530,15 +1540,25 @@ class CanvasRenderer {
                             // v0.8.5.3: compensation must use the SHOW-LOOK
                             // workspace of each canvas (the one the layer is
                             // actually rendered against in this view).
-                            const _ws1 = this._canvasWorkspace(primaryCanvas);
+                            // v0.8.6.3: each moved layer might come from a
+                            // different source canvas (when the user has a
+                            // multi-canvas selection), so compute per-layer
+                            // compensation rather than reusing the primary's
+                            // source delta for everyone.
                             const _ws2 = this._canvasWorkspace(targetCanvas);
-                            const dxComp = _ws1.wx - _ws2.wx;
-                            const dyComp = _ws1.wy - _ws2.wy;
+                            const _canvasById = {};
+                            (window.app.project.canvases || []).forEach(c => {
+                                if (c && c.id) _canvasById[c.id] = c;
+                            });
                             movedIds.forEach(id => {
                                 const l = window.app.project.layers.find(x => x.id === id);
                                 if (!l) return;
-                                l.showOffsetX = (Number(l.showOffsetX) || 0) + dxComp;
-                                l.showOffsetY = (Number(l.showOffsetY) || 0) + dyComp;
+                                const srcCid = peerCanvasId(l);
+                                const srcCanvas = _canvasById[srcCid];
+                                if (!srcCanvas) return;
+                                const _ws1 = this._canvasWorkspace(srcCanvas);
+                                l.showOffsetX = (Number(l.showOffsetX) || 0) + (_ws1.wx - _ws2.wx);
+                                l.showOffsetY = (Number(l.showOffsetY) || 0) + (_ws1.wy - _ws2.wy);
                             });
                             const toUpdate = window.app.getSelectedLayers
                                 ? window.app.getSelectedLayers()
