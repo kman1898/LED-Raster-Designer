@@ -1,6 +1,24 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.8.6.1 - May 5, 2026
+----------------------------
+- FIX: Screens sidebar (right panel) was always grouping layers by
+  Pixel Map canvas membership (`canvas_id`), even on Show Look / Data /
+  Power. So after shift+dragging a layer to a different canvas in
+  Show Look, the canvas correctly redrew under the new canvas's outline
+  but the sidebar still showed it under the old canvas — making it look
+  like the move didn't take. Now the sidebar groups by the layer's
+  view-effective canvas (`show_canvas_id || canvas_id` in Show Look,
+  `canvas_id` in Pixel Map), and re-renders on tab switch so it always
+  matches what's on screen.
+- FIX: Sidebar layer count badge per canvas now reflects the same
+  view-effective grouping, so the count matches the rows shown.
+- FIX: Dropping a layer onto another canvas's group header in the
+  sidebar while on Show Look / Data / Power now sets `show_canvas_id`
+  (the Show Look override) instead of rewriting `canvas_id`. Pixel Map
+  / Cabinet ID drops still rewrite `canvas_id` as before.
+
 v0.8.6 - May 5, 2026
 ----------------------------
 - FEATURE: Per-canvas wiring perspective. Front / Back perspective is now
