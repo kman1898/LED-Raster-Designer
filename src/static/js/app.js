@@ -2227,6 +2227,12 @@ class LEDRasterApp {
                 });
                 
                 window.canvasRenderer.setViewMode(mode);
+                // v0.8.6.1: re-render the Screens sidebar so groups reflect
+                // the view-effective canvas (Show Look groups by
+                // show_canvas_id; Pixel Map groups by canvas_id).
+                if (typeof this.renderLayers === 'function') {
+                    try { this.renderLayers(); } catch (_) {}
+                }
                 sendClientLog('tab_switch', {
                     tab: mode,
                     currentLayer: this.currentLayer ? { id: this.currentLayer.id, name: this.currentLayer.name } : null,
@@ -10991,6 +10997,14 @@ class LEDRasterApp {
         });
         container.innerHTML = '';
 
+        // v0.8.6.1: pick the layer's view-effective canvas so the sidebar
+        // grouping matches what the canvas is rendering. Show Look / Data /
+        // Power group by `show_canvas_id || canvas_id`; Pixel Map / Cabinet
+        // ID group by `canvas_id`.
+        const isShowView = !!(window.canvasRenderer && window.canvasRenderer.isShowLookView
+            && window.canvasRenderer.isShowLookView());
+        const layerCanvasId = (l) => (isShowView && l.show_canvas_id) ? l.show_canvas_id : l.canvas_id;
+
         // Sidebar shows canvases in array order, with each canvas's
         // (reverse-ordered) layers underneath, matches the existing
         // newest-on-top convention.
@@ -11003,7 +11017,7 @@ class LEDRasterApp {
             // (Photoshop style, newest on top).
             const reversed = [...project.layers].reverse();
             reversed.forEach(layer => {
-                if (layer.canvas_id !== canvas.id) return;
+                if (layerCanvasId(layer) !== canvas.id) return;
                 const node = layerNodes.get(layer.id);
                 if (node) body.appendChild(node);
             });
@@ -11017,7 +11031,13 @@ class LEDRasterApp {
         wrap.dataset.canvasId = canvas.id;
         wrap.style.setProperty('--canvas-color', canvas.color || '#4A90E2');
 
-        const layerCount = (this.project.layers || []).filter(l => l.canvas_id === canvas.id).length;
+        // v0.8.6.1: count by view-effective canvas so the header count
+        // matches the layers actually shown under this group in the
+        // current view (Show Look uses show_canvas_id when set).
+        const _isShowView = !!(window.canvasRenderer && window.canvasRenderer.isShowLookView
+            && window.canvasRenderer.isShowLookView());
+        const _effCid = (l) => (_isShowView && l.show_canvas_id) ? l.show_canvas_id : l.canvas_id;
+        const layerCount = (this.project.layers || []).filter(l => _effCid(l) === canvas.id).length;
         wrap.innerHTML = `
             <div class="canvas-group-header" draggable="true" title="Click to activate · Drag to reorder">
                 <span class="canvas-drag-handle" title="Drag to reorder">⋮⋮</span>
@@ -11139,10 +11159,27 @@ class LEDRasterApp {
                 const onLayerItem = e.target.closest && e.target.closest('.layer-item');
                 if (onLayerItem) return;
                 const draggedLayer = (this.project.layers || []).find(l => l.id === this.dragLayerId);
-                if (draggedLayer && draggedLayer.canvas_id !== canvas.id) {
+                if (!draggedLayer) return;
+                // v0.8.6.1: in Show Look / Data / Power, dropping onto a
+                // canvas group rewrites show_canvas_id (Show Look layer
+                // membership) so Pixel Map's canvas_id stays untouched.
+                // Pixel Map / Cabinet ID drops still rewrite canvas_id.
+                const _isShowView = !!(window.canvasRenderer
+                    && window.canvasRenderer.isShowLookView
+                    && window.canvasRenderer.isShowLookView());
+                const effCid = _isShowView
+                    ? (draggedLayer.show_canvas_id || draggedLayer.canvas_id)
+                    : draggedLayer.canvas_id;
+                if (effCid !== canvas.id) {
                     e.preventDefault();
-                    const mode = (e.metaKey || e.altKey) ? 'duplicate' : 'move';
-                    this.moveLayerToCanvas(draggedLayer.id, canvas.id, mode);
+                    if (_isShowView) {
+                        if (typeof this.moveLayerShowCanvas === 'function') {
+                            this.moveLayerShowCanvas(draggedLayer.id, canvas.id);
+                        }
+                    } else {
+                        const mode = (e.metaKey || e.altKey) ? 'duplicate' : 'move';
+                        this.moveLayerToCanvas(draggedLayer.id, canvas.id, mode);
+                    }
                 }
             }
         });
