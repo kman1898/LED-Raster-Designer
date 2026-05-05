@@ -7960,8 +7960,26 @@ class LEDRasterApp {
                     // Translate the workspace so this canvas's top-left
                     // (workspace_x, workspace_y) lands at (0, 0) in the
                     // export canvas. Legacy: pan to 0,0.
-                    const wsx = targetCanvas ? (targetCanvas.workspace_x || 0) : 0;
-                    const wsy = targetCanvas ? (targetCanvas.workspace_y || 0) : 0;
+                    // v0.8.5.3 fix: Show Look / Data / Power views render
+                    // each canvas at its show_workspace_x/y (when set) —
+                    // the export pan must match or the captured PNG comes
+                    // out shifted and missing layers that live at
+                    // negative-relative show positions.
+                    const isShowExport = (view === 'show-look' || view === 'data-flow' || view === 'power');
+                    let wsx = 0, wsy = 0;
+                    if (targetCanvas) {
+                        if (isShowExport) {
+                            wsx = (targetCanvas.show_workspace_x == null
+                                ? (targetCanvas.workspace_x || 0)
+                                : (targetCanvas.show_workspace_x || 0));
+                            wsy = (targetCanvas.show_workspace_y == null
+                                ? (targetCanvas.workspace_y || 0)
+                                : (targetCanvas.show_workspace_y || 0));
+                        } else {
+                            wsx = targetCanvas.workspace_x || 0;
+                            wsy = targetCanvas.workspace_y || 0;
+                        }
+                    }
                     window.canvasRenderer.panX = -wsx;
                     window.canvasRenderer.panY = -wsy;
 

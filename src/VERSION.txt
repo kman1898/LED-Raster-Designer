@@ -1,6 +1,15 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.8.5.4 - May 4, 2026
+----------------------------
+- FIX: Multi-view export (PNG / PSD / PDF) on Show Look / Data / Power
+  was panning the export viewport by canvas.workspace_x/y instead of
+  show_workspace_x/y when those tabs render. Result: every Show Look /
+  Data / Power export came out shifted to the left from where the user
+  positioned the canvas in Show Look. Now the export pan uses the same
+  workspace position the renderer uses on screen for that view.
+
 v0.8.5.3 - May 4, 2026
 ----------------------------
 - FIX: Dragging a canvas in Show Look also moved it on Pixel Map.
