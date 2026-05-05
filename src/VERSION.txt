@@ -1,6 +1,46 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.8.6.3 - May 5, 2026
+----------------------------
+Audit follow-ups for the Show Look canvas-membership refactor. Several
+code paths were still routing through Pixel Map's `canvas_id` even
+when the user was working in Show Look / Data / Power.
+
+- FIX: PSD export. The per-canvas layer-list filter was reading
+  `view.viewMode` (which doesn't exist) instead of `view.view`, so
+  Show Look / Data / Power PSDs always grouped layers by Pixel Map
+  canvas membership. PSD layer offsets in show-view PSDs also used
+  raw processor coords; they now apply the `(showOffset - layer.offset)`
+  shift the renderer applies, so PSD layer rectangles line up with
+  the rendered pixels.
+- FIX: Sidebar ▲▼ arrow enable/disable and within-canvas reorder were
+  grouping by `canvas_id` even on Show Look. After v0.8.6.1 grouped the
+  sidebar by `show_canvas_id`, the arrows were operating on a different
+  group than the user could see. Both now route through the
+  view-effective canvas.
+- FIX: Duplicate Layer (Cmd/Ctrl+J) and Paste Layer (Cmd/Ctrl+V) on
+  screen / image / text layers were dropping `showOffsetX/Y` and
+  `show_canvas_id`, so the new layer snapped back to mirror Pixel Map.
+  Now carries the source's Show Look position (with the same +50px
+  offset applied to processor + show offsets) and Show Look canvas
+  membership.
+- FIX: Clicking a layer now activates its Show Look canvas in show
+  views (instead of always the Pixel Map canvas), and the
+  active-canvas selection prune uses the view-effective canvas. Selecting
+  a Show-Look-reassigned layer no longer flips the active canvas back to
+  its Pixel Map home.
+- FIX: Per-canvas Data Flow / Power totals (sidebar Totals panel) on the
+  Data Flow / Power tabs now count by `show_canvas_id || canvas_id`
+  instead of `canvas_id`, so the per-canvas Watts / Amps / Circuits
+  numbers reflect what's wired in Show Look.
+- FIX: Cross-canvas Shift+Drag in Show Look with a multi-canvas
+  selection (layers from c1, c2, c3 all selected together) was only
+  moving layers that shared the primary's source canvas. Layers from
+  other canvases were silently filtered out. Now ALL unlocked selected
+  layers move to the drop target, and each one gets its own showOffset
+  compensation based on its own source canvas's show_workspace.
+
 v0.8.6.2 - May 5, 2026
 ----------------------------
 - FIX: Marquee select on Show Look / Data Flow / Power was hit-testing
