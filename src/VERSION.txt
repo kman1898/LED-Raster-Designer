@@ -1,6 +1,20 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.8.6.2 - May 5, 2026
+----------------------------
+- FIX: Marquee select on Show Look / Data Flow / Power was hit-testing
+  layers using their Pixel Map canvas position instead of their Show
+  Look canvas position. Result: drawing a selection rect inside one
+  canvas could pick up layers that visually live in different canvases
+  (because their processor coords overlap once you collapse the
+  workspace). The hit-test now routes through `show_canvas_id` and
+  `show_workspace_x/y`, and adds the per-layer `showOffsetX/Y`, so the
+  rect math matches what's drawn on screen.
+- FIX: Same routing applied to per-panel marquee selection on Data
+  Flow custom-flow mode and Power custom-power mode (they use the same
+  workspace-offset helper internally).
+
 v0.8.6.1 - May 5, 2026
 ----------------------------
 - FIX: Screens sidebar (right panel) was always grouping layers by

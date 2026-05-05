@@ -5911,15 +5911,46 @@ class LEDRasterApp {
     // rect-test that compares workspace-coord rectangles against panel-coord
     // (canvas-relative) panel positions. Returns {wx:0, wy:0} for legacy
     // single-canvas projects so existing math is unaffected.
+    // v0.8.6.2: in Show Look / Data / Power, route through the layer's
+    // effective canvas (show_canvas_id || canvas_id) and the canvas's
+    // show_workspace_x/y so marquee hit-test lines up with what's drawn.
+    // Also includes the per-layer showOffset since show views render at
+    // processor offset + showOffset.
     _getLayerWorkspaceOffset(layer) {
         if (!layer || !this.project) return { wx: 0, wy: 0 };
+        const isShowView = !!(window.canvasRenderer && window.canvasRenderer.isShowLookView
+            && window.canvasRenderer.isShowLookView());
         const arr = this.project.canvases;
-        if (!Array.isArray(arr) || arr.length === 0) return { wx: 0, wy: 0 };
-        const cid = layer.canvas_id;
-        if (!cid) return { wx: 0, wy: 0 };
-        for (const c of arr) {
-            if (c && c.id === cid) return { wx: c.workspace_x || 0, wy: c.workspace_y || 0 };
+        if (Array.isArray(arr) && arr.length > 0) {
+            const cid = isShowView
+                ? (layer.show_canvas_id || layer.canvas_id)
+                : layer.canvas_id;
+            const c = cid ? arr.find(x => x && x.id === cid) : null;
+            if (c) {
+                let wx, wy;
+                if (isShowView) {
+                    wx = (c.show_workspace_x == null ? (c.workspace_x || 0) : (c.show_workspace_x || 0));
+                    wy = (c.show_workspace_y == null ? (c.workspace_y || 0) : (c.show_workspace_y || 0));
+                } else {
+                    wx = c.workspace_x || 0;
+                    wy = c.workspace_y || 0;
+                }
+                if (isShowView) {
+                    // Show Look render offset is (showOffset - layer.offset),
+                    // not raw showOffset, because getLayerBounds returns
+                    // panel coords that already include layer.offset_x/y.
+                    // Mirrors canvas.js getLayerRenderOffset.
+                    const procX = Number(layer.offset_x) || 0;
+                    const procY = Number(layer.offset_y) || 0;
+                    const showX = (layer.showOffsetX != null) ? Number(layer.showOffsetX) : procX;
+                    const showY = (layer.showOffsetY != null) ? Number(layer.showOffsetY) : procY;
+                    wx += (showX - procX);
+                    wy += (showY - procY);
+                }
+                return { wx, wy };
+            }
         }
+        // Pre-Slice-1 / orphan-layer fallback: no canvases array.
         return { wx: 0, wy: 0 };
     }
 
