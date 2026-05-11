@@ -1,6 +1,28 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.8.7.7 - May 11, 2026
+----------------------------
+Screen-name labels are now grabbable on every tab.
+
+- FEATURE: Click directly on a screen's name label (the white
+  box) and drag to reposition. Works on Pixel Map, Cabinet ID,
+  Data Flow, and Power — no Shift modifier required. The label
+  rect is hit-tested in workspace coords so it lines up across
+  multi-canvas layouts, Back-perspective canvases, and Show Look
+  offsets. Plain Shift+drag still moves the whole layer on Pixel
+  Map (its primary layer-position gesture), unchanged.
+- The associated label group moves with the screen name as one
+  unit: on Data Flow / Power the "X Mains, Y Backups | Z Ports"
+  or "X Multi, Y Circuits | A1ph / A3ph" center info follows; on
+  Pixel Map the "Columns × Rows • Cabinets • Resolution • Aspect
+  Ratio • Weight" info bar at the bottom shifts by the same
+  offset.
+- Position persists per-tab. Pixel Map gets its own
+  screenNameOffsetXPixelMap / screenNameOffsetYPixelMap fields
+  alongside the existing Cabinet / Data / Power offsets, so each
+  view keeps its own label arrangement.
+
 v0.8.7.6 - May 11, 2026
 ----------------------------
 Sidebar refresh after deleting a layer.

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED Raster Designer v0.8.7.6</title>
+    <title>LED Raster Designer v0.8.7.7</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -84,7 +84,7 @@
 
         <div id="toolbar">
             <div class="toolbar-section toolbar-project">
-                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.8.7.6</span></h1>
+                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.8.7.7</span></h1>
                 <div style="position:relative;">
                     <input type="text" id="project-name" value="Untitled Project" class="editable-project-name">
                     <div id="project-name-warning" style="display:none; position:absolute; top:100%; left:0; margin-top:4px; padding:4px 8px; font-size:11px; color:#f5a623; background:#1a1a1a; border:1px solid #f5a623; border-radius:4px; white-space:nowrap; z-index:1000; pointer-events:none;"></div>
@@ -300,7 +300,7 @@
                             <input type="number" id="screen-name-size-cabinet" value="30" min="8" max="200" autocomplete="off" style="width: 60px;">
                         </div>
                         
-                        <p style="font-size: 11px; color: #888; margin: 4px 0 12px 0;">Shift+drag screen name to reposition</p>
+                        <p style="font-size: 11px; color: #888; margin: 4px 0 12px 0;">Click & drag the screen name to reposition</p>
                         
                         <div class="info-row checkbox-row" data-tooltip="Show Cabinet ID, Display the column-row identifier label on each cabinet panel.">
                             <input type="checkbox" id="show-numbers" checked>
@@ -436,7 +436,7 @@
                             <label for="show-data-flow-port-info">Show Port Info</label>
                         </div>
                         
-                        <p style="font-size: 11px; color: #888; margin: 4px 0 12px 0;">Shift+drag screen name to reposition</p>
+                        <p style="font-size: 11px; color: #888; margin: 4px 0 12px 0;">Click & drag the screen name to reposition</p>
                         
                         <!-- Port Capacity Settings -->
                         <div style="margin-top: 15px; padding: 12px; background: #1a1a1a; border-radius: 6px; border: 1px solid #333;">
@@ -835,7 +835,7 @@
                             <label for="show-power-circuit-info">Show Circuit Info</label>
                         </div>
                         
-                        <p style="font-size: 11px; color: #888; margin: 4px 0 12px 0;">Shift+drag screen name to reposition</p>
+                        <p style="font-size: 11px; color: #888; margin: 4px 0 12px 0;">Click & drag the screen name to reposition</p>
 
                         <div class="info-row" data-tooltip="Voltage, Supply voltage for circuit capacity calculations.">
                             <label>Voltage (V)</label>
@@ -1444,7 +1444,7 @@
                 </select>
             </div>
 
-            <!-- Export Scale (v0.8.7.6) — multiplies output resolution. Vector
+            <!-- Export Scale (v0.8.7.7) — multiplies output resolution. Vector
                  content (panels, labels, arrows, text) stays crisp; bitmap
                  image layers will sample up. Resolume XML ignores scale. -->
             <div style="margin-bottom: 18px;" id="export-scale-row">
@@ -1670,6 +1670,7 @@
                     <tr><td style="padding: 4px 0;">Pan Canvas</td><td style="padding: 4px 0; text-align: right; color: #666;">Space + Drag</td></tr>
                     <tr><td style="padding: 4px 0;">Zoom In / Out</td><td style="padding: 4px 0; text-align: right; color: #666;">Scroll Wheel</td></tr>
                     <tr><td style="padding: 4px 0;">Move Layer</td><td style="padding: 4px 0; text-align: right; color: #666;">Shift + Drag</td></tr>
+                    <tr><td style="padding: 4px 0;">Move Screen Name Label</td><td style="padding: 4px 0; text-align: right; color: #666;">Click & Drag the label</td></tr>
                     <tr><td style="padding: 4px 0;">Move Layer to Another Canvas</td><td style="padding: 4px 0; text-align: right; color: #666;">Shift + Drag onto Canvas</td></tr>
                     <tr><td style="padding: 4px 0;">Duplicate Layer to Another Canvas</td><td style="padding: 4px 0; text-align: right; color: #666;">Cmd/Alt + Shift + Drag onto Canvas</td></tr>
                     <tr><td style="padding: 4px 0;">Move a Canvas</td><td style="padding: 4px 0; text-align: right; color: #666;">Drag the canvas's dashed outline</td></tr>
