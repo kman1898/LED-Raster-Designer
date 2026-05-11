@@ -7769,9 +7769,14 @@ class LEDRasterApp {
         const multiCanvas = canvasIds.length > 1 && canvasIds[0] !== null;
         const buildName = (cid, suffix, ext) => {
             const cname = canvasNameOf(cid);
+            // v0.8.7.4: underscore-separated, view-before-canvas ordering so
+            // alphabetical sort groups all Pixel Maps together, all Data Maps
+            // together, etc. Internal spaces in user-typed project/canvas
+            // names are kept verbatim — the change is only in the separators
+            // and segment order.
             return (multiCanvas && cname)
-                ? `${projectName} - ${cname} - ${suffix}.${ext}`
-                : `${projectName} ${suffix}.${ext}`;
+                ? `${projectName}_${suffix}_${cname}.${ext}`
+                : `${projectName}_${suffix}.${ext}`;
         };
 
         // v0.8.7.1: read per-canvas perspective dropdowns so the filename
@@ -8183,11 +8188,12 @@ class LEDRasterApp {
                         ? this.sanitizeFilename(targetCanvas.name || 'Canvas')
                         : null;
                     // Filename: include canvas token only when exporting
-                    // more than one. Single-canvas exports keep the v0.7
-                    // naming so existing user workflows aren't disrupted.
+                    // more than one. v0.8.7.4: underscore-separated and
+                    // view-before-canvas ordering so alphabetical sort
+                    // groups all Pixel Maps, all Data Maps, etc. together.
                     const fileBase = (multiCanvas && canvasName)
-                        ? `${projectName} - ${canvasName} - ${suffix}`
-                        : `${projectName} ${suffix}`;
+                        ? `${projectName}_${suffix}_${canvasName}`
+                        : `${projectName}_${suffix}`;
                     // PDF page label includes canvas + view when multi.
                     const pdfLabel = (multiCanvas && canvasName)
                         ? `${canvasName}, ${suffix}`
