@@ -1,6 +1,29 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.8.7.2.2 - May 11, 2026
+----------------------------
+Real root cause for the screen-name "snap back" on perspective toggle.
+
+- FIX: Screen-name labels (and every other client-side-only layer
+  field — label sizes, power voltage/amperage, custom port paths,
+  power circuit colors, etc.) reverted to their pre-drag value any
+  time a canvas-level mutation went through the server: perspective
+  toggle, canvas rename, canvas visibility, canvas resize, etc.
+  _applyProjectUpdate was collecting the pre-update client-side
+  props into savedClientProps and then never applying them; the
+  follow-up `if (data.layers && this.applyClientSideProperties)`
+  branch was guarded on a method that doesn't exist, so the
+  loadClientSideProperties restore was silently skipped on every
+  multi-layer / loaded project. Net effect: the user drags the
+  screen-name label, the offset only lives on the in-memory layer
+  object, then the next canvas PUT round-trip replaces the layer
+  with the server's version (which doesn't track screen-name
+  offsets) and the label snaps back.
+  Fix: actually copy savedClientProps onto the fresh layer objects
+  after `this.project = data`. The Untitled-Project localStorage
+  restore is still called below for the boot path.
+
 v0.8.7.2.1 - May 11, 2026
 ----------------------------
 Follow-up to v0.8.7.2 after preview testing.
