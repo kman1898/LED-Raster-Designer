@@ -1,9 +1,9 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
-v0.8.7.2.2 - May 11, 2026
+v0.8.7.3 - May 11, 2026
 ----------------------------
-Real root cause for the screen-name "snap back" on perspective toggle.
+Three follow-up fixes after v0.8.7.1 preview testing.
 
 - FIX: Screen-name labels (and every other client-side-only layer
   field — label sizes, power voltage/amperage, custom port paths,
@@ -12,64 +12,40 @@ Real root cause for the screen-name "snap back" on perspective toggle.
   toggle, canvas rename, canvas visibility, canvas resize, etc.
   _applyProjectUpdate was collecting the pre-update client-side
   props into savedClientProps and then never applying them; the
-  follow-up `if (data.layers && this.applyClientSideProperties)`
-  branch was guarded on a method that doesn't exist, so the
-  loadClientSideProperties restore was silently skipped on every
-  multi-layer / loaded project. Net effect: the user drags the
-  screen-name label, the offset only lives on the in-memory layer
-  object, then the next canvas PUT round-trip replaces the layer
-  with the server's version (which doesn't track screen-name
-  offsets) and the label snaps back.
-  Fix: actually copy savedClientProps onto the fresh layer objects
-  after `this.project = data`. The Untitled-Project localStorage
-  restore is still called below for the boot path.
-
-v0.8.7.2.1 - May 11, 2026
-----------------------------
-Follow-up to v0.8.7.2 after preview testing.
-
+  follow-up branch was guarded on a method that doesn't exist
+  (`this.applyClientSideProperties`), so the restore was silently
+  skipped on every multi-layer / loaded project. Net effect: the
+  user dragged the screen-name label, the offset only lived on the
+  in-memory layer object, then the next canvas PUT round-trip
+  replaced the layer with the server's version (which doesn't track
+  screen-name offsets) and the label snapped back. Fix: actually
+  copy savedClientProps onto the fresh layer objects after
+  `this.project = data`. Also includes a per-canvas mirror
+  compensation on the offset so Front<->Back toggling keeps the
+  label visually on the same side of the layer's center.
+- FIX: Custom drag-select on Data Flow / Power tabs showed no
+  panel highlight on multi-canvas projects, on canvases in Back
+  perspective, or on Show Look views. selectPanelsInRect /
+  selectPowerPanelsInRect already mapped the marquee correctly
+  into panel coords, but the render-time overlay drew the
+  highlight fills at workspace (0,0) without the layer's canvas
+  workspace offset, perspective mirror, OR per-layer Show Look
+  offset, AND was clipped to the legacy single-canvas raster
+  rectangle, so the highlight ended up off-screen or clipped away.
+  Both overlays now share a single helper
+  (_withOverlayLayerTransform) that wraps the full per-layer
+  render transform stack from the main render loop.
 - FIX: Loading a project file silently rewrote the active canvas's
-  raster size. The file-load path blindly wrote projectData.raster_width
-  into canvasRenderer.rasterWidth, but that setter routes to either
-  the active canvas's raster_width or show_raster_width depending on
-  the current tab. When the saved file's root-level raster mirror
-  reflected the Show Look raster (because the user last saved on a
-  Show Look tab), this clobbered the canvas's actual pixel raster
-  with the show value. Now skipped entirely for multi-canvas files —
-  the per-canvas raster on each canvas object is the source of truth
-  and is restored intact via syncRasterFromProject().
-- FIX: Custom drag-select on Data Flow / Power tabs still missed
-  panels on Show Look views (where layers render at showOffsetX/Y,
-  not offset_x/y). The v0.8.7.2 overlay fix applied workspace + mirror
-  but skipped the per-layer Show Look render offset, so highlights
-  landed on the panels' processor positions instead of their show
-  positions. Both selection overlays now share a single helper
-  (_withOverlayLayerTransform) that mirrors the full layer-render
-  transform stack from the main render loop.
-
-v0.8.7.2 - May 11, 2026
-----------------------------
-Fixes two regressions reported after v0.8.7.1.
-
-- FIX: Screen name label jumped position when toggling Data / Power
-  perspective Front<->Back. The label offset is stored once per view
-  (data-flow / power) but the per-canvas mirror transform was applied
-  to its drawn position, so a label dragged off-center would mirror
-  to the opposite side as soon as the user flipped perspective.
-  Offset is now interpreted in *visual* space, both during drag (the
-  un-mirrored mouse delta is flipped before being added to the offset
-  in Back view) and during render (the offset is negated inside the
-  mirror transform so it cancels out). The label now stays visually
-  put when toggling Front<->Back regardless of how the user dragged it.
-- FIX: Custom drag-select on Data Flow and Power tabs showed no
-  panel highlight on multi-canvas projects (and on canvases in Back
-  perspective). selectPanelsInRect / selectPowerPanelsInRect already
-  mapped the marquee correctly into panel coords, but the render-time
-  overlay drew the highlight fills at workspace (0,0) without the
-  active layer's canvas workspace offset or perspective mirror, AND
-  was clipped to the legacy single-canvas raster rectangle, so the
-  highlight ended up off-screen or clipped away. Overlay now applies
-  the same workspace translate + mirror as the layer it's badging.
+  raster size. The file-load path blindly wrote projectData
+  .raster_width into canvasRenderer.rasterWidth, but that setter
+  routes to either the active canvas's raster_width or
+  show_raster_width depending on the current tab. When the saved
+  file's root-level raster mirror reflected the Show Look raster
+  (because the user last saved on a Show Look tab), this clobbered
+  the canvas's actual pixel raster with the show value. Now
+  skipped entirely for multi-canvas files — the per-canvas raster
+  on each canvas object is the source of truth and is restored
+  intact via syncRasterFromProject().
 
 v0.8.7.1 - May 10, 2026
 ----------------------------

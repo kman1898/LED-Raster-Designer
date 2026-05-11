@@ -148,16 +148,14 @@ def test_api_update_check_force(client):
 # ── Version consistency across all sources ────────────────────────
 
 def _extract_version(text):
-    """Extract a version like 1.0, 0.6.5, 0.6.3.6, or 0.8.7.2.2 from text
-    (with or without v prefix).
-    Tries v-prefixed first (most reliable), then falls back to 3+ part versions.
-    Allows up to 6 parts so hotfix-series naming (e.g. 0.8.7.2.2) parses cleanly."""
-    # Try v-prefixed version first (e.g. v0.6.5, v1.0, v0.8.7.2.2)
-    m = re.search(r'v(\d+\.\d+(?:\.\d+){0,4})', text)
+    """Extract a version like 1.0, 0.6.5, or 0.6.3.6 from text (with or without v prefix).
+    Tries v-prefixed first (most reliable), then falls back to 3+ part versions."""
+    # Try v-prefixed version first (e.g. v0.6.5, v1.0)
+    m = re.search(r'v(\d+\.\d+(?:\.\d+){0,2})', text)
     if m:
         return m.group(1)
     # Fall back to non-prefixed 3+ part versions to avoid matching CSS like "0.6em"
-    m = re.search(r'(\d+\.\d+\.\d+(?:\.\d+){0,3})', text)
+    m = re.search(r'(\d+\.\d+\.\d+(?:\.\d+)?)', text)
     return m.group(1) if m else None
 
 
@@ -172,13 +170,12 @@ def _read_version_from_file(rel_path, line_number=None):
 
 
 def test_version_txt_is_valid():
-    """VERSION.txt must use a 2 to 6-part version (e.g. 1.0, 0.6.5, 0.6.3.6,
-    or hotfix-series like 0.8.7.2.2)."""
+    """VERSION.txt must use a 2, 3, or 4-part version (e.g. 1.0, 0.6.5, or 0.6.3.6)."""
     version = _read_version_from_file('src/VERSION.txt')
     assert version is not None, "No version found in VERSION.txt"
     parts = version.split('.')
-    assert 2 <= len(parts) <= 6, (
-        f"VERSION.txt has {len(parts)}-part version '{version}', expected 2-6 parts (e.g. 1.0, 0.6.5, 0.6.3.6, or 0.8.7.2.2)"
+    assert len(parts) in (2, 3, 4), (
+        f"VERSION.txt has {len(parts)}-part version '{version}', expected 2-4 parts (e.g. 1.0, 0.6.5, or 0.6.3.6)"
     )
 
 
