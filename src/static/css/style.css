@@ -123,6 +123,48 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 .layer-item:hover { background: #2a2a2a; }
 .layer-item.active { border-color: #4A90E2; background: #1a2a3a; }
 .layer-item.primary { border-color: #00ccff; box-shadow: inset 0 0 0 1px rgba(0, 204, 255, 0.35); }
+/* v0.8.7.7.1: hidden layers — clearly dimmed + diagonal stripe so the
+   state is unmistakable in the sidebar, and inputs are click-locked. */
+.layer-item.hidden {
+    opacity: 0.55;
+    background:
+        repeating-linear-gradient(
+            135deg,
+            rgba(255, 80, 80, 0.06) 0px,
+            rgba(255, 80, 80, 0.06) 6px,
+            transparent 6px,
+            transparent 12px
+        ),
+        #141414;
+    border-color: #5a2a2a;
+}
+.layer-item.hidden .layer-name-input {
+    text-decoration: line-through;
+    color: #888;
+    pointer-events: none;
+}
+.layer-item.hidden .layer-info { color: #888; }
+.layer-item.hidden .layer-move-up,
+.layer-item.hidden .layer-move-down {
+    opacity: 0.4;
+    pointer-events: none;
+}
+.layer-visibility-btn.is-hidden {
+    background: #5a1f1f;
+    border-color: #b04040 !important;
+    color: #ffb0b0;
+}
+.layer-hidden-badge {
+    display: inline-block;
+    background: #b04040;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 3px;
+    letter-spacing: 0.5px;
+    margin-right: 4px;
+}
 #toggle-lock-selected {
     width: 36px;
     min-width: 36px;
