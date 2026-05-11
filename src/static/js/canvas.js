@@ -1115,8 +1115,26 @@ class CanvasRenderer {
                 // Calculate raw offset from drag
                 const dx = worldX - this.dragScreenNameStartX;
                 const dy = worldY - this.dragScreenNameStartY;
-                
-                let newOffsetX = this.screenNameStartOffset.x + dx;
+
+                // v0.8.7.2: screen-name offsets are stored in *visual* (viewer)
+                // space so toggling Front<->Back keeps the label visually in
+                // place instead of mirror-jumping across the screen. When the
+                // active layer's canvas is mirrored, the mouse delta in world
+                // (un-mirrored) space points the opposite direction from what
+                // the user sees, so negate X here to keep "drag right = +X
+                // visually" regardless of perspective.
+                const _mirrorActive = (() => {
+                    const layer = window.app && window.app.currentLayer;
+                    if (!layer || typeof this._effectiveLayerCanvasId !== 'function') return false;
+                    const cid = this._effectiveLayerCanvasId(layer);
+                    const arr = window.app.project && window.app.project.canvases;
+                    if (!Array.isArray(arr)) return false;
+                    const c = arr.find(c => c && c.id === cid);
+                    return !!(c && this._isCanvasMirrored && this._isCanvasMirrored(c));
+                })();
+                const _visualDx = _mirrorActive ? -dx : dx;
+
+                let newOffsetX = this.screenNameStartOffset.x + _visualDx;
                 let newOffsetY = this.screenNameStartOffset.y + dy;
                 
                 // Only snap if magnetic snap is enabled
@@ -4269,10 +4287,17 @@ class CanvasRenderer {
             let screenNameY = centerY;
             
             if (this.viewMode !== 'pixel-map') {
-                // Apply tab-specific screen name offset (relative to center)
-                screenNameX = centerX + screenNameOffsetX;
+                // Apply tab-specific screen name offset (relative to center).
+                // v0.8.7.2: offsets are stored in *visual* space. When the
+                // canvas is mirrored (Back perspective), the per-canvas scale(
+                // -1, 1) transform that wraps this render would flip the X
+                // position, so negate offsetX here to undo the mirror and keep
+                // the label visually at the user-set position regardless of
+                // Front/Back perspective.
+                const _visualOffsetX = this._mirror ? -screenNameOffsetX : screenNameOffsetX;
+                screenNameX = centerX + _visualOffsetX;
                 screenNameY = centerY + screenNameOffsetY;
-                
+
                 // If offset pushes label outside layer bounds, reset to center
                 if (screenNameX < bounds.x || screenNameX > bounds.x + layerWidth) {
                     screenNameX = centerX;
@@ -4501,13 +4526,17 @@ class CanvasRenderer {
         const layer = window.app.currentLayer;
         if (!window.app.isCustomFlow(layer)) return;
 
-        this.ctx.save();
-        this.ctx.beginPath();
-        this.ctx.rect(0, 0, this.rasterWidth, this.rasterHeight);
-        this.ctx.clip();
-
         const selection = window.app.customSelection || new Set();
-        if (selection.size > 0) {
+        if (selection.size === 0) return;
+
+        // v0.8.7.2.1: this overlay runs AFTER the per-canvas render loop has
+        // popped its workspace translate, perspective mirror, AND per-layer
+        // Show Look offset, so re-apply all three here. Without this, on
+        // multi-canvas projects (or canvases in Back perspective, or any
+        // Show Look view), the highlight fills draw at workspace (0,0) in
+        // raw processor coords, so the user saw no panel highlight during
+        // drag-select.
+        this._withOverlayLayerTransform(layer, () => {
             this.ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
             selection.forEach(key => {
                 const [row, col] = key.split(',').map(n => parseInt(n, 10));
@@ -4515,11 +4544,7 @@ class CanvasRenderer {
                 if (!panel) return;
                 this.ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
             });
-        }
-
-        // No selection rectangle preview (per UX request)
-
-        this.ctx.restore();
+        });
     }
 
     renderPowerSelectionOverlay() {
@@ -4527,13 +4552,14 @@ class CanvasRenderer {
         const layer = window.app.currentLayer;
         if (!window.app.isCustomPower(layer)) return;
 
-        this.ctx.save();
-        this.ctx.beginPath();
-        this.ctx.rect(0, 0, this.rasterWidth, this.rasterHeight);
-        this.ctx.clip();
-
         const selection = window.app.powerCustomSelection || new Set();
-        if (selection.size > 0) {
+        if (selection.size === 0) return;
+
+        // v0.8.7.2.1: same fix as renderCustomSelectionOverlay — apply the
+        // layer's canvas workspace + perspective mirror + per-layer show
+        // offset so drag-select highlights land on the panels they're
+        // targeting.
+        this._withOverlayLayerTransform(layer, () => {
             this.ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
             selection.forEach(key => {
                 const [row, col] = key.split(',').map(n => parseInt(n, 10));
@@ -4541,9 +4567,37 @@ class CanvasRenderer {
                 if (!panel) return;
                 this.ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
             });
-        }
+        });
+    }
 
-        this.ctx.restore();
+    /**
+     * v0.8.7.2.1: shared helper for post-render overlays that need to draw
+     * in the same coord frame as the layer they're badging (selection
+     * overlays, active port/circuit badges, etc.). Applies the layer's
+     * canvas workspace translate, the canvas's Front/Back mirror around
+     * its right edge, and the per-layer Show Look offset — exactly the
+     * stack the main render loop wraps a layer in.
+     */
+    _withOverlayLayerTransform(layer, fn) {
+        const wsOff = (typeof this._layerCanvasOffset === 'function')
+            ? this._layerCanvasOffset(layer) : { wx: 0, wy: 0 };
+        const cid = (typeof this._effectiveLayerCanvasId === 'function')
+            ? this._effectiveLayerCanvasId(layer) : null;
+        const arr = (window.app && window.app.project && window.app.project.canvases) || [];
+        const c = Array.isArray(arr) ? arr.find(x => x && x.id === cid) : null;
+        const mirrorActive = !!(c && this._isCanvasMirrored && this._isCanvasMirrored(c));
+        const { dx, dy } = (typeof this.getLayerRenderOffset === 'function')
+            ? this.getLayerRenderOffset(layer) : { dx: 0, dy: 0 };
+
+        this.ctx.save();
+        if (wsOff.wx || wsOff.wy) this.ctx.translate(wsOff.wx, wsOff.wy);
+        if (mirrorActive) {
+            const crw = (this.isShowLookView() && c.show_raster_width) || c.raster_width || 0;
+            this.ctx.translate(crw, 0);
+            this.ctx.scale(-1, 1);
+        }
+        if (dx || dy) this.ctx.translate(dx, dy);
+        try { fn(); } finally { this.ctx.restore(); }
     }
 
     renderPixelMapSelectionOverlay() {

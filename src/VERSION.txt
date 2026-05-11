@@ -1,6 +1,52 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.8.7.3 - May 11, 2026
+----------------------------
+Three follow-up fixes after v0.8.7.1 preview testing.
+
+- FIX: Screen-name labels (and every other client-side-only layer
+  field — label sizes, power voltage/amperage, custom port paths,
+  power circuit colors, etc.) reverted to their pre-drag value any
+  time a canvas-level mutation went through the server: perspective
+  toggle, canvas rename, canvas visibility, canvas resize, etc.
+  _applyProjectUpdate was collecting the pre-update client-side
+  props into savedClientProps and then never applying them; the
+  follow-up branch was guarded on a method that doesn't exist
+  (`this.applyClientSideProperties`), so the restore was silently
+  skipped on every multi-layer / loaded project. Net effect: the
+  user dragged the screen-name label, the offset only lived on the
+  in-memory layer object, then the next canvas PUT round-trip
+  replaced the layer with the server's version (which doesn't track
+  screen-name offsets) and the label snapped back. Fix: actually
+  copy savedClientProps onto the fresh layer objects after
+  `this.project = data`. Also includes a per-canvas mirror
+  compensation on the offset so Front<->Back toggling keeps the
+  label visually on the same side of the layer's center.
+- FIX: Custom drag-select on Data Flow / Power tabs showed no
+  panel highlight on multi-canvas projects, on canvases in Back
+  perspective, or on Show Look views. selectPanelsInRect /
+  selectPowerPanelsInRect already mapped the marquee correctly
+  into panel coords, but the render-time overlay drew the
+  highlight fills at workspace (0,0) without the layer's canvas
+  workspace offset, perspective mirror, OR per-layer Show Look
+  offset, AND was clipped to the legacy single-canvas raster
+  rectangle, so the highlight ended up off-screen or clipped away.
+  Both overlays now share a single helper
+  (_withOverlayLayerTransform) that wraps the full per-layer
+  render transform stack from the main render loop.
+- FIX: Loading a project file silently rewrote the active canvas's
+  raster size. The file-load path blindly wrote projectData
+  .raster_width into canvasRenderer.rasterWidth, but that setter
+  routes to either the active canvas's raster_width or
+  show_raster_width depending on the current tab. When the saved
+  file's root-level raster mirror reflected the Show Look raster
+  (because the user last saved on a Show Look tab), this clobbered
+  the canvas's actual pixel raster with the show value. Now
+  skipped entirely for multi-canvas files — the per-canvas raster
+  on each canvas object is the source of truth and is restored
+  intact via syncRasterFromProject().
+
 v0.8.7.1 - May 10, 2026
 ----------------------------
 Polish pass on label readability and the port/circuit override editor.

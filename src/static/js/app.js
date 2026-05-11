@@ -11435,10 +11435,27 @@ class LEDRasterApp {
             });
         }
         this.project = data;
-        if (data.layers && this.applyClientSideProperties) {
-            // re-apply localStorage-side overrides if available
-            try { this.loadClientSideProperties && this.loadClientSideProperties({ skipPreferences: true }); } catch (_) {}
+        // v0.8.7.2.1: actually re-apply the in-memory client-side props
+        // collected above. The previous code referenced a non-existent
+        // `applyClientSideProperties` method, so the if-branch was always
+        // false and client-side fields (screen-name offsets, label sizes,
+        // power voltage, custom port paths, etc.) silently reverted to
+        // whatever the server response carried. Repro: drag a screen-name
+        // label, toggle Front<->Back perspective, label snaps back to its
+        // pre-drag position because the perspective PUT response wipes the
+        // layer object and nothing restores the just-dragged offset.
+        if (data.layers && Object.keys(savedClientProps).length > 0) {
+            data.layers.forEach(layer => {
+                const props = savedClientProps[layer.id];
+                if (!props) return;
+                Object.keys(props).forEach(key => {
+                    if (props[key] !== undefined) layer[key] = props[key];
+                });
+            });
         }
+        // Also re-run the localStorage restore for the "Untitled Project"
+        // boot path (shouldUseSavedClientProps gate handles the rest).
+        try { this.loadClientSideProperties && this.loadClientSideProperties({ skipPreferences: true }); } catch (_) {}
         // If the active canvas's properties changed, sync raster size for
         // the workspace toolbar (Slice 4 will deepen this, Slice 2 just
         // keeps the sidebar consistent).
@@ -12275,7 +12292,24 @@ class LEDRasterApp {
                             });
                         }
 
-                        if (projectData.raster_width && projectData.raster_height) {
+                        // v0.8.7.2.1: ONLY trust root-level raster fields for
+                        // legacy (pre-v0.8, no canvases array) files. Multi-
+                        // canvas files keep the source-of-truth on each canvas
+                        // object, and writing the root value into
+                        // canvasRenderer.rasterWidth would clobber the active
+                        // canvas's per-canvas raster (the setter routes to
+                        // either raster_width or show_raster_width depending
+                        // on the current tab). Bug repro: the file's root
+                        // raster_width was a mirror of the active canvas's
+                        // *show* raster (because the user last saved on Show
+                        // Look), so opening the file overwrote the active
+                        // canvas's pixel-map raster with its show raster
+                        // value. syncRasterFromProject below reads from each
+                        // canvas directly so multi-canvas projects are
+                        // unaffected by skipping this block.
+                        const _hasCanvases = Array.isArray(projectData.canvases)
+                            && projectData.canvases.length > 0;
+                        if (!_hasCanvases && projectData.raster_width && projectData.raster_height) {
                             window.canvasRenderer.rasterWidth = projectData.raster_width;
                             window.canvasRenderer.rasterHeight = projectData.raster_height;
                             document.getElementById('toolbar-raster-width').value = projectData.raster_width;
