@@ -12765,7 +12765,25 @@ class LEDRasterApp {
                             this.lastSelectedLayerId = null;
                             this.selectionAnchorLayerId = null;
                         }
-                        
+
+                        // v0.8.7.6: refresh the layer-property inputs from
+                        // the newly-promoted currentLayer. Without this the
+                        // sidebar keeps showing the DELETED layer's
+                        // cabinet_width / cabinet_height / columns / rows /
+                        // etc., and the next "Update Properties" round-trip
+                        // reads those stale values out of the inputs and
+                        // writes them onto the surviving layer — clobbering
+                        // its actual panel dimensions while the on-canvas
+                        // panels stay sized correctly (because the panel
+                        // geometry is already baked into layer.panels).
+                        // Repro that exposed this: add a VN-8.3 preset
+                        // screen (cabinet 60x120), delete the default
+                        // Brompton screen (cabinet 192x384), edit the
+                        // surviving screen's column count → its cabinet
+                        // silently flipped to 192x384.
+                        if (this.currentLayer && typeof this.loadLayerToInputs === 'function') {
+                            try { this.loadLayerToInputs(); } catch (_) {}
+                        }
                         this.updateUI();
                     })
                     .finally(() => {

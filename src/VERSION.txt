@@ -1,6 +1,25 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.8.7.6 - May 11, 2026
+----------------------------
+Sidebar refresh after deleting a layer.
+
+- FIX: Deleting a layer left the sidebar's panel-property inputs
+  (cabinet_width, cabinet_height, columns, rows, etc.) showing the
+  DELETED layer's values. The next "Update Properties" round-trip
+  read those stale values out of the inputs and wrote them onto the
+  newly-promoted surviving layer, silently clobbering its real
+  panel dimensions while the on-canvas panels stayed sized
+  correctly (panel geometry is already baked into layer.panels).
+  Repro: add a screen from a small-panel preset (e.g. VN 8.3 with
+  60x120 cabinets), delete the default Brompton screen (192x384
+  cabinets), then edit the surviving screen's column count — its
+  cabinet field silently flipped to 192x384.
+  Fix: deleteCurrentLayer now refreshes the layer-property inputs
+  via loadLayerToInputs() after the post-delete currentLayer
+  reassignment, so the sidebar matches the actual surviving layer.
+
 v0.8.7.5 - May 11, 2026
 ----------------------------
 Per-canvas filename override in the export modal.
