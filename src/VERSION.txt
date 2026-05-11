@@ -1,6 +1,30 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.8.7.1 - May 10, 2026
+----------------------------
+Polish pass on label readability and the port/circuit override editor.
+
+- FIX: BACK VIEW badge sized for any zoom. The fixed-size badge would
+  cover ~25% of a small canvas at zoom-out and felt undersized when
+  zoomed in. Now scales with the canvas's on-screen pixel width
+  (~10%, capped 9-13px font), and is hidden entirely when the canvas
+  is smaller than ~110px on screen so it can't dominate. Label
+  shortened to "BACK" for compactness.
+- FIX: Power circuit + Data port labels overflowing the screen edge
+  now shift their center inward to stay fully visible instead of
+  getting clipped. The user-set label size is rendered as-is (slider
+  works freely up to its 200px max), the circle grows with text width
+  so labels are never clipped by the circle, and the only constraint
+  is the screen's outer edge — when a label would extend past it, the
+  label slides inward so it stays fully on the screen.
+- UI: Port / Circuit override editor uses the full sidebar width.
+  Replaced the wide "Port N" / "Circuit N" text with a compact bold
+  monospace number column, removed list/input padding, and broke the
+  list out of the panel-content padding with negative margins. The
+  primary + backup inputs are now ~80px each (was ~38px), so labels
+  like "SL-B1" fit without truncation.
+
 v0.8.7 - May 5, 2026
 ----------------------------
 - FEATURE: PSD export Resolution Scale option (1x / 2x / 4x / 8x).

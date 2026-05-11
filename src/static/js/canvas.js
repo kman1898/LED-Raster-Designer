@@ -3239,7 +3239,15 @@ class CanvasRenderer {
 
         this.ctx.lineCap = 'round';
         this.ctx.lineJoin = 'round';
-        
+
+        // v0.8.7.4: layer bounds in panel-local coords, used to shift
+        // port labels inward when they'd overflow the screen edge.
+        const layerBoundsForPort = this.getLayerBounds(layer);
+        const layerLeft = layerBoundsForPort.x;
+        const layerTop = layerBoundsForPort.y;
+        const layerRight = layerBoundsForPort.x + layerBoundsForPort.width;
+        const layerBottom = layerBoundsForPort.y + layerBoundsForPort.height;
+
         const drawPort = (portPanels, portNum) => {
             if (portPanels.length === 0) return;
             
@@ -3295,22 +3303,53 @@ class CanvasRenderer {
             }
             
             const firstPanel = portPanels[0];
-            let px = this.snap(firstPanel.x + firstPanel.width / 2);
-            let py = this.snap(firstPanel.y + firstPanel.height / 2);
             const lastPanel = portPanels[portPanels.length - 1];
-            let rx = this.snap(lastPanel.x + lastPanel.width / 2);
-            let ry = this.snap(lastPanel.y + lastPanel.height / 2);
             const primaryLabel = window.app ? window.app.getPortLabelText(layer, portNum, 'primary') : `P${portNum}`;
             const returnLabel = window.app ? window.app.getPortLabelText(layer, portNum, 'return') : `R${portNum}`;
-            
+
+            // v0.8.7.4: render at user's labelSize directly. Circle grows
+            // to fit text width so the label is never clipped. If the
+            // label would overflow the screen edge, shift the CENTER
+            // inward so it stays fully inside the screen.
+            const sizeLabel = (label) => {
+                this.ctx.font = `bold ${labelSize}px Arial`;
+                const textWidth = this.ctx.measureText(label).width;
+                const padding = Math.max(4, labelSize * 0.2);
+                const radius = Math.max(labelSize * 1.2, textWidth / 2 + padding);
+                return { size: labelSize, radius };
+            };
+            const primaryFit = sizeLabel(primaryLabel);
+            const returnFit = sizeLabel(returnLabel);
+
+            const shiftIntoBounds = (px, py, radius) => {
+                if (px - radius < layerLeft) px = layerLeft + radius;
+                if (px + radius > layerRight) px = layerRight - radius;
+                if (py - radius < layerTop) py = layerTop + radius;
+                if (py + radius > layerBottom) py = layerBottom - radius;
+                return { px: this.snap(px), py: this.snap(py) };
+            };
+
+            const primaryPos = shiftIntoBounds(
+                firstPanel.x + firstPanel.width / 2,
+                firstPanel.y + firstPanel.height / 2,
+                primaryFit.radius
+            );
+            const returnPos = shiftIntoBounds(
+                lastPanel.x + lastPanel.width / 2,
+                lastPanel.y + lastPanel.height / 2,
+                returnFit.radius
+            );
+            const px = primaryPos.px, py = primaryPos.py;
+            const rx = returnPos.px, ry = returnPos.py;
+
             // If the port has only one panel, draw backup first so primary is on top.
             if (portPanels.length === 1) {
                 this.ctx.fillStyle = backupColor;
                 this.ctx.beginPath();
-                this.ctx.arc(rx, ry, circleRadius, 0, Math.PI * 2);
+                this.ctx.arc(rx, ry, returnFit.radius, 0, Math.PI * 2);
                 this.ctx.fill();
                 this.ctx.fillStyle = backupTextColor;
-                this.ctx.font = `bold ${labelSize}px Arial`;
+                this.ctx.font = `bold ${returnFit.size}px Arial`;
                 this.ctx.textAlign = 'center';
                 this.ctx.textBaseline = 'middle';
                 this._fillText(returnLabel, rx, ry);
@@ -3318,11 +3357,11 @@ class CanvasRenderer {
 
             this.ctx.fillStyle = primaryColor;
             this.ctx.beginPath();
-            this.ctx.arc(px, py, circleRadius, 0, Math.PI * 2);
+            this.ctx.arc(px, py, primaryFit.radius, 0, Math.PI * 2);
             this.ctx.fill();
 
             this.ctx.fillStyle = primaryTextColor;
-            this.ctx.font = `bold ${labelSize}px Arial`;
+            this.ctx.font = `bold ${primaryFit.size}px Arial`;
             this.ctx.textAlign = 'center';
             this.ctx.textBaseline = 'middle';
             this._fillText(primaryLabel, px, py);
@@ -3330,10 +3369,11 @@ class CanvasRenderer {
             if (portPanels.length > 1) {
                 this.ctx.fillStyle = backupColor;
                 this.ctx.beginPath();
-                this.ctx.arc(rx, ry, circleRadius, 0, Math.PI * 2);
+                this.ctx.arc(rx, ry, returnFit.radius, 0, Math.PI * 2);
                 this.ctx.fill();
 
                 this.ctx.fillStyle = backupTextColor;
+                this.ctx.font = `bold ${returnFit.size}px Arial`;
                 this._fillText(returnLabel, rx, ry);
             }
         };
@@ -3488,14 +3528,36 @@ class CanvasRenderer {
             '#BB8FCE', '#85C1E9', '#F8B500', '#00CED1'
         ];
 
+        // v0.8.7.4: layer bounds in panel-local coords, used to shift
+        // labels inward when they'd overflow the screen edge.
+        const layerBounds = this.getLayerBounds(layer);
+        const layerLeft = layerBounds.x;
+        const layerTop = layerBounds.y;
+        const layerRight = layerBounds.x + layerBounds.width;
+        const layerBottom = layerBounds.y + layerBounds.height;
+
         const drawCircuitLabel = (panelStart, panelNext, circuitNum) => {
             const label = window.app ? window.app.getPowerCircuitLabel(layer, circuitNum) : `S1-${circuitNum}`;
-            const px = this.snap(panelStart.x + panelStart.width / 2);
-            const py = this.snap(panelStart.y + panelStart.height / 2);
+            // v0.8.7.4: render at the user's labelSize directly (no
+            // fit-to-panel cap — that was overriding the size slider).
+            // Circle grows to fit text width so labels never get clipped.
+            // If the label would overflow the screen edge, shift the
+            // CENTER inward so the label stays fully inside the screen
+            // bounds. Long labels overflow into neighboring panels but
+            // never beyond the screen.
             this.ctx.font = `bold ${labelSize}px Arial`;
             const textWidth = this.ctx.measureText(label).width;
             const padding = Math.max(6, labelSize * 0.25);
             const circleRadius = Math.max(labelSize * 0.7, lineWidth * 1.4, textWidth / 2 + padding);
+            let px = panelStart.x + panelStart.width / 2;
+            let py = panelStart.y + panelStart.height / 2;
+            // Shift to keep circle fully within screen bounds.
+            if (px - circleRadius < layerLeft) px = layerLeft + circleRadius;
+            if (px + circleRadius > layerRight) px = layerRight - circleRadius;
+            if (py - circleRadius < layerTop) py = layerTop + circleRadius;
+            if (py + circleRadius > layerBottom) py = layerBottom - circleRadius;
+            px = this.snap(px);
+            py = this.snap(py);
 
             this.ctx.fillStyle = powerLabelBgColor;
             this.ctx.beginPath();
@@ -4557,14 +4619,14 @@ class CanvasRenderer {
     renderPerspectiveBadge() {
         if (this.viewMode !== 'data-flow' && this.viewMode !== 'power') return;
         if (!this.isMirroredView()) return;
-        const label = 'BACK VIEW';
+        const label = 'BACK';
         const arr = (window.app && window.app.project && Array.isArray(window.app.project.canvases))
             ? window.app.project.canvases : [];
         // v0.8.6: per-canvas badge so a mixed-perspective workspace makes
         // it obvious which canvas is flipped. Legacy single-canvas
         // projects fall back to the original viewport-corner badge.
         if (arr.length === 0) {
-            this._drawBackBadgeAt(label, this.canvas.width - 20, 20, 'right');
+            this._drawBackBadgeAt(label, this.canvas.width - 20, 20, 'right', this.canvas.width);
             return;
         }
         const useShow = this.isShowLookView();
@@ -4576,20 +4638,38 @@ class CanvasRenderer {
             // World top-right of canvas → screen coords (account for pan/zoom).
             const screenX = (ws.wx + w) * this.zoom + this.panX;
             const screenY = ws.wy * this.zoom + this.panY;
+            // v0.8.7.1: badge scales with the canvas's on-screen size so it
+            // doesn't dominate small/zoomed-out canvases. Pass the canvas's
+            // screen-pixel width to _drawBackBadgeAt; it picks a font/pad
+            // proportional to that (clamped to min/max so it stays
+            // readable at extreme zooms).
+            const canvasScreenW = w * this.zoom;
+            // v0.8.7.2: skip the badge when the canvas is so small on
+            // screen that the badge would dominate it. The dashed canvas
+            // outline + flipped content already telegraph back-view at
+            // any zoom; the badge is just a confirmation tag for normal
+            // zoom levels.
+            if (canvasScreenW < 110) return;
             // Anchor to canvas corner with a small inset; clamp so badge
             // stays visible if the canvas top-right is offscreen.
-            const x = Math.max(20, Math.min(this.canvas.width - 20, screenX - 8));
-            const y = Math.max(20, Math.min(this.canvas.height - 60, screenY + 8));
-            this._drawBackBadgeAt(label, x, y, 'right');
+            const x = Math.max(20, Math.min(this.canvas.width - 20, screenX - 4));
+            const y = Math.max(8, Math.min(this.canvas.height - 24, screenY + 4));
+            this._drawBackBadgeAt(label, x, y, 'right', canvasScreenW);
         });
     }
 
-    _drawBackBadgeAt(label, anchorX, anchorY, align) {
+    _drawBackBadgeAt(label, anchorX, anchorY, align, canvasScreenW) {
         this.ctx.save();
         this.ctx.setTransform(1, 0, 0, 1, 0, 0);
-        const padX = 14;
-        const padY = 7;
-        const fontPx = 13;
+        // v0.8.7.2: badge size is purely proportional to canvas screen
+        // width — no minimum clamp, since at extreme zoom-out the canvas
+        // itself shrinks faster than the badge would. Caller skips the
+        // badge entirely when canvasScreenW falls below the
+        // "too small to label" threshold.
+        const targetW = Math.min(110, (canvasScreenW || 600) * 0.10);
+        const fontPx = Math.max(9, Math.min(13, Math.round(targetW / 5.2)));
+        const padX = Math.max(4, Math.round(fontPx * 0.6));
+        const padY = Math.max(2, Math.round(fontPx * 0.35));
         this.ctx.font = `700 ${fontPx}px -apple-system, "Segoe UI", sans-serif`;
         const textWidth = this.ctx.measureText(label).width;
         const boxW = textWidth + padX * 2;
@@ -4598,7 +4678,8 @@ class CanvasRenderer {
         const y = anchorY;
         this.ctx.fillStyle = 'rgba(217, 80, 0, 0.95)';
         this.ctx.beginPath();
-        if (this.ctx.roundRect) this.ctx.roundRect(x, y, boxW, boxH, 6);
+        const radius = Math.max(3, Math.round(fontPx * 0.4));
+        if (this.ctx.roundRect) this.ctx.roundRect(x, y, boxW, boxH, radius);
         else this.ctx.rect(x, y, boxW, boxH);
         this.ctx.fill();
         this.ctx.fillStyle = '#fff';
