@@ -1,0 +1,63 @@
+name: Bug report
+description: Something's broken or behaving unexpectedly
+title: "Issue: <short summary>"
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report! Please include the app version so we can confirm whether your build already has the fix.
+
+  - type: input
+    id: app-version
+    attributes:
+      label: App version
+      description: |
+        Look at the title bar inside the app — it reads "LED Raster Designer v0.X.Y.Z". Or hit `http://127.0.0.1:8050/api/version` while the app is running.
+      placeholder: "e.g. v0.8.7.3"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Windows
+        - Linux
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect to happen, and what actually happened?
+      placeholder: |
+        Steps to reproduce:
+        1. ...
+        2. ...
+
+        Expected: ...
+        Actual: ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: log-file
+    attributes:
+      label: Log file
+      description: |
+        Attach the app's log file if you have it. On macOS it's at
+        `~/Library/Logs/LED Raster Designer/led_raster_designer.log`.
+        On Windows it's next to the app's `.exe` under `logs/`.
+        Drag the file into this textarea to attach it.
+      placeholder: Drag the log file here, or paste relevant lines.
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots or screen recording (optional)
+      placeholder: Drag images / video here.
