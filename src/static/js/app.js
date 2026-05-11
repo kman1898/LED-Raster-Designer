@@ -10064,6 +10064,18 @@ class LEDRasterApp {
             });
         }
         list.innerHTML = '';
+        // v0.8.7.3: force the list's grid to 1fr so each row stretches
+        // the full list width instead of collapsing to content width
+        // (which left ~12px of dead space on the right after the
+        // backup input). Also tighten the list's own padding to claw
+        // back another ~8px for the inputs. Negative margins break the
+        // list out of the panel-content's 12px L+R padding so the
+        // inputs can extend the full sidebar interior — claws back
+        // another 24px (12 on each side).
+        list.style.gridTemplateColumns = '1fr';
+        list.style.padding = '4px';
+        list.style.marginLeft = '-12px';
+        list.style.marginRight = '-12px';
 
         if (portsRequired <= 0) {
             const empty = document.createElement('div');
@@ -10077,29 +10089,45 @@ class LEDRasterApp {
         for (let portNum = 1; portNum <= portsRequired; portNum++) {
             const row = document.createElement('div');
             row.style.display = 'grid';
-            row.style.gridTemplateColumns = '20px 40px 1fr 1fr';
-            row.style.gap = '6px';
+            // v0.8.7.3: compact "1" / "2" number column instead of the
+            // full "Port N" text — saves ~40px in the narrow 260px
+            // sidebar so both inputs get more width. Row stretches to
+            // fill its container with no right-side gap.
+            row.style.gridTemplateColumns = '18px 14px 1fr 1fr';
+            row.style.gap = '4px';
             row.style.alignItems = 'center';
+            row.style.width = '100%';
 
             const cb = document.createElement('input');
             cb.type = 'checkbox';
             cb.setAttribute('data-port', String(portNum));
+            cb.title = `Port ${portNum}`;
+            cb.style.margin = '0';
 
-            const label = document.createElement('div');
-            label.style.fontSize = '11px';
-            label.style.color = '#ccc';
-            label.textContent = `Port ${portNum}`;
+            const numLabel = document.createElement('div');
+            numLabel.style.fontSize = '13px';
+            numLabel.style.fontWeight = '700';
+            numLabel.style.color = '#ccc';
+            numLabel.style.textAlign = 'center';
+            numLabel.style.fontFamily = 'monospace';
+            numLabel.textContent = String(portNum);
 
             const primaryInput = document.createElement('input');
             primaryInput.type = 'text';
             primaryInput.value = (this.currentLayer.portLabelOverridesPrimary && this.currentLayer.portLabelOverridesPrimary[portNum]) || '';
             primaryInput.placeholder = this.getPortLabelText(this.currentLayer, portNum, 'primary');
-            primaryInput.style.padding = '4px 6px';
+            primaryInput.style.padding = '3px 4px';
             primaryInput.style.background = '#0d0d0d';
             primaryInput.style.border = '1px solid #333';
             primaryInput.style.color = '#fff';
             primaryInput.style.borderRadius = '4px';
             primaryInput.style.fontFamily = 'monospace';
+            // v0.8.7.3: fill the grid column instead of using the input's
+            // default intrinsic width (was leaving wasted space to the
+            // right of each input). Power editor already does this.
+            primaryInput.style.width = '100%';
+            primaryInput.style.minWidth = '0';
+            primaryInput.style.boxSizing = 'border-box';
 
             primaryInput.addEventListener('change', () => {
                 const val = primaryInput.value.trim();
@@ -10121,12 +10149,15 @@ class LEDRasterApp {
             returnInput.type = 'text';
             returnInput.value = (this.currentLayer.portLabelOverridesReturn && this.currentLayer.portLabelOverridesReturn[portNum]) || '';
             returnInput.placeholder = this.getPortLabelText(this.currentLayer, portNum, 'return');
-            returnInput.style.padding = '4px 6px';
+            returnInput.style.padding = '3px 4px';
             returnInput.style.background = '#0d0d0d';
             returnInput.style.border = '1px solid #333';
             returnInput.style.color = '#fff';
             returnInput.style.borderRadius = '4px';
             returnInput.style.fontFamily = 'monospace';
+            returnInput.style.width = '100%';
+            returnInput.style.minWidth = '0';
+            returnInput.style.boxSizing = 'border-box';
 
             returnInput.addEventListener('change', () => {
                 const val = returnInput.value.trim();
@@ -10145,7 +10176,7 @@ class LEDRasterApp {
             });
 
             row.appendChild(cb);
-            row.appendChild(label);
+            row.appendChild(numLabel);
             row.appendChild(primaryInput);
             row.appendChild(returnInput);
             list.appendChild(row);
@@ -10172,6 +10203,12 @@ class LEDRasterApp {
         }
 
         list.innerHTML = '';
+        // v0.8.7.3: stretch each row to full list width, trim padding,
+        // and extend past panel-content padding for more input room.
+        list.style.gridTemplateColumns = '1fr';
+        list.style.padding = '4px';
+        list.style.marginLeft = '-12px';
+        list.style.marginRight = '-12px';
         if (circuitsRequired <= 0) {
             const empty = document.createElement('div');
             empty.style.color = '#888';
@@ -10184,25 +10221,32 @@ class LEDRasterApp {
         for (let circuitNum = 1; circuitNum <= circuitsRequired; circuitNum++) {
             const row = document.createElement('div');
             row.style.display = 'grid';
-            row.style.gridTemplateColumns = '20px 72px 1fr';
-            row.style.gap = '6px';
+            // v0.8.7.3: compact "1" / "2" number column, same as port
+            // editor. Row stretches to fill its container width.
+            row.style.gridTemplateColumns = '18px 18px 1fr';
+            row.style.gap = '4px';
             row.style.alignItems = 'center';
-            row.style.maxWidth = '100%';
+            row.style.width = '100%';
 
             const cb = document.createElement('input');
             cb.type = 'checkbox';
             cb.setAttribute('data-circuit', String(circuitNum));
+            cb.title = `Circuit ${circuitNum}`;
+            cb.style.margin = '0';
 
-            const label = document.createElement('div');
-            label.style.fontSize = '11px';
-            label.style.color = '#ccc';
-            label.textContent = `Circuit ${circuitNum}`;
+            const numLabel = document.createElement('div');
+            numLabel.style.fontSize = '13px';
+            numLabel.style.fontWeight = '700';
+            numLabel.style.color = '#ccc';
+            numLabel.style.textAlign = 'center';
+            numLabel.style.fontFamily = 'monospace';
+            numLabel.textContent = String(circuitNum);
 
             const input = document.createElement('input');
             input.type = 'text';
             input.value = (this.currentLayer.powerLabelOverrides && this.currentLayer.powerLabelOverrides[circuitNum]) || '';
             input.placeholder = this.getPowerCircuitLabel(this.currentLayer, circuitNum);
-            input.style.padding = '4px 6px';
+            input.style.padding = '3px 4px';
             input.style.background = '#0d0d0d';
             input.style.border = '1px solid #333';
             input.style.color = '#fff';
@@ -10229,7 +10273,7 @@ class LEDRasterApp {
             });
 
             row.appendChild(cb);
-            row.appendChild(label);
+            row.appendChild(numLabel);
             row.appendChild(input);
             list.appendChild(row);
         }
