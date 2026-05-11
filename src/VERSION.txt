@@ -1,6 +1,31 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.8.7.7.1 - May 11, 2026
+----------------------------
+Hidden layers are now properly out-of-bounds for editing.
+
+- FIX: Hiding a layer now immediately removes it from the selection
+  (and demotes it as currentLayer if it was active). Without this,
+  a hidden layer stayed as currentLayer and the user could keep
+  click-dragging its (invisible) screen-name label, scratching the
+  cached _screenNameHitRect against stale geometry and leaving the
+  offset in a borked state when the layer was re-shown. Sidebar
+  property edits could also flow into a hidden layer. After the
+  fix, the moment a layer is hidden it's deselected; the
+  currentLayer is promoted to the next still-visible selected
+  layer, or the first visible layer in the project, or null.
+- FIX: The screen-name mousedown hit-test now also short-circuits
+  for layers with visible === false, so even if the cached rect
+  hangs around briefly it can't fire a drag. (And the cache is
+  cleared on hide.)
+- UX: Hidden layers in the right-sidebar layer list now carry a
+  much louder visual indicator — red diagonal-stripe overlay, a
+  red "HIDDEN" badge in the info line, strikethrough on the layer
+  name, a red-tinted visibility button showing 🚫 instead of 👁,
+  and the name field + reorder arrows are pointer-locked so the
+  row really reads as "off-limits" at a glance.
+
 v0.8.7.7 - May 11, 2026
 ----------------------------
 Screen-name labels are now grabbable on every tab.

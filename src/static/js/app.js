@@ -6294,15 +6294,56 @@ class LEDRasterApp {
     
     toggleLayerVisibility(layerId) {
         const layer = this.project.layers.find(l => l.id === layerId);
-        if (layer) {
-            layer.visible = !layer.visible;
-            sendClientLog('toggle_visibility', {
-                id: layer.id,
-                name: layer.name,
-                visible: layer.visible
-            });
-            window.canvasRenderer.render();
-            this.renderLayers();
+        if (!layer) return;
+        layer.visible = !layer.visible;
+        sendClientLog('toggle_visibility', {
+            id: layer.id,
+            name: layer.name,
+            visible: layer.visible
+        });
+        // v0.8.7.7.1: when a layer is hidden, drop it from selection
+        // immediately so it can't be edited / dragged / sidebar-tweaked
+        // through stale references. Without this you could (e.g.) hide
+        // a layer and still drag its cached screen-name label, leaving
+        // the offset in a bad state when the layer was later re-shown.
+        if (!layer.visible) {
+            // Clear stale per-layer caches that mousedown / drag handlers
+            // hit-test against. The render loop will re-populate these
+            // for visible layers on the next frame.
+            if (layer._screenNameHitRect) layer._screenNameHitRect = null;
+
+            const wasSelected = this.selectedLayerIds && this.selectedLayerIds.has(layer.id);
+            const wasCurrent = this.currentLayer && this.currentLayer.id === layer.id;
+            if (wasSelected && this.selectedLayerIds.size > 0) {
+                this.selectedLayerIds.delete(layer.id);
+            }
+            if (wasCurrent) {
+                // Promote the next still-visible selected layer (if any),
+                // otherwise pick the first visible layer in the project,
+                // otherwise leave currentLayer null.
+                let promoted = null;
+                if (this.selectedLayerIds && this.selectedLayerIds.size > 0) {
+                    for (const id of this.selectedLayerIds) {
+                        const l = this.project.layers.find(x => x.id === id);
+                        if (l && l.visible !== false) { promoted = l; break; }
+                    }
+                }
+                if (!promoted) {
+                    promoted = this.project.layers.find(l => l.visible !== false && l.id !== layer.id) || null;
+                    if (promoted) this.selectedLayerIds = new Set([promoted.id]);
+                    else this.selectedLayerIds = new Set();
+                }
+                this.currentLayer = promoted;
+                this.lastSelectedLayerId = promoted ? promoted.id : null;
+                if (typeof this.loadLayerToInputs === 'function' && promoted) {
+                    try { this.loadLayerToInputs(); } catch (_) {}
+                }
+            }
+        }
+        window.canvasRenderer.render();
+        this.renderLayers();
+        if (typeof this.updateUI === 'function') {
+            try { this.updateUI(); } catch (_) {}
         }
     }
 
@@ -11078,6 +11119,10 @@ class LEDRasterApp {
             if (this.currentLayer && this.currentLayer.id === layer.id) {
                 layerDiv.classList.add('primary');
             }
+            // v0.8.7.7.1: visually distinguish hidden layers in the sidebar.
+            if (layer.visible === false) {
+                layerDiv.classList.add('hidden');
+            }
             
             const layerType = layer.type || 'screen';
             const isImage = layerType === 'image';
@@ -11109,13 +11154,13 @@ class LEDRasterApp {
                             <button class="layer-btn layer-move-up" data-layer-id="${layer.id}" title="Move up within canvas">▲</button>
                             <button class="layer-btn layer-move-down" data-layer-id="${layer.id}" title="Move down within canvas">▼</button>
                         </div>
-                        <button class="layer-btn" onclick="app.toggleLayerVisibility(${layer.id})" title="Toggle Visibility">
-                            ${layer.visible ? '👁' : '👁‍🗨'}
+                        <button class="layer-btn layer-visibility-btn ${layer.visible === false ? 'is-hidden' : ''}" onclick="app.toggleLayerVisibility(${layer.id})" title="${layer.visible === false ? 'Hidden — click to show' : 'Visible — click to hide'}">
+                            ${layer.visible === false ? '🚫' : '👁'}
                         </button>
                     </div>
                 </div>
                 <div class="layer-info">
-                    ${infoText}
+                    ${layer.visible === false ? '<span class="layer-hidden-badge">HIDDEN</span> ' : ''}${infoText}
                 </div>
             `;
             

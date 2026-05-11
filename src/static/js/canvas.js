@@ -553,6 +553,11 @@ class CanvasRenderer {
                 && !e.metaKey && !e.ctrlKey
                 && window.app && window.app.currentLayer
                 && (window.app.currentLayer.type || 'screen') === 'screen'
+                // v0.8.7.7.1: don't fire on a hidden layer even if the
+                // hit-rect cache is stale from before the visibility
+                // toggle. toggleLayerVisibility now clears the cache too,
+                // but this guard makes the rule explicit.
+                && window.app.currentLayer.visible !== false
                 && this.viewMode !== 'show-look') {
             const _r = window.app.currentLayer._screenNameHitRect;
             if (_r && _r.viewMode === this.viewMode
