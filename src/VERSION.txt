@@ -1,6 +1,30 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.8.7.2 - May 11, 2026
+----------------------------
+Fixes two regressions reported after v0.8.7.1.
+
+- FIX: Screen name label jumped position when toggling Data / Power
+  perspective Front<->Back. The label offset is stored once per view
+  (data-flow / power) but the per-canvas mirror transform was applied
+  to its drawn position, so a label dragged off-center would mirror
+  to the opposite side as soon as the user flipped perspective.
+  Offset is now interpreted in *visual* space, both during drag (the
+  un-mirrored mouse delta is flipped before being added to the offset
+  in Back view) and during render (the offset is negated inside the
+  mirror transform so it cancels out). The label now stays visually
+  put when toggling Front<->Back regardless of how the user dragged it.
+- FIX: Custom drag-select on Data Flow and Power tabs showed no
+  panel highlight on multi-canvas projects (and on canvases in Back
+  perspective). selectPanelsInRect / selectPowerPanelsInRect already
+  mapped the marquee correctly into panel coords, but the render-time
+  overlay drew the highlight fills at workspace (0,0) without the
+  active layer's canvas workspace offset or perspective mirror, AND
+  was clipped to the legacy single-canvas raster rectangle, so the
+  highlight ended up off-screen or clipped away. Overlay now applies
+  the same workspace translate + mirror as the layer it's badging.
+
 v0.8.7.1 - May 10, 2026
 ----------------------------
 Polish pass on label readability and the port/circuit override editor.
