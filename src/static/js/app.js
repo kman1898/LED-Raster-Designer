@@ -1228,6 +1228,8 @@ class LEDRasterApp {
             screenNameSizeCabinet: layer.screenNameSizeCabinet,
             screenNameSizeDataFlow: layer.screenNameSizeDataFlow,
             screenNameSizePower: layer.screenNameSizePower,
+            screenNameOffsetXPixelMap: layer.screenNameOffsetXPixelMap,
+            screenNameOffsetYPixelMap: layer.screenNameOffsetYPixelMap,
             screenNameOffsetXCabinet: layer.screenNameOffsetXCabinet,
             screenNameOffsetYCabinet: layer.screenNameOffsetYCabinet,
             screenNameOffsetXDataFlow: layer.screenNameOffsetXDataFlow,
@@ -1428,6 +1430,8 @@ class LEDRasterApp {
                         if (layerProps.screenNameSizePower !== undefined) layer.screenNameSizePower = layerProps.screenNameSizePower;
                         if (layerProps.showDataFlowPortInfo !== undefined) layer.showDataFlowPortInfo = layerProps.showDataFlowPortInfo;
                         if (layerProps.showPowerCircuitInfo !== undefined) layer.showPowerCircuitInfo = layerProps.showPowerCircuitInfo;
+                        if (layerProps.screenNameOffsetXPixelMap !== undefined) layer.screenNameOffsetXPixelMap = layerProps.screenNameOffsetXPixelMap;
+                        if (layerProps.screenNameOffsetYPixelMap !== undefined) layer.screenNameOffsetYPixelMap = layerProps.screenNameOffsetYPixelMap;
                         if (layerProps.screenNameOffsetXCabinet !== undefined) layer.screenNameOffsetXCabinet = layerProps.screenNameOffsetXCabinet;
                         if (layerProps.screenNameOffsetYCabinet !== undefined) layer.screenNameOffsetYCabinet = layerProps.screenNameOffsetYCabinet;
                         if (layerProps.screenNameOffsetXDataFlow !== undefined) layer.screenNameOffsetXDataFlow = layerProps.screenNameOffsetXDataFlow;
@@ -1626,6 +1630,8 @@ class LEDRasterApp {
                 screenNameSizePower: layer.screenNameSizePower,
                 
                 // Tab-specific screen name positions
+                screenNameOffsetXPixelMap: layer.screenNameOffsetXPixelMap,
+                screenNameOffsetYPixelMap: layer.screenNameOffsetYPixelMap,
                 screenNameOffsetXCabinet: layer.screenNameOffsetXCabinet,
                 screenNameOffsetYCabinet: layer.screenNameOffsetYCabinet,
                 screenNameOffsetXDataFlow: layer.screenNameOffsetXDataFlow,
@@ -6399,6 +6405,8 @@ class LEDRasterApp {
                 const preservedProps = {
                     screenNameOffsetX: this.currentLayer.screenNameOffsetX,
                     screenNameOffsetY: this.currentLayer.screenNameOffsetY,
+                    screenNameOffsetXPixelMap: this.currentLayer.screenNameOffsetXPixelMap,
+                    screenNameOffsetYPixelMap: this.currentLayer.screenNameOffsetYPixelMap,
                     screenNameOffsetXCabinet: this.currentLayer.screenNameOffsetXCabinet,
                     screenNameOffsetYCabinet: this.currentLayer.screenNameOffsetYCabinet,
                     screenNameOffsetXDataFlow: this.currentLayer.screenNameOffsetXDataFlow,
@@ -6520,6 +6528,8 @@ class LEDRasterApp {
                 showOffsetY: layer.showOffsetY,
                 screenNameOffsetX: layer.screenNameOffsetX,
                 screenNameOffsetY: layer.screenNameOffsetY,
+                screenNameOffsetXPixelMap: layer.screenNameOffsetXPixelMap,
+                screenNameOffsetYPixelMap: layer.screenNameOffsetYPixelMap,
                 screenNameOffsetXCabinet: layer.screenNameOffsetXCabinet,
                 screenNameOffsetYCabinet: layer.screenNameOffsetYCabinet,
                 screenNameOffsetXDataFlow: layer.screenNameOffsetXDataFlow,
@@ -13035,6 +13045,8 @@ class LEDRasterApp {
             screenNameSizeCabinet: layer.screenNameSizeCabinet,
             screenNameSizeDataFlow: layer.screenNameSizeDataFlow,
             screenNameSizePower: layer.screenNameSizePower,
+            screenNameOffsetXPixelMap: layer.screenNameOffsetXPixelMap,
+            screenNameOffsetYPixelMap: layer.screenNameOffsetYPixelMap,
             screenNameOffsetXCabinet: layer.screenNameOffsetXCabinet,
             screenNameOffsetYCabinet: layer.screenNameOffsetYCabinet,
             screenNameOffsetXDataFlow: layer.screenNameOffsetXDataFlow,

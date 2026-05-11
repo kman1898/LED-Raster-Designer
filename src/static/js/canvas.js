@@ -542,6 +542,47 @@ class CanvasRenderer {
         const worldY = (mouseY - this.panY) / this.zoom;
         const worldX = this._unmirrorWorldX((mouseX - this.panX) / this.zoom, worldY);
 
+        // v0.8.7.7: plain-click directly on a screen-name label starts a
+        // screen-name drag (no modifier needed). This is the universal
+        // "grab the label" gesture across every tab — Pixel Map, Cabinet
+        // ID, Data Flow, Power. The label rect is cached on the layer by
+        // renderLayerLabels at draw time so this hit-test stays in sync
+        // with what's drawn. Only checks the active currentLayer's label
+        // — clicking some other layer's label still needs Shift / etc.
+        if (e.button === 0 && !this.spacePressed && !e.altKey && !e.shiftKey
+                && !e.metaKey && !e.ctrlKey
+                && window.app && window.app.currentLayer
+                && (window.app.currentLayer.type || 'screen') === 'screen'
+                && this.viewMode !== 'show-look') {
+            const _r = window.app.currentLayer._screenNameHitRect;
+            if (_r && _r.viewMode === this.viewMode
+                    && worldX >= _r.x1 && worldX <= _r.x2
+                    && worldY >= _r.y1 && worldY <= _r.y2) {
+                this.isDraggingScreenName = true;
+                this.dragScreenNameStartX = worldX;
+                this.dragScreenNameStartY = worldY;
+                let currentOffsetX = 0;
+                let currentOffsetY = 0;
+                const layer = window.app.currentLayer;
+                if (this.viewMode === 'pixel-map') {
+                    currentOffsetX = layer.screenNameOffsetXPixelMap || 0;
+                    currentOffsetY = layer.screenNameOffsetYPixelMap || 0;
+                } else if (this.viewMode === 'cabinet-id') {
+                    currentOffsetX = layer.screenNameOffsetXCabinet || 0;
+                    currentOffsetY = layer.screenNameOffsetYCabinet || 0;
+                } else if (this.viewMode === 'data-flow') {
+                    currentOffsetX = layer.screenNameOffsetXDataFlow || 0;
+                    currentOffsetY = layer.screenNameOffsetYDataFlow || 0;
+                } else if (this.viewMode === 'power') {
+                    currentOffsetX = layer.screenNameOffsetXPower || 0;
+                    currentOffsetY = layer.screenNameOffsetYPower || 0;
+                }
+                this.screenNameStartOffset = { x: currentOffsetX, y: currentOffsetY };
+                this.canvas.style.cursor = 'move';
+                return;
+            }
+        }
+
         // Slice 5: dragging a canvas's dashed outline edge repositions
         // the canvas in the workspace. Must be checked BEFORE the Slice 4
         // panel/canvas-activate block so edge-drag wins over body-click
@@ -653,11 +694,14 @@ class CanvasRenderer {
                     this.isDraggingScreenName = true;
                     this.dragScreenNameStartX = worldX;
                     this.dragScreenNameStartY = worldY;
-                    
+
                     let currentOffsetX = 0;
                     let currentOffsetY = 0;
-                    
-                    if (this.viewMode === 'cabinet-id') {
+
+                    if (this.viewMode === 'pixel-map') {
+                        currentOffsetX = window.app.currentLayer.screenNameOffsetXPixelMap || 0;
+                        currentOffsetY = window.app.currentLayer.screenNameOffsetYPixelMap || 0;
+                    } else if (this.viewMode === 'cabinet-id') {
                         currentOffsetX = window.app.currentLayer.screenNameOffsetXCabinet || 0;
                         currentOffsetY = window.app.currentLayer.screenNameOffsetYCabinet || 0;
                     } else if (this.viewMode === 'data-flow') {
@@ -667,7 +711,7 @@ class CanvasRenderer {
                         currentOffsetX = window.app.currentLayer.screenNameOffsetXPower || 0;
                         currentOffsetY = window.app.currentLayer.screenNameOffsetYPower || 0;
                     }
-                    
+
                     this.screenNameStartOffset = { x: currentOffsetX, y: currentOffsetY };
                     return;
                 }
@@ -1164,7 +1208,10 @@ class CanvasRenderer {
                 }
                 
                 // Store in tab-specific properties
-                if (this.viewMode === 'cabinet-id') {
+                if (this.viewMode === 'pixel-map') {
+                    layer.screenNameOffsetXPixelMap = newOffsetX;
+                    layer.screenNameOffsetYPixelMap = newOffsetY;
+                } else if (this.viewMode === 'cabinet-id') {
                     layer.screenNameOffsetXCabinet = newOffsetX;
                     layer.screenNameOffsetYCabinet = newOffsetY;
                 } else if (this.viewMode === 'data-flow') {
@@ -1621,7 +1668,10 @@ class CanvasRenderer {
                 let currentOffsetX = 0;
                 let currentOffsetY = 0;
 
-                if (this.viewMode === 'cabinet-id') {
+                if (this.viewMode === 'pixel-map') {
+                    currentOffsetX = layer.screenNameOffsetXPixelMap || 0;
+                    currentOffsetY = layer.screenNameOffsetYPixelMap || 0;
+                } else if (this.viewMode === 'cabinet-id') {
                     currentOffsetX = layer.screenNameOffsetXCabinet || 0;
                     currentOffsetY = layer.screenNameOffsetYCabinet || 0;
                 } else if (this.viewMode === 'data-flow') {
@@ -4030,6 +4080,12 @@ class CanvasRenderer {
     }
     
     renderLayerLabels(layer) {
+        // v0.8.7.7: clear any stale screen-name hit rect from a previous
+        // render; the if-block below resets it when the label is actually
+        // drawn, but layers with showLabelName off (or tab-specific
+        // toggles like showLabelNameCabinet) need a clean slate so a
+        // mousedown doesn't catch the ghost.
+        if (layer && layer._screenNameHitRect) layer._screenNameHitRect = null;
         if ((layer.type || 'screen') === 'image') {
             return;
         }
@@ -4238,7 +4294,14 @@ class CanvasRenderer {
         let screenNameOffsetX = 0;
         let screenNameOffsetY = 0;
         
-        if (this.viewMode === 'cabinet-id') {
+        if (this.viewMode === 'pixel-map') {
+            // v0.8.7.7: Pixel Map screen-name size stays tied to the
+            // legacy labelsFontSize slider (the default for pixel-map),
+            // but the X/Y offset is now read from per-view fields so the
+            // user can Shift+Alt+drag the name out of the center stack.
+            screenNameOffsetX = layer.screenNameOffsetXPixelMap || 0;
+            screenNameOffsetY = layer.screenNameOffsetYPixelMap || 0;
+        } else if (this.viewMode === 'cabinet-id') {
             screenNameSize = layer.screenNameSizeCabinet || 14;
             screenNameOffsetX = layer.screenNameOffsetXCabinet || 0;
             screenNameOffsetY = layer.screenNameOffsetYCabinet || 0;
@@ -4306,8 +4369,19 @@ class CanvasRenderer {
                     screenNameY = centerY;
                 }
             } else {
-                // Pixel map mode - keep original center position
-                screenNameY = currentY + screenNameHeight / 2;
+                // Pixel map mode — default to centered in the label stack
+                // (with the info line below). v0.8.7.7: if the user has
+                // shifted the name via Shift+Alt+drag, apply the stored
+                // offset on top of the stacked baseline. Offset 0/0 keeps
+                // the legacy centered behavior.
+                screenNameX = centerX + screenNameOffsetX;
+                screenNameY = (currentY + screenNameHeight / 2) + screenNameOffsetY;
+                if (screenNameX < bounds.x || screenNameX > bounds.x + layerWidth) {
+                    screenNameX = centerX;
+                }
+                if (screenNameY < bounds.y || screenNameY > bounds.y + layerHeight) {
+                    screenNameY = currentY + screenNameHeight / 2;
+                }
             }
             
             this.ctx.font = `bold ${screenNameSize}px Arial`;
@@ -4317,10 +4391,31 @@ class CanvasRenderer {
             const metrics = this.ctx.measureText(screenName);
             const nameWidth = metrics.width + padding * 2;
             const nameHeight = screenNameLineHeight + padding * 2;
-            
+
             const nameX = screenNameX - nameWidth / 2;
             const nameY = screenNameY - nameHeight / 2;
-            
+
+            // v0.8.7.7: cache the label rect in workspace (un-mirrored)
+            // coords so a plain mousedown can hit-test it and start a
+            // screen-name drag without needing a Shift modifier. Includes
+            // the layer's canvas workspace offset and the per-layer Show
+            // Look translate (this._renderDx / this._renderDy) so the
+            // rect lines up with where the label is actually drawn on
+            // screen across multi-canvas / Show Look views.
+            if (!this.exportMode) {
+                const _wsOff = (typeof this._layerCanvasOffset === 'function')
+                    ? this._layerCanvasOffset(layer) : { wx: 0, wy: 0 };
+                const _ldx = (typeof this._renderDx === 'number') ? this._renderDx : 0;
+                const _ldy = (typeof this._renderDy === 'number') ? this._renderDy : 0;
+                layer._screenNameHitRect = {
+                    x1: _wsOff.wx + _ldx + nameX,
+                    y1: _wsOff.wy + _ldy + nameY,
+                    x2: _wsOff.wx + _ldx + nameX + nameWidth,
+                    y2: _wsOff.wy + _ldy + nameY + nameHeight,
+                    viewMode: this.viewMode,
+                };
+            }
+
             // Clip to layer bounds so labels don't overflow the screen edge
             this.ctx.save();
             this.ctx.beginPath();
@@ -4349,6 +4444,34 @@ class CanvasRenderer {
                 infoAnchorY = nameY + nameHeight + 5;
             }
         }
+
+        // v0.8.7.7: when the user has dragged the screen-name label off
+        // its default center position, the other identification labels
+        // (port/circuit stats above, "Columns × Rows • Cabinets..." info
+        // bar at the bottom) shift by the same offset so the whole label
+        // group moves as one unit. Falls back to 0/0 when the layer has
+        // no offset for the current view OR no screen name is shown.
+        let _labelGroupOffsetX = 0;
+        let _labelGroupOffsetY = 0;
+        if (screenName) {
+            if (this.viewMode === 'pixel-map') {
+                _labelGroupOffsetX = layer.screenNameOffsetXPixelMap || 0;
+                _labelGroupOffsetY = layer.screenNameOffsetYPixelMap || 0;
+            } else if (this.viewMode === 'cabinet-id') {
+                _labelGroupOffsetX = layer.screenNameOffsetXCabinet || 0;
+                _labelGroupOffsetY = layer.screenNameOffsetYCabinet || 0;
+            } else if (this.viewMode === 'data-flow') {
+                _labelGroupOffsetX = layer.screenNameOffsetXDataFlow || 0;
+                _labelGroupOffsetY = layer.screenNameOffsetYDataFlow || 0;
+            } else if (this.viewMode === 'power') {
+                _labelGroupOffsetX = layer.screenNameOffsetXPower || 0;
+                _labelGroupOffsetY = layer.screenNameOffsetYPower || 0;
+            }
+            // Mirror compensation for Back-perspective canvases (Data /
+            // Power). Matches the same negation applied to the screen-name
+            // X above so the group stays visually together.
+            if (this._mirror) _labelGroupOffsetX = -_labelGroupOffsetX;
+        }
         
         // Render other center labels with dark background (regular style)
         if (centerLines.length > 0) {
@@ -4364,9 +4487,15 @@ class CanvasRenderer {
             
             const bgWidth = maxWidth + padding * 2;
             const bgHeight = centerLines.length * lineHeight + padding * 2;
-            const bgX = centerX - bgWidth / 2;
-            const bgY = this.viewMode === 'pixel-map' ? currentY : (infoAnchorY ?? currentY);
-            
+            // v0.8.7.7: shift the center-info group horizontally by the
+            // same offset the screen-name moved (Y is already tracked
+            // via infoAnchorY for non-pixel-map, and via _labelGroupOffsetY
+            // applied below for pixel-map).
+            const bgX = (centerX + _labelGroupOffsetX) - bgWidth / 2;
+            const bgY = (this.viewMode === 'pixel-map'
+                ? currentY + _labelGroupOffsetY
+                : (infoAnchorY ?? currentY));
+
             // Clip to layer bounds so labels don't bleed through higher layers
             this.ctx.save();
             this.ctx.beginPath();
@@ -4382,7 +4511,7 @@ class CanvasRenderer {
             this.ctx.fillStyle = layer.labelsColor || '#ffffff';
             let yPos = bgY + padding + lineHeight / 2;
             centerLines.forEach(line => {
-                this._fillText(line, this.snap(centerX), this.snap(yPos));
+                this._fillText(line, this.snap(centerX + _labelGroupOffsetX), this.snap(yPos));
                 yPos += lineHeight;
             });
 
@@ -4405,9 +4534,12 @@ class CanvasRenderer {
             
             const bgWidth = maxWidth + padding * 2;
             const bgHeight = infoLines.length * infoLineHeight + padding * 2;
-            const bgX = centerX - bgWidth / 2;
-            const bgY = bottomY - bgHeight - padding;
-            
+            // v0.8.7.7: bottom-anchored info bar follows the screen-name
+            // offset so the whole label group moves together when the
+            // user drags.
+            const bgX = (centerX + _labelGroupOffsetX) - bgWidth / 2;
+            const bgY = (bottomY + _labelGroupOffsetY) - bgHeight - padding;
+
             // Draw background
             this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
             const snappedInfoRect = this.snapRect(bgX, bgY, bgWidth, bgHeight);
@@ -4417,7 +4549,7 @@ class CanvasRenderer {
             this.ctx.fillStyle = layer.labelsColor || '#ffffff';
             let yPos = bgY + padding + infoLineHeight;
             infoLines.forEach(line => {
-                this._fillText(line, this.snap(centerX), this.snap(yPos));
+                this._fillText(line, this.snap(centerX + _labelGroupOffsetX), this.snap(yPos));
                 yPos += infoLineHeight;
             });
         }
