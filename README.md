@@ -80,6 +80,7 @@ Half-tiles count as **0.5 panel** for data/port math and **0.65 panel** for powe
 | **Spacebar + Drag** | Pan the canvas |
 | **Scroll Wheel** | Zoom in/out |
 | **Shift + Drag a screen** | Move the screen (in Pixel Map = processor position; in Show Look = stage position) |
+| **Click & Drag a screen-name label** | Reposition the screen's white name label on any tab. The associated info bar (port/circuit stats, or "Columns × Rows • Cabinets…" on Pixel Map) moves with it. Per-tab position. |
 | **Drag-select on empty space** | Marquee-select layers (Pixel Map) or panels (when starting on a current-layer panel) |
 | **Magnetic Snap toggle** | Snap dragged screens to other screens' edges and to raster bounds |
 | **Fit / 1:1 buttons** | Fit raster to view, or reset to 100% zoom |
