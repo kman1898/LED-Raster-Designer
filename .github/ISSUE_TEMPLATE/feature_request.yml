@@ -1,0 +1,35 @@
+name: Feature suggestion
+description: An idea for something new or improved
+title: "Suggestion: <short summary>"
+labels: ["enhancement"]
+body:
+  - type: input
+    id: app-version
+    attributes:
+      label: App version
+      description: |
+        Look at the title bar inside the app — it reads "LED Raster Designer v0.X.Y.Z".
+        Helps confirm the suggestion isn't already shipped.
+      placeholder: "e.g. v0.8.7.3"
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: What workflow is awkward or missing today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution (optional)
+      description: How would you imagine it working?
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots or sketches (optional)
+      placeholder: Drag images here.
