@@ -7761,19 +7761,26 @@ class LEDRasterApp {
         }
         const projectCanvases = (this.project && Array.isArray(this.project.canvases))
             ? this.project.canvases : [];
+        // v0.8.7.5: per-canvas Name inputs in the export modal are
+        // prefilled with the canvas's stored name and the user can edit
+        // them in place (same pattern as the view-suffix inputs). The
+        // value is filename-only — the canvas's stored name in the
+        // sidebar / project is untouched. Empty falls back to canvas.name.
+        const nameByCid = {};
+        document.querySelectorAll('.export-canvas-name-override').forEach(inp => {
+            const cid = inp.dataset.canvasId;
+            const v = (inp.value || '').trim();
+            if (cid && v) nameByCid[cid] = v;
+        });
         const canvasNameOf = (cid) => {
             if (!cid) return '';
             const c = projectCanvases.find(x => x && x.id === cid);
-            return c ? this.sanitizeFilename(c.name || 'Canvas') : '';
+            const raw = nameByCid[cid] || (c && c.name) || 'Canvas';
+            return this.sanitizeFilename(raw);
         };
         const multiCanvas = canvasIds.length > 1 && canvasIds[0] !== null;
         const buildName = (cid, suffix, ext) => {
             const cname = canvasNameOf(cid);
-            // v0.8.7.4: underscore-separated, view-before-canvas ordering so
-            // alphabetical sort groups all Pixel Maps together, all Data Maps
-            // together, etc. Internal spaces in user-typed project/canvas
-            // names are kept verbatim — the change is only in the separators
-            // and segment order.
             return (multiCanvas && cname)
                 ? `${projectName}_${suffix}_${cname}.${ext}`
                 : `${projectName}_${suffix}.${ext}`;
@@ -7950,9 +7957,16 @@ class LEDRasterApp {
             const row = document.createElement('div');
             row.className = 'export-view-row';
             const isHidden = c.visible === false;
-            const label = document.createElement('label');
-            label.className = 'export-view-label';
-            label.style.gap = '6px';
+            // v0.8.7.5: col-1 of the row holds checkbox + swatch + an
+            // editable canvas-name input (replacing the previous static
+            // name span). Editing the input changes the canvas segment
+            // in the exported filename only — the canvas's stored name
+            // in the sidebar / project file is untouched. Using a div
+            // (not a label) so clicking the input doesn't toggle the
+            // checkbox.
+            const labelCol = document.createElement('div');
+            labelCol.className = 'export-view-label';
+            labelCol.style.gap = '6px';
             const swatch = document.createElement('span');
             swatch.style.cssText = `display:inline-block;width:10px;height:10px;border-radius:2px;background:${c.color || '#4A90E2'};flex:none;`;
             const checkbox = document.createElement('input');
@@ -7961,13 +7975,27 @@ class LEDRasterApp {
             checkbox.dataset.canvasId = c.id;
             checkbox.className = 'export-canvas-checkbox';
             checkbox.addEventListener('change', () => this.updateExportPreview());
-            const text = document.createElement('span');
-            text.textContent = (c.name || `Canvas ${idx + 1}`) + (isHidden ? '  (hidden)' : '');
-            if (isHidden) text.style.color = '#888';
-            label.appendChild(checkbox);
-            label.appendChild(swatch);
-            label.appendChild(text);
-            row.appendChild(label);
+            const nameInput = document.createElement('input');
+            nameInput.type = 'text';
+            nameInput.className = 'export-canvas-name-override';
+            nameInput.dataset.canvasId = c.id;
+            nameInput.value = c.name || `Canvas ${idx + 1}`;
+            nameInput.title = 'Edit to rename this canvas in the exported filename. Does NOT rename the canvas in the project.';
+            // Inline override so the input stays compact inside the
+            // 140px label column and doesn't pick up the chunky 8px
+            // padding from `.export-view-row input[type="text"]`.
+            nameInput.style.cssText = `flex:1;min-width:60px;padding:2px 6px;font-size:12px;background:#222;color:${isHidden ? '#888' : '#ddd'};border:1px solid #444;border-radius:3px;`;
+            nameInput.addEventListener('input', () => this.updateExportPreview());
+            labelCol.appendChild(checkbox);
+            labelCol.appendChild(swatch);
+            labelCol.appendChild(nameInput);
+            if (isHidden) {
+                const hiddenTag = document.createElement('span');
+                hiddenTag.textContent = '(hidden)';
+                hiddenTag.style.cssText = 'color:#888;font-size:11px;flex:none;';
+                labelCol.appendChild(hiddenTag);
+            }
+            row.appendChild(labelCol);
             // v0.8.6: per-canvas perspective overrides for Data + Power
             // exports. Default to whatever the canvas currently has.
             // These dropdowns set/restore the canvas's perspective during
@@ -8075,6 +8103,16 @@ class LEDRasterApp {
             if (!o) return;
             if (o.data_flow_perspective) c.data_flow_perspective = o.data_flow_perspective;
             if (o.power_perspective) c.power_perspective = o.power_perspective;
+        });
+        // v0.8.7.5: per-canvas Name inputs from the export modal. Each is
+        // prefilled with the canvas's stored name and the user can edit
+        // in place. Filename-only — never written back to the canvas
+        // object. Empty entries fall back to canvas.name below.
+        const nameOverridesByCid = {};
+        document.querySelectorAll('.export-canvas-name-override').forEach(inp => {
+            const cid = inp.dataset.canvasId;
+            const v = (inp.value || '').trim();
+            if (cid && v) nameOverridesByCid[cid] = v;
         });
 
         const exportCanvas = document.createElement('canvas');
@@ -8184,13 +8222,18 @@ class LEDRasterApp {
 
                     const dataUrl = exportCanvas.toDataURL('image/png');
                     const suffix = this.getExportSuffixForView(view, suffixes, viewNames, targetCanvas);
+                    // v0.8.7.5: per-canvas Name input from the export modal
+                    // takes precedence over targetCanvas.name when present.
+                    // Empty / whitespace = fall back to canvas name.
+                    const overrideRaw = nameOverridesByCid[cid];
                     const canvasName = targetCanvas
-                        ? this.sanitizeFilename(targetCanvas.name || 'Canvas')
+                        ? this.sanitizeFilename(overrideRaw || targetCanvas.name || 'Canvas')
                         : null;
                     // Filename: include canvas token only when exporting
-                    // more than one. v0.8.7.4: underscore-separated and
-                    // view-before-canvas ordering so alphabetical sort
-                    // groups all Pixel Maps, all Data Maps, etc. together.
+                    // more than one canvas (v0.8.7.4). Single-canvas
+                    // exports keep `Project_View.ext`; the Name input on
+                    // a single-canvas export only matters if you happen
+                    // to also have a hidden sibling canvas selected.
                     const fileBase = (multiCanvas && canvasName)
                         ? `${projectName}_${suffix}_${canvasName}`
                         : `${projectName}_${suffix}`;
