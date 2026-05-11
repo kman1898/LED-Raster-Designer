@@ -1,6 +1,29 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.8.7.2.1 - May 11, 2026
+----------------------------
+Follow-up to v0.8.7.2 after preview testing.
+
+- FIX: Loading a project file silently rewrote the active canvas's
+  raster size. The file-load path blindly wrote projectData.raster_width
+  into canvasRenderer.rasterWidth, but that setter routes to either
+  the active canvas's raster_width or show_raster_width depending on
+  the current tab. When the saved file's root-level raster mirror
+  reflected the Show Look raster (because the user last saved on a
+  Show Look tab), this clobbered the canvas's actual pixel raster
+  with the show value. Now skipped entirely for multi-canvas files —
+  the per-canvas raster on each canvas object is the source of truth
+  and is restored intact via syncRasterFromProject().
+- FIX: Custom drag-select on Data Flow / Power tabs still missed
+  panels on Show Look views (where layers render at showOffsetX/Y,
+  not offset_x/y). The v0.8.7.2 overlay fix applied workspace + mirror
+  but skipped the per-layer Show Look render offset, so highlights
+  landed on the panels' processor positions instead of their show
+  positions. Both selection overlays now share a single helper
+  (_withOverlayLayerTransform) that mirrors the full layer-render
+  transform stack from the main render loop.
+
 v0.8.7.2 - May 11, 2026
 ----------------------------
 Fixes two regressions reported after v0.8.7.1.

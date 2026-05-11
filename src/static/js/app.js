@@ -12275,7 +12275,24 @@ class LEDRasterApp {
                             });
                         }
 
-                        if (projectData.raster_width && projectData.raster_height) {
+                        // v0.8.7.2.1: ONLY trust root-level raster fields for
+                        // legacy (pre-v0.8, no canvases array) files. Multi-
+                        // canvas files keep the source-of-truth on each canvas
+                        // object, and writing the root value into
+                        // canvasRenderer.rasterWidth would clobber the active
+                        // canvas's per-canvas raster (the setter routes to
+                        // either raster_width or show_raster_width depending
+                        // on the current tab). Bug repro: the file's root
+                        // raster_width was a mirror of the active canvas's
+                        // *show* raster (because the user last saved on Show
+                        // Look), so opening the file overwrote the active
+                        // canvas's pixel-map raster with its show raster
+                        // value. syncRasterFromProject below reads from each
+                        // canvas directly so multi-canvas projects are
+                        // unaffected by skipping this block.
+                        const _hasCanvases = Array.isArray(projectData.canvases)
+                            && projectData.canvases.length > 0;
+                        if (!_hasCanvases && projectData.raster_width && projectData.raster_height) {
                             window.canvasRenderer.rasterWidth = projectData.raster_width;
                             window.canvasRenderer.rasterHeight = projectData.raster_height;
                             document.getElementById('toolbar-raster-width').value = projectData.raster_width;

@@ -4529,37 +4529,22 @@ class CanvasRenderer {
         const selection = window.app.customSelection || new Set();
         if (selection.size === 0) return;
 
-        // v0.8.7.2: this overlay runs AFTER the per-canvas render loop has
-        // popped its workspace translate AND its perspective mirror, so apply
-        // both here. Without this, on multi-canvas projects with the active
-        // layer on canvas 2+, the highlight fills draw at workspace (0,0)
-        // (and got clipped by the legacy single-canvas raster-rect clip), so
-        // the user saw no panel highlight during drag-select.
-        const wsOff = (typeof this._layerCanvasOffset === 'function')
-            ? this._layerCanvasOffset(layer) : { wx: 0, wy: 0 };
-        const cid = (typeof this._effectiveLayerCanvasId === 'function')
-            ? this._effectiveLayerCanvasId(layer) : null;
-        const arr = (window.app.project && window.app.project.canvases) || [];
-        const c = Array.isArray(arr) ? arr.find(x => x && x.id === cid) : null;
-        const mirrorActive = !!(c && this._isCanvasMirrored && this._isCanvasMirrored(c));
-
-        this.ctx.save();
-        if (wsOff.wx || wsOff.wy) this.ctx.translate(wsOff.wx, wsOff.wy);
-        if (mirrorActive) {
-            const crw = (this.isShowLookView() && c.show_raster_width) || c.raster_width || 0;
-            this.ctx.translate(crw, 0);
-            this.ctx.scale(-1, 1);
-        }
-
-        this.ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-        selection.forEach(key => {
-            const [row, col] = key.split(',').map(n => parseInt(n, 10));
-            const panel = window.app.getPanelByRowCol(layer, row, col);
-            if (!panel) return;
-            this.ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
+        // v0.8.7.2.1: this overlay runs AFTER the per-canvas render loop has
+        // popped its workspace translate, perspective mirror, AND per-layer
+        // Show Look offset, so re-apply all three here. Without this, on
+        // multi-canvas projects (or canvases in Back perspective, or any
+        // Show Look view), the highlight fills draw at workspace (0,0) in
+        // raw processor coords, so the user saw no panel highlight during
+        // drag-select.
+        this._withOverlayLayerTransform(layer, () => {
+            this.ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+            selection.forEach(key => {
+                const [row, col] = key.split(',').map(n => parseInt(n, 10));
+                const panel = window.app.getPanelByRowCol(layer, row, col);
+                if (!panel) return;
+                this.ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
+            });
         });
-
-        this.ctx.restore();
     }
 
     renderPowerSelectionOverlay() {
@@ -4570,17 +4555,39 @@ class CanvasRenderer {
         const selection = window.app.powerCustomSelection || new Set();
         if (selection.size === 0) return;
 
-        // v0.8.7.2: same fix as renderCustomSelectionOverlay — apply the
-        // layer's canvas workspace offset + perspective mirror so drag-select
-        // highlights land on the panels they're targeting on multi-canvas /
-        // Back-perspective projects.
+        // v0.8.7.2.1: same fix as renderCustomSelectionOverlay — apply the
+        // layer's canvas workspace + perspective mirror + per-layer show
+        // offset so drag-select highlights land on the panels they're
+        // targeting.
+        this._withOverlayLayerTransform(layer, () => {
+            this.ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+            selection.forEach(key => {
+                const [row, col] = key.split(',').map(n => parseInt(n, 10));
+                const panel = window.app.getPanelByRowCol(layer, row, col);
+                if (!panel) return;
+                this.ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
+            });
+        });
+    }
+
+    /**
+     * v0.8.7.2.1: shared helper for post-render overlays that need to draw
+     * in the same coord frame as the layer they're badging (selection
+     * overlays, active port/circuit badges, etc.). Applies the layer's
+     * canvas workspace translate, the canvas's Front/Back mirror around
+     * its right edge, and the per-layer Show Look offset — exactly the
+     * stack the main render loop wraps a layer in.
+     */
+    _withOverlayLayerTransform(layer, fn) {
         const wsOff = (typeof this._layerCanvasOffset === 'function')
             ? this._layerCanvasOffset(layer) : { wx: 0, wy: 0 };
         const cid = (typeof this._effectiveLayerCanvasId === 'function')
             ? this._effectiveLayerCanvasId(layer) : null;
-        const arr = (window.app.project && window.app.project.canvases) || [];
+        const arr = (window.app && window.app.project && window.app.project.canvases) || [];
         const c = Array.isArray(arr) ? arr.find(x => x && x.id === cid) : null;
         const mirrorActive = !!(c && this._isCanvasMirrored && this._isCanvasMirrored(c));
+        const { dx, dy } = (typeof this.getLayerRenderOffset === 'function')
+            ? this.getLayerRenderOffset(layer) : { dx: 0, dy: 0 };
 
         this.ctx.save();
         if (wsOff.wx || wsOff.wy) this.ctx.translate(wsOff.wx, wsOff.wy);
@@ -4589,16 +4596,8 @@ class CanvasRenderer {
             this.ctx.translate(crw, 0);
             this.ctx.scale(-1, 1);
         }
-
-        this.ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-        selection.forEach(key => {
-            const [row, col] = key.split(',').map(n => parseInt(n, 10));
-            const panel = window.app.getPanelByRowCol(layer, row, col);
-            if (!panel) return;
-            this.ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
-        });
-
-        this.ctx.restore();
+        if (dx || dy) this.ctx.translate(dx, dy);
+        try { fn(); } finally { this.ctx.restore(); }
     }
 
     renderPixelMapSelectionOverlay() {
