@@ -1,6 +1,22 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.8.7.5 - May 11, 2026
+----------------------------
+Per-canvas filename override in the export modal.
+
+- FEATURE: Each canvas row in the export dialog now has a "Name"
+  text input next to the perspective dropdowns. Typing a value
+  there overrides the canvas's project name in the exported
+  filename only — the canvas's stored name (sidebar / project
+  file) is untouched, so the override is a per-export
+  customization rather than a permanent rename. Placeholder shows
+  the canvas's current project name so it's clear what's being
+  replaced. Empty input falls back to the project name. Override
+  also forces the canvas segment to appear in single-canvas
+  exports (otherwise typing a name and seeing no change in the
+  filename would be confusing).
+
 v0.8.7.4 - May 11, 2026
 ----------------------------
 Export filename naming convention.
