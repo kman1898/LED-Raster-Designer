@@ -557,8 +557,7 @@ class CanvasRenderer {
                 // hit-rect cache is stale from before the visibility
                 // toggle. toggleLayerVisibility now clears the cache too,
                 // but this guard makes the rule explicit.
-                && window.app.currentLayer.visible !== false
-                && this.viewMode !== 'show-look') {
+                && window.app.currentLayer.visible !== false) {
             const _r = window.app.currentLayer._screenNameHitRect;
             if (_r && _r.viewMode === this.viewMode
                     && worldX >= _r.x1 && worldX <= _r.x2
@@ -581,6 +580,9 @@ class CanvasRenderer {
                 } else if (this.viewMode === 'power') {
                     currentOffsetX = layer.screenNameOffsetXPower || 0;
                     currentOffsetY = layer.screenNameOffsetYPower || 0;
+                } else if (this.viewMode === 'show-look') {
+                    currentOffsetX = layer.screenNameOffsetXShowLook || 0;
+                    currentOffsetY = layer.screenNameOffsetYShowLook || 0;
                 }
                 this.screenNameStartOffset = { x: currentOffsetX, y: currentOffsetY };
                 this.canvas.style.cursor = 'move';
@@ -1225,8 +1227,11 @@ class CanvasRenderer {
                 } else if (this.viewMode === 'power') {
                     layer.screenNameOffsetXPower = newOffsetX;
                     layer.screenNameOffsetYPower = newOffsetY;
+                } else if (this.viewMode === 'show-look') {
+                    layer.screenNameOffsetXShowLook = newOffsetX;
+                    layer.screenNameOffsetYShowLook = newOffsetY;
                 }
-                
+
                 this.render();
             }
         }
@@ -1685,6 +1690,9 @@ class CanvasRenderer {
                 } else if (this.viewMode === 'power') {
                     currentOffsetX = layer.screenNameOffsetXPower || 0;
                     currentOffsetY = layer.screenNameOffsetYPower || 0;
+                } else if (this.viewMode === 'show-look') {
+                    currentOffsetX = layer.screenNameOffsetXShowLook || 0;
+                    currentOffsetY = layer.screenNameOffsetYShowLook || 0;
                 }
 
                 const moved = currentOffsetX !== this.screenNameStartOffset.x || currentOffsetY !== this.screenNameStartOffset.y;
@@ -4320,8 +4328,13 @@ class CanvasRenderer {
             screenNameOffsetX = layer.screenNameOffsetXPower || 0;
             screenNameOffsetY = layer.screenNameOffsetYPower || 0;
             fontSize = screenNameSize;
+        } else if (this.viewMode === 'show-look') {
+            // v0.8.7.7.3: Show Look gets its own grabbable screen-name offset
+            // so the label can be repositioned (and edge-clamped) here too.
+            screenNameOffsetX = layer.screenNameOffsetXShowLook || 0;
+            screenNameOffsetY = layer.screenNameOffsetYShowLook || 0;
         }
-        
+
         const screenNameLineHeight = screenNameSize + 4;
         
         this.ctx.font = `bold ${fontSize}px Arial`;
@@ -4357,62 +4370,44 @@ class CanvasRenderer {
         let _appliedNameOffsetX = 0;
         let _appliedNameOffsetY = 0;
         if (screenName) {
-            // For non-pixel-map modes, use tab-specific offset position
-            let screenNameX = centerX;
-            let screenNameY = centerY;
-            
-            if (this.viewMode !== 'pixel-map') {
-                // Apply tab-specific screen name offset (relative to center).
-                // v0.8.7.2: offsets are stored in *visual* space. When the
-                // canvas is mirrored (Back perspective), the per-canvas scale(
-                // -1, 1) transform that wraps this render would flip the X
-                // position, so negate offsetX here to undo the mirror and keep
-                // the label visually at the user-set position regardless of
-                // Front/Back perspective.
-                const _visualOffsetX = this._mirror ? -screenNameOffsetX : screenNameOffsetX;
-                screenNameX = centerX + _visualOffsetX;
-                screenNameY = centerY + screenNameOffsetY;
-
-                // If offset pushes label outside layer bounds, reset to center
-                if (screenNameX < bounds.x || screenNameX > bounds.x + layerWidth) {
-                    screenNameX = centerX;
-                }
-                if (screenNameY < bounds.y || screenNameY > bounds.y + layerHeight) {
-                    screenNameY = centerY;
-                }
-            } else {
-                // Pixel map mode — default to centered in the label stack
-                // (with the info line below). v0.8.7.7: if the user has
-                // shifted the name via Shift+Alt+drag, apply the stored
-                // offset on top of the stacked baseline. Offset 0/0 keeps
-                // the legacy centered behavior.
-                screenNameX = centerX + screenNameOffsetX;
-                screenNameY = (currentY + screenNameHeight / 2) + screenNameOffsetY;
-                // v0.8.7.7.2: clamp the label to the layer's edges instead of
-                // snapping it back to center when the drag overshoots. Pinning
-                // to the edge is what lets a frame's name sit at the top of the
-                // panel (above an overlapping window layer) while still keeping
-                // the whole label group on-screen. _appliedNameOffset captures
-                // the post-clamp delta so the size/info bar tracks it exactly.
-                const _nameBaseY = currentY + screenNameHeight / 2;
-                const _minNameY = bounds.y + screenNameHeight / 2;
-                const _maxNameY = bounds.y + layerHeight - screenNameHeight / 2;
-                if (screenNameY < _minNameY) screenNameY = _minNameY;
-                else if (screenNameY > _maxNameY) screenNameY = _maxNameY;
-                if (screenNameX < bounds.x || screenNameX > bounds.x + layerWidth) {
-                    screenNameX = centerX;
-                }
-                _appliedNameOffsetX = screenNameX - centerX;
-                _appliedNameOffsetY = screenNameY - _nameBaseY;
-            }
-            
+            // Set the name font up-front so we can measure the label box and
+            // clamp it fully inside the layer before drawing.
             this.ctx.font = `bold ${screenNameSize}px Arial`;
             this.ctx.textAlign = 'center';
             this.ctx.textBaseline = 'middle';
-            
+
             const metrics = this.ctx.measureText(screenName);
             const nameWidth = metrics.width + padding * 2;
             const nameHeight = screenNameLineHeight + padding * 2;
+
+            // Baseline (un-offset) anchor for this view mode. Pixel Map stacks
+            // the name above the size/info lines; the other tabs center it.
+            const baseX = centerX;
+            const baseY = (this.viewMode === 'pixel-map')
+                ? (currentY + screenNameHeight / 2)
+                : centerY;
+
+            // Desired position = baseline + the user's drag offset. Offsets are
+            // stored in *visual* space; on a mirrored (Back-view) canvas the
+            // wrapping scale(-1,1) would flip X, so negate offsetX to undo it.
+            const _visualOffsetX = this._mirror ? -screenNameOffsetX : screenNameOffsetX;
+            let screenNameX = baseX + _visualOffsetX;
+            let screenNameY = baseY + screenNameOffsetY;
+
+            // v0.8.7.7.3: clamp the label box to the layer's edges on EVERY tab
+            // (Pixel Map, Cabinet ID, Data, Power) instead of snapping back to
+            // center when the drag overshoots. Pinning to the edge lets a name
+            // sit at the top of a panel (above an overlapping window layer)
+            // while keeping the whole label group on-screen. The applied
+            // (post-clamp) delta drives the size/info bar so the group never
+            // diverges. If the box is larger than the layer, fall back to
+            // centering on that axis.
+            const _clamp = (v, lo, hi) => (lo > hi ? (lo + hi) / 2 : Math.min(Math.max(v, lo), hi));
+            screenNameX = _clamp(screenNameX, bounds.x + nameWidth / 2, bounds.x + layerWidth - nameWidth / 2);
+            screenNameY = _clamp(screenNameY, bounds.y + nameHeight / 2, bounds.y + layerHeight - nameHeight / 2);
+
+            _appliedNameOffsetX = screenNameX - baseX;
+            _appliedNameOffsetY = screenNameY - baseY;
 
             const nameX = screenNameX - nameWidth / 2;
             const nameY = screenNameY - nameHeight / 2;
@@ -4473,28 +4468,46 @@ class CanvasRenderer {
         // bar at the bottom) shift by the same offset so the whole label
         // group moves as one unit. Falls back to 0/0 when the layer has
         // no offset for the current view OR no screen name is shown.
+        // v0.8.7.7.3: the size/info labels follow the name's *applied*
+        // (post-clamp) offset on every tab, so the whole label group always
+        // moves as a single unit and can never be clipped off-bounds on its
+        // own. _appliedNameOffset is already in visual space (it accounts for
+        // Back-view mirroring), so no extra mirror compensation is needed.
         let _labelGroupOffsetX = 0;
         let _labelGroupOffsetY = 0;
         if (screenName) {
-            if (this.viewMode === 'pixel-map') {
-                // Use the *applied* (post-clamp) name offset so the info bar
-                // always tracks the name and never gets clipped off-bounds.
-                _labelGroupOffsetX = _appliedNameOffsetX;
-                _labelGroupOffsetY = _appliedNameOffsetY;
-            } else if (this.viewMode === 'cabinet-id') {
-                _labelGroupOffsetX = layer.screenNameOffsetXCabinet || 0;
-                _labelGroupOffsetY = layer.screenNameOffsetYCabinet || 0;
-            } else if (this.viewMode === 'data-flow') {
-                _labelGroupOffsetX = layer.screenNameOffsetXDataFlow || 0;
-                _labelGroupOffsetY = layer.screenNameOffsetYDataFlow || 0;
-            } else if (this.viewMode === 'power') {
-                _labelGroupOffsetX = layer.screenNameOffsetXPower || 0;
-                _labelGroupOffsetY = layer.screenNameOffsetYPower || 0;
+            _labelGroupOffsetX = _appliedNameOffsetX;
+            _labelGroupOffsetY = _appliedNameOffsetY;
+
+            // v0.8.7.7.3: HEAL a runaway stored offset back to the clamped
+            // value. The older snap-to-center clamp let the *stored* offset
+            // balloon far past the layer (e.g. a name dragged behind a
+            // now-hidden window could reach -1200 on an 840px screen) while
+            // the label visually stayed put. That corrupt value persisted in
+            // saved files and made the label feel unmovable on the next drag.
+            // Writing the post-clamp value back here self-corrects those
+            // offsets on the very next render — including right after a file
+            // load — so re-dragging always starts from where the label
+            // actually sits. Skipped while THIS layer's name is being dragged
+            // (so we don't fight the live gesture) and in export.
+            const _isDraggingThisName = this.isDraggingScreenName
+                && window.app && window.app.currentLayer
+                && window.app.currentLayer.id === layer.id;
+            if (!this.exportMode && !_isDraggingThisName) {
+                // Stored offsets are in logical space; _appliedNameOffsetX is
+                // in visual space (mirror already applied), so convert X back.
+                const _healX = this._mirror ? -_appliedNameOffsetX : _appliedNameOffsetX;
+                const _healY = _appliedNameOffsetY;
+                const _heal = (fx, fy) => {
+                    if (Math.abs((layer[fx] || 0) - _healX) > 0.5) layer[fx] = _healX;
+                    if (Math.abs((layer[fy] || 0) - _healY) > 0.5) layer[fy] = _healY;
+                };
+                if (this.viewMode === 'pixel-map') _heal('screenNameOffsetXPixelMap', 'screenNameOffsetYPixelMap');
+                else if (this.viewMode === 'cabinet-id') _heal('screenNameOffsetXCabinet', 'screenNameOffsetYCabinet');
+                else if (this.viewMode === 'data-flow') _heal('screenNameOffsetXDataFlow', 'screenNameOffsetYDataFlow');
+                else if (this.viewMode === 'power') _heal('screenNameOffsetXPower', 'screenNameOffsetYPower');
+                else if (this.viewMode === 'show-look') _heal('screenNameOffsetXShowLook', 'screenNameOffsetYShowLook');
             }
-            // Mirror compensation for Back-perspective canvases (Data /
-            // Power). Matches the same negation applied to the screen-name
-            // X above so the group stays visually together.
-            if (this._mirror) _labelGroupOffsetX = -_labelGroupOffsetX;
         }
         
         // Render other center labels with dark background (regular style)

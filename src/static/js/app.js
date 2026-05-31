@@ -1236,6 +1236,8 @@ class LEDRasterApp {
             screenNameOffsetYDataFlow: layer.screenNameOffsetYDataFlow,
             screenNameOffsetXPower: layer.screenNameOffsetXPower,
             screenNameOffsetYPower: layer.screenNameOffsetYPower,
+            screenNameOffsetXShowLook: layer.screenNameOffsetXShowLook,
+            screenNameOffsetYShowLook: layer.screenNameOffsetYShowLook,
             showDataFlowPortInfo: layer.showDataFlowPortInfo,
             showPowerCircuitInfo: layer.showPowerCircuitInfo,
             powerVoltage: layer.powerVoltage,
@@ -1438,6 +1440,8 @@ class LEDRasterApp {
                         if (layerProps.screenNameOffsetYDataFlow !== undefined) layer.screenNameOffsetYDataFlow = layerProps.screenNameOffsetYDataFlow;
                         if (layerProps.screenNameOffsetXPower !== undefined) layer.screenNameOffsetXPower = layerProps.screenNameOffsetXPower;
                         if (layerProps.screenNameOffsetYPower !== undefined) layer.screenNameOffsetYPower = layerProps.screenNameOffsetYPower;
+                        if (layerProps.screenNameOffsetXShowLook !== undefined) layer.screenNameOffsetXShowLook = layerProps.screenNameOffsetXShowLook;
+                        if (layerProps.screenNameOffsetYShowLook !== undefined) layer.screenNameOffsetYShowLook = layerProps.screenNameOffsetYShowLook;
                     }
                 });
             } catch (e) {
@@ -1638,6 +1642,8 @@ class LEDRasterApp {
                 screenNameOffsetYDataFlow: layer.screenNameOffsetYDataFlow,
                 screenNameOffsetXPower: layer.screenNameOffsetXPower,
                 screenNameOffsetYPower: layer.screenNameOffsetYPower,
+                screenNameOffsetXShowLook: layer.screenNameOffsetXShowLook,
+                screenNameOffsetYShowLook: layer.screenNameOffsetYShowLook,
                 powerVoltage: layer.powerVoltage,
                 powerVoltageCustom: layer.powerVoltageCustom,
                 powerAmperage: layer.powerAmperage,
@@ -6454,6 +6460,8 @@ class LEDRasterApp {
                     screenNameOffsetYDataFlow: this.currentLayer.screenNameOffsetYDataFlow,
                     screenNameOffsetXPower: this.currentLayer.screenNameOffsetXPower,
                     screenNameOffsetYPower: this.currentLayer.screenNameOffsetYPower,
+                    screenNameOffsetXShowLook: this.currentLayer.screenNameOffsetXShowLook,
+                    screenNameOffsetYShowLook: this.currentLayer.screenNameOffsetYShowLook,
                     screenNameSize: this.currentLayer.screenNameSize,
                     screenNameSizeCabinet: this.currentLayer.screenNameSizeCabinet,
                     screenNameSizeDataFlow: this.currentLayer.screenNameSizeDataFlow,
@@ -6577,6 +6585,8 @@ class LEDRasterApp {
                 screenNameOffsetYDataFlow: layer.screenNameOffsetYDataFlow,
                 screenNameOffsetXPower: layer.screenNameOffsetXPower,
                 screenNameOffsetYPower: layer.screenNameOffsetYPower,
+                screenNameOffsetXShowLook: layer.screenNameOffsetXShowLook,
+                screenNameOffsetYShowLook: layer.screenNameOffsetYShowLook,
                 screenNameSize: layer.screenNameSize,
                 screenNameSizeCabinet: layer.screenNameSizeCabinet,
                 screenNameSizeDataFlow: layer.screenNameSizeDataFlow,
@@ -13098,6 +13108,8 @@ class LEDRasterApp {
             screenNameOffsetYDataFlow: layer.screenNameOffsetYDataFlow,
             screenNameOffsetXPower: layer.screenNameOffsetXPower,
             screenNameOffsetYPower: layer.screenNameOffsetYPower,
+            screenNameOffsetXShowLook: layer.screenNameOffsetXShowLook,
+            screenNameOffsetYShowLook: layer.screenNameOffsetYShowLook,
             border_color_pixel: layer.border_color_pixel,
             border_color_cabinet: layer.border_color_cabinet,
             border_color_data: layer.border_color_data,
