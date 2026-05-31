@@ -1,6 +1,30 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.8.7.7.3 - May 31, 2026
+----------------------------
+Screen-name labels: self-healing offsets + Show Look support.
+
+- FIX (hidden screens): dragging a screen-name label that sits
+  behind an overlapping layer required hiding that layer first.
+  With the old snap-to-center clamp, dragging past the edge let
+  the *stored* offset balloon far past the panel (e.g. -1200 on
+  an 840px-tall screen) while the label stayed put — a corrupt
+  value that persisted in saved files and made the label feel
+  unmovable on the next drag. The renderer now HEALS the stored
+  offset back to the clamped value every frame (except during the
+  live drag), so runaway/corrupt offsets self-correct on the next
+  render — including right after opening an affected project — and
+  re-dragging always starts from where the label actually sits.
+- FEATURE: the click-to-drag screen-name label (and its edge
+  clamp + size/info bar tracking) now works on Show Look too, so
+  every one of the five tabs behaves the same. Show Look gets its
+  own per-tab label position (screenNameOffsetX/YShowLook),
+  saved with the project.
+- The edge-clamp constraint is now unified across all tabs: the
+  label box is pinned to the layer's edge instead of snapping to
+  center, and the whole label group moves as one unit.
+
 v0.8.7.7.2 - May 31, 2026
 ----------------------------
 Dragged screen-name labels keep their size/info bar on Pixel Map.
