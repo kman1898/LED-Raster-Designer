@@ -4349,6 +4349,13 @@ class CanvasRenderer {
         
         // Render Screen Name with WHITE background and BLACK text
         let infoAnchorY = null;
+        // v0.8.7.7.2: the offset actually *applied* to the screen name after
+        // the out-of-bounds clamp below. The center/info label group must use
+        // this same value (not the raw stored offset) so it never diverges
+        // from the name — otherwise a name that snapped back to center leaves
+        // the size/info bar flung off-bounds where it gets clipped away.
+        let _appliedNameOffsetX = 0;
+        let _appliedNameOffsetY = 0;
         if (screenName) {
             // For non-pixel-map modes, use tab-specific offset position
             let screenNameX = centerX;
@@ -4381,12 +4388,22 @@ class CanvasRenderer {
                 // the legacy centered behavior.
                 screenNameX = centerX + screenNameOffsetX;
                 screenNameY = (currentY + screenNameHeight / 2) + screenNameOffsetY;
+                // v0.8.7.7.2: clamp the label to the layer's edges instead of
+                // snapping it back to center when the drag overshoots. Pinning
+                // to the edge is what lets a frame's name sit at the top of the
+                // panel (above an overlapping window layer) while still keeping
+                // the whole label group on-screen. _appliedNameOffset captures
+                // the post-clamp delta so the size/info bar tracks it exactly.
+                const _nameBaseY = currentY + screenNameHeight / 2;
+                const _minNameY = bounds.y + screenNameHeight / 2;
+                const _maxNameY = bounds.y + layerHeight - screenNameHeight / 2;
+                if (screenNameY < _minNameY) screenNameY = _minNameY;
+                else if (screenNameY > _maxNameY) screenNameY = _maxNameY;
                 if (screenNameX < bounds.x || screenNameX > bounds.x + layerWidth) {
                     screenNameX = centerX;
                 }
-                if (screenNameY < bounds.y || screenNameY > bounds.y + layerHeight) {
-                    screenNameY = currentY + screenNameHeight / 2;
-                }
+                _appliedNameOffsetX = screenNameX - centerX;
+                _appliedNameOffsetY = screenNameY - _nameBaseY;
             }
             
             this.ctx.font = `bold ${screenNameSize}px Arial`;
@@ -4460,8 +4477,10 @@ class CanvasRenderer {
         let _labelGroupOffsetY = 0;
         if (screenName) {
             if (this.viewMode === 'pixel-map') {
-                _labelGroupOffsetX = layer.screenNameOffsetXPixelMap || 0;
-                _labelGroupOffsetY = layer.screenNameOffsetYPixelMap || 0;
+                // Use the *applied* (post-clamp) name offset so the info bar
+                // always tracks the name and never gets clipped off-bounds.
+                _labelGroupOffsetX = _appliedNameOffsetX;
+                _labelGroupOffsetY = _appliedNameOffsetY;
             } else if (this.viewMode === 'cabinet-id') {
                 _labelGroupOffsetX = layer.screenNameOffsetXCabinet || 0;
                 _labelGroupOffsetY = layer.screenNameOffsetYCabinet || 0;

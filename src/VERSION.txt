@@ -1,6 +1,25 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.8.7.7.2 - May 31, 2026
+----------------------------
+Dragged screen-name labels keep their size/info bar on Pixel Map.
+
+- FIX: When a Pixel Map screen-name label was dragged far enough
+  that it crossed the layer's edge, the name snapped all the way
+  back to center while the size / "Columns × Rows • Cabinets…"
+  info bar kept the raw (now huge) offset and got clipped off the
+  panel — so the screen looked like it was "missing info" and the
+  name couldn't be nudged. This bit any frame whose name was
+  dragged up to sit above an overlapping window layer (ON SR
+  Frame, Center Frame, ON SL Frame, etc.).
+- FIX: The label now CLAMPS to the layer's edge instead of
+  snapping to center, so a name dragged upward pins to the top of
+  the panel (visible above an overlapping window) and stays there.
+- FIX: The center/size and bottom info bars now follow the name's
+  actual post-clamp position, so the whole label group always
+  moves as one unit and can never be flung off-bounds on its own.
+
 v0.8.7.7.1 - May 11, 2026
 ----------------------------
 Hidden layers are now properly out-of-bounds for editing.
