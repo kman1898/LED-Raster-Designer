@@ -2107,30 +2107,66 @@ class LEDRasterApp {
             const el = document.getElementById(id);
             if (el) el.textContent = value;
         };
-        const active = (typeof this._activeCanvas === 'function') ? this._activeCanvas() : null;
-        const activeId = active ? active.id : null;
-        const activeName = active ? `(${active.name || 'Canvas'})` : '(no active canvas)';
-        // Data Flow totals
-        const dataCanvas = activeId ? this.getPortCounts(activeId) : { primary: 0, backup: 0 };
-        const dataProject = this.getPortCounts();
-        setText('data-totals-canvas-name', activeName);
-        setText('data-totals-canvas-primary', dataCanvas.primary);
-        setText('data-totals-canvas-backup', dataCanvas.backup);
-        setText('data-totals-project-primary', dataProject.primary);
-        setText('data-totals-project-backup', dataProject.backup);
-        // Power totals, show "0" cleanly when there's no active canvas / no
-        // load yet. Amps formatted to 2 decimals to match the per-layer
-        // capacity readout.
-        const pwrCanvas = activeId ? this.getPowerCounts(activeId)
-            : { circuits: 0, totalWatts: 0, singlePhaseAmps: 0, threePhaseAmps: 0 };
-        const pwrProject = this.getPowerCounts();
         const fmtAmps = (a) => (a > 0) ? `${a.toFixed(2)} A` : '0';
         const fmtWatts = (w) => (w > 0) ? `${Math.round(w).toLocaleString()} W` : '0';
-        setText('power-totals-canvas-name', activeName);
-        setText('power-totals-canvas-watts', fmtWatts(pwrCanvas.totalWatts));
-        setText('power-totals-canvas-circuits', pwrCanvas.circuits);
-        setText('power-totals-canvas-1ph', fmtAmps(pwrCanvas.singlePhaseAmps));
-        setText('power-totals-canvas-3ph', fmtAmps(pwrCanvas.threePhaseAmps));
+
+        // v0.8.7.7.4: list every visible canvas individually instead of a
+        // single "active canvas" column. The old active-canvas readout was
+        // ambiguous on Data/Power (a layer has both a processor canvas and a
+        // show canvas, and the active-canvas tracker flips between them), so a
+        // selection on one canvas could show another canvas's numbers. Listing
+        // each canvas by name removes that guesswork. getPortCounts/
+        // getPowerCounts already group by the show canvas on these tabs and
+        // exclude hidden canvases.
+        const hidden = this._hiddenCanvasIdSet();
+        const canvases = (this.project && Array.isArray(this.project.canvases))
+            ? this.project.canvases.filter(c => c && c.id && !hidden.has(c.id))
+            : [];
+
+        // Build one block per canvas. A single-canvas project is left empty
+        // (the "All Canvases" total below already covers it, no point in
+        // duplicating it).
+        const buildPerCanvas = (containerId, rowsFor) => {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            container.innerHTML = '';
+            if (canvases.length <= 1) return;
+            canvases.forEach(c => {
+                const block = document.createElement('div');
+                block.style.cssText = 'padding: 8px; background: #111; border: 1px solid #333; border-radius: 4px; font-size: 12px; color: #ccc; margin-bottom: 8px;';
+                const title = document.createElement('div');
+                title.style.cssText = 'font-weight: 600; color: #fff; margin-bottom: 4px;';
+                title.textContent = c.name || 'Canvas';
+                block.appendChild(title);
+                rowsFor(c.id).forEach(([label, value]) => {
+                    const row = document.createElement('div');
+                    row.textContent = `${label}: ${value}`;
+                    block.appendChild(row);
+                });
+                container.appendChild(block);
+            });
+        };
+
+        // Data Flow totals
+        buildPerCanvas('data-totals-per-canvas', (cid) => {
+            const d = this.getPortCounts(cid);
+            return [['Primary Ports', d.primary], ['Backup Ports', d.backup]];
+        });
+        const dataProject = this.getPortCounts();
+        setText('data-totals-project-primary', dataProject.primary);
+        setText('data-totals-project-backup', dataProject.backup);
+
+        // Power totals
+        buildPerCanvas('power-totals-per-canvas', (cid) => {
+            const p = this.getPowerCounts(cid);
+            return [
+                ['Watts', fmtWatts(p.totalWatts)],
+                ['Circuits', p.circuits],
+                ['Amps (1φ)', fmtAmps(p.singlePhaseAmps)],
+                ['Amps (3φ)', fmtAmps(p.threePhaseAmps)],
+            ];
+        });
+        const pwrProject = this.getPowerCounts();
         setText('power-totals-project-watts', fmtWatts(pwrProject.totalWatts));
         setText('power-totals-project-circuits', pwrProject.circuits);
         setText('power-totals-project-1ph', fmtAmps(pwrProject.singlePhaseAmps));
