@@ -1,6 +1,23 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.8.7.7.4 - June 16, 2026
+----------------------------
+Data/Power Totals now break down per canvas instead of one ambiguous
+"active canvas" column.
+
+- FIX: the "This Canvas" totals column keyed off the active canvas,
+  which is ambiguous on Data/Power (a layer has both a processor
+  canvas and a show canvas, and the active-canvas tracker flips
+  between them). Selecting a screen on one canvas could show another
+  canvas's numbers. Replaced it with a per-canvas breakdown.
+- FEATURE: the Totals panel on both Data and Power now lists every
+  visible canvas individually (by name) plus the "All Canvases"
+  grand total. Each canvas's numbers are grouped by its show-canvas,
+  matching where the screens actually render on those tabs. Hidden
+  canvases are excluded; single-canvas projects just show the one
+  "All Canvases" total.
+
 v0.8.7.7.3 - May 31, 2026
 ----------------------------
 Screen-name labels: self-healing offsets + Show Look support.
