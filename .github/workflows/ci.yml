@@ -133,14 +133,29 @@ jobs:
       - name: Install Chromium browser
         run: |
           source .venv/bin/activate
-          playwright install chromium
-        timeout-minutes: 3
+          for i in 1 2 3; do
+            echo "::group::playwright install chromium (attempt $i)"
+            playwright install chromium && { echo "::endgroup::"; exit 0; }
+            echo "::endgroup::"
+            echo "attempt $i failed, retrying in 15s..."; sleep 15
+          done
+          echo "playwright install chromium failed after 3 attempts"; exit 1
+        timeout-minutes: 8
 
       - name: Install Chromium system deps
         run: |
           source .venv/bin/activate
-          playwright install-deps chromium
-        timeout-minutes: 3
+          # apt-based system-dep install is the historically flaky step (mirror
+          # slowness was tripping the old 3-min cap mid-install). Retry a few
+          # times under a more generous overall timeout.
+          for i in 1 2 3; do
+            echo "::group::playwright install-deps chromium (attempt $i)"
+            playwright install-deps chromium && { echo "::endgroup::"; exit 0; }
+            echo "::endgroup::"
+            echo "attempt $i failed, retrying in 20s..."; sleep 20
+          done
+          echo "playwright install-deps chromium failed after 3 attempts"; exit 1
+        timeout-minutes: 12
 
       - name: Run browser tests
         run: |
