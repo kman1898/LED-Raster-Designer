@@ -27481,7 +27481,7 @@
       "proc_type": null,
       "watts_max": 300,
       "watts_ave": null,
-      "source": "fidoled calc (2.73A \u00d7 110V)"
+      "source": "fidoled calc (2.73A × 110V)"
     },
     {
       "name": "Black Marble BM15P",
@@ -27496,7 +27496,7 @@
       "proc_type": null,
       "watts_max": 500,
       "watts_ave": null,
-      "source": "fidoled calc (4.55A \u00d7 110V)"
+      "source": "fidoled calc (4.55A × 110V)"
     },
     {
       "name": "Black Marble BM15P-Spotlight",
@@ -27511,7 +27511,7 @@
       "proc_type": null,
       "watts_max": 500,
       "watts_ave": null,
-      "source": "fidoled calc (4.55A \u00d7 110V)"
+      "source": "fidoled calc (4.55A × 110V)"
     },
     {
       "name": "Black Marble BM2",
@@ -27601,7 +27601,7 @@
       "proc_type": null,
       "watts_max": 140,
       "watts_ave": null,
-      "source": "fidoled calc (1.27A \u00d7 110V)"
+      "source": "fidoled calc (1.27A × 110V)"
     },
     {
       "name": "Black Pearl BP2",
@@ -27661,7 +27661,7 @@
       "proc_type": null,
       "watts_max": 140,
       "watts_ave": null,
-      "source": "fidoled calc (1.27A \u00d7 110V)"
+      "source": "fidoled calc (1.27A × 110V)"
     },
     {
       "name": "Black Quartz 3.9 Full Tile",
@@ -29506,7 +29506,7 @@
       "proc_type": null,
       "watts_max": 350,
       "watts_ave": null,
-      "source": "fidoled calc (3.18A \u00d7 110V)"
+      "source": "fidoled calc (3.18A × 110V)"
     },
     {
       "name": "Vanish 18",
@@ -29626,7 +29626,7 @@
       "proc_type": null,
       "watts_max": 650,
       "watts_ave": null,
-      "source": "fidoled calc (5.91A \u00d7 110V)"
+      "source": "fidoled calc (5.91A × 110V)"
     }
   ],
   "SACO": [
@@ -33120,7 +33120,7 @@
       "proc_type": null,
       "watts_max": 200.2,
       "watts_ave": null,
-      "source": "official: unilumin.com UGM II spec"
+      "source": "official: www.unilumin.com UGM 04 Specifications Sheet PDF"
     },
     {
       "name": "UGM 2",
@@ -33135,7 +33135,7 @@
       "proc_type": null,
       "watts_max": 149.6,
       "watts_ave": null,
-      "source": "fidoled clipboard"
+      "source": "official: www.unilumin.com UGM 2 Specifications Sheet PDF"
     },
     {
       "name": "UGM 3",
@@ -33270,7 +33270,7 @@
       "proc_type": null,
       "watts_max": 135.3,
       "watts_ave": null,
-      "source": "fidoled clipboard"
+      "source": "official: www.unilumin-usa.com ULWIII 1.5 Specifications Sheet PDF"
     },
     {
       "name": "ULWIII 1.8",
@@ -33285,7 +33285,7 @@
       "proc_type": null,
       "watts_max": 129.8,
       "watts_ave": null,
-      "source": "fidoled clipboard"
+      "source": "official: www.unilumin-usa.com ULWIII 1.8 Specifications Sheet PDF"
     },
     {
       "name": "ULWIII 2.5",
@@ -33388,9 +33388,9 @@
       "weight_kg": 7.0,
       "weight_lb": 15.432339999999998,
       "proc_type": null,
-      "watts_max": 114.4,
+      "watts_max": 150,
       "watts_ave": null,
-      "source": "fidoled clipboard"
+      "source": "official: www.unilumin-usa.com Unano1.8 Specifications Sheet PDF"
     },
     {
       "name": "Upad 10mm (Outdoor)",
@@ -33430,12 +33430,12 @@
       "pixels_w": 128,
       "pixels_h": 128,
       "pitch_mm": 3.75,
-      "weight_kg": 10.0,
-      "weight_lb": 22.0462,
+      "weight_kg": 11,
+      "weight_lb": 24.2508,
       "proc_type": null,
       "watts_max": 149.6,
       "watts_ave": null,
-      "source": "fidoled clipboard"
+      "source": "official: www.unilumin.com Upad 3mm (Indoor) Specifications Sheet PDF"
     },
     {
       "name": "Upad 4mm (Indoor)",
@@ -33523,9 +33523,9 @@
       "weight_kg": 11.0,
       "weight_lb": 24.250819999999997,
       "proc_type": null,
-      "watts_max": 479.6,
+      "watts_max": 350,
       "watts_ave": null,
-      "source": "fidoled clipboard"
+      "source": "official: www.unilumin-usa.com Upad III H05 Specifications Sheet PDF"
     },
     {
       "name": "Upad III H05 in TOURING Frame",
@@ -33570,7 +33570,7 @@
       "proc_type": null,
       "watts_max": 119.9,
       "watts_ave": null,
-      "source": "fidoled clipboard"
+      "source": "official: www.matrixvisual.com UpadIII 2.6 (Indoor) Specifications Sheet PDF"
     },
     {
       "name": "UpadIII 3.2 (Indoor)",
@@ -33690,7 +33690,7 @@
       "proc_type": null,
       "watts_max": 119.9,
       "watts_ave": null,
-      "source": "fidoled clipboard"
+      "source": "official: www.unilumin-usa.com UpadIV 2.6 Specifications Sheet PDF"
     },
     {
       "name": "UpadIV 2.9",
@@ -33735,7 +33735,7 @@
       "proc_type": null,
       "watts_max": 119.9,
       "watts_ave": null,
-      "source": "fidoled clipboard"
+      "source": "official: www.unilumin-usa.com UpadIV1.9 Pro Specifications Sheet PDF"
     },
     {
       "name": "UpadIV2",
@@ -33748,9 +33748,9 @@
       "weight_kg": 6.3,
       "weight_lb": 13.889105999999998,
       "proc_type": null,
-      "watts_max": 149.6,
+      "watts_max": 120,
       "watts_ave": null,
-      "source": "fidoled clipboard"
+      "source": "official: www.unilumin-usa.com UpadIV2 Specifications Sheet PDF"
     },
     {
       "name": "UpadIV2 Pro",
@@ -33763,9 +33763,9 @@
       "weight_kg": 6.4,
       "weight_lb": 14.109568,
       "proc_type": null,
-      "watts_max": 149.6,
+      "watts_max": 120,
       "watts_ave": null,
-      "source": "fidoled clipboard"
+      "source": "official: www.unilumin-usa.com UpadIV2 Pro Specifications Sheet PDF"
     },
     {
       "name": "Upanel0.9S",
@@ -33778,9 +33778,9 @@
       "weight_kg": 7.5,
       "weight_lb": 16.53465,
       "proc_type": null,
-      "watts_max": 126.5,
+      "watts_max": 150,
       "watts_ave": null,
-      "source": "fidoled clipboard"
+      "source": "official: www.unilumin-usa.com Upanel0.9S Specifications Sheet PDF"
     },
     {
       "name": "Upanel1.2S",
@@ -33793,9 +33793,9 @@
       "weight_kg": 7.5,
       "weight_lb": 16.53465,
       "proc_type": null,
-      "watts_max": 119.9,
+      "watts_max": 140,
       "watts_ave": null,
-      "source": "fidoled clipboard"
+      "source": "official: www.unilumin-usa.com Upanel1.2S Specifications Sheet PDF"
     },
     {
       "name": "Upanel1.4S",
@@ -33823,9 +33823,9 @@
       "weight_kg": 7.5,
       "weight_lb": 16.53465,
       "proc_type": null,
-      "watts_max": 119.9,
+      "watts_max": 140,
       "watts_ave": null,
-      "source": "fidoled clipboard"
+      "source": "official: www.unilumin-usa.com Upanel1.5S Specifications Sheet PDF"
     },
     {
       "name": "Upanel1.9S",
@@ -33838,9 +33838,9 @@
       "weight_kg": 7.5,
       "weight_lb": 16.53465,
       "proc_type": null,
-      "watts_max": 119.9,
+      "watts_max": 140,
       "watts_ave": null,
-      "source": "fidoled clipboard"
+      "source": "official: www.logando.de Upanel1.9S Specifications Sheet PDF"
     },
     {
       "name": "Upanel2.3S",
@@ -33868,9 +33868,9 @@
       "weight_kg": 7.5,
       "weight_lb": 16.53465,
       "proc_type": null,
-      "watts_max": 119.9,
+      "watts_max": 80,
       "watts_ave": null,
-      "source": "fidoled clipboard"
+      "source": "official: www.unilumin-usa.com Upanel2.5S Specifications Sheet PDF"
     },
     {
       "name": "URMIII 03 Full Tile",
@@ -33885,7 +33885,7 @@
       "proc_type": null,
       "watts_max": 335.5,
       "watts_ave": null,
-      "source": "fidoled clipboard"
+      "source": "official: www.unilumin-usa.com URMIII 03 Full Tile Specifications Sheet PDF"
     },
     {
       "name": "URMIII 03 Half Tile",
@@ -33900,7 +33900,7 @@
       "proc_type": null,
       "watts_max": 119.9,
       "watts_ave": null,
-      "source": "fidoled clipboard"
+      "source": "official: www.unilumin-usa.com URMIII 03 Half Tile Specifications Sheet PDF"
     },
     {
       "name": "URMIII2 (Full Tile)",
@@ -33945,7 +33945,7 @@
       "proc_type": null,
       "watts_max": 239.8,
       "watts_ave": null,
-      "source": "fidoled clipboard"
+      "source": "official: www.unilumin-usa.com URMIII2.6 (Full Tile) Specifications Sheet PDF"
     },
     {
       "name": "URMIII2.6 (Half Tile)",
@@ -33960,7 +33960,7 @@
       "proc_type": null,
       "watts_max": 119.9,
       "watts_ave": null,
-      "source": "fidoled clipboard"
+      "source": "official: www.unilumin-usa.com URMIII2.6 (Half Tile) Specifications Sheet PDF"
     },
     {
       "name": "URMIII3 (Full Tile)",
@@ -33970,12 +33970,12 @@
       "pixels_w": 128,
       "pixels_h": 256,
       "pitch_mm": 3.906,
-      "weight_kg": 13.0,
-      "weight_lb": 28.660059999999998,
+      "weight_kg": 13.9,
+      "weight_lb": 30.6443,
       "proc_type": null,
-      "watts_max": 239.8,
+      "watts_max": 335,
       "watts_ave": null,
-      "source": "fidoled clipboard"
+      "source": "official: www.unilumin-usa.com URMIII3 (Full Tile) Specifications Sheet PDF"
     },
     {
       "name": "URMIII3 (Half Tile)",
@@ -33990,7 +33990,7 @@
       "proc_type": null,
       "watts_max": 119.9,
       "watts_ave": null,
-      "source": "fidoled clipboard"
+      "source": "official: www.unilumin-usa.com URMIII3 (Half Tile) Specifications Sheet PDF"
     },
     {
       "name": "URMIIIO3 (Full Tile)",
@@ -34018,9 +34018,9 @@
       "weight_kg": 8.5,
       "weight_lb": 18.739269999999998,
       "proc_type": null,
-      "watts_max": 126.5,
+      "watts_max": 170,
       "watts_ave": null,
-      "source": "fidoled clipboard"
+      "source": "official: www.unilumin-usa.com URMIIIO3 (Half Tile) Specifications Sheet PDF"
     },
     {
       "name": "URMIIIO4 (Full Tile)",
@@ -34035,7 +34035,7 @@
       "proc_type": null,
       "watts_max": 335.5,
       "watts_ave": null,
-      "source": "fidoled clipboard"
+      "source": "official: www.unilumin-usa.com URMIIIO4 (Full Tile) Specifications Sheet PDF"
     },
     {
       "name": "URMIIIO4 (Half Tile)",
@@ -34050,7 +34050,7 @@
       "proc_type": null,
       "watts_max": 170.5,
       "watts_ave": null,
-      "source": "fidoled clipboard"
+      "source": "official: www.unilumin-usa.com URMIIIO4 (Half Tile) Specifications Sheet PDF"
     },
     {
       "name": "Uslim2(Indoor)",
@@ -34065,7 +34065,7 @@
       "proc_type": null,
       "watts_max": 239.8,
       "watts_ave": null,
-      "source": "fidoled clipboard"
+      "source": "official: unilumin-usa.com Uslim2(Indoor) Specifications Sheet PDF"
     },
     {
       "name": "Uslim3 (500x1000 Indoor)",
@@ -34170,7 +34170,7 @@
       "proc_type": null,
       "watts_max": 576.4,
       "watts_ave": null,
-      "source": "fidoled clipboard"
+      "source": "official: www.logando.de UsurfaceIII6 Specifications Sheet PDF"
     },
     {
       "name": "UsurfaceIII8",
@@ -34185,7 +34185,7 @@
       "proc_type": null,
       "watts_max": 576.4,
       "watts_ave": null,
-      "source": "fidoled clipboard"
+      "source": "official: www.logando.de UsurfaceIII8 Specifications Sheet PDF"
     },
     {
       "name": "Utile2 Plus (Indoor)",
