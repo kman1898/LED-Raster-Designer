@@ -1242,6 +1242,9 @@ class LEDRasterApp {
             gradientType: layer.gradientType,
             gradientScope: layer.gradientScope,
             gradientPanelAlternate: layer.gradientPanelAlternate,
+            gradientRadialCenterX: layer.gradientRadialCenterX,
+            gradientRadialCenterY: layer.gradientRadialCenterY,
+            gradientRadialRadius: layer.gradientRadialRadius,
             gradientAngle: layer.gradientAngle,
             gradientOpacity: layer.gradientOpacity,
             gradientBlend: layer.gradientBlend,
@@ -1456,6 +1459,9 @@ class LEDRasterApp {
                         if (layerProps.gradientType !== undefined) layer.gradientType = layerProps.gradientType;
                         if (layerProps.gradientScope !== undefined) layer.gradientScope = layerProps.gradientScope;
                         if (layerProps.gradientPanelAlternate !== undefined) layer.gradientPanelAlternate = layerProps.gradientPanelAlternate;
+                        if (layerProps.gradientRadialCenterX !== undefined) layer.gradientRadialCenterX = layerProps.gradientRadialCenterX;
+                        if (layerProps.gradientRadialCenterY !== undefined) layer.gradientRadialCenterY = layerProps.gradientRadialCenterY;
+                        if (layerProps.gradientRadialRadius !== undefined) layer.gradientRadialRadius = layerProps.gradientRadialRadius;
                         if (layerProps.gradientAngle !== undefined) layer.gradientAngle = layerProps.gradientAngle;
                         if (layerProps.gradientOpacity !== undefined) layer.gradientOpacity = layerProps.gradientOpacity;
                         if (layerProps.gradientBlend !== undefined) layer.gradientBlend = layerProps.gradientBlend;
@@ -1668,9 +1674,21 @@ class LEDRasterApp {
                 gradientType: layer.gradientType,
                 gradientScope: layer.gradientScope,
                 gradientPanelAlternate: layer.gradientPanelAlternate,
+                gradientRadialCenterX: layer.gradientRadialCenterX,
+                gradientRadialCenterY: layer.gradientRadialCenterY,
+                gradientRadialRadius: layer.gradientRadialRadius,
+            gradientRadialCenterX: layer.gradientRadialCenterX,
+            gradientRadialCenterY: layer.gradientRadialCenterY,
+            gradientRadialRadius: layer.gradientRadialRadius,
             gradientPanelAlternate: layer.gradientPanelAlternate,
+            gradientRadialCenterX: layer.gradientRadialCenterX,
+            gradientRadialCenterY: layer.gradientRadialCenterY,
+            gradientRadialRadius: layer.gradientRadialRadius,
             gradientScope: layer.gradientScope,
             gradientPanelAlternate: layer.gradientPanelAlternate,
+            gradientRadialCenterX: layer.gradientRadialCenterX,
+            gradientRadialCenterY: layer.gradientRadialCenterY,
+            gradientRadialRadius: layer.gradientRadialRadius,
                 gradientAngle: layer.gradientAngle,
                 gradientOpacity: layer.gradientOpacity,
                 gradientBlend: layer.gradientBlend,
@@ -1683,6 +1701,9 @@ class LEDRasterApp {
             gradientType: layer.gradientType,
             gradientScope: layer.gradientScope,
             gradientPanelAlternate: layer.gradientPanelAlternate,
+            gradientRadialCenterX: layer.gradientRadialCenterX,
+            gradientRadialCenterY: layer.gradientRadialCenterY,
+            gradientRadialRadius: layer.gradientRadialRadius,
             gradientAngle: layer.gradientAngle,
             gradientOpacity: layer.gradientOpacity,
             gradientBlend: layer.gradientBlend,
@@ -5767,6 +5788,9 @@ class LEDRasterApp {
         if (!layer.gradientType) layer.gradientType = 'linear';
         if (!layer.gradientScope) layer.gradientScope = 'screen';       // screen = whole screen, panel = per cabinet
         if (layer.gradientPanelAlternate == null) layer.gradientPanelAlternate = false; // mirror every other cabinet
+        if (layer.gradientRadialCenterX == null) layer.gradientRadialCenterX = 0.5; // radial center, fraction of rect
+        if (layer.gradientRadialCenterY == null) layer.gradientRadialCenterY = 0.5;
+        if (layer.gradientRadialRadius == null) layer.gradientRadialRadius = 1;      // radial size, × base radius
         if (layer.gradientAngle == null) layer.gradientAngle = 0;       // 0 = left→right, 90 = top→bottom
         if (layer.gradientOpacity == null) layer.gradientOpacity = 0.6;
         if (!layer.gradientBlend) layer.gradientBlend = 'normal';       // normal|multiply|screen|overlay|...
@@ -5801,6 +5825,9 @@ class LEDRasterApp {
         if (!layer.gradientType) layer.gradientType = 'linear';
         if (!layer.gradientScope) layer.gradientScope = 'screen';
         if (layer.gradientPanelAlternate == null) layer.gradientPanelAlternate = false;
+        if (layer.gradientRadialCenterX == null) layer.gradientRadialCenterX = 0.5;
+        if (layer.gradientRadialCenterY == null) layer.gradientRadialCenterY = 0.5;
+        if (layer.gradientRadialRadius == null) layer.gradientRadialRadius = 1;
         if (layer.gradientAngle == null) layer.gradientAngle = 0;
         if (layer.gradientOpacity == null) layer.gradientOpacity = 0.6;
         if (!layer.gradientBlend) layer.gradientBlend = 'normal';
@@ -5858,10 +5885,35 @@ class LEDRasterApp {
             if (controls) controls.style.display = enabled.checked ? 'block' : 'none';
         });
 
+        const radialRows = $('gradient-radial-rows');
         if (typeSel) typeSel.addEventListener('change', () => {
             this._applyGradient({ gradientType: typeSel.value }, true);
-            if (angleRow) angleRow.style.display = (typeSel.value === 'radial') ? 'none' : 'block';
+            const isRadial = typeSel.value === 'radial';
+            if (angleRow) angleRow.style.display = isRadial ? 'none' : 'block';
+            if (radialRows) radialRows.style.display = isRadial ? 'block' : 'none';
         });
+
+        // Radial center X/Y and size: each a slider + typeable % field that
+        // maps to a 0–1 fraction (center) or × multiplier (size /100).
+        const wireFrac = (sliderId, numId, key, lo, hi) => {
+            const s = $(sliderId), n = $(numId);
+            const apply = (val, isFinal) => {
+                let v = Math.round(Number(val));
+                if (!Number.isFinite(v)) v = 0;
+                v = Math.min(hi, Math.max(lo, v));
+                if (s) s.value = v;
+                if (n) n.value = v;
+                this._applyGradient({ [key]: v / 100 }, isFinal);
+            };
+            if (s) {
+                s.addEventListener('input', () => apply(s.value, false));
+                s.addEventListener('change', () => apply(s.value, true));
+            }
+            if (n) n.addEventListener('change', () => apply(n.value, true));
+        };
+        wireFrac('gradient-rcx', 'gradient-rcx-num', 'gradientRadialCenterX', -50, 150);
+        wireFrac('gradient-rcy', 'gradient-rcy-num', 'gradientRadialCenterY', -50, 150);
+        wireFrac('gradient-rsize', 'gradient-rsize-num', 'gradientRadialRadius', 10, 400);
 
         const scopeSel = $('gradient-scope');
         const altRow = $('gradient-alternate-row');
@@ -6053,7 +6105,17 @@ class LEDRasterApp {
         if ($('gradient-scope')) $('gradient-scope').value = l.gradientScope || 'screen';
         if ($('gradient-alternate-row')) $('gradient-alternate-row').style.display = (l.gradientScope === 'panel') ? 'flex' : 'none';
         if ($('gradient-panel-alternate')) $('gradient-panel-alternate').checked = !!l.gradientPanelAlternate;
-        if ($('gradient-angle-row')) $('gradient-angle-row').style.display = ((l.gradientType || 'linear') === 'radial') ? 'none' : 'block';
+        const isRadial = (l.gradientType || 'linear') === 'radial';
+        if ($('gradient-angle-row')) $('gradient-angle-row').style.display = isRadial ? 'none' : 'block';
+        if ($('gradient-radial-rows')) $('gradient-radial-rows').style.display = isRadial ? 'block' : 'none';
+        const setPair = (sliderId, numId, frac) => {
+            const v = Math.round(frac * 100);
+            if ($(sliderId)) $(sliderId).value = v;
+            if ($(numId)) $(numId).value = v;
+        };
+        setPair('gradient-rcx', 'gradient-rcx-num', (l.gradientRadialCenterX != null) ? l.gradientRadialCenterX : 0.5);
+        setPair('gradient-rcy', 'gradient-rcy-num', (l.gradientRadialCenterY != null) ? l.gradientRadialCenterY : 0.5);
+        setPair('gradient-rsize', 'gradient-rsize-num', (l.gradientRadialRadius != null) ? l.gradientRadialRadius : 1);
         const ang = Number(l.gradientAngle) || 0;
         if ($('gradient-angle')) $('gradient-angle').value = ang;
         if ($('gradient-angle-num')) $('gradient-angle-num').value = ang;
@@ -6195,20 +6257,23 @@ class LEDRasterApp {
         if (!value) return;
         const [kind, ...rest] = value.split(':');
         const name = rest.join(':');
-        const list = kind === 'user' ? this._userGradientPresets() : this._builtinGradientPresets();
+        const isUser = kind === 'user';
+        const list = isUser ? this._userGradientPresets() : this._builtinGradientPresets();
         const p = list.find(x => x.name === name);
         if (!p) return;
-        // Apply only the fields the preset defines; default the rest sanely.
+        // Built-in presets are just color sets — apply ONLY the stops and keep
+        // the current type/scope/opacity/blend/radial setup (so a radial stays
+        // radial, etc.). User presets carry the full look they were saved with.
         const patch = {
             gradientEnabled: true,
-            gradientType: p.gradientType || 'linear',
-            gradientAngle: (p.gradientAngle != null) ? p.gradientAngle : 0,
             gradientStops: (p.gradientStops || []).map(s => ({ pos: s.pos, color: s.color })),
         };
-        if (p.gradientScope != null) patch.gradientScope = p.gradientScope;
-        if (p.gradientOpacity != null) patch.gradientOpacity = p.gradientOpacity;
-        if (p.gradientBlend != null) patch.gradientBlend = p.gradientBlend;
-        if (p.gradientPanelAlternate != null) patch.gradientPanelAlternate = p.gradientPanelAlternate;
+        if (isUser) {
+            const carry = ['gradientType', 'gradientAngle', 'gradientScope', 'gradientOpacity',
+                'gradientBlend', 'gradientPanelAlternate',
+                'gradientRadialCenterX', 'gradientRadialCenterY', 'gradientRadialRadius'];
+            carry.forEach(k => { if (p[k] != null) patch[k] = p[k]; });
+        }
         this._applyGradient(patch, true);
         this.loadGradientEditor();
     }
@@ -6226,6 +6291,9 @@ class LEDRasterApp {
             gradientOpacity: (l.gradientOpacity != null) ? l.gradientOpacity : 0.6,
             gradientBlend: l.gradientBlend || 'normal',
             gradientPanelAlternate: !!l.gradientPanelAlternate,
+            gradientRadialCenterX: (l.gradientRadialCenterX != null) ? l.gradientRadialCenterX : 0.5,
+            gradientRadialCenterY: (l.gradientRadialCenterY != null) ? l.gradientRadialCenterY : 0.5,
+            gradientRadialRadius: (l.gradientRadialRadius != null) ? l.gradientRadialRadius : 1,
             gradientStops: this._gradientStops().map(s => ({ pos: s.pos, color: s.color })),
         };
         const users = this._userGradientPresets().filter(p => p.name !== name);
@@ -7152,6 +7220,9 @@ class LEDRasterApp {
                     gradientType: this.currentLayer.gradientType,
                     gradientScope: this.currentLayer.gradientScope,
                     gradientPanelAlternate: this.currentLayer.gradientPanelAlternate,
+                    gradientRadialCenterX: this.currentLayer.gradientRadialCenterX,
+                    gradientRadialCenterY: this.currentLayer.gradientRadialCenterY,
+                    gradientRadialRadius: this.currentLayer.gradientRadialRadius,
                     gradientAngle: this.currentLayer.gradientAngle,
                     gradientOpacity: this.currentLayer.gradientOpacity,
                     gradientBlend: this.currentLayer.gradientBlend,
@@ -7287,9 +7358,21 @@ class LEDRasterApp {
                 gradientType: layer.gradientType,
                 gradientScope: layer.gradientScope,
                 gradientPanelAlternate: layer.gradientPanelAlternate,
+                gradientRadialCenterX: layer.gradientRadialCenterX,
+                gradientRadialCenterY: layer.gradientRadialCenterY,
+                gradientRadialRadius: layer.gradientRadialRadius,
+            gradientRadialCenterX: layer.gradientRadialCenterX,
+            gradientRadialCenterY: layer.gradientRadialCenterY,
+            gradientRadialRadius: layer.gradientRadialRadius,
             gradientPanelAlternate: layer.gradientPanelAlternate,
+            gradientRadialCenterX: layer.gradientRadialCenterX,
+            gradientRadialCenterY: layer.gradientRadialCenterY,
+            gradientRadialRadius: layer.gradientRadialRadius,
             gradientScope: layer.gradientScope,
             gradientPanelAlternate: layer.gradientPanelAlternate,
+            gradientRadialCenterX: layer.gradientRadialCenterX,
+            gradientRadialCenterY: layer.gradientRadialCenterY,
+            gradientRadialRadius: layer.gradientRadialRadius,
                 gradientAngle: layer.gradientAngle,
                 gradientOpacity: layer.gradientOpacity,
                 gradientBlend: layer.gradientBlend,
@@ -7302,6 +7385,9 @@ class LEDRasterApp {
             gradientType: layer.gradientType,
             gradientScope: layer.gradientScope,
             gradientPanelAlternate: layer.gradientPanelAlternate,
+            gradientRadialCenterX: layer.gradientRadialCenterX,
+            gradientRadialCenterY: layer.gradientRadialCenterY,
+            gradientRadialRadius: layer.gradientRadialRadius,
             gradientAngle: layer.gradientAngle,
             gradientOpacity: layer.gradientOpacity,
             gradientBlend: layer.gradientBlend,
@@ -13838,6 +13924,9 @@ class LEDRasterApp {
             gradientType: layer.gradientType,
             gradientScope: layer.gradientScope,
             gradientPanelAlternate: layer.gradientPanelAlternate,
+            gradientRadialCenterX: layer.gradientRadialCenterX,
+            gradientRadialCenterY: layer.gradientRadialCenterY,
+            gradientRadialRadius: layer.gradientRadialRadius,
             gradientAngle: layer.gradientAngle,
             gradientOpacity: layer.gradientOpacity,
             gradientBlend: layer.gradientBlend,

@@ -9,7 +9,8 @@ Gradients + multi-color cabinet palettes (Photoshop-style).
   Cabinet ID). Composited on top of the checkerboard test pattern.
   - Multi-stop editor: click the bar to add a stop, drag markers to
     move, typeable hex + position per stop.
-  - Linear (typeable angle) and Radial.
+  - Linear (typeable angle) and Radial with a movable center
+    (Center X/Y) and adjustable Size.
   - Spread: Whole screen, or Each panel (gradient repeated on every
     cabinet). "Alternate panels" mirrors every other COLUMN for a
     woven wave look.
@@ -19,7 +20,9 @@ Gradients + multi-color cabinet palettes (Photoshop-style).
     Saturation, Color, Luminosity).
   - Preset library with live color swatches: 22 built-ins (Spectrum,
     Fire, Chrome, Copper, Sunset, etc.) plus Save current… for your
-    own; saved presets are per-browser.
+    own; saved presets are per-browser. Built-in presets re-color the
+    current gradient only (they keep your type/radial/opacity/blend);
+    your own saved presets restore their full settings.
 - FEATURE: Multi-color cabinet palette. Pattern modes — Checkerboard
   (default, unchanged), Diagonal wave, Cycle/sweep, By row, By
   column — distribute an N-color palette across cabinets. Existing

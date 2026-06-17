@@ -3107,9 +3107,14 @@ class CanvasRenderer {
         stops.sort((a, b) => (Number(a.pos) || 0) - (Number(b.pos) || 0));
         let grad;
         if ((layer.gradientType || 'linear') === 'radial') {
-            const cx = x + w / 2;
-            const cy = y + h / 2;
-            const r = Math.max(w, h) / 2 || 1;
+            // Center is a fraction of the rect (0.5 = middle); radius is a
+            // multiplier of the rect's base radius (max(w,h)/2).
+            const fx = (layer.gradientRadialCenterX != null) ? layer.gradientRadialCenterX : 0.5;
+            const fy = (layer.gradientRadialCenterY != null) ? layer.gradientRadialCenterY : 0.5;
+            const rs = (layer.gradientRadialRadius != null) ? layer.gradientRadialRadius : 1;
+            const cx = x + w * fx;
+            const cy = y + h * fy;
+            const r = Math.max(1, (Math.max(w, h) / 2) * rs);
             grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
         } else {
             // angle: 0 = left→right, 90 = top→bottom (canvas +y is down).

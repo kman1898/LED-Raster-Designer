@@ -120,7 +120,8 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 
 /* v0.8.7.8: compact number fields (gradient angle/opacity/stop pos) — hide the
    native spinner so 3 digits aren't clipped. */
-#gradient-angle-num, #gradient-opacity-num, #gradient-stop-pos {
+#gradient-angle-num, #gradient-opacity-num, #gradient-stop-pos,
+#gradient-rcx-num, #gradient-rcy-num, #gradient-rsize-num {
     -webkit-appearance: textfield;
     -moz-appearance: textfield;
     appearance: textfield;
@@ -131,7 +132,13 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 #gradient-opacity-num::-webkit-inner-spin-button,
 #gradient-opacity-num::-webkit-outer-spin-button,
 #gradient-stop-pos::-webkit-inner-spin-button,
-#gradient-stop-pos::-webkit-outer-spin-button {
+#gradient-stop-pos::-webkit-outer-spin-button,
+#gradient-rcx-num::-webkit-inner-spin-button,
+#gradient-rcx-num::-webkit-outer-spin-button,
+#gradient-rcy-num::-webkit-inner-spin-button,
+#gradient-rcy-num::-webkit-outer-spin-button,
+#gradient-rsize-num::-webkit-inner-spin-button,
+#gradient-rsize-num::-webkit-outer-spin-button {
     -webkit-appearance: none;
     appearance: none;
     display: none;
