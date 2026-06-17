@@ -1238,6 +1238,16 @@ class LEDRasterApp {
             screenNameOffsetYPower: layer.screenNameOffsetYPower,
             screenNameOffsetXShowLook: layer.screenNameOffsetXShowLook,
             screenNameOffsetYShowLook: layer.screenNameOffsetYShowLook,
+            gradientEnabled: layer.gradientEnabled,
+            gradientType: layer.gradientType,
+            gradientScope: layer.gradientScope,
+            gradientPanelAlternate: layer.gradientPanelAlternate,
+            gradientAngle: layer.gradientAngle,
+            gradientOpacity: layer.gradientOpacity,
+            gradientBlend: layer.gradientBlend,
+            gradientStops: layer.gradientStops,
+            panelColorMode: layer.panelColorMode,
+            panelColors: layer.panelColors,
             showDataFlowPortInfo: layer.showDataFlowPortInfo,
             showPowerCircuitInfo: layer.showPowerCircuitInfo,
             powerVoltage: layer.powerVoltage,
@@ -1442,6 +1452,16 @@ class LEDRasterApp {
                         if (layerProps.screenNameOffsetYPower !== undefined) layer.screenNameOffsetYPower = layerProps.screenNameOffsetYPower;
                         if (layerProps.screenNameOffsetXShowLook !== undefined) layer.screenNameOffsetXShowLook = layerProps.screenNameOffsetXShowLook;
                         if (layerProps.screenNameOffsetYShowLook !== undefined) layer.screenNameOffsetYShowLook = layerProps.screenNameOffsetYShowLook;
+                        if (layerProps.gradientEnabled !== undefined) layer.gradientEnabled = layerProps.gradientEnabled;
+                        if (layerProps.gradientType !== undefined) layer.gradientType = layerProps.gradientType;
+                        if (layerProps.gradientScope !== undefined) layer.gradientScope = layerProps.gradientScope;
+                        if (layerProps.gradientPanelAlternate !== undefined) layer.gradientPanelAlternate = layerProps.gradientPanelAlternate;
+                        if (layerProps.gradientAngle !== undefined) layer.gradientAngle = layerProps.gradientAngle;
+                        if (layerProps.gradientOpacity !== undefined) layer.gradientOpacity = layerProps.gradientOpacity;
+                        if (layerProps.gradientBlend !== undefined) layer.gradientBlend = layerProps.gradientBlend;
+                        if (Array.isArray(layerProps.gradientStops)) layer.gradientStops = layerProps.gradientStops.map(s => ({ pos: s.pos, color: s.color }));
+                        if (layerProps.panelColorMode !== undefined) layer.panelColorMode = layerProps.panelColorMode;
+                        if (Array.isArray(layerProps.panelColors)) layer.panelColors = layerProps.panelColors.slice();
                     }
                 });
             } catch (e) {
@@ -1644,6 +1664,31 @@ class LEDRasterApp {
                 screenNameOffsetYPower: layer.screenNameOffsetYPower,
                 screenNameOffsetXShowLook: layer.screenNameOffsetXShowLook,
                 screenNameOffsetYShowLook: layer.screenNameOffsetYShowLook,
+                gradientEnabled: layer.gradientEnabled,
+                gradientType: layer.gradientType,
+                gradientScope: layer.gradientScope,
+                gradientPanelAlternate: layer.gradientPanelAlternate,
+            gradientPanelAlternate: layer.gradientPanelAlternate,
+            gradientScope: layer.gradientScope,
+            gradientPanelAlternate: layer.gradientPanelAlternate,
+                gradientAngle: layer.gradientAngle,
+                gradientOpacity: layer.gradientOpacity,
+                gradientBlend: layer.gradientBlend,
+                gradientStops: layer.gradientStops,
+                panelColorMode: layer.panelColorMode,
+                panelColors: layer.panelColors,
+            panelColorMode: layer.panelColorMode,
+            panelColors: layer.panelColors,
+            gradientEnabled: layer.gradientEnabled,
+            gradientType: layer.gradientType,
+            gradientScope: layer.gradientScope,
+            gradientPanelAlternate: layer.gradientPanelAlternate,
+            gradientAngle: layer.gradientAngle,
+            gradientOpacity: layer.gradientOpacity,
+            gradientBlend: layer.gradientBlend,
+            gradientStops: layer.gradientStops,
+            panelColorMode: layer.panelColorMode,
+            panelColors: layer.panelColors,
                 powerVoltage: layer.powerVoltage,
                 powerVoltageCustom: layer.powerVoltageCustom,
                 powerAmperage: layer.powerAmperage,
@@ -3874,6 +3919,11 @@ class LEDRasterApp {
             window.canvasRenderer.render();
             if (isFinal) this.updateLayers(this.getSelectedLayers());
         });
+
+        // v0.8.7.8: gradient overlay editor (Photoshop-style multi-stop).
+        this.setupGradientEditor();
+        // v0.8.7.8: multi-color cabinet palette editor.
+        this.setupPaletteEditor();
         
         const rasterWidthInput = document.getElementById('toolbar-raster-width');
         const rasterHeightInput = document.getElementById('toolbar-raster-height');
@@ -5703,10 +5753,610 @@ class LEDRasterApp {
         layer.border_color_cabinet = layer.border_color || prefs.borderColor;
         layer.border_color_data = layer.border_color || prefs.borderColor;
         layer.border_color_power = layer.border_color || prefs.borderColor;
+        // v0.8.7.8: multi-color cabinet palette. 'checker' keeps the legacy
+        // 2-color checkerboard (color1/color2); palette modes distribute
+        // panelColors across cabinets by grid position.
+        if (!layer.panelColorMode) layer.panelColorMode = 'checker';
+        if (!Array.isArray(layer.panelColors)) layer.panelColors = [];
+
+        // v0.8.7.8: Photoshop-style gradient overlay. When enabled, a gradient
+        // is composited on top of the checkerboard test pattern (Pixel Map /
+        // Show Look / Cabinet ID) at gradientOpacity using gradientBlend.
+        // Stops are { pos: 0..1, color: '#rrggbb' }.
+        if (layer.gradientEnabled == null) layer.gradientEnabled = false;
+        if (!layer.gradientType) layer.gradientType = 'linear';
+        if (!layer.gradientScope) layer.gradientScope = 'screen';       // screen = whole screen, panel = per cabinet
+        if (layer.gradientPanelAlternate == null) layer.gradientPanelAlternate = false; // mirror every other cabinet
+        if (layer.gradientAngle == null) layer.gradientAngle = 0;       // 0 = left→right, 90 = top→bottom
+        if (layer.gradientOpacity == null) layer.gradientOpacity = 0.6;
+        if (!layer.gradientBlend) layer.gradientBlend = 'normal';       // normal|multiply|screen|overlay|...
+        if (!Array.isArray(layer.gradientStops) || layer.gradientStops.length < 2) {
+            layer.gradientStops = [
+                { pos: 0, color: '#1d9e75' },
+                { pos: 1, color: '#2145dc' },
+            ];
+        }
         // Only fall back to prefs if the server-created layer didn't already
         // carry these from the add request (e.g. from a preset or catalog panel).
         if (layer.panel_weight == null) layer.panel_weight = prefs.panelWeight;
         if (layer.weight_unit == null) layer.weight_unit = prefs.weightUnit || 'kg';
+    }
+
+    // ── v0.8.7.8: Gradient overlay editor ──────────────────────────────
+    // Photoshop-style multi-stop gradient editor in the Colors panel. Edits
+    // currentLayer.gradient* and mirrors the whole config onto every selected
+    // screen layer (so multi-select bulk-applies, like the color pickers).
+
+    _gradientLayer() {
+        const l = this.currentLayer;
+        return (l && (l.type || 'screen') === 'screen') ? l : null;
+    }
+
+    // Make sure a layer carries a complete gradient config before we edit it,
+    // so partial edits don't leave undefined fields that get dropped across the
+    // server round-trip (the layer may predate the gradient feature).
+    _ensureGradientDefaults(layer) {
+        if (!layer || (layer.type || 'screen') !== 'screen') return;
+        if (layer.gradientEnabled == null) layer.gradientEnabled = false;
+        if (!layer.gradientType) layer.gradientType = 'linear';
+        if (!layer.gradientScope) layer.gradientScope = 'screen';
+        if (layer.gradientPanelAlternate == null) layer.gradientPanelAlternate = false;
+        if (layer.gradientAngle == null) layer.gradientAngle = 0;
+        if (layer.gradientOpacity == null) layer.gradientOpacity = 0.6;
+        if (!layer.gradientBlend) layer.gradientBlend = 'normal';
+        if (!Array.isArray(layer.gradientStops) || layer.gradientStops.length < 2) {
+            layer.gradientStops = [{ pos: 0, color: '#1d9e75' }, { pos: 1, color: '#2145dc' }];
+        }
+    }
+
+    // Apply a partial patch to the gradient config of every selected screen
+    // layer (deep-cloning arrays so layers don't share references), re-render,
+    // and optionally persist. Keeps currentLayer authoritative for the editor.
+    _applyGradient(patch, isFinal) {
+        this.applyToSelectedLayers(layer => {
+            if ((layer.type || 'screen') !== 'screen') return;
+            this._ensureGradientDefaults(layer);
+            Object.keys(patch).forEach(k => {
+                const v = patch[k];
+                layer[k] = (k === 'gradientStops' && Array.isArray(v))
+                    ? v.map(s => ({ pos: s.pos, color: s.color }))
+                    : v;
+            });
+        });
+        if (window.canvasRenderer) window.canvasRenderer.render();
+        if (isFinal) this.updateLayers(this.getSelectedLayers());
+    }
+
+    _gradientStops() {
+        const l = this._gradientLayer();
+        const stops = l && Array.isArray(l.gradientStops) ? l.gradientStops : [];
+        return stops.length >= 2 ? stops : [{ pos: 0, color: '#1d9e75' }, { pos: 1, color: '#2145dc' }];
+    }
+
+    setupGradientEditor() {
+        this.gradientSelectedStop = 0;
+        const $ = (id) => document.getElementById(id);
+        const enabled = $('gradient-enabled');
+        const controls = $('gradient-controls');
+        const typeSel = $('gradient-type');
+        const angleRow = $('gradient-angle-row');
+        const angle = $('gradient-angle');
+        const angleNum = $('gradient-angle-num');
+        const opacity = $('gradient-opacity');
+        const opacityNum = $('gradient-opacity-num');
+        const blend = $('gradient-blend');
+        const bar = $('gradient-bar');
+        const stopColor = $('gradient-stop-color');
+        const stopHex = $('gradient-stop-hex');
+        const stopPos = $('gradient-stop-pos');
+        const stopRemove = $('gradient-stop-remove');
+        if (!enabled || !bar) return;
+
+        enabled.addEventListener('change', () => {
+            if (!this._gradientLayer()) { enabled.checked = false; return; }
+            this._applyGradient({ gradientEnabled: enabled.checked }, true);
+            if (controls) controls.style.display = enabled.checked ? 'block' : 'none';
+        });
+
+        if (typeSel) typeSel.addEventListener('change', () => {
+            this._applyGradient({ gradientType: typeSel.value }, true);
+            if (angleRow) angleRow.style.display = (typeSel.value === 'radial') ? 'none' : 'block';
+        });
+
+        const scopeSel = $('gradient-scope');
+        const altRow = $('gradient-alternate-row');
+        if (scopeSel) scopeSel.addEventListener('change', () => {
+            this._applyGradient({ gradientScope: scopeSel.value }, true);
+            if (altRow) altRow.style.display = (scopeSel.value === 'panel') ? 'flex' : 'none';
+        });
+        const alt = $('gradient-panel-alternate');
+        if (alt) alt.addEventListener('change', () => {
+            this._applyGradient({ gradientPanelAlternate: alt.checked }, true);
+        });
+
+        // Preset library (custom swatch menu).
+        const presetTrigger = $('gradient-preset-trigger');
+        const presetMenu = $('gradient-preset-menu');
+        if (presetTrigger && presetMenu) {
+            presetTrigger.addEventListener('click', (e) => {
+                e.stopPropagation();
+                presetMenu.style.display = (presetMenu.style.display === 'none') ? 'block' : 'none';
+            });
+            // Close on outside click.
+            document.addEventListener('click', (e) => {
+                if (presetMenu.style.display !== 'none'
+                    && !presetMenu.contains(e.target) && e.target !== presetTrigger
+                    && !presetTrigger.contains(e.target)) {
+                    presetMenu.style.display = 'none';
+                }
+            });
+        }
+        const presetSave = $('gradient-preset-save');
+        if (presetSave) presetSave.addEventListener('click', () => this.saveCurrentGradientPreset());
+        this.refreshGradientPresetDropdown();
+
+        // Angle: slider + typeable number field, kept in sync.
+        const applyAngle = (val, isFinal) => {
+            let v = Math.round(Number(val));
+            if (!Number.isFinite(v)) v = 0;
+            v = ((v % 360) + 360) % 360;   // wrap into 0–359
+            if (angle) angle.value = v;
+            if (angleNum) angleNum.value = v;
+            this._applyGradient({ gradientAngle: v }, isFinal);
+        };
+        if (angle) {
+            angle.addEventListener('input', () => applyAngle(angle.value, false));
+            angle.addEventListener('change', () => applyAngle(angle.value, true));
+        }
+        if (angleNum) {
+            angleNum.addEventListener('change', () => applyAngle(angleNum.value, true));
+        }
+        // Opacity: slider + typeable number field (0–100%).
+        const applyOpacity = (val, isFinal) => {
+            let v = Math.round(Number(val));
+            if (!Number.isFinite(v)) v = 0;
+            v = Math.min(100, Math.max(0, v));
+            if (opacity) opacity.value = v;
+            if (opacityNum) opacityNum.value = v;
+            this._applyGradient({ gradientOpacity: v / 100 }, isFinal);
+        };
+        if (opacity) {
+            opacity.addEventListener('input', () => applyOpacity(opacity.value, false));
+            opacity.addEventListener('change', () => applyOpacity(opacity.value, true));
+        }
+        if (opacityNum) {
+            opacityNum.addEventListener('change', () => applyOpacity(opacityNum.value, true));
+        }
+        if (blend) blend.addEventListener('change', () => {
+            this._applyGradient({ gradientBlend: blend.value }, true);
+        });
+
+        // Selected-stop color / hex / position editors.
+        const setStop = (mutate, isFinal) => {
+            const stops = this._gradientStops().map(s => ({ pos: s.pos, color: s.color }));
+            const i = Math.min(this.gradientSelectedStop, stops.length - 1);
+            if (i < 0 || !stops[i]) return;
+            mutate(stops[i]);
+            this._applyGradient({ gradientStops: stops }, isFinal);
+            this.renderGradientBar();
+        };
+        if (stopColor) {
+            stopColor.addEventListener('input', () => setStop(s => { s.color = stopColor.value; if (stopHex) stopHex.value = stopColor.value.toUpperCase(); }, false));
+            stopColor.addEventListener('change', () => setStop(s => { s.color = stopColor.value; }, true));
+        }
+        if (stopHex) stopHex.addEventListener('change', () => {
+            let v = stopHex.value.trim();
+            if (/^#?[0-9a-fA-F]{6}$/.test(v)) {
+                if (v[0] !== '#') v = '#' + v;
+                if (stopColor) stopColor.value = v;
+                setStop(s => { s.color = v; }, true);
+            }
+        });
+        if (stopPos) stopPos.addEventListener('change', () => {
+            const p = Math.min(100, Math.max(0, Number(stopPos.value) || 0)) / 100;
+            setStop(s => { s.pos = p; }, true);
+        });
+        if (stopRemove) stopRemove.addEventListener('click', () => {
+            const stops = this._gradientStops().map(s => ({ pos: s.pos, color: s.color }));
+            if (stops.length <= 2) return;
+            stops.splice(this.gradientSelectedStop, 1);
+            this.gradientSelectedStop = Math.max(0, this.gradientSelectedStop - 1);
+            this._applyGradient({ gradientStops: stops }, true);
+            this.loadGradientEditor();
+        });
+
+        // Click empty bar → add a stop at that position (interpolated color).
+        bar.addEventListener('mousedown', (e) => {
+            if (e.target !== bar) return;   // marker drags handled per-marker
+            const rect = bar.getBoundingClientRect();
+            const pos = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+            const stops = this._gradientStops().map(s => ({ pos: s.pos, color: s.color }));
+            stops.push({ pos, color: this._sampleGradient(stops, pos) });
+            stops.sort((a, b) => a.pos - b.pos);
+            this.gradientSelectedStop = stops.findIndex(s => s.pos === pos);
+            this._applyGradient({ gradientStops: stops }, true);
+            this.loadGradientEditor();
+        });
+
+        this._gradientBarEl = bar;
+    }
+
+    // Sample a hex color along the current stop list at position p (0..1).
+    _sampleGradient(stops, p) {
+        const sorted = stops.slice().sort((a, b) => a.pos - b.pos);
+        if (p <= sorted[0].pos) return sorted[0].color;
+        if (p >= sorted[sorted.length - 1].pos) return sorted[sorted.length - 1].color;
+        for (let i = 0; i < sorted.length - 1; i++) {
+            const a = sorted[i], b = sorted[i + 1];
+            if (p >= a.pos && p <= b.pos) {
+                const t = (b.pos - a.pos) ? (p - a.pos) / (b.pos - a.pos) : 0;
+                const ca = this.hexToRgb(a.color), cb = this.hexToRgb(b.color);
+                const mix = (x, y) => Math.round(x + (y - x) * t);
+                const toHex = (n) => n.toString(16).padStart(2, '0');
+                return `#${toHex(mix(ca.r, cb.r))}${toHex(mix(ca.g, cb.g))}${toHex(mix(ca.b, cb.b))}`;
+            }
+        }
+        return sorted[0].color;
+    }
+
+    // Paint the gradient bar background + stop markers, and wire marker drag.
+    renderGradientBar() {
+        const bar = this._gradientBarEl || document.getElementById('gradient-bar');
+        if (!bar) return;
+        const stops = this._gradientStops().slice().sort((a, b) => a.pos - b.pos);
+        const css = stops.map(s => `${s.color} ${Math.round(s.pos * 100)}%`).join(', ');
+        bar.style.background = `linear-gradient(to right, ${css})`;
+        bar.innerHTML = '';
+        const orig = this._gradientStops();
+        stops.forEach((s) => {
+            const idx = orig.indexOf(s);
+            const m = document.createElement('div');
+            const selected = idx === this.gradientSelectedStop;
+            m.style.cssText = `position:absolute; top:-3px; width:12px; height:32px; margin-left:-6px; left:${s.pos * 100}%; border-radius:3px; border:2px solid ${selected ? '#fff' : '#222'}; box-shadow:0 0 0 1px rgba(0,0,0,0.6); background:${s.color}; cursor:grab;`;
+            m.addEventListener('mousedown', (e) => {
+                e.stopPropagation();
+                this.gradientSelectedStop = idx;
+                this.loadGradientEditor();
+                const rect = bar.getBoundingClientRect();
+                const move = (ev) => {
+                    const pos = Math.min(1, Math.max(0, (ev.clientX - rect.left) / rect.width));
+                    const cur = this._gradientStops().map(x => ({ pos: x.pos, color: x.color }));
+                    if (cur[idx]) { cur[idx].pos = pos; }
+                    this._applyGradient({ gradientStops: cur }, false);
+                    if (document.getElementById('gradient-stop-pos')) document.getElementById('gradient-stop-pos').value = Math.round(pos * 100);
+                    this.renderGradientBar();
+                };
+                const up = () => {
+                    document.removeEventListener('mousemove', move);
+                    document.removeEventListener('mouseup', up);
+                    this.updateLayers(this.getSelectedLayers());
+                };
+                document.addEventListener('mousemove', move);
+                document.addEventListener('mouseup', up);
+            });
+            bar.appendChild(m);
+        });
+        if (typeof this.updateGradientPresetPreview === 'function') this.updateGradientPresetPreview();
+    }
+
+    // Reflect currentLayer's gradient config into all editor controls.
+    loadGradientEditor() {
+        const l = this._gradientLayer();
+        const $ = (id) => document.getElementById(id);
+        const enabled = $('gradient-enabled');
+        const controls = $('gradient-controls');
+        if (!enabled) return;
+        if (!l) { enabled.checked = false; if (controls) controls.style.display = 'none'; return; }
+        enabled.checked = !!l.gradientEnabled;
+        if (controls) controls.style.display = l.gradientEnabled ? 'block' : 'none';
+        if ($('gradient-type')) $('gradient-type').value = l.gradientType || 'linear';
+        if ($('gradient-scope')) $('gradient-scope').value = l.gradientScope || 'screen';
+        if ($('gradient-alternate-row')) $('gradient-alternate-row').style.display = (l.gradientScope === 'panel') ? 'flex' : 'none';
+        if ($('gradient-panel-alternate')) $('gradient-panel-alternate').checked = !!l.gradientPanelAlternate;
+        if ($('gradient-angle-row')) $('gradient-angle-row').style.display = ((l.gradientType || 'linear') === 'radial') ? 'none' : 'block';
+        const ang = Number(l.gradientAngle) || 0;
+        if ($('gradient-angle')) $('gradient-angle').value = ang;
+        if ($('gradient-angle-num')) $('gradient-angle-num').value = ang;
+        const opPct = Math.round(((l.gradientOpacity != null) ? l.gradientOpacity : 0.6) * 100);
+        if ($('gradient-opacity')) $('gradient-opacity').value = opPct;
+        if ($('gradient-opacity-num')) $('gradient-opacity-num').value = opPct;
+        if ($('gradient-blend')) $('gradient-blend').value = l.gradientBlend || 'normal';
+        const stops = this._gradientStops();
+        if (this.gradientSelectedStop >= stops.length) this.gradientSelectedStop = 0;
+        const sel = stops[this.gradientSelectedStop] || stops[0];
+        if (sel) {
+            if ($('gradient-stop-color')) $('gradient-stop-color').value = sel.color;
+            if ($('gradient-stop-hex')) $('gradient-stop-hex').value = (sel.color || '').toUpperCase();
+            if ($('gradient-stop-pos')) $('gradient-stop-pos').value = Math.round((sel.pos || 0) * 100);
+        }
+        if ($('gradient-stop-remove')) $('gradient-stop-remove').disabled = stops.length <= 2;
+        this.renderGradientBar();
+        if (typeof this.updateGradientPresetPreview === 'function') this.updateGradientPresetPreview();
+    }
+
+    // ── v0.8.7.8: Gradient preset library ──────────────────────────────
+    // A preset stores the full gradient *look* (type/angle/scope/opacity/
+    // blend/alternate + stops). Built-ins ship with the app; user presets
+    // live in localStorage. Applying a preset turns the gradient on.
+
+    _builtinGradientPresets() {
+        const S = (...c) => c.map((color, i) => ({ pos: c.length === 1 ? 0 : i / (c.length - 1), color }));
+        return [
+            { name: 'Black, White', gradientType: 'linear', gradientStops: S('#000000', '#ffffff') },
+            { name: 'Spectrum', gradientType: 'linear', gradientStops: [
+                { pos: 0, color: '#ff0000' }, { pos: 0.17, color: '#ff9900' }, { pos: 0.34, color: '#ffff00' },
+                { pos: 0.5, color: '#33cc33' }, { pos: 0.67, color: '#0066ff' }, { pos: 0.84, color: '#6600cc' }, { pos: 1, color: '#cc00cc' } ] },
+            { name: 'Transparent Rainbow', gradientType: 'linear', gradientStops: [
+                { pos: 0, color: '#ff0040' }, { pos: 0.2, color: '#ff9900' }, { pos: 0.4, color: '#ffee00' },
+                { pos: 0.6, color: '#00cc66' }, { pos: 0.8, color: '#0099ff' }, { pos: 1, color: '#cc33ff' } ] },
+            { name: 'Red, Green', gradientType: 'linear', gradientStops: S('#e21f26', '#00a651') },
+            { name: 'Violet, Orange', gradientType: 'linear', gradientStops: S('#7b2ff7', '#f7971e') },
+            { name: 'Blue, Red, Yellow', gradientType: 'linear', gradientStops: S('#2145dc', '#e21f26', '#ffe400') },
+            { name: 'Blue, Yellow, Blue', gradientType: 'linear', gradientStops: S('#1f5fd0', '#ffe400', '#1f5fd0') },
+            { name: 'Orange, Yellow, Orange', gradientType: 'linear', gradientStops: S('#f7591f', '#ffe400', '#f7591f') },
+            { name: 'Violet, Green, Orange', gradientType: 'linear', gradientStops: S('#8e2de2', '#00a651', '#f7971e') },
+            { name: 'Yellow, Violet, Orange, Blue', gradientType: 'linear', gradientStops: S('#ffe400', '#8e2de2', '#f7971e', '#2145dc') },
+            { name: 'Copper', gradientType: 'linear', gradientStops: [
+                { pos: 0, color: '#3a1c0e' }, { pos: 0.4, color: '#b5683a' }, { pos: 0.6, color: '#e9a178' }, { pos: 1, color: '#7a3b1e' } ] },
+            { name: 'Chrome', gradientType: 'linear', gradientStops: [
+                { pos: 0, color: '#2b2f33' }, { pos: 0.35, color: '#c9d2d9' }, { pos: 0.5, color: '#7c8a96' }, { pos: 0.65, color: '#eef3f6' }, { pos: 1, color: '#3a4248' } ] },
+            { name: 'Gold', gradientType: 'linear', gradientStops: [
+                { pos: 0, color: '#7a5a10' }, { pos: 0.5, color: '#ffd75e' }, { pos: 1, color: '#a9791a' } ] },
+            { name: 'Fire', gradientType: 'linear', gradientAngle: 90, gradientStops: [
+                { pos: 0, color: '#000000' }, { pos: 0.45, color: '#cc1100' }, { pos: 0.8, color: '#ff7700' }, { pos: 1, color: '#ffdd00' } ] },
+            { name: 'Ocean', gradientType: 'linear', gradientStops: S('#001f3f', '#0074d9', '#7fdbff') },
+            { name: 'Sunset', gradientType: 'linear', gradientStops: S('#2c3e50', '#fd746c', '#ffc371') },
+            { name: 'Ice', gradientType: 'linear', gradientStops: S('#0b486b', '#3b8686', '#cfeff5') },
+            { name: 'Neon', gradientType: 'linear', gradientStops: S('#ff00cc', '#00ffff') },
+            { name: 'Pastels', gradientType: 'linear', gradientStops: S('#ffd1dc', '#c1f0c1', '#c9e4ff', '#fff2b2') },
+            { name: 'Blues', gradientType: 'linear', gradientStops: S('#cfe8ff', '#3a7bd5', '#0b2a5b') },
+            { name: 'Greens', gradientType: 'linear', gradientStops: S('#d6f5d6', '#3fae3f', '#0e3b13') },
+            { name: 'Purples', gradientType: 'linear', gradientStops: S('#efd6ff', '#8e44ad', '#2c0b3a') },
+        ];
+    }
+
+    _userGradientPresets() {
+        try { return JSON.parse(localStorage.getItem('ledRasterGradientPresets') || '[]') || []; }
+        catch { return []; }
+    }
+    _setUserGradientPresets(arr) {
+        try { localStorage.setItem('ledRasterGradientPresets', JSON.stringify(arr || [])); } catch (_) {}
+    }
+
+    // CSS left→right gradient string for previewing a stop list as a swatch.
+    _gradientCssBar(stops) {
+        const arr = (Array.isArray(stops) ? stops.slice() : [])
+            .filter(s => s && s.color)
+            .sort((a, b) => (Number(a.pos) || 0) - (Number(b.pos) || 0));
+        if (arr.length < 2) return arr[0] ? arr[0].color : '#444';
+        return `linear-gradient(to right, ${arr.map(s => `${s.color} ${Math.round((Number(s.pos) || 0) * 100)}%`).join(', ')})`;
+    }
+
+    // Build the custom preset menu with a gradient swatch per row.
+    refreshGradientPresetDropdown() {
+        const menu = document.getElementById('gradient-preset-menu');
+        if (!menu) return;
+        menu.innerHTML = '';
+        const groups = [
+            { label: 'Built-in', items: this._builtinGradientPresets(), prefix: 'builtin', canDelete: false },
+            { label: 'Saved', items: this._userGradientPresets(), prefix: 'user', canDelete: true },
+        ];
+        groups.forEach(g => {
+            if (!g.items.length) return;
+            const h = document.createElement('div');
+            h.textContent = g.label;
+            h.style.cssText = 'font-size:10px; color:#888; text-transform:uppercase; letter-spacing:0.5px; padding:4px 4px 2px;';
+            menu.appendChild(h);
+            g.items.forEach(p => {
+                const row = document.createElement('div');
+                row.style.cssText = 'display:flex; align-items:center; gap:6px; padding:3px 4px; border-radius:4px; cursor:pointer;';
+                row.addEventListener('mouseenter', () => { row.style.background = '#2a2a2a'; });
+                row.addEventListener('mouseleave', () => { row.style.background = 'transparent'; });
+                const sw = document.createElement('span');
+                sw.style.cssText = `flex:1; min-width:0; height:16px; border-radius:3px; border:1px solid rgba(0,0,0,0.5); background:${this._gradientCssBar(p.gradientStops)};`;
+                const nm = document.createElement('span');
+                nm.textContent = p.name;
+                nm.style.cssText = 'flex:1.4; font-size:11px; color:#ddd; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;';
+                row.appendChild(sw); row.appendChild(nm);
+                row.addEventListener('click', () => {
+                    this.applyGradientPreset(`${g.prefix}:${p.name}`);
+                    this._closeGradientPresetMenu();
+                });
+                if (g.canDelete) {
+                    const x = document.createElement('button');
+                    x.textContent = '×';
+                    x.title = 'Delete preset';
+                    x.style.cssText = 'background:transparent; border:none; color:#999; font-size:14px; cursor:pointer; padding:0 4px;';
+                    x.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        this._setUserGradientPresets(this._userGradientPresets().filter(u => u.name !== p.name));
+                        this.refreshGradientPresetDropdown();
+                    });
+                    row.appendChild(x);
+                }
+                menu.appendChild(row);
+            });
+        });
+    }
+
+    _closeGradientPresetMenu() {
+        const menu = document.getElementById('gradient-preset-menu');
+        if (menu) menu.style.display = 'none';
+    }
+
+    // Reflect the current layer's gradient as the trigger's preview swatch.
+    updateGradientPresetPreview() {
+        const prev = document.getElementById('gradient-preset-preview');
+        if (!prev) return;
+        prev.style.background = this._gradientCssBar(this._gradientStops());
+    }
+
+    applyGradientPreset(value) {
+        if (!value) return;
+        const [kind, ...rest] = value.split(':');
+        const name = rest.join(':');
+        const list = kind === 'user' ? this._userGradientPresets() : this._builtinGradientPresets();
+        const p = list.find(x => x.name === name);
+        if (!p) return;
+        // Apply only the fields the preset defines; default the rest sanely.
+        const patch = {
+            gradientEnabled: true,
+            gradientType: p.gradientType || 'linear',
+            gradientAngle: (p.gradientAngle != null) ? p.gradientAngle : 0,
+            gradientStops: (p.gradientStops || []).map(s => ({ pos: s.pos, color: s.color })),
+        };
+        if (p.gradientScope != null) patch.gradientScope = p.gradientScope;
+        if (p.gradientOpacity != null) patch.gradientOpacity = p.gradientOpacity;
+        if (p.gradientBlend != null) patch.gradientBlend = p.gradientBlend;
+        if (p.gradientPanelAlternate != null) patch.gradientPanelAlternate = p.gradientPanelAlternate;
+        this._applyGradient(patch, true);
+        this.loadGradientEditor();
+    }
+
+    saveCurrentGradientPreset() {
+        const l = this._gradientLayer();
+        if (!l) return;
+        const name = (window.prompt('Save gradient preset as:') || '').trim();
+        if (!name) return;
+        const preset = {
+            name,
+            gradientType: l.gradientType || 'linear',
+            gradientAngle: Number(l.gradientAngle) || 0,
+            gradientScope: l.gradientScope || 'screen',
+            gradientOpacity: (l.gradientOpacity != null) ? l.gradientOpacity : 0.6,
+            gradientBlend: l.gradientBlend || 'normal',
+            gradientPanelAlternate: !!l.gradientPanelAlternate,
+            gradientStops: this._gradientStops().map(s => ({ pos: s.pos, color: s.color })),
+        };
+        const users = this._userGradientPresets().filter(p => p.name !== name);
+        users.push(preset);
+        this._setUserGradientPresets(users);
+        this.refreshGradientPresetDropdown();
+    }
+
+    // ── v0.8.7.8: Multi-color cabinet palette editor ───────────────────
+
+    _defaultPalette() {
+        return ['#BC382F', '#BA7517', '#D2E94D', '#1D9E75', '#2145DC', '#7414F5'];
+    }
+
+    _paletteColors() {
+        const l = this._gradientLayer();
+        const pal = l && Array.isArray(l.panelColors) ? l.panelColors : [];
+        return pal.length ? pal.slice() : this._defaultPalette();
+    }
+
+    // Apply panelColorMode / panelColors to every selected screen layer.
+    _applyPanelColors(patch, isFinal) {
+        this.applyToSelectedLayers(layer => {
+            if ((layer.type || 'screen') !== 'screen') return;
+            if (patch.panelColors && (!Array.isArray(layer.panelColors) || layer.panelColors.length === 0)) {
+                // seed handled by caller; ensure array exists
+            }
+            Object.keys(patch).forEach(k => {
+                const v = patch[k];
+                layer[k] = (k === 'panelColors' && Array.isArray(v)) ? v.slice() : v;
+            });
+        });
+        if (window.canvasRenderer) window.canvasRenderer.render();
+        if (isFinal) this.updateLayers(this.getSelectedLayers());
+    }
+
+    setupPaletteEditor() {
+        this.paletteSelectedIndex = 0;
+        const $ = (id) => document.getElementById(id);
+        const modeSel = $('panel-color-mode');
+        const editor = $('panel-palette-editor');
+        const color = $('palette-color');
+        const hex = $('palette-hex');
+        const addBtn = $('palette-add');
+        const removeBtn = $('palette-remove');
+        if (!modeSel) return;
+
+        modeSel.addEventListener('change', () => {
+            const l = this._gradientLayer();
+            if (!l) { modeSel.value = 'checker'; return; }
+            const patch = { panelColorMode: modeSel.value };
+            // Seed a starter palette the first time a palette mode is chosen.
+            if (modeSel.value !== 'checker' && (!Array.isArray(l.panelColors) || l.panelColors.length === 0)) {
+                patch.panelColors = this._defaultPalette();
+            }
+            this._applyPanelColors(patch, true);
+            if (editor) editor.style.display = (modeSel.value === 'checker') ? 'none' : 'block';
+            this.loadPaletteEditor();
+        });
+
+        const setSwatch = (mutate, isFinal) => {
+            const pal = this._paletteColors();
+            const i = Math.min(this.paletteSelectedIndex, pal.length - 1);
+            if (i < 0 || !pal[i]) return;
+            mutate(pal, i);
+            this._applyPanelColors({ panelColors: pal }, isFinal);
+            this.renderPaletteSwatches();
+        };
+        if (color) {
+            color.addEventListener('input', () => setSwatch((pal, i) => { pal[i] = color.value; if (hex) hex.value = color.value.toUpperCase(); }, false));
+            color.addEventListener('change', () => setSwatch((pal, i) => { pal[i] = color.value; }, true));
+        }
+        if (hex) hex.addEventListener('change', () => {
+            let v = hex.value.trim();
+            if (/^#?[0-9a-fA-F]{6}$/.test(v)) {
+                if (v[0] !== '#') v = '#' + v;
+                if (color) color.value = v;
+                setSwatch((pal, i) => { pal[i] = v; }, true);
+            }
+        });
+        if (addBtn) addBtn.addEventListener('click', () => {
+            const pal = this._paletteColors();
+            pal.push(color ? color.value : '#ffffff');
+            this.paletteSelectedIndex = pal.length - 1;
+            this._applyPanelColors({ panelColors: pal }, true);
+            this.loadPaletteEditor();
+        });
+        if (removeBtn) removeBtn.addEventListener('click', () => {
+            const pal = this._paletteColors();
+            if (pal.length <= 1) return;
+            pal.splice(this.paletteSelectedIndex, 1);
+            this.paletteSelectedIndex = Math.max(0, this.paletteSelectedIndex - 1);
+            this._applyPanelColors({ panelColors: pal }, true);
+            this.loadPaletteEditor();
+        });
+    }
+
+    renderPaletteSwatches() {
+        const host = document.getElementById('panel-palette-swatches');
+        if (!host) return;
+        const pal = this._paletteColors();
+        host.innerHTML = '';
+        pal.forEach((c, i) => {
+            const sw = document.createElement('button');
+            const selected = i === this.paletteSelectedIndex;
+            sw.style.cssText = `width:24px; height:24px; padding:0; border-radius:4px; cursor:pointer; background:${c}; border:2px solid ${selected ? '#fff' : '#333'}; box-shadow:0 0 0 1px rgba(0,0,0,0.5);`;
+            sw.title = c;
+            sw.addEventListener('click', () => { this.paletteSelectedIndex = i; this.loadPaletteEditor(); });
+            host.appendChild(sw);
+        });
+    }
+
+    loadPaletteEditor() {
+        const l = this._gradientLayer();
+        const $ = (id) => document.getElementById(id);
+        const modeSel = $('panel-color-mode');
+        const editor = $('panel-palette-editor');
+        if (!modeSel) return;
+        if (!l) { modeSel.value = 'checker'; if (editor) editor.style.display = 'none'; return; }
+        const mode = l.panelColorMode || 'checker';
+        modeSel.value = mode;
+        if (editor) editor.style.display = (mode === 'checker') ? 'none' : 'block';
+        const pal = this._paletteColors();
+        if (this.paletteSelectedIndex >= pal.length) this.paletteSelectedIndex = 0;
+        const sel = pal[this.paletteSelectedIndex] || pal[0];
+        if (sel) {
+            if ($('palette-color')) $('palette-color').value = sel;
+            if ($('palette-hex')) $('palette-hex').value = sel.toUpperCase();
+        }
+        if ($('palette-remove')) $('palette-remove').disabled = pal.length <= 1;
+        this.renderPaletteSwatches();
     }
 
     getSelectedLayers() {
@@ -6498,6 +7148,16 @@ class LEDRasterApp {
                     screenNameOffsetYPower: this.currentLayer.screenNameOffsetYPower,
                     screenNameOffsetXShowLook: this.currentLayer.screenNameOffsetXShowLook,
                     screenNameOffsetYShowLook: this.currentLayer.screenNameOffsetYShowLook,
+                    gradientEnabled: this.currentLayer.gradientEnabled,
+                    gradientType: this.currentLayer.gradientType,
+                    gradientScope: this.currentLayer.gradientScope,
+                    gradientPanelAlternate: this.currentLayer.gradientPanelAlternate,
+                    gradientAngle: this.currentLayer.gradientAngle,
+                    gradientOpacity: this.currentLayer.gradientOpacity,
+                    gradientBlend: this.currentLayer.gradientBlend,
+                    gradientStops: this.currentLayer.gradientStops,
+                    panelColorMode: this.currentLayer.panelColorMode,
+                    panelColors: this.currentLayer.panelColors,
                     screenNameSize: this.currentLayer.screenNameSize,
                     screenNameSizeCabinet: this.currentLayer.screenNameSizeCabinet,
                     screenNameSizeDataFlow: this.currentLayer.screenNameSizeDataFlow,
@@ -6623,6 +7283,31 @@ class LEDRasterApp {
                 screenNameOffsetYPower: layer.screenNameOffsetYPower,
                 screenNameOffsetXShowLook: layer.screenNameOffsetXShowLook,
                 screenNameOffsetYShowLook: layer.screenNameOffsetYShowLook,
+                gradientEnabled: layer.gradientEnabled,
+                gradientType: layer.gradientType,
+                gradientScope: layer.gradientScope,
+                gradientPanelAlternate: layer.gradientPanelAlternate,
+            gradientPanelAlternate: layer.gradientPanelAlternate,
+            gradientScope: layer.gradientScope,
+            gradientPanelAlternate: layer.gradientPanelAlternate,
+                gradientAngle: layer.gradientAngle,
+                gradientOpacity: layer.gradientOpacity,
+                gradientBlend: layer.gradientBlend,
+                gradientStops: layer.gradientStops,
+                panelColorMode: layer.panelColorMode,
+                panelColors: layer.panelColors,
+            panelColorMode: layer.panelColorMode,
+            panelColors: layer.panelColors,
+            gradientEnabled: layer.gradientEnabled,
+            gradientType: layer.gradientType,
+            gradientScope: layer.gradientScope,
+            gradientPanelAlternate: layer.gradientPanelAlternate,
+            gradientAngle: layer.gradientAngle,
+            gradientOpacity: layer.gradientOpacity,
+            gradientBlend: layer.gradientBlend,
+            gradientStops: layer.gradientStops,
+            panelColorMode: layer.panelColorMode,
+            panelColors: layer.panelColors,
                 screenNameSize: layer.screenNameSize,
                 screenNameSizeCabinet: layer.screenNameSizeCabinet,
                 screenNameSizeDataFlow: layer.screenNameSizeDataFlow,
@@ -7447,6 +8132,9 @@ class LEDRasterApp {
         if (document.getElementById('color2-hex')) {
             document.getElementById('color2-hex').value = hex2.toUpperCase();
         }
+        // v0.8.7.8: sync the gradient editor to the (now current) layer.
+        if (typeof this.loadGradientEditor === 'function') this.loadGradientEditor();
+        if (typeof this.loadPaletteEditor === 'function') this.loadPaletteEditor();
     }
 
     updateLayerPanelVisibility(allImages, allText) {
@@ -13146,6 +13834,16 @@ class LEDRasterApp {
             screenNameOffsetYPower: layer.screenNameOffsetYPower,
             screenNameOffsetXShowLook: layer.screenNameOffsetXShowLook,
             screenNameOffsetYShowLook: layer.screenNameOffsetYShowLook,
+            gradientEnabled: layer.gradientEnabled,
+            gradientType: layer.gradientType,
+            gradientScope: layer.gradientScope,
+            gradientPanelAlternate: layer.gradientPanelAlternate,
+            gradientAngle: layer.gradientAngle,
+            gradientOpacity: layer.gradientOpacity,
+            gradientBlend: layer.gradientBlend,
+            gradientStops: layer.gradientStops,
+            panelColorMode: layer.panelColorMode,
+            panelColors: layer.panelColors,
             border_color_pixel: layer.border_color_pixel,
             border_color_cabinet: layer.border_color_cabinet,
             border_color_data: layer.border_color_data,
