@@ -2271,6 +2271,9 @@ class CanvasRenderer {
     }
 
     render() {
+        // v0.8.7.8: bump a per-render token so screen-fill gradients are built
+        // at most once per layer per frame (cached on the layer keyed by this).
+        this._renderPass = (this._renderPass || 0) + 1;
         if (this.layerSelectionRect && !this.isSelectingLayers && !this.isSelectingPanels && !this.isDraggingLayer) {
             this.layerSelectionRect = null;
         }
@@ -3062,6 +3065,119 @@ class CanvasRenderer {
         this.ctx.restore();
     }
     
+    // v0.8.7.8: build a CanvasGradient spanning the layer's bounding box in
+    // the current ctx coordinate space. Because canvas gradients live in user
+    // space, the SAME gradient used as the fill for each panel rect renders as
+    // one continuous gradient across the whole screen (and naturally skips
+    // blank/half/hidden panels, which never fill).
+    // v0.8.7.8: base cabinet fill. Default is the legacy 2-color checkerboard
+    // (color1/color2 via panel.is_color1). When panelColorMode selects a
+    // palette distribution and panelColors has entries, each cabinet samples a
+    // color from the palette by its grid position.
+    _panelBaseFill(panel, layer) {
+        const mode = layer.panelColorMode || 'checker';
+        const pal = Array.isArray(layer.panelColors) ? layer.panelColors : [];
+        if (mode !== 'checker' && pal.length >= 1) {
+            const cols = Math.max(1, Number(layer.columns) || 1);
+            const r = Number(panel.row) || 0;
+            const c = Number(panel.col) || 0;
+            let idx;
+            switch (mode) {
+                case 'diagonal': idx = (r + c) % pal.length; break;        // ORACLE wave
+                case 'cycle': idx = (r * cols + c) % pal.length; break;
+                case 'row': idx = r % pal.length; break;
+                case 'column': idx = c % pal.length; break;
+                default: idx = 0;
+            }
+            return pal[((idx % pal.length) + pal.length) % pal.length] || '#000000';
+        }
+        const color = panel.is_color1 ? layer.color1 : layer.color2;
+        return `rgb(${color.r}, ${color.g}, ${color.b})`;
+    }
+
+    _buildGradientForRect(layer, x, y, w, h, invert) {
+        const ctx = this.ctx;
+        let stops = Array.isArray(layer.gradientStops) ? layer.gradientStops.slice() : [];
+        if (stops.length < 2) {
+            stops = [{ pos: 0, color: '#000000' }, { pos: 1, color: '#ffffff' }];
+        }
+        // invert = mirror the gradient (pos → 1-pos); used to flip alternating
+        // cabinets in per-panel mode so adjacent panels mirror each other.
+        if (invert) stops = stops.map(s => ({ pos: 1 - (Number(s.pos) || 0), color: s.color }));
+        stops.sort((a, b) => (Number(a.pos) || 0) - (Number(b.pos) || 0));
+        let grad;
+        if ((layer.gradientType || 'linear') === 'radial') {
+            // Center is a fraction of the rect (0.5 = middle); radius is a
+            // multiplier of the rect's base radius (max(w,h)/2).
+            const fx = (layer.gradientRadialCenterX != null) ? layer.gradientRadialCenterX : 0.5;
+            const fy = (layer.gradientRadialCenterY != null) ? layer.gradientRadialCenterY : 0.5;
+            const rs = (layer.gradientRadialRadius != null) ? layer.gradientRadialRadius : 1;
+            const cx = x + w * fx;
+            const cy = y + h * fy;
+            const r = Math.max(1, (Math.max(w, h) / 2) * rs);
+            grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+        } else {
+            // angle: 0 = left→right, 90 = top→bottom (canvas +y is down).
+            const angle = ((Number(layer.gradientAngle) || 0) * Math.PI) / 180;
+            const dx = Math.cos(angle);
+            const dy = Math.sin(angle);
+            const cx = x + w / 2;
+            const cy = y + h / 2;
+            // Project the box half-extent onto the gradient direction so the
+            // 0 and 1 stops land on the bounding edges along that angle.
+            const half = (Math.abs(dx) * w + Math.abs(dy) * h) / 2 || 1;
+            grad = ctx.createLinearGradient(cx - dx * half, cy - dy * half, cx + dx * half, cy + dy * half);
+        }
+        stops.forEach(s => {
+            const p = Math.min(1, Math.max(0, Number(s.pos) || 0));
+            try { grad.addColorStop(p, s.color || '#000000'); } catch (_) {}
+        });
+        return grad;
+    }
+
+    // Memoized per-layer-per-render gradient spanning the whole screen. Safe to
+    // call once per panel. (Per-panel spread builds its own gradient per rect.)
+    _screenGradientFor(layer) {
+        if (layer._gradPass !== this._renderPass) {
+            const b = this.getLayerBounds(layer);
+            layer._gradObj = this._buildGradientForRect(layer, b.x, b.y, b.width, b.height);
+            layer._gradPass = this._renderPass;
+        }
+        return layer._gradObj;
+    }
+
+    // Map a friendly gradient blend name to a canvas globalCompositeOperation.
+    _gradientCompositeOp(name) {
+        if (!name || name === 'normal') return 'source-over';
+        // The remaining names match canvas composite operations 1:1.
+        return name;
+    }
+
+    // Composite the gradient over a single panel rect (called after the
+    // checkerboard fill, before borders). No-op unless the layer opts in.
+    // gradientScope 'screen' = one continuous gradient across the whole screen;
+    // 'panel' = the gradient is mapped to each cabinet individually.
+    _applyGradientOverlay(panel, layer) {
+        if (!layer || !layer.gradientEnabled) return;
+        let grad;
+        if (layer.gradientScope === 'panel') {
+            // Mirror the gradient on alternating COLUMNS (a whole column shares
+            // one orientation; every other column flips) — the SUPERTASK wave.
+            const invert = !!layer.gradientPanelAlternate
+                && ((Number(panel.col) || 0) % 2 === 1);
+            grad = this._buildGradientForRect(layer, panel.x, panel.y, panel.width, panel.height, invert);
+        } else {
+            grad = this._screenGradientFor(layer);
+        }
+        if (!grad) return;
+        this.ctx.save();
+        this.ctx.globalAlpha = (layer.gradientOpacity != null) ? layer.gradientOpacity : 0.6;
+        this.ctx.globalCompositeOperation = this._gradientCompositeOp(layer.gradientBlend);
+        this.ctx.fillStyle = grad;
+        this.ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
+        this.ctx.restore();
+    }
+
     renderPixelMap(panel, layer) {
         // If panel is hidden, render as ghost outline only - scales with zoom like text
         if (panel.hidden) {
@@ -3073,12 +3189,14 @@ class CanvasRenderer {
             return; // Don't fill, just outline
         }
         
-        // Use normal checkerboard colors (removed blank mode)
-        const color = panel.is_color1 ? layer.color1 : layer.color2;
-        this.ctx.fillStyle = `rgb(${color.r}, ${color.g}, ${color.b})`;
-        
+        // Base cabinet fill: 2-color checkerboard or multi-color palette.
+        this.ctx.fillStyle = this._panelBaseFill(panel, layer);
+
         this.ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
-        
+
+        // v0.8.7.8: gradient overlay on top of the checkerboard, below borders.
+        this._applyGradientOverlay(panel, layer);
+
         // Panel borders - 2 pixels wide per panel, drawn INSIDE the panel
         // Where two panels meet, you get 2+2 = 4 pixels total
         if (layer.show_panel_borders) {
@@ -3171,11 +3289,13 @@ class CanvasRenderer {
             return;
         }
         
-        // Use normal checkerboard colors (removed blank mode)
-        const color = panel.is_color1 ? layer.color1 : layer.color2;
-        this.ctx.fillStyle = `rgb(${color.r}, ${color.g}, ${color.b})`;
+        // Base cabinet fill: 2-color checkerboard or multi-color palette.
+        this.ctx.fillStyle = this._panelBaseFill(panel, layer);
         this.ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
-        
+
+        // v0.8.7.8: gradient overlay on top of the checkerboard, below borders.
+        this._applyGradientOverlay(panel, layer);
+
         // Panel borders - 2 pixels wide per panel, drawn INSIDE the panel
         if (layer.show_panel_borders) {
             this.ctx.strokeStyle = this.getLayerBorderColor(layer, 'cabinet-id');

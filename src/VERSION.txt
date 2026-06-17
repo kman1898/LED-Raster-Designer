@@ -1,6 +1,35 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.8.8.0 - June 17, 2026
+----------------------------
+Gradients + multi-color cabinet palettes (Photoshop-style).
+
+- FEATURE: Gradient overlay on screens (Pixel Map / Show Look /
+  Cabinet ID). Composited on top of the checkerboard test pattern.
+  - Multi-stop editor: click the bar to add a stop, drag markers to
+    move, typeable hex + position per stop.
+  - Linear (typeable angle) and Radial with a movable center
+    (Center X/Y) and adjustable Size.
+  - Spread: Whole screen, or Each panel (gradient repeated on every
+    cabinet). "Alternate panels" mirrors every other COLUMN for a
+    woven wave look.
+  - Typeable Opacity, and the full Photoshop blend-mode set
+    (Normal, Multiply, Screen, Overlay, Darken, Lighten, Color
+    Dodge/Burn, Hard/Soft Light, Difference, Exclusion, Hue,
+    Saturation, Color, Luminosity).
+  - Preset library with live color swatches: 22 built-ins (Spectrum,
+    Fire, Chrome, Copper, Sunset, etc.) plus Save current… for your
+    own; saved presets are per-browser. Built-in presets re-color the
+    current gradient only (they keep your type/radial/opacity/blend);
+    your own saved presets restore their full settings.
+- FEATURE: Multi-color cabinet palette. Pattern modes — Checkerboard
+  (default, unchanged), Diagonal wave, Cycle/sweep, By row, By
+  column — distribute an N-color palette across cabinets. Existing
+  screens stay on the 2-color checkerboard until changed.
+- All new gradient/palette settings persist with the project and the
+  live server round-trip; they bulk-apply across a multi-selection.
+
 v0.8.7.7.4 - June 16, 2026
 ----------------------------
 Data/Power Totals now break down per canvas instead of one ambiguous

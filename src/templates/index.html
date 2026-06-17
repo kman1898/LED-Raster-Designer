@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED Raster Designer v0.8.7.7.4</title>
+    <title>LED Raster Designer v0.8.8.0</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -84,7 +84,7 @@
 
         <div id="toolbar">
             <div class="toolbar-section toolbar-project">
-                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.8.7.7.4</span></h1>
+                <h1>LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.8.8.0</span></h1>
                 <div style="position:relative;">
                     <input type="text" id="project-name" value="Untitled Project" class="editable-project-name">
                     <div id="project-name-warning" style="display:none; position:absolute; top:100%; left:0; margin-top:4px; padding:4px 8px; font-size:11px; color:#f5a623; background:#1a1a1a; border:1px solid #f5a623; border-radius:4px; white-space:nowrap; z-index:1000; pointer-events:none;"></div>
@@ -1141,6 +1141,131 @@
                                 <input type="color" id="color2-picker" value="#959CB8">
                                 <button class="color-swatch" id="color2-picker-swatch" aria-label="Checkerboard Color 2"></button>
                                 <input type="text" id="color2-hex" value="#959CB8" maxlength="7" style="width: 70px; font-family: monospace;">
+                            </div>
+                        </div>
+
+                        <!-- v0.8.7.8: multi-color cabinet palette. -->
+                        <div class="info-row" style="margin-top: 10px;" data-tooltip="Checkerboard uses Color 1 / Color 2. Palette modes distribute the colors below across cabinets.">
+                            <label>Pattern</label>
+                            <select id="panel-color-mode" class="info-select" style="max-width: 130px;">
+                                <option value="checker">Checkerboard</option>
+                                <option value="diagonal">Diagonal wave</option>
+                                <option value="cycle">Cycle / sweep</option>
+                                <option value="row">By row</option>
+                                <option value="column">By column</option>
+                            </select>
+                        </div>
+                        <div id="panel-palette-editor" style="display: none; margin-top: 4px;">
+                            <div id="panel-palette-swatches" style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 6px;"></div>
+                            <div style="display: flex; gap: 5px; align-items: center;">
+                                <input type="color" id="palette-color" value="#bc382f" aria-label="Selected palette color">
+                                <input type="text" id="palette-hex" value="#BC382F" maxlength="7" style="width: 70px; font-family: monospace;">
+                                <button class="btn" id="palette-add" style="padding: 4px 8px; font-size: 11px;" title="Add a color">+ Add</button>
+                                <button class="btn" id="palette-remove" style="padding: 4px 8px; font-size: 11px;" title="Remove selected color">Remove</button>
+                            </div>
+                        </div>
+
+                        <!-- v0.8.7.8: Photoshop-style gradient overlay. -->
+                        <div class="checkbox-row" style="margin-top: 10px;" data-tooltip="Overlay a gradient on top of the checkerboard test pattern (Pixel Map, Show Look, Cabinet ID).">
+                            <input type="checkbox" id="gradient-enabled">
+                            <label for="gradient-enabled">Gradient overlay</label>
+                        </div>
+                        <div id="gradient-controls" style="display: none; margin-top: 6px;">
+                            <!-- Preset gradient library (custom picker with color swatches). -->
+                            <div data-tooltip="Apply a gradient preset, or save the current gradient as one.">
+                                <button id="gradient-preset-trigger" style="width: 100%; display: flex; align-items: center; gap: 6px; background: #1a1a1a; border: 1px solid #3a3a3a; border-radius: 4px; padding: 5px 8px; cursor: pointer;">
+                                    <span id="gradient-preset-preview" style="flex: 1; min-width: 0; height: 14px; border-radius: 3px; background: #444;"></span>
+                                    <span style="font-size: 10px; color: #aaa;">▾</span>
+                                </button>
+                                <div id="gradient-preset-menu" style="display: none; margin-top: 4px; max-height: 240px; overflow-y: auto; background: #1a1a1a; border: 1px solid #4a4a4a; border-radius: 6px; padding: 4px;"></div>
+                            </div>
+                            <div style="display: flex; gap: 5px; margin: 6px 0 8px;">
+                                <button class="btn" id="gradient-preset-save" style="padding: 4px 8px; font-size: 11px;" title="Save the current gradient as a preset">Save current…</button>
+                            </div>
+                            <!-- Stop bar: click to add a stop, drag markers to move. -->
+                            <div id="gradient-bar" style="position: relative; height: 26px; border-radius: 4px; border: 1px solid #4a4a4a; cursor: copy; margin-bottom: 6px;" title="Click to add a color stop; drag a marker to move it"></div>
+                            <div style="display: flex; gap: 5px; align-items: center; margin-bottom: 8px;">
+                                <input type="color" id="gradient-stop-color" value="#1d9e75" aria-label="Selected stop color">
+                                <input type="text" id="gradient-stop-hex" value="#1D9E75" maxlength="7" style="width: 70px; font-family: monospace;">
+                                <input type="number" id="gradient-stop-pos" min="0" max="100" value="0" style="width: 52px;" aria-label="Selected stop position percent" title="Stop position (%)">
+                                <button class="btn" id="gradient-stop-remove" style="padding: 4px 8px; font-size: 11px;" title="Remove selected stop">Remove</button>
+                            </div>
+                            <div class="info-row">
+                                <label>Type</label>
+                                <select id="gradient-type" class="info-select" style="max-width: 120px;">
+                                    <option value="linear">Linear</option>
+                                    <option value="radial">Radial</option>
+                                </select>
+                            </div>
+                            <div class="info-row" data-tooltip="Spread the gradient across the whole screen, or repeat it on each cabinet panel.">
+                                <label>Spread</label>
+                                <select id="gradient-scope" class="info-select" style="max-width: 120px;">
+                                    <option value="screen">Whole screen</option>
+                                    <option value="panel">Each panel</option>
+                                </select>
+                            </div>
+                            <div class="checkbox-row" id="gradient-alternate-row" style="display: none;" data-tooltip="Mirror the gradient on every other cabinet so adjacent panels flip (wave look).">
+                                <input type="checkbox" id="gradient-panel-alternate">
+                                <label for="gradient-panel-alternate">Alternate panels</label>
+                            </div>
+                            <div class="info-row" id="gradient-angle-row">
+                                <label>Angle</label>
+                                <div style="display: flex; gap: 6px; align-items: center; flex: 1;">
+                                    <input type="range" id="gradient-angle" min="0" max="360" step="1" value="0" style="flex: 1;">
+                                    <input type="number" id="gradient-angle-num" min="0" max="360" step="1" value="0" style="width: 52px;" aria-label="Gradient angle in degrees">
+                                </div>
+                            </div>
+                            <div id="gradient-radial-rows" style="display: none;">
+                                <div class="info-row">
+                                    <label>Center X</label>
+                                    <div style="display: flex; gap: 6px; align-items: center; flex: 1;">
+                                        <input type="range" id="gradient-rcx" min="-50" max="150" step="1" value="50" style="flex: 1;">
+                                        <input type="number" id="gradient-rcx-num" min="-50" max="150" step="1" value="50" style="width: 52px;" aria-label="Radial center X percent">
+                                    </div>
+                                </div>
+                                <div class="info-row">
+                                    <label>Center Y</label>
+                                    <div style="display: flex; gap: 6px; align-items: center; flex: 1;">
+                                        <input type="range" id="gradient-rcy" min="-50" max="150" step="1" value="50" style="flex: 1;">
+                                        <input type="number" id="gradient-rcy-num" min="-50" max="150" step="1" value="50" style="width: 52px;" aria-label="Radial center Y percent">
+                                    </div>
+                                </div>
+                                <div class="info-row">
+                                    <label>Size</label>
+                                    <div style="display: flex; gap: 6px; align-items: center; flex: 1;">
+                                        <input type="range" id="gradient-rsize" min="10" max="400" step="1" value="100" style="flex: 1;">
+                                        <input type="number" id="gradient-rsize-num" min="10" max="400" step="1" value="100" style="width: 52px;" aria-label="Radial size percent">
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="info-row">
+                                <label>Opacity</label>
+                                <div style="display: flex; gap: 6px; align-items: center; flex: 1;">
+                                    <input type="range" id="gradient-opacity" min="0" max="100" step="1" value="60" style="flex: 1;">
+                                    <input type="number" id="gradient-opacity-num" min="0" max="100" step="1" value="60" style="width: 52px;" aria-label="Gradient opacity percent">
+                                    <span style="font-size: 12px; color: #888;">%</span>
+                                </div>
+                            </div>
+                            <div class="info-row">
+                                <label>Blend</label>
+                                <select id="gradient-blend" class="info-select" style="max-width: 120px;">
+                                    <option value="normal">Normal</option>
+                                    <option value="multiply">Multiply</option>
+                                    <option value="screen">Screen</option>
+                                    <option value="overlay">Overlay</option>
+                                    <option value="darken">Darken</option>
+                                    <option value="lighten">Lighten</option>
+                                    <option value="color-dodge">Color Dodge</option>
+                                    <option value="color-burn">Color Burn</option>
+                                    <option value="hard-light">Hard Light</option>
+                                    <option value="soft-light">Soft Light</option>
+                                    <option value="difference">Difference</option>
+                                    <option value="exclusion">Exclusion</option>
+                                    <option value="hue">Hue</option>
+                                    <option value="saturation">Saturation</option>
+                                    <option value="color">Color</option>
+                                    <option value="luminosity">Luminosity</option>
+                                </select>
                             </div>
                         </div>
                     </div>
