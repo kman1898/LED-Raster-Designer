@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED Raster Designer v0.11.0</title>
+    <title>LED Raster Designer v0.10.2</title>
     <link rel="icon" type="image/svg+xml" href="/static/img/logo.svg">
     <link rel="stylesheet" href="/static/css/style.css">
     <link rel="stylesheet" href="/static/css/color_picker.css">
@@ -92,7 +92,7 @@
 
         <div id="toolbar">
             <div class="toolbar-section toolbar-project">
-                    <h1><svg class="lrd-logo-mark" width="38" height="38" viewBox="0 0 48 48" aria-hidden="true" style="vertical-align:middle; margin-right:11px;"><rect x="3" y="3" width="42" height="42" rx="10" fill="#161616" stroke="#3a3a3a" stroke-width="1.5"/><rect x="11" y="11" width="8" height="8" rx="2" fill="#5a5a5a"/><rect x="20" y="11" width="8" height="8" rx="2" fill="var(--ps-accent, #e22330)"/><rect x="29" y="11" width="8" height="8" rx="2" fill="#5a5a5a"/><rect x="11" y="20" width="8" height="8" rx="2" fill="var(--ps-accent, #e22330)"/><rect x="20" y="20" width="8" height="8" rx="2" fill="#cfcfcf"/><rect x="29" y="20" width="8" height="8" rx="2" fill="#5a5a5a"/><rect x="11" y="29" width="8" height="8" rx="2" fill="#5a5a5a"/><rect x="20" y="29" width="8" height="8" rx="2" fill="#5a5a5a"/><rect x="29" y="29" width="8" height="8" rx="2" fill="var(--ps-accent, #e22330)"/></svg><span style="white-space:nowrap; vertical-align:middle;">LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.11.0</span></span></h1>
+                    <h1><svg class="lrd-logo-mark" width="38" height="38" viewBox="0 0 48 48" aria-hidden="true" style="vertical-align:middle; margin-right:11px;"><rect x="3" y="3" width="42" height="42" rx="10" fill="#161616" stroke="#3a3a3a" stroke-width="1.5"/><rect x="11" y="11" width="8" height="8" rx="2" fill="#5a5a5a"/><rect x="20" y="11" width="8" height="8" rx="2" fill="var(--ps-accent, #e22330)"/><rect x="29" y="11" width="8" height="8" rx="2" fill="#5a5a5a"/><rect x="11" y="20" width="8" height="8" rx="2" fill="var(--ps-accent, #e22330)"/><rect x="20" y="20" width="8" height="8" rx="2" fill="#cfcfcf"/><rect x="29" y="20" width="8" height="8" rx="2" fill="#5a5a5a"/><rect x="11" y="29" width="8" height="8" rx="2" fill="#5a5a5a"/><rect x="20" y="29" width="8" height="8" rx="2" fill="#5a5a5a"/><rect x="29" y="29" width="8" height="8" rx="2" fill="var(--ps-accent, #e22330)"/></svg><span style="white-space:nowrap; vertical-align:middle;">LED Raster Designer <span style="font-size: 0.6em; color: #888;">v0.10.2</span></span></h1>
                 <div style="position:relative;">
                     <input type="text" id="project-name" value="Untitled Project" class="editable-project-name">
                     <div id="project-name-warning" style="display:none; position:absolute; top:100%; left:0; margin-top:4px; padding:4px 8px; font-size:11px; color:#f5a623; background:#1a1a1a; border:1px solid #f5a623; border-radius:4px; white-space:nowrap; z-index:1000; pointer-events:none;"></div>
@@ -150,12 +150,12 @@
                                 <label>Cabinet Height (px)</label>
                                 <input type="text" id="cabinet-height" value="128">
                             </div>
-                            <div class="info-row" data-tooltip="Size by Wall Dimensions, Enter the wall size you want and the number of tiles is worked out for you. Uses the panel's physical size for ft/m, or the cabinet pixel size for px. Tiles round UP so the wall is always covered.">
+                            <div class="info-row" data-tooltip="Size by Wall Dimensions, Enter the wall size you want and the number of tiles is worked out for you. Uses the panel's physical size for ft/m, or the cabinet pixel size for px. Tiles round to the NEAREST fit, and the readout shows the actual built size.">
                                 <label>Size by Wall Dimensions</label>
                                 <input type="checkbox" id="size-by-dimensions">
                             </div>
                             <div id="size-by-dimensions-fields" style="display:none;">
-                                <div class="info-row" data-tooltip="Target Width, Desired wall width. The number of columns is rounded up to cover it.">
+                                <div class="info-row" data-tooltip="Target Width, Desired wall width. The number of columns is rounded to the nearest whole tile.">
                                     <label>Target Width</label>
                                     <div style="display: flex; gap: 6px; align-items: center;">
                                         <input type="text" id="target-width" value="" autocomplete="off" style="width: 70px;">
@@ -166,7 +166,7 @@
                                         </select>
                                     </div>
                                 </div>
-                                <div class="info-row" data-tooltip="Target Height, Desired wall height. The number of rows is rounded up to cover it.">
+                                <div class="info-row" data-tooltip="Target Height, Desired wall height. The number of rows is rounded to the nearest whole tile.">
                                     <label>Target Height</label>
                                     <input type="text" id="target-height" value="" autocomplete="off" style="width: 70px;">
                                 </div>

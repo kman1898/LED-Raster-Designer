@@ -977,9 +977,9 @@ class _ScreenInfo {
         const cabinetHeightVal = readNumber('cabinet-height').value;
         const columnsVal = readNumber('screen-columns').value;
         const rowsVal = readNumber('screen-rows').value;
-        // v0.11.0: Size by Wall Dimensions mode - the user enters the wall
-        // size they want and columns/rows are derived per layer (rounded UP
-        // so the wall is always covered).
+        // v0.10.2: Size by Wall Dimensions mode - the user enters the wall
+        // size they want and columns/rows are derived per layer (rounded to
+        // the nearest whole tile).
         const sizeByDimEl = document.getElementById('size-by-dimensions');
         const sizeByDimVal = sizeByDimEl && !sizeByDimEl.indeterminate ? sizeByDimEl.checked : null;
         const targetUnitEl = document.getElementById('target-unit');
@@ -1187,12 +1187,12 @@ class _ScreenInfo {
         this.debouncedSaveState('Update Properties');
     }
 
-    // v0.11.0: Size by Wall Dimensions - how many tiles cover the target
-    // wall size. ft/m use the panel's physical size; px uses the cabinet
-    // pixel size. Rounds UP (a quote needs the wall fully covered); the
-    // tiny epsilon keeps exact fits (e.g. 5 m / 0.5 m) from rounding to 11.
+    // v0.10.2: Size by Wall Dimensions - how many tiles for the target wall
+    // size. ft/m use the panel's physical size; px uses the cabinet pixel
+    // size. Rounds to the NEAREST whole tile (17 ft on 1.64 ft tiles is 10
+    // tiles, because 16.4 ft is closer than 18.04 ft); the readout shows the
+    // actual built size so a quote can state it.
     computeTilesForWall(layer) {
-        const eps = 1e-6;
         const unit = layer.targetUnit || 'ft';
         const tw = Number(layer.targetWidth);
         const th = Number(layer.targetHeight);
@@ -1201,14 +1201,14 @@ class _ScreenInfo {
         if (unit === 'px') {
             const cw = Number(layer.cabinet_width) || 0;
             const ch = Number(layer.cabinet_height) || 0;
-            if (Number.isFinite(tw) && tw > 0 && cw > 0) columns = Math.max(1, Math.ceil(tw / cw - eps));
-            if (Number.isFinite(th) && th > 0 && ch > 0) rows = Math.max(1, Math.ceil(th / ch - eps));
+            if (Number.isFinite(tw) && tw > 0 && cw > 0) columns = Math.max(1, Math.round(tw / cw));
+            if (Number.isFinite(th) && th > 0 && ch > 0) rows = Math.max(1, Math.round(th / ch));
         } else {
             const factor = unit === 'm' ? 1000 : 304.8; // target -> mm
             const pw = Number(layer.panel_width_mm) || 0;
             const ph = Number(layer.panel_height_mm) || 0;
-            if (Number.isFinite(tw) && tw > 0 && pw > 0) columns = Math.max(1, Math.ceil((tw * factor) / pw - eps));
-            if (Number.isFinite(th) && th > 0 && ph > 0) rows = Math.max(1, Math.ceil((th * factor) / ph - eps));
+            if (Number.isFinite(tw) && tw > 0 && pw > 0) columns = Math.max(1, Math.round((tw * factor) / pw));
+            if (Number.isFinite(th) && th > 0 && ph > 0) rows = Math.max(1, Math.round((th * factor) / ph));
         }
         return { columns, rows };
     }
@@ -1346,7 +1346,7 @@ class _ScreenInfo {
         setTextInput('cabinet-height', getCommon(l => l.cabinet_height));
         setTextInput('screen-columns', getCommon(l => l.columns));
         setTextInput('screen-rows', getCommon(l => l.rows));
-        // v0.11.0: restore Size by Wall Dimensions state for the selection
+        // v0.10.2: restore Size by Wall Dimensions state for the selection
         setCheckbox('size-by-dimensions', getCommon(l => !!l.sizeByDimensions));
         setTextInput('target-width', getCommon(l => l.targetWidth ?? ''));
         setTextInput('target-height', getCommon(l => l.targetHeight ?? ''));
