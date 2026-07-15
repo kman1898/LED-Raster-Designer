@@ -977,6 +977,15 @@ class _ScreenInfo {
         const cabinetHeightVal = readNumber('cabinet-height').value;
         const columnsVal = readNumber('screen-columns').value;
         const rowsVal = readNumber('screen-rows').value;
+        // v0.10.2: Size by Wall Dimensions mode - the user enters the wall
+        // size they want and columns/rows are derived per layer (rounded to
+        // the nearest whole tile).
+        const sizeByDimEl = document.getElementById('size-by-dimensions');
+        const sizeByDimVal = sizeByDimEl && !sizeByDimEl.indeterminate ? sizeByDimEl.checked : null;
+        const targetUnitEl = document.getElementById('target-unit');
+        const targetUnitVal = targetUnitEl ? targetUnitEl.value : null;
+        const targetWidthVal = readNumber('target-width').value;
+        const targetHeightVal = readNumber('target-height').value;
         const numberSizeVal = readNumber('number-size').value;
         // The four screen-level half-tile flags were replaced by per-panel
         // halfTile state. The variables below remain (always null) so the
@@ -1096,6 +1105,18 @@ class _ScreenInfo {
                 if (cabinetHeightVal !== null) layer.cabinet_height = cabinetHeightVal;
                 if (columnsVal !== null) layer.columns = Math.round(columnsVal);
                 if (rowsVal !== null) layer.rows = Math.round(rowsVal);
+                if (sizeByDimVal !== null) layer.sizeByDimensions = sizeByDimVal;
+                if (layer.sizeByDimensions) {
+                    if (targetWidthVal !== null) layer.targetWidth = targetWidthVal;
+                    if (targetHeightVal !== null) layer.targetHeight = targetHeightVal;
+                    if (targetUnitVal !== null) layer.targetUnit = targetUnitVal;
+                    // Derive columns/rows from the targets using THIS layer's
+                    // panel dimensions (multi-select safe). Overrides any
+                    // manual columns/rows while the mode is on.
+                    const fit = this.computeTilesForWall(layer);
+                    if (fit.columns !== null) layer.columns = fit.columns;
+                    if (fit.rows !== null) layer.rows = fit.rows;
+                }
                 if (halfFirstColumnVal !== null) layer.halfFirstColumn = halfFirstColumnVal;
                 if (halfLastColumnVal !== null) layer.halfLastColumn = halfLastColumnVal;
                 if (halfFirstRowVal !== null) layer.halfFirstRow = halfFirstRowVal;
@@ -1145,6 +1166,13 @@ class _ScreenInfo {
         if (cabinetHeightVal !== null && document.getElementById('cabinet-height')) document.getElementById('cabinet-height').value = cabinetHeightVal;
         if (columnsVal !== null && document.getElementById('screen-columns')) document.getElementById('screen-columns').value = Math.round(columnsVal);
         if (rowsVal !== null && document.getElementById('screen-rows')) document.getElementById('screen-rows').value = Math.round(rowsVal);
+        // In Size by Wall Dimensions mode the columns/rows just derived from
+        // the targets win - reflect the primary layer's computed values.
+        if (this.currentLayer && this.currentLayer.sizeByDimensions) {
+            if (document.getElementById('screen-columns')) document.getElementById('screen-columns').value = this.currentLayer.columns;
+            if (document.getElementById('screen-rows')) document.getElementById('screen-rows').value = this.currentLayer.rows;
+        }
+        this.refreshSizeByDimensionsUI();
         if (numberSizeVal !== null && document.getElementById('number-size')) document.getElementById('number-size').value = Math.round(numberSizeVal);
         if (panelWidthMMVal !== null && document.getElementById('panel-width-mm')) document.getElementById('panel-width-mm').value = panelWidthMMVal;
         if (panelHeightMMVal !== null && document.getElementById('panel-height-mm')) document.getElementById('panel-height-mm').value = panelHeightMMVal;
@@ -1157,6 +1185,66 @@ class _ScreenInfo {
         
         this.updateLayers(targetLayers);
         this.debouncedSaveState('Update Properties');
+    }
+
+    // v0.10.2: Size by Wall Dimensions - how many tiles for the target wall
+    // size. ft/m use the panel's physical size; px uses the cabinet pixel
+    // size. Rounds to the NEAREST whole tile (17 ft on 1.64 ft tiles is 10
+    // tiles, because 16.4 ft is closer than 18.04 ft); the readout shows the
+    // actual built size so a quote can state it.
+    computeTilesForWall(layer) {
+        const unit = layer.targetUnit || 'ft';
+        const tw = Number(layer.targetWidth);
+        const th = Number(layer.targetHeight);
+        let columns = null;
+        let rows = null;
+        if (unit === 'px') {
+            const cw = Number(layer.cabinet_width) || 0;
+            const ch = Number(layer.cabinet_height) || 0;
+            if (Number.isFinite(tw) && tw > 0 && cw > 0) columns = Math.max(1, Math.round(tw / cw));
+            if (Number.isFinite(th) && th > 0 && ch > 0) rows = Math.max(1, Math.round(th / ch));
+        } else {
+            const factor = unit === 'm' ? 1000 : 304.8; // target -> mm
+            const pw = Number(layer.panel_width_mm) || 0;
+            const ph = Number(layer.panel_height_mm) || 0;
+            if (Number.isFinite(tw) && tw > 0 && pw > 0) columns = Math.max(1, Math.round((tw * factor) / pw));
+            if (Number.isFinite(th) && th > 0 && ph > 0) rows = Math.max(1, Math.round((th * factor) / ph));
+        }
+        return { columns, rows };
+    }
+
+    // Show/hide the target fields, lock Columns/Rows while the mode drives
+    // them, and render the tiles + actual-size readout for the primary layer.
+    refreshSizeByDimensionsUI() {
+        const checkbox = document.getElementById('size-by-dimensions');
+        const fields = document.getElementById('size-by-dimensions-fields');
+        const result = document.getElementById('size-by-dimensions-result');
+        if (!checkbox || !fields) return;
+        const on = checkbox.checked && !checkbox.indeterminate;
+        fields.style.display = on ? '' : 'none';
+        ['screen-columns', 'screen-rows'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                el.readOnly = on;
+                el.style.opacity = on ? '0.55' : '';
+            }
+        });
+        if (!result) return;
+        const primary = this.currentLayer && (this.currentLayer.type || 'screen') === 'screen' ? this.currentLayer : null;
+        if (!on || !primary) {
+            result.innerHTML = '';
+            return;
+        }
+        const cols = Number(primary.columns) || 0;
+        const rows = Number(primary.rows) || 0;
+        const wM = cols * (Number(primary.panel_width_mm) || 0) / 1000;
+        const hM = rows * (Number(primary.panel_height_mm) || 0) / 1000;
+        const wPx = cols * (Number(primary.cabinet_width) || 0);
+        const hPx = rows * (Number(primary.cabinet_height) || 0);
+        const ft = (m) => (m / 0.3048).toFixed(2);
+        result.innerHTML = `${cols} &times; ${rows} = <b>${cols * rows} tiles</b><br>` +
+            `Actual: ${wM.toFixed(2)} &times; ${hM.toFixed(2)} m &nbsp;&middot;&nbsp; ` +
+            `${ft(wM)} &times; ${ft(hM)} ft &nbsp;&middot;&nbsp; ${wPx} &times; ${hPx} px`;
     }
 
     loadLayerToInputs() {
@@ -1258,6 +1346,16 @@ class _ScreenInfo {
         setTextInput('cabinet-height', getCommon(l => l.cabinet_height));
         setTextInput('screen-columns', getCommon(l => l.columns));
         setTextInput('screen-rows', getCommon(l => l.rows));
+        // v0.10.2: restore Size by Wall Dimensions state for the selection
+        setCheckbox('size-by-dimensions', getCommon(l => !!l.sizeByDimensions));
+        setTextInput('target-width', getCommon(l => l.targetWidth ?? ''));
+        setTextInput('target-height', getCommon(l => l.targetHeight ?? ''));
+        const targetUnitSel = document.getElementById('target-unit');
+        if (targetUnitSel) {
+            const unitCommon2 = getCommon(l => l.targetUnit || 'ft');
+            if (!unitCommon2.mixed) targetUnitSel.value = unitCommon2.value;
+        }
+        this.refreshSizeByDimensionsUI();
         // (legacy half-* checkboxes were removed when half-tile state moved
         // to per-panel; the four screen-level flags are migrated to per-panel
         // halfTile values on first load.)

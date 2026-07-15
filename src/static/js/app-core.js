@@ -1654,7 +1654,8 @@ export class LEDRasterApp {
         
         ['offset-x', 'offset-y', 'cabinet-width', 'cabinet-height',
          'screen-columns', 'screen-rows', 'number-size', 'panel-width-mm', 'panel-height-mm', 'panel-weight-kg', 'image-scale', 'image-scale-range',
-         'show-offset-x', 'show-offset-y'].forEach(id => {
+         'show-offset-x', 'show-offset-y',
+         'size-by-dimensions', 'target-width', 'target-height', 'target-unit'].forEach(id => {
             const input = document.getElementById(id);
             if (input) {
                 input.addEventListener('change', () => {
