@@ -1,6 +1,18 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.11.0 - July 15, 2026
+----------------------------
+- FEATURE: Size by Wall Dimensions. A new checkbox in Screen Info lets you
+  enter the wall size you want (in ft, m, or px) and the app works out the
+  number of tiles for you - handy for quoting when you know the wall, not
+  the panel math. Pick a panel preset for the pitch, tick the box, type the
+  target width/height, and columns/rows fill in automatically (rounded up
+  so the wall is always covered). A readout shows the tile count and the
+  actual built size in m, ft, and px. Columns/Rows lock while the mode is
+  on; untick to edit them by hand again. The mode and targets are saved
+  per screen.
+
 v0.10.1 - July 15, 2026
 ----------------------------
 - FIX: Magnetic snap could land a dragged screen at the wrong position
