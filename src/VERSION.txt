@@ -1,6 +1,16 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.10.1 - July 15, 2026
+----------------------------
+- FIX: Magnetic snap could land a dragged screen at the wrong position
+  (e.g. X = -40 instead of 0) when a far-away screen's edge happened to
+  line up with the dragged screen's opposite edge. Snapping now picks the
+  NEAREST snap target instead of the last one checked, raster edges win
+  ties, and a screen only snaps to other screens that overlap (or nearly
+  touch) it on the other axis - a screen in a different row/column no
+  longer grabs the drag.
+
 v0.10.0 - July 13, 2026
 ----------------------------
 - FEATURE: New launcher window. Opening the app now shows a control window

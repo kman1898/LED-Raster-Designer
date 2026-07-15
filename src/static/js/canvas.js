@@ -3059,8 +3059,6 @@ class CanvasRenderer {
     calculateMagneticSnap(offsetX, offsetY, currentLayer) {
         // Stronger, zoom-consistent snap zone (~34 screen px regardless of zoom).
         const snapDistance = 34 / (this.zoom || 1);
-        let snappedX = offsetX;
-        let snappedY = offsetY;
 
         // v0.9.3: snap by the rotated FOOTPRINT. It's centered on the screen, so
         // its top-left sits at offset + fpD (fpD = 0 when unrotated). We snap the
@@ -3077,13 +3075,33 @@ class CanvasRenderer {
         const currentTop = offsetY + fpDy;
         const currentBottom = currentTop + layerHeight;
 
-        // Snap to raster boundaries, HARD EDGES ONLY
-        if (Math.abs(currentLeft - 0) <= snapDistance) snappedX = 0 - fpDx;
-        if (Math.abs(currentRight - this.rasterWidth) <= snapDistance) snappedX = this.rasterWidth - layerWidth - fpDx;
-        if (Math.abs(currentTop - 0) <= snapDistance) snappedY = 0 - fpDy;
-        if (Math.abs(currentBottom - this.rasterHeight) <= snapDistance) snappedY = this.rasterHeight - layerHeight - fpDy;
+        // v0.10.1: the NEAREST candidate wins on each axis. The old code let
+        // whichever candidate was checked last overwrite the rest, so dragging
+        // toward the raster's left edge could land at a far layer's edge
+        // instead (e.g. -40 rather than 0). Raster edges are seeded first so
+        // they win exact ties (strict < keeps the earlier candidate).
+        let bestX = null;
+        let bestY = null;
+        const considerX = (edgePos, target, resultOffset) => {
+            const dist = Math.abs(edgePos - target);
+            if (dist <= snapDistance && (!bestX || dist < bestX.dist)) bestX = { value: resultOffset, dist };
+        };
+        const considerY = (edgePos, target, resultOffset) => {
+            const dist = Math.abs(edgePos - target);
+            if (dist <= snapDistance && (!bestY || dist < bestY.dist)) bestY = { value: resultOffset, dist };
+        };
 
-        // Snap to other layers' footprints, HARD EDGES ONLY
+        // Snap to raster boundaries, HARD EDGES ONLY
+        considerX(currentLeft, 0, 0 - fpDx);
+        considerX(currentRight, this.rasterWidth, this.rasterWidth - layerWidth - fpDx);
+        considerY(currentTop, 0, 0 - fpDy);
+        considerY(currentBottom, this.rasterHeight, this.rasterHeight - layerHeight - fpDy);
+
+        // Snap to other layers' footprints, HARD EDGES ONLY.
+        // v0.10.1: only layers that are neighbors on the perpendicular axis
+        // (ranges overlap, or nearly touch within the snap zone) attract a
+        // snap. A screen far above shouldn't grab a screen dragged along the
+        // raster's bottom just because their widths line up.
         if (window.app && window.app.project) {
             window.app.project.layers.forEach(layer => {
                 if (layer.id === currentLayer.id || !layer.visible) return;
@@ -3094,22 +3112,34 @@ class CanvasRenderer {
                 const otherTop = otherBounds.y;
                 const otherBottom = otherBounds.y + otherBounds.height;
 
-                // Left edge snaps
-                if (Math.abs(currentLeft - otherLeft) <= snapDistance) snappedX = otherLeft - fpDx;
-                if (Math.abs(currentLeft - otherRight) <= snapDistance) snappedX = otherRight - fpDx;
-                // Right edge snaps
-                if (Math.abs(currentRight - otherLeft) <= snapDistance) snappedX = otherLeft - layerWidth - fpDx;
-                if (Math.abs(currentRight - otherRight) <= snapDistance) snappedX = otherRight - layerWidth - fpDx;
-                // Top edge snaps
-                if (Math.abs(currentTop - otherTop) <= snapDistance) snappedY = otherTop - fpDy;
-                if (Math.abs(currentTop - otherBottom) <= snapDistance) snappedY = otherBottom - fpDy;
-                // Bottom edge snaps
-                if (Math.abs(currentBottom - otherTop) <= snapDistance) snappedY = otherTop - layerHeight - fpDy;
-                if (Math.abs(currentBottom - otherBottom) <= snapDistance) snappedY = otherBottom - layerHeight - fpDy;
+                const nearVertically = currentTop <= otherBottom + snapDistance &&
+                    currentBottom >= otherTop - snapDistance;
+                const nearHorizontally = currentLeft <= otherRight + snapDistance &&
+                    currentRight >= otherLeft - snapDistance;
+
+                if (nearVertically) {
+                    // Left edge snaps
+                    considerX(currentLeft, otherLeft, otherLeft - fpDx);
+                    considerX(currentLeft, otherRight, otherRight - fpDx);
+                    // Right edge snaps
+                    considerX(currentRight, otherLeft, otherLeft - layerWidth - fpDx);
+                    considerX(currentRight, otherRight, otherRight - layerWidth - fpDx);
+                }
+                if (nearHorizontally) {
+                    // Top edge snaps
+                    considerY(currentTop, otherTop, otherTop - fpDy);
+                    considerY(currentTop, otherBottom, otherBottom - fpDy);
+                    // Bottom edge snaps
+                    considerY(currentBottom, otherTop, otherTop - layerHeight - fpDy);
+                    considerY(currentBottom, otherBottom, otherBottom - layerHeight - fpDy);
+                }
             });
         }
 
-        return { x: Math.round(snappedX), y: Math.round(snappedY) };
+        return {
+            x: Math.round(bestX ? bestX.value : offsetX),
+            y: Math.round(bestY ? bestY.value : offsetY)
+        };
     }
     
     setViewMode(mode) {
