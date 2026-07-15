@@ -3057,8 +3057,10 @@ class CanvasRenderer {
     }
 
     calculateMagneticSnap(offsetX, offsetY, currentLayer) {
-        // Stronger, zoom-consistent snap zone (~34 screen px regardless of zoom).
-        const snapDistance = 34 / (this.zoom || 1);
+        // Zoom-consistent snap zone (~14 screen px, same feel as the canvas
+        // snap), capped at 60 raster px so a zoomed-out view can't grab the
+        // screen from a whole cabinet-width away.
+        const snapDistance = Math.min(14 / (this.zoom || 1), 60);
 
         // v0.9.3: snap by the rotated FOOTPRINT. It's centered on the screen, so
         // its top-left sits at offset + fpD (fpD = 0 when unrotated). We snap the
