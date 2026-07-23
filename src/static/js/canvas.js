@@ -1836,6 +1836,18 @@ class CanvasRenderer {
         // In Pixel Map view: if right-click lands on a panel of currentLayer
         // and the panel is not already in the selection, treat it as a
         // single-panel selection so the menu actions target it.
+        // In the views where screens can be moved, right-clicking a screen that
+        // isn't part of the current selection targets that screen, so "Center
+        // on Canvas" acts on what the user actually pointed at.
+        if (['pixel-map', 'show-look'].includes(this.viewMode)) {
+            const rect = this.canvas.getBoundingClientRect();
+            const worldY = ((e.clientY - rect.top) - this.panY) / this.zoom;
+            const worldX = this._unmirrorWorldX(((e.clientX - rect.left) - this.panX) / this.zoom, worldY);
+            const hit = this.getLayerAt(worldX, worldY);
+            if (hit && !(window.app.selectedLayerIds || []).includes(hit.id)) {
+                window.app.selectLayer(hit);
+            }
+        }
         if (this.viewMode === 'pixel-map' && window.app.currentLayer) {
             const rect = this.canvas.getBoundingClientRect();
             const worldY = ((e.clientY - rect.top) - this.panY) / this.zoom;

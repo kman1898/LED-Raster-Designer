@@ -1,6 +1,19 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.10.4 - July 16, 2026
+----------------------------
+- FEATURE: Center a screen on the canvas. Right-click a screen in Pixel Map
+  or Show Look and choose Center on Canvas X, Center on Canvas Y, or Center
+  on Canvas to snap it to the middle of its canvas's raster on that axis.
+  Works on a multi-selection (each screen centers on its own canvas), skips
+  locked screens, and centers rotated screens by their visible footprint.
+  In Pixel Map, a screen whose Show Look position still matches its Pixel
+  Map position keeps following, same as dragging. The items only appear in
+  Pixel Map and Show Look, the two views where screens can be positioned.
+- Right-clicking a screen that isn't selected now selects it first in those
+  two views, so the menu acts on the screen you pointed at.
+
 v0.10.3 - July 16, 2026
 ----------------------------
 - FIX: Screen gradients (and multi-color palette fills) now render on the

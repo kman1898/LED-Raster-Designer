@@ -1767,6 +1767,15 @@ class _ExportIo {
             case 'delete':
                 if (this.currentLayer) this.deleteLayer(this.currentLayer.id);
                 break;
+            case 'center-x':
+                this.centerLayersOnCanvas('x');
+                break;
+            case 'center-y':
+                this.centerLayersOnCanvas('y');
+                break;
+            case 'center-both':
+                this.centerLayersOnCanvas('both');
+                break;
             case 'next-port':
                 this.stepCustomPort(1);
                 break;

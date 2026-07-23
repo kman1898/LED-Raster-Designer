@@ -31,6 +31,15 @@ class _Power {
         menu.querySelectorAll('.pixel-map-only').forEach(el => {
             el.style.display = showPixelMapItems ? '' : 'none';
         });
+        // Centering only applies where screens can actually be positioned:
+        // Pixel Map (processor offset) and Show Look (show offset). Data and
+        // Power mirror the Show Look position, so they're read-only there.
+        const canCenter = window.canvasRenderer
+            && ['pixel-map', 'show-look'].includes(window.canvasRenderer.viewMode)
+            && this.getSelectedLayers().some(l => !l.locked);
+        menu.querySelectorAll('.movable-view-only').forEach(el => {
+            el.style.display = canCenter ? '' : 'none';
+        });
         menu.style.visibility = 'hidden';
         menu.style.display = 'block';
         const menuRect = menu.getBoundingClientRect();
@@ -47,6 +56,76 @@ class _Power {
     hideContextMenu() {
         const menu = document.getElementById('context-menu');
         if (menu) menu.style.display = 'none';
+    }
+
+    /**
+     * v0.10.4: center the selected screens on their canvas's raster, on one
+     * axis or both. Pixel Map writes offset_x/offset_y against the canvas's
+     * pixel raster; Show Look writes showOffsetX/showOffsetY against the show
+     * raster. Data and Power mirror Show Look, so the menu hides there.
+     *
+     * Each screen centers on ITS OWN canvas, so a multi-select spanning two
+     * canvases does the right thing per screen. Rotated screens center by
+     * their visible footprint (getLayerBounds is the rotated box).
+     */
+    centerLayersOnCanvas(axis = 'both') {
+        const cr = window.canvasRenderer;
+        if (!cr || !['pixel-map', 'show-look'].includes(cr.viewMode)) return;
+        const layers = (this.getSelectedLayers() || []).filter(l => l && !l.locked);
+        if (layers.length === 0) return;
+
+        const useShow = cr.viewMode === 'show-look';
+        const canvases = (this.project && this.project.canvases) || [];
+        const moved = [];
+
+        layers.forEach(layer => {
+            const canvasId = useShow ? (layer.show_canvas_id || layer.canvas_id) : layer.canvas_id;
+            const canvas = canvases.find(c => c.id === canvasId);
+            if (!canvas) return;
+            const rasterW = (useShow && canvas.show_raster_width) || canvas.raster_width || 0;
+            const rasterH = (useShow && canvas.show_raster_height) || canvas.raster_height || 0;
+            if (rasterW <= 0 || rasterH <= 0) return;
+
+            // getLayerBounds is the UNROTATED box, so swap for a 90/270 screen
+            // to get the visible footprint. The stored offset is the unrotated
+            // top-left, so subtract the footprint delta to turn a desired
+            // footprint position back into an offset.
+            const b = cr.getLayerBounds(layer);
+            const deg = (((Number(layer.rotation) || 0) % 360) + 360) % 360;
+            const swap = deg === 90 || deg === 270;
+            const fpW = swap ? b.height : b.width;
+            const fpH = swap ? b.width : b.height;
+            const fp = cr.getLayerFootprintOffset(layer);
+            const centeredX = Math.round((rasterW - fpW) / 2 - fp.dx);
+            const centeredY = Math.round((rasterH - fpH) / 2 - fp.dy);
+
+            if (useShow) {
+                if (axis === 'x' || axis === 'both') layer.showOffsetX = centeredX;
+                if (axis === 'y' || axis === 'both') layer.showOffsetY = centeredY;
+            } else {
+                // Keep Show Look following the move while the two are linked
+                // (same rule the Screen Info offset fields use).
+                const linkedX = Number(layer.showOffsetX ?? layer.offset_x ?? 0) === Number(layer.offset_x ?? 0);
+                const linkedY = Number(layer.showOffsetY ?? layer.offset_y ?? 0) === Number(layer.offset_y ?? 0);
+                if (axis === 'x' || axis === 'both') {
+                    layer.offset_x = centeredX;
+                    if (linkedX) layer.showOffsetX = centeredX;
+                }
+                if (axis === 'y' || axis === 'both') {
+                    layer.offset_y = centeredY;
+                    if (linkedY) layer.showOffsetY = centeredY;
+                }
+            }
+            moved.push(layer);
+        });
+
+        if (moved.length === 0) return;
+        const label = axis === 'x' ? 'Center on Canvas X'
+            : axis === 'y' ? 'Center on Canvas Y' : 'Center on Canvas';
+        this.saveState(label);
+        this.updateLayers(moved);
+        this.loadLayerToInputs();
+        cr.render();
     }
 
     stepCustomPort(delta) {
