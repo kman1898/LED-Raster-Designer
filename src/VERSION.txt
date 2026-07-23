@@ -1,6 +1,15 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.10.3 - July 16, 2026
+----------------------------
+- FIX: Screen gradients (and multi-color palette fills) now render on the
+  Data and Power views. Those views drew the plain two-color checkerboard
+  only, so an enabled gradient silently disappeared when switching from
+  Pixel Map to Data or Power. The gradient draws under the borders, flow
+  lines, and labels; the circuit color-coded Power view keeps its flat
+  circuit colors for readability.
+
 v0.10.2 - July 15, 2026
 ----------------------------
 - FEATURE: Size by Wall Dimensions. A new checkbox in Screen Info lets you

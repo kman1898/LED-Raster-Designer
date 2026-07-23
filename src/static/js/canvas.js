@@ -3485,11 +3485,14 @@ class CanvasRenderer {
             return;
         }
         
-        // Use normal checkerboard colors (removed blank mode)
-        const color = panel.is_color1 ? layer.color1 : layer.color2;
-        this.ctx.fillStyle = `rgb(${color.r}, ${color.g}, ${color.b})`;
+        // Base cabinet fill: checkerboard / palette, same as Pixel Map, with
+        // the gradient overlay on top (below borders and flow arrows). These
+        // used to hard-code the plain checkerboard, so gradients and palette
+        // modes silently vanished on the Data view.
+        this.ctx.fillStyle = this._panelBaseFill(panel, layer);
         this.ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
-        
+        this._applyGradientOverlay(panel, layer);
+
         // Panel borders, per-layer width, drawn INSIDE the panel.
         if (layer.show_panel_borders) {
             const bw = Math.max(1, Number(layer.panel_border_width) || 2);
@@ -4281,12 +4284,19 @@ class CanvasRenderer {
         }
 
         if (fillHex) {
+            // Circuit color-coded view: keep the flat circuit color readable
+            // (no gradient on top).
             this.ctx.fillStyle = fillHex;
+            this.ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
         } else {
-            const color = panel.is_color1 ? layer.color1 : layer.color2;
-            this.ctx.fillStyle = `rgb(${color.r}, ${color.g}, ${color.b})`;
+            // Base cabinet fill: checkerboard / palette, same as Pixel Map,
+            // with the gradient overlay on top (below borders and circuit
+            // lines). These used to hard-code the plain checkerboard, so
+            // gradients and palette modes silently vanished on the Power view.
+            this.ctx.fillStyle = this._panelBaseFill(panel, layer);
+            this.ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
+            this._applyGradientOverlay(panel, layer);
         }
-        this.ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
 
         if (layer.show_panel_borders) {
             const bw = Math.max(1, Number(layer.panel_border_width) || 2);
