@@ -537,6 +537,9 @@ class _ScreenInfo {
         if (typeof this.updateUI === 'function') {
             try { this.updateUI(); } catch (_) {}
         }
+        // v0.10.5: record the show/hide. Without an entry of its own it rode
+        // along on whatever the user did next, so one Undo reverted both.
+        this.saveState(layer.visible ? 'Show Layer' : 'Hide Layer');
     }
 
     setLockOnSelected(locked) {
@@ -554,6 +557,7 @@ class _ScreenInfo {
             sendClientLog('layer_lock_batch', { locked, layerIds: layers.map(l => l.id) });
         }
         this.renderLayers();
+        this.saveState(locked ? 'Lock Layers' : 'Unlock Layers');
     }
 
     toggleLockOnSelected() {
@@ -576,6 +580,7 @@ class _ScreenInfo {
             sendClientLog('layer_lock_toggle', { layerId: layer.id, locked: layer.locked });
         }
         this.renderLayers();
+        this.saveState(layer.locked ? 'Lock Layer' : 'Unlock Layer');
     }
     
     togglePanelBlank(layerId, panelId) {
@@ -1184,7 +1189,14 @@ class _ScreenInfo {
         }
         
         this.updateLayers(targetLayers);
-        this.debouncedSaveState('Update Properties');
+        // v0.10.5: every caller of this method is a 'change' handler, i.e. an
+        // edit the user has already committed (typed and tabbed out, toggled a
+        // checkbox, picked from a dropdown). Those each deserve their own undo
+        // step. The old debounce folded a run of commits made within 500ms of
+        // each other into a single snapshot, so one Ctrl+Z reverted several
+        // edits at once. Continuous streams (slider drags, typing into the
+        // text-layer content box) still go through debouncedSaveState.
+        this.saveState('Update Properties');
     }
 
     // v0.10.2: Size by Wall Dimensions - how many tiles for the target wall

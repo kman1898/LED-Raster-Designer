@@ -1,6 +1,55 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.10.5 - July 23, 2026
+----------------------------
+- FIX: Undo now steps back one edit at a time. Screen Info changes (columns,
+  rows, cabinet size, checkboxes, dropdowns, colors - anything you type or
+  toggle) were folded together whenever you made them within half a second
+  of each other, so a single Cmd/Ctrl+Z could wipe out several edits at
+  once. Each committed change is now its own undo step.
+- Continuous edits still collapse sensibly: dragging the image scale slider
+  or typing into a text layer stays one undo step, but switching to a
+  different control now closes the previous step instead of merging both.
+- FIX: An edit made right before Undo/Redo (or right before a drag, delete,
+  or duplicate) is now recorded first, so history stays in order and the
+  edit can't be silently dropped or re-applied over the restored state.
+- FIX: Redo no longer loses a layer reorder, a "Reset to Pixel Map Position",
+  or a "Reset Entire Show Look". All three recorded their history entry just
+  before making the change instead of just after, so Undo followed by Redo
+  quietly dropped the change (the same mistake fixed for Add Layer in
+  v0.10.0).
+- FIX: Showing/hiding a layer and locking/unlocking a layer are now undoable
+  steps of their own. They previously left no history entry, so they rode
+  along on whatever you did next and a single Undo reverted both.
+- FIX: "Transparent (no fill)" now applies on the Data and Power views. Like
+  gradients, it was only honored on Pixel Map and Cabinet ID, so a
+  transparent screen still drew a full checkerboard on those two views.
+  Power's circuit color-coding is data rather than decoration, so it still
+  draws on a transparent screen.
+
+v0.10.4 - July 16, 2026
+----------------------------
+- FEATURE: Center a screen on the canvas. Right-click a screen in Pixel Map
+  or Show Look and choose Center on Canvas X, Center on Canvas Y, or Center
+  on Canvas to snap it to the middle of its canvas's raster on that axis.
+  Works on a multi-selection (each screen centers on its own canvas), skips
+  locked screens, and centers rotated screens by their visible footprint.
+  In Pixel Map, a screen whose Show Look position still matches its Pixel
+  Map position keeps following, same as dragging. The items only appear in
+  Pixel Map and Show Look, the two views where screens can be positioned.
+- Right-clicking a screen that isn't selected now selects it first in those
+  two views, so the menu acts on the screen you pointed at.
+
+v0.10.3 - July 16, 2026
+----------------------------
+- FIX: Screen gradients (and multi-color palette fills) now render on the
+  Data and Power views. Those views drew the plain two-color checkerboard
+  only, so an enabled gradient silently disappeared when switching from
+  Pixel Map to Data or Power. The gradient draws under the borders, flow
+  lines, and labels; the circuit color-coded Power view keeps its flat
+  circuit colors for readability.
+
 v0.10.2 - July 15, 2026
 ----------------------------
 - FEATURE: Size by Wall Dimensions. A new checkbox in Screen Info lets you

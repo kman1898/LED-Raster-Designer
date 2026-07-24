@@ -935,8 +935,11 @@ class _CanvasUi {
             action: historyAction,
             newOrder: newOrder.map(l => ({ id: l.id, name: l.name }))
         });
-        this.saveState(historyAction);
+        // v0.10.5: snapshot AFTER the reorder. Taken before, the entry held
+        // the pre-reorder order, so Undo-then-Redo silently lost the reorder
+        // (same bug class as the v0.10.0 "Add Layer" fix).
         this.project.layers = newOrder;
+        this.saveState(historyAction);
         this.updateUI();
         this.saveProject();
     }

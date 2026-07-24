@@ -1836,6 +1836,18 @@ class CanvasRenderer {
         // In Pixel Map view: if right-click lands on a panel of currentLayer
         // and the panel is not already in the selection, treat it as a
         // single-panel selection so the menu actions target it.
+        // In the views where screens can be moved, right-clicking a screen that
+        // isn't part of the current selection targets that screen, so "Center
+        // on Canvas" acts on what the user actually pointed at.
+        if (['pixel-map', 'show-look'].includes(this.viewMode)) {
+            const rect = this.canvas.getBoundingClientRect();
+            const worldY = ((e.clientY - rect.top) - this.panY) / this.zoom;
+            const worldX = this._unmirrorWorldX(((e.clientX - rect.left) - this.panX) / this.zoom, worldY);
+            const hit = this.getLayerAt(worldX, worldY);
+            if (hit && !(window.app.selectedLayerIds || []).includes(hit.id)) {
+                window.app.selectLayer(hit);
+            }
+        }
         if (this.viewMode === 'pixel-map' && window.app.currentLayer) {
             const rect = this.canvas.getBoundingClientRect();
             const worldY = ((e.clientY - rect.top) - this.panY) / this.zoom;
@@ -3485,11 +3497,16 @@ class CanvasRenderer {
             return;
         }
         
-        // Use normal checkerboard colors (removed blank mode)
-        const color = panel.is_color1 ? layer.color1 : layer.color2;
-        this.ctx.fillStyle = `rgb(${color.r}, ${color.g}, ${color.b})`;
-        this.ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
-        
+        // Base cabinet fill: checkerboard / palette, same as Pixel Map, with
+        // the gradient overlay on top (below borders and flow arrows). These
+        // used to hard-code the plain checkerboard, so gradients, palette
+        // modes, and Transparent (no fill) were all ignored on the Data view.
+        if (!layer.transparentFill) {
+            this.ctx.fillStyle = this._panelBaseFill(panel, layer);
+            this.ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
+            this._applyGradientOverlay(panel, layer);
+        }
+
         // Panel borders, per-layer width, drawn INSIDE the panel.
         if (layer.show_panel_borders) {
             const bw = Math.max(1, Number(layer.panel_border_width) || 2);
@@ -4281,12 +4298,21 @@ class CanvasRenderer {
         }
 
         if (fillHex) {
+            // Circuit color-coded view: keep the flat circuit color readable
+            // (no gradient on top).
             this.ctx.fillStyle = fillHex;
-        } else {
-            const color = panel.is_color1 ? layer.color1 : layer.color2;
-            this.ctx.fillStyle = `rgb(${color.r}, ${color.g}, ${color.b})`;
+            this.ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
+        } else if (!layer.transparentFill) {
+            // Base cabinet fill: checkerboard / palette, same as Pixel Map,
+            // with the gradient overlay on top (below borders and circuit
+            // lines). These used to hard-code the plain checkerboard, so
+            // gradients, palette modes, and Transparent (no fill) were all
+            // ignored on the Power view. Circuit color-coding above is data,
+            // not decoration, so it still paints on a transparent screen.
+            this.ctx.fillStyle = this._panelBaseFill(panel, layer);
+            this.ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
+            this._applyGradientOverlay(panel, layer);
         }
-        this.ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
 
         if (layer.show_panel_borders) {
             const bw = Math.max(1, Number(layer.panel_border_width) || 2);
