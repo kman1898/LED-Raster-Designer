@@ -1,6 +1,21 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.10.6 - July 23, 2026
+----------------------------
+- FIX: The Show Look raster follows the Pixel Map raster again until you
+  give Show Look a size of its own. Setting the Pixel Map raster to (say)
+  8K and then switching to Show Look left it on the old size, with no
+  indication why. v0.8.10.0 fixed the starting value for a NEW project
+  (it now matches your Preferences raster), but changing the raster
+  afterwards still didn't carry over, because v0.8.5.2 had removed the
+  link in the name of independent layouts.
+  The two are linked per axis while they match, exactly like a screen's
+  Show Look position follows its Pixel Map position until you move it.
+  The moment you type a different width or height into the Show Look
+  toolbar, that axis stops following and stays independent. Editing the
+  Show Look raster never changes the Pixel Map raster.
+
 v0.10.5 - July 23, 2026
 ----------------------------
 - FIX: Undo now steps back one edit at a time. Screen Info changes (columns,

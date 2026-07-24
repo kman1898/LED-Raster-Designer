@@ -950,10 +950,17 @@ class _CanvasUi {
      * project-root mirror. `axis` is 'width' or 'height'; `value` is the new
      * dimension; `isShow` selects show_raster_* vs raster_*.
      *
-     * v0.8.5.2: Pixel Map and Show Look rasters are fully independent.
-     * Editing one never auto-syncs the other (previously a "linked" edit
-     * on Pixel Map also wrote show_raster_*; that contradicted the design
-     * goal of independent layouts).
+     * v0.8.5.2 made the two rasters fully independent, so a Pixel Map edit
+     * never touched Show Look. That left a screen sized before Show Look was
+     * ever opened stuck at the old raster: set 4K, change to 8K, switch to
+     * Show Look, still 4K, with no hint why.
+     *
+     * v0.10.6 restores the v0.7.6.1 link using the same rule the per-layer
+     * show offsets already use: Show Look FOLLOWS Pixel Map while the two
+     * still match, and stops the moment the user sets a different Show Look
+     * raster. Independence is preserved once it actually means something;
+     * until then the two track. The link is one-way, editing the Show Look
+     * raster never rewrites the Pixel Map raster.
      */
     _writeToolbarRasterToActiveCanvas(axis, value, isShow) {
         if (!this.project || !Array.isArray(this.project.canvases)) return;
@@ -965,8 +972,14 @@ class _CanvasUi {
             if (axis === 'width')  patch.show_raster_width  = value;
             if (axis === 'height') patch.show_raster_height = value;
         } else {
-            if (axis === 'width')  patch.raster_width  = value;
-            if (axis === 'height') patch.raster_height = value;
+            const key = axis === 'width' ? 'raster_width' : 'raster_height';
+            const showKey = axis === 'width' ? 'show_raster_width' : 'show_raster_height';
+            const pixelBefore = Number(c[key]) || 0;
+            const showBefore = Number(c[showKey]) || 0;
+            // Linked while equal, or while Show Look has no size of its own yet.
+            const linked = showBefore === 0 || showBefore === pixelBefore;
+            patch[key] = value;
+            if (linked) patch[showKey] = value;
         }
         // Optimistic local update so the renderer (which reads from the
         // canvas object via getters) repaints immediately, before the PUT
