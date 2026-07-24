@@ -1,6 +1,27 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.10.6 - July 24, 2026
+----------------------------
+- FIX: If the launcher window can't start, the app no longer becomes
+  unusable. Previously the failure killed the app mid-startup and left a
+  tray icon behind that wouldn't open a window, wouldn't show a menu, and
+  couldn't even be quit without Task Manager. The app now tells you what
+  happened, opens itself in your browser, and keeps the tray icon working
+  so you can still quit normally.
+- FIX: Startup failures are recorded. The Windows build has no console
+  window, so a crash during startup previously left no trace anywhere -
+  the app just died silently. Any uncaught error (including one in a
+  background thread) is now written to the app log with its full details,
+  reachable from Help -> Show Logs. If the crash happens before the log
+  is ready, it's written to launcher_crash.log next to the program.
+- Startup now records the machine it's running on (app version, OS,
+  and on Windows the .NET Framework version plus the launcher component
+  versions), so "it won't open on my PC" can be answered from the log.
+- Windows: the launcher window needs .NET Framework 4.7.2 or newer. If
+  yours is older or missing, the app now says so directly instead of
+  failing without explanation.
+
 v0.10.5.1 - July 23, 2026
 ----------------------------
 - FIX: The Show Look raster follows the Pixel Map raster again until you
