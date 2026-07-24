@@ -955,7 +955,7 @@ class _CanvasUi {
      * ever opened stuck at the old raster: set 4K, change to 8K, switch to
      * Show Look, still 4K, with no hint why.
      *
-     * v0.10.6 restores the v0.7.6.1 link using the same rule the per-layer
+     * v0.10.5.1 restores the v0.7.6.1 link using the same rule the per-layer
      * show offsets already use: Show Look FOLLOWS Pixel Map while the two
      * still match, and stops the moment the user sets a different Show Look
      * raster. Independence is preserved once it actually means something;

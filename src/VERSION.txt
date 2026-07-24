@@ -1,7 +1,7 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
-v0.10.6 - July 23, 2026
+v0.10.5.1 - July 23, 2026
 ----------------------------
 - FIX: The Show Look raster follows the Pixel Map raster again until you
   give Show Look a size of its own. Setting the Pixel Map raster to (say)
