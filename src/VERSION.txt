@@ -1,6 +1,20 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.10.5 - July 23, 2026
+----------------------------
+- FIX: Undo now steps back one edit at a time. Screen Info changes (columns,
+  rows, cabinet size, checkboxes, dropdowns, colors - anything you type or
+  toggle) were folded together whenever you made them within half a second
+  of each other, so a single Cmd/Ctrl+Z could wipe out several edits at
+  once. Each committed change is now its own undo step.
+- Continuous edits still collapse sensibly: dragging the image scale slider
+  or typing into a text layer stays one undo step, but switching to a
+  different control now closes the previous step instead of merging both.
+- FIX: An edit made right before Undo/Redo (or right before a drag, delete,
+  or duplicate) is now recorded first, so history stays in order and the
+  edit can't be silently dropped or re-applied over the restored state.
+
 v0.10.4 - July 16, 2026
 ----------------------------
 - FEATURE: Center a screen on the canvas. Right-click a screen in Pixel Map

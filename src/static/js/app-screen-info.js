@@ -1184,7 +1184,14 @@ class _ScreenInfo {
         }
         
         this.updateLayers(targetLayers);
-        this.debouncedSaveState('Update Properties');
+        // v0.10.5: every caller of this method is a 'change' handler, i.e. an
+        // edit the user has already committed (typed and tabbed out, toggled a
+        // checkbox, picked from a dropdown). Those each deserve their own undo
+        // step. The old debounce folded a run of commits made within 500ms of
+        // each other into a single snapshot, so one Ctrl+Z reverted several
+        // edits at once. Continuous streams (slider drags, typing into the
+        // text-layer content box) still go through debouncedSaveState.
+        this.saveState('Update Properties');
     }
 
     // v0.10.2: Size by Wall Dimensions - how many tiles for the target wall

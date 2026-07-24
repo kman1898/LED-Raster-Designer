@@ -1110,7 +1110,9 @@ class _Presets {
                         layer.textContent = val;
                     }
                 });
-                this.debouncedSaveState('Update Text Label');
+                // Typing is a genuine continuous stream, so a burst of
+                // keystrokes stays one undo step.
+                this.debouncedSaveState('Update Text Label', 500, 'text:content');
                 this.saveClientSideProperties();
                 this.updateLayers(this.getSelectedLayers());
                 window.canvasRenderer.render();
@@ -1187,7 +1189,7 @@ class _Presets {
                     if ((layer.type || 'screen') !== 'text') return;
                     layer[f.prop] = val;
                 });
-                this.debouncedSaveState('Update Text Label');
+                this.debouncedSaveState('Update Text Label', 500, `text:${f.prop}`);
                 this.saveClientSideProperties();
                 this.updateLayers(this.getSelectedLayers());
                 window.canvasRenderer.render();
@@ -1204,7 +1206,7 @@ class _Presets {
                     if ((layer.type || 'screen') !== 'text') return;
                     layer[prop] = val;
                 });
-                this.debouncedSaveState('Update Text Color');
+                this.debouncedSaveState('Update Text Color', 500, `text:${prop}`);
                 this.saveClientSideProperties();
                 window.canvasRenderer.render();
             };
@@ -1226,7 +1228,7 @@ class _Presets {
                     layer[prop] = newVal;
                 });
                 btn.classList.toggle('active', newVal);
-                this.debouncedSaveState('Update Text Style');
+                this.debouncedSaveState('Update Text Style', 500, `text:${prop}`);
                 this.saveClientSideProperties();
                 this.updateLayers(this.getSelectedLayers());
                 window.canvasRenderer.render();

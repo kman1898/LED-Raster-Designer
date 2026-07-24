@@ -13,13 +13,18 @@ class _History {
     }
     
     saveState(action) {
+        // v0.10.5: a debounced snapshot still waiting to fire must land BEFORE
+        // this one, or history ends up out of order (and the pending timer
+        // would later snapshot a state that already includes this action).
+        this._flushPendingSaveState();
+
         // Save current project state
         const state = {
             action: action,
             project: JSON.parse(JSON.stringify(this.project)),
             timestamp: Date.now()
         };
-        
+
         
         // Remove any future states if we're not at the end
         if (this.historyIndex < this.history.length - 1) {
@@ -47,17 +52,51 @@ class _History {
 
     }
 
-    debouncedSaveState(action, delay = 500) {
+    /**
+     * Coalesce a continuous stream of edits (dragging a slider, typing in a
+     * text field) into ONE undo step.
+     *
+     * `key` identifies what is being edited. When it changes, the pending
+     * snapshot is flushed first so switching controls always starts a new undo
+     * step instead of folding both edits together. Discrete, committed edits
+     * should call saveState() directly rather than coming through here.
+     */
+    debouncedSaveState(action, delay = 500, key = null) {
+        const k = key || action;
+        if (this._saveStateTimer && this._pendingSaveKey !== k) {
+            this._flushPendingSaveState();
+        }
         this._pendingSaveAction = action;
+        this._pendingSaveKey = k;
         if (this._saveStateTimer) clearTimeout(this._saveStateTimer);
         this._saveStateTimer = setTimeout(() => {
-            this.saveState(this._pendingSaveAction || action);
             this._saveStateTimer = null;
+            const pending = this._pendingSaveAction || action;
             this._pendingSaveAction = null;
+            this._pendingSaveKey = null;
+            this.saveState(pending);
         }, delay);
     }
 
+    /**
+     * Commit a pending debounced snapshot immediately. Clearing the timer
+     * first keeps saveState()'s own flush call from recursing.
+     */
+    _flushPendingSaveState() {
+        if (!this._saveStateTimer) return;
+        clearTimeout(this._saveStateTimer);
+        this._saveStateTimer = null;
+        const pending = this._pendingSaveAction;
+        this._pendingSaveAction = null;
+        this._pendingSaveKey = null;
+        if (pending) this.saveState(pending);
+    }
+
     undo() {
+        // Land any in-flight debounced snapshot first, so Ctrl+Z steps back
+        // over the edit the user just made instead of skipping past it (and
+        // so the timer can't overwrite the restored state a moment later).
+        this._flushPendingSaveState();
 
         if (this.historyIndex > 0) {
             this.historyIndex--;
@@ -100,7 +139,8 @@ class _History {
     }
     
     redo() {
-        
+        this._flushPendingSaveState();
+
         if (this.historyIndex < this.history.length - 1) {
             this.historyIndex++;
             const state = this.history[this.historyIndex];
