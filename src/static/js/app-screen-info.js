@@ -537,6 +537,9 @@ class _ScreenInfo {
         if (typeof this.updateUI === 'function') {
             try { this.updateUI(); } catch (_) {}
         }
+        // v0.10.5: record the show/hide. Without an entry of its own it rode
+        // along on whatever the user did next, so one Undo reverted both.
+        this.saveState(layer.visible ? 'Show Layer' : 'Hide Layer');
     }
 
     setLockOnSelected(locked) {
@@ -554,6 +557,7 @@ class _ScreenInfo {
             sendClientLog('layer_lock_batch', { locked, layerIds: layers.map(l => l.id) });
         }
         this.renderLayers();
+        this.saveState(locked ? 'Lock Layers' : 'Unlock Layers');
     }
 
     toggleLockOnSelected() {
@@ -576,6 +580,7 @@ class _ScreenInfo {
             sendClientLog('layer_lock_toggle', { layerId: layer.id, locked: layer.locked });
         }
         this.renderLayers();
+        this.saveState(layer.locked ? 'Lock Layer' : 'Unlock Layer');
     }
     
     togglePanelBlank(layerId, panelId) {

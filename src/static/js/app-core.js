@@ -1674,7 +1674,8 @@ export class LEDRasterApp {
             showResetBtn.addEventListener('click', () => {
                 const layers = this.getSelectedLayers ? this.getSelectedLayers() : (this.currentLayer ? [this.currentLayer] : []);
                 if (layers.length === 0) return;
-                this.saveState('Reset Show Look Position');
+                // v0.10.5: snapshot AFTER the reset (see applyDisplayOrder);
+                // taken before, Undo-then-Redo lost the reset.
                 layers.forEach(l => {
                     l.showOffsetX = l.offset_x;
                     l.showOffsetY = l.offset_y;
@@ -1718,6 +1719,7 @@ export class LEDRasterApp {
                         this.updateCanvas(cid, patch);
                     });
                 }
+                this.saveState('Reset Show Look Position');
                 this.loadLayerToInputs();
                 if (window.canvasRenderer) window.canvasRenderer.render();
             });
@@ -1731,7 +1733,8 @@ export class LEDRasterApp {
         if (showResetAllBtn) {
             showResetAllBtn.addEventListener('click', () => {
                 if (!this.project) return;
-                this.saveState('Reset Entire Show Look');
+                // v0.10.5: snapshot AFTER the reset (see applyDisplayOrder);
+                // taken before, Undo-then-Redo lost the reset.
                 const allLayers = (this.project.layers || []).filter(
                     l => (l.type || 'screen') === 'screen'
                 );
@@ -1768,6 +1771,7 @@ export class LEDRasterApp {
                         this.updateCanvas(c.id, patch);
                     });
                 }
+                this.saveState('Reset Entire Show Look');
                 this.loadLayerToInputs();
                 if (window.canvasRenderer) window.canvasRenderer.render();
             });

@@ -3499,11 +3499,13 @@ class CanvasRenderer {
         
         // Base cabinet fill: checkerboard / palette, same as Pixel Map, with
         // the gradient overlay on top (below borders and flow arrows). These
-        // used to hard-code the plain checkerboard, so gradients and palette
-        // modes silently vanished on the Data view.
-        this.ctx.fillStyle = this._panelBaseFill(panel, layer);
-        this.ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
-        this._applyGradientOverlay(panel, layer);
+        // used to hard-code the plain checkerboard, so gradients, palette
+        // modes, and Transparent (no fill) were all ignored on the Data view.
+        if (!layer.transparentFill) {
+            this.ctx.fillStyle = this._panelBaseFill(panel, layer);
+            this.ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
+            this._applyGradientOverlay(panel, layer);
+        }
 
         // Panel borders, per-layer width, drawn INSIDE the panel.
         if (layer.show_panel_borders) {
@@ -4300,11 +4302,13 @@ class CanvasRenderer {
             // (no gradient on top).
             this.ctx.fillStyle = fillHex;
             this.ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
-        } else {
+        } else if (!layer.transparentFill) {
             // Base cabinet fill: checkerboard / palette, same as Pixel Map,
             // with the gradient overlay on top (below borders and circuit
             // lines). These used to hard-code the plain checkerboard, so
-            // gradients and palette modes silently vanished on the Power view.
+            // gradients, palette modes, and Transparent (no fill) were all
+            // ignored on the Power view. Circuit color-coding above is data,
+            // not decoration, so it still paints on a transparent screen.
             this.ctx.fillStyle = this._panelBaseFill(panel, layer);
             this.ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
             this._applyGradientOverlay(panel, layer);

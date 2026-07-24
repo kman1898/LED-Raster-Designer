@@ -14,6 +14,19 @@ v0.10.5 - July 23, 2026
 - FIX: An edit made right before Undo/Redo (or right before a drag, delete,
   or duplicate) is now recorded first, so history stays in order and the
   edit can't be silently dropped or re-applied over the restored state.
+- FIX: Redo no longer loses a layer reorder, a "Reset to Pixel Map Position",
+  or a "Reset Entire Show Look". All three recorded their history entry just
+  before making the change instead of just after, so Undo followed by Redo
+  quietly dropped the change (the same mistake fixed for Add Layer in
+  v0.10.0).
+- FIX: Showing/hiding a layer and locking/unlocking a layer are now undoable
+  steps of their own. They previously left no history entry, so they rode
+  along on whatever you did next and a single Undo reverted both.
+- FIX: "Transparent (no fill)" now applies on the Data and Power views. Like
+  gradients, it was only honored on Pixel Map and Cabinet ID, so a
+  transparent screen still drew a full checkerboard on those two views.
+  Power's circuit color-coding is data rather than decoration, so it still
+  draws on a transparent screen.
 
 v0.10.4 - July 16, 2026
 ----------------------------
