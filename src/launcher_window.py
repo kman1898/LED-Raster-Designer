@@ -35,6 +35,160 @@ HTML_FILE = os.path.join(BASE_DIR, 'launcher_window.html')
 _socketio = None
 _server_running = False
 
+# .NET Framework 4.7.2. pythonnet's Python.Runtime.dll targets .NET Standard
+# 2.0, and 4.7.2 is the first Framework release that can bind the netstandard
+# facades in-box. On anything older the CLR opens the DLL but fails to resolve
+# its entry point, so the launcher window can't start.
+DOTNET_FRAMEWORK_MIN_RELEASE = 461808
+
+
+def _launcher_log(action, details, source='launcher'):
+    """Best-effort write into the app's JSON log (Help -> Show Logs).
+
+    Falls back to a plain file next to the executable when app.py can't be
+    imported: a crash that early would otherwise leave nothing on disk at all,
+    which is precisely the case this exists for.
+    """
+    try:
+        import app as app_module
+        app_module.log_event(action, details, source=source)
+        return
+    except Exception:
+        pass
+    try:
+        import json as _json
+        import datetime as _dt
+        line = _json.dumps({
+            'timestamp': _dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'source': source,
+            'action': action,
+            'details': details or {},
+        }, ensure_ascii=False)
+        with open(os.path.join(APP_DIR, 'launcher_crash.log'), 'a',
+                  encoding='utf-8') as f:
+            f.write(line + '\n')
+    except Exception:
+        pass
+
+
+def _format_exc(exc):
+    import traceback
+    return ''.join(
+        traceback.format_exception(type(exc), exc, exc.__traceback__))
+
+
+def _install_crash_logger():
+    """Record any uncaught exception, on the main thread or a worker.
+
+    The Windows build is windowed (console=False), so without this a startup
+    crash writes its traceback to a stderr nobody can read: the app simply
+    dies, or leaves a tray icon behind with no explanation anywhere on disk.
+    """
+    def _log(exc_type, exc, tb, thread=None):
+        try:
+            import traceback as _tb
+            name = getattr(exc_type, '__name__', str(exc_type))
+            _launcher_log('launcher_crash', {
+                'error': f'{name}: {exc}',
+                'thread': thread or 'main',
+                'traceback': ''.join(_tb.format_exception(exc_type, exc, tb)),
+            })
+        except Exception:
+            pass
+
+    def _hook(exc_type, exc, tb):
+        _log(exc_type, exc, tb)
+        try:
+            sys.__excepthook__(exc_type, exc, tb)
+        except Exception:
+            pass
+
+    sys.excepthook = _hook
+
+    # Python 3.8+: an exception that kills a thread never reaches
+    # sys.excepthook, so the Flask server thread dying would be silent too.
+    try:
+        def _thread_hook(args):
+            _log(args.exc_type, args.exc_value, args.exc_traceback,
+                 thread=getattr(args.thread, 'name', None))
+        threading.excepthook = _thread_hook
+    except Exception:
+        pass
+
+
+def _windows_dotnet_release():
+    """The installed .NET Framework 4.x release number, or None."""
+    try:
+        import winreg
+        path = r'SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full'
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, path) as key:
+            return int(winreg.QueryValueEx(key, 'Release')[0])
+    except Exception:
+        return None
+
+
+def _log_startup_environment():
+    """One line in the log describing the machine we're running on.
+
+    Turns "it won't open on my PC" into something answerable from the log
+    alone, without a remote debugging session.
+    """
+    info = {
+        'version': _read_version(),
+        'platform': sys.platform,
+        'frozen': bool(getattr(sys, 'frozen', False)),
+        'python': sys.version.split()[0],
+    }
+    try:
+        import platform as _pl
+        info['os'] = _pl.platform()
+        info['machine'] = _pl.machine()
+    except Exception:
+        pass
+    if sys.platform == 'win32':
+        release = _windows_dotnet_release()
+        info['dotnet_framework_release'] = release
+        info['dotnet_framework_ok'] = bool(
+            release is not None and release >= DOTNET_FRAMEWORK_MIN_RELEASE)
+        try:
+            import importlib.metadata as _md
+            for dist in ('pywebview', 'pythonnet', 'clr-loader', 'pystray'):
+                try:
+                    info[f'{dist}_version'] = _md.version(dist)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    _launcher_log('launcher_environment', info)
+
+
+def _launcher_failure_hint():
+    """Plain-language guess at why the native window refused to start."""
+    if sys.platform != 'win32':
+        return 'See the app log for details.'
+    release = _windows_dotnet_release()
+    if release is None:
+        return ('Microsoft .NET Framework 4.8 does not appear to be '
+                'installed. Installing it should restore the window.')
+    if release < DOTNET_FRAMEWORK_MIN_RELEASE:
+        return ('Microsoft .NET Framework looks older than 4.7.2 '
+                f'(release {release}). Updating to 4.8 should restore the '
+                'window.')
+    return ('The file may be blocked by Windows or antivirus. Right-click '
+            'the downloaded .zip, tick Unblock, then extract it again.')
+
+
+def _show_windows_error(title, message):
+    try:
+        import ctypes
+        MB_OK = 0x0
+        MB_ICONWARNING = 0x30
+        MB_SETFOREGROUND = 0x10000
+        ctypes.windll.user32.MessageBoxW(
+            None, message, title, MB_OK | MB_ICONWARNING | MB_SETFOREGROUND)
+    except Exception:
+        pass
+
 
 def _read_version():
     # encoding matters: VERSION.txt is UTF-8, but Windows' default open()
@@ -108,6 +262,10 @@ class LauncherAPI:
     def __init__(self, settings):
         self.settings = settings
         self._window = None
+        # Set when the native window failed to start; show() then falls back
+        # to the browser so the tray's "Show Launcher" still does something
+        # useful instead of raising into a dead window handle.
+        self._window_unavailable = False
 
     # ── state ──────────────────────────────────────────────────────────────
     def get_state(self):
@@ -201,7 +359,15 @@ class LauncherAPI:
         # Kept for compatibility; the launcher hides rather than minimizes.
         self.hide()
 
+    def mark_window_unavailable(self):
+        """The native launcher window could not be created."""
+        self._window = None
+        self._window_unavailable = True
+
     def show(self):
+        if self._window_unavailable:
+            self.open_browser()
+            return
         if self._window:
             self._window.show()
             if sys.platform == 'darwin':
@@ -403,18 +569,75 @@ def run_window(settings):
 
     window.events.closing += on_closing
 
-    if sys.platform == 'win32':
-        _start_tray_windows(api)
-        webview.start()
-    elif sys.platform == 'darwin':
-        # The status item must be created after the Cocoa app starts; start()
-        # runs the callback once the window/run loop are up.
-        webview.start(func=_start_statusitem_mac, args=(api,))
-    else:
-        webview.start()
+    # A failure in any of this used to escape main() entirely. With no console
+    # on the frozen Windows build the traceback went nowhere, and because
+    # pystray's detached icon runs on a non-daemon thread the process then sat
+    # wedged in interpreter shutdown: a tray icon the user could neither open
+    # nor quit. Every path below now degrades instead of dying.
+    try:
+        if sys.platform == 'win32':
+            try:
+                _start_tray_windows(api)
+            except Exception as exc:
+                _launcher_log('launcher_tray_failed', {
+                    'error': f'{type(exc).__name__}: {exc}',
+                    'traceback': _format_exc(exc),
+                })
+            webview.start()
+        elif sys.platform == 'darwin':
+            # The status item must be created after the Cocoa app starts;
+            # start() runs the callback once the window/run loop are up.
+            webview.start(func=_start_statusitem_mac, args=(api,))
+        else:
+            webview.start()
+    except Exception as exc:
+        _launcher_window_fallback(settings, api, exc)
+        return
     # webview.start() only returns when the window is destroyed (Quit path).
     # Exit so the background Flask thread doesn't keep a headless server alive.
     os._exit(0)
+
+
+def _launcher_window_fallback(settings, api, exc):
+    """Keep the app usable when the native launcher window can't start.
+
+    The window is only a control panel; the Flask server behind it is the
+    actual app and is already running by this point. So log what happened,
+    tell the user, hand them the browser, and hold the process open so the
+    tray icon (including its Quit) keeps working.
+    """
+    hint = _launcher_failure_hint()
+    _launcher_log('launcher_window_failed', {
+        'error': f'{type(exc).__name__}: {exc}',
+        'traceback': _format_exc(exc),
+        'hint': hint,
+    })
+    api.mark_window_unavailable()
+
+    url = get_display_url(settings)
+    try:
+        open_url(url, settings)
+    except Exception:
+        pass
+
+    if sys.platform == 'win32':
+        _show_windows_error(
+            'LED Raster Designer',
+            "The launcher window couldn't start, so the app opened in your "
+            'browser instead.\n\n'
+            f'Address: {url}\n\n'
+            f'{hint}\n\n'
+            'Full details were saved to the app log (Help → Show Logs).')
+
+    # Hold the main thread. The tray icon's menu runs on its own thread and
+    # needs a live interpreter to call back into; letting main() return here
+    # would drop us into the same wedged shutdown this fix exists to prevent.
+    # Quit from the tray calls os._exit().
+    try:
+        while True:
+            time.sleep(3600)
+    except KeyboardInterrupt:
+        os._exit(0)
 
 
 def _setup_launcher_debug_log():
@@ -452,6 +675,8 @@ def _setup_launcher_debug_log():
 
 
 def main():
+    # First thing: from here on, nothing can fail silently.
+    _install_crash_logger()
     settings = load_settings()
     _setup_launcher_debug_log()
 
@@ -473,6 +698,9 @@ def main():
     server_thread = threading.Thread(target=start_flask_server, args=(settings,), daemon=True)
     server_thread.start()
     time.sleep(1.0)
+    # Logged after the server thread so app.py (which owns the log file) is
+    # already imported, and before the window so it lands even if that fails.
+    _log_startup_environment()
 
     if settings.get('open_browser_on_launch', False):
         open_url(get_display_url(settings), settings)
