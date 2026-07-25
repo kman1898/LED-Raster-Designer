@@ -1,6 +1,22 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.10.7.2 - July 25, 2026
+----------------------------
+- FIX: Undo behaves correctly after changing colors. Dragging any color
+  control - fill, border, label, data-flow, power, palette, gradient, or
+  canvas background - now records exactly ONE undo step for the whole drag
+  instead of a burst of steps per drag. The burst had been filling up the
+  undo history, so a single Undo appeared to "jump back" several changes at
+  once, and it could push older edits (like moving a panel) out of the undo
+  history entirely - which is why undoing a move sometimes stepped back much
+  further than expected. Moves, color changes, and every other edit now undo
+  one step at a time.
+- FIX: Undo/redo of a size now updates the number you see. Undoing a change
+  to a panel size or the raster width/height reverted the design correctly
+  but left the old number showing in the input box; the field now refreshes
+  to match what was restored.
+
 v0.10.7.1 - July 25, 2026
 ----------------------------
 - FIX: Exporting from the File menu now shows your canvases. Opening Export
