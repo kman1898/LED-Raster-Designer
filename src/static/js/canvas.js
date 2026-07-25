@@ -1844,7 +1844,14 @@ class CanvasRenderer {
             const worldY = ((e.clientY - rect.top) - this.panY) / this.zoom;
             const worldX = this._unmirrorWorldX(((e.clientX - rect.left) - this.panX) / this.zoom, worldY);
             const hit = this.getLayerAt(worldX, worldY);
-            if (hit && !(window.app.selectedLayerIds || []).includes(hit.id)) {
+            // selectedLayerIds is a Set — use .has(), not Array.includes()
+            // (which threw a TypeError here and aborted the handler).
+            const selectedIds = window.app.selectedLayerIds;
+            const alreadySelected = selectedIds
+                && (typeof selectedIds.has === 'function'
+                    ? selectedIds.has(hit && hit.id)
+                    : Array.from(selectedIds).includes(hit && hit.id));
+            if (hit && !alreadySelected) {
                 window.app.selectLayer(hit);
             }
         }
@@ -4597,15 +4604,20 @@ class CanvasRenderer {
             }
         }
         
-        // Build Info label text (separate, at bottom) - only in pixel-map mode
-        // Single row format for compact display
-        const infoLines = [];
+        // Build Info label clauses (separate bar, at bottom) - only in pixel-map
+        // mode. v0.10.7: emit discrete clauses instead of one long string so the
+        // draw step can pack them into as many lines as the screen width allows,
+        // keeping the whole info bar bound inside the layer instead of spilling
+        // past both edges on a narrow screen.
+        const infoParts = [];
         if (this.viewMode === 'pixel-map' && layer.showLabelInfo) {
-            // Calculate aspect ratio
             const aspectRatio = layerWidth / layerHeight;
             const aspectRatioStr = `${aspectRatio.toFixed(2)}`;
-            
-            infoLines.push(`${layer.columns} Columns X ${layer.rows} Rows • ${activePanels} Cabinets Total / Resolution: ${layerWidth} X ${layerHeight} • Aspect Ratio: ${aspectRatioStr} • Weight: ${totalWeightKg.toFixed(1)} kg / ${totalWeightLb.toFixed(1)} lb`);
+            infoParts.push(`${layer.columns} Columns X ${layer.rows} Rows`);
+            infoParts.push(`${activePanels} Cabinets Total`);
+            infoParts.push(`Resolution: ${layerWidth} X ${layerHeight}`);
+            infoParts.push(`Aspect Ratio: ${aspectRatioStr}`);
+            infoParts.push(`Weight: ${totalWeightKg.toFixed(1)} kg / ${totalWeightLb.toFixed(1)} lb`);
         }
         
         // Use absolute pixel sizes - no scaling with zoom
@@ -4870,20 +4882,39 @@ class CanvasRenderer {
             this.ctx.restore();
         }
         
-        // Render Info label at bottom with background (fixed 14px screen size)
-        if (infoLines.length > 0) {
+        // Render Info label at bottom with background.
+        if (infoParts.length > 0) {
             // Use world coordinates directly (transform is already applied)
             this.ctx.font = `${infoFontSize}px ${projectFontFamily()}`;
             this.ctx.textAlign = 'center';
             this.ctx.textBaseline = 'bottom';
-            
+
+            // v0.10.7: greedily pack the clauses into lines that stay within the
+            // layer's inner width, joined by " • ", so the info bar wraps and
+            // stacks upward from the bottom edge instead of overflowing the
+            // sides of a narrow screen. Wide screens still collapse to one line.
+            const sep = ' • ';
+            const maxLineWidth = Math.max(layerWidth - padding * 2, infoFontSize * 4);
+            const infoLines = [];
+            let currentLine = '';
+            infoParts.forEach(part => {
+                const candidate = currentLine ? currentLine + sep + part : part;
+                if (currentLine && this.ctx.measureText(candidate).width > maxLineWidth) {
+                    infoLines.push(currentLine);
+                    currentLine = part;
+                } else {
+                    currentLine = candidate;
+                }
+            });
+            if (currentLine) infoLines.push(currentLine);
+
             // Measure text for background
             let maxWidth = 0;
             infoLines.forEach(line => {
                 const metrics = this.ctx.measureText(line);
                 maxWidth = Math.max(maxWidth, metrics.width);
             });
-            
+
             const bgWidth = maxWidth + padding * 2;
             const bgHeight = infoLines.length * infoLineHeight + padding * 2;
             // v0.8.7.7: bottom-anchored info bar follows the screen-name

@@ -1039,6 +1039,13 @@ class _Power {
                 halfTile: resolved,
             })),
         };
+        // Apply locally BEFORE saving history (the server response is
+        // discarded, so nothing else writes it back). Without this the
+        // snapshot captured the pre-change halfTile and Undo-then-Redo
+        // silently lost the change — the twin setPanelsBlankBulk does the
+        // same local-first mutation for exactly this reason.
+        panels.forEach(p => { p.halfTile = resolved; });
+        if (window.canvasRenderer) window.canvasRenderer.render();
         try {
             const res = await fetch(`/api/layer/${layerId}/panels/set_half_tile`, {
                 method: 'POST',
@@ -1047,8 +1054,9 @@ class _Power {
             });
             await res.json();
         } catch (err) {
+            // Local state already changed; still record it (same optimistic
+            // behaviour as setPanelsBlankBulk) so it stays undoable.
             console.error('setPanelsHalfTileBulk failed', err);
-            return;
         }
         this.saveState('Bulk Set Half-tile');
         sendClientLog && sendClientLog('bulk_set_half_tile', {
@@ -1644,6 +1652,11 @@ class _Power {
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ name: newName })
                     });
+                    // Record the rename so it's undoable on its own; without
+                    // this the local name change rode along on the next action
+                    // and a later undo restored a stale name (client/server
+                    // desync). The renameLayer() path already does this.
+                    this.saveState('Rename Layer');
                 }
             };
 

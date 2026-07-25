@@ -962,7 +962,6 @@ class _Presets {
 
     addImageLayer(imageData, imageWidth, imageHeight) {
         const name = this.getNextImageLayerName();
-        this.saveState('Add Image Layer');
         fetch('/api/layer/add-image', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -990,6 +989,10 @@ class _Presets {
                 layer._imageObj = img;
             }
             this.upsertProjectLayer(layer);
+            // Snapshot AFTER the layer is in the project. Taken before the
+            // async add (as it was), Undo-then-Redo restored a snapshot with
+            // no image layer and the add was lost — the v0.10.0 Add Layer bug.
+            this.saveState('Add Image Layer');
             this.selectLayer(layer);
             window.canvasRenderer.fitToView();
             window.canvasRenderer.render();
@@ -999,7 +1002,6 @@ class _Presets {
 
     addTextLayer() {
         const name = this.getNextTextLayerName();
-        this.saveState('Add Text Layer');
         fetch('/api/layer/add-text', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1009,6 +1011,8 @@ class _Presets {
         .then(layer => {
             sendClientLog('add_text_layer', { id: layer.id, name: layer.name });
             this.upsertProjectLayer(layer);
+            // Snapshot AFTER the layer exists (see addImageLayer).
+            this.saveState('Add Text Layer');
             this.selectLayer(layer);
             window.canvasRenderer.fitToView();
             window.canvasRenderer.render();

@@ -824,9 +824,16 @@ class _CanvasUi {
             proxy.style.top = `${Math.round(r.bottom)}px`;
         }
         proxy.value = canvas.color || '#4A90E2';
-        const apply = (e) => this.updateCanvas(canvas.id, { color: (e.target.value || '').toLowerCase() });
-        proxy.oninput = apply;
-        proxy.onchange = apply;
+        // Split preview from commit like every other color control: dragging
+        // the picker only repaints locally, and the single server PUT + undo
+        // step happens once on change. Bound to both events it used to fire a
+        // full PUT + saveState per drag frame — dozens of history entries for
+        // one color pick.
+        proxy.oninput = (e) => {
+            canvas.color = (e.target.value || '').toLowerCase();
+            if (window.canvasRenderer) window.canvasRenderer.render();
+        };
+        proxy.onchange = (e) => this.updateCanvas(canvas.id, { color: (e.target.value || '').toLowerCase() });
 
         // Same rule as every other color control: custom wheel on PC, native OS
         // picker on macOS. Either way it opens directly on "Change Color".
