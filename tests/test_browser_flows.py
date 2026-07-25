@@ -158,12 +158,57 @@ def test_add_canvas_via_button(page):
 
 
 def test_export_modal_opens_and_closes(page):
+    expected_ids = page.evaluate(
+        "window.app.project.canvases.map(canvas => canvas.id)"
+    )
     page.locator('#btn-export').click()
     page.wait_for_timeout(300)
     assert page.locator('#export-modal').is_visible(), "export modal not shown"
+    actual_ids = page.locator(
+        '#export-canvases-list .export-canvas-checkbox'
+    ).evaluate_all(
+        "(checkboxes) => checkboxes.map(checkbox => checkbox.dataset.canvasId)"
+    )
+    assert actual_ids == expected_ids
     page.locator('#export-cancel').click()
     page.wait_for_timeout(300)
     assert not page.locator('#export-modal').is_visible()
+
+
+@pytest.mark.parametrize(
+    ('action', 'expected_format'),
+    [('export-png', 'png'), ('export-psd', 'psd')],
+)
+def test_file_menu_export_populates_canvas_picker(page, action, expected_format):
+    """File-menu exports rebuild the same canvas picker as the toolbar."""
+    expected_ids = page.evaluate(
+        "window.app.project.canvases.map(canvas => canvas.id)"
+    )
+    previous_format = page.locator('#export-format').input_value()
+    page.evaluate("""() => {
+        document.getElementById('export-modal').style.display = 'none';
+        document.getElementById('export-canvases-list').replaceChildren();
+    }""")
+
+    page.locator('[data-menu="file"]').click()
+    page.locator(f'[data-action="{action}"]').click()
+    page.wait_for_timeout(300)
+
+    actual_ids = page.locator(
+        '#export-canvases-list .export-canvas-checkbox'
+    ).evaluate_all(
+        "(checkboxes) => checkboxes.map(checkbox => checkbox.dataset.canvasId)"
+    )
+    assert actual_ids == expected_ids
+    assert page.locator('#export-format').input_value() == expected_format
+
+    page.locator('#export-cancel').click()
+    page.wait_for_timeout(300)
+    page.evaluate("""(format) => {
+        const select = document.getElementById('export-format');
+        select.value = format;
+        select.dispatchEvent(new Event('change'));
+    }""", previous_format)
 
 
 def test_preferences_modal_opens_and_closes(page):
