@@ -1,6 +1,26 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.10.7 - July 25, 2026
+----------------------------
+- FIX: Undo now steps back through EVERY edit, one at a time. Changing a
+  fill color, a border or label color, a data-flow or power setting, the
+  screen rotation, the transparent-fill toggle, port and label templates,
+  processor / bit depth / frame rate, and more did not record an undo step
+  at all - so a single Undo skipped past a whole run of those edits and
+  looked like it "jumped back," wiping several changes at once. Every one of
+  those controls now records exactly one undo step per change, while dragging
+  a color picker still counts as a single step (not one per flicker of the
+  drag). Renaming the project and editing project notes are undoable too.
+- FIX: The Pixel Map Info label stays inside the screen. On a narrow screen
+  the readout (columns/rows, cabinet count, resolution, aspect ratio, weight)
+  ran off both edges as one long line. It now wraps onto as many lines as the
+  screen width allows, stacking up from the bottom, with each piece kept
+  whole. Wide screens still show it on a single line.
+- FIX: Right-clicking a screen no longer throws an error. The v0.10.4
+  right-click "Center on Canvas" work could break the right-click menu on the
+  Pixel Map and Show Look tabs; it works again.
+
 v0.10.6 - July 24, 2026
 ----------------------------
 - FIX: If the launcher window can't start, the app no longer becomes

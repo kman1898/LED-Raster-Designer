@@ -1443,6 +1443,7 @@ export class LEDRasterApp {
                 if (this.project) {
                     this.project.name = projectNameInput.value.trim() || 'Untitled Project';
                     this.saveProject();
+                    this.saveState('Rename Project');
                 }
                 updateProjectNameWarning();
             });
@@ -1459,6 +1460,7 @@ export class LEDRasterApp {
                 if (this.project) {
                     this.project.notes = notesTextarea.value;
                     this.saveProject();
+                    this.debouncedSaveState('Edit Notes', 500, 'project-notes');
                 }
             });
         }
@@ -1874,7 +1876,7 @@ export class LEDRasterApp {
                 layer.cabinetIdColor = val;
             });
             if (isFinal) {
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this.getSelectedLayers(), true, 'Change Cabinet ID Color');
             }
             window.canvasRenderer.render();
         });
@@ -1904,7 +1906,7 @@ export class LEDRasterApp {
                 layer.border_color_pixel = val;
             });
             if (isFinal) {
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this.getSelectedLayers(), true, 'Change Border Color');
             }
             window.canvasRenderer.render();
         });
@@ -1927,7 +1929,7 @@ export class LEDRasterApp {
                 layer.border_color_cabinet = val;
             });
             if (isFinal) {
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this.getSelectedLayers(), true, 'Change Border Color');
             }
             window.canvasRenderer.render();
         });
@@ -1938,7 +1940,7 @@ export class LEDRasterApp {
                 layer.border_color_data = val;
             });
             if (isFinal) {
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this.getSelectedLayers(), true, 'Change Border Color');
             }
             window.canvasRenderer.render();
         });
@@ -1949,7 +1951,7 @@ export class LEDRasterApp {
                 layer.border_color_power = val;
             });
             if (isFinal) {
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this.getSelectedLayers(), true, 'Change Border Color');
             }
             window.canvasRenderer.render();
         });
@@ -1972,7 +1974,7 @@ export class LEDRasterApp {
                 });
                 this.applyToSelectedLayers(layer => { layer.panel_border_width = v; });
                 window.canvasRenderer.render();
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this.getSelectedLayers(), true, 'Change Border Width');
             });
         });
 
@@ -2027,7 +2029,7 @@ export class LEDRasterApp {
                 this.applyToSelectedLayers(layer => {
                     layer.infoLabelSize = parseInt(infoLabelSizeInput.value, 10) || 14;
                 });
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this.getSelectedLayers(), true, 'Change Info Label Size');
                 this.saveClientSideProperties();
                 window.canvasRenderer.render();
             });
@@ -2086,7 +2088,7 @@ export class LEDRasterApp {
                 this.saveClientSideProperties();
                 this.updatePortCapacityDisplay();
                 this.updatePortLabelEditor();
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this.getSelectedLayers(), true, 'Change Processor Type');
                 window.canvasRenderer.render();
             });
         }
@@ -2100,7 +2102,7 @@ export class LEDRasterApp {
                 this.saveClientSideProperties();
                 this.updatePortCapacityDisplay();
                 this.updatePortLabelEditor();
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this.getSelectedLayers(), true, 'Change Bit Depth');
                 window.canvasRenderer.render();
             });
         }
@@ -2113,7 +2115,7 @@ export class LEDRasterApp {
                 this.saveClientSideProperties();
                 this.updatePortCapacityDisplay();
                 this.updatePortLabelEditor();
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this.getSelectedLayers(), true, 'Change Frame Rate');
                 window.canvasRenderer.render();
             });
         }
@@ -2145,7 +2147,7 @@ export class LEDRasterApp {
             this.saveClientSideProperties();
             this.updatePortCapacityDisplay();
             this.updatePortLabelEditor();
-            this.updateLayers(this.getSelectedLayers());
+            this.updateLayers(this.getSelectedLayers(), true, 'Change Port Mapping Mode');
             window.canvasRenderer.render();
         };
         
@@ -2177,7 +2179,7 @@ export class LEDRasterApp {
                     this.saveClientSideProperties();
                     this.updatePortCapacityDisplay();  // Update port calculation with new pattern
                     this.updatePortLabelEditor();
-                    this.updateLayers(this.getSelectedLayers());
+                    this.updateLayers(this.getSelectedLayers(), true, 'Change Data Flow Pattern');
                     window.canvasRenderer.render();
                 }
             });
@@ -2200,7 +2202,7 @@ export class LEDRasterApp {
                     this.saveClientSideProperties();
                     this.updatePowerCapacityDisplay();
                     this.updateCustomPowerUI();
-                    this.updateLayers(this.getSelectedLayers());
+                    this.updateLayers(this.getSelectedLayers(), true, 'Change Power Flow Pattern');
                     window.canvasRenderer.render();
                 }
             });
@@ -2214,7 +2216,7 @@ export class LEDRasterApp {
                     layer.arrowLineWidth = parseInt(arrowLineWidthInput.value) || 6;
                 });
                 this.saveClientSideProperties();
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this.getSelectedLayers(), true, 'Change Arrow Line Width');
                 window.canvasRenderer.render();
             });
         }
@@ -2241,7 +2243,7 @@ export class LEDRasterApp {
                     layer.portLabelTemplatePrimary = portTemplatePrimaryInput.value || 'P#';
                 });
                 this.saveClientSideProperties();
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this.getSelectedLayers(), true, 'Change Port Label Template');
                 window.canvasRenderer.render();
             });
         }
@@ -2251,7 +2253,7 @@ export class LEDRasterApp {
                     layer.portLabelTemplateReturn = portTemplateReturnInput.value || 'R#';
                 });
                 this.saveClientSideProperties();
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this.getSelectedLayers(), true, 'Change Port Label Template');
                 window.canvasRenderer.render();
             });
         }
@@ -2301,7 +2303,7 @@ export class LEDRasterApp {
 
                 this.saveClientSideProperties();
                 this.updatePortLabelEditor();
-                this.updateLayers(targetLayers);
+                this.updateLayers(targetLayers, true, 'Apply Port Labels');
                 window.canvasRenderer.render();
             });
         }
@@ -2326,7 +2328,7 @@ export class LEDRasterApp {
 
                 this.saveClientSideProperties();
                 this.updatePortLabelEditor();
-                this.updateLayers(targetLayers);
+                this.updateLayers(targetLayers, true, 'Clear Port Labels');
                 window.canvasRenderer.render();
             });
         }
@@ -2452,7 +2454,7 @@ export class LEDRasterApp {
                     layer.arrowSize = parseInt(arrowSizeInput.value) || 12;
                 });
                 this.saveClientSideProperties();
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this.getSelectedLayers(), true, 'Change Arrow Size');
                 window.canvasRenderer.render();
             });
         }
@@ -2464,7 +2466,7 @@ export class LEDRasterApp {
                     layer.randomDataColors = randomColorsCheck.checked;
                 });
                 this.saveClientSideProperties();
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this.getSelectedLayers(), true, 'Toggle Random Data Colors');
                 window.canvasRenderer.render();
             });
         }
@@ -2594,7 +2596,7 @@ export class LEDRasterApp {
                 });
                 this.saveClientSideProperties();
                 this.updatePowerCapacityDisplay();
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this.getSelectedLayers(), true, 'Change Power Voltage');
                 window.canvasRenderer.render();
             });
             powerVoltageCustomInput.addEventListener('change', () => {
@@ -2605,7 +2607,7 @@ export class LEDRasterApp {
                 });
                 this.saveClientSideProperties();
                 this.updatePowerCapacityDisplay();
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this.getSelectedLayers(), true, 'Change Power Voltage');
                 window.canvasRenderer.render();
             });
         }
@@ -2624,7 +2626,7 @@ export class LEDRasterApp {
                 });
                 this.saveClientSideProperties();
                 this.updatePowerCapacityDisplay();
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this.getSelectedLayers(), true, 'Change Power Amperage');
                 window.canvasRenderer.render();
             });
             powerAmperageCustomInput.addEventListener('change', () => {
@@ -2635,7 +2637,7 @@ export class LEDRasterApp {
                 });
                 this.saveClientSideProperties();
                 this.updatePowerCapacityDisplay();
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this.getSelectedLayers(), true, 'Change Power Amperage');
                 window.canvasRenderer.render();
             });
         }
@@ -2653,7 +2655,7 @@ export class LEDRasterApp {
                 });
                 this.saveClientSideProperties();
                 this.updatePowerCapacityDisplay();
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this.getSelectedLayers(), true, 'Change Panel Watts');
                 window.canvasRenderer.render();
             });
         }
@@ -2664,7 +2666,7 @@ export class LEDRasterApp {
                     layer.powerLineWidth = parseInt(powerLineWidthInput.value, 10) || 8;
                 });
                 this.saveClientSideProperties();
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this.getSelectedLayers(), true, 'Change Power Line Width');
                 window.canvasRenderer.render();
             });
         }
@@ -2675,7 +2677,7 @@ export class LEDRasterApp {
                     layer.powerLabelSize = parseInt(powerLabelSizeInput.value, 10) || 14;
                 });
                 this.saveClientSideProperties();
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this.getSelectedLayers(), true, 'Change Power Label Size');
                 window.canvasRenderer.render();
             });
         }
@@ -2693,7 +2695,7 @@ export class LEDRasterApp {
                 if (powerOrganizedCheckbox && powerMaximizeCheckbox.checked) {
                     powerOrganizedCheckbox.checked = false;
                 }
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this.getSelectedLayers(), true, 'Change Power Mode');
                 window.canvasRenderer.render();
             });
         }
@@ -2711,7 +2713,7 @@ export class LEDRasterApp {
                 if (powerMaximizeCheckbox && powerOrganizedCheckbox.checked) {
                     powerMaximizeCheckbox.checked = false;
                 }
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this.getSelectedLayers(), true, 'Change Power Mode');
                 window.canvasRenderer.render();
             });
         }
@@ -2722,7 +2724,7 @@ export class LEDRasterApp {
                     layer.powerRandomColors = powerRandomColorsCheckbox.checked;
                 });
                 this.saveClientSideProperties();
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this.getSelectedLayers(), true, 'Toggle Power Random Colors');
                 window.canvasRenderer.render();
             });
         }
@@ -2732,7 +2734,7 @@ export class LEDRasterApp {
                     layer.powerColorCodedView = powerColorCodedViewCheckbox.checked;
                 });
                 this.saveClientSideProperties();
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this.getSelectedLayers(), true, 'Toggle Power Color Coding');
                 updatePowerCircuitColorSection();
                 window.canvasRenderer.render();
             });
@@ -2759,7 +2761,7 @@ export class LEDRasterApp {
                     layer.powerCircuitColors = colors;
                 });
                 this.saveClientSideProperties();
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this.getSelectedLayers(), true, 'Change Circuit Colors');
                 updatePowerCircuitColorSection();
                 window.canvasRenderer.render();
             });
@@ -2779,7 +2781,7 @@ export class LEDRasterApp {
                     layer.showDataFlowPortInfo = showDataFlowPortInfoEl.checked;
                 });
                 this.saveClientSideProperties();
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this.getSelectedLayers(), true, 'Toggle Port Info Labels');
                 window.canvasRenderer.render();
             });
         }
@@ -2789,7 +2791,7 @@ export class LEDRasterApp {
                     layer.showPowerCircuitInfo = showPowerCircuitInfoEl.checked;
                 });
                 this.saveClientSideProperties();
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this.getSelectedLayers(), true, 'Toggle Circuit Info Labels');
                 window.canvasRenderer.render();
             });
         }
@@ -2819,7 +2821,7 @@ export class LEDRasterApp {
                 });
                 this.saveClientSideProperties();
                 this.updatePowerLabelEditor();
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this.getSelectedLayers(), true, 'Change Power Label Template');
                 window.canvasRenderer.render();
             });
         }
@@ -2842,7 +2844,7 @@ export class LEDRasterApp {
                 });
                 this.saveClientSideProperties();
                 this.updatePowerLabelEditor();
-                this.updateLayers(targetLayers);
+                this.updateLayers(targetLayers, true, 'Apply Power Labels');
                 window.canvasRenderer.render();
             });
         }
@@ -2862,7 +2864,7 @@ export class LEDRasterApp {
                 });
                 this.saveClientSideProperties();
                 this.updatePowerLabelEditor();
-                this.updateLayers(targetLayers);
+                this.updateLayers(targetLayers, true, 'Clear Power Labels');
                 window.canvasRenderer.render();
             });
         }
@@ -2976,7 +2978,7 @@ export class LEDRasterApp {
                 layer.dataFlowColor = val;
             });
             this.saveClientSideProperties();
-            if (isFinal) this.updateLayers(this.getSelectedLayers());
+            if (isFinal) this.updateLayers(this.getSelectedLayers(), true, 'Change Data Flow Color');
             window.canvasRenderer.render();
         });
         
@@ -2986,7 +2988,7 @@ export class LEDRasterApp {
                 layer.arrowColor = val;
             });
             this.saveClientSideProperties();
-            if (isFinal) this.updateLayers(this.getSelectedLayers());
+            if (isFinal) this.updateLayers(this.getSelectedLayers(), true, 'Change Arrow Color');
             window.canvasRenderer.render();
         });
         
@@ -2996,7 +2998,7 @@ export class LEDRasterApp {
                 layer.primaryColor = val;
             });
             this.saveClientSideProperties();
-            if (isFinal) this.updateLayers(this.getSelectedLayers());
+            if (isFinal) this.updateLayers(this.getSelectedLayers(), true, 'Change Primary Port Color');
             window.canvasRenderer.render();
         });
 
@@ -3006,7 +3008,7 @@ export class LEDRasterApp {
                 layer.primaryTextColor = val;
             });
             this.saveClientSideProperties();
-            if (isFinal) this.updateLayers(this.getSelectedLayers());
+            if (isFinal) this.updateLayers(this.getSelectedLayers(), true, 'Change Primary Text Color');
             window.canvasRenderer.render();
         });
         
@@ -3016,7 +3018,7 @@ export class LEDRasterApp {
                 layer.backupColor = val;
             });
             this.saveClientSideProperties();
-            if (isFinal) this.updateLayers(this.getSelectedLayers());
+            if (isFinal) this.updateLayers(this.getSelectedLayers(), true, 'Change Backup Port Color');
             window.canvasRenderer.render();
         });
 
@@ -3026,7 +3028,7 @@ export class LEDRasterApp {
                 layer.backupTextColor = val;
             });
             this.saveClientSideProperties();
-            if (isFinal) this.updateLayers(this.getSelectedLayers());
+            if (isFinal) this.updateLayers(this.getSelectedLayers(), true, 'Change Backup Text Color');
             window.canvasRenderer.render();
         });
 
@@ -3035,7 +3037,7 @@ export class LEDRasterApp {
                 layer.powerLineColor = val;
             });
             this.saveClientSideProperties();
-            if (isFinal) this.updateLayers(this.getSelectedLayers());
+            if (isFinal) this.updateLayers(this.getSelectedLayers(), true, 'Change Power Line Color');
             window.canvasRenderer.render();
         });
 
@@ -3044,7 +3046,7 @@ export class LEDRasterApp {
                 layer.powerArrowColor = val;
             });
             this.saveClientSideProperties();
-            if (isFinal) this.updateLayers(this.getSelectedLayers());
+            if (isFinal) this.updateLayers(this.getSelectedLayers(), true, 'Change Power Arrow Color');
             window.canvasRenderer.render();
         });
 
@@ -3053,7 +3055,7 @@ export class LEDRasterApp {
                 layer.powerLabelBgColor = val;
             });
             this.saveClientSideProperties();
-            if (isFinal) this.updateLayers(this.getSelectedLayers());
+            if (isFinal) this.updateLayers(this.getSelectedLayers(), true, 'Change Power Label Background');
             window.canvasRenderer.render();
         });
 
@@ -3062,7 +3064,7 @@ export class LEDRasterApp {
                 layer.powerLabelTextColor = val;
             });
             this.saveClientSideProperties();
-            if (isFinal) this.updateLayers(this.getSelectedLayers());
+            if (isFinal) this.updateLayers(this.getSelectedLayers(), true, 'Change Power Label Text Color');
             window.canvasRenderer.render();
         });
         
@@ -3073,7 +3075,7 @@ export class LEDRasterApp {
                     layer.dataFlowLabelSize = parseInt(labelSizeInput.value) || 12;
                 });
                 this.saveClientSideProperties();
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this.getSelectedLayers(), true, 'Change Data Flow Label Size');
                 window.canvasRenderer.render();
             });
         }
@@ -3086,7 +3088,7 @@ export class LEDRasterApp {
                     layer.screenNameSizeDataFlow = parseInt(screenNameSizeInput.value) || 30;
                 });
                 this.saveClientSideProperties();
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this.getSelectedLayers(), true, 'Change Screen Name Size');
                 window.canvasRenderer.render();
             });
         }
@@ -3099,7 +3101,7 @@ export class LEDRasterApp {
                     layer.screenNameSizeCabinet = parseInt(screenNameSizeCabinetInput.value) || 30;
                 });
                 this.saveClientSideProperties();
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this.getSelectedLayers(), true, 'Change Screen Name Size');
                 window.canvasRenderer.render();
             });
         }
@@ -3112,7 +3114,7 @@ export class LEDRasterApp {
                     layer.screenNameSizePower = parseInt(screenNameSizePowerInput.value) || 30;
                 });
                 this.saveClientSideProperties();
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this.getSelectedLayers(), true, 'Change Screen Name Size');
                 window.canvasRenderer.render();
             });
         }
@@ -3143,7 +3145,7 @@ export class LEDRasterApp {
                 layer.color1 = rgb;
             });
             window.canvasRenderer.render();
-            if (isFinal) this.updateLayers(this.getSelectedLayers());
+            if (isFinal) this.updateLayers(this.getSelectedLayers(), true, 'Change Fill Color');
         });
         setupColorPickerWithHex('color2-picker', 'color2-hex', (val, isFinal) => {
             const rgb = this.hexToRgb(val);
@@ -3151,7 +3153,7 @@ export class LEDRasterApp {
                 layer.color2 = rgb;
             });
             window.canvasRenderer.render();
-            if (isFinal) this.updateLayers(this.getSelectedLayers());
+            if (isFinal) this.updateLayers(this.getSelectedLayers(), true, 'Change Fill Color');
         });
 
         // Transparent (no fill) override: render cabinets see-through so only
@@ -3162,7 +3164,7 @@ export class LEDRasterApp {
                 const checked = transparentFillEl.checked;
                 this.applyToSelectedLayers(layer => { layer.transparentFill = checked; });
                 window.canvasRenderer.render();
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this.getSelectedLayers(), true, 'Toggle Transparent Fill');
             });
         }
 
@@ -3173,7 +3175,7 @@ export class LEDRasterApp {
                 const deg = parseInt(screenRotationEl.value, 10) || 0;
                 this.applyToSelectedLayers(layer => { layer.rotation = deg; });
                 window.canvasRenderer.render();
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this.getSelectedLayers(), true, 'Rotate Screen');
             });
         }
 
