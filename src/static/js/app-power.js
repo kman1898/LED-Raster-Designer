@@ -5,22 +5,6 @@ import { sendClientLog } from './helpers.js';
 
 class _Power {
 
-    openExportModalWithFormat(format) {
-        const modal = document.getElementById('export-modal');
-        const formatSelect = document.getElementById('export-format');
-        if (formatSelect) {
-            formatSelect.value = format;
-            // v0.8.7: re-evaluate the PSD-only Scale row visibility.
-            formatSelect.dispatchEvent(new Event('change'));
-        }
-        if (modal) {
-            modal.style.display = 'block';
-            document.getElementById('export-name').value = this.project.name || 'Untitled Project';
-            this.loadExportSuffixesToUI();
-            this.updateExportPreview();
-        }
-    }
-
     showContextMenu(x, y) {
         const menu = document.getElementById('context-menu');
         if (!menu) return;

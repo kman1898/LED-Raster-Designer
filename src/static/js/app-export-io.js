@@ -418,6 +418,34 @@ class _ExportIo {
         sendClientLog('export_resolume_complete', { projectName, rasterW, rasterH });
     }
 
+    /**
+     * Open and fully initialize the export modal.
+     *
+     * All export entry points route through this method so the toolbar and
+     * File menu cannot drift apart as modal options evolve.
+     */
+    openExportModal(format = null) {
+        const modal = document.getElementById('export-modal');
+        if (!modal) return;
+
+        const formatSelect = document.getElementById('export-format');
+        if (formatSelect && format) {
+            formatSelect.value = format;
+        }
+
+        modal.style.display = 'block';
+        document.getElementById('export-name').value =
+            this.project.name || 'Untitled Project';
+        this.loadExportSuffixesToUI();
+        this.populateExportCanvasesList();
+
+        // Re-evaluate format-specific controls such as the PSD scale row.
+        if (formatSelect) {
+            formatSelect.dispatchEvent(new Event('change'));
+        }
+        this.updateExportPreview();
+    }
+
     // Perform export using client-side canvas capture at 1:1 pixel scale
     /**
      * Slice 11: build the dynamic Canvases checklist in the export modal.
@@ -1741,10 +1769,10 @@ class _ExportIo {
                 this.saveProjectToFile();
                 break;
             case 'export-png':
-                this.openExportModalWithFormat('png');
+                this.openExportModal('png');
                 break;
             case 'export-psd':
-                this.openExportModalWithFormat('psd');
+                this.openExportModal('psd');
                 break;
             case 'preferences':
                 this.openPreferencesModal();
