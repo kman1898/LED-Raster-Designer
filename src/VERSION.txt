@@ -1,6 +1,15 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.10.7.1 - July 25, 2026
+----------------------------
+- FIX: Exporting from the File menu now shows your canvases. Opening Export
+  through File -> Export PNG or File -> Export PSD came up with an empty
+  canvas list, which blocked the export - even though the toolbar Export
+  button worked fine. Both paths now share one setup, so every way of opening
+  Export fills in the canvas list the same way. (Fixes a regression that had
+  been present since v0.9.0.)
+
 v0.10.7 - July 25, 2026
 ----------------------------
 - FIX: Undo now steps back through EVERY edit, one at a time. Changing a
