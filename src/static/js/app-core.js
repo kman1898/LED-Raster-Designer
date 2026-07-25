@@ -3239,20 +3239,7 @@ export class LEDRasterApp {
         });
 
         document.getElementById('btn-export').addEventListener('click', () => {
-            // Show export modal
-            document.getElementById('export-modal').style.display = 'block';
-            // Set project name from current project
-            document.getElementById('export-name').value = this.project.name || 'Untitled Project';
-            this.loadExportSuffixesToUI();
-            // Slice 11: rebuild canvas checklist on every open so renames /
-            // additions / deletions show up. Visible canvases default-checked.
-            this.populateExportCanvasesList();
-            // v0.8.7: re-evaluate Scale row visibility on open (the user
-            // may have changed format last session and reopened later).
-            const _f = document.getElementById('export-format');
-            if (_f) _f.dispatchEvent(new Event('change'));
-            // Update preview
-            this.updateExportPreview();
+            this.openExportModal();
         });
         
         // Update preview when options change
