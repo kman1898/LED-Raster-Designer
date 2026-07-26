@@ -989,7 +989,12 @@ def _rebuild_layer_geometry_from_panel_states(layer):
     heights may collapse when an entire row/column becomes half).
     """
     states = {}
-    for p in layer.get('panels', []):
+    # v0.10.8.1: `or []` not a `.get` default - a layer whose 'panels' key is
+    # present but null reaches here from restore_project, and the default only
+    # applies when the key is missing.
+    for p in (layer.get('panels') or []):
+        if not isinstance(p, dict):
+            continue  # a null/garbage entry in the array must not 500 a restore
         states[(p.get('row', 0), p.get('col', 0))] = {
             'hidden': p.get('hidden', False),
             'blank': p.get('blank', False),

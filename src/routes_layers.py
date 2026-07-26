@@ -394,10 +394,19 @@ def toggle_panel_hidden(layer_id, panel_id):
     if not panel:
         return jsonify({'error': 'Panel not found'}), 404
     
-    panel['hidden'] = not panel.get('hidden', False)
-    log_event('toggle_panel_hidden', {'layer_id': layer_id, 'panel_id': panel_id, 'hidden': panel['hidden']})
-    socketio.emit('panel_updated', {'layer_id': layer_id, 'panel': panel})
-    return jsonify(panel)
+    hidden = not panel.get('hidden', False)
+    panel['hidden'] = hidden
+    # v0.10.8.1: hiding feeds _has_visible_neighbor, which anchors half-tiles,
+    # so the geometry has to be re-derived here too. Without it the server's
+    # own state keeps the old anchoring and restore_project re-anchors it on
+    # the next unrelated undo/redo/file load - the panel jumps half a cabinet
+    # long after the edit that caused it.
+    _rebuild_layer_geometry_from_panel_states(layer)
+    log_event('toggle_panel_hidden', {'layer_id': layer_id, 'panel_id': panel_id, 'hidden': hidden})
+    # The rebuild regenerates the panels array, so `panel` is now stale. Send
+    # the rebuilt layer instead, matching the half-tile routes below.
+    socketio.emit('layer_updated', layer)
+    return jsonify(layer)
 
 @layers_bp.route('/api/layer/<int:layer_id>/panels/set_hidden', methods=['POST'])
 def set_panels_hidden(layer_id):
@@ -416,9 +425,14 @@ def set_panels_hidden(layer_id):
             panel['hidden'] = ps.get('hidden', False)
             updated.append(panel)
 
+    # v0.10.8.1: same as the single toggle - hidden state feeds half-tile
+    # anchoring, so re-derive the geometry before anyone sees the layer.
+    _rebuild_layer_geometry_from_panel_states(layer)
     log_event('bulk_set_panels_hidden', {'layer_id': layer_id, 'count': len(updated)})
     socketio.emit('layer_updated', layer)
-    return jsonify({'updated': len(updated)})
+    # Return the rebuilt layer so the client can merge it before snapshotting,
+    # the same contract as set_panels_half_tile below.
+    return jsonify({'updated': len(updated), 'layer': layer})
 
 
 @layers_bp.route('/api/layer/<int:layer_id>/panel/<int:panel_id>/set_half_tile', methods=['POST'])
