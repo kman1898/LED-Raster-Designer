@@ -1,0 +1,40 @@
+name: Close stale issues
+
+# Marks issues with no activity for 30 days as "stale", then closes them 15
+# days later (45 days total with no activity). Feature requests (enhancement)
+# and catalog submissions are exempt so the backlog isn't auto-closed. Pull
+# requests are never touched. Any new comment clears the stale label and
+# resets the clock.
+
+on:
+  schedule:
+    - cron: '30 7 * * *'   # daily at 07:30 UTC
+  workflow_dispatch: {}     # allow manual runs from the Actions tab
+
+permissions:
+  issues: write
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v9
+        with:
+          days-before-stale: 30
+          days-before-close: 15
+          stale-issue-label: stale
+          exempt-issue-labels: 'enhancement,pinned,add-panel,spec-correction'
+          stale-issue-message: >
+            This issue has had no activity for 30 days, so it's now marked
+            stale. If it's still relevant just add a comment — for a bug, a
+            fresh log from the latest release helps most — and we'll keep it
+            open. Otherwise it will close automatically in 15 days.
+          close-issue-message: >
+            Closing automatically after 45 days with no activity. If this is
+            still happening on the latest release, please reopen with a fresh
+            log or comment and we'll pick it back up.
+          # Issues only — leave pull requests alone.
+          days-before-pr-stale: -1
+          days-before-pr-close: -1
+          ascending: true          # process the oldest issues first
+          operations-per-run: 100
