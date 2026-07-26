@@ -605,19 +605,23 @@ class _ScreenInfo {
             method: 'POST'
         })
         .then(res => res.json())
-        .then(panel => {
+        // v0.10.8.1: the route now rebuilds the layer's geometry (hiding a
+        // panel re-anchors neighbouring half-tiles) and returns the whole
+        // rebuilt layer, not the single panel - the old panel object is stale
+        // once the panels array is regenerated.
+        .then(serverLayer => {
+            if (!this.applyServerLayer(serverLayer, 'toggle_panel_hidden')) return;
             const layer = this.project.layers.find(l => l.id === layerId);
             if (layer) {
-                const panelIndex = layer.panels.findIndex(p => p.id === panelId);
-                if (panelIndex >= 0) {
-                    layer.panels[panelIndex] = panel;
+                const panel = (layer.panels || []).find(p => p.id === panelId);
+                if (panel) {
                     sendClientLog('toggle_panel_hidden', {
                         layerId, layerName: layer.name,
                         panelId, row: panel.row, col: panel.col,
                         hidden: panel.hidden
                     });
-                    window.canvasRenderer.render();
                 }
+                window.canvasRenderer.render();
             }
         });
     }

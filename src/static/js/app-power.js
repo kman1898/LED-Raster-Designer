@@ -1073,16 +1073,29 @@ class _Power {
         // Apply locally so the canvas updates immediately while the server PUT is in flight.
         toChange.forEach(p => { p.hidden = targetHidden; });
         if (window.canvasRenderer) window.canvasRenderer.render();
+        // v0.10.8.1: same contract as setPanelsHalfTileBulk above. Hiding a
+        // panel re-anchors any neighbouring half-tile, and that rebuild only
+        // happens server-side, so a saveState() taken here would snapshot the
+        // old geometry. Merge the response first, snapshot second.
+        let applied = false;
         try {
-            await fetch(`/api/layer/${layerId}/panels/set_hidden`, {
+            const res = await fetch(`/api/layer/${layerId}/panels/set_hidden`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ panels: toChange.map(p => ({ id: p.id, hidden: targetHidden })) }),
             });
+            const data = await res.json();
+            if (data && data.layer) {
+                applied = this.applyServerLayer(data.layer, 'bulk_set_blank');
+                if (window.canvasRenderer) window.canvasRenderer.render();
+            }
         } catch (err) {
             console.error('setPanelsBlankBulk failed', err);
         }
-        this.saveState('Bulk Set Blank');
+        // No rebuilt layer means no trustworthy snapshot to take. Skip the
+        // history entry rather than record the stale-geometry one; the socket
+        // `layer_updated` event still reconciles the live state.
+        if (applied) this.saveState('Bulk Set Blank');
         sendClientLog && sendClientLog('bulk_set_blank', {
             layer_id: layerId,
             count: toChange.length,

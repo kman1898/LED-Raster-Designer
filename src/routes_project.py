@@ -120,6 +120,22 @@ def restore_project():
             'from_version': '<0.8',
             'to_version': app.CURRENT_FORMAT_VERSION,
         })
+    # v0.10.8.1: re-derive panel geometry from the per-panel states the client
+    # sent, rather than trusting the x/y/width/height it sent alongside them.
+    # Half-tiles resize the whole screen (a fully-half row collapses to half
+    # height and everything below reflows), and that math only exists here. A
+    # client that mutates panel states without a round-trip - as the bulk
+    # half-tile path did before v0.10.8 - would otherwise write flags that
+    # disagree with the geometry, and restore_project would store that as
+    # truth. _build_panels derives every panel field from (columns, rows,
+    # offsets, cabinet size, states), so this is a no-op when the incoming
+    # geometry already agrees, and self-heals it when it does not.
+    # A missing 'type' means screen everywhere else in the app (see app.py's
+    # _seed_data_with_canvas_defaults), so legacy type-less layers get rebuilt
+    # - and migrated - too.
+    for layer in app.current_project.get('layers', []):
+        if (layer.get('type') or 'screen') == 'screen':
+            app._rebuild_layer_geometry_from_panel_states(layer)
     app.sync_next_layer_id()
     log_event('restore_project', {
         'name': app.current_project.get('name', '?'),

@@ -1,6 +1,19 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.10.8.1 - July 26, 2026
+----------------------------
+- FIX: Hiding a cabinet next to a half-tile no longer moves that half-tile
+  later. Blanking a cabinet changes which side its half-tile neighbor
+  attaches to, but that was only recalculated the next time something else
+  happened - so a half-tile could silently jump half a cabinet during an
+  unrelated Undo. The layout is now recalculated the moment you blank a
+  cabinet, and it stays put.
+- FIX: The screen layout is now always rebuilt from the cabinet states when
+  a project is loaded or an undo is applied, instead of trusting the sizes
+  and positions it was handed. Any project that was saved with a mismatch
+  between its half-tile marks and its layout now corrects itself on open.
+
 v0.10.8 - July 26, 2026
 ----------------------------
 - FIX: Undo now works correctly after setting half-tiles. Marking panels as
