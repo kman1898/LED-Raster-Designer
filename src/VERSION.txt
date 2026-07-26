@@ -1,6 +1,30 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.10.8 - July 26, 2026
+----------------------------
+- FIX: Undo now works correctly after setting half-tiles. Marking panels as
+  half-width or half-height resizes the whole screen, but that resize is
+  worked out on the server and used to arrive a moment AFTER the undo point
+  was recorded. The saved step therefore held the new half-tile marks on the
+  old full-size layout, so undoing it could leave the screen in a state that
+  never existed - and that broken state was then saved back as if it were
+  correct. The undo point is now recorded only after the resized screen has
+  come back, so undo and redo both restore the screen exactly as it was.
+- FIX: The log viewer's time range now filters correctly, and searches the
+  WHOLE log. Entering a plain date (2026-07-25) was off by the timezone
+  difference and could hide the entire day you asked for; entering a time to
+  the minute (20:14) silently dropped everything after the first second of
+  that minute. Both now cover exactly the period you name, start and end
+  included. The range is also applied to the whole log file instead of only
+  the last few hundred lines that happened to be loaded, so "1d ago" reaches
+  back properly, and the count tells you when there are more matches than
+  are being shown.
+- CHANGE: The log viewer's "Since" and "Until" boxes are now labeled "From"
+  and "To". They also accept "now", "today", and "yesterday", they no longer
+  re-filter on every keystroke while you are still typing, and an entry they
+  can't read now says so plainly instead of quietly showing everything.
+
 v0.10.7.2 - July 25, 2026
 ----------------------------
 - FIX: Undo behaves correctly after changing colors. Dragging any color

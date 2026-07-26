@@ -18,6 +18,11 @@ class _LogsRecent {
         const modal = document.getElementById('logs-modal');
         if (modal) modal.style.display = 'none';
         this._stopLogsAutoRefresh();
+        // v0.10.8: a debounced filter fetch must not fire after the close
+        if (this._logsFilterTimer) {
+            clearTimeout(this._logsFilterTimer);
+            this._logsFilterTimer = null;
+        }
     }
 
     _ensureLogsModalWired() {
@@ -52,15 +57,32 @@ class _LogsRecent {
                 pre.style.whiteSpace = wrapCb.checked ? 'pre-wrap' : 'pre';
             });
         }
-        // Filter inputs: re-render on input without re-fetching
-        const applyFilter = () => this._rerenderLogsWithFilter();
-        if (sinceInput) sinceInput.addEventListener('input', applyFilter);
-        if (untilInput) untilInput.addEventListener('input', applyFilter);
+        // Filter inputs: re-fetch through the current window (the bounds are
+        // applied server-side now, so a filter change needs a new request).
+        // v0.10.8: typing used to filter on every keystroke, so a half-typed
+        // "2026" briefly emptied the pane. Debounce the keystroke path;
+        // change/blur (and Clear filter) apply immediately.
+        const applyFilter = () => this._debouncedLogFilter();
+        const applyFilterNow = () => {
+            if (this._logsFilterTimer) {
+                clearTimeout(this._logsFilterTimer);
+                this._logsFilterTimer = null;
+            }
+            this.refreshLogs(true);
+        };
+        if (sinceInput) {
+            sinceInput.addEventListener('input', applyFilter);
+            sinceInput.addEventListener('change', applyFilterNow);
+        }
+        if (untilInput) {
+            untilInput.addEventListener('input', applyFilter);
+            untilInput.addEventListener('change', applyFilterNow);
+        }
         if (filterClearBtn) {
             filterClearBtn.addEventListener('click', () => {
                 if (sinceInput) sinceInput.value = '';
                 if (untilInput) untilInput.value = '';
-                applyFilter();
+                applyFilterNow();
             });
         }
         if (pre) {
@@ -77,16 +99,33 @@ class _LogsRecent {
         }
     }
 
-    // Parse relative ("10 min ago", "2h ago", "30s", "1d ago") or absolute
-    // timestamps ("YYYY-MM-DD HH:MM:SS" or any Date-parseable string) into an
-    // epoch-ms number. Returns null for empty/unparseable input.
-    parseLogFilterTime(input) {
+    // Parse one filter field into an epoch-ms bound. Accepts relative
+    // ("10 min ago", "2h ago", "30s", "1d ago"), the words now / today /
+    // yesterday, and absolute "YYYY-MM-DD[ HH:MM[:SS]]".
+    // `bound` is 'start' or 'end'. v0.10.8: an absolute value is snapped to the
+    // precision the user actually typed so BOTH ends of the range are
+    // inclusive - "To: 2026-07-25" means through 23:59:59.999 that day, and
+    // "To: 2026-07-25 20:14" means through 20:14:59.999. The old code took
+    // "20:14" to mean 20:14:00 and then compared exclusively, dropping
+    // everything in the minute the user asked for.
+    // Returns null for empty/unparseable input.
+    parseLogFilterTime(input, bound = 'start') {
         if (!input) return null;
         const trimmed = String(input).trim();
         if (!trimmed) return null;
+        const lower = trimmed.toLowerCase();
+        const end = bound === 'end';
+        // Word forms
+        if (lower === 'now') return Date.now();
+        if (lower === 'today' || lower === 'yesterday') {
+            const d = new Date();
+            if (lower === 'yesterday') d.setDate(d.getDate() - 1);
+            return end
+                ? new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999).getTime()
+                : new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0).getTime();
+        }
         // Relative: "<n> <unit> ago" or just "<n><unit>" / "<n> <unit>"
-        const relMatch = trimmed
-            .toLowerCase()
+        const relMatch = lower
             .replace(/\s+ago\s*$/, '')  // strip trailing "ago"
             .trim()
             .match(/^(\d+(?:\.\d+)?)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)$/);
@@ -101,49 +140,89 @@ class _LogsRecent {
             else return null;
             return Date.now() - ms;
         }
-        // Absolute: try Date.parse. Accepts ISO, "YYYY-MM-DD HH:MM:SS",
-        // "YYYY-MM-DDTHH:MM:SS", etc.
-        // Log format "2026-04-22 13:20:48" is not strict ISO; convert space to T.
-        const iso = trimmed.replace(' ', 'T');
-        const parsed = Date.parse(iso);
-        if (!isNaN(parsed)) return parsed;
-        const parsed2 = Date.parse(trimmed);
-        if (!isNaN(parsed2)) return parsed2;
-        return null;
+        // Absolute. v0.10.8: built field-by-field as LOCAL time instead of
+        // handed to Date.parse. The spec reads a bare "2026-07-25" as UTC but
+        // "2026-07-25T20:14:16" as local, so a date-only bound was skewed by
+        // the UTC offset (4h in EDT) and "To: 2026-07-25" hid the whole day.
+        // The regex also refuses partial input ("2026"), which Date.parse
+        // happily turned into a valid-but-wrong instant while the user typed.
+        const abs = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+        if (!abs) return null;
+        const y = parseInt(abs[1], 10);
+        const mo = parseInt(abs[2], 10);
+        const day = parseInt(abs[3], 10);
+        const hasTime = abs[4] !== undefined;
+        const hasSec = abs[6] !== undefined;
+        const h = hasTime ? parseInt(abs[4], 10) : (end ? 23 : 0);
+        const mi = hasTime ? parseInt(abs[5], 10) : (end ? 59 : 0);
+        const s = hasSec ? parseInt(abs[6], 10) : (end ? 59 : 0);
+        const ms = end ? 999 : 0;
+        if (mo < 1 || mo > 12 || day < 1 || day > 31) return null;
+        if (h > 23 || mi > 59 || s > 59) return null;
+        const dt = new Date(y, mo - 1, day, h, mi, s, ms);
+        // Reject dates that rolled over ("2026-02-30" would land in March)
+        if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== day) return null;
+        return dt.getTime();
     }
 
     // Extract the log line's timestamp in epoch ms. Log lines are JSON with a
     // "timestamp": "YYYY-MM-DD HH:MM:SS" field. Returns null if not parseable.
     parseLogLineTime(line) {
         if (!line) return null;
-        // Fast path: pull out the first "timestamp": "..." occurrence
+        // Fast path: pull out the first "timestamp": "..." occurrence. The
+        // outer timestamp is always first; details.clientTime is UTC and is
+        // deliberately never what this matches.
         const m = line.match(/"timestamp"\s*:\s*"([^"]+)"/);
         if (!m) return null;
-        const iso = m[1].replace(' ', 'T');
-        const parsed = Date.parse(iso);
-        return isNaN(parsed) ? null : parsed;
+        // v0.10.8: built as LOCAL time to match the writer, rather than relying
+        // on Date.parse's format-dependent UTC/local behaviour.
+        const p = m[1].match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})/);
+        if (!p) return null;
+        return new Date(+p[1], +p[2] - 1, +p[3], +p[4], +p[5], +p[6]).getTime();
     }
 
-    _filterLogLines(lines) {
+    // v0.10.8: single reader for both fields, so the fetch query and the
+    // client-side pass can never disagree about the window.
+    _logFilterBounds() {
         const sinceInput = document.getElementById('logs-since');
         const untilInput = document.getElementById('logs-until');
-        const sinceMs = this.parseLogFilterTime(sinceInput && sinceInput.value);
-        const untilMs = this.parseLogFilterTime(untilInput && untilInput.value);
+        const sinceText = ((sinceInput && sinceInput.value) || '').trim();
+        const untilText = ((untilInput && untilInput.value) || '').trim();
+        const sinceMs = sinceText ? this.parseLogFilterTime(sinceText, 'start') : null;
+        const untilMs = untilText ? this.parseLogFilterTime(untilText, 'end') : null;
+        const bad = [];
+        if (sinceText && sinceMs === null) bad.push('From');
+        if (untilText && untilMs === null) bad.push('To');
+        return {
+            sinceMs,
+            untilMs,
+            bad,
+            hasText: !!(sinceText || untilText),
+            valid: bad.length === 0
+        };
+    }
+
+    _filterLogLines(lines, meta) {
         const statusEl = document.getElementById('logs-filter-status');
-        const hasSinceText = !!(sinceInput && sinceInput.value.trim());
-        const hasUntilText = !!(untilInput && untilInput.value.trim());
-        if (!hasSinceText && !hasUntilText) {
-            if (statusEl) statusEl.textContent = '';
+        const { sinceMs, untilMs, bad, hasText, valid } = this._logFilterBounds();
+        if (!hasText) {
+            if (statusEl) { statusEl.style.color = '#888'; statusEl.textContent = ''; }
             return { lines, sinceMs: null, untilMs: null, valid: true };
         }
-        // Validate: if user typed text but it didn't parse, highlight the issue
-        const parts = [];
-        if (hasSinceText && sinceMs === null) parts.push('Since: invalid');
-        if (hasUntilText && untilMs === null) parts.push('Until: invalid');
-        if (parts.length) {
-            if (statusEl) { statusEl.textContent = parts.join(' · '); statusEl.style.color = '#f0ad4e'; }
+        if (!valid) {
+            // v0.10.8: an unparseable field used to fall open and quietly show
+            // the whole unfiltered log behind a vague "invalid" note. Say
+            // plainly that no filtering happened.
+            if (statusEl) {
+                statusEl.style.color = '#f0ad4e';
+                statusEl.textContent = `${bad.join(' and ')} unrecognized — filter not applied`;
+            }
             return { lines, sinceMs, untilMs, valid: false };
         }
+        // Second pass over lines the server already filtered: same bounds and
+        // same timestamp parsing, so it normally changes nothing. It exists to
+        // catch anything the server could not read and to keep the count right
+        // when a response arrives after the fields moved on.
         const filtered = lines.filter(line => {
             const t = this.parseLogLineTime(line);
             if (t === null) return false;  // drop lines without a timestamp
@@ -153,19 +232,24 @@ class _LogsRecent {
         });
         if (statusEl) {
             statusEl.style.color = '#888';
-            statusEl.textContent = `filtered to ${filtered.length} of ${lines.length}`;
+            // v0.10.8: the server knows how many lines in the WHOLE file match;
+            // say so instead of implying the capped page is the whole answer.
+            const total = meta && typeof meta.matched_count === 'number'
+                ? meta.matched_count
+                : filtered.length;
+            statusEl.textContent = total > filtered.length
+                ? `showing most recent ${filtered.length} of ${total} matching entries`
+                : `${filtered.length} matching ${filtered.length === 1 ? 'entry' : 'entries'}`;
         }
         return { lines: filtered, sinceMs, untilMs, valid: true };
     }
 
-    _rerenderLogsWithFilter() {
-        // Re-render last-fetched lines through the current filter (no re-fetch)
-        if (!this._logsLastLines) return;
-        const pre = document.getElementById('logs-content');
-        if (!pre) return;
-        const { lines } = this._filterLogLines(this._logsLastLines);
-        pre.textContent = lines.join('\n');
-        if (!this._logsUserScrolledUp) pre.scrollTop = pre.scrollHeight;
+    _debouncedLogFilter(delay = 300) {
+        if (this._logsFilterTimer) clearTimeout(this._logsFilterTimer);
+        this._logsFilterTimer = setTimeout(() => {
+            this._logsFilterTimer = null;
+            this.refreshLogs(true);
+        }, delay);
     }
 
     _startLogsAutoRefresh() {
@@ -183,7 +267,18 @@ class _LogsRecent {
     refreshLogs(force) {
         const linesSel = document.getElementById('logs-lines');
         const lines = linesSel ? parseInt(linesSel.value, 10) || 500 : 500;
-        fetch(`/api/logs?lines=${lines}`)
+        // v0.10.8: the window goes to the server as epoch ms so the WHOLE log
+        // file is searched. Filtering only the fetched tail meant "From: 1d
+        // ago" could never reach anything older than the last N lines. Bounds
+        // are sent only when every filled-in field parses; a bad field means
+        // "not filtering" on both sides.
+        const { sinceMs, untilMs, valid } = this._logFilterBounds();
+        let url = `/api/logs?lines=${lines}`;
+        if (valid) {
+            if (sinceMs !== null) url += `&since=${Math.floor(sinceMs)}`;
+            if (untilMs !== null) url += `&until=${Math.floor(untilMs)}`;
+        }
+        fetch(url)
             .then(r => r.json())
             .then(data => this._renderLogs(data, force))
             .catch(err => this._renderLogsError(err));
@@ -194,8 +289,7 @@ class _LogsRecent {
         const meta = document.getElementById('logs-meta');
         if (!pre) return;
         const rawLines = Array.isArray(data.lines) ? data.lines : [];
-        this._logsLastLines = rawLines;
-        const { lines: visibleLines } = this._filterLogLines(rawLines);
+        const { lines: visibleLines } = this._filterLogLines(rawLines, data);
         pre.textContent = visibleLines.join('\n');
         if (meta) {
             const sizeKB = (data.file_size_bytes || 0) / 1024;

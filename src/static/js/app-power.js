@@ -1023,26 +1023,35 @@ class _Power {
                 halfTile: resolved,
             })),
         };
-        // Apply locally BEFORE saving history (the server response is
-        // discarded, so nothing else writes it back). Without this the
-        // snapshot captured the pre-change halfTile and Undo-then-Redo
-        // silently lost the change — the twin setPanelsBlankBulk does the
-        // same local-first mutation for exactly this reason.
+        // Apply locally so the canvas updates immediately while the POST is in
+        // flight; the flags alone are enough to redraw at the old geometry.
         panels.forEach(p => { p.halfTile = resolved; });
         if (window.canvasRenderer) window.canvasRenderer.render();
+        // v0.10.8: the snapshot must wait for the server's rebuilt layer.
+        // Setting halfTile resizes every panel, and that rebuild only happens
+        // server-side, so a saveState() taken here would pair the new flags
+        // with full-size geometry. Undo restored that mismatch and PUT it back
+        // to /api/project, which does no rebuild — making the corruption
+        // permanent. Merge the response first, snapshot second.
+        let applied = false;
         try {
             const res = await fetch(`/api/layer/${layerId}/panels/set_half_tile`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
             });
-            await res.json();
+            const data = await res.json();
+            if (data && data.layer) {
+                applied = this.applyServerLayer(data.layer, 'bulk_set_half_tile');
+                if (window.canvasRenderer) window.canvasRenderer.render();
+            }
         } catch (err) {
-            // Local state already changed; still record it (same optimistic
-            // behaviour as setPanelsBlankBulk) so it stays undoable.
             console.error('setPanelsHalfTileBulk failed', err);
         }
-        this.saveState('Bulk Set Half-tile');
+        // No rebuilt layer means no trustworthy snapshot to take. Skip the
+        // history entry rather than record the stale-geometry one; the socket
+        // `layer_updated` event still reconciles the live state.
+        if (applied) this.saveState('Bulk Set Half-tile');
         sendClientLog && sendClientLog('bulk_set_half_tile', {
             layer_id: layerId,
             count: panels.length,

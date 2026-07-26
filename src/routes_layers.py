@@ -471,4 +471,8 @@ def set_panels_half_tile(layer_id):
     _rebuild_layer_geometry_from_panel_states(layer)
     log_event('bulk_set_panels_half_tile', {'layer_id': layer_id, 'count': updated})
     socketio.emit('layer_updated', layer)
-    return jsonify({'updated': updated})
+    # v0.10.8: return the rebuilt layer alongside the count. The rebuild
+    # above resizes every panel, so a client that only gets `updated` holds
+    # new halfTile flags on stale geometry until the socket event lands -
+    # long enough for an undo snapshot to capture the mismatch.
+    return jsonify({'updated': updated, 'layer': layer})

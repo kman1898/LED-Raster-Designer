@@ -4,8 +4,11 @@ log ingest endpoint. Log paths + log_event come from app; the logging
 infrastructure itself (rotation, startup setup) stays in app.
 """
 import os
+import re
 import sys
 import subprocess
+from collections import deque
+from datetime import datetime
 
 from flask import Blueprint, request, jsonify
 
@@ -13,41 +16,115 @@ from app import LOG_FILE_PATH, LOG_DIR_PATH, log_event
 
 logs_bp = Blueprint('logs', __name__)
 
+# The outer "timestamp" is always the FIRST one in a log line; details.clientTime
+# is UTC and must never be what the time filter matches.
+_LINE_TIMESTAMP_RE = re.compile(r'"timestamp"\s*:\s*"([^"]+)"')
+_TIMESTAMP_PARTS_RE = re.compile(
+    r'^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})')
+
+
+def _log_line_epoch_ms(line):
+    """Epoch-ms of a log line's outer timestamp, or None if unreadable.
+
+    Log timestamps are written in server-LOCAL time, so they are rebuilt as
+    local time here (naive datetime.timestamp() uses the local zone).
+    """
+    m = _LINE_TIMESTAMP_RE.search(line)
+    if not m:
+        return None
+    parts = _TIMESTAMP_PARTS_RE.match(m.group(1))
+    if not parts:
+        return None
+    try:
+        dt = datetime(*(int(p) for p in parts.groups()))
+        return int(dt.timestamp() * 1000)
+    except (ValueError, OverflowError, OSError):
+        return None
+
+
+def _epoch_ms_arg(name):
+    """Read an optional epoch-ms query param. Missing/blank/garbage -> None.
+
+    Ignoring a non-numeric value (rather than erroring) keeps the viewer
+    showing the unfiltered log instead of a 500.
+    """
+    raw = (request.args.get(name) or '').strip()
+    if not raw:
+        return None
+    try:
+        return int(float(raw))
+    except (TypeError, ValueError):
+        return None
+
 
 @logs_bp.route('/api/logs', methods=['GET'])
 def get_logs():
-    """Return last N lines of the current log file (most recent at bottom)."""
+    """Return last N lines of the current log file (most recent at bottom).
+
+    Optional `since` / `until` query params (epoch milliseconds, inclusive on
+    both ends) filter by each line's outer timestamp across the WHOLE file, not
+    just the tail; `lines` then caps the result to the most recent N matches.
+    """
     try:
         lines_arg = int(request.args.get('lines', '500'))
     except ValueError:
         lines_arg = 500
     lines_arg = max(50, min(lines_arg, 20000))
+    since_ms = _epoch_ms_arg('since')
+    until_ms = _epoch_ms_arg('until')
+    filtering = since_ms is not None or until_ms is not None
     result_lines = []
+    matched_count = None
     file_size = 0
     try:
         if os.path.isfile(LOG_FILE_PATH):
             file_size = os.path.getsize(LOG_FILE_PATH)
-            tail_bytes = b''
-            chunk_size = 0
-            # Read up to 4 MB from the end (plenty for ~20k lines)
-            max_chunk = 4 * 1024 * 1024
-            try:
-                with open(LOG_FILE_PATH, 'rb') as f:
-                    f.seek(0, os.SEEK_END)
-                    pos = f.tell()
-                    chunk_size = min(pos, max_chunk)
-                    f.seek(pos - chunk_size, os.SEEK_SET)
-                    tail_bytes = f.read()
-            except OSError:
-                pass
-            text = tail_bytes.decode('utf-8', errors='replace')
-            # Drop a partial first line if we didn't read from byte 0
-            if 0 < chunk_size < file_size and text:
-                nl = text.find('\n')
-                if nl != -1:
-                    text = text[nl + 1:]
-            all_lines = text.splitlines()
-            result_lines = all_lines[-lines_arg:]
+            if filtering:
+                # Whole-file scan, streamed a line at a time and kept in a
+                # bounded deque, so a 20 MB log never lands in memory at once.
+                kept = deque(maxlen=lines_arg)
+                matched_count = 0
+                try:
+                    with open(LOG_FILE_PATH, 'r', encoding='utf-8',
+                              errors='replace') as f:
+                        for raw_line in f:
+                            line = raw_line.rstrip('\r\n')
+                            if not line:
+                                continue
+                            ts = _log_line_epoch_ms(line)
+                            if ts is None:
+                                continue  # no readable timestamp: not in range
+                            if since_ms is not None and ts < since_ms:
+                                continue
+                            if until_ms is not None and ts > until_ms:
+                                continue
+                            matched_count += 1
+                            kept.append(line)
+                except OSError:
+                    pass
+                result_lines = list(kept)
+            else:
+                tail_bytes = b''
+                chunk_size = 0
+                # Read up to 4 MB from the end (plenty for ~20k lines)
+                max_chunk = 4 * 1024 * 1024
+                try:
+                    with open(LOG_FILE_PATH, 'rb') as f:
+                        f.seek(0, os.SEEK_END)
+                        pos = f.tell()
+                        chunk_size = min(pos, max_chunk)
+                        f.seek(pos - chunk_size, os.SEEK_SET)
+                        tail_bytes = f.read()
+                except OSError:
+                    pass
+                text = tail_bytes.decode('utf-8', errors='replace')
+                # Drop a partial first line if we didn't read from byte 0
+                if 0 < chunk_size < file_size and text:
+                    nl = text.find('\n')
+                    if nl != -1:
+                        text = text[nl + 1:]
+                all_lines = text.splitlines()
+                result_lines = all_lines[-lines_arg:]
     except OSError:
         pass
     # Count archived log files in the same directory
@@ -64,7 +141,11 @@ def get_logs():
         'file_path': LOG_FILE_PATH,
         'dir_path': LOG_DIR_PATH,
         'archive_count': archive_count,
-        'returned_count': len(result_lines)
+        'returned_count': len(result_lines),
+        # None when no time filter was applied; otherwise how many lines in the
+        # whole file matched, so the viewer can say "most recent N of M".
+        'matched_count': matched_count,
+        'filtered': filtering
     })
 
 

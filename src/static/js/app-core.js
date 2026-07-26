@@ -288,29 +288,8 @@ export class LEDRasterApp {
         this.socket.on('layer_updated', (layer) => {
             console.log('WEBSOCKET layer_updated received for layer:', layer.id);
             sendClientLog('socket_layer_updated', { id: layer.id });
-            const index = this.project.layers.findIndex(l => l.id === layer.id);
-            if (index >= 0) {
-                // Preserve client-side properties when server sends layer update
-                const clientProps = this.extractClientSideProps(this.project.layers[index]);
-                this.project.layers[index] = layer;
-                
-                // Restore client props
-                Object.keys(clientProps).forEach(key => {
-                    if (clientProps[key] !== undefined) {
-                        this.project.layers[index][key] = clientProps[key];
-                    }
-                });
-                
-                if (this.currentLayer && this.currentLayer.id === layer.id) {
-                    this.currentLayer = this.project.layers[index];
-                }
-                this.dedupeProjectLayers('socket_layer_updated');
-                this.updateUI();
-            } else {
-                this.upsertProjectLayer(layer);
-                this.dedupeProjectLayers('socket_layer_updated_upsert');
-                this.updateUI();
-            }
+            this.applyServerLayer(layer, 'socket_layer_updated');
+            this.updateUI();
         });
         this.socket.on('preferences_updated', (prefs) => {
             console.log('WEBSOCKET preferences_updated received');
@@ -441,7 +420,38 @@ export class LEDRasterApp {
             fontUnderline: layer.fontUnderline
         };
     }
-    
+
+    // v0.10.8: merge a server-sent layer into this.project, preserving the
+    // client-side-only props the server never round-trips. Shared by the
+    // socket `layer_updated` handler and by fetch callers whose response
+    // carries the rebuilt layer, so both paths merge identically. Returns
+    // false when there is nothing to apply (no layer / no project yet).
+    applyServerLayer(layer, reason = 'apply_server_layer') {
+        if (!layer || !this.project || !this.project.layers) return false;
+        const index = this.project.layers.findIndex(l => l.id === layer.id);
+        if (index >= 0) {
+            // Preserve client-side properties when server sends layer update
+            const clientProps = this.extractClientSideProps(this.project.layers[index]);
+            this.project.layers[index] = layer;
+
+            // Restore client props
+            Object.keys(clientProps).forEach(key => {
+                if (clientProps[key] !== undefined) {
+                    this.project.layers[index][key] = clientProps[key];
+                }
+            });
+
+            if (this.currentLayer && this.currentLayer.id === layer.id) {
+                this.currentLayer = this.project.layers[index];
+            }
+            this.dedupeProjectLayers(reason);
+        } else {
+            this.upsertProjectLayer(layer);
+            this.dedupeProjectLayers(`${reason}_upsert`);
+        }
+        return true;
+    }
+
     loadProject() {
         fetch('/api/project')
             .then(res => res.json())
