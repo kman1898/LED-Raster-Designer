@@ -540,3 +540,453 @@ def test_wheel_zoom_on_canvas(page):
     page.wait_for_timeout(300)
     z2 = page.evaluate("window.canvasRenderer.zoom")
     assert z2 < z1, f"wheel down did not zoom out ({z1} -> {z2})"
+
+# ── Port mapping: Organized vs Max Capacity (v0.10.9) ────────────────────
+# calculatePortAssignments() is the single source of truth for every port map
+# the app emits. These tests drive it directly with synthetic layers through
+# the live page (no DOM needed, the method is pure), and independently
+# recompute each emitted port's bounding rectangle to prove that a
+# rectangle-constraint processor (NovaStar Armor) never over-fills a port in
+# EITHER mapping mode. An over-filled port means a dark wall section on site.
+
+PORT_MAP_JS = """(spec) => {
+    const hiddenSet = new Set((spec.hidden || []).map(rc => rc[0] + ',' + rc[1]));
+    const panels = [];
+    let n = 1;
+    for (let r = 0; r < spec.rows; r++) {
+        for (let c = 0; c < spec.columns; c++) {
+            panels.push({
+                id: n, number: n, row: r, col: c,
+                x: c * spec.cw, y: r * spec.ch,
+                width: spec.cw, height: spec.ch,
+                hidden: hiddenSet.has(r + ',' + c), blank: false, halfTile: 'none'
+            });
+            n++;
+        }
+    }
+    const layer = {
+        type: 'screen', rows: spec.rows, columns: spec.columns,
+        cabinet_width: spec.cw, cabinet_height: spec.ch, panels,
+        processorType: spec.processorType,
+        portMappingMode: spec.mode,
+        flowPattern: spec.pattern || 'tl-h',
+        bitDepth: spec.bitDepth || 8,
+        frameRate: spec.frameRate || 60
+    };
+    const assignments = window.app.calculatePortAssignments(layer);
+    const capacity = window.app.calculatePortCapacity(
+        layer.bitDepth, layer.frameRate, layer.processorType);
+
+    // Regroup the EMITTED assignments and recompute each port's geometry from
+    // scratch, so the assertions test the shipped map, not the internal
+    // bookkeeping that produced it.
+    const byPort = new Map();
+    assignments.forEach(a => {
+        if (!byPort.has(a.port)) byPort.set(a.port, []);
+        byPort.get(a.port).push(a.panel);
+    });
+    const ports = Array.from(byPort.keys()).sort((a, b) => a - b).map(p => {
+        const ps = byPort.get(p);
+        const minX = Math.min.apply(null, ps.map(q => q.x));
+        const minY = Math.min.apply(null, ps.map(q => q.y));
+        const maxX = Math.max.apply(null, ps.map(q => q.x + q.width));
+        const maxY = Math.max.apply(null, ps.map(q => q.y + q.height));
+        return {
+            port: p,
+            panels: ps.length,
+            cells: ps.map(q => [q.row, q.col]),
+            anyHidden: ps.some(q => q.hidden),
+            rectArea: (maxX - minX) * (maxY - minY),
+            pixelSum: ps.reduce((s, q) => s + q.width * q.height, 0)
+        };
+    });
+    return {
+        capacity: capacity,
+        ports: ports,
+        totalPanels: assignments.length,
+        error: !!layer._capacityError,
+        errorInfo: layer._capacityError || null
+    };
+}"""
+
+
+def port_map(page, **spec):
+    spec.setdefault('cw', 200)
+    spec.setdefault('ch', 200)
+    return page.evaluate(PORT_MAP_JS, spec)
+
+
+def assert_rect_fits(result, label):
+    """No emitted port may reserve more pixels than the port can carry."""
+    for p in result['ports']:
+        assert p['rectArea'] <= result['capacity'], (
+            f"{label}: port {p['port']} reserves {p['rectArea']} px, "
+            f"capacity is {result['capacity']} px -- this map would go dark")
+        assert not p['anyHidden'], (
+            f"{label}: port {p['port']} emitted a hidden cabinet")
+
+
+def test_armor_max_capacity_is_selectable(page):
+    """Armor no longer forces Organized -- max-capacity produces its own map."""
+    org = port_map(page, rows=2, columns=20,
+                   processorType='novastar-armor', mode='organized')
+    mx = port_map(page, rows=2, columns=20,
+                  processorType='novastar-armor', mode='max-capacity')
+    # A 20-wide row reserves 4000x200 = 800,000 px against a 659,722 px port,
+    # so Organized cannot fit a whole row and reports a capacity error.
+    assert org['error'], "expected Organized to fail on an over-wide row"
+    assert org['ports'] == []
+    # Max Capacity splits mid-row and succeeds.
+    assert not mx['error'], f"max-capacity unexpectedly errored: {mx['errorInfo']}"
+    assert len(mx['ports']) == 3, [p['panels'] for p in mx['ports']]
+    assert [p['panels'] for p in mx['ports']] == [16, 12, 12]
+    assert [p['rectArea'] for p in mx['ports']] == [640000, 640000, 480000]
+    assert mx['totalPanels'] == 40
+    assert_rect_fits(mx, 'armor 2x20 max-capacity')
+
+
+def test_armor_rectangular_wall_both_modes_agree(page):
+    """A plain rectangular Armor wall maps identically in both modes.
+
+    10 cols x 4 rows of 200x200: one row reserves 2000x200 = 400,000 px
+    (fits the 659,722 px port); two rows reserve 2000x400 = 800,000 px (does
+    not). Both modes therefore cut at every row boundary -> 4 ports of 10.
+    """
+    for mode in ('organized', 'max-capacity'):
+        r = port_map(page, rows=4, columns=10,
+                     processorType='novastar-armor', mode=mode)
+        assert not r['error'], f"{mode} errored: {r['errorInfo']}"
+        assert [p['panels'] for p in r['ports']] == [10, 10, 10, 10], mode
+        assert [p['rectArea'] for p in r['ports']] == [400000] * 4, mode
+        assert r['totalPanels'] == 40, mode
+        assert_rect_fits(r, f'armor 4x10 {mode}')
+
+
+def test_armor_stairstep_max_capacity_respects_rectangle(page):
+    """L-shaped Armor wall: every max-capacity port still fits its rectangle.
+
+    Rows shrink 10 / 8 / 5 / 2 cabinets wide. The reserved rectangle -- not the
+    lit-pixel sum -- is what has to fit, so ports 1 and 2 carry 400,000 and
+    640,000 px of reserved area while lighting only 400,000 and 520,000 px.
+    """
+    hidden = ([[1, c] for c in range(8, 10)]
+              + [[2, c] for c in range(5, 10)]
+              + [[3, c] for c in range(2, 10)])
+    mx = port_map(page, rows=4, columns=10, hidden=hidden,
+                  processorType='novastar-armor', mode='max-capacity')
+    assert not mx['error'], f"errored: {mx['errorInfo']}"
+    assert [p['panels'] for p in mx['ports']] == [10, 13, 2]
+    assert [p['rectArea'] for p in mx['ports']] == [400000, 640000, 80000]
+    # Port 2 reserves more than it lights: 13 cabinets = 520,000 lit px inside
+    # a 1600x400 = 640,000 px reservation. A pixel-sum accounting would have
+    # wrongly packed 3 more cabinets into this port.
+    assert mx['ports'][1]['pixelSum'] == 520000
+    assert mx['totalPanels'] == 25
+    assert_rect_fits(mx, 'armor stairstep max-capacity')
+
+    org = port_map(page, rows=4, columns=10, hidden=hidden,
+                   processorType='novastar-armor', mode='organized')
+    assert not org['error'], f"errored: {org['errorInfo']}"
+    assert [p['panels'] for p in org['ports']] == [10, 13, 2]
+    assert_rect_fits(org, 'armor stairstep organized')
+
+
+def test_armor_hidden_cabinets_inside_span_cost_nothing_extra(page):
+    """A hole inside the port's rectangle is already paid for by that rectangle.
+
+    Row 0 has cabinets 4 and 5 removed. The port still spans x 0..2000, so its
+    reservation stays 2000x200 = 400,000 px -- the two hidden cabinets neither
+    add 80,000 px of their own nor shrink the span.
+    """
+    hidden = [[0, 4], [0, 5]]
+    mx = port_map(page, rows=2, columns=10, hidden=hidden,
+                  processorType='novastar-armor', mode='max-capacity')
+    assert not mx['error'], f"errored: {mx['errorInfo']}"
+    assert [p['panels'] for p in mx['ports']] == [8, 10]
+    assert [p['rectArea'] for p in mx['ports']] == [400000, 400000]
+    # Reserved 400,000 px while lighting only 320,000 px: the hole is covered
+    # by the rectangle and is not double-counted on top of it.
+    assert mx['ports'][0]['pixelSum'] == 320000
+    assert mx['totalPanels'] == 18
+    assert_rect_fits(mx, 'armor hidden-hole max-capacity')
+
+
+def test_armor_oversized_cabinet_raises_capacity_error(page):
+    """One cabinet too big for a port errors out instead of emitting a bad map."""
+    # 1200x1200 = 1,440,000 px against a 659,722 px port.
+    mx = port_map(page, rows=2, columns=2, cw=1200, ch=1200,
+                  processorType='novastar-armor', mode='max-capacity')
+    assert mx['error'], "oversized cabinet did not raise a capacity error"
+    assert mx['ports'] == []
+    assert mx['errorInfo']['unitType'] == 'panel'
+
+
+def test_non_armor_max_capacity_uses_pixel_sum(page):
+    """Non-rectangle processors keep the original pixel-sum packing.
+
+    Brompton 8-bit @60 Hz = 525,000 px per port; a 200x200 cabinet is 40,000 px,
+    so 13 cabinets (520,000 px) fill a port and the 40th lands alone.
+    """
+    mx = port_map(page, rows=4, columns=10,
+                  processorType='brompton', mode='max-capacity')
+    assert not mx['error'], f"errored: {mx['errorInfo']}"
+    assert mx['capacity'] == 525000
+    assert [p['panels'] for p in mx['ports']] == [13, 13, 13, 1]
+    assert [p['pixelSum'] for p in mx['ports']] == [520000, 520000, 520000, 40000]
+    assert mx['totalPanels'] == 40
+
+    org = port_map(page, rows=4, columns=10,
+                   processorType='brompton', mode='organized')
+    assert [p['panels'] for p in org['ports']] == [10, 10, 10, 10]
+
+
+def test_non_armor_max_capacity_ignores_bounding_rect(page):
+    """The stair-step wall packs by pixel sum on Brompton, not by rectangle."""
+    hidden = ([[1, c] for c in range(8, 10)]
+              + [[2, c] for c in range(5, 10)]
+              + [[3, c] for c in range(2, 10)])
+    mx = port_map(page, rows=4, columns=10, hidden=hidden,
+                  processorType='brompton', mode='max-capacity')
+    assert not mx['error'], f"errored: {mx['errorInfo']}"
+    # 25 visible cabinets, 13 per port by pixel sum.
+    assert [p['panels'] for p in mx['ports']] == [13, 12]
+    assert [p['pixelSum'] for p in mx['ports']] == [520000, 480000]
+    assert mx['totalPanels'] == 25
+
+
+def test_port_mapping_buttons_live_for_armor(page):
+    """Both Port Mapping buttons stay live on an Armor layer (they used to be
+    greyed out with pointer events off, so Max Capacity was unreachable)."""
+    state = page.evaluate("""() => {
+        const o = document.getElementById('mapping-organized');
+        const m = document.getElementById('mapping-max-capacity');
+        const saved = window.app.currentLayer;
+        // Force a stale greyed state first so a no-op would be caught.
+        o.style.opacity = '0.5'; o.style.pointerEvents = 'none';
+        m.style.opacity = '0.5'; m.style.pointerEvents = 'none';
+        window.app.currentLayer = {
+            type: 'screen', rows: 2, columns: 2, cabinet_width: 200,
+            cabinet_height: 200, panels: [], processorType: 'novastar-armor',
+            portMappingMode: 'max-capacity', flowPattern: 'tl-h',
+            bitDepth: 8, frameRate: 60
+        };
+        window.app.updatePortCapacityDisplay();
+        const out = {
+            orgOpacity: o.style.opacity, maxOpacity: m.style.opacity,
+            orgEvents: o.style.pointerEvents, maxEvents: m.style.pointerEvents,
+            orgTitle: o.title, maxTitle: m.title,
+            maxHighlighted: m.style.background
+        };
+        window.app.currentLayer = saved;
+        window.app.updatePortCapacityDisplay();
+        return out;
+    }""")
+    assert state['orgOpacity'] == '1' and state['maxOpacity'] == '1', state
+    assert state['orgEvents'] == 'auto' and state['maxEvents'] == 'auto', state
+    assert 'always uses rectangle-based mapping' not in state['orgTitle']
+    assert 'rectangle' in state['maxTitle'].lower(), state['maxTitle']
+    # Armor now reflects the layer's real mode instead of a forced Organized.
+    assert 'rgb(74, 144, 226)' in state['maxHighlighted'], state
+
+
+def test_port_mapping_buttons_not_latched_by_early_return(page):
+    """updatePortCapacityDisplay() leaves the buttons live even when it bails
+    out early (no current layer / image layer)."""
+    state = page.evaluate("""() => {
+        const o = document.getElementById('mapping-organized');
+        const m = document.getElementById('mapping-max-capacity');
+        // Force a stale greyed state, then take the no-current-layer path.
+        o.style.opacity = '0.5'; o.style.pointerEvents = 'none';
+        m.style.opacity = '0.5'; m.style.pointerEvents = 'none';
+        const saved = window.app.currentLayer;
+        window.app.currentLayer = null;
+        window.app.updatePortCapacityDisplay();
+        const afterNull = { o: o.style.opacity, m: m.style.opacity };
+        // And again via the image-layer path.
+        o.style.opacity = '0.5'; m.style.opacity = '0.5';
+        window.app.currentLayer = { type: 'image' };
+        window.app.updatePortCapacityDisplay();
+        const afterImage = { o: o.style.opacity, m: m.style.opacity };
+        window.app.currentLayer = saved;
+        window.app.updatePortCapacityDisplay();
+        return { afterNull, afterImage };
+    }""")
+    assert state['afterNull'] == {'o': '1', 'm': '1'}, state
+    assert state['afterImage'] == {'o': '1', 'm': '1'}, state
+
+
+# ── Armor Port Mapping normalization on project load (v0.10.9) ───────────
+
+
+def armor_fixture_project(flows_server, name):
+    """A saved-project payload with one Armor/max-capacity screen, one
+    Armor/organized screen, and one Brompton/max-capacity screen.
+
+    Built from the live project so every other field is shaped exactly as the
+    app writes it (canvas_id, panels, colors, ...).
+    """
+    import json
+    import urllib.request
+
+    with urllib.request.urlopen(flows_server + '/api/project') as resp:
+        project = json.load(resp)
+    base = project['layers'][0]
+
+    def clone(layer_id, layer_name, processor, mode):
+        layer = json.loads(json.dumps(base))
+        layer.update({
+            'id': layer_id, 'name': layer_name,
+            'processorType': processor, 'portMappingMode': mode,
+        })
+        return layer
+
+    project['name'] = name
+    project['layers'] = [
+        clone(901, 'ArmorMax', 'novastar-armor', 'max-capacity'),
+        clone(902, 'ArmorOrg', 'novastar-armor', 'organized'),
+        clone(903, 'BromptonMax', 'brompton', 'max-capacity'),
+    ]
+    return project
+
+
+def modes_by_name(page, source='project'):
+    src = ('window.app.project' if source == 'project'
+           else 'window.app.history[0].project')
+    return page.evaluate(
+        "() => Object.fromEntries(%s.layers.map("
+        "l => [l.name, l.portMappingMode]))" % src)
+
+
+def test_normalize_armor_port_mapping_only_touches_armor_max_capacity(page):
+    """The normalizer rewrites Armor+max-capacity and nothing else."""
+    result = page.evaluate("""() => {
+        const project = { layers: [
+            { id: 1, type: 'screen', processorType: 'novastar-armor',
+              portMappingMode: 'max-capacity' },
+            { id: 2, type: 'screen', processorType: 'novastar-armor',
+              portMappingMode: 'organized' },
+            { id: 3, type: 'screen', processorType: 'brompton',
+              portMappingMode: 'max-capacity' },
+            { id: 4, type: 'screen', processorType: 'novastar-5g',
+              portMappingMode: 'max-capacity' },
+            { id: 5, type: 'image', processorType: 'novastar-armor',
+              portMappingMode: 'max-capacity' },
+            { id: 6, type: 'screen', processorType: 'novastar-armor' },
+        ]};
+        return {
+            changed: window.app.normalizeArmorPortMapping(project),
+            modes: project.layers.map(l => l.portMappingMode || null),
+            nullProject: window.app.normalizeArmorPortMapping(null),
+            noLayers: window.app.normalizeArmorPortMapping({}),
+        };
+    }""")
+    assert result['changed'] == 1, result
+    assert result['modes'] == [
+        'organized',      # Armor + max-capacity -> normalized
+        'organized',      # Armor + organized -> untouched
+        'max-capacity',   # Brompton -> untouched
+        'max-capacity',   # NovaStar 5G -> untouched
+        'max-capacity',   # image layer -> untouched
+        None,             # no mode set -> left alone
+    ], result
+    assert result['nullProject'] == 0 and result['noLayers'] == 0, result
+
+
+def test_armor_max_capacity_survives_undo(page):
+    """Undo must NOT re-run the load-time normalization.
+
+    Deliberately choosing Max Capacity on an Armor screen and then undoing a
+    LATER edit has to leave Max Capacity in place.
+    """
+    page.evaluate("""() => {
+        window.app.selectLayer(window.app.project.layers[0]);
+        const sel = document.getElementById('processor-type');
+        sel.value = 'novastar-armor';
+        sel.dispatchEvent(new Event('change'));
+    }""")
+    page.wait_for_timeout(500)
+    page.evaluate("document.getElementById('mapping-max-capacity').click()")
+    page.wait_for_timeout(600)
+    assert page.evaluate(
+        "window.app.project.layers[0].portMappingMode") == 'max-capacity'
+
+    # A later, unrelated edit, so undo steps back ONTO the Max Capacity state.
+    before_cols = page.evaluate("window.app.project.layers[0].columns")
+    cols = page.locator('#screen-columns')
+    cols.fill(str(before_cols + 1))
+    cols.dispatch_event('change')
+    page.wait_for_timeout(600)
+
+    page.evaluate("window.app.handleMenuAction('undo')")
+    page.wait_for_timeout(900)
+    state = page.evaluate("""() => {
+        const l = window.app.project.layers[0];
+        return { mode: l.portMappingMode, processor: l.processorType,
+                 columns: l.columns };
+    }""")
+    assert state['columns'] == before_cols, (
+        f"undo did not step back (columns {state['columns']})")
+    assert state['processor'] == 'novastar-armor', state
+    assert state['mode'] == 'max-capacity', (
+        "undo reverted a deliberate Max Capacity choice on an Armor screen")
+
+
+def test_armor_max_capacity_normalized_on_file_open(page, flows_server, tmp_path):
+    """File > Open rewrites Armor+max-capacity to organized, and the first
+    undo snapshot already carries the corrected mode."""
+    import json
+
+    project = armor_fixture_project(flows_server, 'ArmorFixtureOpen')
+    path = tmp_path / 'armor_fixture.json'
+    path.write_text(json.dumps(project))
+
+    with page.expect_file_chooser() as chooser:
+        page.evaluate("window.app.loadProjectFromFile()")
+    chooser.value.set_files(str(path))
+    page.wait_for_function(
+        "() => window.app.project"
+        " && window.app.project.name === 'ArmorFixtureOpen'"
+        " && window.app.project.layers.length === 3",
+        timeout=10000)
+    page.wait_for_timeout(800)
+
+    modes = modes_by_name(page)
+    assert modes['ArmorMax'] == 'organized', (
+        f"Armor max-capacity was not normalized on load: {modes}")
+    assert modes['ArmorOrg'] == 'organized', modes
+    assert modes['BromptonMax'] == 'max-capacity', (
+        f"a non-Armor processor was normalized: {modes}")
+
+    # resetHistory('Initial State') ran after the fix-up, so undoing back to
+    # the start cannot resurrect the bogus mode.
+    assert modes_by_name(page, source='history') == modes
+
+
+def test_armor_max_capacity_normalized_on_recent_file_load(page, flows_server):
+    """The Recent Files path normalizes too (it does not share the file-open
+    code, so it needs its own hook)."""
+    project = armor_fixture_project(flows_server, 'ArmorFixtureRecent')
+    page.evaluate("""(project) => {
+        localStorage.setItem('ledRasterRecentFiles', JSON.stringify([{
+            name: project.name, timestamp: Date.now(),
+            layerCount: project.layers.length, data: project
+        }]));
+    }""", project)
+    page.evaluate("window.app.loadRecentFile(0)")
+    page.wait_for_function(
+        "() => window.app.project"
+        " && window.app.project.name === 'ArmorFixtureRecent'"
+        " && window.app.project.layers.length === 3",
+        timeout=10000)
+    page.wait_for_timeout(800)
+
+    modes = modes_by_name(page)
+    assert modes['ArmorMax'] == 'organized', modes
+    assert modes['ArmorOrg'] == 'organized', modes
+    assert modes['BromptonMax'] == 'max-capacity', modes
+    assert modes_by_name(page, source='history') == modes
+
+    # Leave the shared server/page on a clean project for anything after us.
+    page.evaluate("localStorage.removeItem('ledRasterRecentFiles')")
+    page.evaluate("window.app.createNewProject()")
+    page.wait_for_timeout(800)

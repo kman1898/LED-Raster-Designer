@@ -49,7 +49,11 @@ class _ExportIo {
         const portCapacity = this.calculatePortCapacity(bitDepth, frameRate, processorType);
         const pattern = layer.flowPattern || 'tl-h';
         const usesRectangle = this.usesRectangleConstraint(processorType);
-        const isOrganized = usesRectangle ? true : (mappingMode === 'organized');
+        // v0.10.9: honour the layer's Port Mapping mode on EVERY processor.
+        // Rectangle-constraint processors (NovaStar Armor) used to be forced
+        // into Organized; they now support Max Capacity as well, and the
+        // reserved-rectangle rule is enforced in both branches below.
+        const isOrganized = mappingMode === 'organized';
         const isHorizontalFirst = pattern.includes('-h');
         const startsTop = pattern.startsWith('t');
         const startsLeft = pattern.includes('l-');
@@ -166,6 +170,93 @@ class _ExportIo {
 
             if (layer._capacityError) return [];
             if (current.load > 0 || current.unitIndices.length > 0) ports.push(current);
+        } else if (usesRectangle) {
+            // v0.10.9: Max Capacity for rectangle-constraint processors
+            // (NovaStar Armor). The port's load is the pixel RECTANGLE the
+            // processor reserves around every visible cabinet in the port, not
+            // a plain pixel sum, so we carry a running bounding rect and grow
+            // it one cabinet at a time. A plain sum would under-count the
+            // reserved area and emit a map that over-fills the port.
+            //
+            // Hidden/blank cabinets: the traversal includes them here (line
+            // above passes includeHidden = usesRectangle) because they sit
+            // physically inside the reserved rectangle. They are skipped
+            // outright -- never added to the port's panel list, and never
+            // allowed to expand the rect on their own. A hidden cabinet that
+            // falls geometrically INSIDE the rect of the visible cabinets is
+            // already paid for by that rect, which is the real hardware
+            // behavior; adding its area separately would double-count it.
+            const panelRect = (panel) => {
+                const x1 = Number(panel.x) || 0;
+                const y1 = Number(panel.y) || 0;
+                return {
+                    minX: x1,
+                    minY: y1,
+                    maxX: x1 + (Number(panel.width) || 0),
+                    maxY: y1 + (Number(panel.height) || 0),
+                    count: 1
+                };
+            };
+            const unionRect = (rect, panel) => {
+                if (rect.count === 0) return panelRect(panel);
+                const r = panelRect(panel);
+                return {
+                    minX: Math.min(rect.minX, r.minX),
+                    minY: Math.min(rect.minY, r.minY),
+                    maxX: Math.max(rect.maxX, r.maxX),
+                    maxY: Math.max(rect.maxY, r.maxY),
+                    count: rect.count + 1
+                };
+            };
+            const rectArea = (rect) => (rect.count === 0 ? 0 : (rect.maxX - rect.minX) * (rect.maxY - rect.minY));
+
+            let current = { panels: [], load: 0 };
+            let currentRect = { minX: 0, minY: 0, maxX: 0, maxY: 0, count: 0 };
+
+            orderedForCapacity.forEach(panel => {
+                if (layer._capacityError) return;
+                if (panel.hidden) return;
+                const panelLoad = this.getPanelPixelArea(panel);
+                if (panelLoad <= 0) return;
+
+                // One cabinet that cannot fit in an empty port is a hard
+                // error, not a port we can split further. Surface it the same
+                // way the Organized branch does instead of looping forever or
+                // silently emitting an over-filled map.
+                const soloLoad = rectArea(panelRect(panel));
+                if (soloLoad > portCapacity) {
+                    layer._capacityError = {
+                        isHorizontalFirst,
+                        cols: layer.columns,
+                        rows: layer.rows,
+                        panelsPerPort: Math.floor(portCapacity / fullPanelPixels),
+                        portCapacity,
+                        panelPixels: fullPanelPixels,
+                        unitType: 'panel',
+                        unitCount: 1
+                    };
+                    return;
+                }
+
+                const candidateRect = unionRect(currentRect, panel);
+                const candidateLoad = rectArea(candidateRect);
+
+                if (current.panels.length > 0 && candidateLoad > portCapacity) {
+                    // Adding this cabinet would push the reserved rectangle
+                    // past the port limit, close the port and start a new one.
+                    current.load = rectArea(currentRect);
+                    ports.push(current);
+                    currentRect = panelRect(panel);
+                    current = { panels: [panel], load: soloLoad };
+                } else {
+                    current.panels.push(panel);
+                    currentRect = candidateRect;
+                    current.load = candidateLoad;
+                }
+            });
+
+            if (layer._capacityError) return [];
+            if (current.panels.length > 0) ports.push(current);
         } else {
             let current = { panels: [], load: 0 };
             orderedForCapacity.forEach(panel => {

@@ -137,8 +137,51 @@ class _Power {
         }
     }
     
+    // v0.10.9: Enable + highlight the Organized / Max Capacity buttons from the
+    // current layer's portMappingMode. Both modes are valid on every processor
+    // now; NovaStar Armor honours its reserved-rectangle rule in BOTH of them,
+    // which is why its usable capacity is lower than a plain pixel sum.
+    updatePortMappingButtons() {
+        const mappingOrgBtn = document.getElementById('mapping-organized');
+        const mappingMaxBtn = document.getElementById('mapping-max-capacity');
+        if (!mappingOrgBtn || !mappingMaxBtn) return;
+
+        const layer = this.currentLayer;
+        const processorType = (layer && layer.processorType) || 'novastar-armor';
+        const usesRectangle = this.usesRectangleConstraint(processorType);
+        const isOrganized = ((layer && layer.portMappingMode) || 'organized') === 'organized';
+
+        mappingOrgBtn.style.opacity = '1';
+        mappingOrgBtn.style.pointerEvents = 'auto';
+        mappingMaxBtn.style.opacity = '1';
+        mappingMaxBtn.style.pointerEvents = 'auto';
+
+        const rectNote = usesRectangle
+            ? ' NovaStar Armor reserves a pixel rectangle enclosing every cabinet in the port, so a port holds fewer pixels than the raw limit.'
+            : '';
+        mappingOrgBtn.title = 'Ports fill complete rows or columns only.' + rectNote;
+        mappingMaxBtn.title = 'Ports fill to max pixel capacity - may split mid-row/column.' + rectNote;
+
+        if (isOrganized) {
+            mappingOrgBtn.style.background = '#4A90E2';
+            mappingOrgBtn.style.color = '#fff';
+            mappingMaxBtn.style.background = '#333';
+            mappingMaxBtn.style.color = '#ccc';
+        } else {
+            mappingMaxBtn.style.background = '#4A90E2';
+            mappingMaxBtn.style.color = '#fff';
+            mappingOrgBtn.style.background = '#333';
+            mappingOrgBtn.style.color = '#ccc';
+        }
+    }
+
     // Update the port capacity display in the UI
     updatePortCapacityDisplay() {
+        // v0.10.9: run the button pass FIRST. It used to sit at the end of this
+        // function, behind the early returns below (no current layer / image
+        // layer), so the buttons could latch into a stale state.
+        this.updatePortMappingButtons();
+
         if (!this.currentLayer) {
             return;
         }
@@ -155,7 +198,6 @@ class _Power {
         const bitDepth = this.currentLayer.bitDepth || 8;
         const frameRate = this.currentLayer.frameRate || 60;
         const processorType = this.currentLayer.processorType || 'novastar-armor';
-        const mappingMode = this.currentLayer.portMappingMode || 'organized';
         const portCapacity = this.calculatePortCapacity(bitDepth, frameRate, processorType);
         
         // Update capacity display
@@ -186,7 +228,6 @@ class _Power {
         
         // Calculate total ports required from assignments
         const usesRectangle = this.usesRectangleConstraint(processorType);
-        const isOrganized = mappingMode === 'organized';
         const visiblePanels = this.currentLayer.panels ? this.currentLayer.panels.filter(p => !p.hidden).length : 0;
         const panelCountForStatus = usesRectangle && this.currentLayer.panels ? this.currentLayer.panels.length : visiblePanels;
         const assignments = this.calculatePortAssignments(this.currentLayer);
@@ -225,44 +266,6 @@ class _Power {
             }
         }
         
-        // Update mapping mode button states
-        const mappingOrgBtn = document.getElementById('mapping-organized');
-        const mappingMaxBtn = document.getElementById('mapping-max-capacity');
-        if (mappingOrgBtn && mappingMaxBtn) {
-            if (usesRectangle) {
-                // NovaStar 1G/Armor: always rectangle, disable both buttons
-                mappingOrgBtn.style.opacity = '0.5';
-                mappingOrgBtn.style.pointerEvents = 'none';
-                mappingOrgBtn.style.background = '#4A90E2';
-                mappingOrgBtn.style.color = '#fff';
-                mappingMaxBtn.style.opacity = '0.5';
-                mappingMaxBtn.style.pointerEvents = 'none';
-                mappingMaxBtn.style.background = '#333';
-                mappingMaxBtn.style.color = '#ccc';
-                mappingOrgBtn.title = 'NovaStar 1G/Armor always uses rectangle-based mapping';
-                mappingMaxBtn.title = 'NovaStar 1G/Armor always uses rectangle-based mapping';
-            } else {
-                // Enable both buttons and set active state
-                mappingOrgBtn.style.opacity = '1';
-                mappingOrgBtn.style.pointerEvents = 'auto';
-                mappingMaxBtn.style.opacity = '1';
-                mappingMaxBtn.style.pointerEvents = 'auto';
-                mappingOrgBtn.title = 'Ports fill complete rows or columns only';
-                mappingMaxBtn.title = 'Ports fill to max pixel capacity - may split mid-row/column';
-                
-                if (isOrganized) {
-                    mappingOrgBtn.style.background = '#4A90E2';
-                    mappingOrgBtn.style.color = '#fff';
-                    mappingMaxBtn.style.background = '#333';
-                    mappingMaxBtn.style.color = '#ccc';
-                } else {
-                    mappingMaxBtn.style.background = '#4A90E2';
-                    mappingMaxBtn.style.color = '#fff';
-                    mappingOrgBtn.style.background = '#333';
-                    mappingOrgBtn.style.color = '#ccc';
-                }
-            }
-        }
     }
 
     updatePowerCapacityDisplay() {

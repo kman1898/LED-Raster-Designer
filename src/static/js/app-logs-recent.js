@@ -450,6 +450,10 @@ class _LogsRecent {
                     this.normalizeLoadedPowerFlowPattern(layer);
                 });
             }
+            // v0.10.9: same Armor Port Mapping fix-up as loadProjectFromFile.
+            // Runs before the PUT so the server (and the first undo snapshot)
+            // get the corrected mode.
+            this.normalizeArmorPortMapping(this.project);
             // Sync renderer's pixel/show raster fields from the loaded file.
             // syncRasterFromProject handles view-aware raster + toolbar input.
             this.syncRasterFromProject();
@@ -482,6 +486,10 @@ class _LogsRecent {
                             this.normalizeLoadedPowerFlowPattern(layer);
                         });
                     }
+                    // v0.10.9: no-op when the pre-PUT pass already fixed them;
+                    // kept so the object that feeds resetHistory() below is
+                    // always normalized.
+                    this.normalizeArmorPortMapping(this.project);
                     this.updateUI();
                     if (this.project.layers && this.project.layers.length > 0) {
                         this.selectLayer(this.project.layers[0]);

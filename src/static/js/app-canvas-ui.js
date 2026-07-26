@@ -1087,6 +1087,11 @@ class _CanvasUi {
                                 this.normalizeLoadedPowerFlowPattern(layer);
                             });
                         }
+                        // v0.10.9: fix up Armor layers that carry a Max Capacity
+                        // flag they were never actually drawn with. Runs before
+                        // the PUT so the server (and the first undo snapshot)
+                        // get the corrected mode.
+                        this.normalizeArmorPortMapping(this.project);
 
                         // v0.8.7.2.1: ONLY trust root-level raster fields for
                         // legacy (pre-v0.8, no canvases array) files. Multi-
@@ -1139,6 +1144,10 @@ class _CanvasUi {
                                         this.normalizeLoadedPowerFlowPattern(layer);
                                     });
                                 }
+                                // v0.10.9: no-op when the pre-PUT pass already
+                                // fixed them; kept so the object that feeds
+                                // resetHistory() below is always normalized.
+                                this.normalizeArmorPortMapping(this.project);
                                 // Sync the canvas's pixel/show raster backing fields from the
                                 // loaded project so Show Look picks up the file's values
                                 // (and falls back to the pixel raster when show wasn't saved).
@@ -1277,7 +1286,35 @@ class _CanvasUi {
 
         layer.powerFlowPattern = originalPattern;
     }
-    
+
+    // v0.10.9: NovaStar Armor used to discard portMappingMode entirely -
+    // calculatePortAssignments forced Organized on it no matter what the layer
+    // said. Projects saved in that window can carry 'max-capacity' on an Armor
+    // screen while having been drawn (and printed) as Organized the whole time.
+    // Now that Armor honours both modes, opening such a file would silently
+    // redraw an already-issued map, so pin those layers back to the mode they
+    // really rendered with. LOAD PATHS ONLY: switching a layer to Armor by hand
+    // is a deliberate choice, and undo/redo must never re-apply this.
+    // Returns the number of layers changed.
+    normalizeArmorPortMapping(project) {
+        if (!project || !Array.isArray(project.layers)) return 0;
+        let changed = 0;
+        project.layers.forEach(layer => {
+            if (!layer || (layer.type || 'screen') !== 'screen') return;
+            // A missing processorType renders as Armor (calculatePortAssignments
+            // defaults to it), so those layers were drawn Organized too and get
+            // the same treatment.
+            if ((layer.processorType || 'novastar-armor') !== 'novastar-armor') return;
+            if (layer.portMappingMode !== 'max-capacity') return;
+            layer.portMappingMode = 'organized';
+            changed++;
+        });
+        if (changed > 0) {
+            sendClientLog('armor_port_mapping_normalized', { layers: changed });
+        }
+        return changed;
+    }
+
     renameLayer(layer, nameElement) {
         const currentName = layer.name;
         let renameFinished = false;

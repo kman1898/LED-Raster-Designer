@@ -1,6 +1,27 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.10.9 - July 26, 2026
+----------------------------
+- NEW: Port Mapping now works on NovaStar (Legacy). Both "Organized" and
+  "Max Capacity" were greyed out and unclickable on Legacy panels because
+  that processor reserves a pixel rectangle around each port, and only the
+  Organized grouping accounted for it. Max Capacity now does that same
+  rectangle math, so both modes are available and each port stays inside its
+  own limit. This matters on wide walls: a screen whose full row is too big
+  for one port could not be mapped at all before (it just showed a capacity
+  error), and Max Capacity can now split it into valid ports.
+  The rectangle rule applies only to NovaStar (Legacy). COEX 1G/5G,
+  Brompton, Brompton ULL and Megapixel HELIOS are unchanged.
+- FIX: The Port Mapping buttons could stay greyed out even after switching
+  to a processor that supports both modes, because the panel stopped
+  refreshing them when no screen (or an image layer) was selected.
+- CHANGE: Opening an older project that had "Max Capacity" saved on a
+  Legacy screen switches it to "Organized". That is what it was really
+  drawing before - the setting was being ignored - so already-issued maps
+  keep rendering exactly as they were. Choosing Max Capacity yourself from
+  now on sticks, including through undo.
+
 v0.10.8.1 - July 26, 2026
 ----------------------------
 - FIX: Hiding a cabinet next to a half-tile no longer moves that half-tile
