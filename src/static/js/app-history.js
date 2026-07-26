@@ -13,6 +13,11 @@ class _History {
     }
     
     saveState(action) {
+        // v0.10.7.2: history isn't allocated until resetHistory() runs, which is
+        // after setupEventListeners(). Guard against any save that fires before
+        // then (e.g. a debounced picker commit flushing during setup) rather than
+        // throwing on this.history.length and aborting the caller mid-setup.
+        if (!Array.isArray(this.history)) return;
         // v0.10.5: a debounced snapshot still waiting to fire must land BEFORE
         // this one, or history ends up out of order (and the pending timer
         // would later snapshot a state that already includes this action).
@@ -118,6 +123,18 @@ class _History {
                 this.currentLayer = this.project.layers.find(l => l.id === this.currentLayer.id) || null;
             }
             this.updateCustomFlowUI();
+            // v0.10.7.2: updateUI() re-renders the canvas but does NOT reload the
+            // Screen Info fields or the toolbar Raster inputs, so without this an
+            // undo/redo reverts the geometry while the sidebar keeps showing the
+            // pre-undo numbers (panel size / columns / rows / raster) - the value
+            // and the actual size disagree. Refresh them from the restored state,
+            // exactly as deleteCurrentLayer already does for the same reason.
+            if (typeof this.loadLayerToInputs === 'function') {
+                try { this.loadLayerToInputs(); } catch (_) {}
+            }
+            if (typeof this.syncRasterFromProject === 'function') {
+                try { this.syncRasterFromProject(); } catch (_) {}
+            }
             
             // Sync the restored state to the backend
             fetch('/api/project', {
@@ -161,6 +178,18 @@ class _History {
                 this.currentLayer = this.project.layers.find(l => l.id === this.currentLayer.id) || null;
             }
             this.updateCustomFlowUI();
+            // v0.10.7.2: updateUI() re-renders the canvas but does NOT reload the
+            // Screen Info fields or the toolbar Raster inputs, so without this an
+            // undo/redo reverts the geometry while the sidebar keeps showing the
+            // pre-undo numbers (panel size / columns / rows / raster) - the value
+            // and the actual size disagree. Refresh them from the restored state,
+            // exactly as deleteCurrentLayer already does for the same reason.
+            if (typeof this.loadLayerToInputs === 'function') {
+                try { this.loadLayerToInputs(); } catch (_) {}
+            }
+            if (typeof this.syncRasterFromProject === 'function') {
+                try { this.syncRasterFromProject(); } catch (_) {}
+            }
             
             // Sync the restored state to the backend
             fetch('/api/project', {

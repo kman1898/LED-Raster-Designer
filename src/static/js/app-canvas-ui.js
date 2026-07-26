@@ -301,7 +301,7 @@ class _CanvasUi {
 
     // Canvas mutation routed through one helper so every mutating call
     // gets one (and only one) post-mutation undo entry.
-    updateCanvas(canvasId, patch) {
+    updateCanvas(canvasId, patch, { skipHistory = false } = {}) {
         // Pick the most informative undo label from the patch keys.
         const keys = patch ? Object.keys(patch) : [];
         let label = 'Update Canvas';
@@ -318,7 +318,10 @@ class _CanvasUi {
             body: JSON.stringify(patch || {})
         }).then(r => r.json()).then(data => {
             this._applyProjectUpdate(data);
-            if (typeof this.saveState === 'function') this.saveState(label);
+            // skipHistory lets a continuous edit (e.g. dragging the native
+            // canvas color picker) persist every frame while a single coalesced
+            // snapshot is recorded by the caller once the drag settles.
+            if (!skipHistory && typeof this.saveState === 'function') this.saveState(label);
         });
     }
 
@@ -833,7 +836,13 @@ class _CanvasUi {
             canvas.color = (e.target.value || '').toLowerCase();
             if (window.canvasRenderer) window.canvasRenderer.render();
         };
-        proxy.onchange = (e) => this.updateCanvas(canvas.id, { color: (e.target.value || '').toLowerCase() });
+        proxy.onchange = (e) => {
+            // Native <input type=color> fires 'change' continuously while the
+            // macOS system picker is dragged. Persist each frame WITHOUT its own
+            // undo entry, then coalesce a single snapshot once the drag settles.
+            this.updateCanvas(canvas.id, { color: (e.target.value || '').toLowerCase() }, { skipHistory: true })
+                .then(() => this.debouncedSaveState('Change Canvas Color', 400, 'canvas-color'));
+        };
 
         // Same rule as every other color control: custom wheel on PC, native OS
         // picker on macOS. Either way it opens directly on "Change Color".

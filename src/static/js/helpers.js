@@ -141,7 +141,15 @@ function setupColorPickerWithHex(pickerId, hexId, onChangeCallback) {
     picker.addEventListener('input', (e) => setColor(e.target.value, false));
     picker.addEventListener('change', (e) => setColor(e.target.value, true));
     hex.addEventListener('change', () => setColor(hex.value, true));
-    setColor(picker.value || hex.value || '#ffffff', true);
+    // v0.10.7.2: initialize the DISPLAY only (isFinal=false). Passing true here
+    // made every picker simulate a user commit during setup - running
+    // updateLayers()/debouncedSaveState() before the history system is even
+    // initialized (resetHistory() runs after setupEventListeners). The first
+    // picker whose init-commit flushed a prior pending save called saveState()
+    // while this.history was still undefined, throwing and aborting the rest of
+    // setupEventListeners - leaving every later color picker unwired. isFinal=false
+    // is the same path every 'input' event takes, so all callbacks handle it safely.
+    setColor(picker.value || hex.value || '#ffffff', false);
 }
 
 function normalizeHex(val) {

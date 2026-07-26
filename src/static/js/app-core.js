@@ -1876,7 +1876,8 @@ export class LEDRasterApp {
                 layer.cabinetIdColor = val;
             });
             if (isFinal) {
-                this.updateLayers(this.getSelectedLayers(), true, 'Change Cabinet ID Color');
+                this.updateLayers(this.getSelectedLayers());
+                this.debouncedSaveState('Change Cabinet ID Color', 400, 'cabinet-id-color');
             }
             window.canvasRenderer.render();
         });
@@ -1905,21 +1906,20 @@ export class LEDRasterApp {
             this.applyToSelectedLayers(layer => {
                 layer.border_color_pixel = val;
             });
-            if (isFinal) {
-                this.updateLayers(this.getSelectedLayers(), true, 'Change Border Color');
-            }
             window.canvasRenderer.render();
+            if (isFinal) {
+                this.updateLayers(this.getSelectedLayers());
+                this.debouncedSaveState('Change Border Color', 400, 'border-color');
+            }
         });
         
         // Labels color with hex sync
         setupColorPickerWithHex('labels-color', 'labels-color-hex', (val, isFinal) => {
+            this.applyToSelectedLayers(layer => { layer.labelsColor = val; });
+            window.canvasRenderer.render();
             if (isFinal) {
-                this.updateLayerFromInputs();
-            } else {
-                this.applyToSelectedLayers(layer => {
-                    layer.labelsColor = val;
-                });
-                window.canvasRenderer.render();
+                this.updateLayers(this.getSelectedLayers());
+                this.debouncedSaveState('Change Label Color', 400, 'labels-color');
             }
         });
         
@@ -1928,10 +1928,11 @@ export class LEDRasterApp {
             this.applyToSelectedLayers(layer => {
                 layer.border_color_cabinet = val;
             });
-            if (isFinal) {
-                this.updateLayers(this.getSelectedLayers(), true, 'Change Border Color');
-            }
             window.canvasRenderer.render();
+            if (isFinal) {
+                this.updateLayers(this.getSelectedLayers());
+                this.debouncedSaveState('Change Border Color', 400, 'border-color-cabinet');
+            }
         });
         
         // Tab-specific border controls - Data Flow
@@ -1939,10 +1940,11 @@ export class LEDRasterApp {
             this.applyToSelectedLayers(layer => {
                 layer.border_color_data = val;
             });
-            if (isFinal) {
-                this.updateLayers(this.getSelectedLayers(), true, 'Change Border Color');
-            }
             window.canvasRenderer.render();
+            if (isFinal) {
+                this.updateLayers(this.getSelectedLayers());
+                this.debouncedSaveState('Change Border Color', 400, 'border-color-data');
+            }
         });
         
         // Tab-specific border controls - Power
@@ -1950,10 +1952,11 @@ export class LEDRasterApp {
             this.applyToSelectedLayers(layer => {
                 layer.border_color_power = val;
             });
-            if (isFinal) {
-                this.updateLayers(this.getSelectedLayers(), true, 'Change Border Color');
-            }
             window.canvasRenderer.render();
+            if (isFinal) {
+                this.updateLayers(this.getSelectedLayers());
+                this.debouncedSaveState('Change Border Color', 400, 'border-color-power');
+            }
         });
         
         // v0.8.8.x: per-layer panel border width, in LED pixels. One value
@@ -2978,7 +2981,10 @@ export class LEDRasterApp {
                 layer.dataFlowColor = val;
             });
             this.saveClientSideProperties();
-            if (isFinal) this.updateLayers(this.getSelectedLayers(), true, 'Change Data Flow Color');
+            if (isFinal) {
+                this.updateLayers(this.getSelectedLayers());
+                this.debouncedSaveState('Change Data Flow Color', 400, 'data-flow-color');
+            }
             window.canvasRenderer.render();
         });
         
@@ -2988,7 +2994,10 @@ export class LEDRasterApp {
                 layer.arrowColor = val;
             });
             this.saveClientSideProperties();
-            if (isFinal) this.updateLayers(this.getSelectedLayers(), true, 'Change Arrow Color');
+            if (isFinal) {
+                this.updateLayers(this.getSelectedLayers());
+                this.debouncedSaveState('Change Arrow Color', 400, 'arrow-color');
+            }
             window.canvasRenderer.render();
         });
         
@@ -2998,7 +3007,10 @@ export class LEDRasterApp {
                 layer.primaryColor = val;
             });
             this.saveClientSideProperties();
-            if (isFinal) this.updateLayers(this.getSelectedLayers(), true, 'Change Primary Port Color');
+            if (isFinal) {
+                this.updateLayers(this.getSelectedLayers());
+                this.debouncedSaveState('Change Primary Port Color', 400, 'primary-color');
+            }
             window.canvasRenderer.render();
         });
 
@@ -3008,7 +3020,10 @@ export class LEDRasterApp {
                 layer.primaryTextColor = val;
             });
             this.saveClientSideProperties();
-            if (isFinal) this.updateLayers(this.getSelectedLayers(), true, 'Change Primary Text Color');
+            if (isFinal) {
+                this.updateLayers(this.getSelectedLayers());
+                this.debouncedSaveState('Change Primary Text Color', 400, 'primary-text-color');
+            }
             window.canvasRenderer.render();
         });
         
@@ -3018,7 +3033,10 @@ export class LEDRasterApp {
                 layer.backupColor = val;
             });
             this.saveClientSideProperties();
-            if (isFinal) this.updateLayers(this.getSelectedLayers(), true, 'Change Backup Port Color');
+            if (isFinal) {
+                this.updateLayers(this.getSelectedLayers());
+                this.debouncedSaveState('Change Backup Port Color', 400, 'backup-color');
+            }
             window.canvasRenderer.render();
         });
 
@@ -3028,7 +3046,10 @@ export class LEDRasterApp {
                 layer.backupTextColor = val;
             });
             this.saveClientSideProperties();
-            if (isFinal) this.updateLayers(this.getSelectedLayers(), true, 'Change Backup Text Color');
+            if (isFinal) {
+                this.updateLayers(this.getSelectedLayers());
+                this.debouncedSaveState('Change Backup Text Color', 400, 'backup-text-color');
+            }
             window.canvasRenderer.render();
         });
 
@@ -3037,7 +3058,10 @@ export class LEDRasterApp {
                 layer.powerLineColor = val;
             });
             this.saveClientSideProperties();
-            if (isFinal) this.updateLayers(this.getSelectedLayers(), true, 'Change Power Line Color');
+            if (isFinal) {
+                this.updateLayers(this.getSelectedLayers());
+                this.debouncedSaveState('Change Power Line Color', 400, 'power-line-color');
+            }
             window.canvasRenderer.render();
         });
 
@@ -3046,7 +3070,10 @@ export class LEDRasterApp {
                 layer.powerArrowColor = val;
             });
             this.saveClientSideProperties();
-            if (isFinal) this.updateLayers(this.getSelectedLayers(), true, 'Change Power Arrow Color');
+            if (isFinal) {
+                this.updateLayers(this.getSelectedLayers());
+                this.debouncedSaveState('Change Power Arrow Color', 400, 'power-arrow-color');
+            }
             window.canvasRenderer.render();
         });
 
@@ -3055,7 +3082,10 @@ export class LEDRasterApp {
                 layer.powerLabelBgColor = val;
             });
             this.saveClientSideProperties();
-            if (isFinal) this.updateLayers(this.getSelectedLayers(), true, 'Change Power Label Background');
+            if (isFinal) {
+                this.updateLayers(this.getSelectedLayers());
+                this.debouncedSaveState('Change Power Label Background', 400, 'power-label-bg-color');
+            }
             window.canvasRenderer.render();
         });
 
@@ -3064,7 +3094,10 @@ export class LEDRasterApp {
                 layer.powerLabelTextColor = val;
             });
             this.saveClientSideProperties();
-            if (isFinal) this.updateLayers(this.getSelectedLayers(), true, 'Change Power Label Text Color');
+            if (isFinal) {
+                this.updateLayers(this.getSelectedLayers());
+                this.debouncedSaveState('Change Power Label Text Color', 400, 'power-label-text-color');
+            }
             window.canvasRenderer.render();
         });
         
@@ -3145,7 +3178,14 @@ export class LEDRasterApp {
                 layer.color1 = rgb;
             });
             window.canvasRenderer.render();
-            if (isFinal) this.updateLayers(this.getSelectedLayers(), true, 'Change Fill Color');
+            // Native <input type=color> fires 'change' continuously while the
+            // system picker is dragged, so record ONE coalesced undo step per
+            // drag (debounced) instead of one per frame - the latter buries the
+            // real history under dozens of 1-value colour steps.
+            if (isFinal) {
+                this.updateLayers(this.getSelectedLayers());
+                this.debouncedSaveState('Change Fill Color', 400, 'color1-picker');
+            }
         });
         setupColorPickerWithHex('color2-picker', 'color2-hex', (val, isFinal) => {
             const rgb = this.hexToRgb(val);
@@ -3153,7 +3193,10 @@ export class LEDRasterApp {
                 layer.color2 = rgb;
             });
             window.canvasRenderer.render();
-            if (isFinal) this.updateLayers(this.getSelectedLayers(), true, 'Change Fill Color');
+            if (isFinal) {
+                this.updateLayers(this.getSelectedLayers());
+                this.debouncedSaveState('Change Fill Color', 400, 'color2-picker');
+            }
         });
 
         // Transparent (no fill) override: render cabinets see-through so only

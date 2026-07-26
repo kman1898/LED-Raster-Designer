@@ -52,7 +52,10 @@ class _Colors {
         // isFinal is the commit (live drags/inputs pass false and only
         // repaint). Record ONE undo step here — every gradient control funnels
         // through this method, so the whole editor was previously non-undoable.
-        if (isFinal) this.updateLayers(this.getSelectedLayers(), true, 'Update Gradient');
+        if (isFinal) {
+            this.updateLayers(this.getSelectedLayers());
+            this.debouncedSaveState('Update Gradient', 400, 'gradient');
+        }
     }
 
     _gradientStops() {
@@ -530,7 +533,10 @@ class _Colors {
         if (window.canvasRenderer) window.canvasRenderer.render();
         // isFinal is the commit; record ONE undo step (every palette control
         // funnels through here, so the whole palette editor was non-undoable).
-        if (isFinal) this.updateLayers(this.getSelectedLayers(), true, 'Update Palette');
+        if (isFinal) {
+            this.updateLayers(this.getSelectedLayers());
+            this.debouncedSaveState('Update Palette', 400, 'palette');
+        }
     }
 
     setupPaletteEditor() {
