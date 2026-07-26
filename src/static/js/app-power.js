@@ -162,17 +162,11 @@ class _Power {
         mappingOrgBtn.title = 'Ports fill complete rows or columns only.' + rectNote;
         mappingMaxBtn.title = 'Ports fill to max pixel capacity - may split mid-row/column.' + rectNote;
 
-        if (isOrganized) {
-            mappingOrgBtn.style.background = '#4A90E2';
-            mappingOrgBtn.style.color = '#fff';
-            mappingMaxBtn.style.background = '#333';
-            mappingMaxBtn.style.color = '#ccc';
-        } else {
-            mappingMaxBtn.style.background = '#4A90E2';
-            mappingMaxBtn.style.color = '#fff';
-            mappingOrgBtn.style.background = '#333';
-            mappingOrgBtn.style.color = '#ccc';
-        }
+        // v0.10.9: the theme styles .mapping-mode-btn / .mapping-mode-btn.active
+        // with !important, so the .active class is the ONLY thing that can move
+        // the highlight. Inline background/color writes here were dead.
+        mappingOrgBtn.classList.toggle('active', isOrganized);
+        mappingMaxBtn.classList.toggle('active', !isOrganized);
     }
 
     // Update the port capacity display in the UI

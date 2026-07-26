@@ -16,6 +16,12 @@ v0.10.9 - July 26, 2026
 - FIX: The Port Mapping buttons could stay greyed out even after switching
   to a processor that supports both modes, because the panel stopped
   refreshing them when no screen (or an image layer) was selected.
+- FIX: The highlight now moves when you pick a Port Mapping mode. Clicking
+  "Max Capacity" changed the setting, but "Organized" stayed lit, so there
+  was no way to see which mode was actually in use. The buttons are styled
+  by the interface theme, which overrode the highlight the code was trying
+  to apply; they now use the theme's own selected state, on every path that
+  sets them (clicking, selecting a screen, and switching processor).
 - CHANGE: Opening an older project that had "Max Capacity" saved on a
   Legacy screen switches it to "Organized". That is what it was really
   drawing before - the setting was being ignored - so already-issued maps

@@ -775,7 +775,11 @@ def test_port_mapping_buttons_live_for_armor(page):
             orgOpacity: o.style.opacity, maxOpacity: m.style.opacity,
             orgEvents: o.style.pointerEvents, maxEvents: m.style.pointerEvents,
             orgTitle: o.title, maxTitle: m.title,
-            maxHighlighted: m.style.background
+            // v0.10.9: the theme's !important rules mean the .active CLASS is
+            // the highlight. Reading o.style.background here passed even while
+            // the button rendered unhighlighted -- never assert on it.
+            orgActive: o.classList.contains('active'),
+            maxActive: m.classList.contains('active')
         };
         window.app.currentLayer = saved;
         window.app.updatePortCapacityDisplay();
@@ -786,7 +790,7 @@ def test_port_mapping_buttons_live_for_armor(page):
     assert 'always uses rectangle-based mapping' not in state['orgTitle']
     assert 'rectangle' in state['maxTitle'].lower(), state['maxTitle']
     # Armor now reflects the layer's real mode instead of a forced Organized.
-    assert 'rgb(74, 144, 226)' in state['maxHighlighted'], state
+    assert state['maxActive'] and not state['orgActive'], state
 
 
 def test_port_mapping_buttons_not_latched_by_early_return(page):
@@ -813,6 +817,170 @@ def test_port_mapping_buttons_not_latched_by_early_return(page):
     }""")
     assert state['afterNull'] == {'o': '1', 'm': '1'}, state
     assert state['afterImage'] == {'o': '1', 'm': '1'}, state
+
+
+# ── Port Mapping highlight (v0.10.9) ─────────────────────────────────────
+# theme.css styles .mapping-mode-btn and .mapping-mode-btn.active with
+# !important, so the ONLY thing that can move the highlight is the .active
+# class -- inline background/color writes are painted over. These tests
+# therefore assert on classList and getComputedStyle. Asserting on
+# el.style.background is what let the broken highlight ship: the inline value
+# read back correctly while the button rendered unhighlighted.
+
+MAPPING_HIGHLIGHT_JS = """() => {
+    const o = document.getElementById('mapping-organized');
+    const m = document.getElementById('mapping-max-capacity');
+    const paint = el => {
+        const cs = getComputedStyle(el);
+        // background is a gradient here, so backgroundColor alone is
+        // transparent in BOTH states -- fold in the image and text colour.
+        return cs.backgroundImage + ' | ' + cs.backgroundColor + ' | ' + cs.color;
+    };
+    return {
+        orgActive: o.classList.contains('active'),
+        maxActive: m.classList.contains('active'),
+        orgPaint: paint(o),
+        maxPaint: paint(m)
+    };
+}"""
+
+
+def mapping_highlight(page):
+    return page.evaluate(MAPPING_HIGHLIGHT_JS)
+
+
+def use_screen_for_mapping(page, processor):
+    """Show the Data view with one screen layer selected on `processor`,
+    reset to Organized. Returns the layer id so tests can re-select it."""
+    page.locator('[data-mode="data-flow"]').click()
+    page.wait_for_timeout(400)
+    layer_id = page.evaluate("""(processor) => {
+        const app = window.app;
+        const screen = app.project.layers.find(
+            l => (l.type || 'screen') === 'screen' && l.visible !== false);
+        if (!screen) throw new Error('no screen layer available');
+        screen.processorType = processor;
+        screen.portMappingMode = 'organized';
+        app.selectLayer(screen);
+        return screen.id;
+    }""", processor)
+    page.wait_for_timeout(400)
+    return layer_id
+
+
+@pytest.mark.parametrize('processor', ['novastar-armor', 'brompton'])
+def test_port_mapping_click_moves_active_class(page, processor):
+    """Clicking Max Capacity moves the .active class off Organized, and the
+    two buttons then paint differently. Both buttons used to keep whatever
+    class the template hardcoded, so Organized stayed lit forever."""
+    use_screen_for_mapping(page, processor)
+
+    start = mapping_highlight(page)
+    assert start['orgActive'] and not start['maxActive'], start
+
+    page.locator('#mapping-max-capacity').click()
+    page.wait_for_timeout(500)
+    after_max = mapping_highlight(page)
+    assert after_max['maxActive'], f"{processor}: Max Capacity not active: {after_max}"
+    assert not after_max['orgActive'], f"{processor}: Organized still active: {after_max}"
+    assert after_max['maxPaint'] != after_max['orgPaint'], (
+        f"{processor}: both buttons render identically: {after_max}")
+    assert page.evaluate("window.app.currentLayer.portMappingMode") == 'max-capacity'
+
+    # ... and back again.
+    page.locator('#mapping-organized').click()
+    page.wait_for_timeout(500)
+    after_org = mapping_highlight(page)
+    assert after_org['orgActive'], f"{processor}: Organized not re-activated: {after_org}"
+    assert not after_org['maxActive'], f"{processor}: Max Capacity still active: {after_org}"
+    assert after_org['orgPaint'] != after_org['maxPaint'], after_org
+    assert page.evaluate("window.app.currentLayer.portMappingMode") == 'organized'
+
+
+@pytest.mark.parametrize('processor', ['novastar-armor', 'brompton'])
+def test_port_mapping_highlight_follows_selected_layer(page, processor):
+    """Selecting a layer stored as max-capacity lights Max Capacity
+    (loadLayerToInputs path), and re-selecting an organized layer flips back."""
+    layer_id = use_screen_for_mapping(page, processor)
+
+    page.evaluate("""(id) => {
+        const app = window.app;
+        const layer = app.project.layers.find(l => l.id === id);
+        layer.portMappingMode = 'max-capacity';
+        app.selectLayer(layer);
+    }""", layer_id)
+    page.wait_for_timeout(400)
+    state = mapping_highlight(page)
+    assert state['maxActive'] and not state['orgActive'], f"{processor}: {state}"
+    assert state['maxPaint'] != state['orgPaint'], state
+
+    page.evaluate("""(id) => {
+        const app = window.app;
+        const layer = app.project.layers.find(l => l.id === id);
+        layer.portMappingMode = 'organized';
+        app.selectLayer(layer);
+    }""", layer_id)
+    page.wait_for_timeout(400)
+    state = mapping_highlight(page)
+    assert state['orgActive'] and not state['maxActive'], f"{processor}: {state}"
+
+
+def test_perspective_buttons_highlight_by_class(page):
+    """Front/Back share the same !important theme rules as Port Mapping.
+    They already toggle .active -- lock that in so they can't regress to
+    inline styles."""
+    page.locator('[data-mode="data-flow"]').click()
+    page.wait_for_timeout(300)
+    read = """() => {
+        const f = document.getElementById('data-flow-perspective-front');
+        const b = document.getElementById('data-flow-perspective-back');
+        const paint = el => {
+            const cs = getComputedStyle(el);
+            return cs.backgroundImage + ' | ' + cs.color;
+        };
+        return {
+            frontActive: f.classList.contains('active'),
+            backActive: b.classList.contains('active'),
+            frontPaint: paint(f), backPaint: paint(b)
+        };
+    }"""
+    page.locator('#data-flow-perspective-back').click()
+    page.wait_for_timeout(600)
+    state = page.evaluate(read)
+    assert state['backActive'] and not state['frontActive'], state
+    assert state['backPaint'] != state['frontPaint'], state
+
+    page.locator('#data-flow-perspective-front').click()
+    page.wait_for_timeout(600)
+    state = page.evaluate(read)
+    assert state['frontActive'] and not state['backActive'], state
+
+
+def test_flow_pattern_buttons_highlight_by_class(page):
+    """Data Flow pattern tiles carry the same !important theme rules; they
+    already toggle .active. Guard against an inline-style regression."""
+    page.locator('[data-mode="data-flow"]').click()
+    page.wait_for_timeout(300)
+    page.locator('.flow-pattern-btn[data-pattern="bl-v"]:not(.power-flow-pattern-btn)').click()
+    page.wait_for_timeout(500)
+    state = page.evaluate("""() => {
+        const btns = [...document.querySelectorAll(
+            '.flow-pattern-btn:not(.power-flow-pattern-btn)')];
+        const active = btns.filter(b => b.classList.contains('active'));
+        const other = btns.find(b => !b.classList.contains('active'));
+        const paint = el => getComputedStyle(el).backgroundImage;
+        return {
+            activePatterns: active.map(b => b.getAttribute('data-pattern')),
+            activePaint: active.length ? paint(active[0]) : null,
+            otherPaint: other ? paint(other) : null
+        };
+    }""")
+    assert state['activePatterns'] == ['bl-v'], state
+    assert state['activePaint'] != state['otherPaint'], state
+    # Hand the shared page back on Pixel Map, the tab the later tests expect
+    # (Screen Info's inputs are hidden while the Data view is up).
+    page.locator('[data-mode="pixel-map"]').click()
+    page.wait_for_timeout(300)
 
 
 # ── Armor Port Mapping normalization on project load (v0.10.9) ───────────

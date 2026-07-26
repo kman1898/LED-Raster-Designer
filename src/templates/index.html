@@ -539,13 +539,15 @@
                             <div class="info-row" style="margin-bottom: 8px;" data-tooltip="Port Mapping, Organized fills clean rows/columns per port; Max Capacity fills to the pixel limit.">
                                 <label>Port Mapping</label>
                                 <div style="display: flex; gap: 4px; width: 100%;">
-                                    <button type="button" id="mapping-organized" class="mapping-mode-btn active" 
-                                        style="flex: 1; padding: 5px 8px; font-size: 11px; border: 1px solid #555; border-radius: 4px; cursor: pointer; background: #4A90E2; color: #fff; transition: all 0.15s;"
+                                    <!-- v0.10.9: highlight comes from the .active class only (see
+                                         .mapping-mode-btn.active in theme.css); no inline background/color. -->
+                                    <button type="button" id="mapping-organized" class="mapping-mode-btn active"
+                                        style="flex: 1; padding: 5px 8px; font-size: 11px; border: 1px solid #555; border-radius: 4px; cursor: pointer; transition: all 0.15s;"
                                         title="Ports fill complete rows or columns only - clean rectangular port regions">
                                         Organized
                                     </button>
                                     <button type="button" id="mapping-max-capacity" class="mapping-mode-btn"
-                                        style="flex: 1; padding: 5px 8px; font-size: 11px; border: 1px solid #555; border-radius: 4px; cursor: pointer; background: #333; color: #ccc; transition: all 0.15s;"
+                                        style="flex: 1; padding: 5px 8px; font-size: 11px; border: 1px solid #555; border-radius: 4px; cursor: pointer; transition: all 0.15s;"
                                         title="Ports fill to maximum pixel capacity - may split mid-row/column">
                                         Max Capacity
                                     </button>

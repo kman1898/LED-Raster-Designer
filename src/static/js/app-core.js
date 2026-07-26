@@ -2142,21 +2142,15 @@ export class LEDRasterApp {
                 layer.portMappingMode = mode;
             });
             
-            // Update button styles
+            // v0.10.9: highlight via the .active CLASS, not inline styles. The
+            // theme's .mapping-mode-btn rules are !important, so inline
+            // background/color writes were painted over and the highlight
+            // never moved off Organized.
             if (mappingOrganizedBtn && mappingMaxCapBtn) {
-                if (mode === 'organized') {
-                    mappingOrganizedBtn.style.background = '#4A90E2';
-                    mappingOrganizedBtn.style.color = '#fff';
-                    mappingMaxCapBtn.style.background = '#333';
-                    mappingMaxCapBtn.style.color = '#ccc';
-                } else {
-                    mappingMaxCapBtn.style.background = '#4A90E2';
-                    mappingMaxCapBtn.style.color = '#fff';
-                    mappingOrganizedBtn.style.background = '#333';
-                    mappingOrganizedBtn.style.color = '#ccc';
-                }
+                mappingOrganizedBtn.classList.toggle('active', mode === 'organized');
+                mappingMaxCapBtn.classList.toggle('active', mode !== 'organized');
             }
-            
+
             this.saveClientSideProperties();
             this.updatePortCapacityDisplay();
             this.updatePortLabelEditor();
@@ -2180,8 +2174,11 @@ export class LEDRasterApp {
                     return;
                 }
                 
-                // Remove active class from all buttons
-                document.querySelectorAll('.flow-pattern-btn').forEach(b => b.classList.remove('active'));
+                // Remove active class from all buttons. v0.10.9: scope this to the
+                // Data grid - the Power tiles carry BOTH classes, so an unscoped
+                // selector cleared their highlight too (matching the listener
+                // registration above and the Power grid's own handler).
+                document.querySelectorAll('.flow-pattern-btn:not(.power-flow-pattern-btn)').forEach(b => b.classList.remove('active'));
                 // Add active to clicked button
                 btn.classList.add('active');
                 

@@ -1586,17 +1586,10 @@ class _ScreenInfo {
         const mappingOrgBtn = document.getElementById('mapping-organized');
         const mappingMaxBtn = document.getElementById('mapping-max-capacity');
         if (mappingOrgBtn && mappingMaxBtn) {
-            if (mappingMode === 'organized') {
-                mappingOrgBtn.style.background = '#4A90E2';
-                mappingOrgBtn.style.color = '#fff';
-                mappingMaxBtn.style.background = '#333';
-                mappingMaxBtn.style.color = '#ccc';
-            } else {
-                mappingMaxBtn.style.background = '#4A90E2';
-                mappingMaxBtn.style.color = '#fff';
-                mappingOrgBtn.style.background = '#333';
-                mappingOrgBtn.style.color = '#ccc';
-            }
+            // v0.10.9: highlight is the .active class (theme rules are
+            // !important), not inline background/color.
+            mappingOrgBtn.classList.toggle('active', mappingMode === 'organized');
+            mappingMaxBtn.classList.toggle('active', mappingMode !== 'organized');
         }
         
         // Update port capacity display
