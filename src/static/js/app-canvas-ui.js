@@ -1224,6 +1224,12 @@ class _CanvasUi {
 
     applyMissingLayerDefaults(layer) {
         if (layer.locked === undefined) layer.locked = false;
+        // v0.10.9: File > Open and Recent Files come through here, not through
+        // loadClientSideProperties, so the brompton-ull migration has to run on
+        // this path too or an old file would keep a processor that is no longer
+        // offered. Runs before the default below: it sets lowLatency itself.
+        this.migrateLowLatencyProcessor(layer);
+        if (layer.lowLatency === undefined) layer.lowLatency = false;
         if (layer.powerVoltage === undefined) layer.powerVoltage = 110;
         if (layer.powerVoltageCustom === undefined) layer.powerVoltageCustom = layer.powerVoltage;
         if (layer.powerAmperage === undefined) layer.powerAmperage = 15;

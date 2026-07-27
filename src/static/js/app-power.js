@@ -175,6 +175,9 @@ class _Power {
         // function, behind the early returns below (no current layer / image
         // layer), so the buttons could latch into a stale state.
         this.updatePortMappingButtons();
+        // v0.10.9: same reasoning - the Low Latency control and its note must
+        // not latch on a stale processor when the early returns below fire.
+        this.updateLowLatencyUI();
 
         if (!this.currentLayer) {
             return;
@@ -192,7 +195,8 @@ class _Power {
         const bitDepth = this.currentLayer.bitDepth || 8;
         const frameRate = this.currentLayer.frameRate || 60;
         const processorType = this.currentLayer.processorType || 'novastar-armor';
-        const portCapacity = this.calculatePortCapacity(bitDepth, frameRate, processorType);
+        const portCapacity = this.calculatePortCapacity(
+            bitDepth, frameRate, processorType, !!this.currentLayer.lowLatency);
         
         // Update capacity display
         const capacityEl = document.getElementById('port-capacity');

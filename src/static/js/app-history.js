@@ -526,6 +526,7 @@ class _History {
             bitDepth: layer.bitDepth,
             frameRate: layer.frameRate,
             processorType: layer.processorType,
+            lowLatency: layer.lowLatency,
             portMappingMode: layer.portMappingMode,
             screenNameSizeCabinet: layer.screenNameSizeCabinet,
             screenNameSizeDataFlow: layer.screenNameSizeDataFlow,

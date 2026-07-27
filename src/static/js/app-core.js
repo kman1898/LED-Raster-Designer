@@ -313,6 +313,7 @@ export class LEDRasterApp {
             bitDepth: layer.bitDepth,
             frameRate: layer.frameRate,
             processorType: layer.processorType,
+            lowLatency: layer.lowLatency,
             portMappingMode: layer.portMappingMode,
             portLabelTemplatePrimary: layer.portLabelTemplatePrimary,
             portLabelTemplateReturn: layer.portLabelTemplateReturn,
@@ -497,6 +498,18 @@ export class LEDRasterApp {
             });
     }
     
+    // v0.10.9: 'brompton-ull' used to be its own processor entry holding the
+    // Brompton table halved. It is now Brompton + Low Latency, which produces
+    // the same numbers from one table. Old files and old presets keep the old
+    // value forever, so every load path runs this. Returns true if it changed
+    // the layer.
+    migrateLowLatencyProcessor(layer) {
+        if (!layer || layer.processorType !== 'brompton-ull') return false;
+        layer.processorType = 'brompton';
+        layer.lowLatency = true;
+        return true;
+    }
+
     // Load client-side properties from localStorage
     loadClientSideProperties({ skipPreferences = false } = {}) {
         if (!this.project || !this.project.layers) return;
@@ -540,6 +553,7 @@ export class LEDRasterApp {
                         if (layerProps.bitDepth !== undefined) layer.bitDepth = layerProps.bitDepth;
                         if (layerProps.frameRate !== undefined) layer.frameRate = layerProps.frameRate;
                         if (layerProps.processorType !== undefined) layer.processorType = layerProps.processorType;
+                        if (layerProps.lowLatency !== undefined) layer.lowLatency = layerProps.lowLatency;
                         if (layerProps.portMappingMode !== undefined) layer.portMappingMode = layerProps.portMappingMode;
                         if (layerProps.portLabelTemplatePrimary !== undefined) layer.portLabelTemplatePrimary = layerProps.portLabelTemplatePrimary;
                         if (layerProps.portLabelTemplateReturn !== undefined) layer.portLabelTemplateReturn = layerProps.portLabelTemplateReturn;
@@ -635,6 +649,10 @@ export class LEDRasterApp {
             if (layer.processorType === undefined) layer.processorType = prefs.processorType;
             if (layer.processorType === 'novastar-1g') layer.processorType = 'novastar-coex-1g';
             if (layer.processorType === 'novastar-armor-1g') layer.processorType = 'novastar-armor';
+            // v0.10.9: sets lowLatency itself when it fires, so it has to run
+            // before the default below or the migrated flag gets stamped out.
+            this.migrateLowLatencyProcessor(layer);
+            if (layer.lowLatency === undefined) layer.lowLatency = !!prefs.lowLatency;
             if (layer.portMappingMode === undefined) layer.portMappingMode = 'organized';
             if (layer.portLabelTemplatePrimary === undefined) layer.portLabelTemplatePrimary = 'P#';
             if (layer.portLabelTemplateReturn === undefined) layer.portLabelTemplateReturn = 'R#';
@@ -708,6 +726,7 @@ export class LEDRasterApp {
         if (startupDefaultMatch) {
             const layer = this.project.layers[0];
             layer.processorType = prefs.processorType;
+            layer.lowLatency = !!prefs.lowLatency;
             layer.bitDepth = prefs.bitDepth;
             layer.frameRate = prefs.frameRate;
             layer.powerVoltage = prefs.powerVoltage;
@@ -756,6 +775,7 @@ export class LEDRasterApp {
             });
             sendClientLog('startup_preferences_enforced', {
                 processorType: layer.processorType,
+                lowLatency: layer.lowLatency,
                 bitDepth: layer.bitDepth,
                 frameRate: layer.frameRate,
                 powerVoltage: layer.powerVoltage,
@@ -795,6 +815,7 @@ export class LEDRasterApp {
                 bitDepth: layer.bitDepth,
                 frameRate: layer.frameRate,
                 processorType: layer.processorType,
+                lowLatency: layer.lowLatency,
                 portMappingMode: layer.portMappingMode,
                 portLabelTemplatePrimary: layer.portLabelTemplatePrimary,
                 portLabelTemplateReturn: layer.portLabelTemplateReturn,
@@ -1142,6 +1163,7 @@ export class LEDRasterApp {
         this.currentLayer.powerLabelBgColor = this.currentLayer.powerLabelBgColor || '#D95000';
         this.currentLayer.powerLabelTextColor = this.currentLayer.powerLabelTextColor || '#000000';
         this.currentLayer.processorType = prefs.processorType;
+        this.currentLayer.lowLatency = !!prefs.lowLatency;
         this.currentLayer.bitDepth = prefs.bitDepth;
         this.currentLayer.frameRate = prefs.frameRate;
         this.currentLayer.powerVoltage = prefs.powerVoltage;
@@ -2105,7 +2127,24 @@ export class LEDRasterApp {
                 window.canvasRenderer.render();
             });
         }
-        
+
+        // v0.10.9: Low Latency mirrors the Processor Type handler above - same
+        // capacity + port-label refresh, and a single updateLayers(..., true)
+        // so the toggle records exactly ONE undo step.
+        const lowLatencyCheckbox = document.getElementById('low-latency');
+        if (lowLatencyCheckbox) {
+            lowLatencyCheckbox.addEventListener('change', () => {
+                this.applyToSelectedLayers(layer => {
+                    layer.lowLatency = lowLatencyCheckbox.checked;
+                });
+                this.saveClientSideProperties();
+                this.updatePortCapacityDisplay();
+                this.updatePortLabelEditor();
+                this.updateLayers(this.getSelectedLayers(), true, 'Change Low Latency');
+                window.canvasRenderer.render();
+            });
+        }
+
         if (bitDepthSelect) {
             bitDepthSelect.addEventListener('change', () => {
                 this.applyToSelectedLayers(layer => {
@@ -3575,7 +3614,82 @@ export class LEDRasterApp {
             if (k.startsWith('_')) return;
             layer[k] = presetData[k];
         });
+        // v0.10.9: presets saved before Low Latency existed can still carry
+        // 'brompton-ull', so migrate here as well as on the file-load paths.
+        this.migrateLowLatencyProcessor(layer);
+        if (layer.lowLatency === undefined) layer.lowLatency = false;
     }
+
+    // v0.10.9: Low Latency behaviour per processor family. Single source of
+    // truth for both the capacity math (calculatePortCapacity) and the note
+    // shown next to the Low Latency control.
+    //
+    // Provenance:
+    //  - Brompton: Tessera User Manual section 4.4, the published Ultra Low
+    //    Latency pixels-per-port columns (16 frame rates x 3 bit depths).
+    //    Every ULL cell is the normal-mode cell halved and floored, so the
+    //    factor is EXACTLY 0.5 rather than a per-cell table. ULL is an
+    //    SX40/S8 feature and needs an HDMI source. The "Low Latency Mode" on
+    //    T1/M2 is a different feature and costs no capacity at all.
+    //  - Megapixel: "HELIOS(R) LED Processing Platform - User Guide" v26.04.0
+    //    (2026-04-20). Tile LL + Processor LL do not change the Appendix K.14
+    //    port capacities; the real cost is halved daisy-chain length in
+    //    stacked columns.
+    //  - NovaStar COEX: confirmed with NovaStar. A port whose topmost cabinet
+    //    does not sit at canvas Y=0 keeps only (1 - Y / canvasHeight) of its
+    //    normal-mode capacity.
+    //  - NovaStar Legacy (NovaLCT-era Armor + MRV cards): low latency
+    //    constrains port GEOMETRY rather than the pixel budget - cabinets load
+    //    vertically and a port may not exceed 512 px in width.
+    //
+    // capacity.kind:
+    //   'factor'     - multiply the table lookup by capacity.factor
+    //   'none'       - low latency costs no pixels per port
+    //   'y-derate'   - PASS 2. Needs each port's Y against the canvas height,
+    //                  which the capacity lookup does not see. Until it lands
+    //                  this derates NOTHING and the UI says so; a guessed
+    //                  multiplier here would ship a wrong port count, and a
+    //                  wrong port count is a dark wall.
+    //   'port-width' - PASS 2. Also geometric (vertical load, maxPortWidth);
+    //                  same no-derate + visible-note rule as above.
+    lowLatencyProfiles = {
+        'novastar-armor': {
+            supported: true,
+            capacity: { kind: 'port-width', maxPortWidth: 512 },
+            note: 'Ports load vertically, max 512 px wide.'
+        },
+        'novastar-coex-1g': {
+            supported: true,
+            capacity: { kind: 'y-derate' },
+            note: 'Capacity reduces the further down the canvas a port starts.'
+        },
+        'novastar-5g': {
+            supported: true,
+            capacity: { kind: 'y-derate' },
+            note: 'Capacity reduces the further down the canvas a port starts.'
+        },
+        'brompton': {
+            supported: true,
+            capacity: { kind: 'factor', factor: 0.5 },
+            note: 'Ultra Low Latency: SX40/S8 only. HDMI input, no SDI. Halves pixels per port.'
+        },
+        'megapixel-1g': {
+            supported: true,
+            capacity: { kind: 'none' },
+            note: 'No capacity change; halves daisy-chain length in stacked columns.'
+        },
+        'megapixel-2.5g': {
+            supported: true,
+            capacity: { kind: 'none' },
+            note: 'No capacity change; halves daisy-chain length in stacked columns.'
+        }
+    };
+
+    // v0.10.9: capacity kinds whose math actually runs today. Pass 2 adds
+    // 'y-derate' and 'port-width' here as it implements them. Until a kind is
+    // listed, isLowLatencyCapacityPending() is true and the UI states plainly
+    // that the constraint is not in the numbers yet.
+    lowLatencyImplementedKinds = ['factor', 'none'];
 
     // Port capacity lookup tables from manufacturer specs
     // Keys are frame rates, values are pixel capacities
@@ -3605,6 +3719,12 @@ export class LEDRasterApp {
             10: { 24:1050000, 25:1008000, 30:840000,  48:525000, 50:504000, 60:420000, 72:350000, 100:252000, 120:210000, 144:175000, 150:168000, 180:140000, 192:131250, 200:126000, 240:105000, 250:100800 },
             12: { 24:875000,  25:840000,  30:700000,   48:437500, 50:420000, 60:350000, 72:291667, 100:210000, 120:175000, 144:145833, 150:140000, 180:116667, 192:109375, 200:105000, 240:87500,  250:84000 }
         },
+        // v0.10.9: superseded by 'brompton' + lowLatency (migrateLowLatencyProcessor).
+        // Kept so a stale value that slipped past the migration - an old preset, a
+        // hand-edited file, a layer restored from localStorage - still resolves to a
+        // real capacity instead of falling through to 0 / "N/A". Removed from both
+        // <select> blocks so it can no longer be chosen. Do NOT halve it again:
+        // these cells are already the ULL numbers.
         'brompton-ull': {
             8:  { 24:656250,  25:630000,  30:525000,  48:328125, 50:315000, 60:262500, 72:218750, 100:157500, 120:131250, 144:109375, 150:105000, 180:87500,  192:82031,  200:78750,  240:65625,  250:63000 },
             10: { 24:525000,  25:504000,  30:420000,  48:262500, 50:252000, 60:210000, 72:175000, 100:126000, 120:105000, 144:87500,  150:84000,  180:70000,  192:65625,  200:63000,  240:52500,  250:50400 },

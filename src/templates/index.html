@@ -496,7 +496,6 @@
                                     <option value="novastar-coex-1g">NovaStar COEX A10s/A8s (1G)</option>
                                     <option value="novastar-5g">NovaStar COEX CX40 (5G)</option>
                                     <option value="brompton">Brompton Tessera</option>
-                                    <option value="brompton-ull">Brompton Tessera (ULL)</option>
                                     <option value="megapixel-1g">Megapixel HELIOS (1G)</option>
                                     <option value="megapixel-2.5g">Megapixel HELIOS (2.5G)</option>
                                 </select>
@@ -553,7 +552,16 @@
                                     </button>
                                 </div>
                             </div>
-                            
+
+                            <!-- v0.10.9: per-layer Low Latency. What it costs
+                                 depends on the processor family, so the note
+                                 below is filled in from lowLatencyProfiles. -->
+                            <div class="info-row checkbox-row" data-tooltip="Low Latency, Enable the processor's low latency mode; the cost depends on the processor family.">
+                                <input type="checkbox" id="low-latency">
+                                <label for="low-latency">Low Latency</label>
+                            </div>
+                            <p id="low-latency-note" style="font-size: 11px; color: #888; margin: 0 0 8px 0;"></p>
+
                             <div style="margin-top: 10px; padding: 8px; background: #252525; border-radius: 4px;">
                                 <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px;">
                                     <span style="color: #888;">Pixels/Port:</span>
@@ -1761,10 +1769,16 @@
                         <option value="novastar-coex-1g">NovaStar COEX A10s/A8s (1G)</option>
                         <option value="novastar-5g">NovaStar COEX CX40 (5G)</option>
                         <option value="brompton">Brompton Tessera</option>
-                        <option value="brompton-ull">Brompton Tessera (ULL)</option>
                         <option value="megapixel-1g">Megapixel HELIOS (1G)</option>
                         <option value="megapixel-2.5g">Megapixel HELIOS (2.5G)</option>
                     </select>
+                </div>
+                <div class="prefs-group">
+                    <label>Default Low Latency</label>
+                    <div class="prefs-row" style="align-items: center; gap: 8px;">
+                        <input type="checkbox" id="pref-low-latency">
+                        <span style="font-size: 11px; color: #888;">New screens start with Low Latency on</span>
+                    </div>
                 </div>
                 <div class="prefs-group">
                     <label>Default Bit Depth / Frame Rate</label>

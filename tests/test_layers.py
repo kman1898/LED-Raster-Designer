@@ -260,3 +260,78 @@ def test_duplicate_layer_preserves_data_label_properties(client):
     assert layer['customPortPaths'] == {'1': [{'row': 0, 'col': 0}, {'row': 0, 'col': 1}]}
     assert layer['customPortIndex'] == 2
     assert layer['randomDataColors'] is True
+
+
+# ── Per-layer Low Latency (v0.10.9) ──────────────────────────────────────
+# lowLatency changes how many pixels a data port can carry, so a value that
+# silently fails to persist would hand the user a port count that does not
+# match what they configured.
+
+
+def test_new_layer_defaults_low_latency_off(client):
+    """create_layer seeds lowLatency=False, mirroring bitDepth/frameRate."""
+    resp = client.post('/api/layer/add', json={'name': 'LLDefault'})
+    assert resp.status_code == 200
+    assert resp.get_json()['lowLatency'] is False
+
+
+def test_update_layer_low_latency_round_trips(client_with_layer):
+    """PUT /api/layer/<id> must accept lowLatency.
+
+    It is not in the whitelist by default, and an unlisted key is dropped
+    without an error, so this is the only thing standing between the toggle
+    and a silent no-op.
+    """
+    project = client_with_layer.get('/api/project').get_json()
+    layer_id = project['layers'][0]['id']
+
+    resp = client_with_layer.put(f'/api/layer/{layer_id}', json={
+        'processorType': 'brompton',
+        'lowLatency': True,
+    })
+    assert resp.status_code == 200
+    assert resp.get_json()['lowLatency'] is True
+
+    # Persisted, not just echoed.
+    stored = client_with_layer.get('/api/project').get_json()['layers'][0]
+    assert stored['lowLatency'] is True
+    assert stored['processorType'] == 'brompton'
+
+    # ...and it can be turned back off.
+    resp = client_with_layer.put(f'/api/layer/{layer_id}', json={'lowLatency': False})
+    assert resp.get_json()['lowLatency'] is False
+
+
+def test_seed_data_with_canvas_defaults_inherits_low_latency(client):
+    """A new screen on a canvas inherits lowLatency from its newest sibling,
+    exactly as it inherits processorType/bitDepth/frameRate."""
+    import app as app_module
+
+    donor = client.post('/api/layer/add', json={'name': 'LLDonor'}).get_json()
+    client.put(f"/api/layer/{donor['id']}", json={
+        'processorType': 'brompton', 'lowLatency': True})
+
+    data = {'canvas_id': donor.get('canvas_id')}
+    app_module._seed_data_with_canvas_defaults(data)
+    assert data['processorType'] == 'brompton'
+    assert data['lowLatency'] is True
+
+    # A caller that states its own value keeps it.
+    explicit = {'canvas_id': donor.get('canvas_id'), 'lowLatency': False}
+    app_module._seed_data_with_canvas_defaults(explicit)
+    assert explicit['lowLatency'] is False
+
+
+def test_restore_project_preserves_low_latency(client):
+    """PUT /api/project (undo/redo + file load) keeps the flag on each layer."""
+    layer = client.post('/api/layer/add', json={'name': 'LLRestore'}).get_json()
+    project = client.get('/api/project').get_json()
+    for lyr in project['layers']:
+        lyr['processorType'] = 'brompton'
+        lyr['lowLatency'] = True
+
+    resp = client.put('/api/project', json=project)
+    assert resp.status_code == 200
+    restored = resp.get_json()
+    assert [l['lowLatency'] for l in restored['layers']] == [True] * len(restored['layers'])
+    assert any(l['id'] == layer['id'] for l in restored['layers'])

@@ -603,7 +603,7 @@ def _seed_data_with_canvas_defaults(data):
     except Exception:
         donor = siblings[-1]
     inheritable = (
-        'processorType', 'bitDepth', 'frameRate',
+        'processorType', 'lowLatency', 'bitDepth', 'frameRate',
         'powerVoltage', 'powerVoltageCustom', 'powerAmperage', 'powerAmperageCustom',
         'panelWatts',
         'panel_width_mm', 'panel_height_mm', 'panel_weight', 'weight_unit',
@@ -693,6 +693,9 @@ def create_layer(name, columns, rows, cabinet_width, cabinet_height, offset_x=0,
         'flowPattern': 'tl-h',
         'bitDepth': 8,
         'frameRate': 60,
+        # v0.10.9: per-layer Low Latency. Off by default; the client overlays
+        # the user's preference on top, same as bitDepth/frameRate.
+        'lowLatency': False,
         # Power settings defaults
         'powerVoltage': 110,
         'powerVoltageCustom': 110,

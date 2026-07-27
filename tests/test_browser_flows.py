@@ -1209,6 +1209,471 @@ def test_armor_max_capacity_normalized_on_recent_file_load(page, flows_server):
     page.wait_for_timeout(800)
 
 
+# ── Per-layer Low Latency (v0.10.9) ──────────────────────────────────────
+# Low latency is not one number: it is a different behaviour per processor
+# family. Brompton ULL halves pixels-per-port; Megapixel HELIOS costs no
+# capacity at all; the two NovaStar behaviours are GEOMETRIC and are not
+# implemented yet, so they must derate NOTHING and say so on screen. Inventing
+# an "about right" multiplier for those would mis-count ports, and a wrong port
+# count is a dark wall.
+
+
+def test_brompton_low_latency_reproduces_legacy_ull_table(page):
+    """The lossless-migration proof.
+
+    'brompton-ull' used to be its own 48-cell table. It is now brompton +
+    lowLatency, so every published cell has to come back out the other side.
+    We floor the halves; Brompton's own manual rounds two 12-bit cells UP by
+    1 px, so we may land 1 px LOW there and must never land high --
+    understating a port's capacity is safe, overstating it goes dark.
+    """
+    rows = page.evaluate("""() => {
+        const legacy = window.app.portCapacityTables['brompton-ull'];
+        const out = [];
+        Object.keys(legacy).forEach(bd => {
+            Object.keys(legacy[bd]).forEach(fr => {
+                out.push({
+                    bitDepth: Number(bd), frameRate: Number(fr),
+                    legacy: legacy[bd][fr],
+                    migrated: window.app.calculatePortCapacity(
+                        Number(bd), Number(fr), 'brompton', true),
+                    normal: window.app.calculatePortCapacity(
+                        Number(bd), Number(fr), 'brompton', false)
+                });
+            });
+        });
+        return out;
+    }""")
+    assert len(rows) == 48, f"expected the 48 published cells, got {len(rows)}"
+
+    off_by_one = []
+    for row in rows:
+        cell = (row['bitDepth'], row['frameRate'])
+        delta = row['migrated'] - row['legacy']
+        assert delta <= 0, (
+            f"{cell}: brompton+lowLatency gives {row['migrated']} px, the "
+            f"legacy ULL table gives {row['legacy']} px -- over-counting a port")
+        if delta:
+            off_by_one.append((cell, delta))
+        # And it really is the normal column halved, not a second table.
+        assert row['migrated'] * 2 in (row['normal'], row['normal'] - 1), row
+
+    # The only permitted drift, documented in the descriptor: Brompton rounds
+    # these two cells up. Anything else here means the migration lost data.
+    assert {c for c, _ in off_by_one} == {(12, 144), (12, 192)}, off_by_one
+    assert all(d == -1 for _, d in off_by_one), off_by_one
+
+
+@pytest.mark.parametrize('processor', ['megapixel-1g', 'megapixel-2.5g'])
+def test_megapixel_low_latency_costs_no_capacity(page, processor):
+    """HELIOS Tile LL + Processor LL cost daisy-chain length, not pixels."""
+    rows = page.evaluate("""([p]) => [[10, 60], [12, 24], [12, 240]].map(
+        ([b, f]) => ({
+            bitDepth: b, frameRate: f,
+            off: window.app.calculatePortCapacity(b, f, p, false),
+            on: window.app.calculatePortCapacity(b, f, p, true)
+        }))""", [processor])
+    for row in rows:
+        assert row['off'] > 0, row
+        assert row['on'] == row['off'], f"{processor} derated capacity: {row}"
+
+
+@pytest.mark.parametrize('processor', [
+    'novastar-armor', 'novastar-coex-1g', 'novastar-5g'])
+def test_pending_low_latency_behaviours_derate_nothing_and_flag(page, processor):
+    """Pass 1 must not guess a multiplier for the geometric behaviours -- it
+    leaves capacity alone AND raises the flag the UI uses to say so."""
+    state = page.evaluate("""(p) => {
+        const profile = window.app.getLowLatencyProfile(p);
+        return {
+            pending: window.app.isLowLatencyCapacityPending(p),
+            kind: profile.capacity.kind,
+            note: profile.note,
+            off: window.app.calculatePortCapacity(8, 60, p, false),
+            on: window.app.calculatePortCapacity(8, 60, p, true)
+        };
+    }""", processor)
+    assert state['pending'] is True, state
+    assert state['kind'] in ('y-derate', 'port-width'), state
+    assert state['off'] > 0, state
+    assert state['on'] == state['off'], (
+        f"{processor}: pass 1 applied a capacity change it cannot justify: {state}")
+    assert state['note'], 'a pending behaviour still has to explain itself'
+
+
+def test_implemented_low_latency_behaviours_are_not_flagged_pending(page):
+    """The flag is about the MATH shipping, not about the derate being zero:
+    Megapixel derates nothing and is still fully implemented."""
+    flags = page.evaluate("""() => ({
+        brompton: window.app.isLowLatencyCapacityPending('brompton'),
+        'megapixel-1g': window.app.isLowLatencyCapacityPending('megapixel-1g'),
+        'megapixel-2.5g': window.app.isLowLatencyCapacityPending('megapixel-2.5g')
+    })""")
+    assert flags == {
+        'brompton': False, 'megapixel-1g': False, 'megapixel-2.5g': False}, flags
+
+
+@pytest.mark.parametrize('processor,pending', [
+    ('brompton', False),
+    ('megapixel-1g', False),
+    ('novastar-5g', True),
+    ('novastar-armor', True),
+])
+def test_low_latency_note_follows_processor(page, processor, pending):
+    """The note beside the control is the descriptor's own text, plus a plain
+    statement when the constraint is not in the figures yet."""
+    state = page.evaluate("""(processor) => {
+        const app = window.app;
+        const layer = app.project.layers.find(
+            l => (l.type || 'screen') === 'screen');
+        layer.processorType = processor;
+        app.selectLayer(layer);
+        return {
+            note: document.getElementById('low-latency-note').textContent,
+            profileNote: app.getLowLatencyProfile(processor).note,
+            disabled: document.getElementById('low-latency').disabled
+        };
+    }""", processor)
+    assert state['profileNote'] in state['note'], state
+    assert state['disabled'] is False, state
+    assert ('Not applied to the figures below yet.' in state['note']) is pending, state
+
+
+def test_low_latency_checkbox_reflects_selected_layer(page):
+    """Hydration through loadLayerToInputs -- the box must never show a stale
+    layer's setting."""
+    state = page.evaluate("""() => {
+        const app = window.app;
+        const layer = app.project.layers.find(
+            l => (l.type || 'screen') === 'screen');
+        layer.processorType = 'brompton';
+        layer.lowLatency = true;
+        app.selectLayer(layer);
+        const on = document.getElementById('low-latency').checked;
+        layer.lowLatency = false;
+        app.selectLayer(layer);
+        return { on, off: document.getElementById('low-latency').checked };
+    }""")
+    assert state == {'on': True, 'off': False}, state
+
+
+def test_low_latency_toggle_is_one_undo_step_and_survives_undo(page):
+    """Toggling records exactly ONE history entry, and a LATER undo must not
+    quietly discard the choice (mirrors the Armor Max Capacity guard)."""
+    before = page.evaluate("""() => {
+        const app = window.app;
+        app.selectLayer(app.project.layers[0]);
+        const sel = document.getElementById('processor-type');
+        sel.value = 'brompton';
+        sel.dispatchEvent(new Event('change'));
+        return null;
+    }""")
+    assert before is None
+    page.wait_for_timeout(600)
+
+    history_before = page.evaluate("window.app.history.length")
+    page.evaluate("""() => {
+        const box = document.getElementById('low-latency');
+        box.checked = true;
+        box.dispatchEvent(new Event('change'));
+    }""")
+    page.wait_for_timeout(700)
+
+    state = page.evaluate("""() => {
+        const l = window.app.project.layers[0];
+        return {
+            historyLength: window.app.history.length,
+            lastAction: window.app.history[window.app.history.length - 1].action,
+            lowLatency: l.lowLatency,
+            capacity: window.app.calculatePortCapacity(
+                l.bitDepth, l.frameRate, l.processorType, l.lowLatency),
+            normal: window.app.calculatePortCapacity(
+                l.bitDepth, l.frameRate, l.processorType, false)
+        };
+    }""")
+    assert state['historyLength'] == history_before + 1, (
+        f"expected exactly one undo step, history went "
+        f"{history_before} -> {state['historyLength']}")
+    assert state['lastAction'] == 'Change Low Latency', state
+    assert state['lowLatency'] is True, state
+    assert state['capacity'] == state['normal'] // 2, state
+
+    # A later, unrelated edit, so undo steps back ONTO the low-latency state.
+    before_cols = page.evaluate("window.app.project.layers[0].columns")
+    cols = page.locator('#screen-columns')
+    cols.fill(str(before_cols + 1))
+    cols.dispatch_event('change')
+    page.wait_for_timeout(700)
+
+    page.evaluate("window.app.handleMenuAction('undo')")
+    page.wait_for_timeout(900)
+    after_undo = page.evaluate("""() => {
+        const l = window.app.project.layers[0];
+        return { columns: l.columns, lowLatency: l.lowLatency,
+                 checked: document.getElementById('low-latency').checked };
+    }""")
+    assert after_undo['columns'] == before_cols, after_undo
+    assert after_undo['lowLatency'] is True, (
+        'undo threw away a deliberate Low Latency choice')
+    assert after_undo['checked'] is True, after_undo
+
+    # One more undo steps off it, and redo brings it back.
+    page.evaluate("window.app.handleMenuAction('undo')")
+    page.wait_for_timeout(900)
+    assert page.evaluate("!!window.app.project.layers[0].lowLatency") is False
+    page.evaluate("window.app.handleMenuAction('redo')")
+    page.wait_for_timeout(900)
+    assert page.evaluate("!!window.app.project.layers[0].lowLatency") is True
+
+    # Hand the shared page back with the flag off.
+    page.evaluate("""() => {
+        const box = document.getElementById('low-latency');
+        box.checked = false;
+        box.dispatchEvent(new Event('change'));
+    }""")
+    page.wait_for_timeout(600)
+
+
+def test_low_latency_round_trips_through_the_server(page):
+    """Per-layer PUT + whole-project PUT both have to carry the flag. The
+    per-layer whitelist drops unlisted keys silently, so a missed entry looks
+    exactly like the toggle not working."""
+    result = page.evaluate("""async () => {
+        const app = window.app;
+        const wait = ms => new Promise(r => setTimeout(r, ms));
+        const layer = app.project.layers.find(
+            l => (l.type || 'screen') === 'screen');
+        const readStored = async () => {
+            const project = await fetch('/api/project').then(r => r.json());
+            return project.layers.find(l => l.id === layer.id).lowLatency;
+        };
+
+        // The app's own per-layer PUT (updateLayer sends the whole layer, so
+        // the server-side whitelist is the only gate).
+        app.selectLayer(layer);
+        app.currentLayer.processorType = 'brompton';
+        app.currentLayer.lowLatency = true;
+        app.updateLayer();
+        await wait(500);
+        const afterSingle = await readStored();
+
+        // ...and the bulk path used by every multi-select edit.
+        app.currentLayer.lowLatency = false;
+        app.updateLayers([app.currentLayer]);
+        await wait(500);
+        const afterBulk = await readStored();
+
+        // Whole-project restore (undo/redo + file load path).
+        const project = await fetch('/api/project').then(r => r.json());
+        project.layers.forEach(l => { l.lowLatency = true; });
+        const restored = await fetch('/api/project', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(project)
+        }).then(r => r.json());
+
+        return {
+            afterSingle: afterSingle,
+            afterBulk: afterBulk,
+            preserved: app.currentLayer.lowLatency,
+            afterRestore: restored.layers.map(l => l.lowLatency)
+        };
+    }""")
+    assert result['afterSingle'] is True, result
+    assert result['afterBulk'] is False, result
+    assert result['preserved'] is False, (
+        'the server round-trip clobbered the client value')
+    assert all(v is True for v in result['afterRestore']), result
+
+
+def test_low_latency_survives_localstorage_and_duplicate(page):
+    """saveClientSideProperties / extractClientSideProps / the duplicate
+    clientProps blob all have to list the field."""
+    state = page.evaluate("""() => {
+        const app = window.app;
+        const layer = app.project.layers.find(
+            l => (l.type || 'screen') === 'screen');
+        layer.processorType = 'brompton';
+        layer.lowLatency = true;
+        app.saveClientSideProperties();
+        const saved = JSON.parse(
+            localStorage.getItem('ledRasterClientProps') || '{}');
+        return {
+            extracted: app.extractClientSideProps(layer).lowLatency,
+            stored: saved[layer.id] ? saved[layer.id].lowLatency : null
+        };
+    }""")
+    assert state['extracted'] is True, state
+    assert state['stored'] is True, state
+
+    before = layer_count(page)
+    page.evaluate("""() => {
+        const app = window.app;
+        const layer = app.project.layers.find(
+            l => (l.type || 'screen') === 'screen' && l.lowLatency === true);
+        app.duplicateLayer(layer);
+    }""")
+    page.wait_for_timeout(900)
+    assert layer_count(page) == before + 1, 'duplicate did not add a layer'
+    assert page.evaluate(
+        "!!window.app.currentLayer.lowLatency") is True, (
+        'the duplicate lost the Low Latency flag')
+
+
+def test_low_latency_round_trips_through_a_preset(page):
+    """Presets are a whole-layer blob, so the field rides along -- and a preset
+    saved before this feature can still carry the retired brompton-ull, which
+    has to migrate on the way in."""
+    state = page.evaluate("""() => {
+        const app = window.app;
+        const layer = app.project.layers.find(
+            l => (l.type || 'screen') === 'screen');
+        layer.processorType = 'brompton';
+        layer.lowLatency = true;
+        const preset = app.serializeLayerAsPreset(layer);
+
+        const fresh = { id: -1, type: 'screen' };
+        app.applyPresetClientProps(fresh, preset);
+
+        // A preset authored before the migration.
+        const legacyPreset = Object.assign({}, preset, {
+            processorType: 'brompton-ull'
+        });
+        delete legacyPreset.lowLatency;
+        const migrated = { id: -2, type: 'screen' };
+        app.applyPresetClientProps(migrated, legacyPreset);
+
+        return {
+            presetFlag: preset.lowLatency,
+            applied: fresh.lowLatency,
+            appliedProcessor: fresh.processorType,
+            migratedFlag: migrated.lowLatency,
+            migratedProcessor: migrated.processorType
+        };
+    }""")
+    assert state['presetFlag'] is True, state
+    assert state['applied'] is True and state['appliedProcessor'] == 'brompton', state
+    assert state['migratedProcessor'] == 'brompton', state
+    assert state['migratedFlag'] is True, state
+
+
+def test_brompton_ull_is_no_longer_selectable(page):
+    """It has to be gone from BOTH pickers so it can't be newly chosen, while
+    the capacity table keeps the row so a stale value still resolves."""
+    state = page.evaluate("""() => {
+        const values = id => [...document.getElementById(id).options]
+            .map(o => o.value);
+        return {
+            sidebar: values('processor-type'),
+            prefs: values('pref-processor-type'),
+            tableStillThere: !!window.app.portCapacityTables['brompton-ull'],
+            staleResolves: window.app.calculatePortCapacity(
+                8, 60, 'brompton-ull', false)
+        };
+    }""")
+    assert 'brompton-ull' not in state['sidebar'], state['sidebar']
+    assert 'brompton-ull' not in state['prefs'], state['prefs']
+    assert 'brompton' in state['sidebar'] and 'brompton' in state['prefs'], state
+    assert state['tableStillThere'], 'a stale brompton-ull would now read N/A'
+    assert state['staleResolves'] == 262500, state
+
+
+def brompton_ull_fixture_project(flows_server, name):
+    """A saved project whose screen still carries the retired processor."""
+    import json
+    import urllib.request
+
+    with urllib.request.urlopen(flows_server + '/api/project') as resp:
+        project = json.load(resp)
+    base = project['layers'][0]
+
+    layer = json.loads(json.dumps(base))
+    layer.update({
+        'id': 911, 'name': 'LegacyULL',
+        'processorType': 'brompton-ull',
+        'portMappingMode': 'organized',
+        'bitDepth': 8, 'frameRate': 60,
+    })
+    layer.pop('lowLatency', None)
+    project['name'] = name
+    project['layers'] = [layer]
+    return project
+
+
+def test_brompton_ull_project_migrates_on_file_open(page, flows_server, tmp_path):
+    """Opening an old file rewrites brompton-ull to brompton + lowLatency, and
+    the capacity it computes afterwards is IDENTICAL to what that file used to
+    produce. A drift here would silently re-map a wall that is already rigged.
+    """
+    import json
+
+    project = brompton_ull_fixture_project(flows_server, 'LegacyULLOpen')
+    path = tmp_path / 'legacy_ull.json'
+    path.write_text(json.dumps(project))
+
+    legacy_capacity = page.evaluate(
+        "() => window.app.portCapacityTables['brompton-ull'][8][60]")
+
+    with page.expect_file_chooser() as chooser:
+        page.evaluate("window.app.loadProjectFromFile()")
+    chooser.value.set_files(str(path))
+    page.wait_for_function(
+        "() => window.app.project"
+        " && window.app.project.name === 'LegacyULLOpen'"
+        " && window.app.project.layers.length === 1",
+        timeout=10000)
+    page.wait_for_timeout(800)
+
+    state = page.evaluate("""() => {
+        const l = window.app.project.layers[0];
+        return {
+            processor: l.processorType,
+            lowLatency: l.lowLatency,
+            capacity: window.app.calculatePortCapacity(
+                l.bitDepth, l.frameRate, l.processorType, l.lowLatency),
+            checked: document.getElementById('low-latency').checked
+        };
+    }""")
+    assert state['processor'] == 'brompton', state
+    assert state['lowLatency'] is True, state
+    assert state['capacity'] == legacy_capacity, (
+        f"migrated capacity {state['capacity']} != legacy {legacy_capacity}")
+    assert state['checked'] is True, state
+
+    # Leave the shared page on a clean project for anything after us.
+    page.evaluate("window.app.createNewProject()")
+    page.wait_for_timeout(800)
+
+
+def test_brompton_ull_migrates_on_recent_file_load(page, flows_server):
+    """Recent Files does not share the file-open code, so it needs its own
+    pass through the migration."""
+    project = brompton_ull_fixture_project(flows_server, 'LegacyULLRecent')
+    page.evaluate("""(project) => {
+        localStorage.setItem('ledRasterRecentFiles', JSON.stringify([{
+            name: project.name, timestamp: Date.now(),
+            layerCount: project.layers.length, data: project
+        }]));
+    }""", project)
+    page.evaluate("window.app.loadRecentFile(0)")
+    page.wait_for_function(
+        "() => window.app.project"
+        " && window.app.project.name === 'LegacyULLRecent'"
+        " && window.app.project.layers.length === 1",
+        timeout=10000)
+    page.wait_for_timeout(800)
+
+    state = page.evaluate("""() => {
+        const l = window.app.project.layers[0];
+        return { processor: l.processorType, lowLatency: l.lowLatency };
+    }""")
+    assert state == {'processor': 'brompton', 'lowLatency': True}, state
+
+    page.evaluate("localStorage.removeItem('ledRasterRecentFiles')")
+    page.evaluate("window.app.createNewProject()")
+    page.wait_for_timeout(800)
+
+
 # ── Themed state cues actually reach the screen (v0.10.9) ────────────────
 # theme.css is loaded last and paints with !important, so any UI state the JS
 # indicated via an INLINE style, or that style.css declared without

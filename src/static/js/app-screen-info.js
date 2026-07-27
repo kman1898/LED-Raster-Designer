@@ -378,6 +378,9 @@ class _ScreenInfo {
         if (this.currentLayer.processorType === undefined) {
             this.currentLayer.processorType = this.getPreferences().processorType;
         }
+        if (this.currentLayer.lowLatency === undefined) {
+            this.currentLayer.lowLatency = !!this.getPreferences().lowLatency;
+        }
         if (!this.currentLayer.type) {
             this.currentLayer.type = 'screen';
         }
@@ -690,6 +693,7 @@ class _ScreenInfo {
                     customPortPaths: this.currentLayer.customPortPaths,
                     customPortIndex: this.currentLayer.customPortIndex,
                     processorType: this.currentLayer.processorType,
+                    lowLatency: this.currentLayer.lowLatency,
                     bitDepth: this.currentLayer.bitDepth,
                     frameRate: this.currentLayer.frameRate,
                     portMappingMode: this.currentLayer.portMappingMode,
@@ -859,6 +863,7 @@ class _ScreenInfo {
                 customPortPaths: layer.customPortPaths,
                 customPortIndex: layer.customPortIndex,
                 processorType: layer.processorType,
+                lowLatency: layer.lowLatency,
                 bitDepth: layer.bitDepth,
                 frameRate: layer.frameRate,
                 portMappingMode: layer.portMappingMode,
@@ -1580,7 +1585,9 @@ class _ScreenInfo {
         if (document.getElementById('frame-rate')) {
             document.getElementById('frame-rate').value = this.currentLayer.frameRate || this.getPreferences().frameRate || 60;
         }
-        
+        // v0.10.9: checkbox + note follow the selected layer's processor.
+        this.updateLowLatencyUI();
+
         // Load port mapping mode button states
         const mappingMode = this.currentLayer.portMappingMode || 'organized';
         const mappingOrgBtn = document.getElementById('mapping-organized');
@@ -1829,8 +1836,51 @@ class _ScreenInfo {
         return Object.keys(table[bitDepth]).map(Number).sort((a, b) => a - b);
     }
     
+    // v0.10.9: descriptor for a processor's Low Latency behaviour, or null when
+    // the processor has no entry (a stale value like the retired brompton-ull).
+    getLowLatencyProfile(processorType) {
+        return this.lowLatencyProfiles[processorType || 'novastar-armor'] || null;
+    }
+
+    // v0.10.9: true when the processor's Low Latency behaviour is real but its
+    // math has not shipped yet ('y-derate' / 'port-width' in pass 1). Callers
+    // must SAY so rather than let the displayed capacity imply it is included.
+    isLowLatencyCapacityPending(processorType) {
+        const profile = this.getLowLatencyProfile(processorType);
+        if (!profile || !profile.supported) return false;
+        const kind = (profile.capacity && profile.capacity.kind) || 'none';
+        return !this.lowLatencyImplementedKinds.includes(kind);
+    }
+
+    // v0.10.9: apply the processor's Low Latency capacity behaviour on top of a
+    // table lookup.
+    //   'factor' - Brompton publishes ULL as the normal column halved and
+    //              floored, so floor here too. Flooring also means we never
+    //              hand back MORE capacity than the manual does.
+    //   'none'   - no pixels-per-port cost.
+    // Anything else is a pass-2 geometric behaviour: return the value
+    // unchanged rather than guess a multiplier (isLowLatencyCapacityPending
+    // drives the note that tells the user it is not in this number).
+    applyLowLatencyCapacity(capacity, processorType, lowLatency) {
+        if (!lowLatency || !(capacity > 0)) return capacity;
+        const profile = this.getLowLatencyProfile(processorType);
+        if (!profile || !profile.supported) return capacity;
+        const cap = profile.capacity || {};
+        if (cap.kind === 'factor') return Math.floor(capacity * cap.factor);
+        return capacity;
+    }
+
     // Calculate port capacity using lookup tables with interpolation
-    calculatePortCapacity(bitDepth, frameRate, processorType) {
+    // v0.10.9: `lowLatency` layers the processor's Low Latency behaviour on
+    // top of the raw lookup. Split in two so pass 2, which needs per-port
+    // geometry, has a seam that does not disturb the table lookup.
+    calculatePortCapacity(bitDepth, frameRate, processorType, lowLatency = false) {
+        const capacity = this.lookupPortCapacity(bitDepth, frameRate, processorType);
+        return this.applyLowLatencyCapacity(capacity, processorType, lowLatency);
+    }
+
+    // Raw manufacturer-table lookup, before any Low Latency behaviour.
+    lookupPortCapacity(bitDepth, frameRate, processorType) {
         processorType = processorType || 'novastar-armor';
         const table = this.portCapacityTables[processorType];
         
@@ -1884,6 +1934,35 @@ class _ScreenInfo {
         return processorType === 'novastar-armor';
     }
     
+    // v0.10.9: keep the Low Latency checkbox and its note in step with the
+    // selected layer's processor. The note is the descriptor's own text; when
+    // the behaviour is a pass-2 geometric one the note says the constraint is
+    // NOT in the figures, so nobody reads an unchanged Pixels/Port as proof
+    // that low latency has been accounted for.
+    updateLowLatencyUI() {
+        const checkbox = document.getElementById('low-latency');
+        const note = document.getElementById('low-latency-note');
+        if (!checkbox && !note) return;
+
+        const layer = this.currentLayer;
+        const isScreen = !!layer && (layer.type || 'screen') === 'screen';
+        const processorType = (isScreen && layer.processorType) || 'novastar-armor';
+        const profile = isScreen ? this.getLowLatencyProfile(processorType) : null;
+        const supported = !!(profile && profile.supported);
+
+        if (checkbox) {
+            checkbox.checked = !!(isScreen && layer.lowLatency);
+            checkbox.disabled = !supported;
+        }
+        if (note) {
+            let text = supported ? (profile.note || '') : '';
+            if (text && this.isLowLatencyCapacityPending(processorType)) {
+                text += ' Not applied to the figures below yet.';
+            }
+            note.textContent = text;
+        }
+    }
+
     // Update bit depth dropdown options based on selected processor
     updateBitDepthOptions() {
         const bitDepthSelect = document.getElementById('bit-depth');

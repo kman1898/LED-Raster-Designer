@@ -1441,6 +1441,7 @@ class _Presets {
         layer.bitDepth = prefs.bitDepth;
         layer.frameRate = prefs.frameRate;
         layer.processorType = prefs.processorType;
+        layer.lowLatency = !!prefs.lowLatency;
         layer.portMappingMode = 'organized';
         layer.halfFirstColumn = !!layer.halfFirstColumn;
         layer.halfLastColumn = !!layer.halfLastColumn;

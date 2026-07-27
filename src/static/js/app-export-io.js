@@ -46,7 +46,8 @@ class _ExportIo {
         const frameRate = layer.frameRate || 60;
         const processorType = layer.processorType || 'novastar-armor';
         const mappingMode = layer.portMappingMode || 'organized';
-        const portCapacity = this.calculatePortCapacity(bitDepth, frameRate, processorType);
+        const portCapacity = this.calculatePortCapacity(
+            bitDepth, frameRate, processorType, !!layer.lowLatency);
         const pattern = layer.flowPattern || 'tl-h';
         const usesRectangle = this.usesRectangleConstraint(processorType);
         // v0.10.9: honour the layer's Port Mapping mode on EVERY processor.
@@ -1330,6 +1331,7 @@ class _ExportIo {
             dataLineWidth: 6,
             powerLineWidth: 8,
             processorType: 'novastar-armor',
+            lowLatency: false,
             bitDepth: 8,
             frameRate: 60,
             powerVoltage: 110,
@@ -1564,6 +1566,8 @@ class _ExportIo {
         setVal('pref-data-line-width', prefs.dataLineWidth);
         setVal('pref-power-line-width', prefs.powerLineWidth);
         setVal('pref-processor-type', prefs.processorType);
+        const prefLowLatency = document.getElementById('pref-low-latency');
+        if (prefLowLatency) prefLowLatency.checked = !!prefs.lowLatency;
         setVal('pref-bit-depth', prefs.bitDepth);
         setVal('pref-frame-rate', prefs.frameRate);
         const voltageSelect = document.getElementById('pref-power-voltage-select');
@@ -1606,6 +1610,10 @@ class _ExportIo {
             const el = document.getElementById(id);
             return el && el.value ? el.value : fallback;
         };
+        const readBool = (id, fallback) => {
+            const el = document.getElementById(id);
+            return el ? !!el.checked : fallback;
+        };
         const voltageSelect = document.getElementById('pref-power-voltage-select');
         const amperageSelect = document.getElementById('pref-power-amperage-select');
         const prefDataPatternActive = document.querySelector('.pref-data-flow-pattern-btn.active');
@@ -1639,6 +1647,7 @@ class _ExportIo {
             dataLineWidth: readNum('pref-data-line-width', defaults.dataLineWidth),
             powerLineWidth: readNum('pref-power-line-width', defaults.powerLineWidth),
             processorType: readStr('pref-processor-type', defaults.processorType),
+            lowLatency: readBool('pref-low-latency', defaults.lowLatency),
             bitDepth: readNum('pref-bit-depth', defaults.bitDepth),
             frameRate: readNum('pref-frame-rate', defaults.frameRate),
             powerVoltage: Number.isFinite(voltageVal) && voltageVal > 0 ? voltageVal : defaults.powerVoltage,

@@ -207,7 +207,10 @@ def update_layer(layer_id):
                 'fontBold', 'fontItalic', 'fontUnderline',
                 # Data flow / processing settings (previously silently dropped on PUT
                 # which broke preset application and label updates on re-fetch)
-                'flowPattern', 'bitDepth', 'frameRate', 'processorType', 'portMappingMode',
+                # v0.10.9: lowLatency rides with processorType - leaving it out
+                # would drop the flag on every per-layer PUT.
+                'flowPattern', 'bitDepth', 'frameRate', 'processorType', 'lowLatency',
+                'portMappingMode',
                 'dataFlowColor', 'dataFlowLabelSize', 'randomDataColors',
                 'portLabelTemplatePrimary', 'portLabelTemplateReturn',
                 'portLabelOverridesPrimary', 'portLabelOverridesReturn',
