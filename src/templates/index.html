@@ -565,17 +565,25 @@
                             <div style="margin-top: 10px; padding: 8px; background: #252525; border-radius: 4px;">
                                 <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px;">
                                     <span style="color: #888;">Pixels/Port:</span>
-                                    <span id="port-capacity" class="value-accent" style="font-weight: 600;">659,722</span>
+                                    <span id="port-capacity" class="value-normal" style="font-weight: 600;">659,722</span>
                                 </div>
                                 <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px;">
                                     <span style="color: #888;">Panels/Port:</span>
-                                    <span id="panels-per-port" class="value-accent" style="font-weight: 600;">--</span>
+                                    <span id="panels-per-port" class="value-normal" style="font-weight: 600;">--</span>
                                 </div>
                                 <div style="display: flex; justify-content: space-between; font-size: 12px;">
                                     <span style="color: #888;">Ports Required:</span>
                                     <span id="ports-required" style="color: #00cc00; font-weight: 600;">--</span>
                                 </div>
                             </div>
+                            <!-- v0.10.9: with COEX Low Latency, Pixels/Port
+                                 above is the TOTAL; a port that does not start
+                                 at canvas Y=0 keeps only (1 - Y/H) of it.
+                                 Filled in by updatePortCapacityDisplay so
+                                 moving a screen down the canvas explains its
+                                 own change in Ports Required. Never shown on
+                                 NovaStar Legacy, which has no such rule. -->
+                            <p id="low-latency-derate-note" style="display: none; font-size: 11px; color: #ff9955; margin: 6px 0 0 0;"></p>
                         </div>
                         
                         <div class="info-row" style="margin-top: 15px;" data-tooltip="Flow Pattern, Choose the serpentine direction data cables follow through the cabinets.">

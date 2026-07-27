@@ -201,15 +201,16 @@ class _Power {
         // Update capacity display
         const capacityEl = document.getElementById('port-capacity');
         if (capacityEl) {
-            // v0.10.9: healthy value rides on .value-accent (follows the themed
-            // accent); only the warning colour stays an inline override.
+            // v0.10.9: a healthy figure renders in the ordinary text colour on
+            // .value-normal, so it cannot be mistaken for a fault; the warning
+            // colour is the only inline override and the only colour here.
             if (portCapacity > 0) {
                 capacityEl.textContent = portCapacity.toLocaleString();
-                capacityEl.classList.add('value-accent');
+                capacityEl.classList.add('value-normal');
                 capacityEl.style.color = '';
             } else {
                 capacityEl.textContent = 'N/A';
-                capacityEl.classList.remove('value-accent');
+                capacityEl.classList.remove('value-normal');
                 capacityEl.style.color = '#ff6600';
             }
         }
@@ -221,11 +222,11 @@ class _Power {
         if (panelsPerPortEl) {
             if (panelsPerPort < 1) {
                 panelsPerPortEl.textContent = 'ERROR';
-                panelsPerPortEl.classList.remove('value-accent');
+                panelsPerPortEl.classList.remove('value-normal');
                 panelsPerPortEl.style.color = '#ff0000';
             } else {
                 panelsPerPortEl.textContent = panelsPerPort.toLocaleString();
-                panelsPerPortEl.classList.add('value-accent');
+                panelsPerPortEl.classList.add('value-normal');
                 panelsPerPortEl.style.color = '';
             }
         }
@@ -235,6 +236,9 @@ class _Power {
         const visiblePanels = this.currentLayer.panels ? this.currentLayer.panels.filter(p => !p.hidden).length : 0;
         const panelCountForStatus = usesRectangle && this.currentLayer.panels ? this.currentLayer.panels.length : visiblePanels;
         const assignments = this.calculatePortAssignments(this.currentLayer);
+        // v0.10.9: calculatePortAssignments is the only thing that knows where
+        // each Low Latency port sits, so it hands back the derate for the note.
+        this.setLowLatencyDerateNote(this.currentLayer._lowLatencyDerate);
         let portsRequired = this.currentLayer._autoPortsRequired || assignments.reduce((max, a) => Math.max(max, a.port || 0), 0);
 
         const basePortsRequired = portsRequired;

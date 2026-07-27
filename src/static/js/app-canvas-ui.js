@@ -1267,6 +1267,7 @@ class _CanvasUi {
         delete layer._capacityError;
         delete layer._autoPortsRequired;
         delete layer._portsRequired;
+        delete layer._lowLatencyDerate;
     }
 
     normalizeLoadedPowerFlowPattern(layer) {

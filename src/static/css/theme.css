@@ -287,13 +287,20 @@ input[type="radio"] { accent-color:var(--ps-accent) !important; }
 #left-sidebar .hint, #left-sidebar small, #left-sidebar .help-text,
 #left-sidebar p, .panel-content .hint, .panel-content small { color:var(--ps-faint) !important; }
 
-/* ---- accent-coloured readouts ---- */
+/* ---- readout colours ---- */
 /* v0.10.9: replaces the old `[style*="#4A90E2"] { color:… }` attribute hack,
    which matched any element with the legacy blue anywhere in its inline style
    and so made the *healthy* value of Pixels/Port, Panels/Port and the export
-   filename preview unrenderable while their error colours still showed. The
-   readouts now carry this class and follow the user's chosen accent. */
+   filename preview unrenderable while their error colours still showed.
+   .value-accent is for a readout where colour means HIGHLIGHT (the export
+   filename preview, the only thing in its box). */
 .value-accent { color:var(--ps-accent) !important; }
+/* v0.10.9: .value-normal is for a readout where colour would mean ALARM.
+   Pixels/Port and Panels/Port sit in the same box as #ff0000 (Panels/Port
+   ERROR) and #ff6600 (N/A), and the default accent is red, so an accented
+   healthy value read as a fault. A healthy figure is deliberately
+   unremarkable; colour in that box means something is wrong, and nothing else. */
+.value-normal { color:var(--ps-text) !important; }
 
 /* ════════ NARROW-PANEL CHECKBOX ROWS ════════ */
 /* checkboxes never collapse when a sidebar is narrow (they were shrinking to

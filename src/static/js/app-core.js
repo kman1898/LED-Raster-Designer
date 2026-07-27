@@ -3576,6 +3576,7 @@ export class LEDRasterApp {
             '_powerError', '_powerCircuits', '_powerPanelCircuitMap', '_powerPanelIndexMap',
             '_powerCircuitNumKeys', '_powerTotalAmps1', '_powerTotalAmps3',
             '_powerCircuitsRequired', '_capacityError', '_portsRequired', '_autoPortsRequired',
+            '_lowLatencyDerate',
             '_imageObj', 'imageData'
         ]);
     }
@@ -3635,38 +3636,53 @@ export class LEDRasterApp {
     //    (2026-04-20). Tile LL + Processor LL do not change the Appendix K.14
     //    port capacities; the real cost is halved daisy-chain length in
     //    stacked columns.
-    //  - NovaStar COEX: confirmed with NovaStar. A port whose topmost cabinet
-    //    does not sit at canvas Y=0 keeps only (1 - Y / canvasHeight) of its
-    //    normal-mode capacity.
-    //  - NovaStar Legacy (NovaLCT-era Armor + MRV cards): low latency
-    //    constrains port GEOMETRY rather than the pixel budget - cabinets load
-    //    vertically and a port may not exceed 512 px in width.
+    //  - NovaStar: low latency constrains port GEOMETRY rather than the pixel
+    //    budget, but that is TWO separate rules from two different document
+    //    families, and they do not travel together:
+    //      * 512 px port width - the NovaLCT-era sending device manuals
+    //        (MCTRL660 PRO, NovaPro UHD / UHD Jr). Under low latency each
+    //        output covers a band no more than 512 px WIDE; how the cable
+    //        snakes inside that band is free (the manuals show horizontal
+    //        serpentine, vertical serpentine and zigzag alike, all legal).
+    //        This applies to the legacy line AND to COEX.
+    //      * (1 - Y / canvasHeight) - the NovaStar COEX wiki, i.e. the
+    //        COEX / VMP toolchain, and it is COEX ONLY. A port whose topmost
+    //        cabinet does not sit at canvas Y=0 keeps only that fraction of
+    //        the table figure - "if Y isn't 0 then it is calculated in the
+    //        formula". NovaStar Legacy (Armor/MRV) has no such term, so
+    //        moving a legacy screen down the canvas must not change its port
+    //        capacity at all.
+    //    Every NovaStar sending device is treated as low-latency compatible,
+    //    as is every receiving card including the MRV family. In a correctly
+    //    built COEX layout the bands are top-aligned, Y is 0, and the derate
+    //    costs nothing; it is the penalty for a port that is NOT top-aligned.
     //
     // capacity.kind:
-    //   'factor'     - multiply the table lookup by capacity.factor
-    //   'none'       - low latency costs no pixels per port
-    //   'y-derate'   - PASS 2. Needs each port's Y against the canvas height,
-    //                  which the capacity lookup does not see. Until it lands
-    //                  this derates NOTHING and the UI says so; a guessed
-    //                  multiplier here would ship a wrong port count, and a
-    //                  wrong port count is a dark wall.
-    //   'port-width' - PASS 2. Also geometric (vertical load, maxPortWidth);
-    //                  same no-derate + visible-note rule as above.
+    //   'factor'      - multiply the table lookup by capacity.factor
+    //   'none'        - low latency costs no pixels per port
+    //   'novastar-ll' - geometric, so the TABLE VALUE IS UNCHANGED: the lookup
+    //                   is the port's TOTAL at the current bit depth and frame
+    //                   rate. The maxPortWidth cap, and the per-port (1 - Y/H)
+    //                   derate where capacity.yDerate says so, are applied in
+    //                   calculatePortAssignments, the only place that can see
+    //                   where a port actually sits on the canvas.
     lowLatencyProfiles = {
         'novastar-armor': {
             supported: true,
-            capacity: { kind: 'port-width', maxPortWidth: 512 },
-            note: 'Ports load vertically, max 512 px wide.'
+            // Legacy: the width cap only. yDerate stays false - the (1 - Y/H)
+            // formula is a COEX rule and does not apply to this line.
+            capacity: { kind: 'novastar-ll', maxPortWidth: 512, yDerate: false },
+            note: 'Ports load in bands no wider than 512 px; how the cable snakes inside a band is free.'
         },
         'novastar-coex-1g': {
             supported: true,
-            capacity: { kind: 'y-derate' },
-            note: 'Capacity reduces the further down the canvas a port starts.'
+            capacity: { kind: 'novastar-ll', maxPortWidth: 512, yDerate: true },
+            note: 'Ports load in bands no wider than 512 px. A port that does not start at the top of the canvas loses capacity.'
         },
         'novastar-5g': {
             supported: true,
-            capacity: { kind: 'y-derate' },
-            note: 'Capacity reduces the further down the canvas a port starts.'
+            capacity: { kind: 'novastar-ll', maxPortWidth: 512, yDerate: true },
+            note: 'Ports load in bands no wider than 512 px. A port that does not start at the top of the canvas loses capacity.'
         },
         'brompton': {
             supported: true,
@@ -3685,11 +3701,12 @@ export class LEDRasterApp {
         }
     };
 
-    // v0.10.9: capacity kinds whose math actually runs today. Pass 2 adds
-    // 'y-derate' and 'port-width' here as it implements them. Until a kind is
+    // v0.10.9: capacity kinds whose math actually runs today. Until a kind is
     // listed, isLowLatencyCapacityPending() is true and the UI states plainly
-    // that the constraint is not in the numbers yet.
-    lowLatencyImplementedKinds = ['factor', 'none'];
+    // that the constraint is not in the numbers yet. 'novastar-ll' joined the
+    // list in pass 2, when calculatePortAssignments started enforcing the
+    // 512 px band cap and the COEX (1 - Y/H) derate.
+    lowLatencyImplementedKinds = ['factor', 'none', 'novastar-ll'];
 
     // Port capacity lookup tables from manufacturer specs
     // Keys are frame rates, values are pixel capacities
