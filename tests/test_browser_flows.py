@@ -2772,6 +2772,19 @@ def js_round(value):
     return int(value + 0.5) if value >= 0 else -int(-value + 0.5)
 
 
+def expected_load_label(load, capacity):
+    """The percentage the badge must print, and the state that colours it.
+
+    "100%" is reserved for a port that is genuinely at or past its limit --
+    a port still inside capacity is held at 99% however close it runs, so a
+    legal map never prints the over-capacity figure."""
+    percent = load / capacity * 100
+    if load >= capacity:
+        return js_round(percent), 'over'
+    shown = min(99, js_round(percent))
+    return shown, ('warn' if shown >= 90 else 'ok')
+
+
 def test_port_load_percent_matches_the_emitted_map(page):
     """Every percentage re-derives from the shipped map: pixel sum over the
     port's own capacity, for a pixel-sum processor."""
@@ -2788,15 +2801,16 @@ def test_port_load_percent_matches_the_emitted_map(page):
         # figure untouched.
         assert stats['load'] == p['pixelSum'], p
         assert stats['capacity'] == capacity, p
-        expected = js_round(p['pixelSum'] / capacity * 100)
+        expected, expected_state = expected_load_label(p['pixelSum'], capacity)
         assert stats['shown'] == expected, (
             f"port {p['port']}: showed {stats['shown']}%, "
             f"{p['pixelSum']}/{capacity} is {expected}%")
         # The colour state follows the number the user reads, so the two can
-        # never disagree: 90%+ warns, 100%+ is over, healthy is neither.
-        expected_state = ('over' if expected >= 100
-                          else ('warn' if expected >= 90 else 'ok'))
+        # never disagree: 90%+ warns, at/over capacity is over.
         assert stats['state'] == expected_state, p
+        # A port the map itself emitted fits, so it must never read 100%.
+        assert stats['shown'] < 100, (
+            f"port {p['port']} fits but reads {stats['shown']}%")
 
 
 def test_port_load_armor_charges_the_rectangle_not_the_pixel_sum(page):
@@ -2824,9 +2838,10 @@ def test_port_load_armor_charges_the_rectangle_not_the_pixel_sum(page):
 
     capacity = res['baseCapacity']
     assert middle['stats']['capacity'] == capacity
-    assert middle['stats']['shown'] == js_round(640000 / capacity * 100)
+    assert (middle['stats']['shown'], middle['stats']['state']) == \
+        expected_load_label(640000, capacity)
     # Ranking the ports by percentage must follow the rectangle too.
-    assert middle['stats']['shown'] > js_round(520000 / capacity * 100)
+    assert middle['stats']['shown'] > expected_load_label(520000, capacity)[0]
 
 
 def test_port_load_over_capacity_is_flagged(page):
@@ -2871,8 +2886,8 @@ def test_port_load_uses_the_low_latency_derated_capacity(page):
         assert p['stats']['capacity'] == expected_capacity, (
             f"port {p['port']} at Y={p['minY']} scored against "
             f"{p['stats']['capacity']}, not its derated {expected_capacity}")
-        assert p['stats']['shown'] == js_round(
-            p['stats']['load'] / expected_capacity * 100), p
+        assert (p['stats']['shown'], p['stats']['state']) == \
+            expected_load_label(p['stats']['load'], expected_capacity), p
     for p in derated:
         assert p['stats']['capacity'] < base, (
             'a derated port was scored against the undertated table figure')

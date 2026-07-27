@@ -3677,20 +3677,24 @@ class CanvasRenderer {
     // v0.10.9: how full one port is, as a percentage of ITS capacity. Returns
     // null when there is no capacity figure to measure against (unknown
     // processor, image layer), so callers draw nothing rather than "NaN%".
-    // The state is derived from the ROUNDED number the user reads, so the
-    // colour and the digits can never disagree: 90%+ warns, 100%+ is over.
+    // "100%" means the port is at or past its limit and nothing else: a port
+    // that still fits is held at 99% however close it runs (a 99.86% port
+    // rounding up to a red 100% would report a legal map as a fault), and the
+    // state comes off the same test, so the colour and the digits always
+    // agree - 90%+ warns, at/over capacity is over.
     getPortLoadStats(layer, portPanels) {
         const capacity = this.getPortCapacityForPanels(layer, portPanels);
         if (!(capacity > 0)) return null;
         const load = this.getPortPixelLoad(layer, portPanels);
         const percent = (load / capacity) * 100;
-        const shown = Math.round(percent);
+        const over = load >= capacity;
+        const shown = over ? Math.round(percent) : Math.min(99, Math.round(percent));
         return {
             load,
             capacity,
             percent,
             shown,
-            state: shown >= 100 ? 'over' : (shown >= 90 ? 'warn' : 'ok')
+            state: over ? 'over' : (shown >= 90 ? 'warn' : 'ok')
         };
     }
 
