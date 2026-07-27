@@ -3595,7 +3595,155 @@ class CanvasRenderer {
         this.ctx.fillStyle = '#AAAAAA';
         this._fillText(infoText, layerCenterX, layerCenterY + 45);
     }
-    
+
+    // v0.10.9: pixel load of ONE port, in the same terms calculatePortAssignments
+    // charged it. The accounting differs per processor and both forms live here
+    // so the custom-path branch (which never goes through calculatePortAssignments)
+    // is scored the same way the automatic map is:
+    //   - rectangle-constraint processors (NovaStar Armor) pay for the pixel
+    //     RECTANGLE that encloses every visible cabinet in the port, holes and
+    //     all - the same rect calcBoundingRectLoad builds;
+    //   - everything else pays the sum of the cabinets' pixel areas, which for
+    //     these processors is exactly the running `load` the port map used
+    //     (hidden cabinets never reach the traversal there, getOrderedPanelsByPattern
+    //     drops them unless the processor is a rectangle one).
+    getPortPixelLoad(layer, portPanels) {
+        const app = window.app;
+        if (!app || !layer || !Array.isArray(portPanels)) return 0;
+        const visible = portPanels.filter(p => p && !p.hidden);
+        if (visible.length === 0) return 0;
+
+        const usesRectangle = typeof app.usesRectangleConstraint === 'function'
+            && app.usesRectangleConstraint(layer.processorType || 'novastar-armor');
+        if (!usesRectangle) {
+            return visible.reduce((sum, p) => sum + app.getPanelPixelArea(p), 0);
+        }
+
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        visible.forEach(p => {
+            const x1 = Number(p.x) || 0;
+            const y1 = Number(p.y) || 0;
+            const x2 = x1 + (Number(p.width) || 0);
+            const y2 = y1 + (Number(p.height) || 0);
+            if (x1 < minX) minX = x1;
+            if (y1 < minY) minY = y1;
+            if (x2 > maxX) maxX = x2;
+            if (y2 > maxY) maxY = y2;
+        });
+        return (maxX - minX) * (maxY - minY);
+    }
+
+    // v0.10.9: capacity of ONE port, so a percentage is always measured against
+    // the capacity THAT port actually has. The base figure is the app's own
+    // table lookup (never re-derived here); on NovaStar Low Latency the
+    // (1 - Y/H) derate is then applied from the port's OWN topmost cabinet,
+    // exactly as calculatePortAssignments does, so a port that starts low on
+    // the canvas is scored against its reduced figure and not the table value.
+    // layer._lowLatencyDerate is the sidebar note's layer-wide summary, so it
+    // is only a fallback here - it carries the worst case, not this port's.
+    getPortCapacityForPanels(layer, portPanels) {
+        const app = window.app;
+        if (!app || !layer || typeof app.calculatePortCapacity !== 'function') return 0;
+        const base = app.calculatePortCapacity(
+            layer.bitDepth || 8,
+            layer.frameRate || 60,
+            layer.processorType || 'novastar-armor',
+            !!layer.lowLatency
+        );
+        if (!(base > 0)) return 0;
+
+        const geometry = typeof app.getLowLatencyGeometry === 'function'
+            ? app.getLowLatencyGeometry(layer)
+            : null;
+        if (!geometry || !geometry.yDerate) return base;
+
+        const canvasHeight = typeof app.getLayerCanvasHeight === 'function'
+            ? app.getLayerCanvasHeight(layer)
+            : 0;
+        if (!(canvasHeight > 0) || typeof app.lowLatencyPortCapacity !== 'function') {
+            // No honest H: derate nothing rather than guess, which is what the
+            // port map itself does. The recorded derate, when present, carries
+            // the same underated figure.
+            const derate = layer._lowLatencyDerate;
+            return (derate && derate.portCapacity > 0) ? derate.portCapacity : base;
+        }
+
+        const visible = (portPanels || []).filter(p => p && !p.hidden);
+        if (visible.length === 0) return base;
+        const minY = Math.min(...visible.map(p => Number(p.y) || 0));
+        return app.lowLatencyPortCapacity(base, minY, canvasHeight);
+    }
+
+    // v0.10.9: how full one port is, as a percentage of ITS capacity. Returns
+    // null when there is no capacity figure to measure against (unknown
+    // processor, image layer), so callers draw nothing rather than "NaN%".
+    // The state is derived from the ROUNDED number the user reads, so the
+    // colour and the digits can never disagree: 90%+ warns, 100%+ is over.
+    getPortLoadStats(layer, portPanels) {
+        const capacity = this.getPortCapacityForPanels(layer, portPanels);
+        if (!(capacity > 0)) return null;
+        const load = this.getPortPixelLoad(layer, portPanels);
+        const percent = (load / capacity) * 100;
+        const shown = Math.round(percent);
+        return {
+            load,
+            capacity,
+            percent,
+            shown,
+            state: shown >= 100 ? 'over' : (shown >= 90 ? 'warn' : 'ok')
+        };
+    }
+
+    // v0.10.9: the load badge that sits under a port's primary marker. Healthy
+    // reads in the ordinary label colour - the owner reported coloured healthy
+    // readouts being taken for faults - and only the warning (#ff6600) and
+    // over-capacity (#ff0000) states get a colour, the same two the Port
+    // Capacity panel uses. Drawn on the house dark plate so it stays legible
+    // over any cabinet colour, and sized from the layer's own data-flow label
+    // size so it tracks the slider like the P/R markers do.
+    drawPortLoadBadge(layer, portPanels, centerX, centerY, markerRadius, labelSize, bounds) {
+        const stats = this.getPortLoadStats(layer, portPanels);
+        if (!stats) return;
+
+        const fontSize = Math.max(8, Math.round(labelSize * 0.55));
+        const text = `${stats.shown}%`;
+        this.ctx.font = `bold ${fontSize}px ${projectFontFamily()}`;
+        const padX = Math.max(3, Math.round(fontSize * 0.35));
+        const padY = Math.max(2, Math.round(fontSize * 0.2));
+        const plateWidth = this.ctx.measureText(text).width + padX * 2;
+        const plateHeight = fontSize + padY * 2;
+
+        // Under the marker by default; above it when the marker sits so low in
+        // the screen that the badge would hang off the bottom edge.
+        const gap = Math.max(2, Math.round(fontSize * 0.25));
+        let cy = centerY + markerRadius + gap + plateHeight / 2;
+        if (bounds && cy + plateHeight / 2 > bounds.bottom) {
+            cy = centerY - markerRadius - gap - plateHeight / 2;
+        }
+        let cx = centerX;
+        if (bounds) {
+            if (cx - plateWidth / 2 < bounds.left) cx = bounds.left + plateWidth / 2;
+            if (cx + plateWidth / 2 > bounds.right) cx = bounds.right - plateWidth / 2;
+        }
+        cx = this.snap(cx);
+        cy = this.snap(cy);
+
+        this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        const plate = this.snapRect(cx - plateWidth / 2, cy - plateHeight / 2, plateWidth, plateHeight);
+        this.ctx.fillRect(plate.x, plate.y, plate.width, plate.height);
+
+        if (stats.state === 'over') {
+            this.ctx.fillStyle = '#ff0000';
+        } else if (stats.state === 'warn') {
+            this.ctx.fillStyle = '#ff6600';
+        } else {
+            this.ctx.fillStyle = layer.labelsColor || '#ffffff';
+        }
+        this.ctx.textAlign = 'center';
+        this.ctx.textBaseline = 'middle';
+        this._fillText(text, cx, cy);
+    }
+
     renderDataFlowArrows(layer) {
         // Get the flow pattern (default: top-right, vertical-first)
         const pattern = layer.flowPattern || 'tl-h';
@@ -3609,6 +3757,9 @@ class CanvasRenderer {
         const lineColor = layer.dataFlowColor || '#FFFFFF';
         const arrowColor = layer.arrowColor || '#0042AA';
         const useRandomColors = layer.randomDataColors || false;
+        // v0.10.9: per-port load percentage, off by default so no existing
+        // export changes. Drawn beside the port marker by drawPortLoadBadge.
+        const showPortLoad = !!layer.showDataFlowPortLoad;
         const isCustomFlow = pattern === 'custom';
         if (isCustomFlow) {
             // Clear any capacity error when in custom mode
@@ -3767,6 +3918,16 @@ class CanvasRenderer {
                 this.ctx.fillStyle = backupTextColor;
                 this.ctx.font = `bold ${returnFit.size}px ${projectFontFamily()}`;
                 this._fillText(returnLabel, rx, ry);
+            }
+
+            // v0.10.9: how close this port is to its limit, under the primary
+            // marker so it reads with the port it belongs to and never covers
+            // the port number itself. Runs for the hand-drawn custom paths too,
+            // which is the case the percentage was asked for.
+            if (showPortLoad) {
+                this.drawPortLoadBadge(layer, portPanels, px, py, primaryFit.radius, labelSize, {
+                    left: layerLeft, right: layerRight, top: layerTop, bottom: layerBottom
+                });
             }
         };
 

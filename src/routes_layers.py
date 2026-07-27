@@ -51,7 +51,7 @@ def add_layer():
         'showLabelSizePx', 'showLabelSizeM', 'showLabelSizeFt', 'showLabelWeight',
         'showLabelInfo', 'labelsColor', 'labelsFontSize', 'useFractionalInches',
         'showOffsetTL', 'showOffsetTR', 'showOffsetBL', 'showOffsetBR',
-        'showDataFlowPortInfo',
+        'showDataFlowPortInfo', 'showDataFlowPortLoad',
         'portLabelTemplatePrimary', 'portLabelTemplateReturn',
         'portLabelOverridesPrimary', 'portLabelOverridesReturn',
         'customPortPaths', 'customPortIndex',
@@ -224,7 +224,8 @@ def update_layer(layer_id):
                 'showOffsetX', 'showOffsetY',
                 # v0.8.5: per-layer Show Look canvas override. null clears.
                 'show_canvas_id',
-                'showDataFlowPortInfo', 'showPowerCircuitInfo']:
+                'showDataFlowPortInfo', 'showDataFlowPortLoad',
+                'showPowerCircuitInfo']:
         if key in data:
             layer[key] = data[key]
 

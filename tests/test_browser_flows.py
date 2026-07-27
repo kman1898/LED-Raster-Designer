@@ -1280,16 +1280,17 @@ def test_megapixel_low_latency_costs_no_capacity(page, processor):
         assert row['on'] == row['off'], f"{processor} derated capacity: {row}"
 
 
-@pytest.mark.parametrize('processor,y_derate', [
-    # The 512 px band cap is the NovaLCT-era sending-device rule and covers
-    # every NovaStar line. The (1 - Y/H) derate is the COEX wiki's rule and
-    # covers COEX only, so the legacy line must carry yDerate false.
-    ('novastar-armor', False),
-    ('novastar-coex-1g', True),
-    ('novastar-5g', True),
+@pytest.mark.parametrize('processor', [
+    # NovaStar's own answer: the 512 px single-port loading width is REMOVED in
+    # current firmware (NovaPro UHD Jr, MCTRL4K, MCTRL660 Pro) and the manuals
+    # are being revised, so no descriptor may carry a width cap. Top alignment
+    # and the vertical cabinet formula apply to "any novastar product including
+    # legacy and coex", so every line derates.
+    'novastar-armor',
+    'novastar-coex-1g',
+    'novastar-5g',
 ])
-def test_novastar_low_latency_leaves_the_capacity_table_alone(page, processor,
-                                                              y_derate):
+def test_novastar_low_latency_leaves_the_capacity_table_alone(page, processor):
     """The NovaStar behaviour is GEOMETRIC, so the table lookup is the port's
     TOTAL and must come back untouched from the capacity path. Substituting a
     fixed constant here (659,722 / 2,592,000) would freeze the derate at 8-bit
@@ -1299,9 +1300,10 @@ def test_novastar_low_latency_leaves_the_capacity_table_alone(page, processor,
         return {
             pending: window.app.isLowLatencyCapacityPending(p),
             kind: profile.capacity.kind,
-            maxPortWidth: profile.capacity.maxPortWidth,
+            hasWidthCap: 'maxPortWidth' in profile.capacity,
             yDerate: profile.capacity.yDerate,
             note: profile.note,
+            cards: profile.cards,
             table: window.app.lookupPortCapacity(8, 60, p),
             off: window.app.calculatePortCapacity(8, 60, p, false),
             on: window.app.calculatePortCapacity(8, 60, p, true)
@@ -1309,23 +1311,78 @@ def test_novastar_low_latency_leaves_the_capacity_table_alone(page, processor,
     }""", processor)
     assert state['pending'] is False, state
     assert state['kind'] == 'novastar-ll', state
-    assert state['maxPortWidth'] == 512, state
-    assert state['yDerate'] is y_derate, state
+    assert state['hasWidthCap'] is False, (
+        f"{processor}: the retired 512 px width cap is back: {state}")
+    assert state['yDerate'] is True, state
     assert state['off'] == state['table'] > 0, state
     assert state['on'] == state['table'], (
         f"{processor}: the geometric behaviour leaked into the table: {state}")
     assert state['note'], 'the behaviour still has to explain itself'
-    # The note has to match the rules that actually apply to the line: only a
-    # derating processor may warn about not starting at the top.
-    assert '512 px' in state['note'], state
-    assert ('top of the canvas' in state['note']) is y_derate, state
+    # The note states the rule that actually applies now, and nothing about a
+    # width cap that no longer exists.
+    assert '512' not in state['note'], state
+    assert 'vertically' in state['note'], state
+    assert 'top of the canvas' in state['note'], state
+    # The card trap is the one worth surfacing in the note itself; the full
+    # supported list rides along as the tooltip.
+    assert 'MRV328 and MRV336' in state['note'], state
+    for card in ('A5S Plus', 'A5S Plus-N', 'A8S', 'A8S-N', 'A8S Pro',
+                 'A10S Plus', 'A10S Plus-N', 'A10S Pro', 'MRV208-N',
+                 'MRV412-N', 'MRV416-N'):
+        assert card in state['cards'], (card, state['cards'])
+    assert 'MRV328 and MRV336 do NOT support low latency' in state['cards'], state
+
+
+def test_low_latency_card_list_is_the_note_tooltip(page):
+    """We do not model receiving cards, so the list is UI text: it reaches the
+    user as the note's tooltip, and only on the NovaStar lines that have one."""
+    state = page.evaluate("""() => {
+        const app = window.app;
+        const layer = app.project.layers.find(
+            l => (l.type || 'screen') === 'screen');
+        const prev = layer.processorType;
+        const read = (p) => {
+            layer.processorType = p;
+            app.selectLayer(layer);
+            return document.getElementById('low-latency-note').title;
+        };
+        const out = {
+            armor: read('novastar-armor'),
+            coex: read('novastar-coex-1g'),
+            fiveG: read('novastar-5g'),
+            brompton: read('brompton')
+        };
+        layer.processorType = prev;
+        app.selectLayer(layer);
+        return out;
+    }""")
+    assert state['armor'] == state['coex'] == state['fiveG'], state
+    assert 'MRV416-N' in state['armor'], state
+    assert 'MRV328 and MRV336 do NOT support low latency' in state['armor'], state
+    assert state['brompton'] == '', state
 
 
 def test_novastar_5g_total_is_the_table_value(page):
-    """The owner's call: 5G TOTAL is the figure already in our table, no
-    substitution. Pinned so a future edit cannot quietly move it."""
-    assert page.evaluate(
-        "window.app.lookupPortCapacity(8, 60, 'novastar-5g')") == 2592000
+    """5G TOTAL comes from NovaStar's published Ethernet Port Load Capacity
+    table (XA50 Pro / CA50E), confirmed direct with NovaStar. Their formula is
+    capacity x 24 x fps < 5G x 0.85 for 8-bit, x32 / 0.88 for 10-bit and
+    x48 / 0.85 for 12-bit -- note 24/32/48, NOT bitDepth x 3. We previously
+    used x36 for 12-bit, which overstated it by ~17%. Pinned per bit depth so
+    a future edit cannot quietly move any of them back."""
+    caps = page.evaluate("""() => ({
+        b8:  window.app.lookupPortCapacity(8, 60, 'novastar-5g'),
+        b10: window.app.lookupPortCapacity(10, 60, 'novastar-5g'),
+        b12: window.app.lookupPortCapacity(12, 60, 'novastar-5g')
+    })""")
+    assert caps['b8'] == 2951200
+    assert caps['b10'] == 2291312
+    assert caps['b12'] == 1475600
+    # The published table is internally consistent: capacity x mult x fps is a
+    # constant per bit depth. Re-derive it rather than trusting the cells alone.
+    for bits, mult, cap in ((8, 24, caps['b8']), (10, 32, caps['b10']), (12, 48, caps['b12'])):
+        efficiency = (cap * mult * 60) / 5e9
+        expected = 0.88 if bits == 10 else 0.85
+        assert abs(efficiency - expected) < 0.005, (bits, efficiency)
 
 
 def test_implemented_low_latency_behaviours_are_not_flagged_pending(page):
@@ -1374,10 +1431,11 @@ def test_low_latency_note_follows_processor(page, processor, pending):
 
 # ── NovaStar Low Latency port geometry (v0.10.9, pass 2) ─────────────────
 # calculatePortAssignments is the only thing that knows where a port sits, so
-# it owns the NovaStar geometry rules: a port occupies a band of adjacent
-# columns no wider than 512 px (every NovaStar line), and on COEX ONLY that
-# port's capacity is (1 - Y/H) * TOTAL, where TOTAL is the plain table lookup
-# at the CURRENT bit depth and frame rate. NovaStar Legacy has no Y term.
+# it owns the NovaStar geometry rule. There is exactly ONE rule now: a port's
+# capacity is (1 - Y/H) * TOTAL, where TOTAL is the plain table lookup at the
+# CURRENT bit depth and frame rate and Y is the port's topmost cabinet. It
+# applies to EVERY NovaStar line, legacy and COEX -- NovaStar's own answer,
+# which also retired the 512 px port-width cap we used to enforce.
 # Every assertion below regroups the EMITTED flat assignment list by .port and
 # recomputes the geometry from the panels, so it tests the shipped map rather
 # than the internal bookkeeping that produced it.
@@ -1482,22 +1540,25 @@ def ll_capacity(total, min_y, canvas_height):
     return int(min(1.0, max(0.0, 1 - (min_y / canvas_height))) * total)
 
 
-def assert_ll_ports_legal(result, canvas_height, label, uses_rectangle=False,
-                          y_derate=True):
+def ll_fits(capacity, panel_pixels=128 * 128):
+    """Cabinets one port of `capacity` px can carry. The 5G table figures are
+    revised on their own schedule, so the tests below derive their splits from
+    the TOTAL the app reports instead of pinning the manufacturer's number."""
+    return capacity // panel_pixels
+
+
+def assert_ll_ports_legal(result, canvas_height, label, uses_rectangle=False):
     """Independent re-check of every rule against the emitted map.
 
-    `y_derate` is False for NovaStar Legacy, whose ports keep the plain table
-    figure wherever they sit on the canvas."""
+    Every NovaStar line derates now, so there is no y_derate switch left."""
     assert not result['error'], f"{label}: unexpected capacity error {result['errorInfo']}"
     assert result['ports'], f"{label}: no ports emitted"
     for p in result['ports']:
-        assert p['width'] <= 512, (
-            f"{label}: port {p['port']} is {p['width']} px wide, over the 512 px cap")
-        # The hardware caps the band's WIDTH and leaves the traversal free;
-        # the traversal is the layer's FLOW PATTERN run over the band's
-        # sub-grid, and every one of the eight is a serpentine, so a port is
-        # an unbroken run either way you slice it: the grid columns it touches
-        # are adjacent and the rows it takes from each are contiguous.
+        # The traversal is the layer's FLOW PATTERN run over the whole screen,
+        # and every one of the eight is a serpentine, so a port is an unbroken
+        # run either way you slice it: the grid columns it touches are adjacent
+        # and the rows it takes from each are contiguous. Width is NOT checked
+        # -- the 512 px cap is gone.
         assert p['cols'] == list(range(p['cols'][0], p['cols'][-1] + 1)), (
             f"{label}: port {p['port']} skips a column: {p['cols']}")
         for col, rows in p['rowsByCol'].items():
@@ -1505,44 +1566,46 @@ def assert_ll_ports_legal(result, canvas_height, label, uses_rectangle=False,
             assert got == list(range(got[0], got[-1] + 1)), (
                 f"{label}: port {p['port']} column {col} is not vertically "
                 f"contiguous: {got}")
-        cap = (ll_capacity(result['total'], p['minY'], canvas_height)
-               if y_derate else result['total'])
+        cap = ll_capacity(result['total'], p['minY'], canvas_height)
         load = p['rectArea'] if uses_rectangle else p['pixelSum']
         assert load <= cap, (
             f"{label}: port {p['port']} carries {load} px against a derated "
             f"capacity of {cap} px -- this map would go dark")
 
 
-@pytest.mark.parametrize('cw,columns,rows,expect_ports,expect_width', [
-    # Cabinet widths that divide 512 evenly: the band fills exactly.
-    (128, 8, 4, 2, 512),   # 4 columns x 128 = 512 per port
-    (256, 8, 2, 4, 512),   # 2 columns x 256 = 512 per port
-    # ...and one that does not: 2 x 200 = 400 fits, 3 x 200 = 600 does not.
-    (200, 6, 2, 3, 400),
+@pytest.mark.parametrize('cw,columns,rows', [
+    # These three used to be split into 512 px bands: 2, 4 and 3 ports.
+    (128, 8, 4),    # 1,024 px wide
+    (256, 8, 2),    # 2,048 px wide
+    (200, 6, 2),    # 1,200 px wide
 ])
-def test_low_latency_ports_stay_within_512_px(page, cw, columns, rows,
-                                              expect_ports, expect_width):
-    """The 512 px port-width limit is in force, and a port takes as MANY
-    adjacent columns as fit -- one column per port would over-count ports."""
+def test_low_latency_ports_are_no_longer_width_capped(page, cw, columns, rows):
+    """INVERTED from test_low_latency_ports_stay_within_512_px. NovaStar told
+    us the 512 px single-port loading width is removed in current firmware and
+    the manuals are wrong, so nothing may cap a port by width: a wide wall that
+    fits the pixel budget is ONE port, however many pixels across it is."""
     r = ll_port_map(page, rows=rows, columns=columns, cw=cw, ch=cw,
                     canvasHeight=2160)
     assert_ll_ports_legal(r, 2160, f'5G LL {columns}x{rows} @{cw}px')
-    assert len(r['ports']) == expect_ports, [p['panels'] for p in r['ports']]
-    assert [p['width'] for p in r['ports']] == [expect_width] * expect_ports
+    assert len(r['ports']) == 1, [p['panels'] for p in r['ports']]
+    assert r['ports'][0]['width'] == columns * cw > 512, r['ports']
     assert r['totalPanels'] == columns * rows
 
 
-def test_low_latency_column_wider_than_the_cap_raises_capacity_error(page):
-    """A single 600 px column cannot be split any further -- error, not a map."""
+def test_low_latency_column_wider_than_512_px_maps_fine(page):
+    """INVERTED from test_low_latency_column_wider_than_the_cap_raises_capacity_error.
+    A 600 px cabinet column had no legal band under the retired cap and raised
+    a hard error; with the cap gone it is an ordinary port."""
     r = ll_port_map(page, rows=2, columns=2, cw=600, ch=200, canvasHeight=2160)
-    assert r['error'], 'an over-wide column emitted a map anyway'
-    assert r['ports'] == []
-    assert r['errorInfo']['unitType'] == 'column', r['errorInfo']
+    assert not r['error'], r['errorInfo']
+    assert len(r['ports']) == 1, r['ports']
+    assert r['ports'][0]['width'] == 1200, r['ports']
+    assert r['totalPanels'] == 4
 
 
 def test_low_latency_oversized_cabinet_raises_capacity_error(page):
-    """512x1400 = 716,800 px against an Armor port's 659,722 px. The cabinet
-    is inside the width cap, so this is the capacity error, not the width one."""
+    """512x1400 = 716,800 px against an Armor port's 659,722 px. One cabinet
+    that cannot be carried at all is still a hard error, not a bad map."""
     r = ll_port_map(page, rows=2, columns=2, cw=512, ch=1400,
                     processorType='novastar-armor', canvasHeight=4000)
     assert r['error'], 'an oversized cabinet emitted a map anyway'
@@ -1565,19 +1628,20 @@ def test_low_latency_cabinet_below_the_canvas_joins_the_port_above_it(page):
 
 def test_low_latency_at_y_zero_uses_the_plain_table_value(page):
     """Top-aligned columns: Y is 0, the factor is 1, and the port carries the
-    full table figure. 5G 8-bit/60 = 2,592,000 px; a 128x128 cabinet is 16,384
-    px, so 158 fit (2,588,672) and 159 do not (2,605,056).
+    full table figure -- floor(TOTAL / 16,384) of the 128 x 128 px cabinets.
 
-    tl-v: a column serpentine down the band, so both ports still reach row 0
+    tl-v: a column serpentine down the wall, so both ports still reach row 0
     and neither is derated. The arithmetic below is the derate's, not the
     pattern's -- see the flow-pattern tests for what the other seven do."""
     r = ll_port_map(page, rows=50, columns=4, canvasHeight=6400, pattern='tl-v')
-    assert r['total'] == 2592000, r['total']
+    fit = ll_fits(r['total'])
+    assert 150 < fit < 200, (
+        f"a 4 x 50 wall no longer splits inside its last column: {fit}")
     assert_ll_ports_legal(r, 6400, '5G LL 4x50 at Y=0')
-    assert 158 * 16384 <= 2592000 < 159 * 16384
-    assert [p['panels'] for p in r['ports']] == [158, 42], r['ports']
+    assert fit * 16384 <= r['total'] < (fit + 1) * 16384
+    assert [p['panels'] for p in r['ports']] == [fit, 200 - fit], r['ports']
     assert [p['minY'] for p in r['ports']] == [0, 0], r['ports']
-    assert r['ports'][0]['pixelSum'] == 158 * 16384
+    assert r['ports'][0]['pixelSum'] == fit * 16384
     assert r['totalPanels'] == 200
     assert r['derate'] is None, (
         f"a top-aligned wall must not be derated: {r['derate']}")
@@ -1586,34 +1650,36 @@ def test_low_latency_at_y_zero_uses_the_plain_table_value(page):
 def test_low_latency_screen_pushed_down_the_canvas_is_derated(page):
     """The same wall 640 px down an 8192 px canvas.
 
-    factor = 1 - 640/8192 = 0.921875
-    capacity = floor(0.921875 * 2,592,000) = 2,389,500 px
-    145 x 16,384 = 2,375,680 fits; 146 x 16,384 = 2,392,064 does not.
+    factor   = 1 - 640/8192 = 0.921875
+    capacity = floor(0.921875 * TOTAL)
+    and the port carries floor(capacity / 16,384) cabinets.
 
     tl-v so the wall's own geometry is the only thing moving the numbers: a
-    column serpentine brings every port back to the top of the band, which
+    column serpentine brings every port back to the top of the wall, which
     isolates the OFFSET's derate from the derate a pattern picks up by
     starting its later ports further down.
     """
     r = ll_port_map(page, rows=50, columns=4, offsetY=640, canvasHeight=8192,
                     pattern='tl-v')
-    assert r['total'] == 2592000, r['total']
-    derated = ll_capacity(2592000, 640, 8192)
-    assert derated == 2389500, derated
-    assert 145 * 16384 <= derated < 146 * 16384
+    derated = ll_capacity(r['total'], 640, 8192)
+    fit = ll_fits(derated)
+    assert derated < r['total'], (derated, r['total'])
+    assert 150 < fit < 200, (
+        f"a 4 x 50 wall no longer splits inside its last column: {fit}")
+    assert fit * 16384 <= derated < (fit + 1) * 16384
     assert_ll_ports_legal(r, 8192, '5G LL 4x50 at Y=640')
-    assert [p['panels'] for p in r['ports']] == [145, 55], r['ports']
+    assert [p['panels'] for p in r['ports']] == [fit, 200 - fit], r['ports']
     assert [p['minY'] for p in r['ports']] == [640, 640], r['ports']
-    assert r['ports'][0]['pixelSum'] == 145 * 16384
+    assert r['ports'][0]['pixelSum'] == fit * 16384
     assert r['totalPanels'] == 200
-    # ...and the same wall at Y=0 needs fewer ports, which is exactly the
+    # ...and the same wall at Y=0 carries MORE per port, which is exactly the
     # surprise the on-screen note has to explain.
     top = ll_port_map(page, rows=50, columns=4, offsetY=0, canvasHeight=8192,
                       pattern='tl-v')
-    assert [p['panels'] for p in top['ports']] == [158, 42], top['ports']
+    assert top['ports'][0]['panels'] == ll_fits(top['total']) > fit, top['ports']
     assert r['derate'] == {
         'deratedPorts': 2, 'totalPorts': 2, 'canvasHeight': 8192,
-        'worstCapacity': 2389500, 'portCapacity': 2592000}, r['derate']
+        'worstCapacity': derated, 'portCapacity': r['total']}, r['derate']
 
 
 @pytest.mark.parametrize('processor', ['novastar-coex-1g', 'novastar-5g'])
@@ -1650,19 +1716,29 @@ def test_coex_low_latency_still_derates_by_position(page, processor):
         f"{processor}: the derate did not reach the map")
 
 
-def test_legacy_low_latency_ignores_vertical_position(page):
-    """NovaStar Legacy gets the 512 px band cap and NOTHING else -- the
-    (1 - Y/H) formula is COEX's. 4 x 128 px columns make one 512 px band; the
-    Armor rectangle is 256 x 2,560 = 655,360 px for two columns, which fits the
-    659,722 px port, and 384 x 2,560 = 983,040 px for three, which does not, so
-    the wall splits 40 / 40 wherever it sits. Pushing it 3,000 px down an
-    8,192 px canvas would leave only floor(0.6337890625 * 659,722) = 418,124 px
-    under the COEX rule and would visibly re-split the map -- it must not.
+def test_legacy_low_latency_derates_by_vertical_position(page):
+    """INVERTED from test_legacy_low_latency_ignores_vertical_position.
+    NovaStar: "for any novastar product including legacy and coex, when
+    low-latency mode is enabled, the screen connection must meet the required
+    conditions, including top alignment and vertical cabinet formula". So the
+    legacy line derates too, and moving a legacy screen down the canvas MUST
+    change its map.
 
-    tl-v, so the reserved rectangle grows a COLUMN at a time and the 256 px
-    figures above are the ones under test. tl-h grows it a ROW at a time and
-    reaches 512 x 1,280 instead, which is the flow pattern working, not the
-    derate leaking in."""
+    20 rows of 128 px = 2,560 px tall, tl-v so the reserved Armor rectangle
+    grows a COLUMN at a time.
+
+    Y = 0:      capacity = 659,722 px.
+                1 column  = 128 x 2,560 =   327,680  fits
+                2 columns = 256 x 2,560 =   655,360  fits
+                3 columns = 384 x 2,560 =   983,040  does not
+                -> 2 ports of 40 cabinets, 655,360 px each.
+
+    Y = 3,000 on an 8,192 px canvas:
+                factor   = 1 - 3000/8192 = 0.6337890625
+                capacity = floor(0.6337890625 x 659,722) = 418,124 px
+                1 column  = 327,680  fits
+                2 columns = 655,360  does not
+                -> 4 ports of 20 cabinets, 327,680 px each."""
     spec = dict(rows=20, columns=4, cw=128, ch=128, pattern='tl-v',
                 processorType='novastar-armor', canvasHeight=8192)
     top = ll_port_map(page, offsetY=0, **spec)
@@ -1670,49 +1746,62 @@ def test_legacy_low_latency_ignores_vertical_position(page):
     assert top['total'] == down['total'] == 659722, top['total']
     assert 2 * 128 * 2560 <= 659722 < 3 * 128 * 2560
 
-    for label, r in (('Y=0', top), ('Y=3000', down)):
-        assert_ll_ports_legal(r, 8192, f'Legacy LL {label}',
-                              uses_rectangle=True, y_derate=False)
-        assert [p['panels'] for p in r['ports']] == [40, 40], (label, r['ports'])
-        assert [p['rectArea'] for p in r['ports']] == [655360, 655360], (label, r)
-        # Two columns each: capacity, not the cap, is what ended these ports.
-        assert [p['width'] for p in r['ports']] == [256, 256], (label, r['ports'])
-        assert r['derate'] is None, (label, r['derate'])
+    assert_ll_ports_legal(top, 8192, 'Legacy LL Y=0', uses_rectangle=True)
+    assert [p['panels'] for p in top['ports']] == [40, 40], top['ports']
+    assert [p['rectArea'] for p in top['ports']] == [655360, 655360], top
+    assert [p['width'] for p in top['ports']] == [256, 256], top['ports']
+    assert [p['minY'] for p in top['ports']] == [0, 0], top['ports']
+    assert top['derate'] is None, top['derate']
 
-    # Same emission, cabinet for cabinet, at both heights -- the direct
-    # regression guard for the COEX-only derate.
-    assert top['flat'] == down['flat'], (
-        'a legacy screen changed its port map by moving down the canvas')
-    # A legacy wall too wide for one band still splits into bands.
+    derated = ll_capacity(659722, 3000, 8192)
+    assert derated == 418124, derated
+    assert 128 * 2560 <= derated < 256 * 2560
+    assert_ll_ports_legal(down, 8192, 'Legacy LL Y=3000', uses_rectangle=True)
+    assert [p['panels'] for p in down['ports']] == [20, 20, 20, 20], down['ports']
+    assert [p['rectArea'] for p in down['ports']] == [327680] * 4, down
+    assert [p['width'] for p in down['ports']] == [128] * 4, down['ports']
+    assert down['derate'] == {
+        'deratedPorts': 4, 'totalPorts': 4, 'canvasHeight': 8192,
+        'worstCapacity': 418124, 'portCapacity': 659722}, down['derate']
+
+    assert top['flat'] != down['flat'], (
+        'a legacy screen kept its port map after moving down the canvas')
+    # ...and a legacy port is free to be wider than the retired 512 px cap:
+    # 4 rows of 128 px are short enough that six columns share one port.
     wide = ll_port_map(page, rows=4, columns=8, cw=128, ch=128, offsetY=3000,
                        pattern='tl-v', processorType='novastar-armor',
                        canvasHeight=8192)
-    assert_ll_ports_legal(wide, 8192, 'Legacy LL 8 columns',
-                          uses_rectangle=True, y_derate=False)
-    assert [p['width'] for p in wide['ports']] == [512, 512], wide['ports']
-    assert [p['cols'] for p in wide['ports']] == [[0, 1, 2, 3], [4, 5, 6, 7]]
+    assert_ll_ports_legal(wide, 8192, 'Legacy LL 8 columns', uses_rectangle=True)
+    assert 6 * 128 * 512 <= derated < 7 * 128 * 512
+    assert [p['width'] for p in wide['ports']] == [768, 256], wide['ports']
+    assert [p['cols'] for p in wide['ports']] == [[0, 1, 2, 3, 4, 5], [6, 7]]
 
 
 def test_low_latency_total_follows_bit_depth_not_a_constant(page):
-    """10-bit 5G is 2,073,000 px, not the 8-bit 2,592,000, and the port split
-    moves with it: floor(2,073,000 / 16,384) = 126 cabinets.
+    """A port's TOTAL is the table lookup at the CURRENT bit depth and frame
+    rate, never a constant frozen at 8-bit/60: 10-bit 5G is smaller than 8-bit
+    5G, and the first port shrinks to floor(TOTAL / 16,384) with it.
 
-    tl-v keeps every port's top edge at row 0, so the only thing moving these
-    counts is the table figure, which is what the test is about."""
+    tl-v keeps the first port's top edge at row 0, so the only thing moving
+    that count is the table figure, which is what the test is about."""
+    eight = ll_port_map(page, rows=50, columns=4, canvasHeight=6400,
+                        pattern='tl-v')
     ten = ll_port_map(page, rows=50, columns=4, bitDepth=10, canvasHeight=6400,
                       pattern='tl-v')
-    assert ten['total'] == 2073000, ten['total']
-    assert 126 * 16384 <= 2073000 < 127 * 16384
+    assert 0 < ten['total'] < eight['total'], (ten['total'], eight['total'])
     assert_ll_ports_legal(ten, 6400, '5G LL 10-bit')
-    assert [p['panels'] for p in ten['ports']] == [126, 74], ten['ports']
+    assert ten['ports'][0]['panels'] == ll_fits(ten['total']), ten['ports']
+    assert ten['ports'][0]['panels'] < eight['ports'][0]['panels'], (
+        '10-bit carried as much per port as 8-bit')
 
     # ...and with the frame rate, on the same table row.
     fast = ll_port_map(page, rows=50, columns=4, frameRate=120, canvasHeight=6400,
                        pattern='tl-v')
-    assert fast['total'] == 1296000, fast['total']
-    assert 79 * 16384 <= 1296000 < 80 * 16384
+    assert 0 < fast['total'] < eight['total'], (fast['total'], eight['total'])
     assert_ll_ports_legal(fast, 6400, '5G LL 120 Hz')
-    assert [p['panels'] for p in fast['ports']] == [79, 79, 42], fast['ports']
+    assert fast['ports'][0]['panels'] == ll_fits(fast['total']), fast['ports']
+    assert len(fast['ports']) > len(eight['ports']), (
+        '120 Hz needed no more ports than 60 Hz')
 
 
 def test_low_latency_load_accounting_stays_per_processor(page):
@@ -1730,8 +1819,7 @@ def test_low_latency_load_accounting_stays_per_processor(page):
     coex = ll_port_map(page, rows=12, columns=4, hidden=hidden, pattern='tl-v',
                        processorType='novastar-coex-1g', canvasHeight=2160)
     assert armor['total'] == coex['total'] == 659722, (armor['total'], coex['total'])
-    assert_ll_ports_legal(armor, 2160, 'Armor LL', uses_rectangle=True,
-                          y_derate=False)
+    assert_ll_ports_legal(armor, 2160, 'Armor LL', uses_rectangle=True)
     assert_ll_ports_legal(coex, 2160, 'COEX 1G LL')
 
     # Armor: three full columns reserve 384 x 1536 = 589,824 px; the fourth
@@ -1745,12 +1833,12 @@ def test_low_latency_load_accounting_stays_per_processor(page):
 
 
 # ── Flow patterns under low latency (v0.10.9) ────────────────────────────
-# The NovaStar rule is "for each output, the max width is 512 pixels" and
-# NOTHING about the route. The training material draws a horizontal snake, a
-# vertical snake and a diagonal zigzag inside three tall narrow bands to make
-# exactly that point. So the band is the hardware's; the traversal inside it
-# is the layer's flow pattern, the same eight the screen uses without low
-# latency. These tests are the regression guard for "the patterns do nothing".
+# With the 512 px cap retired, the only NovaStar rule left is the per-port
+# (1 - Y/H) derate, and it says nothing about the ROUTE: it prices a port that
+# starts low on the canvas, which is what a horizontal-first pattern does from
+# its second port onwards. So the traversal stays the layer's flow pattern, the
+# same eight the screen uses without low latency, walked over the whole screen.
+# These tests are the regression guard for "the patterns do nothing".
 
 LL_FLOW_PATTERNS = ['tl-h', 'tl-v', 'tr-h', 'tr-v', 'bl-h', 'bl-v', 'br-h', 'br-v']
 
@@ -1769,19 +1857,17 @@ def ll_port_starts(result):
 def test_low_latency_honours_every_flow_pattern(page, processor):
     """All eight patterns reach the map, and all eight reach it DIFFERENTLY.
 
-    8 x 128 px columns make two 512 px bands, so a pattern that only chose
-    which band went first would still collide here; the orders have to differ
-    pairwise. Every emission is re-checked against the width cap and the
-    capacity rules as well -- honouring the pattern may not cost the hardware
-    rule."""
+    A tall 8 x 50 wall, so every pattern needs several ports and the orders
+    have to differ pairwise rather than merely start somewhere else. Every
+    emission is re-checked against the capacity rules as well -- honouring the
+    pattern may not cost the hardware rule."""
     uses_rectangle = processor == 'novastar-armor'
     orders = {}
     for pattern in LL_FLOW_PATTERNS:
         r = ll_port_map(page, rows=50, columns=8, pattern=pattern,
                         processorType=processor, canvasHeight=8192)
         assert_ll_ports_legal(r, 8192, f'{processor} LL {pattern}',
-                              uses_rectangle=uses_rectangle,
-                              y_derate=not uses_rectangle)
+                              uses_rectangle=uses_rectangle)
         assert r['totalPanels'] == 400, (pattern, r['totalPanels'])
         orders[pattern] = ll_cable_order(r)
         # ...and every cabinet is still emitted exactly once.
@@ -1800,31 +1886,29 @@ def test_low_latency_honours_every_flow_pattern(page, processor):
     ('br-h', (5, 7)), ('br-v', (5, 7)),
 ])
 def test_low_latency_first_cabinet_is_the_pattern_corner(page, pattern, expect):
-    """Port 1 opens on the corner the pattern names, inside the band that
-    pattern starts from: tl-*/bl-* pack columns from the left so band 1 is
-    columns 0-3, tr-*/br-* pack from the right so band 1 is columns 4-7."""
+    """Port 1 opens on the corner the pattern names -- the same corner the
+    screen starts from without low latency."""
     r = ll_port_map(page, rows=6, columns=8, pattern=pattern, canvasHeight=2160)
     assert_ll_ports_legal(r, 2160, f'5G LL {pattern}')
     assert ll_cable_order(r)[0] == expect, (pattern, ll_cable_order(r)[:4])
 
 
-def test_low_latency_both_axes_are_honoured_inside_one_band(page):
-    """4 x 128 px columns are ONE 512 px band, so a horizontal-first pattern
-    and its vertical-first twin can only differ by the route INSIDE the band.
-    Both still open on the same corner -- it is the axis that moved, not the
-    start."""
+def test_low_latency_both_axes_are_honoured_inside_one_port(page):
+    """A 4 x 6 wall fits one port, so a horizontal-first pattern and its
+    vertical-first twin can only differ by the ROUTE. Both still open on the
+    same corner -- it is the axis that moved, not the start."""
     for corner in ('tl', 'tr', 'bl', 'br'):
         h = ll_port_map(page, rows=6, columns=4, pattern=f'{corner}-h',
                         canvasHeight=2160)
         v = ll_port_map(page, rows=6, columns=4, pattern=f'{corner}-v',
                         canvasHeight=2160)
         assert len(h['ports']) == len(v['ports']) == 1, (corner, h['ports'], v['ports'])
-        assert h['ports'][0]['width'] == v['ports'][0]['width'] == 512, corner
+        assert h['ports'][0]['width'] == v['ports'][0]['width'] == 4 * 128, corner
         ho, vo = ll_cable_order(h), ll_cable_order(v)
         assert ho[0] == vo[0], (
             f"{corner}: the two axes disagree about the starting corner")
         assert ho != vo, (
-            f"{corner}-h and {corner}-v snake the same band identically -- "
+            f"{corner}-h and {corner}-v snake the wall identically -- "
             f"only the corner is being honoured, not the axis")
 
 
@@ -1864,19 +1948,28 @@ def test_low_latency_off_is_unchanged(page, processor, mode):
 
 
 @pytest.mark.parametrize('processor,expect_note', [
-    # Both COEX entries feed the note from the same layer._lowLatencyDerate,
-    # so 5G exercises the UI path for both; coex-1g's own derate is pinned at
-    # the map level in test_coex_low_latency_still_derates_by_position, where
-    # the wall's size is the test's to choose rather than the page's.
+    # Every NovaStar entry feeds the note from the same layer._lowLatencyDerate,
+    # so one COEX and one legacy processor cover the UI path; each line's own
+    # derate is pinned at the map level in
+    # test_coex_low_latency_still_derates_by_position and
+    # test_legacy_low_latency_derates_by_vertical_position, where the wall's
+    # size is the test's to choose rather than the page's.
     ('novastar-5g', True),
-    # Legacy has no (1 - Y/H) term, so there is nothing for the note to
-    # explain and it must stay off the screen entirely.
-    ('novastar-armor', False),
+    # INVERTED: the legacy line used to have no (1 - Y/H) term and had to keep
+    # the note off the screen. NovaStar since confirmed the rule covers legacy
+    # too, so a pushed-down legacy screen must explain itself the same way.
+    ('novastar-armor', True),
 ])
 def test_low_latency_derate_note_appears_only_when_derated(page, processor,
                                                            expect_note):
-    """Moving a COEX screen down the canvas changes the port count; without
-    this note on screen that looks like a bug rather than the COEX formula."""
+    """Moving a NovaStar screen down the canvas changes the port count; without
+    this note on screen that looks like a bug rather than the formula.
+
+    Pinned to tl-v and to a push that keeps the whole wall on the canvas: a
+    horizontal-first pattern starts its later ports further down and so derates
+    a wall that IS top-aligned, and a wall hanging off the bottom has ports at
+    a factor of 0. Both are the formula working - they are just not what this
+    test is about, which is the note appearing exactly when a port is derated."""
     state = page.evaluate("""(processor) => {
         const app = window.app;
         const el = () => document.getElementById('low-latency-derate-note');
@@ -1885,22 +1978,26 @@ def test_low_latency_derate_note_appears_only_when_derated(page, processor,
         const layer = app.project.layers.find(
             l => (l.type || 'screen') === 'screen');
         const prev = { proc: layer.processorType, ll: layer.lowLatency,
+                       pattern: layer.flowPattern,
                        ys: layer.panels.map(p => p.y) };
         layer.processorType = processor;
         layer.lowLatency = true;
+        layer.flowPattern = 'tl-v';
         app.selectLayer(layer);
         const h = app.getLayerCanvasHeight(layer);
         const top = Math.min.apply(null, prev.ys);
+        const wall = Math.max.apply(null, layer.panels.map(
+            (p, i) => prev.ys[i] - top + (Number(p.height) || 0)));
+        const push = Math.floor((h - wall) / 2);
         try {
             layer.panels.forEach((p, i) => { p.y = prev.ys[i] - top; });
             app.updatePortCapacityDisplay();
             const aligned = read();
-            layer.panels.forEach((p, i) => {
-                p.y = prev.ys[i] - top + Math.floor(h / 2);
-            });
+            layer.panels.forEach((p, i) => { p.y = prev.ys[i] - top + push; });
             app.updatePortCapacityDisplay();
             const pushedDown = read();
-            return { h: h, aligned: aligned, pushedDown: pushedDown,
+            return { h: h, wall: wall, push: push,
+                     aligned: aligned, pushedDown: pushedDown,
                      // A capacity error would empty the map and suppress the
                      // note for a reason that has nothing to do with the
                      // derate; surface it so a failure says which it was.
@@ -1909,10 +2006,13 @@ def test_low_latency_derate_note_appears_only_when_derated(page, processor,
             layer.panels.forEach((p, i) => { p.y = prev.ys[i]; });
             layer.processorType = prev.proc;
             layer.lowLatency = prev.ll;
+            layer.flowPattern = prev.pattern;
             app.updatePortCapacityDisplay();
         }
     }""", processor)
     assert state['h'] > 0, state
+    assert state['push'] > 0, (
+        f"the page's wall leaves no room to push it down the canvas: {state}")
     assert state['err'] is None, state
     assert state['aligned'] == {'text': '', 'shown': False}, state
     assert state['pushedDown']['shown'] is expect_note, state
@@ -2561,3 +2661,356 @@ def test_text_style_buttons_follow_the_accent(page):
     assert accent in res['on']['bgi'], (
         f"active B/I/U is not the themed accent: {res['on']['bgi']}")
     assert '42, 109, 212' not in res['on']['bgi'], "still the hard-coded blue"
+
+
+# ── Port load percentage (v0.10.9) ───────────────────────────────────────
+# The Data Flow tab can print how full each port is, as a percentage of THAT
+# port's capacity. The figure has to come from the same accounting the port
+# map itself used, which differs per processor: NovaStar Armor pays for the
+# reserved bounding RECTANGLE, everything else pays the pixel sum. The tests
+# below re-derive every percentage from the EMITTED map and compare, so a
+# renderer that quietly reinvented the arithmetic fails here.
+
+PORT_LOAD_JS = """(spec) => {
+    const app = window.app;
+    const renderer = window.canvasRenderer;
+    const hiddenSet = new Set((spec.hidden || []).map(rc => rc[0] + ',' + rc[1]));
+    const offsetX = spec.offsetX || 0;
+    const offsetY = spec.offsetY || 0;
+    const panels = [];
+    let n = 1;
+    for (let r = 0; r < spec.rows; r++) {
+        for (let c = 0; c < spec.columns; c++) {
+            panels.push({
+                id: n, number: n, row: r, col: c,
+                x: offsetX + c * spec.cw, y: offsetY + r * spec.ch,
+                width: spec.cw, height: spec.ch,
+                hidden: hiddenSet.has(r + ',' + c), blank: false, halfTile: 'none'
+            });
+            n++;
+        }
+    }
+    // Throwaway canvas so H in the Low Latency (1 - Y/H) derate is exactly
+    // what the test says it is; removed again before returning.
+    const canvasId = '__load_test_canvas__';
+    const prevCanvases = app.project.canvases;
+    app.project.canvases = (prevCanvases || []).concat([{
+        id: canvasId, name: 'load test',
+        raster_width: spec.canvasWidth || 4096,
+        raster_height: spec.canvasHeight || 2160
+    }]);
+    const layer = {
+        id: -2, type: 'screen', rows: spec.rows, columns: spec.columns,
+        cabinet_width: spec.cw, cabinet_height: spec.ch, panels,
+        canvas_id: canvasId, offset_x: offsetX, offset_y: offsetY,
+        processorType: spec.processorType,
+        portMappingMode: spec.mode || 'organized',
+        flowPattern: spec.pattern || 'tl-h',
+        bitDepth: spec.bitDepth || 8,
+        frameRate: spec.frameRate || 60,
+        lowLatency: !!spec.lowLatency
+    };
+    let assignments;
+    let out;
+    try {
+        assignments = app.calculatePortAssignments(layer);
+        const byPort = new Map();
+        assignments.forEach(a => {
+            if (!byPort.has(a.port)) byPort.set(a.port, []);
+            byPort.get(a.port).push(a.panel);
+        });
+        const ports = Array.from(byPort.keys()).sort((a, b) => a - b).map(p => {
+            const ps = byPort.get(p);
+            const minX = Math.min.apply(null, ps.map(q => q.x));
+            const maxX = Math.max.apply(null, ps.map(q => q.x + q.width));
+            const minY = Math.min.apply(null, ps.map(q => q.y));
+            const maxY = Math.max.apply(null, ps.map(q => q.y + q.height));
+            const stats = renderer.getPortLoadStats(layer, ps);
+            // The same port re-scored under a pixel-sum processor, so the
+            // rectangle rule can be shown to be the thing that differs.
+            const asPixelSum = renderer.getPortPixelLoad(
+                Object.assign({}, layer, { processorType: 'brompton' }), ps);
+            return {
+                port: p,
+                panels: ps.length,
+                minY: minY,
+                rectArea: (maxX - minX) * (maxY - minY),
+                pixelSum: ps.reduce((s, q) => s + q.width * q.height, 0),
+                asPixelSum: asPixelSum,
+                stats: stats
+            };
+        });
+        out = {
+            baseCapacity: app.calculatePortCapacity(
+                layer.bitDepth, layer.frameRate, layer.processorType,
+                layer.lowLatency),
+            canvasHeight: spec.canvasHeight || 2160,
+            ports: ports,
+            // Every panel handed over as ONE port, the way a hand-drawn
+            // custom path can over-fill one.
+            wholeWall: renderer.getPortLoadStats(
+                layer, panels.filter(q => !q.hidden)),
+            error: !!layer._capacityError,
+            errorInfo: layer._capacityError || null
+        };
+    } finally {
+        app.project.canvases = prevCanvases;
+    }
+    return out;
+}"""
+
+
+def port_load(page, **spec):
+    spec.setdefault('cw', 200)
+    spec.setdefault('ch', 200)
+    return page.evaluate(PORT_LOAD_JS, spec)
+
+
+def js_round(value):
+    """Math.round rounds .5 UP; Python's round() goes to even. The displayed
+    number has to match the browser's, so mirror the browser."""
+    return int(value + 0.5) if value >= 0 else -int(-value + 0.5)
+
+
+def test_port_load_percent_matches_the_emitted_map(page):
+    """Every percentage re-derives from the shipped map: pixel sum over the
+    port's own capacity, for a pixel-sum processor."""
+    res = port_load(page, rows=3, columns=8, processorType='brompton',
+                    mode='max-capacity')
+    assert not res['error'], res['errorInfo']
+    assert res['ports'], 'no ports emitted'
+    capacity = res['baseCapacity']
+    assert capacity > 0
+    for p in res['ports']:
+        stats = p['stats']
+        assert stats, f"port {p['port']} produced no load figure"
+        # Pixel-sum accounting, and no Low Latency, so capacity is the table
+        # figure untouched.
+        assert stats['load'] == p['pixelSum'], p
+        assert stats['capacity'] == capacity, p
+        expected = js_round(p['pixelSum'] / capacity * 100)
+        assert stats['shown'] == expected, (
+            f"port {p['port']}: showed {stats['shown']}%, "
+            f"{p['pixelSum']}/{capacity} is {expected}%")
+        # The colour state follows the number the user reads, so the two can
+        # never disagree: 90%+ warns, 100%+ is over, healthy is neither.
+        expected_state = ('over' if expected >= 100
+                          else ('warn' if expected >= 90 else 'ok'))
+        assert stats['state'] == expected_state, p
+
+
+def test_port_load_armor_charges_the_rectangle_not_the_pixel_sum(page):
+    """Stair-step wall: Armor's reserved rectangle is bigger than the lit
+    pixels, so its percentage MUST be the higher of the two. Scoring Armor on
+    a pixel sum would tell the user a full port has room left."""
+    hidden = ([[1, c] for c in range(8, 10)]
+              + [[2, c] for c in range(5, 10)]
+              + [[3, c] for c in range(2, 10)])
+    res = port_load(page, rows=4, columns=10, hidden=hidden,
+                    processorType='novastar-armor', mode='max-capacity')
+    assert not res['error'], res['errorInfo']
+    assert [p['panels'] for p in res['ports']] == [10, 13, 2], res['ports']
+
+    middle = res['ports'][1]
+    # 13 cabinets light 520,000 px inside a 1600x400 = 640,000 px reservation.
+    assert middle['rectArea'] == 640000
+    assert middle['pixelSum'] == 520000
+    assert middle['stats']['load'] == 640000, (
+        'Armor was scored on the pixel sum, not the reserved rectangle')
+    # The same cabinets under a pixel-sum processor cost the lit pixels only.
+    assert middle['asPixelSum'] == 520000
+    assert middle['stats']['load'] != middle['asPixelSum'], (
+        'the two accountings have to differ on a stair-step wall')
+
+    capacity = res['baseCapacity']
+    assert middle['stats']['capacity'] == capacity
+    assert middle['stats']['shown'] == js_round(640000 / capacity * 100)
+    # Ranking the ports by percentage must follow the rectangle too.
+    assert middle['stats']['shown'] > js_round(520000 / capacity * 100)
+
+
+def test_port_load_over_capacity_is_flagged(page):
+    """A hand-drawn path that puts the whole wall on one port reads over
+    100% and is flagged, rather than silently topping out at a healthy
+    looking number."""
+    res = port_load(page, rows=4, columns=10,
+                    processorType='novastar-armor', mode='max-capacity')
+    assert not res['error'], res['errorInfo']
+    # Every emitted port fits, so none of them is flagged.
+    for p in res['ports']:
+        assert p['stats']['state'] == 'ok', p
+        assert p['stats']['shown'] < 100, p
+
+    whole = res['wholeWall']
+    # 2000 x 800 = 1,600,000 px reserved against a 659,722 px port.
+    assert whole['load'] == 1600000, whole
+    assert whole['percent'] > 100, whole
+    assert whole['shown'] >= 100, whole
+    assert whole['state'] == 'over', whole
+
+
+def test_port_load_uses_the_low_latency_derated_capacity(page):
+    """A NovaStar Low Latency port that starts below the top of the canvas
+    keeps only (1 - Y/H) of the table figure. Scoring it against the table
+    figure would understate how full it is."""
+    # A 4 x 50 wall of 128 px cabinets fills its canvas top to bottom. Walked
+    # horizontally, port 1 runs out partway down and every port after it
+    # starts on a lower row -- which is exactly what the derate charges for.
+    res = port_load(page, rows=50, columns=4, cw=128, ch=128,
+                    processorType='novastar-5g', mode='organized',
+                    pattern='tl-h', lowLatency=True,
+                    canvasHeight=6400, offsetY=0)
+    assert not res['error'], res['errorInfo']
+    base = res['baseCapacity']
+    height = res['canvasHeight']
+    derated = [p for p in res['ports'] if p['minY'] > 0]
+    assert derated, 'expected at least one port starting below the top'
+    for p in res['ports']:
+        expected_capacity = int(
+            min(1.0, max(0.0, 1 - (p['minY'] / height))) * base)
+        assert p['stats']['capacity'] == expected_capacity, (
+            f"port {p['port']} at Y={p['minY']} scored against "
+            f"{p['stats']['capacity']}, not its derated {expected_capacity}")
+        assert p['stats']['shown'] == js_round(
+            p['stats']['load'] / expected_capacity * 100), p
+    for p in derated:
+        assert p['stats']['capacity'] < base, (
+            'a derated port was scored against the undertated table figure')
+
+
+def test_port_load_toggle_defaults_off_and_gates_the_drawing(page):
+    """Default OFF (no existing export changes), on draws the percentages in
+    both the interactive view and the export pass, and the flag round-trips
+    through the server."""
+    page.locator('[data-mode="data-flow"]').click()
+    page.wait_for_timeout(400)
+
+    setup = page.evaluate("""() => {
+        const app = window.app;
+        const layer = app.project.layers.find(
+            l => (l.type || 'screen') === 'screen');
+        app.selectLayer(layer);
+        const box = document.getElementById('show-data-flow-port-load');
+        const row = box ? box.closest('.info-row') : null;
+        return {
+            found: !!box,
+            checked: box ? box.checked : null,
+            flag: !!layer.showDataFlowPortLoad,
+            rowDisplay: row ? getComputedStyle(row).display : null,
+            rowVisibility: row ? getComputedStyle(row).visibility : null,
+            isCheckboxRow: row ? row.classList.contains('checkbox-row') : null,
+            layerId: layer.id
+        };
+    }""")
+    assert setup['found'], '#show-data-flow-port-load is missing from the Data sidebar'
+    assert setup['checked'] is False, 'the toggle did not default OFF'
+    assert setup['flag'] is False, 'the layer flag did not default OFF'
+    assert setup['rowDisplay'] != 'none', setup
+    assert setup['rowVisibility'] != 'hidden', setup
+    assert setup['isCheckboxRow'], 'the toggle does not follow the checkbox-row markup'
+
+    # Count the percentages the real render pass paints, with the flag off
+    # and on, interactively and in the export pass (same renderer, so the
+    # exported map carries whatever the screen does).
+    COUNT_JS = """(on) => {
+        const app = window.app;
+        const renderer = window.canvasRenderer;
+        const layer = app.project.layers.find(
+            l => (l.type || 'screen') === 'screen');
+        layer.showDataFlowPortLoad = on;
+        const ctx = renderer.ctx;
+        const original = ctx.fillText;
+        const painted = [];
+        ctx.fillText = function (text, x, y, w) {
+            painted.push(String(text));
+            return original.call(this, text, x, y, w);
+        };
+        const prevMode = renderer.viewMode;
+        const prevExport = renderer.exportMode;
+        let interactive, exported;
+        try {
+            renderer.viewMode = 'data-flow';
+            renderer.render();
+            interactive = painted.filter(t => /^\\d+%$/.test(t)).length;
+            painted.length = 0;
+            renderer.exportMode = true;
+            renderer.render();
+            exported = painted.filter(t => /^\\d+%$/.test(t)).length;
+        } finally {
+            ctx.fillText = original;
+            renderer.exportMode = prevExport;
+            renderer.viewMode = prevMode;
+            renderer.render();
+        }
+        return { interactive: interactive, exported: exported };
+    }"""
+    off = page.evaluate(COUNT_JS, False)
+    on = page.evaluate(COUNT_JS, True)
+    assert off['interactive'] == 0, 'percentages drawn while the toggle is OFF'
+    assert off['exported'] == 0, 'percentages exported while the toggle is OFF'
+    assert on['interactive'] > 0, 'toggle ON drew no percentages'
+    assert on['exported'] == on['interactive'], (
+        f"export drew {on['exported']} percentages, the screen drew "
+        f"{on['interactive']} -- the two views disagree")
+
+    # Round-trip: the toggle's own change handler (the path a user takes),
+    # then read the stored project back.
+    stored = page.evaluate("""async (layerId) => {
+        const app = window.app;
+        const wait = ms => new Promise(r => setTimeout(r, ms));
+        const layer = app.project.layers.find(l => l.id === layerId);
+        app.selectLayer(layer);
+        const box = document.getElementById('show-data-flow-port-load');
+        box.checked = true;
+        box.dispatchEvent(new Event('change'));
+        let server = null;
+        for (let i = 0; i < 20 && server !== true; i++) {
+            await wait(200);
+            const project = await fetch('/api/project').then(r => r.json());
+            const saved = project.layers.find(l => l.id === layerId);
+            server = saved ? saved.showDataFlowPortLoad : null;
+        }
+        const props = JSON.parse(
+            localStorage.getItem('ledRasterClientProps') || '{}');
+        return {
+            server: server,
+            flag: !!app.project.layers.find(
+                l => l.id === layerId).showDataFlowPortLoad,
+            extracted: app.extractClientSideProps(layer).showDataFlowPortLoad,
+            local: props[layerId] ? props[layerId].showDataFlowPortLoad : null
+        };
+    }""", setup['layerId'])
+    assert stored['flag'] is True, 'the change handler did not set the layer flag'
+    assert stored['server'] is True, (
+        'the server dropped showDataFlowPortLoad -- missing from the whitelist')
+    assert stored['extracted'] is True, stored
+    assert stored['local'] is True, stored
+
+    # Reload: the stored flag has to come back on, and hydrate the checkbox.
+    pg = page.context.new_page()
+    pg.goto(page.url, wait_until='domcontentloaded')
+    pg.wait_for_timeout(2000)
+    reloaded = pg.evaluate("""(layerId) => {
+        const app = window.app;
+        const layer = app.project.layers.find(l => l.id === layerId);
+        if (!layer) return null;
+        app.selectLayer(layer);
+        const box = document.getElementById('show-data-flow-port-load');
+        return { flag: !!layer.showDataFlowPortLoad,
+                 checked: box ? box.checked : null };
+    }""", setup['layerId'])
+    pg.close()
+    assert reloaded, 'the layer vanished across the reload'
+    assert reloaded['flag'] is True, 'the flag did not survive the reload'
+    assert reloaded['checked'] is True, (
+        'loadLayerToInputs did not hydrate the checkbox after the reload')
+
+    # Leave the shared project as we found it.
+    page.evaluate("""(layerId) => {
+        const app = window.app;
+        app.selectLayer(app.project.layers.find(l => l.id === layerId));
+        const box = document.getElementById('show-data-flow-port-load');
+        box.checked = false;
+        box.dispatchEvent(new Event('change'));
+    }""", setup['layerId'])
+    page.wait_for_timeout(600)

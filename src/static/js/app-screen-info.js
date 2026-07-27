@@ -59,28 +59,14 @@ class _ScreenInfo {
         return ordered;
     }
 
-    // v0.10.9: `bounds` (optional {colStart, colEnd, rowStart, rowEnd}, grid
-    // indices, inclusive) restricts the walk to a sub-grid so a caller can
-    // order ONE vertical band exactly the way this orders a whole screen --
-    // NovaStar Low Latency needs that and must not own a second copy of the
-    // serpentine. Omitted, the bounds are the full grid and every step below
-    // is what it always was.
-    getOrderedPanelsByPattern(layer, pattern = 'tl-h', includeHidden = false, bounds = null) {
+    // v0.10.9: the sub-grid `bounds` argument added for the retired 512 px
+    // NovaStar Low Latency bands is gone with them - low latency now walks the
+    // whole screen like every other mode, so this is back to its plain form.
+    getOrderedPanelsByPattern(layer, pattern = 'tl-h', includeHidden = false) {
         if (!layer || !Array.isArray(layer.panels) || layer.panels.length === 0) return [];
         const cols = Number(layer.columns) || 0;
         const rows = Number(layer.rows) || 0;
         if (cols <= 0 || rows <= 0) return [];
-
-        const clampIdx = (value, fallback, limit) => (Number.isFinite(value)
-            ? Math.min(limit, Math.max(0, Math.trunc(value)))
-            : fallback);
-        const colLo = clampIdx(bounds && bounds.colStart, 0, cols - 1);
-        const colHi = clampIdx(bounds && bounds.colEnd, cols - 1, cols - 1);
-        const rowLo = clampIdx(bounds && bounds.rowStart, 0, rows - 1);
-        const rowHi = clampIdx(bounds && bounds.rowEnd, rows - 1, rows - 1);
-        if (colLo > colHi || rowLo > rowHi) return [];
-        const colSpan = colHi - colLo + 1;
-        const rowSpan = rowHi - rowLo + 1;
 
         const panelMap = new Map();
         layer.panels.forEach(panel => {
@@ -88,23 +74,23 @@ class _ScreenInfo {
         });
 
         const [startCorner, direction] = pattern.split('-');
-        let startRow = rowLo;
-        let startCol = colLo;
+        let startRow = 0;
+        let startCol = 0;
         let rowDir = 1;
         let colDir = 1;
 
         switch (startCorner) {
             case 'tr':
-                startCol = colHi;
+                startCol = cols - 1;
                 colDir = -1;
                 break;
             case 'bl':
-                startRow = rowHi;
+                startRow = rows - 1;
                 rowDir = -1;
                 break;
             case 'br':
-                startRow = rowHi;
-                startCol = colHi;
+                startRow = rows - 1;
+                startCol = cols - 1;
                 rowDir = -1;
                 colDir = -1;
                 break;
@@ -116,32 +102,32 @@ class _ScreenInfo {
         const ordered = [];
 
         if (isVerticalFirst) {
-            for (let c = startCol; c >= colLo && c <= colHi; c += colDir) {
+            for (let c = startCol; c >= 0 && c < cols; c += colDir) {
                 const colOffset = Math.abs(c - startCol);
                 const reverse = colOffset % 2 === 1;
                 if (reverse) {
-                    for (let r = startRow + (rowSpan - 1) * rowDir; r >= rowLo && r <= rowHi; r -= rowDir) {
+                    for (let r = startRow + (rows - 1) * rowDir; r >= 0 && r < rows; r -= rowDir) {
                         const panel = panelMap.get(`${r},${c}`);
                         if (panel && (includeHidden || !panel.hidden)) ordered.push(panel);
                     }
                 } else {
-                    for (let r = startRow; r >= rowLo && r <= rowHi; r += rowDir) {
+                    for (let r = startRow; r >= 0 && r < rows; r += rowDir) {
                         const panel = panelMap.get(`${r},${c}`);
                         if (panel && (includeHidden || !panel.hidden)) ordered.push(panel);
                     }
                 }
             }
         } else {
-            for (let r = startRow; r >= rowLo && r <= rowHi; r += rowDir) {
+            for (let r = startRow; r >= 0 && r < rows; r += rowDir) {
                 const rowOffset = Math.abs(r - startRow);
                 const reverse = rowOffset % 2 === 1;
                 if (reverse) {
-                    for (let c = startCol + (colSpan - 1) * colDir; c >= colLo && c <= colHi; c -= colDir) {
+                    for (let c = startCol + (cols - 1) * colDir; c >= 0 && c < cols; c -= colDir) {
                         const panel = panelMap.get(`${r},${c}`);
                         if (panel && (includeHidden || !panel.hidden)) ordered.push(panel);
                     }
                 } else {
-                    for (let c = startCol; c >= colLo && c <= colHi; c += colDir) {
+                    for (let c = startCol; c >= 0 && c < cols; c += colDir) {
                         const panel = panelMap.get(`${r},${c}`);
                         if (panel && (includeHidden || !panel.hidden)) ordered.push(panel);
                     }
@@ -379,6 +365,9 @@ class _ScreenInfo {
         }
         if (this.currentLayer.showDataFlowPortInfo === undefined) {
             this.currentLayer.showDataFlowPortInfo = false;
+        }
+        if (this.currentLayer.showDataFlowPortLoad === undefined) {
+            this.currentLayer.showDataFlowPortLoad = false;
         }
         if (this.currentLayer.showPowerCircuitInfo === undefined) {
             this.currentLayer.showPowerCircuitInfo = false;
@@ -1719,6 +1708,10 @@ class _ScreenInfo {
         if (showDataFlowPortInfoEl) {
             showDataFlowPortInfoEl.checked = !!this.currentLayer.showDataFlowPortInfo;
         }
+        const showDataFlowPortLoadEl = document.getElementById('show-data-flow-port-load');
+        if (showDataFlowPortLoadEl) {
+            showDataFlowPortLoadEl.checked = !!this.currentLayer.showDataFlowPortLoad;
+        }
         const showPowerCircuitInfoEl = document.getElementById('show-power-circuit-info');
         if (showPowerCircuitInfoEl) {
             showPowerCircuitInfoEl.checked = !!this.currentLayer.showPowerCircuitInfo;
@@ -1876,9 +1869,9 @@ class _ScreenInfo {
     //                   never hand back MORE capacity than the manual does.
     //   'none'        - no pixels-per-port cost.
     //   'novastar-ll' - geometric: the table value IS the port's TOTAL, so it
-    //                   comes back unchanged. The 512 px band cap, and the
-    //                   COEX-only (1 - Y/H) derate, need each port's position
-    //                   and are applied in calculatePortAssignments instead.
+    //                   comes back unchanged. The (1 - Y/H) derate needs each
+    //                   port's position and is applied in
+    //                   calculatePortAssignments instead.
     applyLowLatencyCapacity(capacity, processorType, lowLatency) {
         if (!lowLatency || !(capacity > 0)) return capacity;
         const profile = this.getLowLatencyProfile(processorType);
@@ -1891,8 +1884,8 @@ class _ScreenInfo {
     // v0.10.9: the geometric Low Latency rules for THIS layer, or null when
     // they do not apply (low latency off, or a processor family whose low
     // latency is a plain capacity change). Returns the descriptor's own
-    // capacity block: { maxPortWidth, yDerate } - yDerate is false on the
-    // legacy line, whose only low-latency rule is the width cap.
+    // capacity block: { yDerate } - true on every NovaStar line, legacy and
+    // COEX, per NovaStar's own answer.
     getLowLatencyGeometry(layer) {
         if (!layer || !layer.lowLatency) return null;
         if ((layer.type || 'screen') !== 'screen') return null;
@@ -1919,12 +1912,12 @@ class _ScreenInfo {
         return height > 0 ? height : 0;
     }
 
-    // v0.10.9: capacity of one COEX Low Latency port, given the topmost canvas
-    // Y of its visible cabinets. COEX only - the legacy line never calls this,
-    // its ports keep the full lookup wherever they sit. `total` is the plain
-    // table lookup at the current bit depth and frame rate - never a fixed
-    // constant, so the
-    // derate tracks 8/10/12-bit and the frame rate like everything else.
+    // v0.10.9: capacity of one NovaStar Low Latency port, given the topmost
+    // canvas Y of its visible cabinets. Every NovaStar line calls this now -
+    // top alignment is a requirement of the mode itself, not a COEX extra.
+    // `total` is the plain table lookup at the current bit depth and frame
+    // rate - never a fixed constant, so the derate tracks 8/10/12-bit and the
+    // frame rate like everything else.
     // Y = 0 (a top-aligned port, which is what a correctly built layout gives)
     // returns `total` untouched. An unknown canvas height derates NOTHING.
     lowLatencyPortCapacity(total, minY, canvasHeight) {
@@ -2028,15 +2021,18 @@ class _ScreenInfo {
                 text += ' Not applied to the figures below yet.';
             }
             note.textContent = text;
+            // v0.10.9: the receiving-card list is a tooltip - too long for the
+            // note itself, and the MRV328/MRV336 trap is already in the note.
+            note.title = supported ? (profile.cards || '') : '';
         }
     }
 
     // v0.10.9: say WHY a Low Latency port count moved. Pixels/Port is the
-    // port's TOTAL; a COEX port that does not start at canvas Y=0 keeps only
-    // (1 - Y/H) of it, so without this line nudging a screen down the canvas
-    // would silently change Ports Required and read as a bug. `derate` is
-    // layer._lowLatencyDerate - null on the legacy line, which has no derate,
-    // and null whenever nothing was derated, and then the line is cleared.
+    // port's TOTAL; a NovaStar port that does not start at canvas Y=0 keeps
+    // only (1 - Y/H) of it, so without this line nudging a screen down the
+    // canvas would silently change Ports Required and read as a bug. `derate`
+    // is layer._lowLatencyDerate - null whenever nothing was derated, and then
+    // the line is cleared.
     setLowLatencyDerateNote(derate) {
         const el = document.getElementById('low-latency-derate-note');
         if (!el) return;

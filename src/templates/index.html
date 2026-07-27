@@ -482,7 +482,14 @@
                             <input type="checkbox" id="show-data-flow-port-info">
                             <label for="show-data-flow-port-info">Show Port Info</label>
                         </div>
-                        
+                        <!-- v0.10.9: per-port load, as a percentage of that
+                             port's own capacity (Low Latency derates included).
+                             Off by default so existing exports are unchanged. -->
+                        <div class="info-row checkbox-row" data-tooltip="Show Port Load, Print each port's load under its port marker, as a percentage of that port's capacity. Orange from 90%, red at or over 100%.">
+                            <input type="checkbox" id="show-data-flow-port-load">
+                            <label for="show-data-flow-port-load">Show Port Load %</label>
+                        </div>
+
                         <p style="font-size: 11px; color: #888; margin: 4px 0 12px 0;">Click & drag the screen name to reposition</p>
                         
                         <!-- Port Capacity Settings -->

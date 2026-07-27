@@ -30,9 +30,22 @@ v0.10.9 - July 26, 2026
     Ultra Low Latency figures. (ULL is an SX40/S8 feature; HDMI in, no SDI.)
   - Megapixel HELIOS: no change to pixels per port - HELIOS low latency
     costs daisy-chain length, not bandwidth.
-  - NovaStar: the port rules are still being finished, so the figures are
-    NOT yet adjusted and the app says so on screen rather than quietly
-    showing a number that hasn't accounted for it.
+  - NovaStar (all, legacy and COEX): ports must run vertically and start at
+    the top of the canvas. A port that starts lower down loses capacity in
+    proportion, so the app shows fewer cabinets per port and tells you why.
+    Confirmed directly with NovaStar, who also confirmed the old 512-pixel
+    port width limit has been removed on current firmware - the published
+    manuals are wrong and are being revised. Low latency needs a supported
+    receiving card; note MRV328 and MRV336 cannot do it.
+
+- FIX (IMPORTANT): Corrected the NovaStar 5G pixels-per-port figures against
+  NovaStar's published Ethernet Port Load Capacity table. Their calculation
+  multiplies by 24 / 32 / 48 for 8 / 10 / 12-bit - our 12-bit figure used 36,
+  which overstated 12-bit capacity by about 17% and under-counted the ports a
+  screen needs. 12-bit at 60 Hz drops from 1,728,000 to 1,475,600 per port.
+  8-bit and 10-bit rise (2,592,000 to 2,951,200 at 8-bit/60 Hz), so 5G screens
+  will show different port counts than before. These are NovaStar's published
+  numbers.
   Existing projects saved as "Brompton Tessera (ULL)" open as Brompton with
   Low Latency ticked, and calculate exactly the same as before - verified
   against all 48 of the old figures.

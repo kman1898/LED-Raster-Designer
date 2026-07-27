@@ -350,6 +350,7 @@ export class LEDRasterApp {
             panelColorMode: layer.panelColorMode,
             panelColors: layer.panelColors,
             showDataFlowPortInfo: layer.showDataFlowPortInfo,
+            showDataFlowPortLoad: layer.showDataFlowPortLoad,
             showPowerCircuitInfo: layer.showPowerCircuitInfo,
             powerVoltage: layer.powerVoltage,
             powerVoltageCustom: layer.powerVoltageCustom,
@@ -594,6 +595,7 @@ export class LEDRasterApp {
                         if (layerProps.screenNameSizeDataFlow !== undefined) layer.screenNameSizeDataFlow = layerProps.screenNameSizeDataFlow;
                         if (layerProps.screenNameSizePower !== undefined) layer.screenNameSizePower = layerProps.screenNameSizePower;
                         if (layerProps.showDataFlowPortInfo !== undefined) layer.showDataFlowPortInfo = layerProps.showDataFlowPortInfo;
+                        if (layerProps.showDataFlowPortLoad !== undefined) layer.showDataFlowPortLoad = layerProps.showDataFlowPortLoad;
                         if (layerProps.showPowerCircuitInfo !== undefined) layer.showPowerCircuitInfo = layerProps.showPowerCircuitInfo;
                         if (layerProps.screenNameOffsetXPixelMap !== undefined) layer.screenNameOffsetXPixelMap = layerProps.screenNameOffsetXPixelMap;
                         if (layerProps.screenNameOffsetYPixelMap !== undefined) layer.screenNameOffsetYPixelMap = layerProps.screenNameOffsetYPixelMap;
@@ -701,6 +703,9 @@ export class LEDRasterApp {
             if (layer.panel_weight === undefined) layer.panel_weight = prefs.panelWeight || 20;
             if (layer.infoLabelSize === undefined) layer.infoLabelSize = 14;
             if (layer.showDataFlowPortInfo === undefined) layer.showDataFlowPortInfo = false;
+            // v0.10.9: port load % defaults OFF - an existing project must open
+            // and export exactly as it did before.
+            if (layer.showDataFlowPortLoad === undefined) layer.showDataFlowPortLoad = false;
             if (layer.showPowerCircuitInfo === undefined) layer.showPowerCircuitInfo = false;
             // Show Look position, default to processor offset for older
             // projects so they open looking identical to before.
@@ -910,6 +915,7 @@ export class LEDRasterApp {
                 panel_weight: layer.panel_weight,
                 infoLabelSize: layer.infoLabelSize,
                 showDataFlowPortInfo: layer.showDataFlowPortInfo,
+                showDataFlowPortLoad: layer.showDataFlowPortLoad,
                 showPowerCircuitInfo: layer.showPowerCircuitInfo,
                 // Text layer properties
                 textContent: layer.textContent,
@@ -2554,6 +2560,7 @@ export class LEDRasterApp {
         const powerLabelSelectAllBtn = document.getElementById('power-label-select-all');
         const powerLabelDeselectAllBtn = document.getElementById('power-label-deselect-all');
         const showDataFlowPortInfoEl = document.getElementById('show-data-flow-port-info');
+        const showDataFlowPortLoadEl = document.getElementById('show-data-flow-port-load');
         const showPowerCircuitInfoEl = document.getElementById('show-power-circuit-info');
 
         const updatePowerVoltageUI = () => {
@@ -2833,6 +2840,16 @@ export class LEDRasterApp {
                 });
                 this.saveClientSideProperties();
                 this.updateLayers(this.getSelectedLayers(), true, 'Toggle Port Info Labels');
+                window.canvasRenderer.render();
+            });
+        }
+        if (showDataFlowPortLoadEl) {
+            showDataFlowPortLoadEl.addEventListener('change', () => {
+                this.applyToSelectedLayers(layer => {
+                    layer.showDataFlowPortLoad = showDataFlowPortLoadEl.checked;
+                });
+                this.saveClientSideProperties();
+                this.updateLayers(this.getSelectedLayers(), true, 'Toggle Port Load Labels');
                 window.canvasRenderer.render();
             });
         }
@@ -3637,52 +3654,59 @@ export class LEDRasterApp {
     //    port capacities; the real cost is halved daisy-chain length in
     //    stacked columns.
     //  - NovaStar: low latency constrains port GEOMETRY rather than the pixel
-    //    budget, but that is TWO separate rules from two different document
-    //    families, and they do not travel together:
-    //      * 512 px port width - the NovaLCT-era sending device manuals
-    //        (MCTRL660 PRO, NovaPro UHD / UHD Jr). Under low latency each
-    //        output covers a band no more than 512 px WIDE; how the cable
-    //        snakes inside that band is free (the manuals show horizontal
-    //        serpentine, vertical serpentine and zigzag alike, all legal).
-    //        This applies to the legacy line AND to COEX.
-    //      * (1 - Y / canvasHeight) - the NovaStar COEX wiki, i.e. the
-    //        COEX / VMP toolchain, and it is COEX ONLY. A port whose topmost
-    //        cabinet does not sit at canvas Y=0 keeps only that fraction of
-    //        the table figure - "if Y isn't 0 then it is calculated in the
-    //        formula". NovaStar Legacy (Armor/MRV) has no such term, so
-    //        moving a legacy screen down the canvas must not change its port
-    //        capacity at all.
-    //    Every NovaStar sending device is treated as low-latency compatible,
-    //    as is every receiving card including the MRV family. In a correctly
-    //    built COEX layout the bands are top-aligned, Y is 0, and the derate
-    //    costs nothing; it is the penalty for a port that is NOT top-aligned.
+    //    budget. Sourced from NovaStar's OWN answers to our questions, which
+    //    supersede the published manuals we first worked from:
+    //      * there is NO 512 px port-width limit. NovaStar: on the latest
+    //        firmware the single Ethernet port loading width limit of 512 px
+    //        "has been removed" on NovaPro UHD Jr, and "this limitation has
+    //        also been removed" on MCTRL4K and MCTRL660 Pro; the manuals are
+    //        wrong and are being revised. The cap used to be enforced here and
+    //        must not come back from a manual reading.
+    //      * (1 - Y / canvasHeight) applies to EVERY NovaStar product, legacy
+    //        and COEX alike. NovaStar: "for any novastar product including
+    //        legacy and coex, when low-latency mode is enabled, the screen
+    //        connection must meet the required conditions, including top
+    //        alignment and vertical cabinet formula". So ports load as
+    //        vertical runs of cabinets, and a port whose topmost cabinet does
+    //        not sit at canvas Y=0 keeps only that fraction of the table
+    //        figure. This is why yDerate is true on all three NovaStar lines.
+    //    Every NovaStar sending device is treated as low-latency compatible.
+    //    Receiving cards are NOT: A5S Plus/-N, A8S/-N, A8S Pro, A10S Plus/-N,
+    //    A10S Pro, MRV208-N, MRV412-N and MRV416-N support it; MRV328 and
+    //    MRV336 do not. We do not model cards, so that list is UI text (the
+    //    descriptor's `cards`), not math. In a correctly built layout the
+    //    ports are top-aligned, Y is 0, and the derate costs nothing; it is
+    //    the penalty for a port that is NOT top-aligned.
     //
     // capacity.kind:
     //   'factor'      - multiply the table lookup by capacity.factor
     //   'none'        - low latency costs no pixels per port
     //   'novastar-ll' - geometric, so the TABLE VALUE IS UNCHANGED: the lookup
     //                   is the port's TOTAL at the current bit depth and frame
-    //                   rate. The maxPortWidth cap, and the per-port (1 - Y/H)
-    //                   derate where capacity.yDerate says so, are applied in
+    //                   rate. The per-port (1 - Y/H) derate is applied in
     //                   calculatePortAssignments, the only place that can see
     //                   where a port actually sits on the canvas.
+    //
+    // `cards`: receiving cards, shown as the note's tooltip. Informational -
+    // the app does not model cards, so nothing in the math reads this.
     lowLatencyProfiles = {
         'novastar-armor': {
             supported: true,
-            // Legacy: the width cap only. yDerate stays false - the (1 - Y/H)
-            // formula is a COEX rule and does not apply to this line.
-            capacity: { kind: 'novastar-ll', maxPortWidth: 512, yDerate: false },
-            note: 'Ports load in bands no wider than 512 px; how the cable snakes inside a band is free.'
+            capacity: { kind: 'novastar-ll', yDerate: true },
+            note: 'Ports must load vertically and start at the top of the canvas; a port that starts lower loses capacity. MRV328 and MRV336 cannot do low latency.',
+            cards: 'Receiving cards with low latency: A5S Plus, A5S Plus-N, A8S, A8S-N, A8S Pro, A10S Plus, A10S Plus-N, A10S Pro, MRV208-N, MRV412-N, MRV416-N. MRV328 and MRV336 do NOT support low latency.'
         },
         'novastar-coex-1g': {
             supported: true,
-            capacity: { kind: 'novastar-ll', maxPortWidth: 512, yDerate: true },
-            note: 'Ports load in bands no wider than 512 px. A port that does not start at the top of the canvas loses capacity.'
+            capacity: { kind: 'novastar-ll', yDerate: true },
+            note: 'Ports must load vertically and start at the top of the canvas; a port that starts lower loses capacity. MRV328 and MRV336 cannot do low latency.',
+            cards: 'Receiving cards with low latency: A5S Plus, A5S Plus-N, A8S, A8S-N, A8S Pro, A10S Plus, A10S Plus-N, A10S Pro, MRV208-N, MRV412-N, MRV416-N. MRV328 and MRV336 do NOT support low latency.'
         },
         'novastar-5g': {
             supported: true,
-            capacity: { kind: 'novastar-ll', maxPortWidth: 512, yDerate: true },
-            note: 'Ports load in bands no wider than 512 px. A port that does not start at the top of the canvas loses capacity.'
+            capacity: { kind: 'novastar-ll', yDerate: true },
+            note: 'Ports must load vertically and start at the top of the canvas; a port that starts lower loses capacity. MRV328 and MRV336 cannot do low latency.',
+            cards: 'Receiving cards with low latency: A5S Plus, A5S Plus-N, A8S, A8S-N, A8S Pro, A10S Plus, A10S Plus-N, A10S Pro, MRV208-N, MRV412-N, MRV416-N. MRV328 and MRV336 do NOT support low latency.'
         },
         'brompton': {
             supported: true,
@@ -3704,8 +3728,8 @@ export class LEDRasterApp {
     // v0.10.9: capacity kinds whose math actually runs today. Until a kind is
     // listed, isLowLatencyCapacityPending() is true and the UI states plainly
     // that the constraint is not in the numbers yet. 'novastar-ll' joined the
-    // list in pass 2, when calculatePortAssignments started enforcing the
-    // 512 px band cap and the COEX (1 - Y/H) derate.
+    // list in pass 2, when calculatePortAssignments started applying the
+    // per-port (1 - Y/H) derate.
     lowLatencyImplementedKinds = ['factor', 'none', 'novastar-ll'];
 
     // Port capacity lookup tables from manufacturer specs
@@ -3726,10 +3750,21 @@ export class LEDRasterApp {
             12: { 24:824653,  25:791667,  30:659722,  50:395833, 60:329861, 120:164931, 144:137442, 240:82465 }
         },
         // NovaStar COEX 5G (CX40 Pro) receiving cards
+        // v0.10.9: NovaStar 5G (CX40 Pro etc. with XA50 Pro / CA50E receiving
+        // cards), from NovaStar's published "Ethernet Port Load Capacity" table,
+        // confirmed direct with NovaStar. Their formula is
+        //   8-bit:  capacity x 24 x frame rate < 5G x 0.85
+        //   10-bit: capacity x 32 x frame rate < 5G x 0.88
+        //   12-bit: capacity x 48 x frame rate < 5G x 0.85
+        // Note the multipliers are 24/32/48, NOT bitDepth x 3. Our previous
+        // figures used x36 for 12-bit, which overstated 12-bit capacity by ~17%
+        // and under-counted ports. These are the published values verbatim.
+        // NovaStar also state a port only reaches these figures when its load
+        // width is >= 128 px; below that, capacity drops by (128 - width) x height.
         'novastar-5g': {
-            8:  { 24:6480000, 25:6220800, 30:5184000, 50:3110400, 60:2592000, 120:1296000, 144:1080864, 240:648000 },
-            10: { 24:5182500, 25:4975200, 30:4146000, 50:2487600, 60:2073000, 120:1036500, 144:864441,  240:518250 },
-            12: { 24:4320000, 25:4147200, 30:3456000, 50:2073600, 60:1728000, 120:864000,  144:720576,  240:432000 }
+            8:  { 24:7378000, 25:7082800, 30:5902400, 50:3541440, 60:2951200, 120:1475600, 144:1229600, 240:737800 },
+            10: { 24:5728280, 25:5499149, 30:4582624, 50:2749574, 60:2291312, 120:1145656, 144:954713,  240:572828 },
+            12: { 24:3689000, 25:3541440, 30:2951200, 50:1770720, 60:1475600, 120:737800,  144:612374,  240:368900 }
         },
         'brompton': {
             8:  { 24:1312500, 25:1260000, 30:1050000, 48:656250, 50:630000, 60:525000, 72:437500, 100:315000, 120:262500, 144:218750, 150:210000, 180:175000, 192:164063, 200:157500, 240:131250, 250:126000 },

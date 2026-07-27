@@ -60,11 +60,11 @@ class _ExportIo {
         const startsLeft = pattern.includes('l-');
         const fullPanelPixels = this.getFullPanelPixels(layer);
         // v0.10.9: NovaStar Low Latency replaces the flow pattern's row/column
-        // units with bands of adjacent columns under a 512 px port-width cap,
-        // so it gets its own branch below. It is the hardware's geometry, not
-        // the user's, so BOTH Port Mapping modes end up in that branch. Null
-        // for every other processor and whenever low latency is off, which is
-        // what keeps normal mode byte-identical.
+        // units with a per-cabinet fill under a per-port (1 - Y/H) derate, so
+        // it gets its own branch below. It is the hardware's geometry, not the
+        // user's, so BOTH Port Mapping modes end up in that branch. Null for
+        // every other processor and whenever low latency is off, which is what
+        // keeps normal mode byte-identical.
         const llGeometry = this.getLowLatencyGeometry(layer);
 
         layer._capacityError = null;
@@ -107,24 +107,32 @@ class _ExportIo {
 
         if (llGeometry) {
             // v0.10.9: NovaStar Low Latency.
-            //   - the rule is a WIDTH cap, not a port shape: a port occupies a
-            //     band no wider than llGeometry.maxPortWidth px, and the
-            //     traversal inside the band is the USER'S to choose. Cabinets
-            //     are usually far narrower than the cap (128 px is common), so
-            //     a band takes as MANY adjacent columns as fit - one column per
-            //     port would over-count ports badly. Inside the band the flow
-            //     pattern runs exactly as it does in normal mode, on the band's
-            //     sub-grid instead of the whole screen;
-            //   - on COEX only (llGeometry.yDerate), a port keeps
-            //     (1 - Y / canvasHeight) of the table figure, where Y is the
-            //     topmost visible cabinet on the port. Y = 0, which is what a
-            //     top-aligned layout gives, costs nothing. NovaStar Legacy
-            //     has no such term: its ports keep the plain lookup wherever
-            //     they sit, so sliding a legacy screen down the canvas cannot
-            //     move its capacity.
+            //   - there is NO port-width cap. NovaStar answered us directly:
+            //     the 512 px single-port loading width printed in the NovaPro
+            //     UHD Jr, MCTRL4K and MCTRL660 Pro manuals has been REMOVED in
+            //     current firmware and those manuals are wrong and are being
+            //     revised. Do not re-add the cap from the manual text;
+            //   - what low latency does require, on EVERY NovaStar product,
+            //     legacy and COEX alike (llGeometry.yDerate is now true for
+            //     all three), is top alignment and the vertical cabinet
+            //     formula: ports load as vertical runs of cabinets starting at
+            //     the top of the canvas, and a port whose topmost cabinet sits
+            //     at Y keeps only (1 - Y / canvasHeight) of the table figure.
+            //     A top-aligned port - Y = 0, which is what a correctly built
+            //     layout gives - costs nothing; the derate IS the price of a
+            //     port that starts lower down;
+            //   - the traversal stays the USER'S flow pattern, run over the
+            //     whole screen exactly as normal mode runs it. With the width
+            //     cap gone a port is bounded by capacity and by that derate and
+            //     by nothing else, so there is no band sub-grid left to walk:
+            //     all eight patterns order the cabinets here the same way they
+            //     do without low latency. A vertical-first pattern keeps every
+            //     port on the top row and pays nothing; a horizontal-first one
+            //     starts its later ports further down and is derated for it,
+            //     which is the vertical-loading requirement pricing itself in
+            //     rather than the app overriding the user's choice.
             // Load accounting is unchanged per processor: Armor still pays for
             // its reserved rectangle, the COEX entries still pay a pixel sum.
-            const maxPortWidth = Number(llGeometry.maxPortWidth) || 0;
             const canvasHeight = llGeometry.yDerate ? this.getLayerCanvasHeight(layer) : 0;
             if (llGeometry.yDerate && !(canvasHeight > 0)) {
                 // No canvas height means no honest derate. Run at factor 1 and
@@ -155,112 +163,50 @@ class _ExportIo {
                 };
             };
 
-            // Grid columns in flow order, each carrying its visible cabinets
-            // and its pixel extent. Only the extent and the count matter here -
-            // the cabinet ORDER comes from the flow pattern once the bands are
-            // known. Columns with nothing visible take no width and are skipped
-            // outright.
-            const colCount = Number(layer.columns) || 0;
-            const columns = [];
-            for (let i = 0; i < colCount; i++) {
-                const colIdx = startsLeft ? i : (colCount - 1 - i);
-                const visible = layer.panels.filter(p => p.col === colIdx && !p.hidden
-                    && this.getPanelPixelArea(p) > 0);
-                if (visible.length === 0) continue;
-                let minX = Infinity;
-                let maxX = -Infinity;
-                visible.forEach(p => {
-                    const x1 = Number(p.x) || 0;
-                    const x2 = x1 + (Number(p.width) || 0);
-                    if (x1 < minX) minX = x1;
-                    if (x2 > maxX) maxX = x2;
-                });
-                columns.push({ index: colIdx, panels: visible, minX, maxX });
-            }
-            if (columns.length === 0) return [];
+            // The cabinets in the layer's own flow order - the SAME walk normal
+            // mode uses, over the whole screen. Zero-area and hidden cabinets
+            // drop out so a port's load is only what actually lights up.
+            const llPanels = this.getOrderedPanelsByPattern(layer, pattern, false)
+                .filter(p => this.getPanelPixelArea(p) > 0);
+            if (llPanels.length === 0) return [];
 
-            // A single column wider than the cap can never be split further -
-            // hard error, same as the Organized branch raises for a row/column
-            // that cannot fit, rather than emitting an illegal map.
-            if (maxPortWidth > 0) {
-                const tooWide = columns.find(c => (c.maxX - c.minX) > maxPortWidth);
-                if (tooWide) {
-                    raiseCapacityError('column', tooWide.panels.length);
-                    return [];
-                }
-            }
-
-            // Pack adjacent columns into bands no wider than the cap. A port
-            // never spans two bands, so the width cap holds by construction.
-            const bands = [];
-            let band = null;
-            columns.forEach(col => {
-                if (band && maxPortWidth > 0
-                    && (Math.max(band.maxX, col.maxX) - Math.min(band.minX, col.minX)) > maxPortWidth) {
-                    bands.push(band);
-                    band = null;
-                }
-                if (!band) {
-                    band = { minX: col.minX, maxX: col.maxX, colStart: col.index, colEnd: col.index };
-                } else {
-                    band.minX = Math.min(band.minX, col.minX);
-                    band.maxX = Math.max(band.maxX, col.maxX);
-                    band.colStart = Math.min(band.colStart, col.index);
-                    band.colEnd = Math.max(band.colEnd, col.index);
-                }
-            });
-            if (band) bands.push(band);
-
-            bands.forEach(bandItem => {
+            let current = null;
+            llPanels.forEach(panel => {
                 if (layer._capacityError) return;
-                // v0.10.9: the cap constrains the band's WIDTH and nothing
-                // else, so the cabinets inside it come back from the SAME
-                // pattern walk normal mode uses, bounded to the band's grid
-                // columns. All eight patterns therefore work under low latency
-                // exactly as they do without it. Empty columns inside the span
-                // contribute nothing, and the area filter keeps the set
-                // identical to the one the column pass measured.
-                const bandPanels = this.getOrderedPanelsByPattern(layer, pattern, false, {
-                    colStart: bandItem.colStart, colEnd: bandItem.colEnd
-                }).filter(p => this.getPanelPixelArea(p) > 0);
-                let current = null;
-                bandPanels.forEach(panel => {
-                    if (layer._capacityError) return;
-                    const area = this.getPanelPixelArea(panel);
-                    const y = Number(panel.y) || 0;
-                    const soloRect = usesRectangle ? panelRect(panel) : null;
-                    const soloLoad = usesRectangle ? rectArea(soloRect) : area;
-                    if (current) {
-                        // Adding a cabinet can only pull the port's top edge
-                        // UP, so re-derate against the candidate Y.
-                        const candMinY = Math.min(current.minY, y);
-                        const candRect = usesRectangle ? unionRect(current.rect, panel) : null;
-                        const candLoad = usesRectangle ? rectArea(candRect) : (current.load + area);
-                        if (candLoad <= capacityAtY(candMinY)) {
-                            current.panels.push(panel);
-                            current.load = candLoad;
-                            current.minY = candMinY;
-                            current.rect = candRect;
-                            return;
-                        }
-                        ports.push(current);
-                        current = null;
-                    }
-                    // Only now, opening a fresh port, is a lone cabinet judged
-                    // at its OWN Y - which is the Y that port would start at.
-                    // Testing this BEFORE trying the running port would fail a
-                    // cabinet low on the canvas that fits perfectly well on a
-                    // port opened higher up. Reaching here means it cannot be
-                    // placed at all, so it is a hard error the same as in the
-                    // Organized and Max Capacity branches, not a bad map.
-                    if (soloLoad > capacityAtY(y)) {
-                        raiseCapacityError('panel', 1);
+                const area = this.getPanelPixelArea(panel);
+                const y = Number(panel.y) || 0;
+                const soloRect = usesRectangle ? panelRect(panel) : null;
+                const soloLoad = usesRectangle ? rectArea(soloRect) : area;
+                if (current) {
+                    // Adding a cabinet can only pull the port's top edge
+                    // UP, so re-derate against the candidate Y.
+                    const candMinY = Math.min(current.minY, y);
+                    const candRect = usesRectangle ? unionRect(current.rect, panel) : null;
+                    const candLoad = usesRectangle ? rectArea(candRect) : (current.load + area);
+                    if (candLoad <= capacityAtY(candMinY)) {
+                        current.panels.push(panel);
+                        current.load = candLoad;
+                        current.minY = candMinY;
+                        current.rect = candRect;
                         return;
                     }
-                    current = { panels: [panel], load: soloLoad, minY: y, rect: soloRect };
-                });
-                if (current && !layer._capacityError) ports.push(current);
+                    ports.push(current);
+                    current = null;
+                }
+                // Only now, opening a fresh port, is a lone cabinet judged
+                // at its OWN Y - which is the Y that port would start at.
+                // Testing this BEFORE trying the running port would fail a
+                // cabinet low on the canvas that fits perfectly well on a
+                // port opened higher up. Reaching here means it cannot be
+                // placed at all, so it is a hard error the same as in the
+                // Organized and Max Capacity branches, not a bad map.
+                if (soloLoad > capacityAtY(y)) {
+                    raiseCapacityError('panel', 1);
+                    return;
+                }
+                current = { panels: [panel], load: soloLoad, minY: y, rect: soloRect };
             });
+            if (current && !layer._capacityError) ports.push(current);
 
             if (layer._capacityError) return [];
 
