@@ -38,6 +38,14 @@ v0.10.9 - July 26, 2026
     manuals are wrong and are being revised. Low latency needs a supported
     receiving card; note MRV328 and MRV336 cannot do it.
 
+- NEW: NovaStar 5G narrow ports are now costed correctly. NovaStar reserve a
+  band at least 128 pixels wide per Ethernet port, so a port narrower than
+  that wastes the rest of the band and carries less than the headline
+  pixels-per-port figure. A port 120 px wide loses (128 - 120) x its height.
+  This applies to NovaStar 5G only, and it matters most on tall narrow ports
+  - exactly the shape low latency encourages - where it can be the difference
+  between a port that works and one that is quietly overloaded.
+
 - FIX (IMPORTANT): Corrected the NovaStar 5G pixels-per-port figures against
   NovaStar's published Ethernet Port Load Capacity table. Their calculation
   multiplies by 24 / 32 / 48 for 8 / 10 / 12-bit - our 12-bit figure used 36,

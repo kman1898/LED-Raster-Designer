@@ -3641,21 +3641,48 @@ class CanvasRenderer {
     // the canvas is scored against its reduced figure and not the table value.
     // layer._lowLatencyDerate is the sidebar note's layer-wide summary, so it
     // is only a fallback here - it carries the worst case, not this port's.
+    //
+    // v0.10.9: the NovaStar 5G narrow-port penalty is then subtracted, from
+    // this port's OWN bounding box, in the same order calculatePortAssignments
+    // uses (table value -> Y-derate -> penalty). Without it a penalised 5G port
+    // would be scored as a percentage of a capacity it does not have.
     getPortCapacityForPanels(layer, portPanels) {
         const app = window.app;
         if (!app || !layer || typeof app.calculatePortCapacity !== 'function') return 0;
+        const processorType = layer.processorType || 'novastar-armor';
         const base = app.calculatePortCapacity(
             layer.bitDepth || 8,
             layer.frameRate || 60,
-            layer.processorType || 'novastar-armor',
+            processorType,
             !!layer.lowLatency
         );
         if (!(base > 0)) return 0;
 
+        const visible = (portPanels || []).filter(p => p && !p.hidden);
+        // The app's own function does the arithmetic and owns the scope guard;
+        // this only measures the port. A no-op on every processor but 5G.
+        const withWidthPenalty = (capacity) => {
+            if (visible.length === 0) return capacity;
+            if (typeof app.minLoadWidthPortCapacity !== 'function') return capacity;
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            visible.forEach(p => {
+                const x1 = Number(p.x) || 0;
+                const y1 = Number(p.y) || 0;
+                const x2 = x1 + (Number(p.width) || 0);
+                const y2 = y1 + (Number(p.height) || 0);
+                if (x1 < minX) minX = x1;
+                if (y1 < minY) minY = y1;
+                if (x2 > maxX) maxX = x2;
+                if (y2 > maxY) maxY = y2;
+            });
+            return app.minLoadWidthPortCapacity(
+                capacity, processorType, maxX - minX, maxY - minY);
+        };
+
         const geometry = typeof app.getLowLatencyGeometry === 'function'
             ? app.getLowLatencyGeometry(layer)
             : null;
-        if (!geometry || !geometry.yDerate) return base;
+        if (!geometry || !geometry.yDerate) return withWidthPenalty(base);
 
         const canvasHeight = typeof app.getLayerCanvasHeight === 'function'
             ? app.getLayerCanvasHeight(layer)
@@ -3665,13 +3692,13 @@ class CanvasRenderer {
             // port map itself does. The recorded derate, when present, carries
             // the same underated figure.
             const derate = layer._lowLatencyDerate;
-            return (derate && derate.portCapacity > 0) ? derate.portCapacity : base;
+            return withWidthPenalty(
+                (derate && derate.portCapacity > 0) ? derate.portCapacity : base);
         }
 
-        const visible = (portPanels || []).filter(p => p && !p.hidden);
         if (visible.length === 0) return base;
         const minY = Math.min(...visible.map(p => Number(p.y) || 0));
-        return app.lowLatencyPortCapacity(base, minY, canvasHeight);
+        return withWidthPenalty(app.lowLatencyPortCapacity(base, minY, canvasHeight));
     }
 
     // v0.10.9: how full one port is, as a percentage of ITS capacity. Returns

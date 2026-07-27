@@ -2734,6 +2734,10 @@ PORT_LOAD_JS = """(spec) => {
                 port: p,
                 panels: ps.length,
                 minY: minY,
+                // The port's own load width and load height -- the two terms
+                // in the NovaStar 5G (128 - load width) x load height penalty.
+                width: maxX - minX,
+                height: maxY - minY,
                 rectArea: (maxX - minX) * (maxY - minY),
                 pixelSum: ps.reduce((s, q) => s + q.width * q.height, 0),
                 asPixelSum: asPixelSum,
@@ -3029,3 +3033,287 @@ def test_port_load_toggle_defaults_off_and_gates_the_drawing(page):
         box.dispatchEvent(new Event('change'));
     }""", setup['layerId'])
     page.wait_for_timeout(600)
+
+
+# ── NovaStar 5G minimum Ethernet-port load width (v0.10.9) ───────────────
+# NovaStar publish this under the "Ethernet Port Load Capacity" table on the 5G
+# page (XA50 Pro / CA50E receiving cards):
+#
+#   "The load capacity of a single Ethernet port can only achieve its maximum
+#    when the load width is 128 pixels or more. If the load width is less than
+#    that, the load capacity will be reduced accordingly, calculated as
+#    (128 - load width) x load height."
+#
+# "load width" is the ETHERNET PORT'S load width -- the horizontal pixel extent
+# of the cabinets carried on that port -- not one cabinet's width. The rule is
+# 'novastar-5g' ONLY; it is published nowhere else and the sibling processors
+# must not inherit it. test_min_load_width_penalty_is_novastar_5g_only is the
+# guard for that and is the most important test in this block.
+#
+# Every assertion regroups the EMITTED assignments by .port and recomputes the
+# geometry from the panels, so what is under test is the shipped map.
+
+MIN_LOAD_WIDTH = 128
+
+# NovaStar 5G, 8-bit @ 60 Hz, straight off portCapacityTables. Pinned so the
+# arithmetic below can be written out in full; every test that uses it asserts
+# the app still reports it first.
+FIVE_G_8B60 = 2951200
+
+
+def min_width_capacity(total, width, height):
+    """TOTAL less (128 - load width) x load height, clamped at 0. Written out
+    here rather than called out of the app, so the tests check the rule and not
+    the implementation of the rule."""
+    if width >= MIN_LOAD_WIDTH:
+        return total
+    return max(0, total - (MIN_LOAD_WIDTH - width) * height)
+
+
+def test_5g_narrow_port_loses_the_unfilled_band(page):
+    """A column of 120 px cabinets is 8 px short of the 128 px band the
+    controller reserves, and the port pays for the gap over its full height.
+
+    250 rows of 120 x 100 px, Max Capacity, so the fill is cabinet by cabinet
+    and the split is where the penalty puts it:
+
+        TOTAL                = 2,951,200 px  (5G, 8-bit, 60 Hz)
+        230 cabinets  ->  load width 120 px, load height 23,000 px
+                          penalty  = (128 - 120) x 23,000 =   184,000
+                          capacity = 2,951,200 - 184,000  = 2,767,200
+                          load     = 230 x 12,000         = 2,760,000  fits
+        231 cabinets  ->  load height 23,100 px
+                          penalty  = 8 x 23,100           =   184,800
+                          capacity = 2,951,200 - 184,800  = 2,766,400
+                          load     = 231 x 12,000         = 2,772,000  does not
+
+    Unpenalised the same port would have carried 245 cabinets, so this is a
+    port that WOULD have been over-filled -- a section of wall going dark."""
+    r = ll_port_map(page, rows=250, columns=1, cw=120, ch=100,
+                    lowLatency=False, mode='max-capacity', pattern='tl-v')
+    assert not r['error'], r['errorInfo']
+    assert r['total'] == FIVE_G_8B60, r['total']
+
+    assert min_width_capacity(FIVE_G_8B60, 120, 23000) == 2767200
+    assert 230 * 12000 == 2760000 <= 2767200
+    assert min_width_capacity(FIVE_G_8B60, 120, 23100) == 2766400
+    assert 231 * 12000 == 2772000 > 2766400
+
+    assert [p['panels'] for p in r['ports']] == [230, 20], r['ports']
+    first = r['ports'][0]
+    assert first['width'] == 120, first
+    assert first['pixelSum'] == 2760000, first
+    assert first['pixelSum'] <= min_width_capacity(FIVE_G_8B60, 120, 23000)
+    # ...and the penalty is what moved it: the plain table figure would have
+    # taken 15 more cabinets onto the same port.
+    assert FIVE_G_8B60 // 12000 == 245 > 230
+    assert r['totalPanels'] == 250
+
+
+@pytest.mark.parametrize('cw,penalty', [
+    (127, 400),   # one pixel short of the band -> 1 x 400 px lost
+    (128, 0),     # THE BOUNDARY: "128 pixels or more" is not penalised
+    (129, 0),     # wider than the band -> nothing to reserve
+    (200, 0),
+])
+def test_5g_min_load_width_is_a_128_px_boundary(page, cw, penalty):
+    """Exactly 128 px wide is NOT penalised -- the rule reads "128 pixels or
+    more" -- and neither is anything wider. Two stacked cabinets, so the port is
+    one cabinet wide and 400 px tall and the penalty is (128 - cw) x 400."""
+    res = port_load(page, rows=2, columns=1, cw=cw, ch=200,
+                    processorType='novastar-5g', mode='max-capacity',
+                    pattern='tl-v')
+    assert not res['error'], res['errorInfo']
+    assert res['baseCapacity'] == FIVE_G_8B60, res['baseCapacity']
+    assert len(res['ports']) == 1, res['ports']
+    port = res['ports'][0]
+    assert (port['width'], port['height']) == (cw, 400), port
+
+    expected = min_width_capacity(FIVE_G_8B60, cw, 400)
+    assert FIVE_G_8B60 - expected == penalty, (cw, expected)
+    assert port['stats']['capacity'] == expected, (
+        f"a {cw} px wide 5G port was scored against "
+        f"{port['stats']['capacity']}, not {expected}")
+    assert port['stats']['load'] == 2 * cw * 200, port
+    assert (port['stats']['shown'], port['stats']['state']) == \
+        expected_load_label(port['stats']['load'], expected), port
+
+
+def test_5g_two_60x120_cabinets_side_by_side_are_penalised(page):
+    """The owner's worked case, verbatim: a port carrying two 60 x 120 cabinets
+    loaded horizontally is 120 px wide, and 120 < 128, so it IS penalised.
+
+    The load width is the PORT'S, not the cabinet's -- reading it as the
+    cabinet's 60 px would charge (128 - 60) x 120 = 8,160 px instead.
+
+        penalty  = (128 - 120) x 120 =       960
+        capacity = 2,951,200 - 960   = 2,950,240"""
+    res = port_load(page, rows=1, columns=2, cw=60, ch=120,
+                    processorType='novastar-5g', mode='max-capacity')
+    assert not res['error'], res['errorInfo']
+    assert res['baseCapacity'] == FIVE_G_8B60, res['baseCapacity']
+    assert len(res['ports']) == 1, res['ports']
+    port = res['ports'][0]
+    assert (port['width'], port['height']) == (120, 120), port
+    assert min_width_capacity(FIVE_G_8B60, 120, 120) == 2950240
+    assert port['stats']['capacity'] == 2950240, port
+    assert port['stats']['capacity'] < FIVE_G_8B60, (
+        'the owner-confirmed 120 px case was not penalised')
+    # The cabinet-width misreading, for the record: it would cost 8,160 px.
+    assert min_width_capacity(FIVE_G_8B60, 60, 120) == FIVE_G_8B60 - 8160
+    assert port['stats']['capacity'] != FIVE_G_8B60 - 8160, (
+        'the penalty was measured from a cabinet, not from the port')
+    assert port['stats']['load'] == 2 * 60 * 120, port
+
+    # ...and the same two cabinets stacked VERTICALLY are 60 px wide, so the
+    # port is penalised harder -- the geometry of the port is doing the work.
+    stacked = port_load(page, rows=2, columns=1, cw=60, ch=120,
+                        processorType='novastar-5g', mode='max-capacity')
+    tall = stacked['ports'][0]
+    assert (tall['width'], tall['height']) == (60, 240), tall
+    assert tall['stats']['capacity'] == min_width_capacity(FIVE_G_8B60, 60, 240)
+    assert tall['stats']['capacity'] < port['stats']['capacity'], stacked
+
+
+# Everything the rule is NOT published for. A change that widens the scope
+# breaks this and nothing else, which is the point of it.
+MIN_WIDTH_SIBLINGS = ['novastar-armor', 'novastar-coex-1g', 'brompton',
+                      'megapixel-1g', 'megapixel-2.5g']
+
+
+@pytest.mark.parametrize('processor', MIN_WIDTH_SIBLINGS)
+def test_min_load_width_penalty_is_novastar_5g_only(page, processor):
+    """THE SCOPE GUARD. The 128 px minimum load width is published on the
+    NovaStar 5G page only. Armor, COEX 1G, Brompton and both Megapixel entries
+    must be completely unaffected by a narrow port: a 60 px wide column carries
+    exactly floor(TOTAL / cabinet pixels) cabinets, the unpenalised figure, and
+    every port is scored against the plain table value.
+
+    Applying it "in the conservative direction" to these lines was rejected
+    outright -- it would cost real ports on a live show for a rule their
+    manufacturers do not state."""
+    spec = dict(rows=400, columns=1, cw=60, ch=100, bitDepth=10, frameRate=60,
+                lowLatency=False, mode='max-capacity', pattern='tl-v')
+    r = ll_port_map(page, processorType=processor, **spec)
+    assert not r['error'], r['errorInfo']
+    total = r['total']
+    assert total > 0, processor
+
+    guard = page.evaluate("""(processor) => ({
+        threshold: window.app.novastarMinLoadWidth(processor),
+        // A brutally narrow, brutally tall port: 1 px wide by 1,000,000 px.
+        // On 5G that would erase the whole figure; here it must not move it.
+        unchanged: window.app.minLoadWidthPortCapacity(
+            1000000, processor, 1, 1000000)
+    })""", processor)
+    assert guard['threshold'] == 0, (
+        f"{processor} claims a minimum load width -- the 5G rule has leaked")
+    assert guard['unchanged'] == 1000000, guard
+
+    # The emitted map: the first port carries the UNPENALISED count.
+    unpenalised = total // 6000
+    assert unpenalised > 1, (processor, total)
+    assert r['ports'][0]['panels'] == unpenalised, (
+        f"{processor}: first port carried {r['ports'][0]['panels']} of a "
+        f"60 px wide column, not the unpenalised {unpenalised}")
+    assert r['ports'][0]['width'] == 60, r['ports'][0]
+
+    # ...and the readout agrees: the plain table figure, port after port.
+    res = port_load(page, processorType=processor, **spec)
+    for p in res['ports']:
+        assert p['stats']['capacity'] == res['baseCapacity'], (
+            f"{processor}: port {p['port']} was scored against "
+            f"{p['stats']['capacity']}, not the table's {res['baseCapacity']}")
+
+    # The guard is not vacuous: the SAME wall on 5G is penalised, and hard.
+    five_g = ll_port_map(page, processorType='novastar-5g', **spec)
+    assert five_g['total'] == 2291312, five_g['total']
+    # 128 x 100 x N <= TOTAL -- the reserved band is 128 px wide however narrow
+    # the cabinets are, so the port carries 179 rather than 381.
+    assert 179 * 12800 <= 2291312 < 180 * 12800
+    assert five_g['ports'][0]['panels'] == 179, five_g['ports'][0]
+    assert 2291312 // 6000 == 381 > 179
+
+
+def test_5g_penalty_stacks_on_the_low_latency_derate_in_that_order(page):
+    """5G carries BOTH rules under low latency, and the order is: table value,
+    then the (1 - Y/H) derate, THEN the width penalty subtracted from what is
+    left. The other order gives a different, larger number, so this pins it.
+
+    300 rows of 120 x 100 px, pushed 1,000 px down a 40,000 px canvas:
+
+        TOTAL     = 2,951,200 px
+        factor    = 1 - 1000/40000                    = 0.975
+        derated   = floor(0.975 x 2,951,200)          = 2,877,420
+        224 cabinets -> load height 22,400 px
+        penalty   = (128 - 120) x 22,400              =   179,200
+        capacity  = 2,877,420 - 179,200               = 2,698,220   <- shipped
+        load      = 224 x 12,000                      = 2,688,000  fits
+        225 cabinets -> 2,877,420 - 180,000 = 2,697,420 < 2,700,000  does not
+
+    Penalty first, derate second would instead give
+        floor(0.975 x (2,951,200 - 179,200)) = 2,702,700
+    which is 4,480 px more capacity. If the owner wants that ordering, it is
+    this test and the portLimit() helper in app-export-io.js that change."""
+    res = port_load(page, rows=300, columns=1, cw=120, ch=100,
+                    processorType='novastar-5g', mode='organized',
+                    pattern='tl-v', lowLatency=True,
+                    offsetY=1000, canvasHeight=40000)
+    assert not res['error'], res['errorInfo']
+    assert res['baseCapacity'] == FIVE_G_8B60, res['baseCapacity']
+
+    derated = ll_capacity(FIVE_G_8B60, 1000, 40000)
+    assert derated == 2877420, derated
+    ours = min_width_capacity(derated, 120, 22400)
+    assert ours == 2698220, ours
+    other_way = int(0.975 * min_width_capacity(FIVE_G_8B60, 120, 22400))
+    assert other_way == 2702700 and ours < other_way, (ours, other_way)
+
+    assert [p['panels'] for p in res['ports']] == [224, 76], res['ports']
+    first = res['ports'][0]
+    assert (first['minY'], first['width'], first['height']) == (1000, 120, 22400)
+    assert first['stats']['capacity'] == ours, (
+        f"port 1 was scored against {first['stats']['capacity']}: "
+        f"{ours} is derate-then-penalty, {other_way} is penalty-then-derate")
+    assert first['stats']['load'] == 2688000 <= ours
+    assert 225 * 12000 > min_width_capacity(derated, 120, 22500)
+
+    # Port 2 starts 23,400 px down, so it is derated harder AND still narrow.
+    second = res['ports'][1]
+    assert second['minY'] == 23400, second
+    assert second['stats']['capacity'] == min_width_capacity(
+        ll_capacity(FIVE_G_8B60, 23400, 40000), 120, 7600) == 1163948, second
+    assert second['stats']['capacity'] < first['stats']['capacity'], res['ports']
+
+    # Neither rule alone explains the shipped figure, which is the whole point.
+    assert ours < derated < FIVE_G_8B60
+    assert ours < min_width_capacity(FIVE_G_8B60, 120, 22400)
+
+
+def test_5g_port_load_percent_uses_the_penalised_capacity(page):
+    """The Data Flow percentage has to be measured against the capacity the
+    port actually has. A 200-cabinet column of 120 x 100 px cabinets:
+
+        load     = 200 x 12,000                  = 2,400,000
+        penalty  = (128 - 120) x 20,000          =   160,000
+        capacity = 2,951,200 - 160,000           = 2,791,200
+        percent  = 2,400,000 / 2,791,200         = 86%
+
+    Scored against the unpenalised 2,951,200 it would read 81% -- a port
+    reported as having a fifth of its capacity spare when it has a seventh."""
+    res = port_load(page, rows=200, columns=1, cw=120, ch=100,
+                    processorType='novastar-5g', mode='max-capacity',
+                    pattern='tl-v')
+    assert not res['error'], res['errorInfo']
+    assert res['baseCapacity'] == FIVE_G_8B60, res['baseCapacity']
+    assert len(res['ports']) == 1, res['ports']
+    port = res['ports'][0]
+    assert (port['width'], port['height']) == (120, 20000), port
+
+    capacity = min_width_capacity(FIVE_G_8B60, 120, 20000)
+    assert capacity == 2791200, capacity
+    assert port['stats']['load'] == 2400000, port
+    assert port['stats']['capacity'] == capacity, port
+    assert port['stats']['shown'] == expected_load_label(2400000, capacity)[0] == 86
+    assert expected_load_label(2400000, FIVE_G_8B60)[0] == 81, (
+        'the unpenalised reading has to differ, or this test proves nothing')

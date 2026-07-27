@@ -1927,6 +1927,49 @@ class _ScreenInfo {
         return Math.floor(factor * total);
     }
 
+    // v0.10.9: NovaStar 5G's minimum Ethernet-port load width, in pixels, or 0
+    // for every other processor - which is to say "this rule does not exist
+    // there", not "the threshold happens to be zero".
+    //
+    // PROVENANCE, so nobody widens this later: NovaStar publish the note under
+    // the "Ethernet Port Load Capacity" table on their 5G page (XA50 Pro /
+    // CA50E receiving cards) and NOWHERE else -
+    //   "The load capacity of a single Ethernet port can only achieve its
+    //    maximum when the load width is 128 pixels or more. If the load width
+    //    is less than that, the load capacity will be reduced accordingly,
+    //    calculated as (128 - load width) x load height."
+    // It is deliberately NOT applied to novastar-armor, novastar-coex-1g,
+    // brompton, megapixel-1g or megapixel-2.5g. The owner has rejected
+    // extending it to those lines, including on a "it is the conservative
+    // direction" argument: the rule is not published for them, and inventing
+    // it would under-report their capacity and add ports to a live show for no
+    // reason. Change the processor key here only against a published source.
+    novastarMinLoadWidth(processorType) {
+        return processorType === 'novastar-5g' ? 128 : 0;
+    }
+
+    // v0.10.9: `capacity` less the 5G minimum-load-width penalty, for a port
+    // whose VISIBLE cabinets span `width` x `height` pixels.
+    //
+    // "load width" is the ETHERNET PORT'S load width - the horizontal pixel
+    // extent of the cabinets carried on that port - not one cabinet's width.
+    // A port carrying two 60 x 120 cabinets side by side is 120 px wide, so
+    // 120 < 128 and it IS penalised.
+    //
+    // Physically the controller reserves a band at least 128 px wide: a port
+    // filling only 120 px of it wastes (128 - 120) x height, and the usable
+    // capacity drops by exactly that wasted area. Same "reserved area" idea as
+    // the Armor bounding-rectangle rule. Clamped at 0 - a port narrow and tall
+    // enough to eat the whole figure carries nothing, not a negative.
+    minLoadWidthPortCapacity(capacity, processorType, width, height) {
+        const minWidth = this.novastarMinLoadWidth(processorType);
+        if (!(minWidth > 0) || !(capacity > 0)) return capacity;
+        const w = Number(width) || 0;
+        const h = Number(height) || 0;
+        if (!(w > 0) || !(h > 0) || w >= minWidth) return capacity;
+        return Math.max(0, capacity - ((minWidth - w) * h));
+    }
+
     // Calculate port capacity using lookup tables with interpolation
     // v0.10.9: `lowLatency` layers the processor's Low Latency behaviour on
     // top of the raw lookup. Split in two so pass 2, which needs per-port

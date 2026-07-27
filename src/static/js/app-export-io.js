@@ -66,6 +66,18 @@ class _ExportIo {
         // every other processor and whenever low latency is off, which is what
         // keeps normal mode byte-identical.
         const llGeometry = this.getLowLatencyGeometry(layer);
+        // v0.10.9: NovaStar 5G's 128 px minimum Ethernet-port load width. 0 on
+        // every other processor, which makes capacityForRect below a straight
+        // pass-through and leaves their traversals byte-identical. See
+        // novastarMinLoadWidth / minLoadWidthPortCapacity in app-screen-info.js
+        // for the published wording and for why the scope is this one key.
+        //
+        // ALWAYS on 5G, low latency or not: NovaStar print the note under the
+        // GENERAL capacity table, not in a low latency section, so the plain
+        // reading is that it is a property of the port. To narrow it to low
+        // latency only, this one line becomes
+        //   const minLoadWidth = llGeometry ? this.novastarMinLoadWidth(processorType) : 0;
+        const minLoadWidth = this.novastarMinLoadWidth(processorType);
 
         layer._capacityError = null;
         layer._lowLatencyDerate = null;
@@ -104,6 +116,18 @@ class _ExportIo {
             };
         };
         const rectArea = (rect) => (rect.count === 0 ? 0 : (rect.maxX - rect.minX) * (rect.maxY - rect.minY));
+        const emptyRect = () => ({ minX: 0, minY: 0, maxX: 0, maxY: 0, count: 0 });
+
+        // v0.10.9: `base` less the NovaStar 5G narrow-port penalty, measured
+        // from the bounding box of the port's VISIBLE cabinets - the port's own
+        // load width and load height. A no-op wherever minLoadWidth is 0, i.e.
+        // everywhere but 5G, so the other processors never see this at all.
+        // Note this is separate bookkeeping from the Armor `rect`: Armor uses
+        // its rectangle to measure LOAD, 5G uses its box to measure the LIMIT.
+        const capacityForRect = (base, rect) => ((minLoadWidth > 0 && rect && rect.count > 0)
+            ? this.minLoadWidthPortCapacity(
+                base, processorType, rect.maxX - rect.minX, rect.maxY - rect.minY)
+            : base);
 
         if (llGeometry) {
             // v0.10.9: NovaStar Low Latency.
@@ -150,6 +174,13 @@ class _ExportIo {
             const capacityAtY = (minY) => (llGeometry.yDerate
                 ? this.lowLatencyPortCapacity(portCapacity, minY, canvasHeight)
                 : portCapacity);
+            // v0.10.9: the limit a port is actually judged against. ORDER OF
+            // OPERATIONS: the table value, then the (1 - Y/H) derate, THEN the
+            // 5G narrow-port penalty subtracted from what is left. Doing it the
+            // other way round - penalty first, derate second - would scale the
+            // penalty by (1 - Y/H) and land on a different, larger capacity, so
+            // this ordering is a decision and not an accident.
+            const portLimit = (minY, bounds) => capacityForRect(capacityAtY(minY), bounds);
             const raiseCapacityError = (unitType, unitCount) => {
                 layer._capacityError = {
                     isHorizontalFirst,
@@ -177,17 +208,29 @@ class _ExportIo {
                 const y = Number(panel.y) || 0;
                 const soloRect = usesRectangle ? panelRect(panel) : null;
                 const soloLoad = usesRectangle ? rectArea(soloRect) : area;
+                const soloBounds = minLoadWidth > 0 ? panelRect(panel) : null;
                 if (current) {
                     // Adding a cabinet can only pull the port's top edge
                     // UP, so re-derate against the candidate Y.
                     const candMinY = Math.min(current.minY, y);
                     const candRect = usesRectangle ? unionRect(current.rect, panel) : null;
                     const candLoad = usesRectangle ? rectArea(candRect) : (current.load + area);
-                    if (candLoad <= capacityAtY(candMinY)) {
+                    // v0.10.9: on 5G the LIMIT moves as well as the load - a
+                    // cabinet that widens the port shrinks the narrow-port
+                    // penalty (or removes it), one that only makes the port
+                    // taller deepens it. So the limit is re-evaluated against
+                    // the CANDIDATE box, not the running one. This cannot
+                    // oscillate: the walk is a single forward pass that
+                    // consumes one cabinet per iteration and never revisits a
+                    // port it has closed, and a cabinet that fails the solo
+                    // test below raises a hard error instead of being retried.
+                    const candBounds = minLoadWidth > 0 ? unionRect(current.bounds, panel) : null;
+                    if (candLoad <= portLimit(candMinY, candBounds)) {
                         current.panels.push(panel);
                         current.load = candLoad;
                         current.minY = candMinY;
                         current.rect = candRect;
+                        current.bounds = candBounds;
                         return;
                     }
                     ports.push(current);
@@ -200,11 +243,14 @@ class _ExportIo {
                 // port opened higher up. Reaching here means it cannot be
                 // placed at all, so it is a hard error the same as in the
                 // Organized and Max Capacity branches, not a bad map.
-                if (soloLoad > capacityAtY(y)) {
+                if (soloLoad > portLimit(y, soloBounds)) {
                     raiseCapacityError('panel', 1);
                     return;
                 }
-                current = { panels: [panel], load: soloLoad, minY: y, rect: soloRect };
+                current = {
+                    panels: [panel], load: soloLoad, minY: y,
+                    rect: soloRect, bounds: soloBounds
+                };
             });
             if (current && !layer._capacityError) ports.push(current);
 
@@ -268,6 +314,21 @@ class _ExportIo {
                 return (maxX - minX) * (maxY - minY);
             };
 
+            // v0.10.9: bounding box of the VISIBLE cabinets in a unit list -
+            // the port's load width and load height for the NovaStar 5G
+            // narrow-port penalty. Built only when that penalty is live, so
+            // every other processor keeps its old single-figure limit.
+            const capacityForUnits = (unitIdxList) => {
+                if (!(minLoadWidth > 0)) return portCapacity;
+                let bounds = emptyRect();
+                unitIdxList.forEach(idx => {
+                    orderedForCapacity
+                        .filter(p => (isHorizontalFirst ? p.row === idx : p.col === idx) && !p.hidden)
+                        .forEach(p => { bounds = unionRect(bounds, p); });
+                });
+                return capacityForRect(portCapacity, bounds);
+            };
+
             let current = { unitIndices: [], load: 0 };
 
             unitIndices.forEach(unitIdx => {
@@ -295,7 +356,10 @@ class _ExportIo {
                         return (mxX - mnX) * (mxY - mnY);
                     })()
                     : unitPanelsAll.reduce((sum, p) => sum + this.getPanelPixelArea(p), 0);
-                if (singleUnitLoad > portCapacity) {
+                // v0.10.9: judged against the capacity THIS unit has - on 5G a
+                // single narrow column is penalised in its own right, so the
+                // unpenalised table figure would let an over-filled unit past.
+                if (singleUnitLoad > capacityForUnits([unitIdx])) {
                     layer._capacityError = {
                         isHorizontalFirst,
                         cols: layer.columns,
@@ -313,7 +377,12 @@ class _ExportIo {
                 const candidateIndices = [...current.unitIndices, unitIdx];
                 const candidateLoad = calcBoundingRectLoad(candidateIndices);
 
-                if (current.unitIndices.length > 0 && candidateLoad > portCapacity) {
+                // v0.10.9: adding a unit moves the 5G limit as well as the
+                // load - a second column widens the port and can lift the
+                // narrow-port penalty, another row deepens it - so the limit is
+                // re-read for the CANDIDATE set. Every other processor gets
+                // plain portCapacity back out of capacityForUnits.
+                if (current.unitIndices.length > 0 && candidateLoad > capacityForUnits(candidateIndices)) {
                     // Adding this unit would exceed capacity, start new port
                     current.load = calcBoundingRectLoad(current.unitIndices);
                     ports.push(current);
@@ -393,16 +462,51 @@ class _ExportIo {
             if (current.panels.length > 0) ports.push(current);
         } else {
             let current = { panels: [], load: 0 };
+            // v0.10.9: the port's bounding box, carried alongside the running
+            // pixel sum purely so the NovaStar 5G narrow-port penalty can read
+            // the port's load width and height. Stays null on every other
+            // processor and capacityForRect then hands back portCapacity, so
+            // this branch is byte-identical for them.
+            let currentBounds = minLoadWidth > 0 ? emptyRect() : null;
             orderedForCapacity.forEach(panel => {
+                if (layer._capacityError) return;
                 const panelLoad = this.getPanelPixelArea(panel);
                 if (panelLoad <= 0) return;
-                if (current.load > 0 && current.load + panelLoad > portCapacity) {
+                // Adding a cabinet can widen the port and shrink the penalty,
+                // or only heighten it and deepen the penalty, so the limit is
+                // re-read for the candidate box. One forward pass, one cabinet
+                // per iteration: it cannot oscillate.
+                const candidateBounds = currentBounds ? unionRect(currentBounds, panel) : null;
+                if (current.load > 0
+                        && current.load + panelLoad > capacityForRect(portCapacity, candidateBounds)) {
                     ports.push(current);
                     current = { panels: [], load: 0 };
+                    currentBounds = minLoadWidth > 0 ? emptyRect() : null;
+                }
+                // A cabinet the penalty leaves no room for even on an empty
+                // port cannot be split any further, so raise the same hard
+                // error the other branches do rather than emit an over-filled
+                // map. Scoped to the 5G penalty: without it a lone oversized
+                // cabinet behaved this way before and still does.
+                if (minLoadWidth > 0 && current.load === 0
+                        && panelLoad > capacityForRect(portCapacity, panelRect(panel))) {
+                    layer._capacityError = {
+                        isHorizontalFirst,
+                        cols: layer.columns,
+                        rows: layer.rows,
+                        panelsPerPort: Math.floor(portCapacity / fullPanelPixels),
+                        portCapacity,
+                        panelPixels: fullPanelPixels,
+                        unitType: 'panel',
+                        unitCount: 1
+                    };
+                    return;
                 }
                 if (!panel.hidden) current.panels.push(panel);
+                if (currentBounds) currentBounds = unionRect(currentBounds, panel);
                 current.load += panelLoad;
             });
+            if (layer._capacityError) return [];
             if (current.load > 0 || current.panels.length > 0) ports.push(current);
         }
 
