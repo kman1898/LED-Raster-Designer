@@ -22,6 +22,20 @@ v0.10.9 - July 26, 2026
   by the interface theme, which overrode the highlight the code was trying
   to apply; they now use the theme's own selected state, on every path that
   sets them (clicking, selecting a screen, and switching processor).
+- FIX (IMPORTANT): Corrected the Megapixel HELIOS pixels-per-port figures.
+  Our numbers came from Megapixel's older switch spec sheets and were up to
+  6% HIGHER than the current official HELIOS User Guide - and too high is
+  the dangerous direction, because it under-counts how many ports a screen
+  needs. 40 of the 44 figures were affected, the worst at 60 Hz (the most
+  common show frame rate): 12-bit 1G read 425,000 px per port where the
+  official figure is 401,000. Both HELIOS entries now match the published
+  table, and the source and revision are recorded in the code. Existing
+  HELIOS projects may now show slightly more ports required than before.
+  That is the correct number.
+- FIX: The Data and Power flow-pattern grids highlighted the wrong tile on
+  a fresh project. The Data grid lit "top-right, vertical first" and the
+  Power grid lit nothing at all, while both actually default to "top-left,
+  horizontal first". They now show the pattern that is really in use.
 - FIX: A batch of controls that were showing the wrong state, all from the
   same cause - the interface theme was painting over what the app was
   trying to show:

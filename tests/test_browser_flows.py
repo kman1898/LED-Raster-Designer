@@ -754,6 +754,55 @@ def test_non_armor_max_capacity_ignores_bounding_rect(page):
     assert mx['totalPanels'] == 25
 
 
+# v0.10.9: Megapixel HELIOS pixels-per-port, pinned against the primary source:
+# "HELIOS(R) LED Processing Platform - User Guide" v26.04.0 (2026-04-20),
+# Appendix K.14, p.216. These numbers previously came from the rounded switch
+# spec sheet and ran up to ~6% HIGH, which under-counts ports and can leave a
+# wall section dark on site. Do not "fix" a failure here by editing the
+# expected values -- re-check Appendix K.14 first.
+MEGAPIXEL_K14 = [
+    # (processorType, bitDepth, frameRate, pixels)
+    ('megapixel-1g',   10, 24, 1237000),
+    ('megapixel-1g',   10, 60, 482000),
+    ('megapixel-1g',   10, 240, 104000),
+    ('megapixel-1g',   12, 24, 1031000),
+    ('megapixel-1g',   12, 60, 401000),
+    ('megapixel-1g',   12, 240, 87000),
+    ('megapixel-2.5g', 10, 24, 3094000),
+    ('megapixel-2.5g', 10, 60, 1205000),
+    ('megapixel-2.5g', 10, 240, 261000),
+    ('megapixel-2.5g', 12, 24, 2578000),
+    ('megapixel-2.5g', 12, 60, 1004000),
+    ('megapixel-2.5g', 12, 240, 218000),
+]
+
+
+@pytest.mark.parametrize("processor,bit_depth,frame_rate,expected", MEGAPIXEL_K14)
+def test_megapixel_port_capacity_matches_appendix_k14(
+        page, processor, bit_depth, frame_rate, expected):
+    """Pin Megapixel HELIOS port capacities to the official user guide."""
+    capacity = page.evaluate(
+        "([b, f, p]) => window.app.calculatePortCapacity(b, f, p)",
+        [bit_depth, frame_rate, processor])
+    assert capacity == expected, (
+        f"{processor} {bit_depth}-bit @{frame_rate}Hz: got {capacity}, "
+        f"Appendix K.14 says {expected}")
+
+
+def test_megapixel_tables_have_no_8bit_row(page):
+    """Megapixel publishes no 8-bit HELIOS figures; an invented row would
+    silently hand out capacities that do not exist in any spec."""
+    keys = page.evaluate("""() => {
+        const t = window.app.portCapacityTables;
+        return {
+            g1: Object.keys(t['megapixel-1g']),
+            g25: Object.keys(t['megapixel-2.5g'])
+        };
+    }""")
+    assert keys['g1'] == ['10', '12'], keys
+    assert keys['g25'] == ['10', '12'], keys
+
+
 def test_port_mapping_buttons_live_for_armor(page):
     """Both Port Mapping buttons stay live on an Armor layer (they used to be
     greyed out with pointer events off, so Max Capacity was unreachable)."""
