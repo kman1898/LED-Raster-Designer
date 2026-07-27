@@ -103,7 +103,11 @@
   }
 
   function scan() {
-    var list = document.querySelectorAll('input[type="range"]:not([data-ps-slider])');
+    // v0.10.9: the colour picker's channel sliders paint their own inline
+    // ramp (color_picker.js _trackGradient); enhancing them would repaint the
+    // ramp as a flat accent fill and drop a value bubble on top of it.
+    var list = document.querySelectorAll(
+      'input[type="range"]:not([data-ps-slider]):not(.lrd-cw-range)');
     for (var i = 0; i < list.length; i++) enhanceSlider(list[i]);
     injectAccentUI();
   }

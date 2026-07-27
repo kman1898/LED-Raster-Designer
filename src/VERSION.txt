@@ -22,6 +22,24 @@ v0.10.9 - July 26, 2026
   by the interface theme, which overrode the highlight the code was trying
   to apply; they now use the theme's own selected state, on every path that
   sets them (clicking, selecting a screen, and switching processor).
+- FIX: A batch of controls that were showing the wrong state, all from the
+  same cause - the interface theme was painting over what the app was
+  trying to show:
+  - Sliders were drawn as empty bars; they now show the coloured fill again.
+  - The colour picker's red/green/blue (and hue/saturation) sliders were
+    flat grey bars, so you could not see the colour you were dragging
+    through. They show their colour ramps again.
+  - The primary screen in a multi-selection had no highlight at all.
+  - Hidden screens lost their red striped "hidden" look in the layer list.
+  - Greyed-out buttons looked clickable: the up/down reorder arrows on the
+    selected screen, and the Remove buttons for gradient stops and palette
+    colours. Disabled buttons now look disabled everywhere.
+  - Renaming a screen or a canvas gave no visual cue that you were editing.
+  - An invalid Watts-per-Panel entry showed no warning outline while the
+    field was still focused - which is exactly when you would see it.
+  - Bold / Italic / Underline stayed blue instead of following your chosen
+    accent colour, and the Pixels/Port and Panels/Port readouts could not
+    show their normal colour at all.
 - CHANGE: Opening an older project that had "Max Capacity" saved on a
   Legacy screen switches it to "Organized". That is what it was really
   drawing before - the setting was being ignored - so already-issued maps

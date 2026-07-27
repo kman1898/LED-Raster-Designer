@@ -316,18 +316,23 @@ class _ExportIo {
         }
 
         if (format === 'resolume-xml') {
-            preview.style.color = '#4A90E2';
+            // v0.10.9: healthy preview rides on .value-accent (themed accent);
+            // the error colours stay inline overrides.
+            preview.classList.add('value-accent');
+            preview.style.color = '';
             preview.textContent = `${projectName}.xml`;
             return;
         }
 
         if (views.length === 0) {
             preview.textContent = '(Select at least one view)';
+            preview.classList.remove('value-accent');
             preview.style.color = '#ff6b6b';
             return;
         }
 
-        preview.style.color = '#4A90E2';
+        preview.classList.add('value-accent');
+        preview.style.color = '';
 
         // Slice 11: factor selected canvases into the preview. Each
         // (canvas, view) combo is one file (PNG/PSD) or one page (PDF).
@@ -335,6 +340,7 @@ class _ExportIo {
             ? this.getSelectedExportCanvasIds() : [null];
         if (canvasIds.length === 0) {
             preview.textContent = '(Select at least one canvas)';
+            preview.classList.remove('value-accent');
             preview.style.color = '#ff6b6b';
             return;
         }

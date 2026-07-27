@@ -2658,8 +2658,10 @@ export class LEDRasterApp {
                 const val = parsed === null ? 0 : parsed;
                 // Write the resolved number back so the field shows the result
                 if (parsed !== null) powerPanelWattsInput.value = this._formatEvaluatedNumber(parsed);
-                else powerPanelWattsInput.style.outline = '2px solid #c55';
-                if (parsed !== null) powerPanelWattsInput.style.outline = '';
+                // v0.10.9: class, not an inline outline - Enter fires `change`
+                // while the field still has focus and theme.css forces
+                // `input:focus { outline:none !important }`, so the cue never showed.
+                powerPanelWattsInput.classList.toggle('invalid', parsed === null);
                 this.applyToSelectedLayers(layer => {
                     layer.panelWatts = val;
                 });

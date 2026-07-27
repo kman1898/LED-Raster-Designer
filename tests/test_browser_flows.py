@@ -1158,3 +1158,265 @@ def test_armor_max_capacity_normalized_on_recent_file_load(page, flows_server):
     page.evaluate("localStorage.removeItem('ledRasterRecentFiles')")
     page.evaluate("window.app.createNewProject()")
     page.wait_for_timeout(800)
+
+
+# ── Themed state cues actually reach the screen (v0.10.9) ────────────────
+# theme.css is loaded last and paints with !important, so any UI state the JS
+# indicated via an INLINE style, or that style.css declared without
+# !important, was silently overridden and never rendered. Every assertion
+# below reads getComputedStyle (never el.style), and checks backgroundImage as
+# well as backgroundColor - the theme paints with gradients, so backgroundColor
+# alone is rgba(0,0,0,0) in both states and proves nothing.
+
+# Copied into each page.evaluate that needs it.
+SNAP_JS = """
+const snap = el => { const c = getComputedStyle(el); return {
+  color: c.color, bg: c.backgroundColor, bgi: c.backgroundImage,
+  bc: c.borderColor, bs: c.boxShadow, op: c.opacity,
+  h: c.height, br: c.borderRadius }; };
+"""
+
+
+def accent_rgb(page):
+    """--ps-accent as the 'rgb(r, g, b)' string computed styles report."""
+    return page.evaluate("""() => {
+        const hex = getComputedStyle(document.documentElement)
+                      .getPropertyValue('--ps-accent').trim();
+        const p = document.createElement('span');
+        p.style.color = hex; document.body.appendChild(p);
+        const c = getComputedStyle(p).color; p.remove();
+        return c;
+    }""")
+
+
+def test_slider_accent_fill_is_painted(page):
+    """theme.js writes the slider fill inline; theme.css must not eat it.
+    A filled track and a bare track have to compute differently."""
+    res = page.evaluate(SNAP_JS + """() => {
+        const rs = [...document.querySelectorAll('input[type=range]:not(.lrd-cw-range)')];
+        const r = rs.find(x => x.offsetParent !== null) || rs[0];
+        if (!r) return null;
+        const keep = r.getAttribute('style');
+        const filled = snap(r);
+        r.style.background = '';       // what the bug looked like: no fill
+        const empty = snap(r);
+        r.setAttribute('style', keep || '');
+        return {n: rs.length, filled, empty, wrapped: !!r.closest('.ps-slider-wrap')};
+    }""")
+    assert res, "no range input found"
+    assert res['wrapped'], "theme.js did not enhance the slider"
+    assert 'linear-gradient' in res['filled']['bgi'], (
+        f"slider fill not painted: {res['filled']['bgi']}")
+    assert accent_rgb(page) in res['filled']['bgi'], (
+        f"fill is not the themed accent: {res['filled']['bgi']}")
+    assert res['filled']['bgi'] != res['empty']['bgi'], (
+        "a filled track computes the same as an empty one")
+
+
+def test_color_picker_channel_tracks_show_their_ramp(page):
+    """The picker's per-channel gradients are written inline and its track
+    sizing lives in color_picker.css; the theme's range rules must not
+    flatten either, and theme.js must not bolt its accent fill on top."""
+    page.evaluate("window.LRDColorWindow.open(null, '#3366cc');"
+                  "window.LRDColorWindow.selectTab('sliders', true);")
+    page.wait_for_timeout(300)
+    res = page.evaluate(SNAP_JS + """() => {
+        const rs = [...document.querySelectorAll('.lrd-cw-range')];
+        if (!rs.length) return null;
+        return {n: rs.length, track: snap(rs[0]),
+                wrapped: rs.some(r => !!r.closest('.ps-slider-wrap'))};
+    }""")
+    page.evaluate("window.LRDColorWindow.close();")
+    assert res, "colour picker channel sliders did not render"
+    assert res['n'] >= 3, f"expected RGB channel sliders, got {res['n']}"
+    assert 'linear-gradient(to right' in res['track']['bgi'], (
+        f"channel ramp flattened: {res['track']['bgi']}")
+    # the picker's own sizing, not the theme's chunky 22px/4px track
+    assert res['track']['h'] == '12px', f"track height: {res['track']['h']}"
+    assert res['track']['br'] == '6px', f"track radius: {res['track']['br']}"
+    assert not res['wrapped'], (
+        "theme.js enhanced a picker channel slider and repainted its ramp")
+
+
+def test_layer_primary_and_hidden_cues_paint(page):
+    """.primary (primary of a multi-selection) and .hidden (screen visibility
+    off) must each render differently from a plain card - both were fully
+    erased by the theme's !important tile rule."""
+    res = page.evaluate(SNAP_JS + """() => {
+        const it = document.querySelector('.layer-item');
+        if (!it) return null;
+        const had = it.className;
+        it.className = 'layer-item';         const normal  = snap(it);
+        it.className = 'layer-item primary'; const primary = snap(it);
+        it.className = 'layer-item hidden';  const hidden  = snap(it);
+        it.className = had;
+        return {normal, primary, hidden};
+    }""")
+    assert res, "no layer card found"
+    normal, primary, hidden = res['normal'], res['primary'], res['hidden']
+
+    assert primary['bc'] != normal['bc'], (
+        f"primary border identical to normal: {primary['bc']}")
+    assert primary['bs'] != normal['bs'], "primary ring not painted"
+    assert '0, 204, 255' in primary['bc'], f"primary is not the cyan ring: {primary['bc']}"
+
+    assert hidden['bgi'] != normal['bgi'], (
+        f"hidden stripe not painted: {hidden['bgi']}")
+    assert 'repeating-linear-gradient' in hidden['bgi'], hidden['bgi']
+    assert hidden['bg'] != normal['bg'], (
+        f"hidden background identical to normal: {hidden['bg']}")
+    assert hidden['bc'] != normal['bc'], "hidden border identical to normal"
+    assert float(hidden['op']) < 1.0, "hidden card is not dimmed"
+
+
+def test_disabled_layer_arrow_reads_dead_on_selected_card(page):
+    """.layer-item.active forces on-accent white on every descendant, so a
+    disabled reorder arrow looked live on the card you are about to click."""
+    res = page.evaluate(SNAP_JS + """() => {
+        const it = document.querySelector('.layer-item');
+        const up = it && it.querySelector('.layer-move-up');
+        if (!up) return null;
+        const had = it.className, wasDisabled = up.disabled;
+        it.classList.add('active');
+        up.disabled = false; const enabled  = snap(up);
+        up.disabled = true;  const disabled = snap(up);
+        up.disabled = wasDisabled; it.className = had;
+        return {enabled, disabled};
+    }""")
+    assert res, "no reorder arrow found"
+    assert res['disabled']['color'] != res['enabled']['color'], (
+        f"disabled arrow paints the same as an enabled one: {res['disabled']['color']}")
+    assert float(res['disabled']['op']) < float(res['enabled']['op']), (
+        "disabled arrow is not dimmed")
+
+
+def test_disabled_btn_paints_differently(page):
+    """.btn had no disabled rule at all, so inert buttons (palette Remove,
+    gradient-stop Remove) looked fully live."""
+    res = page.evaluate(SNAP_JS + """() => {
+        const el = document.getElementById('palette-remove');
+        if (!el) return null;
+        const was = el.disabled;
+        el.disabled = false; const enabled  = snap(el);
+        el.disabled = true;  const disabled = snap(el);
+        el.disabled = was;
+        return {enabled, disabled};
+    }""")
+    assert res, "#palette-remove not found"
+    assert res['disabled']['bgi'] != res['enabled']['bgi'], (
+        f"disabled button keeps the enabled gradient: {res['disabled']['bgi']}")
+    assert res['disabled']['color'] != res['enabled']['color'], "disabled text colour unchanged"
+    assert float(res['disabled']['op']) < float(res['enabled']['op']), "disabled button not dimmed"
+
+
+def test_visibility_button_keeps_hidden_glyph_on_selected_card(page):
+    res = page.evaluate(SNAP_JS + """() => {
+        const it = document.querySelector('.layer-item');
+        const v = it && it.querySelector('.layer-visibility-btn');
+        if (!v) return null;
+        const had = it.className, hadV = v.className;
+        it.classList.add('active');
+        v.classList.remove('is-hidden'); const plain = snap(v);
+        v.classList.add('is-hidden');    const off   = snap(v);
+        it.className = had; v.className = hadV;
+        return {plain, off};
+    }""")
+    assert res, "no visibility button found"
+    assert res['off']['color'] != res['plain']['color'], (
+        f"is-hidden glyph colour overridden: {res['off']['color']}")
+    assert res['off']['bg'] != res['plain']['bg'], "is-hidden background not painted"
+
+
+def test_rename_edit_cue_paints(page):
+    """Layer and canvas rename cues moved from inline styles to classes,
+    because the themed field rule sets background/border with !important."""
+    res = page.evaluate(SNAP_JS + """() => {
+        const li = document.querySelector('.layer-name-input');
+        const ci = document.querySelector('.canvas-name-input');
+        if (!li || !ci) return null;
+        li.classList.remove('editing'); const lPlain = snap(li);
+        li.classList.add('editing');    const lEdit  = snap(li);
+        li.classList.remove('editing');
+        ci.readOnly = true;  const cPlain = snap(ci);
+        ci.readOnly = false; const cEdit  = snap(ci);
+        ci.readOnly = true;
+        return {lPlain, lEdit, cPlain, cEdit};
+    }""")
+    assert res, "rename inputs not found"
+    accent = accent_rgb(page)
+    for plain, edit, what in ((res['lPlain'], res['lEdit'], 'layer'),
+                              (res['cPlain'], res['cEdit'], 'canvas')):
+        assert edit['bc'] != plain['bc'], f"{what} rename border unchanged: {edit['bc']}"
+        assert accent in edit['bc'], f"{what} rename cue is not the accent: {edit['bc']}"
+        assert edit['bg'] != plain['bg'], f"{what} rename background unchanged"
+
+
+def test_invalid_watts_cue_shows_while_focused(page):
+    """Enter fires `change` while the field still has focus, and theme.css
+    forces `input:focus { outline:none !important }` - so the old inline
+    outline was invisible in exactly the case that mattters."""
+    page.locator('[data-mode="power"]').click()
+    page.wait_for_timeout(400)
+    field = page.locator('#power-panel-watts')
+    field.click()
+    field.fill('not a number')
+    field.press('Enter')
+    page.wait_for_timeout(200)
+
+    res = page.evaluate(SNAP_JS + """() => {
+        const i = document.getElementById('power-panel-watts');
+        return {focused: document.activeElement === i,
+                invalid: i.classList.contains('invalid'), s: snap(i)};
+    }""")
+    assert res['focused'], "field lost focus, so this is not the reported case"
+    assert res['invalid'], "the invalid class was never applied"
+    assert 'rgb(204, 85, 85)' in res['s']['bc'], f"invalid border missing: {res['s']['bc']}"
+    assert 'rgb(204, 85, 85)' in res['s']['bs'], f"invalid ring missing: {res['s']['bs']}"
+
+    field.fill('200')
+    field.press('Enter')
+    page.wait_for_timeout(200)
+    cleared = page.evaluate(SNAP_JS + """() => {
+        const i = document.getElementById('power-panel-watts');
+        return {invalid: i.classList.contains('invalid'), s: snap(i)};
+    }""")
+    assert not cleared['invalid'], "the invalid cue never cleared"
+    assert 'rgb(204, 85, 85)' not in cleared['s']['bc'], "invalid border stuck"
+    page.locator('[data-mode="pixel-map"]').click()
+    page.wait_for_timeout(300)
+
+
+def test_accent_readouts_are_renderable(page):
+    """Pixels/Port, Panels/Port and the export filename preview used to carry
+    the legacy blue inline, which theme.css then overrode to plain text -
+    the healthy value was unrenderable while the error colours still showed."""
+    accent = accent_rgb(page)
+    res = page.evaluate("""() => ['port-capacity', 'panels-per-port', 'export-preview']
+        .map(id => { const e = document.getElementById(id);
+            return {id, found: !!e,
+                    color: e ? getComputedStyle(e).color : null,
+                    cls: e ? e.classList.contains('value-accent') : false}; })""")
+    for r in res:
+        assert r['found'], f"#{r['id']} missing"
+        assert r['cls'], f"#{r['id']} lost the value-accent class"
+        assert r['color'] == accent, (
+            f"#{r['id']} is {r['color']}, not the themed accent {accent}")
+
+
+def test_text_style_buttons_follow_the_accent(page):
+    """B/I/U were the only segmented toggle still hard-coded blue."""
+    accent = accent_rgb(page)
+    res = page.evaluate(SNAP_JS + """() => {
+        const el = document.getElementById('text-layer-bold');
+        if (!el) return null;
+        const had = el.className;
+        el.classList.remove('active'); const off = snap(el);
+        el.classList.add('active');    const on  = snap(el);
+        el.className = had;
+        return {off, on};
+    }""")
+    assert res, "#text-layer-bold not found"
+    assert res['on']['bgi'] != res['off']['bgi'], "active B/I/U looks like inactive"
+    assert accent in res['on']['bgi'], (
+        f"active B/I/U is not the themed accent: {res['on']['bgi']}")
+    assert '42, 109, 212' not in res['on']['bgi'], "still the hard-coded blue"

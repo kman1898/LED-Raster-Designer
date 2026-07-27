@@ -70,6 +70,14 @@ body, #app {
   box-shadow:inset 0 1px 0 rgba(255,255,255,0.22), 0 1px 1px rgba(0,0,0,0.4) !important;
   text-shadow:0 1px 1px rgba(0,0,0,0.3); }
 .btn-primary:hover, #btn-export:hover { filter:brightness(1.08); }
+/* v0.10.9: the .btn rule above forces colour+background with !important and
+   nothing declared a disabled state, so inert buttons (gradient stop Remove,
+   palette Remove) looked fully live. */
+.btn:disabled, .btn[disabled], button.btn:disabled, button.btn[disabled] {
+  color:var(--ps-faint) !important; background:linear-gradient(#333,#2d2d2d) !important;
+  border-color:#101010 !important; box-shadow:none !important; opacity:0.55 !important;
+  cursor:default !important; }
+.btn:disabled:hover, .btn[disabled]:hover { background:linear-gradient(#333,#2d2d2d) !important; }
 
 /* ---- view tabs ---- */
 #view-tabs { background:var(--ps-panel-2) !important; border-bottom:1px solid var(--ps-dark) !important;
@@ -125,13 +133,28 @@ input[type="text"], input[type="number"], select, .info-select,
   border-radius:2px !important; box-shadow:inset 0 1px 2px rgba(0,0,0,0.5) !important; font-family:var(--font-ps) !important; }
 input:focus, select:focus, textarea:focus { border-color:var(--ps-accent) !important; outline:none !important;
   box-shadow:inset 0 1px 2px rgba(0,0,0,0.5), 0 0 0 1px var(--ps-accent) !important; }
+/* v0.10.9: inline rename/invalid cues could never win against the !important
+   field styling above (and `outline:none !important` killed the invalid
+   outline exactly while the field was focused). Carried on classes instead. */
+.layer-name-input.editing, .canvas-name-input:not([readonly]) {
+  background:#0e0e0e !important; border-color:var(--ps-accent) !important;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,0.6), 0 0 0 2px var(--ps-accent) !important; }
+input.invalid, input.invalid:focus {
+  border-color:#c55 !important;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,0.5), 0 0 0 2px #c55 !important; }
 
 /* ---- chunky sliders (fill set by theme.js) ---- */
-input[type="range"] { -webkit-appearance:none; appearance:none; height:22px !important;
-  background:var(--ps-inset) !important; border:1px solid var(--ps-dark) !important; border-radius:4px !important;
-  box-shadow:inset 0 1px 3px rgba(0,0,0,0.5) !important; }
-input[type="range"]::-webkit-slider-runnable-track { height:22px; background:transparent; }
-input[type="range"]::-webkit-slider-thumb { -webkit-appearance:none; width:11px; height:20px; margin-top:0;
+/* v0.10.9: the accent fill is written INLINE by theme.js, so the !important
+   flags here (background/height/border-radius) silently ate it and every
+   slider read as an empty track. Nothing in style.css styles range inputs,
+   so plain declarations still win - drop the flags. The colour picker paints
+   its own per-channel gradient tracks and sets its own sizing, so it opts
+   out of this whole block (see color_picker.css .lrd-cw-range). */
+input[type="range"]:not(.lrd-cw-range) { -webkit-appearance:none; appearance:none; height:22px;
+  background:var(--ps-inset); border:1px solid var(--ps-dark); border-radius:4px;
+  box-shadow:inset 0 1px 3px rgba(0,0,0,0.5); }
+input[type="range"]:not(.lrd-cw-range)::-webkit-slider-runnable-track { height:22px; background:transparent; }
+input[type="range"]:not(.lrd-cw-range)::-webkit-slider-thumb { -webkit-appearance:none; width:11px; height:20px; margin-top:0;
   background:linear-gradient(#f0f0f0,#cdcdcd); border:1px solid #2a2a2a; border-radius:2px; box-shadow:0 1px 2px rgba(0,0,0,0.5); }
 .ps-slider-wrap { position:relative; display:block; }
 .ps-slider-val { position:absolute; right:8px; top:50%; transform:translateY(-50%); background:#f2f2f2; color:#161616;
@@ -147,12 +170,15 @@ input[type="checkbox"]:checked { background-color:var(--ps-accent) !important; b
 input[type="radio"] { accent-color:var(--ps-accent) !important; }
 
 /* ---- segmented toggle groups ---- */
+/* v0.10.9: .text-style-btn (Bold/Italic/Underline) joined the group - it was
+   the only toggle left hard-coded blue instead of following the accent. */
 .perspective-btn, .mapping-mode-btn, .flow-pattern-btn, .color-mode-btn,
-.pref-flow-pattern-btn, .power-flow-pattern-btn {
+.pref-flow-pattern-btn, .power-flow-pattern-btn, .text-style-btn {
   font-family:var(--font-ps) !important; background:linear-gradient(#3e3e3e,#343434) !important;
   color:var(--ps-dim) !important; border:1px solid var(--ps-dark) !important; box-shadow:inset 0 1px 0 #4d4d4d !important; }
 .perspective-btn.active, .mapping-mode-btn.active, .color-mode-btn.active,
-.flow-pattern-btn.active, .pref-flow-pattern-btn.active, .power-flow-pattern-btn.active {
+.flow-pattern-btn.active, .pref-flow-pattern-btn.active, .power-flow-pattern-btn.active,
+.text-style-btn.active {
   background:linear-gradient(var(--ps-accent-hi),var(--ps-accent)) !important; color:var(--ps-on-accent) !important;
   border-color:var(--ps-accent-deep) !important; box-shadow:inset 0 1px 0 rgba(255,255,255,0.2) !important; }
 
@@ -261,8 +287,13 @@ input[type="radio"] { accent-color:var(--ps-accent) !important; }
 #left-sidebar .hint, #left-sidebar small, #left-sidebar .help-text,
 #left-sidebar p, .panel-content .hint, .panel-content small { color:var(--ps-faint) !important; }
 
-/* ---- legacy blue cleanup ---- */
-[style*="#4A90E2"], [style*="#4a90e2"], [style*="rgb(74, 144, 226)"] { color:var(--ps-text) !important; }
+/* ---- accent-coloured readouts ---- */
+/* v0.10.9: replaces the old `[style*="#4A90E2"] { color:… }` attribute hack,
+   which matched any element with the legacy blue anywhere in its inline style
+   and so made the *healthy* value of Pixels/Port, Panels/Port and the export
+   filename preview unrenderable while their error colours still showed. The
+   readouts now carry this class and follow the user's chosen accent. */
+.value-accent { color:var(--ps-accent) !important; }
 
 /* ════════ NARROW-PANEL CHECKBOX ROWS ════════ */
 /* checkboxes never collapse when a sidebar is narrow (they were shrinking to
@@ -319,3 +350,29 @@ select, .info-select {
   box-shadow:inset 0 3px 0 0 var(--ps-accent), 0 1px 3px rgba(0,0,0,0.45) !important; }
 .layer-item.drag-over-bottom {
   box-shadow:inset 0 -3px 0 0 var(--ps-accent), 0 1px 3px rgba(0,0,0,0.45) !important; }
+
+/* ---- layer state cues (primary / hidden / disabled arrows) ---- */
+/* v0.10.9: same bug class as the drag indicator above. The .layer-item tile
+   rule sets background/border/box-shadow with !important and .layer-item.active
+   forces on-accent text on every descendant, so style.css's (non-important)
+   primary ring, hidden-screen stripe and :disabled arrows never reached the
+   screen. Redeclared here, after those rules, with the style.css values. */
+.layer-item.primary {
+  border-color:#00ccff !important;
+  box-shadow:inset 0 0 0 1px rgba(0,204,255,0.35), 0 1px 3px rgba(0,0,0,0.45) !important; }
+.layer-item.hidden {
+  background:
+    repeating-linear-gradient(135deg,
+      rgba(255,80,80,0.06) 0px, rgba(255,80,80,0.06) 6px,
+      transparent 6px, transparent 12px),
+    #141414 !important;
+  border-color:#5a2a2a !important; }
+.layer-item.hidden .layer-info { color:#888 !important; }
+.layer-item.hidden .layer-name-input { color:#888 !important; text-decoration:line-through !important; }
+/* the eye toggle keeps its pale-red "off" glyph even on the selected tile */
+.layer-visibility-btn.is-hidden {
+  background:#5a1f1f !important; border-color:#b04040 !important; color:#ffb0b0 !important; }
+/* a dead reorder arrow must not look live on the selected (accent) tile */
+.layer-btn:disabled, .layer-btn:disabled:hover {
+  color:#5a5a5a !important; opacity:0.45 !important; cursor:default !important; }
+.layer-item.active .layer-btn:disabled { color:rgba(255,255,255,0.55) !important; }

@@ -1321,8 +1321,10 @@ class _CanvasUi {
         const input = document.createElement('input');
         input.type = 'text';
         input.value = currentName;
-        input.className = 'layer-name-input';
-        input.style.cssText = 'background: #1a1a1a; border: 1px solid #4A90E2; color: #e0e0e0; padding: 2px 4px; border-radius: 3px; font-size: 13px; font-weight: 600; width: 100%;';
+        // v0.10.9: the edit cue rides on .editing (styled in theme.css); an
+        // inline border/background loses to the themed field rule's !important.
+        input.className = 'layer-name-input editing';
+        input.style.cssText = 'color: #e0e0e0; padding: 2px 4px; border-radius: 3px; font-size: 13px; font-weight: 600; width: 100%;';
         
         nameElement.textContent = '';
         nameElement.appendChild(input);

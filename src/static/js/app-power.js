@@ -197,11 +197,15 @@ class _Power {
         // Update capacity display
         const capacityEl = document.getElementById('port-capacity');
         if (capacityEl) {
+            // v0.10.9: healthy value rides on .value-accent (follows the themed
+            // accent); only the warning colour stays an inline override.
             if (portCapacity > 0) {
                 capacityEl.textContent = portCapacity.toLocaleString();
-                capacityEl.style.color = '#4A90E2';
+                capacityEl.classList.add('value-accent');
+                capacityEl.style.color = '';
             } else {
                 capacityEl.textContent = 'N/A';
+                capacityEl.classList.remove('value-accent');
                 capacityEl.style.color = '#ff6600';
             }
         }
@@ -213,10 +217,12 @@ class _Power {
         if (panelsPerPortEl) {
             if (panelsPerPort < 1) {
                 panelsPerPortEl.textContent = 'ERROR';
+                panelsPerPortEl.classList.remove('value-accent');
                 panelsPerPortEl.style.color = '#ff0000';
             } else {
                 panelsPerPortEl.textContent = panelsPerPort.toLocaleString();
-                panelsPerPortEl.style.color = '#4A90E2';
+                panelsPerPortEl.classList.add('value-accent');
+                panelsPerPortEl.style.color = '';
             }
         }
         
@@ -1635,8 +1641,9 @@ class _Power {
                 nameInput.readOnly = false;
                 nameInput.draggable = false;
                 nameInput.style.cursor = 'text';
-                nameInput.style.border = '1px solid #4A90E2';
-                nameInput.style.background = '#1a1a1a';
+                // v0.10.9: class, not inline - theme.css styles .layer-name-input
+                // with !important, so an inline border/background never painted.
+                nameInput.classList.add('editing');
                 nameInput.focus();
                 nameInput.select();
             };
@@ -1645,8 +1652,7 @@ class _Power {
                 nameInput.readOnly = true;
                 nameInput.draggable = true;
                 nameInput.style.cursor = 'default';
-                nameInput.style.border = '1px solid transparent';
-                nameInput.style.background = 'transparent';
+                nameInput.classList.remove('editing');
                 const newName = nameInput.value.trim() || layer.name;
                 if (newName !== layer.name) {
                     layer.name = newName;
