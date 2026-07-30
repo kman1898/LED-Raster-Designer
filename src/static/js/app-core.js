@@ -297,7 +297,16 @@ export class LEDRasterApp {
         });
     }
 
-    // Extract client-side only properties from a layer
+    // Extract client-side only properties from a layer.
+    //
+    // v0.10.9: `group_id` does NOT belong here, for the same reason
+    // `canvas_id` / `show_canvas_id` never have. This list (and its twin in
+    // saveClientSideProperties / loadClientSideProperties) exists for fields
+    // the SERVER does not round-trip, which are then re-applied on top of a
+    // server payload and cached in localStorage keyed by layer id. group_id
+    // is server-owned and whitelisted on PUT /api/layer/<id>, so it already
+    // survives every round trip; adding it would let a stale membership from
+    // a previous project be re-stamped onto a same-numbered layer.
     extractClientSideProps(layer) {
         return {
             dataFlowColor: layer.dataFlowColor,
@@ -3589,6 +3598,13 @@ export class LEDRasterApp {
         return new Set([
             'id', 'name', 'visible', 'locked',
             'offset_x', 'offset_y',
+            // v0.10.9: group membership is identity, not a setting. A preset
+            // is a bag of hardware/appearance values reused across projects,
+            // and a group id only means anything inside the one project that
+            // owns it - carrying it would drop a fresh screen into a group
+            // that does not exist (or worse, into an unrelated group that
+            // happens to reuse the id).
+            'group_id',
             'panels',  // panel array is regenerated from columns/rows on server
             '_powerError', '_powerCircuits', '_powerPanelCircuitMap', '_powerPanelIndexMap',
             '_powerCircuitNumKeys', '_powerTotalAmps1', '_powerTotalAmps3',

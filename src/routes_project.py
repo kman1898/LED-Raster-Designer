@@ -136,6 +136,15 @@ def restore_project():
     for layer in app.current_project.get('layers', []):
         if (layer.get('type') or 'screen') == 'screen':
             app._rebuild_layer_geometry_from_panel_states(layer)
+    # v0.10.9: same reasoning as the geometry rebuild above, for the screen
+    # group model. Membership lives on two sides (project['groups'][n]
+    # ['layer_ids'] and layer['group_id']) and the client can hand back a
+    # payload where they disagree - a layer deleted while its group still
+    # lists it, an undo snapshot taken mid-edit, a hand-edited file. This is
+    # the funnel every undo/redo and file load passes through, so it is the
+    # one place that can guarantee the two sides agree. Idempotent by design:
+    # restoring the same project twice must not change it.
+    app._enforce_group_integrity(app.current_project)
     app.sync_next_layer_id()
     log_event('restore_project', {
         'name': app.current_project.get('name', '?'),

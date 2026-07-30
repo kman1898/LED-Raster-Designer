@@ -3549,3 +3549,75 @@ def test_5g_port_load_percent_uses_the_penalised_capacity(page):
     assert port['stats']['shown'] == expected_load_label(2400000, capacity)[0] == 86
     assert expected_load_label(2400000, FIVE_G_8B60)[0] == 81, (
         'the unpenalised reading has to differ, or this test proves nothing')
+
+
+# ── Screen groups: the client-side half of the model (v0.10.9) ──────────
+#
+# `group_id` is server-owned, exactly like `canvas_id`. These pin the three
+# client-side decisions that go with that, each of which a future change
+# could quietly undo.
+
+
+def test_group_id_survives_the_real_client_save_path(page):
+    """updateLayer() PUTs the whole layer object. If the server whitelist
+    drops group_id, every edit to a grouped screen silently leaves the group.
+    """
+    before = page.evaluate("window.app.currentLayer.group_id ?? null")
+    page.evaluate("window.app.currentLayer.group_id = 'gTest'")
+    page.evaluate("window.app.updateLayer()")
+    page.wait_for_timeout(600)
+    stored = page.evaluate("""async () => {
+        const r = await fetch('/api/project');
+        const p = await r.json();
+        const id = window.app.currentLayer.id;
+        return (p.layers.find(l => l.id === id) || {}).group_id ?? null;
+    }""")
+    assert stored == 'gTest', f'group_id did not reach the server (got {stored})'
+    # restore
+    page.evaluate("(v) => { window.app.currentLayer.group_id = v; }", before)
+    page.evaluate("window.app.updateLayer()")
+    page.wait_for_timeout(400)
+
+
+def test_group_id_is_excluded_from_presets(page):
+    """A preset is reusable hardware settings. A group id only means anything
+    inside the project that owns it, so it must not ride along."""
+    result = page.evaluate("""() => {
+        const preset = window.app.serializeLayerAsPreset({
+            id: 99, name: 'X', group_id: 'g1', canvas_id: 'c1',
+            processorType: 'brompton', bitDepth: 10,
+        });
+        return {
+            excluded: window.app.getPresetExcludedKeys().has('group_id'),
+            keys: Object.keys(preset),
+        };
+    }""")
+    assert result['excluded'], 'group_id missing from getPresetExcludedKeys'
+    assert 'group_id' not in result['keys'], 'preset carried group membership'
+    assert 'processorType' in result['keys'], 'serializer did not actually run'
+
+
+def test_group_id_is_not_a_client_side_prop(page):
+    """extractClientSideProps / saveClientSideProperties exist for fields the
+    SERVER does not round-trip, and their localStorage cache is keyed by layer
+    id across projects. group_id is server-owned, so caching it would let a
+    stale membership be re-stamped onto a same-numbered layer elsewhere."""
+    extracted = page.evaluate("""() => Object.keys(
+        window.app.extractClientSideProps({
+            group_id: 'g1', canvas_id: 'c1', processorType: 'brompton',
+        }))""")
+    assert 'processorType' in extracted, 'extractor did not actually run'
+    assert 'group_id' not in extracted
+    assert 'canvas_id' not in extracted, 'canvas_id precedent changed'
+
+    cached = page.evaluate("""() => {
+        const layer = window.app.project.layers[0];
+        const before = layer.group_id ?? null;
+        layer.group_id = 'gCache';
+        window.app.saveClientSideProperties();
+        const raw = localStorage.getItem('ledRasterClientProps') || '';
+        layer.group_id = before;
+        window.app.saveClientSideProperties();
+        return raw.includes('group_id') || raw.includes('gCache');
+    }""")
+    assert not cached, 'group membership was written into localStorage'

@@ -224,6 +224,11 @@ def update_layer(layer_id):
                 'showOffsetX', 'showOffsetY',
                 # v0.8.5: per-layer Show Look canvas override. null clears.
                 'show_canvas_id',
+                # v0.10.9: screen group membership. The client PUTs the whole
+                # layer object, so leaving this out would drop group_id on
+                # every per-layer save the way processorType used to be
+                # dropped. null clears membership.
+                'group_id',
                 'showDataFlowPortInfo', 'showDataFlowPortLoad',
                 'showPowerCircuitInfo']:
         if key in data:
@@ -286,6 +291,11 @@ def delete_layer(layer_id):
             deleted_name = l.get('name', '?')
             break
     app.current_project['layers'] = [l for l in app.current_project['layers'] if l['id'] != layer_id]
+    # v0.10.9: deleting a member is a group-integrity event - the group would
+    # otherwise keep listing a layer that is gone, and a two-member group would
+    # be left as a group of one. restore_project repairs this too, but only on
+    # the next undo/file load; do it now so the response is already consistent.
+    app._enforce_group_integrity(app.current_project)
     app.current_project['is_pristine'] = False
     log_event('delete_layer', {'id': layer_id, 'name': deleted_name, 'remaining_layers': len(app.current_project['layers'])})
     socketio.emit('layer_deleted', {'id': layer_id})
@@ -314,6 +324,10 @@ def move_layer_to_canvas(layer_id):
         clone['id'] = app.next_layer_id
         app.next_layer_id += 1
         clone['canvas_id'] = target_id
+        # v0.10.9: the clone is a deep copy, so it would otherwise carry the
+        # source's group_id while the group's layer_ids knows nothing about
+        # it. Duplicating a screen makes a new screen, not a new group member.
+        clone['group_id'] = None
         clone['offset_x'] = 0
         clone['offset_y'] = 0
         clone['showOffsetX'] = 0

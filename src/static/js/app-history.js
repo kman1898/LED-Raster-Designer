@@ -327,6 +327,13 @@ class _History {
         // so a layer dragged in Show Look (showOffset / show_canvas_id) is
         // copied with its Show Look position intact, not snapped back to
         // mirror Pixel Map.
+        //
+        // v0.10.9: `group_id` is deliberately absent from this helper and
+        // from duplicateData / clientProps below. Duplicating a screen makes
+        // a new screen; enrolling it in the source's group would change that
+        // group's totals, port numbering and export the moment the user hits
+        // Duplicate, without them asking. The server's create_layer defaults
+        // group_id to null, so omitting it here is the whole mechanism.
         const _carryShow = (l, dx, dy) => {
             const out = {};
             if (l.showOffsetX != null) out.showOffsetX = (Number(l.showOffsetX) || 0) + (dx || 0);

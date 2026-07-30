@@ -516,6 +516,11 @@ def _build_initial_project():
         'data_flow_perspective': 'front',
         'power_perspective': 'front',
         'layers': [],
+        # v0.10.9: screen groups. Same shape as `canvases`: an array of
+        # {id, name, layer_ids} objects, with membership mirrored onto each
+        # member layer as `group_id`. Empty on a fresh project; a group only
+        # exists once the user makes one.
+        'groups': [],
         'is_pristine': True,
     }
     # Pre-populate v0.8 fields so a fresh project already passes the
@@ -602,6 +607,13 @@ def _seed_data_with_canvas_defaults(data):
         donor = max(siblings, key=lambda l: int(l.get('id') or 0))
     except Exception:
         donor = siblings[-1]
+    # v0.10.9: `group_id` is deliberately NOT inheritable. Everything in this
+    # tuple is a *setting* the user would have to retype; group membership is a
+    # structural decision about which screens are one wall. Adding a second
+    # screen next to a grouped one must not silently enrol it in that group -
+    # the totals, export and numbering that later steps hang off the group
+    # would change under the user without them asking. Joining a group stays
+    # an explicit action.
     inheritable = (
         'processorType', 'lowLatency', 'bitDepth', 'frameRate',
         'powerVoltage', 'powerVoltageCustom', 'powerAmperage', 'powerAmperageCustom',
@@ -736,6 +748,9 @@ def create_layer(name, columns, rows, cabinet_width, cabinet_height, offset_x=0,
         'infoLabelSize': 14,
         'labelsColor': '#ffffff',
         'labelsFontSize': 30,
+        # v0.10.9: screen group membership. null = not in a group, which is
+        # every freshly created layer. Mirrors the owning group's layer_ids.
+        'group_id': None,
         # Screen name sizes per tab
         'screenNameSizeCabinet': 30,
         'screenNameSizeDataFlow': 30,
@@ -984,6 +999,189 @@ def _next_duplicate_canvas_name(src_name):
             if n > max_n:
                 max_n = n
     return f"{base} {max_n + 1}"
+
+
+# ---------------------------------------------------------------------------
+# Screen groups (v0.10.9).
+#
+# A group makes a set of layers behave as one screen for totals, export,
+# naming and movement. It exists because the per-layer grid is uniform: a wall
+# built from 1m JP5 cabinets AND 0.5m standard cabinets has to be two layers,
+# and today those two layers calculate as two screens.
+#
+# The model deliberately mirrors the multi-canvas one:
+#     project['groups']   -> [{id, name, layer_ids: [...]}, ...]   (cf. canvases)
+#     layer['group_id']   -> 'g1' | None                           (cf. canvas_id)
+#
+# It is purely additive. Nothing here touches the per-layer grid, (row, col)
+# panel identity, _build_panels, the rebuild funnel or any traversal.
+#
+# `layer_ids` is the authoritative side of the relationship and `group_id` is
+# the mirror, which is what _enforce_group_integrity repairs towards. That
+# matches how the rest of the app reads membership (walk the group, collect
+# its layers) and gives a single answer when the two disagree.
+# ---------------------------------------------------------------------------
+
+# The settings every member of a group must agree on. A group is one screen,
+# so a port that crosses a member boundary needs one rule set to be checked
+# against - two members on different processors have no single answer.
+GROUP_SHARED_SETTINGS = ('processorType', 'bitDepth', 'frameRate')
+
+
+def _next_group_id(project):
+    """Pick the next free group id of the form ``g<N>``.
+
+    Same scan-for-max-suffix approach as _next_canvas_id. Takes the project
+    explicitly (unlike the canvas helpers, which read the module global)
+    because restore_project reassigns app.current_project and has to run this
+    against the incoming payload.
+    """
+    groups = (project or {}).get('groups') or []
+    max_n = 0
+    for g in groups:
+        gid = (g or {}).get('id', '')
+        if isinstance(gid, str) and gid.startswith('g'):
+            try:
+                n = int(gid[1:])
+                if n > max_n:
+                    max_n = n
+            except ValueError:
+                pass
+    return f'g{max_n + 1}'
+
+
+def _find_group(project, group_id):
+    for g in (project or {}).get('groups') or []:
+        if isinstance(g, dict) and g.get('id') == group_id:
+            return g
+    return None
+
+
+def _create_group(project, layer_ids, name=None):
+    """Create a group over ``layer_ids`` and stamp membership on those layers.
+
+    The counterpart to _assign_canvas_id: one place every add-a-group path
+    goes through, so membership is always written to BOTH sides. Returns the
+    new group, or None when fewer than two of the requested layers exist (a
+    group of one is not a group).
+    """
+    if not isinstance(project, dict):
+        return None
+    by_id = {
+        l.get('id'): l for l in (project.get('layers') or [])
+        if isinstance(l, dict)
+    }
+    members = []
+    for lid in layer_ids or []:
+        if lid in by_id and lid not in members:
+            members.append(lid)
+    if len(members) < 2:
+        return None
+    if not isinstance(project.get('groups'), list):
+        project['groups'] = []
+    group = {
+        'id': _next_group_id(project),
+        'name': name or f'Group {len(project["groups"]) + 1}',
+        'layer_ids': members,
+    }
+    project['groups'].append(group)
+    for lid in members:
+        by_id[lid]['group_id'] = group['id']
+    return group
+
+
+def _enforce_group_integrity(project):
+    """Repair the group model in place, idempotently.
+
+    restore_project runs on EVERY undo, redo and file load, so this has to
+    converge on the first pass: restoring twice must not change anything.
+
+    Rules, in order:
+      1. layer_ids that name a layer which no longer exists are pruned (the
+         layer was deleted while the group still listed it).
+      2. a group left with fewer than 2 members is dropped, and its remaining
+         member loses its group_id. A group of one is not a group.
+      3. a layer whose group_id names a group that does not exist - or that
+         exists but does not list it - has group_id cleared.
+      4. group_id is single-valued: a layer listed by more than one group
+         stays with the first group that survives rule 2, and is removed from
+         the others' layer_ids.
+
+    Layers that never had a group_id key are left completely untouched, so a
+    project saved before groups existed round-trips byte for byte.
+    """
+    if not isinstance(project, dict):
+        return project
+    if not isinstance(project.get('groups'), list):
+        # Missing (pre-v0.10.9 file) or malformed. Normalise to the empty
+        # array so every consumer can assume the shape, same as the canvas
+        # migrator does for `canvases`.
+        project['groups'] = []
+
+    layers = [l for l in (project.get('layers') or []) if isinstance(l, dict)]
+    existing_layer_ids = {l.get('id') for l in layers}
+
+    kept = []
+    claimed = set()
+    for group in project['groups']:
+        if not isinstance(group, dict) or not group.get('id'):
+            continue
+        # Anything that is not a list is treated as no members at all. A JSON
+        # string would otherwise iterate into single-character "layer ids",
+        # and an int would raise straight into a 500 on every undo.
+        raw_ids = group.get('layer_ids')
+        if not isinstance(raw_ids, list):
+            raw_ids = []
+        members = []
+        for lid in raw_ids:
+            # Rule 1 (layer gone), rule 4 (already owned by an earlier group),
+            # and plain duplicates inside one group's own list.
+            if lid in existing_layer_ids and lid not in claimed and lid not in members:
+                members.append(lid)
+        if len(members) < 2:
+            continue  # rule 2 - and it claims nothing, so a one-member group
+                      # listed first cannot starve a real group listed later
+        group['layer_ids'] = members
+        claimed.update(members)
+        kept.append(group)
+    project['groups'] = kept
+
+    owner = {}
+    for group in kept:
+        for lid in group['layer_ids']:
+            owner[lid] = group['id']
+    for layer in layers:
+        group_id = owner.get(layer.get('id'))
+        if group_id is not None:
+            layer['group_id'] = group_id  # mirror the authoritative side
+        elif layer.get('group_id'):
+            layer['group_id'] = None  # rule 3
+    return project
+
+
+def validate_group_settings(layers):
+    """Do these layers agree on the settings a group has to share?
+
+    Pure: reads nothing, mutates nothing, so the UI in a later step can call
+    it on a candidate selection before any group exists.
+
+    Returns ``{'ok': bool, 'conflicts': {field: [distinct values, ...]}}``.
+    ``conflicts`` lists only the fields that actually disagree, in the order
+    the values were first seen, so a resolve dialog can offer them as-is. A
+    field missing from a layer reads as None and is a value like any other:
+    one layer on 'brompton' and one with no processorType at all genuinely do
+    not agree. Fewer than two layers can never disagree.
+    """
+    seen = {field: [] for field in GROUP_SHARED_SETTINGS}
+    for layer in layers or []:
+        if not isinstance(layer, dict):
+            continue
+        for field in GROUP_SHARED_SETTINGS:
+            value = layer.get(field)
+            if value not in seen[field]:
+                seen[field].append(value)
+    conflicts = {f: v for f, v in seen.items() if len(v) > 1}
+    return {'ok': not conflicts, 'conflicts': conflicts}
 
 
 def _rebuild_layer_geometry_from_panel_states(layer):
