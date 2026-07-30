@@ -758,7 +758,7 @@ class CanvasRenderer {
                         && typeof window.app.selectLayer === 'function') {
                         // selectLayer takes the layer OBJECT, not the id
                         // (the !layer.id guard rejects raw integers).
-                        window.app.selectLayer(layer);
+                        this._selectLayerFromCanvas(layer);
                     }
                 }
             } else {
@@ -919,6 +919,12 @@ class CanvasRenderer {
                         seenIds.add(layer.id);
                         uniqueSelected.push(layer);
                     });
+                    // v0.10.9: a group moves as one screen, so any selected
+                    // member pulls in its peers (and puts them in the app's
+                    // selection, so mouseup persists every layer that moved).
+                    // Relative offsets are preserved for free: the drag applies
+                    // ONE delta to every entry in dragLayerOffsets below.
+                    this._addGroupPeersToDrag(uniqueSelected);
                     const movable = uniqueSelected.filter(layer => !layer.locked);
                     if (movable.length === 0) {
                         if (typeof sendClientLog === 'function') {
@@ -1058,13 +1064,13 @@ class CanvasRenderer {
         } else if (e.button === 0 && this.viewMode === 'data-flow' && window.app) {
             const layer = this.getLayerAt(worldX, worldY);
             if (layer) {
-                window.app.selectLayer(layer);
+                this._selectLayerFromCanvas(layer);
             } else {
                 const clickedPanel = this.getPanelAt(worldX, worldY);
                 if (clickedPanel) {
                     const panelLayer = window.app.project.layers.find(l => l.id === clickedPanel.layerId);
                     if (panelLayer) {
-                        window.app.selectLayer(panelLayer);
+                        this._selectLayerFromCanvas(panelLayer);
                     }
                 }
             }
@@ -1072,13 +1078,13 @@ class CanvasRenderer {
             if (window.app) {
                 const layer = this.getLayerAt(worldX, worldY);
                 if (layer) {
-                    window.app.selectLayer(layer);
+                    this._selectLayerFromCanvas(layer);
                 } else {
                     const clickedPanel = this.getPanelAt(worldX, worldY);
                     if (clickedPanel) {
                         const panelLayer = window.app.project.layers.find(l => l.id === clickedPanel.layerId);
                         if (panelLayer) {
-                            window.app.selectLayer(panelLayer);
+                            this._selectLayerFromCanvas(panelLayer);
                         }
                     }
                 }
@@ -1542,7 +1548,7 @@ class CanvasRenderer {
                         if (isToggle) {
                             window.app.toggleLayerSelection(layer);
                         } else {
-                            window.app.selectLayer(layer);
+                            this._selectLayerFromCanvas(layer);
                         }
                         if (typeof sendClientLog === 'function') {
                             sendClientLog('layer_select_click', { viewMode: this.viewMode, layerId: layer.id, toggle: isToggle });
@@ -1550,6 +1556,14 @@ class CanvasRenderer {
                     }
                 } else {
                     window.app.selectLayersInRect(this.layerSelectionRect, isToggle);
+                    // v0.10.9: a marquee that catches one member of a group
+                    // catches the group. Skipped for the toggle (Cmd/Ctrl)
+                    // marquee, where re-adding what the user just toggled OUT
+                    // would fight the gesture.
+                    if (!isToggle && this._extendSelectionToGroups()
+                            && typeof window.app.renderLayers === 'function') {
+                        window.app.renderLayers();
+                    }
                     if (typeof sendClientLog === 'function') {
                         sendClientLog('layer_selection_box', { viewMode: this.viewMode, toggle: isToggle });
                     }
@@ -1852,7 +1866,7 @@ class CanvasRenderer {
                     ? selectedIds.has(hit && hit.id)
                     : Array.from(selectedIds).includes(hit && hit.id));
             if (hit && !alreadySelected) {
-                window.app.selectLayer(hit);
+                this._selectLayerFromCanvas(hit);
             }
         }
         if (this.viewMode === 'pixel-map' && window.app.currentLayer) {
@@ -2112,6 +2126,139 @@ class CanvasRenderer {
             }
         }
         return { wx: 0, wy: 0 };
+    }
+
+    // ── Screen groups (v0.10.9): the canvas half ──────────────────────────
+    //
+    // Step 2 built the roll-up (app-screen-info.js getGroupTotals). A group is
+    // ONE screen that had to be built from more than one layer, because the
+    // per-layer grid is uniform: a wall of 1m JP5 cabinets AND 0.5m standard
+    // cabinets is two layers no matter how it reads on site. The geometry has
+    // always been right; what was wrong is that it DREW, SELECTED and MOVED as
+    // two screens. So: one label over the group's bounding box, clicking any
+    // member selects them all, and dragging any member moves the whole group
+    // in one undo step. Members still draw their own cabinets - only the label
+    // consolidates.
+    //
+    // Every helper here returns null / [] / false for an ungrouped layer, so a
+    // project without groups takes exactly the paths it took before.
+
+    _groupForLayer(layer) {
+        if (!layer || !layer.group_id) return null;
+        if (!window.app || typeof window.app.resolveGroup !== 'function') return null;
+        return window.app.resolveGroup(layer.group_id);
+    }
+
+    // The members of `layer`'s group that this view actually draws: screens,
+    // not hidden, and on the same effective canvas as `layer` (a group split
+    // across canvases would otherwise union bounds across two workspaces).
+    // Returned in the group's own order, which is the order the user built it.
+    _groupDrawnMembers(layer) {
+        const g = this._groupForLayer(layer);
+        if (!g || !window.app || typeof window.app.getGroupMembers !== 'function') return [];
+        const cid = this._effectiveLayerCanvasId(layer);
+        return window.app.getGroupMembers(g).filter(m => m
+            && (m.type || 'screen') === 'screen'
+            && m.visible !== false
+            && this._effectiveLayerCanvasId(m) === cid);
+    }
+
+    // Who draws the group's single label, and whose label settings it uses.
+    // Null unless `layer` is in a group with at least two drawn members - a
+    // group of one has nothing to consolidate and keeps its own label.
+    //   cfg   the group's FIRST member. Members can disagree on the label
+    //         toggles, sizes and colours; the first member wins, the same way
+    //         the group's name replaces the members' names.
+    //   host  the LAST member in render order. The label is drawn in that
+    //         member's pass so it lands on top of every member's cabinets.
+    //         Hosted on the first member, the bottom info bar - which sits
+    //         over the LAST member of a stacked wall - would be painted over
+    //         by that member's panels a moment later.
+    _groupLabelPlan(layer) {
+        const members = this._groupDrawnMembers(layer);
+        if (members.length < 2) return null;
+        const order = (window.app.project && window.app.project.layers) || [];
+        const drawn = members.slice().sort((a, b) => order.indexOf(a) - order.indexOf(b));
+        return {
+            group: this._groupForLayer(layer),
+            members,
+            cfg: members[0],
+            host: drawn[drawn.length - 1],
+        };
+    }
+
+    // Union of the members' bounds, expressed in the space the HOST layer
+    // draws in: renderLayerLabels runs inside the host's per-layer
+    // ctx.translate, so each member's active-view bounds are brought back by
+    // the host's own render offset.
+    _groupUnionBounds(members, host) {
+        const off = this.getLayerRenderOffset(host);
+        let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+        members.forEach(m => {
+            const b = this.getLayerBoundsInActiveView(m);
+            x1 = Math.min(x1, b.x - off.dx);
+            y1 = Math.min(y1, b.y - off.dy);
+            x2 = Math.max(x2, b.x + b.width - off.dx);
+            y2 = Math.max(y2, b.y + b.height - off.dy);
+        });
+        if (!isFinite(x1)) return this.getLayerBounds(host);
+        return { x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
+    }
+
+    // Pull every selected layer's group peers into the selection. This extends
+    // the existing multi-select Set - the same one the marquee fills - rather
+    // than adding a second selection path, so the sidebar, the selection
+    // bounding boxes and the layer drag all keep reading one source of truth.
+    // Returns true when it actually added something.
+    _extendSelectionToGroups() {
+        if (!window.app || !window.app.selectedLayerIds) return false;
+        const layers = (window.app.project && window.app.project.layers) || [];
+        const selected = layers.filter(l => window.app.selectedLayerIds.has(l.id));
+        let added = false;
+        selected.forEach(l => {
+            const g = this._groupForLayer(l);
+            if (!g || typeof window.app.getGroupMembers !== 'function') return;
+            window.app.getGroupMembers(g).forEach(m => {
+                if (!m || m.visible === false) return;
+                if (window.app.selectedLayerIds.has(m.id)) return;
+                window.app.selectedLayerIds.add(m.id);
+                added = true;
+            });
+        });
+        return added;
+    }
+
+    // Click-select from the canvas: selects the layer exactly as before, then
+    // widens to its group so a grouped wall selects - and therefore drags - as
+    // the one screen it is.
+    _selectLayerFromCanvas(layer) {
+        if (!window.app || !layer || typeof window.app.selectLayer !== 'function') return;
+        window.app.selectLayer(layer);
+        if (!this._extendSelectionToGroups()) return;
+        // selectLayer already refreshed for the single-layer selection; repeat
+        // the cheap parts so the sidebar and the selection boxes show the peers.
+        if (typeof window.app.renderLayers === 'function') window.app.renderLayers();
+        this.render();
+    }
+
+    // Add the group peers of everything in `layers` (in place), and to the
+    // app's selection, so a drag started on one member moves the whole group
+    // AND mouseup's updateLayers persists every layer the drag actually moved.
+    _addGroupPeersToDrag(layers) {
+        if (!window.app || !Array.isArray(layers)) return layers;
+        const seen = new Set(layers.map(l => l && l.id));
+        layers.slice().forEach(l => {
+            const g = this._groupForLayer(l);
+            if (!g || typeof window.app.getGroupMembers !== 'function') return;
+            window.app.getGroupMembers(g).forEach(m => {
+                if (!m || seen.has(m.id) || m.visible === false) return;
+                if ((m.type || 'screen') !== 'screen') return;
+                seen.add(m.id);
+                layers.push(m);
+                if (window.app.selectedLayerIds) window.app.selectedLayerIds.add(m.id);
+            });
+        });
+        return layers;
     }
 
     getPanelAt(worldX, worldY) {
@@ -3096,6 +3243,34 @@ class CanvasRenderer {
         const currentTop = offsetY + fpDy;
         const currentBottom = currentTop + layerHeight;
 
+        // v0.10.9: a screen group snaps as ONE object. The edges offered to the
+        // snap are the UNION of the group's footprints (so the wall's left edge
+        // is its left-most member's), and the peers are dropped as snap TARGETS
+        // - they travel with the drag, so snapping to one would only ever pin
+        // the group to itself. Every member takes the same delta during a drag,
+        // so a peer's proposed edges are its current edges shifted by whatever
+        // the primary is proposing.
+        const peerIds = new Set();
+        let groupLeft = currentLeft;
+        let groupRight = currentRight;
+        let groupTop = currentTop;
+        let groupBottom = currentBottom;
+        const groupMembers = this._groupDrawnMembers(currentLayer);
+        if (groupMembers.length > 1) {
+            const selfNow = this.getLayerFootprintInActiveView(currentLayer);
+            groupMembers.forEach(m => {
+                peerIds.add(m.id);
+                if (m.id === currentLayer.id) return;
+                const mb = this.getLayerFootprintInActiveView(m);
+                const relX = mb.x - selfNow.x;
+                const relY = mb.y - selfNow.y;
+                groupLeft = Math.min(groupLeft, currentLeft + relX);
+                groupRight = Math.max(groupRight, currentLeft + relX + mb.width);
+                groupTop = Math.min(groupTop, currentTop + relY);
+                groupBottom = Math.max(groupBottom, currentTop + relY + mb.height);
+            });
+        }
+
         // v0.10.1: the NEAREST candidate wins on each axis. The old code let
         // whichever candidate was checked last overwrite the rest, so dragging
         // toward the raster's left edge could land at a far layer's edge
@@ -3112,11 +3287,15 @@ class CanvasRenderer {
             if (dist <= snapDistance && (!bestY || dist < bestY.dist)) bestY = { value: resultOffset, dist };
         };
 
-        // Snap to raster boundaries, HARD EDGES ONLY
-        considerX(currentLeft, 0, 0 - fpDx);
-        considerX(currentRight, this.rasterWidth, this.rasterWidth - layerWidth - fpDx);
-        considerY(currentTop, 0, 0 - fpDy);
-        considerY(currentBottom, this.rasterHeight, this.rasterHeight - layerHeight - fpDy);
+        // Snap to raster boundaries, HARD EDGES ONLY.
+        // v0.10.9: every candidate below is now written as "the offset that
+        // puts THIS edge on THAT target" - offsetX + (target - edge). For an
+        // ungrouped layer the group edges ARE the layer's edges, so each of
+        // these still evaluates to exactly what it did before.
+        considerX(groupLeft, 0, offsetX + (0 - groupLeft));
+        considerX(groupRight, this.rasterWidth, offsetX + (this.rasterWidth - groupRight));
+        considerY(groupTop, 0, offsetY + (0 - groupTop));
+        considerY(groupBottom, this.rasterHeight, offsetY + (this.rasterHeight - groupBottom));
 
         // Snap to other layers' footprints, HARD EDGES ONLY.
         // v0.10.1: only layers that are neighbors on the perpendicular axis
@@ -3126,6 +3305,7 @@ class CanvasRenderer {
         if (window.app && window.app.project) {
             window.app.project.layers.forEach(layer => {
                 if (layer.id === currentLayer.id || !layer.visible) return;
+                if (peerIds.has(layer.id)) return;   // travels with the drag
 
                 const otherBounds = this.getLayerFootprintInActiveView(layer);
                 const otherLeft = otherBounds.x;
@@ -3133,26 +3313,26 @@ class CanvasRenderer {
                 const otherTop = otherBounds.y;
                 const otherBottom = otherBounds.y + otherBounds.height;
 
-                const nearVertically = currentTop <= otherBottom + snapDistance &&
-                    currentBottom >= otherTop - snapDistance;
-                const nearHorizontally = currentLeft <= otherRight + snapDistance &&
-                    currentRight >= otherLeft - snapDistance;
+                const nearVertically = groupTop <= otherBottom + snapDistance &&
+                    groupBottom >= otherTop - snapDistance;
+                const nearHorizontally = groupLeft <= otherRight + snapDistance &&
+                    groupRight >= otherLeft - snapDistance;
 
                 if (nearVertically) {
                     // Left edge snaps
-                    considerX(currentLeft, otherLeft, otherLeft - fpDx);
-                    considerX(currentLeft, otherRight, otherRight - fpDx);
+                    considerX(groupLeft, otherLeft, offsetX + (otherLeft - groupLeft));
+                    considerX(groupLeft, otherRight, offsetX + (otherRight - groupLeft));
                     // Right edge snaps
-                    considerX(currentRight, otherLeft, otherLeft - layerWidth - fpDx);
-                    considerX(currentRight, otherRight, otherRight - layerWidth - fpDx);
+                    considerX(groupRight, otherLeft, offsetX + (otherLeft - groupRight));
+                    considerX(groupRight, otherRight, offsetX + (otherRight - groupRight));
                 }
                 if (nearHorizontally) {
                     // Top edge snaps
-                    considerY(currentTop, otherTop, otherTop - fpDy);
-                    considerY(currentTop, otherBottom, otherBottom - fpDy);
+                    considerY(groupTop, otherTop, offsetY + (otherTop - groupTop));
+                    considerY(groupTop, otherBottom, offsetY + (otherBottom - groupTop));
                     // Bottom edge snaps
-                    considerY(currentBottom, otherTop, otherTop - layerHeight - fpDy);
-                    considerY(currentBottom, otherBottom, otherBottom - layerHeight - fpDy);
+                    considerY(groupBottom, otherTop, offsetY + (otherTop - groupBottom));
+                    considerY(groupBottom, otherBottom, offsetY + (otherBottom - groupBottom));
                 }
             });
         }
@@ -4607,12 +4787,29 @@ class CanvasRenderer {
     }
     
     renderLayerLabels(layer) {
+        // v0.10.9: screen groups draw ONE label for the whole group. The host
+        // member draws it (see _groupLabelPlan) and every peer bows out right
+        // here - peers keep drawing their own cabinets, only the label
+        // consolidates. `plan` is null for an ungrouped layer, so everything
+        // below is unchanged for a project without groups.
+        const plan = this._groupLabelPlan(layer);
+        if (plan && plan.host.id !== layer.id) {
+            if (layer._screenNameHitRect) layer._screenNameHitRect = null;
+            return;
+        }
+        // Where the label's settings come from: the layer itself, or the
+        // group's first member. This is also the layer that caches the hit
+        // rect and stores the screen-name drag offset, so the one label has
+        // exactly one owner no matter which member happens to draw it.
+        const cfg = plan ? plan.cfg : layer;
+
         // v0.8.7.7: clear any stale screen-name hit rect from a previous
         // render; the if-block below resets it when the label is actually
         // drawn, but layers with showLabelName off (or tab-specific
         // toggles like showLabelNameCabinet) need a clean slate so a
         // mousedown doesn't catch the ghost.
         if (layer && layer._screenNameHitRect) layer._screenNameHitRect = null;
+        if (cfg._screenNameHitRect) cfg._screenNameHitRect = null;
         if ((layer.type || 'screen') === 'image') {
             return;
         }
@@ -4622,24 +4819,35 @@ class CanvasRenderer {
         this.ctx.save();
         this._clipToActiveRaster();
 
-        const bounds = this.getLayerBounds(layer);
+        // v0.10.9: a group's label is positioned against the union of its
+        // members' bounds - the real shape of the wall - not one member's.
+        const bounds = plan ? this._groupUnionBounds(plan.members, layer) : this.getLayerBounds(layer);
         const layerWidth = bounds.width;
         const layerHeight = bounds.height;
         const centerX = bounds.x + layerWidth / 2;
         const centerY = bounds.y + layerHeight / 2;
         const bottomY = bounds.y + layerHeight;
-        
-        // Calculate physical dimensions
-        const widthMM = (layer.panel_width_mm || 500) * (layerWidth / (layer.cabinet_width || 1));
-        const heightMM = (layer.panel_height_mm || 500) * (layerHeight / (layer.cabinet_height || 1));
+
+        // v0.10.9: and its figures are the COMBINED figures, straight from the
+        // step-2 roll-up. No calculation is repeated here.
+        const groupTotals = (plan && window.app && typeof window.app.getGroupTotals === 'function')
+            ? window.app.getGroupTotals(plan.group)
+            : null;
+
+        // Calculate physical dimensions. For a group the pixel span is the
+        // whole wall's but the mm-per-pixel conversion is the FIRST member's
+        // pitch - mixed-pitch members have no single answer, and the first
+        // member is the one every other label setting comes from.
+        const widthMM = (cfg.panel_width_mm || 500) * (layerWidth / (cfg.cabinet_width || 1));
+        const heightMM = (cfg.panel_height_mm || 500) * (layerHeight / (cfg.cabinet_height || 1));
         const widthM = widthMM / 1000;
         const heightM = heightMM / 1000;
         const widthFt = widthM * 3.28084;
         const heightFt = heightM * 3.28084;
         
-        const activePanels = layer.panels.filter(p => !p.blank && !p.hidden).length;
-        const equivalentPanels = layer.panels
-            .filter(p => !p.blank && !p.hidden)
+        const ownActivePanels = layer.panels.filter(p => !p.blank && !p.hidden);
+        const activePanels = groupTotals ? groupTotals.cabinets : ownActivePanels.length;
+        const equivalentPanels = groupTotals ? groupTotals.equivalentPanels : ownActivePanels
             .reduce((sum, p) => {
                 if (window.app && typeof window.app.getPanelLoadFactor === 'function') {
                     return sum + window.app.getPanelLoadFactor(layer, p);
@@ -4649,39 +4857,46 @@ class CanvasRenderer {
         const panelWeightValue = layer.panel_weight || 20;
         const panelWeightUnit = layer.weight_unit || 'kg';
         const panelWeightKg = panelWeightUnit === 'lb' ? (panelWeightValue / 2.20462) : panelWeightValue;
-        const totalWeightKg = equivalentPanels * panelWeightKg;
-        const totalWeightLb = totalWeightKg * 2.20462;
-        
+        // The roll-up already weighs each member against its OWN cabinet, so a
+        // group's weight can never be one member's per-cabinet figure applied
+        // to everybody's cabinets.
+        const totalWeightKg = groupTotals ? groupTotals.weightKg : equivalentPanels * panelWeightKg;
+        const totalWeightLb = groupTotals ? groupTotals.weightLb : totalWeightKg * 2.20462;
+
         // Build labels - Screen Name is separate with white background
         // Per-tab showLabelName: each view mode has its own property, falling back to global → true
         let showLabelName;
         if (this.viewMode === 'cabinet-id') {
-            showLabelName = layer.showLabelNameCabinet !== undefined ? layer.showLabelNameCabinet
-                : (layer.showLabelName !== undefined ? layer.showLabelName : true);
+            showLabelName = cfg.showLabelNameCabinet !== undefined ? cfg.showLabelNameCabinet
+                : (cfg.showLabelName !== undefined ? cfg.showLabelName : true);
         } else if (this.viewMode === 'data-flow') {
-            showLabelName = layer.showLabelNameDataFlow !== undefined ? layer.showLabelNameDataFlow
-                : (layer.showLabelName !== undefined ? layer.showLabelName : true);
+            showLabelName = cfg.showLabelNameDataFlow !== undefined ? cfg.showLabelNameDataFlow
+                : (cfg.showLabelName !== undefined ? cfg.showLabelName : true);
         } else if (this.viewMode === 'power') {
-            showLabelName = layer.showLabelNamePower !== undefined ? layer.showLabelNamePower
-                : (layer.showLabelName !== undefined ? layer.showLabelName : true);
+            showLabelName = cfg.showLabelNamePower !== undefined ? cfg.showLabelNamePower
+                : (cfg.showLabelName !== undefined ? cfg.showLabelName : true);
         } else {
-            showLabelName = layer.showLabelName !== undefined ? layer.showLabelName : true;
+            showLabelName = cfg.showLabelName !== undefined ? cfg.showLabelName : true;
         }
-        const screenName = showLabelName ? layer.name : null;
+        // v0.10.9: the group's name, not the host member's - the wall has one
+        // name on site and now one on the drawing.
+        const screenName = showLabelName
+            ? (groupTotals ? (groupTotals.name || cfg.name) : layer.name)
+            : null;
         
         // Other center labels (regular style)
         const centerLines = [];
         
         // Other labels only in pixel-map mode
         if (this.viewMode === 'pixel-map') {
-            if (layer.showLabelSizePx) {
+            if (cfg.showLabelSizePx) {
                 centerLines.push(`W ${layerWidth} X H ${layerHeight}`);
             }
-            if (layer.showLabelSizeM) {
+            if (cfg.showLabelSizeM) {
                 centerLines.push(`W ${widthM.toFixed(2)}(m) X H ${heightM.toFixed(2)}(m)`);
             }
-            if (layer.showLabelSizeFt) {
-                const useFractional = layer.useFractionalInches || false;
+            if (cfg.showLabelSizeFt) {
+                const useFractional = cfg.useFractionalInches || false;
                 
                 if (useFractional) {
                     // FRACTIONAL MODE: e.g., 2' 2 7/8"
@@ -4726,11 +4941,20 @@ class CanvasRenderer {
                     centerLines.push(`W ${widthFtTotal}' ${widthInchesDecimal.toFixed(1)}" X H ${heightFtTotal}' ${heightInchesDecimal.toFixed(1)}"`);
                 }
             }
-            if (layer.showLabelWeight) {
+            if (cfg.showLabelWeight) {
                 centerLines.push(`Weight ${totalWeightKg.toFixed(1)} kg / ${totalWeightLb.toFixed(1)} lb`);
             }
         } else if (this.viewMode === 'data-flow') {
-            if (layer.showDataFlowPortInfo && window.app) {
+            if (cfg.showDataFlowPortInfo && groupTotals) {
+                // v0.10.9: a group's ports are the SUM of its members' own
+                // requirements (automatic assignment walks one uniform grid,
+                // so there is nothing to re-run across the combined shape).
+                const mains = groupTotals.portsPrimary;
+                const backups = groupTotals.portsBackup;
+                if (mains > 0) {
+                    centerLines.push(`${mains} Mains, ${backups} Backups | ${mains + backups} Ports`);
+                }
+            } else if (cfg.showDataFlowPortInfo && window.app) {
                 // Always recompute from current layer state. Cached `_portsRequired`
                 // is only refreshed for the currently-selected layer by
                 // `updatePortCapacityDisplay`, so other layers' labels would go
@@ -4761,7 +4985,23 @@ class CanvasRenderer {
                 }
             }
         } else if (this.viewMode === 'power') {
-            if (layer.showPowerCircuitInfo && window.app) {
+            if (cfg.showPowerCircuitInfo && groupTotals) {
+                // v0.10.9: circuits sum the same way ports do. Amps do NOT:
+                // 200 A at 110 V and 200 A at 208 V are not the same load, so
+                // when the members disagree on voltage the roll-up hands back
+                // null and the label says so instead of printing a blended
+                // figure nobody can act on.
+                const circuits = groupTotals.circuits;
+                const multis = circuits > 0 ? Math.ceil(circuits / 6) : 0;
+                if (groupTotals.voltageMismatch) {
+                    const volts = groupTotals.voltages.filter(v => v > 0).join(' / ');
+                    centerLines.push(`${multis} Multi, ${circuits} Circuits | Mixed voltage: ${volts} V`);
+                } else {
+                    const amps1 = groupTotals.amps1ph || 0;
+                    const amps3 = groupTotals.amps3ph || 0;
+                    centerLines.push(`${multis} Multi, ${circuits} Circuits | ${amps1.toFixed(2)}A 1φ / ${amps3.toFixed(2)}A 3φ`);
+                }
+            } else if (cfg.showPowerCircuitInfo && window.app) {
                 // Always recompute from current layer state. `renderPowerArrows`
                 // (or `preparePowerLayerRenderData`) ran just above and populated
                 // `_powerCircuits` on this layer, so use that directly rather
@@ -4802,10 +5042,17 @@ class CanvasRenderer {
         // keeping the whole info bar bound inside the layer instead of spilling
         // past both edges on a narrow screen.
         const infoParts = [];
-        if (this.viewMode === 'pixel-map' && layer.showLabelInfo) {
+        if (this.viewMode === 'pixel-map' && cfg.showLabelInfo) {
             const aspectRatio = layerWidth / layerHeight;
             const aspectRatioStr = `${aspectRatio.toFixed(2)}`;
-            infoParts.push(`${layer.columns} Columns X ${layer.rows} Rows`);
+            // v0.10.9: a group has no single Columns X Rows - that is the whole
+            // reason it is more than one layer - so it reports how many screens
+            // it is built from instead of quoting one member's grid.
+            if (groupTotals) {
+                infoParts.push(`${groupTotals.memberCount} Screens`);
+            } else {
+                infoParts.push(`${layer.columns} Columns X ${layer.rows} Rows`);
+            }
             infoParts.push(`${activePanels} Cabinets Total`);
             infoParts.push(`Resolution: ${layerWidth} X ${layerHeight}`);
             infoParts.push(`Aspect Ratio: ${aspectRatioStr}`);
@@ -4813,12 +5060,12 @@ class CanvasRenderer {
         }
         
         // Use absolute pixel sizes - no scaling with zoom
-        let fontSize = layer.labelsFontSize || 30;
+        let fontSize = cfg.labelsFontSize || 30;
         const lineHeight = fontSize + 4;
         const padding = 6;
-        
+
         // Info label uses independent slider value
-        const infoFontSize = layer.infoLabelSize || 14;
+        const infoFontSize = cfg.infoLabelSize || 14;
         const infoLineHeight = infoFontSize + 4;
         
         // Screen name uses tab-specific size and position settings
@@ -4831,27 +5078,27 @@ class CanvasRenderer {
             // legacy labelsFontSize slider (the default for pixel-map),
             // but the X/Y offset is now read from per-view fields so the
             // user can Shift+Alt+drag the name out of the center stack.
-            screenNameOffsetX = layer.screenNameOffsetXPixelMap || 0;
-            screenNameOffsetY = layer.screenNameOffsetYPixelMap || 0;
+            screenNameOffsetX = cfg.screenNameOffsetXPixelMap || 0;
+            screenNameOffsetY = cfg.screenNameOffsetYPixelMap || 0;
         } else if (this.viewMode === 'cabinet-id') {
-            screenNameSize = layer.screenNameSizeCabinet || 14;
-            screenNameOffsetX = layer.screenNameOffsetXCabinet || 0;
-            screenNameOffsetY = layer.screenNameOffsetYCabinet || 0;
+            screenNameSize = cfg.screenNameSizeCabinet || 14;
+            screenNameOffsetX = cfg.screenNameOffsetXCabinet || 0;
+            screenNameOffsetY = cfg.screenNameOffsetYCabinet || 0;
         } else if (this.viewMode === 'data-flow') {
-            screenNameSize = layer.screenNameSizeDataFlow || 14;
-            screenNameOffsetX = layer.screenNameOffsetXDataFlow || 0;
-            screenNameOffsetY = layer.screenNameOffsetYDataFlow || 0;
+            screenNameSize = cfg.screenNameSizeDataFlow || 14;
+            screenNameOffsetX = cfg.screenNameOffsetXDataFlow || 0;
+            screenNameOffsetY = cfg.screenNameOffsetYDataFlow || 0;
             fontSize = screenNameSize;
         } else if (this.viewMode === 'power') {
-            screenNameSize = layer.screenNameSizePower || 14;
-            screenNameOffsetX = layer.screenNameOffsetXPower || 0;
-            screenNameOffsetY = layer.screenNameOffsetYPower || 0;
+            screenNameSize = cfg.screenNameSizePower || 14;
+            screenNameOffsetX = cfg.screenNameOffsetXPower || 0;
+            screenNameOffsetY = cfg.screenNameOffsetYPower || 0;
             fontSize = screenNameSize;
         } else if (this.viewMode === 'show-look') {
             // v0.8.7.7.3: Show Look gets its own grabbable screen-name offset
             // so the label can be repositioned (and edge-clamped) here too.
-            screenNameOffsetX = layer.screenNameOffsetXShowLook || 0;
-            screenNameOffsetY = layer.screenNameOffsetYShowLook || 0;
+            screenNameOffsetX = cfg.screenNameOffsetXShowLook || 0;
+            screenNameOffsetY = cfg.screenNameOffsetYShowLook || 0;
         }
 
         const screenNameLineHeight = screenNameSize + 4;
@@ -4943,7 +5190,9 @@ class CanvasRenderer {
                     ? this._layerCanvasOffset(layer) : { wx: 0, wy: 0 };
                 const _ldx = (typeof this._renderDx === 'number') ? this._renderDx : 0;
                 const _ldy = (typeof this._renderDy === 'number') ? this._renderDy : 0;
-                layer._screenNameHitRect = {
+                // v0.10.9: cached on `cfg`, so a group's single label has a
+                // single owner for the plain-click drag hit-test.
+                cfg._screenNameHitRect = {
                     x1: _wsOff.wx + _ldx + nameX,
                     y1: _wsOff.wy + _ldy + nameY,
                     x2: _wsOff.wx + _ldx + nameX + nameWidth,
@@ -5011,15 +5260,15 @@ class CanvasRenderer {
             // (so we don't fight the live gesture) and in export.
             const _isDraggingThisName = this.isDraggingScreenName
                 && window.app && window.app.currentLayer
-                && window.app.currentLayer.id === layer.id;
+                && window.app.currentLayer.id === cfg.id;
             if (!this.exportMode && !_isDraggingThisName) {
                 // Stored offsets are in logical space; _appliedNameOffsetX is
                 // in visual space (mirror already applied), so convert X back.
                 const _healX = this._mirror ? -_appliedNameOffsetX : _appliedNameOffsetX;
                 const _healY = _appliedNameOffsetY;
                 const _heal = (fx, fy) => {
-                    if (Math.abs((layer[fx] || 0) - _healX) > 0.5) layer[fx] = _healX;
-                    if (Math.abs((layer[fy] || 0) - _healY) > 0.5) layer[fy] = _healY;
+                    if (Math.abs((cfg[fx] || 0) - _healX) > 0.5) cfg[fx] = _healX;
+                    if (Math.abs((cfg[fy] || 0) - _healY) > 0.5) cfg[fy] = _healY;
                 };
                 if (this.viewMode === 'pixel-map') _heal('screenNameOffsetXPixelMap', 'screenNameOffsetYPixelMap');
                 else if (this.viewMode === 'cabinet-id') _heal('screenNameOffsetXCabinet', 'screenNameOffsetYCabinet');
@@ -5064,7 +5313,7 @@ class CanvasRenderer {
             this.ctx.fillRect(snappedBgRect.x, snappedBgRect.y, snappedBgRect.width, snappedBgRect.height);
 
             // Draw white text
-            this.ctx.fillStyle = layer.labelsColor || '#ffffff';
+            this.ctx.fillStyle = cfg.labelsColor || '#ffffff';
             let yPos = bgY + padding + lineHeight / 2;
             centerLines.forEach(line => {
                 this._fillText(line, this.snap(centerX + _labelGroupOffsetX), this.snap(yPos));
@@ -5121,7 +5370,7 @@ class CanvasRenderer {
             this.ctx.fillRect(snappedInfoRect.x, snappedInfoRect.y, snappedInfoRect.width, snappedInfoRect.height);
 
             // Draw text
-            this.ctx.fillStyle = layer.labelsColor || '#ffffff';
+            this.ctx.fillStyle = cfg.labelsColor || '#ffffff';
             let yPos = bgY + padding + infoLineHeight;
             infoLines.forEach(line => {
                 this._fillText(line, this.snap(centerX + _labelGroupOffsetX), this.snap(yPos));
