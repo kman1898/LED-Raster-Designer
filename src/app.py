@@ -1231,6 +1231,69 @@ def validate_group_settings(layers):
     return {'ok': not conflicts, 'conflicts': conflicts}
 
 
+def _export_units(project, layers):
+    """Split ``layers`` into the units an export draws and names as ONE screen.
+
+    v0.10.9: the whole point of a group is that an outside viewer - Resolume,
+    Photoshop, the person holding the print - sees one screen, so a group's
+    members must produce a single shape carrying the GROUP's name, not one per
+    member.
+
+    Returns ``[(name, [layer, ...]), ...]``. A group takes the slot of its
+    FIRST member so the drawing order does not shuffle, and only the members
+    present in ``layers`` join it - a member scoped to another canvas exports
+    with that canvas, which is the same rule the Resolume screen loop already
+    applies. A project with no groups yields one unit per layer in the order
+    given, which is exactly the pre-group list and is what keeps every
+    existing export byte-identical.
+
+    ``name`` is None when nothing named the unit, so each caller keeps its own
+    fallback (Resolume says "Layer", the PSD says "Screen <id>").
+    """
+    groups = {
+        g.get('id'): g for g in (project or {}).get('groups') or []
+        if isinstance(g, dict) and g.get('id')
+    }
+    units = []
+    emitted = set()
+    for layer in layers or []:
+        group_id = layer.get('group_id')
+        group = groups.get(group_id) if group_id else None
+        if group is None:
+            units.append((layer.get('name'), [layer]))
+            continue
+        if group_id in emitted:
+            continue  # already emitted with its first member
+        emitted.add(group_id)
+        members = [l for l in layers if l.get('group_id') == group_id]
+        units.append((group.get('name') or layer.get('name'), members))
+    return units
+
+
+def _export_unit_bounds(layers):
+    """Bounding box of one export unit - a lone layer, or a whole group.
+
+    One layer in, and this is _layer_bounds verbatim, including its
+    no-panels fallback to rows/columns * cabinet size.
+    """
+    members = [l for l in (layers or []) if isinstance(l, dict)]
+    if not members:
+        return {'x': 0, 'y': 0, 'width': 0, 'height': 0}
+    if len(members) == 1:
+        return _layer_bounds(members[0])
+    boxes = [_layer_bounds(l) for l in members]
+    min_x = min(b['x'] for b in boxes)
+    min_y = min(b['y'] for b in boxes)
+    max_x = max(b['x'] + b['width'] for b in boxes)
+    max_y = max(b['y'] + b['height'] for b in boxes)
+    return {
+        'x': min_x,
+        'y': min_y,
+        'width': max(0, max_x - min_x),
+        'height': max(0, max_y - min_y),
+    }
+
+
 def _rebuild_layer_geometry_from_panel_states(layer):
     """Re-run _build_panels using the layer's current panel states so per-panel
     halfTile changes propagate into x/y/width/height (column widths and row
@@ -1309,6 +1372,24 @@ def render_layer_to_image(layer, raster_width, raster_height, include_borders=Tr
                 for x in range(max(0, px + pw - 2), min(raster_width, px + pw)):
                     pixels[x, y] = border_rgba
     
+    return img
+
+
+def render_unit_to_image(members, raster_width, raster_height, include_borders=True):
+    """Render one export unit - a lone layer, or every member of a screen
+    group - onto a single raster-sized RGBA image.
+
+    v0.10.9: a group has to reach Photoshop as ONE Photoshop layer, so its
+    members composite into one image first. A single member returns exactly
+    what render_layer_to_image returned before groups existed.
+    """
+    members = [l for l in (members or []) if isinstance(l, dict)]
+    if not members:
+        return Image.new('RGBA', (raster_width, raster_height), (0, 0, 0, 0))
+    img = render_layer_to_image(members[0], raster_width, raster_height, include_borders)
+    for member in members[1:]:
+        member_img = render_layer_to_image(member, raster_width, raster_height, include_borders)
+        img = Image.alpha_composite(img, member_img)
     return img
 
 
@@ -1488,19 +1569,22 @@ def create_psd_for_view(view_mode, project_name, include_borders):
     psd = pytoshop.PsdFile(num_channels=3, height=raster_height, width=raster_width, color_mode=ColorMode.rgb)
     
     layer_records = []
-    
-    # Add each screen layer
-    for layer in current_project['layers']:
-        # Render layer to image
-        layer_img = render_layer_to_image(layer, raster_width, raster_height, include_borders)
-        
-        # Get layer bounds
-        bounds = _layer_bounds(layer)
+
+    # v0.10.9: one Photoshop layer per export unit. A screen group is one
+    # screen, so it gets ONE Photoshop layer named for the group - anything
+    # else and the person opening the PSD sees the seam we exist to hide.
+    for unit_name, members in _export_units(current_project, current_project['layers']):
+        layer = members[0]
+        # Render the unit to image (a group composites its members first)
+        layer_img = render_unit_to_image(members, raster_width, raster_height, include_borders)
+
+        # Get unit bounds
+        bounds = _export_unit_bounds(members)
         offset_x = bounds['x']
         offset_y = bounds['y']
         layer_width = bounds['width']
         layer_height = bounds['height']
-        
+
         # Clamp to raster bounds (int() ensures native Python ints for pytoshop)
         left = int(max(0, offset_x))
         top = int(max(0, offset_y))
@@ -1514,8 +1598,8 @@ def create_psd_for_view(view_mode, project_name, include_borders):
         cropped_img = layer_img.crop((left, top, right, bottom))
         img_array = np.array(cropped_img.convert('RGB'))
 
-        # Layer name from screen name
-        layer_name = layer.get('name', f"Screen {layer['id']}")
+        # Layer name from the group's name, or the screen's when ungrouped
+        layer_name = unit_name if unit_name is not None else f"Screen {layer['id']}"
 
         # Create layer record
         layer_record = psd_layers.LayerRecord(
@@ -1524,7 +1608,7 @@ def create_psd_for_view(view_mode, project_name, include_borders):
             left=left,
             bottom=bottom,
             right=right,
-            opacity=255 if layer.get('visible', True) else 0,
+            opacity=255 if any(m.get('visible', True) for m in members) else 0,
             channels={
                 0: psd_layers.ChannelImageData(image=img_array[:, :, 0].copy(), compression=Compression.raw),
                 1: psd_layers.ChannelImageData(image=img_array[:, :, 1].copy(), compression=Compression.raw),
@@ -1600,13 +1684,16 @@ def export_psd():
     # We need to build layer list
     layer_records = []
     
-    # Add each layer (in reverse order so first layer is on bottom in a layer panel)
-    for layer in current_project['layers']:
-        # Render layer to image (full raster size with transparency)
-        layer_img = render_layer_to_image(layer, raster_width, raster_height, include_borders)
-        
-        # Get layer bounds (where the actual content is)
-        bounds = _layer_bounds(layer)
+    # Add each export unit (in reverse order so first layer is on bottom in a
+    # layer panel). v0.10.9: a screen group is ONE Photoshop layer, named for
+    # the group - see create_psd_for_view.
+    for unit_name, members in _export_units(current_project, current_project['layers']):
+        layer = members[0]
+        # Render the unit to image (full raster size with transparency)
+        layer_img = render_unit_to_image(members, raster_width, raster_height, include_borders)
+
+        # Get unit bounds (where the actual content is)
+        bounds = _export_unit_bounds(members)
         offset_x = bounds['x']
         offset_y = bounds['y']
         layer_width = bounds['width']
@@ -1628,9 +1715,9 @@ def export_psd():
         # Convert to numpy array (RGB only, no alpha for simplicity)
         img_array = np.array(cropped_img.convert('RGB'))
         
-        # Get layer name from screen name
-        layer_name = layer.get('name', f"Screen {layer['id']}")
-        
+        # Get layer name from the group's name, or the screen's when ungrouped
+        layer_name = unit_name if unit_name is not None else f"Screen {layer['id']}"
+
         # Create layer record with position
         layer_record = psd_layers.LayerRecord(
             name=layer_name,
@@ -1638,7 +1725,7 @@ def export_psd():
             left=left,
             bottom=bottom,
             right=right,
-            opacity=255 if layer.get('visible', True) else 0,
+            opacity=255 if any(m.get('visible', True) for m in members) else 0,
             channels={
                 0: psd_layers.ChannelImageData(image=img_array[:, :, 0].copy(), compression=Compression.raw),
                 1: psd_layers.ChannelImageData(image=img_array[:, :, 1].copy(), compression=Compression.raw),
@@ -1669,37 +1756,45 @@ def export_layers_as_zip(include_borders, raster_width, raster_height):
     
     zip_bytes = io.BytesIO()
     
+    # v0.10.9: one PNG per export unit, so a screen group leaves one file
+    # named for the group rather than one file per member.
+    units = _export_units(current_project, current_project['layers'])
+
     with zipfile.ZipFile(zip_bytes, 'w', zipfile.ZIP_DEFLATED) as zf:
-        # Add each layer as a separate PNG
-        for layer in current_project['layers']:
-            layer_img = render_layer_to_image(layer, raster_width, raster_height, include_borders)
-            
+        # Add each unit as a separate PNG
+        for unit_name, members in units:
+            layer_img = render_unit_to_image(members, raster_width, raster_height, include_borders)
+
             # Convert to RGB with transparency info preserved
             img_bytes = io.BytesIO()
             layer_img.save(img_bytes, format='PNG')
             img_bytes.seek(0)
-            
-            layer_name = layer.get('name', f"Layer_{layer['id']}")
+
+            layer_name = unit_name if unit_name is not None else f"Layer_{members[0]['id']}"
             # Sanitize filename
             safe_name = "".join(c for c in layer_name if c.isalnum() or c in (' ', '-', '_')).strip()
             zf.writestr(f"{safe_name}.png", img_bytes.getvalue())
-        
-        # Add a manifest with layer info
+
+        # Add a manifest with unit info
+        def manifest_entry(unit_name, members):
+            bounds = _export_unit_bounds(members)
+            # A lone layer keeps reporting its own nominal offset, as it always
+            # has; a group has no single offset, so it reports the union's.
+            offset = (members[0] if len(members) == 1 else None)
+            return {
+                'name': unit_name if unit_name is not None else f"Layer_{members[0]['id']}",
+                'offset_x': offset.get('offset_x', 0) if offset else bounds['x'],
+                'offset_y': offset.get('offset_y', 0) if offset else bounds['y'],
+                'width': bounds['width'],
+                'height': bounds['height'],
+                'visible': any(m.get('visible', True) for m in members)
+            }
+
         manifest = {
             'project_name': current_project['name'],
             'raster_width': raster_width,
             'raster_height': raster_height,
-            'layers': [
-                {
-                    'name': l.get('name', f"Layer_{l['id']}"),
-                    'offset_x': l.get('offset_x', 0),
-                    'offset_y': l.get('offset_y', 0),
-                    'width': _layer_bounds(l)['width'],
-                    'height': _layer_bounds(l)['height'],
-                    'visible': l.get('visible', True)
-                }
-                for l in current_project['layers']
-            ]
+            'layers': [manifest_entry(n, ms) for n, ms in units]
         }
         zf.writestr('manifest.json', json.dumps(manifest, indent=2))
     
@@ -2049,7 +2144,22 @@ def _compute_panel_contour(layer):
     The contour follows the outer edges of the visible panel grid,
     stepping at panel boundaries where the shape changes.
     """
-    panels = layer.get('panels', [])
+    return _compute_layers_contour([layer])
+
+
+def _compute_layers_contour(layers):
+    """The contour of the union of these layers' visible panels.
+
+    v0.10.9: a screen group is one screen, so its members trace a SINGLE
+    outline rather than one per member. Nothing else changes - the lattice
+    below was already built from each panel's own rectangle, so panels of
+    different cabinet sizes coming from different layers union exactly the
+    way half tiles inside one layer already did. One layer in, and this is
+    _compute_panel_contour as it stood before groups existed, point for point.
+    """
+    panels = []
+    for layer in layers or []:
+        panels.extend((layer or {}).get('panels') or [])
     if not panels:
         return []
 
@@ -2207,14 +2317,39 @@ def _compute_panel_contour(layer):
     return simplified
 
 
-def _resolume_polygon(layer, unique_id):
-    """Generate a Resolume Polygon XML block for a non-rectangular layer."""
-    bounds = _layer_bounds(layer)
+def _export_unit_needs_polygon(members):
+    """Does this export unit need a Polygon, or is a plain Slice enough?
+
+    A lone layer keeps the pre-v0.10.9 test verbatim - one hidden panel and it
+    is a Polygon - so every mapping already in the field re-exports unchanged.
+
+    v0.10.9: a group is judged on the union it actually traces, because no
+    member can answer the question on its own. Two rectangular members that
+    tile into a rectangle ARE a rectangle and ship as a Slice; two that tile
+    into an L are a polygon even though neither member has a hidden panel.
+    A traced contour with four vertices is a rectangle: the trace is
+    axis-aligned and collinear points are already simplified away, so a
+    concave shape can never come back with fewer than six.
+    """
+    if len(members) == 1:
+        return _layer_has_hidden_panels(members[0])
+    return len(_compute_layers_contour(members)) != 4
+
+
+def _resolume_polygon(layer, unique_id, members=None, name=None):
+    """Generate a Resolume Polygon XML block for a non-rectangular layer.
+
+    v0.10.9: ``members`` is the export unit this shape covers - a screen
+    group's members, or just ``layer``. ``name`` overrides the shape's name so
+    a group is named once, for the group.
+    """
+    members = members or [layer]
+    bounds = _export_unit_bounds(members)
     x1 = int(bounds['x'])
     y1 = int(bounds['y'])
     x2 = x1 + int(bounds['width'])
     y2 = y1 + int(bounds['height'])
-    name = layer.get('name', 'Layer')
+    name = layer.get('name', 'Layer') if name is None else name
 
     # Output params (no BRed/BGreen/BBlue for Polygon)
     output_params = (
@@ -2227,8 +2362,8 @@ def _resolume_polygon(layer, unique_id):
         f'\t\t\t\t\t\t\t<Param name="Black BG" T="BOOL" default="0" value="0"/>\n'
     )
 
-    # Compute contour
-    contour_pts = _compute_panel_contour(layer)
+    # Compute contour (over the whole unit - a group traces one outline)
+    contour_pts = _compute_layers_contour(members)
 
     def contour_xml(pts, indent):
         lines = f'{indent}<points>\n'
@@ -2278,14 +2413,19 @@ def _resolume_polygon(layer, unique_id):
     )
 
 
-def _resolume_slice(layer, unique_id):
-    """Generate a Resolume Slice XML block for a layer."""
-    bounds = _layer_bounds(layer)
+def _resolume_slice(layer, unique_id, members=None, name=None):
+    """Generate a Resolume Slice XML block for a layer.
+
+    v0.10.9: ``members``/``name`` as in _resolume_polygon - a group that tiles
+    into a plain rectangle is one Slice over the union, named for the group.
+    """
+    members = members or [layer]
+    bounds = _export_unit_bounds(members)
     x1 = float(bounds['x'])
     y1 = float(bounds['y'])
     x2 = x1 + float(bounds['width'])
     y2 = y1 + float(bounds['height'])
-    name = layer.get('name', 'Layer')
+    name = layer.get('name', 'Layer') if name is None else name
     w = x2 - x1
     h = y2 - y1
 
@@ -2477,13 +2617,16 @@ def generate_resolume_xml(project, project_name, raster_w, raster_h):
         else:
             canvas_layers = screen_layers
 
+        # v0.10.9: one shape per export unit, not per layer. A screen group's
+        # members become a single Slice/Polygon over their union, carrying the
+        # group's name; an ungrouped project yields the old per-layer list.
         slices_xml = ""
-        for layer in canvas_layers:
+        for unit_name, members in _export_units(project, canvas_layers):
             slice_id = random.randint(1000000000000, 9999999999999)
-            if _layer_has_hidden_panels(layer):
-                slices_xml += _resolume_polygon(layer, slice_id)
+            if _export_unit_needs_polygon(members):
+                slices_xml += _resolume_polygon(members[0], slice_id, members, unit_name)
             else:
-                slices_xml += _resolume_slice(layer, slice_id)
+                slices_xml += _resolume_slice(members[0], slice_id, members, unit_name)
 
         screen_unique_id = random.randint(1000000000000, 9999999999999)
         device_hash = random.randint(1000000000000000000, 9999999999999999999)
