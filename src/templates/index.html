@@ -583,13 +583,27 @@
                                     <span id="ports-required" style="color: #00cc00; font-weight: 600;">--</span>
                                 </div>
                             </div>
+                            <!-- v0.10.9: the Low Latency rules in force for the
+                                 processor this layer is set to, listed only
+                                 while Low Latency is on. Pixels/Port above is a
+                                 layer-wide table lookup with no port context,
+                                 so it carries NEITHER the per-port (1 - Y/H)
+                                 derate NOR the 5G narrow-port penalty; this
+                                 list is what makes that figure honest. Filled
+                                 in from lowLatencyProfiles[...].rules by
+                                 setLowLatencyRules. Hint grey, never a warning
+                                 colour - it is information, not a fault. -->
+                            <ul id="low-latency-rules" style="display: none; font-size: 11px; color: #888; margin: 6px 0 0 0; padding-left: 16px; line-height: 1.45;"></ul>
                             <!-- v0.10.9: with COEX Low Latency, Pixels/Port
                                  above is the TOTAL; a port that does not start
                                  at canvas Y=0 keeps only (1 - Y/H) of it.
                                  Filled in by updatePortCapacityDisplay so
                                  moving a screen down the canvas explains its
                                  own change in Ports Required. Never shown on
-                                 NovaStar Legacy, which has no such rule. -->
+                                 NovaStar Legacy, which has no such rule.
+                                 Sits BELOW the rules list on purpose: the list
+                                 is what applies, this line is what it is
+                                 costing this screen right now. -->
                             <p id="low-latency-derate-note" style="display: none; font-size: 11px; color: #ff9955; margin: 6px 0 0 0;"></p>
                         </div>
                         

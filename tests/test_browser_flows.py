@@ -1411,12 +1411,18 @@ def test_implemented_low_latency_behaviours_are_not_flagged_pending(page):
 ])
 def test_low_latency_note_follows_processor(page, processor, pending):
     """The note beside the control is the descriptor's own text, plus a plain
-    statement when the constraint is not in the figures yet."""
+    statement when the constraint is not in the figures yet.
+
+    v0.10.9: it is the OFF-state note now -- what enabling Low Latency would
+    cost. Once it is on, the rules list under the readout says it at length and
+    this note stands down (test_low_latency_notes_do_not_repeat_each_other), so
+    the state has to be pinned here rather than inherited from another test."""
     state = page.evaluate("""(processor) => {
         const app = window.app;
         const layer = app.project.layers.find(
             l => (l.type || 'screen') === 'screen');
         layer.processorType = processor;
+        layer.lowLatency = false;
         app.selectLayer(layer);
         return {
             note: document.getElementById('low-latency-note').textContent,
@@ -1427,6 +1433,232 @@ def test_low_latency_note_follows_processor(page, processor, pending):
     assert state['profileNote'] in state['note'], state
     assert state['disabled'] is False, state
     assert ('Not applied to the figures below yet.' in state['note']) is pending, state
+
+
+# ── Low Latency rules under the readout (v0.10.9) ────────────────────────
+# Pixels/Port in the Data sidebar is the flat table lookup for the whole layer,
+# so it shows NEITHER the per-port (1 - Y/H) derate NOR the 5G narrow-port
+# penalty -- both need a port, and it has none. That figure can therefore
+# disagree with the per-port percentages on the canvas, and the rules list
+# directly under it is what makes it honest. Display only: every rule below is
+# already applied by applyLowLatencyCapacity, lowLatencyPortCapacity or
+# minLoadWidthPortCapacity, and these tests assert nothing about the numbers.
+
+LL_RULES_JS = """([processor, lowLatency]) => {
+    const app = window.app;
+    const layer = app.project.layers.find(
+        l => (l.type || 'screen') === 'screen');
+    layer.processorType = processor;
+    layer.lowLatency = lowLatency;
+    app.selectLayer(layer);
+    const list = document.getElementById('low-latency-rules');
+    const note = document.getElementById('low-latency-note');
+    const profile = app.getLowLatencyProfile(processor);
+    return {
+        display: getComputedStyle(list).display,
+        items: Array.from(list.children).map(li => li.textContent),
+        tips: Array.from(list.children).map(li => li.title),
+        colour: getComputedStyle(list).color,
+        noteColour: getComputedStyle(note).color,
+        note: note.textContent,
+        noteTitle: note.title,
+        rules: (profile.rules || []).map(r => r.text)
+    };
+}"""
+
+
+ALL_LOW_LATENCY_PROCESSORS = [
+    'novastar-armor', 'novastar-coex-1g', 'novastar-5g',
+    'brompton', 'megapixel-1g', 'megapixel-2.5g',
+]
+
+
+def ll_rules(page, processor, low_latency=True):
+    return page.evaluate(LL_RULES_JS, [processor, low_latency])
+
+
+@pytest.mark.parametrize('processor', ALL_LOW_LATENCY_PROCESSORS)
+def test_low_latency_rules_appear_only_when_enabled(page, processor):
+    """The rules describe a mode that is running, so they are only on screen
+    while it is. Off, the list is empty AND out of flow -- an empty <ul> still
+    reserves its margin, so the display check is the one that matters."""
+    on = ll_rules(page, processor, True)
+    off = ll_rules(page, processor, False)
+    assert on['display'] != 'none', (processor, on)
+    assert on['items'], (processor, on)
+    assert off['display'] == 'none', (processor, off)
+    assert off['items'] == [], (processor, off)
+
+
+@pytest.mark.parametrize('processor', ALL_LOW_LATENCY_PROCESSORS)
+def test_low_latency_rules_are_the_selected_processors_own(page, processor):
+    """The list is the descriptor's `rules`, in order, verbatim -- so changing
+    the processor dropdown changes the rules on screen, and a rule can only be
+    edited in lowLatencyProfiles rather than in the render function."""
+    state = ll_rules(page, processor, True)
+    assert state['rules'], f"{processor} has no rules to show"
+    assert state['items'] == state['rules'], state
+    # Switching away has to take the old processor's rules with it: the whole
+    # point of the block is that it describes THIS processor.
+    other = 'brompton' if processor != 'brompton' else 'megapixel-1g'
+    switched = ll_rules(page, other, True)
+    assert switched['items'] == switched['rules'], switched
+    for rule in state['rules']:
+        if rule not in switched['rules']:
+            assert rule not in switched['items'], (processor, other, rule)
+
+
+@pytest.mark.parametrize('processor,expect', [
+    # Scope guard mirroring novastarMinLoadWidth, which returns 128 on 5G and 0
+    # everywhere else. The owner has already rejected widening that rule, so the
+    # UI must not imply it applies where the math does not.
+    ('novastar-5g', True),
+    ('novastar-armor', False),
+    ('novastar-coex-1g', False),
+    ('brompton', False),
+    ('megapixel-1g', False),
+    ('megapixel-2.5g', False),
+])
+def test_only_novastar_5g_lists_the_128_px_rule(page, processor, expect):
+    state = ll_rules(page, processor, True)
+    listed = any('128' in item for item in state['items'])
+    assert listed is expect, state
+    if expect:
+        rule = next(i for i in state['items'] if '128' in i)
+        # The penalty's shape, and the fact that it is a property of the 5G port
+        # rather than of Low Latency -- calculatePortAssignments reads
+        # novastarMinLoadWidth unconditionally.
+        assert '(128 - width) x height' in rule, rule
+        assert 'with or without Low Latency' in rule, rule
+
+
+@pytest.mark.parametrize('processor', ['novastar-armor', 'novastar-coex-1g',
+                                       'novastar-5g'])
+def test_novastar_low_latency_rules_state_the_geometry(page, processor):
+    """Top alignment and the (1 - Y/H) derate are the whole NovaStar rule set,
+    and the receiving-card trap is the one thing the app cannot check for you."""
+    state = ll_rules(page, processor, True)
+    joined = ' | '.join(state['items'])
+    assert 'vertically' in joined and 'top of the canvas' in joined, state
+    assert '(1 - Y/H)' in joined, state
+    assert 'MRV328 and MRV336' in joined, state
+    # The full supported-card list is too long for a line, so it rides along as
+    # that line's tooltip -- reachable while the rules are the visible block.
+    card_tips = [t for t in state['tips'] if 'MRV416-N' in t]
+    assert len(card_tips) == 1, state
+    assert 'MRV328 and MRV336 do NOT support low latency' in card_tips[0], state
+
+
+def test_brompton_low_latency_rules_say_the_capacity_is_halved(page):
+    """capacity.kind is 'factor' with factor 0.5, so the halving is the headline
+    rule; the SX40/S8 and HDMI limits are hardware facts we cannot check."""
+    state = ll_rules(page, 'brompton', True)
+    joined = ' | '.join(state['items'])
+    assert 'Pixels per port is halved.' in state['items'], state
+    assert 'SX40/S8' in joined, state
+    assert 'HDMI input only, no SDI.' in state['items'], state
+    assert '(1 - Y/H)' not in joined, 'the NovaStar geometry leaked into Brompton'
+
+
+@pytest.mark.parametrize('processor', ['megapixel-1g', 'megapixel-2.5g'])
+def test_megapixel_low_latency_rules_say_no_capacity_change(page, processor):
+    """capacity.kind is 'none', so the figure above the list does not move --
+    say so, or an unchanged Pixels/Port reads as the mode not being applied."""
+    state = ll_rules(page, processor, True)
+    assert 'No change to pixels per port.' in state['items'], state
+    assert any('daisy-chain' in i for i in state['items']), state
+
+
+def test_low_latency_rules_do_not_drift_between_novastar_lines(page):
+    """The three NovaStar entries repeat their rules the way they already repeat
+    `note` and `cards`. This is the guard that an edit to one has to reach the
+    others -- 5G's only difference is the one extra narrow-port rule."""
+    rules = page.evaluate("""() => {
+        const get = (p) => (window.app.getLowLatencyProfile(p).rules || [])
+            .map(r => r.text);
+        return { armor: get('novastar-armor'), coex: get('novastar-coex-1g'),
+                 fiveG: get('novastar-5g') };
+    }""")
+    assert rules['armor'] == rules['coex'], rules
+    assert rules['fiveG'][:len(rules['armor'])] == rules['armor'], rules
+    assert len(rules['fiveG']) == len(rules['armor']) + 1, rules
+    assert '128' in rules['fiveG'][-1], rules
+
+
+@pytest.mark.parametrize('processor', ALL_LOW_LATENCY_PROCESSORS)
+def test_low_latency_notes_do_not_repeat_each_other(page, processor):
+    """Three notes live in this area and each says ONE thing, once:
+    #low-latency-note is the OFF-state preview, #low-latency-rules is what
+    applies while it is ON, #low-latency-derate-note is what the derate costs
+    this screen right now. The checkbox note used to show in both states, which
+    put a short version of the rules immediately above the long version."""
+    state = ll_rules(page, processor, True)
+    assert state['note'] == '', (
+        f"{processor}: the checkbox note is still talking over the rules list: "
+        f"{state}")
+    # Rules are distinct lines, not the same point said twice.
+    assert len(set(state['items'])) == len(state['items']), state
+    # And the dynamic derate line, rendered from a synthetic derate so this does
+    # not depend on where the page's wall happens to sit, restates none of them.
+    derate = page.evaluate("""() => {
+        const app = window.app;
+        app.setLowLatencyDerateNote({ deratedPorts: 2, totalPorts: 5,
+            canvasHeight: 2160, worstCapacity: 100000, portCapacity: 659722 });
+        const text = document.getElementById('low-latency-derate-note').textContent;
+        app.setLowLatencyDerateNote(null);
+        return text;
+    }""")
+    assert 'below the top of the' in derate, derate
+    for item in state['items']:
+        assert item not in derate, (item, derate)
+
+
+@pytest.mark.parametrize('processor', ['novastar-5g', 'brompton'])
+def test_low_latency_rules_are_hint_text_not_a_warning(page, processor):
+    """The owner has reported healthy informational text in a warning colour
+    reading as an error. The rules are information, so they render in the same
+    hint grey as the note beside the checkbox and nothing here goes red."""
+    state = ll_rules(page, processor, True)
+    assert state['colour'] == state['noteColour'], state
+    channels = [int(v) for v in state['colour']
+                .removeprefix('rgb(').removesuffix(')').split(',')]
+    red, green, blue = channels[0], channels[1], channels[2]
+    assert not (red > 150 and green < 100 and blue < 100), state
+    # Grey, i.e. no channel pulling away from the others into a hue.
+    assert max(channels[:3]) - min(channels[:3]) < 24, state
+
+
+def test_low_latency_rules_clear_on_a_layer_that_cannot_have_them(page):
+    """An image layer has no processor, so the block must go -- stale rules
+    under an unrelated readout would be a lie about the selected layer."""
+    state = page.evaluate("""() => {
+        const app = window.app;
+        const screen = app.project.layers.find(
+            l => (l.type || 'screen') === 'screen');
+        screen.processorType = 'novastar-5g';
+        screen.lowLatency = true;
+        app.selectLayer(screen);
+        const list = document.getElementById('low-latency-rules');
+        const shown = { display: getComputedStyle(list).display,
+                        count: list.children.length };
+        // No image layer is guaranteed on the page, so drive the same clearing
+        // path the selection would: no current layer at all.
+        const prev = app.currentLayer;
+        app.currentLayer = null;
+        app.updateLowLatencyUI();
+        const cleared = { display: getComputedStyle(list).display,
+                          count: list.children.length };
+        app.currentLayer = prev;
+        // The page is shared, so hand it back the way the note test left it:
+        // low latency off, on the legacy line.
+        screen.lowLatency = false;
+        screen.processorType = 'novastar-armor';
+        app.selectLayer(screen);
+        return { shown, cleared };
+    }""")
+    assert state['shown']['display'] != 'none', state
+    assert state['shown']['count'] > 0, state
+    assert state['cleared'] == {'display': 'none', 'count': 0}, state
 
 
 # ── NovaStar Low Latency port geometry (v0.10.9, pass 2) ─────────────────

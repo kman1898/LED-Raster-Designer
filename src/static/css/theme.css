@@ -286,6 +286,12 @@ input[type="radio"] { accent-color:var(--ps-accent) !important; }
 /* dim helper lines in the side panels (e.g. "Click & drag the screen name…") */
 #left-sidebar .hint, #left-sidebar small, #left-sidebar .help-text,
 #left-sidebar p, .panel-content .hint, .panel-content small { color:var(--ps-faint) !important; }
+/* v0.10.9: the Low Latency rules list under the Pixels/Port readout is helper
+   text like the notes either side of it, but the rule above only reaches p /
+   small / .hint - a ul and its li are not covered and would otherwise render in
+   the panel's bright body colour, louder than the notes it belongs with. Named
+   here so it stays hint grey, and so it can never be mistaken for a warning. */
+#low-latency-rules, #low-latency-rules li { color:var(--ps-faint) !important; }
 
 /* ---- readout colours ---- */
 /* v0.10.9: replaces the old `[style*="#4A90E2"] { color:… }` attribute hack,

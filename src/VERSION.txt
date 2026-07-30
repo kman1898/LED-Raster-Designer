@@ -38,6 +38,16 @@ v0.10.9 - July 26, 2026
     manuals are wrong and are being revised. Low latency needs a supported
     receiving card; note MRV328 and MRV336 cannot do it.
 
+- NEW: Ticking Low Latency now lists the rules it is applying, under the
+  Pixels/Port readout, for whichever processor that screen is set to. Brompton
+  says pixels per port is halved; Megapixel says pixels per port are unchanged
+  but the daisy chain is halved; NovaStar lists the vertical/top-of-canvas
+  requirement, what a port starting lower costs, and the receiving cards that
+  can do it (MRV328 and MRV336 cannot). NovaStar 5G additionally lists the
+  128-pixel narrow-port rule. The rules sit under that readout deliberately:
+  it is a whole-screen figure, so it cannot show per-port costs, and the list
+  explains what else is being applied on top of it.
+
 - NEW: NovaStar 5G narrow ports are now costed correctly. NovaStar reserve a
   band at least 128 pixels wide per Ethernet port, so a port narrower than
   that wastes the rest of the band and carries less than the headline

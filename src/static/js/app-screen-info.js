@@ -2039,6 +2039,18 @@ class _ScreenInfo {
     // the behaviour is a pass-2 geometric one the note says the constraint is
     // NOT in the figures, so nobody reads an unchanged Pixels/Port as proof
     // that low latency has been accounted for.
+    //
+    // Three things sit in this area and they each say ONE thing, once:
+    //   #low-latency-note        - beside the checkbox, what turning Low
+    //                              Latency ON would cost. Shown only while it
+    //                              is OFF, because once it is on the rules list
+    //                              says the same thing properly and at length.
+    //   #low-latency-rules       - under the readout, the rules in force for
+    //                              this processor. Shown only while ON.
+    //   #low-latency-derate-note - under the rules, what the derate is costing
+    //                              THIS screen right now. Shown only when a
+    //                              port is actually being derated.
+    // Two of the three can be on screen at a time and they never overlap.
     updateLowLatencyUI() {
         const checkbox = document.getElementById('low-latency');
         const note = document.getElementById('low-latency-note');
@@ -2046,6 +2058,8 @@ class _ScreenInfo {
         // updatePortCapacityDisplay once the ports are known; clear it here so
         // it cannot survive that function's early returns on a stale layer.
         this.setLowLatencyDerateNote(null);
+        // Same reason: a stale layer's rules must not outlive it.
+        this.setLowLatencyRules(null);
         if (!checkbox && !note) return;
 
         const layer = this.currentLayer;
@@ -2053,21 +2067,62 @@ class _ScreenInfo {
         const processorType = (isScreen && layer.processorType) || 'novastar-armor';
         const profile = isScreen ? this.getLowLatencyProfile(processorType) : null;
         const supported = !!(profile && profile.supported);
+        const enabled = !!(isScreen && layer.lowLatency && supported);
 
         if (checkbox) {
             checkbox.checked = !!(isScreen && layer.lowLatency);
             checkbox.disabled = !supported;
         }
         if (note) {
-            let text = supported ? (profile.note || '') : '';
+            // v0.10.9: stand down once the rules list is up. This note used to
+            // show in both states, which put a short version of the rules
+            // directly above the long version and read as two half-answers.
+            let text = (supported && !enabled) ? (profile.note || '') : '';
             if (text && this.isLowLatencyCapacityPending(processorType)) {
                 text += ' Not applied to the figures below yet.';
             }
             note.textContent = text;
             // v0.10.9: the receiving-card list is a tooltip - too long for the
             // note itself, and the MRV328/MRV336 trap is already in the note.
+            // Set in both states: the rules list carries the same tooltip on
+            // its own card line, and this one is what the checkbox row offers.
             note.title = supported ? (profile.cards || '') : '';
         }
+        if (enabled) this.setLowLatencyRules(profile);
+    }
+
+    // v0.10.9: list the Low Latency rules in force for the selected layer's
+    // processor, directly under the Pixels/Port readout - the one figure that
+    // cannot show them. That figure is the flat table lookup for the whole
+    // layer, so it carries neither the per-port (1 - Y/H) derate nor the 5G
+    // narrow-port penalty, and on its own it can disagree with the per-port
+    // percentages on the canvas. This list is what reconciles the two.
+    //
+    // `profile` is the lowLatencyProfiles entry, or null to clear (Low Latency
+    // off, no layer, an image layer, or a stale processor with no entry).
+    //
+    // DISPLAY ONLY. Every rule here is already in the math - see
+    // applyLowLatencyCapacity ('factor' / 'none'), lowLatencyPortCapacity
+    // ((1 - Y/H)) and minLoadWidthPortCapacity (the 128 px penalty). The 128 px
+    // rule appears only on the entry whose novastarMinLoadWidth is non-zero, so
+    // the UI's scope is the math's scope rather than a rule invented for the
+    // other lines.
+    setLowLatencyRules(profile) {
+        const el = document.getElementById('low-latency-rules');
+        if (!el) return;
+        const rules = (profile && Array.isArray(profile.rules)) ? profile.rules : [];
+        el.textContent = '';
+        if (rules.length === 0) {
+            el.style.display = 'none';
+            return;
+        }
+        rules.forEach(rule => {
+            const item = document.createElement('li');
+            item.textContent = (rule && rule.text) || '';
+            if (rule && rule.tip) item.title = rule.tip;
+            el.appendChild(item);
+        });
+        el.style.display = '';
     }
 
     // v0.10.9: say WHY a Low Latency port count moved. Pixels/Port is the

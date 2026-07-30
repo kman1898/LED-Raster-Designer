@@ -3689,39 +3689,100 @@ export class LEDRasterApp {
     //
     // `cards`: receiving cards, shown as the note's tooltip. Informational -
     // the app does not model cards, so nothing in the math reads this.
+    //
+    // v0.10.9: `rules` is the same behaviour written out as the rules the user
+    // is actually working under, listed in the Data sidebar under the
+    // Pixels/Port readout whenever Low Latency is on (setLowLatencyRules in
+    // app-screen-info.js). It lives HERE, next to the capacity block it
+    // describes, so the wording cannot drift away from the math the way strings
+    // built inside a render function would. DISPLAY ONLY - nothing in any
+    // calculation reads `rules`.
+    //   `text` - one rule, plain language, terse.
+    //   `tip`  - optional tooltip for a rule with more detail than a line holds.
+    // The three NovaStar entries repeat the same three geometric rules, exactly
+    // as they already repeat `note` and `cards`; 5G carries a fourth for its
+    // narrow-port penalty. test_low_latency_rules_do_not_drift_between_novastar_lines
+    // pins that repetition so an edit to one line cannot silently miss another.
     lowLatencyProfiles = {
         'novastar-armor': {
             supported: true,
             capacity: { kind: 'novastar-ll', yDerate: true },
             note: 'Ports must load vertically and start at the top of the canvas; a port that starts lower loses capacity. MRV328 and MRV336 cannot do low latency.',
-            cards: 'Receiving cards with low latency: A5S Plus, A5S Plus-N, A8S, A8S-N, A8S Pro, A10S Plus, A10S Plus-N, A10S Pro, MRV208-N, MRV412-N, MRV416-N. MRV328 and MRV336 do NOT support low latency.'
+            cards: 'Receiving cards with low latency: A5S Plus, A5S Plus-N, A8S, A8S-N, A8S Pro, A10S Plus, A10S Plus-N, A10S Pro, MRV208-N, MRV412-N, MRV416-N. MRV328 and MRV336 do NOT support low latency.',
+            rules: [
+                { text: 'Ports load vertically and must start at the top of the canvas.' },
+                { text: 'A port starting lower keeps only (1 - Y/H) of its pixels per port.' },
+                {
+                    text: 'Needs a supported receiving card. MRV328 and MRV336 cannot do low latency.',
+                    tip: 'Receiving cards with low latency: A5S Plus, A5S Plus-N, A8S, A8S-N, A8S Pro, A10S Plus, A10S Plus-N, A10S Pro, MRV208-N, MRV412-N, MRV416-N. MRV328 and MRV336 do NOT support low latency.'
+                }
+            ]
         },
         'novastar-coex-1g': {
             supported: true,
             capacity: { kind: 'novastar-ll', yDerate: true },
             note: 'Ports must load vertically and start at the top of the canvas; a port that starts lower loses capacity. MRV328 and MRV336 cannot do low latency.',
-            cards: 'Receiving cards with low latency: A5S Plus, A5S Plus-N, A8S, A8S-N, A8S Pro, A10S Plus, A10S Plus-N, A10S Pro, MRV208-N, MRV412-N, MRV416-N. MRV328 and MRV336 do NOT support low latency.'
+            cards: 'Receiving cards with low latency: A5S Plus, A5S Plus-N, A8S, A8S-N, A8S Pro, A10S Plus, A10S Plus-N, A10S Pro, MRV208-N, MRV412-N, MRV416-N. MRV328 and MRV336 do NOT support low latency.',
+            rules: [
+                { text: 'Ports load vertically and must start at the top of the canvas.' },
+                { text: 'A port starting lower keeps only (1 - Y/H) of its pixels per port.' },
+                {
+                    text: 'Needs a supported receiving card. MRV328 and MRV336 cannot do low latency.',
+                    tip: 'Receiving cards with low latency: A5S Plus, A5S Plus-N, A8S, A8S-N, A8S Pro, A10S Plus, A10S Plus-N, A10S Pro, MRV208-N, MRV412-N, MRV416-N. MRV328 and MRV336 do NOT support low latency.'
+                }
+            ]
         },
         'novastar-5g': {
             supported: true,
             capacity: { kind: 'novastar-ll', yDerate: true },
             note: 'Ports must load vertically and start at the top of the canvas; a port that starts lower loses capacity. MRV328 and MRV336 cannot do low latency.',
-            cards: 'Receiving cards with low latency: A5S Plus, A5S Plus-N, A8S, A8S-N, A8S Pro, A10S Plus, A10S Plus-N, A10S Pro, MRV208-N, MRV412-N, MRV416-N. MRV328 and MRV336 do NOT support low latency.'
+            cards: 'Receiving cards with low latency: A5S Plus, A5S Plus-N, A8S, A8S-N, A8S Pro, A10S Plus, A10S Plus-N, A10S Pro, MRV208-N, MRV412-N, MRV416-N. MRV328 and MRV336 do NOT support low latency.',
+            rules: [
+                { text: 'Ports load vertically and must start at the top of the canvas.' },
+                { text: 'A port starting lower keeps only (1 - Y/H) of its pixels per port.' },
+                {
+                    text: 'Needs a supported receiving card. MRV328 and MRV336 cannot do low latency.',
+                    tip: 'Receiving cards with low latency: A5S Plus, A5S Plus-N, A8S, A8S-N, A8S Pro, A10S Plus, A10S Plus-N, A10S Pro, MRV208-N, MRV412-N, MRV416-N. MRV328 and MRV336 do NOT support low latency.'
+                },
+                {
+                    // v0.10.9: 5G only - novastarMinLoadWidth returns 0 everywhere
+                    // else, so no other entry may carry this rule. The second
+                    // sentence is not padding: calculatePortAssignments reads
+                    // novastarMinLoadWidth unconditionally, so the penalty is a
+                    // property of the 5G port and NOT of Low Latency. Listing it
+                    // here without saying so would read as a low latency cost.
+                    text: 'A port narrower than 128 px loses (128 - width) x height. On 5G that applies with or without Low Latency.',
+                    tip: 'NovaStar publish this under the 5G Ethernet Port Load Capacity table (XA50 Pro / CA50E receiving cards) only. Load width is the port\'s own width, not one cabinet\'s.'
+                }
+            ]
         },
         'brompton': {
             supported: true,
             capacity: { kind: 'factor', factor: 0.5 },
-            note: 'Ultra Low Latency: SX40/S8 only. HDMI input, no SDI. Halves pixels per port.'
+            note: 'Ultra Low Latency: SX40/S8 only. HDMI input, no SDI. Halves pixels per port.',
+            rules: [
+                { text: 'Pixels per port is halved.' },
+                { text: 'Ultra Low Latency is an SX40/S8 feature.' },
+                { text: 'HDMI input only, no SDI.' }
+            ]
         },
         'megapixel-1g': {
             supported: true,
             capacity: { kind: 'none' },
-            note: 'No capacity change; halves daisy-chain length in stacked columns.'
+            note: 'No capacity change; halves daisy-chain length in stacked columns.',
+            rules: [
+                { text: 'No change to pixels per port.' },
+                { text: 'Halves the daisy-chain length in stacked columns.' }
+            ]
         },
         'megapixel-2.5g': {
             supported: true,
             capacity: { kind: 'none' },
-            note: 'No capacity change; halves daisy-chain length in stacked columns.'
+            note: 'No capacity change; halves daisy-chain length in stacked columns.',
+            rules: [
+                { text: 'No change to pixels per port.' },
+                { text: 'Halves the daisy-chain length in stacked columns.' }
+            ]
         }
     };
 
