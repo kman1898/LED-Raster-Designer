@@ -13,6 +13,216 @@ class _ScreenInfo {
         return Math.min(1, areaRatio * 1.3);
     }
 
+    // ── Screen groups (v0.10.9): combined totals across a group's members ──
+    //
+    // A group is one screen built from more than one layer, because the
+    // per-layer grid is uniform: a wall of 1m JP5 cabinets AND 0.5m standard
+    // cabinets has to be two layers. The geometry already lands correctly -
+    // what does not is every TOTAL, which still reads per layer, so the user
+    // building that wall gets two half-answers and adds them up by hand.
+    //
+    // There is no new maths below. Each figure is the per-layer figure the app
+    // already computes, evaluated against EACH member's own cabinet size,
+    // weight and wattage, and then summed:
+    //
+    //   equivalentPanels  getPanelLoadFactor          (area derate; already
+    //                                                  correct for mixed sizes)
+    //   pixels            getPanelPixelArea
+    //   watts / weight    equivalentPanels x the MEMBER's panelWatts /
+    //                     panel_weight - members differ, so one member's
+    //                     per-cabinet figure can never stand in for the group
+    //   amps              I = P / V and I = P / (V x 1.73), exactly as
+    //                     updatePowerCapacityDisplay writes
+    //                     _powerTotalAmps1 / _powerTotalAmps3
+    //   circuits          calculatePowerAssignments(member).circuits.length
+    //   ports             calculatePortAssignments(member), read the same way
+    //                     updatePortCapacityDisplay reads it
+    //
+    // Ports and circuits stay PER MEMBER by design: automatic assignment walks
+    // one uniform grid, so a group's requirement is the sum of its members'
+    // own requirements, not a re-run across the combined shape.
+    //
+    // Which panels count: non-blank AND non-hidden, matching getPowerCounts
+    // and the canvas weight label. A blanked panel is a hole in the wall - no
+    // cabinet hangs there, so it has no weight and draws nothing.
+
+    // Resolve a group (or a bare group id) to its member layers, in the order
+    // the group lists them. layer_ids is the authoritative side of the
+    // relationship server-side (see _enforce_group_integrity), so it is the
+    // side walked here too.
+    getGroupMembers(group) {
+        const g = this.resolveGroup(group);
+        if (!g || !Array.isArray(g.layer_ids)) return [];
+        const layers = (this.project && this.project.layers) || [];
+        const byId = new Map(layers.map(l => [l.id, l]));
+        const seen = new Set();
+        const members = [];
+        g.layer_ids.forEach(lid => {
+            if (seen.has(lid)) return;
+            const layer = byId.get(lid);
+            if (!layer) return;
+            seen.add(lid);
+            members.push(layer);
+        });
+        return members;
+    }
+
+    resolveGroup(group) {
+        if (typeof group === 'string') {
+            const groups = (this.project && this.project.groups) || [];
+            return groups.find(g => g && g.id === group) || null;
+        }
+        return group || null;
+    }
+
+    // Ports required for ONE member, derived exactly as
+    // updatePortCapacityDisplay derives it for the selected layer:
+    // calculatePortAssignments does all the maths (and stamps
+    // _autoPortsRequired on the way through), and a custom flow overrides the
+    // automatic figure with the highest port the user actually drew. Split out
+    // here rather than called through the display function because that one
+    // only ever looks at this.currentLayer, and a group's members are not it.
+    getLayerPortsRequired(layer) {
+        if (!layer || (layer.type || 'screen') !== 'screen') return 0;
+        const assignments = this.calculatePortAssignments(layer) || [];
+        const auto = layer._autoPortsRequired
+            || assignments.reduce((max, a) => Math.max(max, (a && a.port) || 0), 0);
+        if (this.isCustomFlow(layer) && layer.customPortPaths) {
+            const customPorts = Object.keys(layer.customPortPaths)
+                .map(p => parseInt(p, 10))
+                .filter(p => (layer.customPortPaths[p] || []).length > 0);
+            if (customPorts.length > 0) return Math.max(...customPorts);
+            return auto > 0 ? auto : (layer.customPortIndex || 1);
+        }
+        return auto;
+    }
+
+    // Combined totals for a group. Safe on an empty group, a group of one, a
+    // group whose members are all hidden, and a group that has picked up an
+    // image or text layer - those are counted as skipped, not as screens.
+    getGroupTotals(group) {
+        const g = this.resolveGroup(group);
+        const totals = {
+            groupId: g ? (g.id || null) : null,
+            name: g ? (g.name || null) : null,
+            memberCount: 0,        // screens actually counted
+            hiddenCount: 0,        // members skipped because layer.visible is false
+            nonScreenCount: 0,     // members skipped because they are not screens
+            cabinets: 0,
+            pixels: 0,
+            equivalentPanels: 0,
+            weightKg: 0,
+            weightLb: 0,
+            watts: 0,
+            voltage: null,         // the shared voltage, or null when they differ
+            voltages: [],          // distinct voltages, first-seen order
+            voltageMismatch: false,
+            amps1ph: null,
+            amps3ph: null,
+            portsPrimary: 0,
+            portsBackup: 0,
+            circuits: 0,
+            powerError: null,      // first member whose circuits could not be built
+            members: [],
+        };
+
+        const voltages = [];
+        this.getGroupMembers(g).forEach(layer => {
+            if ((layer.type || 'screen') !== 'screen') {
+                totals.nonScreenCount++;
+                return;
+            }
+            // v0.10.9: `visible === false`, not `!visible`. A layer that simply
+            // has no `visible` key is visible everywhere else in the app - the
+            // Python side reads `layer.get('visible', True)` and the layer list
+            // and canvas both test `=== false`. Treating a missing key as hidden
+            // silently drops that screen's cabinets, weight and watts from the
+            // group total.
+            if (layer.visible === false) {
+                totals.hiddenCount++;
+                return;
+            }
+            const activePanels = (layer.panels || []).filter(p => !p.blank && !p.hidden);
+            const equivalentPanels = activePanels.reduce(
+                (sum, p) => sum + this.getPanelLoadFactor(layer, p), 0);
+            const pixels = activePanels.reduce(
+                (sum, p) => sum + this.getPanelPixelArea(p), 0);
+
+            // parseFloat(...) || 0 rather than a stand-in default, because
+            // calculatePowerAssignments below reads panelWatts the same way -
+            // a group reporting 200 W a cabinet while reporting 0 circuits
+            // would be incoherent. The weight fallback mirrors the canvas
+            // weight label (layer.panel_weight || 20) so the group figure and
+            // the member's own label can never disagree.
+            const panelWatts = parseFloat(layer.panelWatts) || 0;
+            const watts = panelWatts * equivalentPanels;
+            const panelWeightValue = layer.panel_weight || 20;
+            const panelWeightKg = (layer.weight_unit || 'kg') === 'lb'
+                ? (panelWeightValue / 2.20462)
+                : panelWeightValue;
+            const weightKg = equivalentPanels * panelWeightKg;
+            const voltage = parseFloat(layer.powerVoltage) || 0;
+            if (!voltages.includes(voltage)) voltages.push(voltage);
+
+            const powerAssignments = this.calculatePowerAssignments(layer)
+                || { circuits: [], error: null };
+            const circuits = (powerAssignments.circuits || []).length;
+            const powerError = powerAssignments.error
+                ? powerAssignments.error.message : null;
+            if (powerError && !totals.powerError) totals.powerError = powerError;
+            const ports = this.getLayerPortsRequired(layer);
+
+            totals.memberCount++;
+            totals.cabinets += activePanels.length;
+            totals.pixels += pixels;
+            totals.equivalentPanels += equivalentPanels;
+            totals.weightKg += weightKg;
+            totals.watts += watts;
+            totals.portsPrimary += ports;
+            totals.circuits += circuits;
+            totals.members.push({
+                id: layer.id,
+                name: layer.name || '',
+                cabinets: activePanels.length,
+                pixels,
+                equivalentPanels,
+                weightKg,
+                weightLb: weightKg * 2.20462,
+                watts,
+                voltage,
+                // Per member as well as combined, so a mixed-voltage group has
+                // something real to show instead of a blended figure.
+                amps1ph: voltage > 0 ? watts / voltage : 0,
+                amps3ph: voltage > 0 ? watts / (voltage * 1.73) : 0,
+                ports,
+                circuits,
+                powerError,
+            });
+        });
+
+        totals.weightLb = totals.weightKg * 2.20462;
+        // Every primary port has a backup/return port, same convention as
+        // getPortCounts.
+        totals.portsBackup = totals.portsPrimary;
+        totals.voltages = voltages;
+        totals.voltageMismatch = voltages.length > 1;
+        if (totals.voltageMismatch) {
+            // 200 A at 110 V and 200 A at 208 V are not the same load, so
+            // there is no honest combined amps figure. Null forces the caller
+            // to show the per-member ones rather than print a plausible
+            // average nobody can act on.
+            totals.voltage = null;
+            totals.amps1ph = null;
+            totals.amps3ph = null;
+        } else {
+            const voltage = voltages.length === 1 ? voltages[0] : 0;
+            totals.voltage = voltages.length === 1 ? voltage : null;
+            totals.amps1ph = voltage > 0 ? totals.watts / voltage : 0;
+            totals.amps3ph = voltage > 0 ? totals.watts / (voltage * 1.73) : 0;
+        }
+        return totals;
+    }
+
     getOrganizedPanelsForUnits(layer, pattern, isHorizontalFirst, orderedUnitIndices, includeHidden = false) {
         if (!layer || !Array.isArray(layer.panels) || !Array.isArray(orderedUnitIndices)) return [];
         const startsTop = pattern.startsWith('t');

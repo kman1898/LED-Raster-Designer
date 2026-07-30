@@ -1322,7 +1322,7 @@ class _Presets {
         const effCid = (l) => (isShowView && l.show_canvas_id) ? l.show_canvas_id : l.canvas_id;
         this.project.layers.forEach(layer => {
             if ((layer.type || 'screen') !== 'screen') return;
-            if (!layer.visible) return;
+            if (layer.visible === false) return;  // v0.10.9: missing key means visible
             const lcid = effCid(layer);
             if (lcid && hiddenCanvasIds.has(lcid)) return;
             if (onlyCanvasId && lcid !== onlyCanvasId) return;
@@ -1355,7 +1355,7 @@ class _Presets {
         const effCid = (l) => (isShowView && l.show_canvas_id) ? l.show_canvas_id : l.canvas_id;
         this.project.layers.forEach(layer => {
             if ((layer.type || 'screen') !== 'screen') return;
-            if (!layer.visible) return;
+            if (layer.visible === false) return;  // v0.10.9: missing key means visible
             const lcid = effCid(layer);
             if (lcid && hiddenCanvasIds.has(lcid)) return;
             if (onlyCanvasId && lcid !== onlyCanvasId) return;

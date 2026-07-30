@@ -521,6 +521,10 @@ def _build_initial_project():
         # member layer as `group_id`. Empty on a fresh project; a group only
         # exists once the user makes one.
         'groups': [],
+        # Monotonic group-id counter, saved with the project. See
+        # sync_next_group_seq: a freed id is never reused, so an undo that
+        # resurrects a deleted group cannot collide with a newer one.
+        'next_group_seq': 1,
         'is_pristine': True,
     }
     # Pre-populate v0.8 fields so a fresh project already passes the
@@ -1028,18 +1032,14 @@ def _next_duplicate_canvas_name(src_name):
 GROUP_SHARED_SETTINGS = ('processorType', 'bitDepth', 'frameRate')
 
 
-def _next_group_id(project):
-    """Pick the next free group id of the form ``g<N>``.
-
-    Same scan-for-max-suffix approach as _next_canvas_id. Takes the project
-    explicitly (unlike the canvas helpers, which read the module global)
-    because restore_project reassigns app.current_project and has to run this
-    against the incoming payload.
-    """
+def _highest_group_seq(project):
+    """Highest ``N`` across the project's existing ``g<N>`` ids, or 0."""
     groups = (project or {}).get('groups') or []
     max_n = 0
+    if not isinstance(groups, list):
+        return max_n
     for g in groups:
-        gid = (g or {}).get('id', '')
+        gid = (g or {}).get('id', '') if isinstance(g, dict) else ''
         if isinstance(gid, str) and gid.startswith('g'):
             try:
                 n = int(gid[1:])
@@ -1047,7 +1047,50 @@ def _next_group_id(project):
                     max_n = n
             except ValueError:
                 pass
-    return f'g{max_n + 1}'
+    return max_n
+
+
+def sync_next_group_seq(project):
+    """Rebase ``project['next_group_seq']`` so no group id is ever reused.
+
+    The counterpart to sync_next_layer_id, with one deliberate difference: the
+    layer counter is a module global, this one lives ON THE PROJECT. It has to,
+    because the alternative - scanning the existing groups for the highest
+    ``g<N>`` - hands a deleted group's id straight back out. Delete g3, make a
+    new group, get g3 again; then undo the delete and two different groups both
+    answer to g3. A stored counter never goes backwards when a group is
+    removed, so the resurrected group and the new one stay distinct.
+
+    Migration: a project that predates the counter (or one hand-edited without
+    it) seeds it above its highest existing group id, so ids already in the
+    file are never handed out a second time. Never lowers a counter that is
+    already ahead, which is what makes this safe to run on the restore funnel:
+    restoring the same project twice must not change it.
+
+    Returns the counter value, i.e. the ``N`` the next group will be given.
+    """
+    if not isinstance(project, dict):
+        return 1
+    floor_seq = _highest_group_seq(project) + 1
+    try:
+        stored = int(project.get('next_group_seq'))
+    except (TypeError, ValueError):
+        stored = 0
+    project['next_group_seq'] = max(stored, floor_seq)
+    return project['next_group_seq']
+
+
+def _next_group_id(project):
+    """Take the next group id of the form ``g<N>``, consuming the counter.
+
+    Takes the project explicitly (unlike the canvas helpers, which read the
+    module global) because restore_project reassigns app.current_project and
+    has to run this against the incoming payload.
+    """
+    seq = sync_next_group_seq(project)
+    if isinstance(project, dict):
+        project['next_group_seq'] = seq + 1
+    return f'g{seq}'
 
 
 def _find_group(project, group_id):
@@ -1117,6 +1160,10 @@ def _enforce_group_integrity(project):
         # array so every consumer can assume the shape, same as the canvas
         # migrator does for `canvases`.
         project['groups'] = []
+    # Before any pruning below, so a group about to be dropped still counts
+    # towards the floor and its id can never be handed out again. Seeds the
+    # counter on a project that predates it; never lowers one already ahead.
+    sync_next_group_seq(project)
 
     layers = [l for l in (project.get('layers') or []) if isinstance(l, dict)]
     existing_layer_ids = {l.get('id') for l in layers}

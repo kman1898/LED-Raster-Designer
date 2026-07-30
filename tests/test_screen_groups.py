@@ -134,19 +134,93 @@ def test_create_group_refuses_fewer_than_two_real_layers(client):
     assert _get_project(client)['layers'][0]['group_id'] is None
 
 
-def test_group_id_allocation_matches_the_canvas_precedent(client):
-    """_next_group_id scans the existing groups for the highest ``g<N>``
-    suffix, exactly as _next_canvas_id does for canvases. Consequence, worth
-    pinning: an id freed by a deleted group IS handed out again. Same
-    behaviour multi-canvas has shipped with; if group ids are ever made
-    monotonic, this test is the one to update."""
+def test_group_ids_are_handed_out_in_order(client):
     ids = [_add_screen(client, f'S{i}')['id'] for i in range(4)]
     project = app_module.current_project
     g1 = app_module._create_group(project, ids[:2])
     g2 = app_module._create_group(project, ids[2:])
     assert (g1['id'], g2['id']) == ('g1', 'g2')
-    project['groups'] = [g for g in project['groups'] if g['id'] != 'g2']
-    assert app_module._create_group(project, ids[2:])['id'] == 'g2'
+    assert project['next_group_seq'] == 3
+
+
+def test_a_deleted_groups_id_is_never_handed_out_again(client):
+    """The whole point of the counter. With a scan-for-max-suffix allocator,
+    deleting g2 frees 'g2' and the next group takes it - and an undo that
+    resurrects the deleted g2 then leaves two different groups answering to
+    the same id."""
+    ids = [_add_screen(client, f'S{i}')['id'] for i in range(4)]
+    project = app_module.current_project
+    app_module._create_group(project, ids[:2])
+    g2 = app_module._create_group(project, ids[2:])
+    project['groups'] = [g for g in project['groups'] if g['id'] != g2['id']]
+    for lid in ids[2:]:
+        _layer(project, lid)['group_id'] = None
+
+    fresh = app_module._create_group(project, ids[2:])
+    assert fresh['id'] == 'g3', 'a freed group id was reused'
+    assert fresh['id'] != g2['id']
+
+
+def test_the_counter_survives_a_project_round_trip(client):
+    """Reuse would come straight back if the counter lived only in memory:
+    the client PUTs the project back on every undo and file load."""
+    project, gid, ids = _grouped_project(client)
+    assert project['next_group_seq'] == 2
+    restored = _put(client, _clean(project))
+    assert restored['next_group_seq'] == 2
+
+    # ...and a save/load cycle through a file carries it too.
+    on_disk = json.loads(json.dumps(restored))
+    client.post('/api/project/new')
+    reloaded = _put(client, on_disk)
+    assert reloaded['next_group_seq'] == 2
+    assert app_module._next_group_id(app_module.current_project) == 'g2'
+
+
+def test_deleting_a_member_does_not_free_the_groups_id(client):
+    """The realistic route: the group dies because a member was deleted, which
+    is exactly the state an undo can resurrect."""
+    project, gid, ids = _grouped_project(client)
+    after = client.delete(f'/api/layer/{ids[0]}').get_json()
+    assert after['groups'] == []
+    assert after['next_group_seq'] == 2, 'the dropped group freed its id'
+
+
+def test_a_project_without_the_counter_seeds_it_above_its_groups(client):
+    """Migration: a file written before the counter existed. Its highest group
+    id sets the floor, so nothing already in the file is re-issued."""
+    project, gid, ids = _grouped_project(client)
+    legacy = _clean(project)
+    legacy.pop('next_group_seq')
+    legacy['groups'][0]['id'] = 'g7'
+    for layer in legacy['layers']:
+        if layer.get('group_id') == gid:
+            layer['group_id'] = 'g7'
+
+    restored = _put(client, legacy)
+    assert restored['next_group_seq'] == 8
+    assert _group_of(restored, 'g7')['layer_ids'] == ids
+
+
+def test_a_counter_already_ahead_is_never_pulled_back(client):
+    """Idempotence guard: restore runs on every undo, and a counter that
+    walked backwards would start re-issuing ids mid-session."""
+    project, gid, ids = _grouped_project(client)
+    project['next_group_seq'] = 42
+    restored = _put(client, project)
+    assert restored['next_group_seq'] == 42
+    _assert_idempotent(client, project, 'counter already ahead')
+
+
+def test_counter_survives_junk(client):
+    """A hand-edited or third-party file can carry anything here."""
+    project, gid, ids = _grouped_project(client)
+    for junk in (None, 'x', [], {'a': 1}, -5):
+        broken = _broken(project, lambda p: p.__setitem__('next_group_seq', junk))
+        restored = _put(client, broken)
+        assert restored['next_group_seq'] == 2, f'junk {junk!r} broke the seed'
+    assert app_module.sync_next_group_seq(None) == 1
+    assert app_module.sync_next_group_seq('nope') == 1
 
 
 # ── 2. PERSISTENCE - every path canvas_id survives ────────────────────────
