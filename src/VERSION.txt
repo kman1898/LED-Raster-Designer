@@ -38,6 +38,17 @@ v0.10.9 - July 26, 2026
     manuals are wrong and are being revised. Low latency needs a supported
     receiving card; note MRV328 and MRV336 cannot do it.
 
+- FIX (IMPORTANT): The Resolume export now follows the real shape of the
+  screen. It was working out where each cabinet sits by multiplying row and
+  column numbers by the full cabinet size, so it ignored half tiles entirely -
+  a wall with a half-height bottom row exported a shape a whole cabinet too
+  tall, and a half-width edge column one too wide. A comment in the code
+  claimed it accounted for half panels; it never did. It now traces the actual
+  cabinets: a plain rectangular wall exports exactly as before, and anything
+  else exports a polygon that follows only where cabinets actually are.
+  Blanked cabinets are now excluded too, matching the cabinet, weight and
+  power totals, which have always ignored them.
+
 - NEW: Ticking Low Latency now lists the rules it is applying, under the
   Pixels/Port readout, for whichever processor that screen is set to. Brompton
   says pixels per port is halved; Megapixel says pixels per port are unchanged

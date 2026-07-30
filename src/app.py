@@ -1808,36 +1808,64 @@ def _compute_panel_contour(layer):
     if not panels:
         return []
 
-    cab_w = int(layer.get('cabinet_width', 192))
-    cab_h = int(layer.get('cabinet_height', 384))
-    off_x = int(layer.get('offset_x', 0))
-    off_y = int(layer.get('offset_y', 0))
-
-    # Build a grid of visible panels: grid[row][col] = True/False
-    visible = set()
-    max_row = 0
-    max_col = 0
+    # v0.10.9: trace the union of the visible panels' REAL rectangles. The old
+    # code walked a uniform row/col * cabinet-size grid, which is a whole
+    # cabinet too tall/wide whenever a half tile shrinks a row or column.
+    # Every rect comes from the panel's own x/y/width/height, which is where
+    # the geometry actually lives (_build_panels collapses a wholly-half row or
+    # column and anchors a half tile inside its full-size slot otherwise).
+    rects = []
     for p in panels:
-        if not p.get('hidden', False):
-            r, c = p['row'], p['col']
-            visible.add((r, c))
-            if r > max_row: max_row = r
-            if c > max_col: max_col = c
+        # v0.10.9: exclude blank as well as hidden. The contour is "where the
+        # LED surface actually is", and every count that answers that question
+        # - cabinet totals, weight, power - filters on `not blank and not
+        # hidden` (canvas.js:4640, app-presets.js:1329, app-power.js:1517).
+        # The contour used to consider only `hidden`, so a blank cabinet was
+        # traced as if it were lit.
+        if p.get('hidden', False) or p.get('blank', False):
+            continue
+        # Contour points ship as integer pixel coordinates in the Resolume XML.
+        x1 = int(round(p.get('x', 0)))
+        y1 = int(round(p.get('y', 0)))
+        x2 = int(round(p.get('x', 0) + p.get('width', 0)))
+        y2 = int(round(p.get('y', 0) + p.get('height', 0)))
+        if x2 <= x1 or y2 <= y1:
+            continue  # zero/negative-size panel covers no area
+        rects.append((x1, y1, x2, y2))
+
+    if not rects:
+        return []
+
+    # Non-uniform coordinate lattice: every rect edge becomes a grid line, so
+    # each band [xs[i], xs[i+1]] x [ys[j], ys[j+1]] is either wholly inside a
+    # panel or wholly outside every panel. This degenerates to the plain
+    # cabinet grid on a uniform wall and generalises to mixed panel sizes.
+    xs = sorted({v for (x1, _y1, x2, _y2) in rects for v in (x1, x2)})
+    ys = sorted({v for (_x1, y1, _x2, y2) in rects for v in (y1, y2)})
+    x_index = {v: i for i, v in enumerate(xs)}
+    y_index = {v: i for i, v in enumerate(ys)}
+
+    # Mark every band cell covered by at least one visible panel.
+    visible = set()
+    for (x1, y1, x2, y2) in rects:
+        for c in range(x_index[x1], x_index[x2]):
+            for r in range(y_index[y1], y_index[y2]):
+                visible.add((r, c))
 
     if not visible:
         return []
 
-    # Determine panel pixel dimensions (accounting for half panels)
+    # Band index -> real pixel coordinate (was col * cab_w / row * cab_h)
     def panel_x(col):
-        """Get pixel X position for column index."""
-        return off_x + col * cab_w
+        """Get pixel X position for band column index."""
+        return xs[col]
 
     def panel_y(row):
-        """Get pixel Y position for row index."""
-        return off_y + row * cab_h
+        """Get pixel Y position for band row index."""
+        return ys[row]
 
-    # Use marching squares on the grid to trace the boundary.
-    # Each visible panel occupies grid cell (row, col).
+    # Use marching squares on the band grid to trace the boundary.
+    # Each covered band occupies grid cell (row, col).
     # We trace edges between visible and non-visible cells.
 
     # Trace the outer boundary of visible panels using grid edge walking.
