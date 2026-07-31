@@ -4702,6 +4702,167 @@ class CanvasRenderer {
         }
     }
     
+    // ── Screen groups (v0.10.9): cabinet IDs that run across the group ────
+    //
+    // A group is ONE screen built from more than one layer, so its cabinet IDs
+    // have to read as one screen too. Per layer they are grid indices, so the
+    // second member restarts at A1 / 1 and the wall carries two cabinets
+    // labelled A1 - a tech reading the map cannot tell them apart.
+    //
+    // Both families of ID are re-derived from the cabinet's ACTUAL POSITION on
+    // the wall, pooled across every member, so the label is what someone
+    // standing in front of the wall counting cabinets would say and the member
+    // boundaries are invisible:
+    //
+    //   column-row / row-column / row-col
+    //       the column index is the rank of the cabinet's column among the
+    //       group's distinct column positions (rows likewise) - not the
+    //       member's own grid index, and not that index plus an offset:
+    //       members have different cabinet sizes, so "column 3" is a different
+    //       place on the wall in each of them.
+    //   sequential (panel.number)
+    //       reading order over the whole wall, top-to-bottom then
+    //       left-to-right, rather than member after member.
+    //
+    // The position ranked is the cabinet's SLOT origin (the smallest x in its
+    // member's column, the smallest y in its member's row), not its own x/y,
+    // because a half-tile is anchored inside its slot (_build_panels) and
+    // would otherwise rank as a column of its own.
+    //
+    // The cost of ranking positions: with mixed cabinet sizes the distinct
+    // positions do not line up between members. A 128 px member contributes
+    // x = 0, 128, 256... and a 64 px member 0, 64, 128..., so the pooled
+    // letters advance at every cabinet edge on the wall and the big member's
+    // own letters skip (A, C, E...). That is the honest reading - the letters
+    // count places on the wall, which is what the person counting counts.
+    //
+    // Two cabinets can share a column AND a row rank only when they share a
+    // slot origin, i.e. when members physically overlap. Uniqueness is a hard
+    // requirement, so the plan CHECKS it rather than trusting the geometry: a
+    // grid style that cannot label this group uniquely is dropped for the
+    // whole group in favour of the wall's sequential numbers (one consistent
+    // map, every cabinet distinct) rather than drawing two A1s or inventing a
+    // sub-number.
+    //
+    // Hidden and blank cabinets keep today's treatment exactly: both consume a
+    // number (panel.number counts every grid cell), blank ones are labelled,
+    // hidden ones are not - so hidden cabinets are ranked too, and their
+    // columns and rows still take their place.
+    //
+    // Known limit: positions are ranked in unrotated screen space, so a member
+    // carrying a screen rotation (_layerRotationDeg) ranks by where its grid
+    // sits, not by where the rotation draws it.
+    _groupNumberingMembers(layer) {
+        const g = this._groupForLayer(layer);
+        if (!g || !window.app || typeof window.app.getGroupMembers !== 'function') return [];
+        const cid = this._effectiveLayerCanvasId(layer);
+        // Deliberately NOT filtered on `visible`, unlike _groupDrawnMembers:
+        // hiding one member must not renumber another member's cabinets. Same
+        // canvas only - a position from another canvas's workspace cannot be
+        // ranked against these.
+        return window.app.getGroupMembers(g).filter(m => m
+            && (m.type || 'screen') === 'screen'
+            && Array.isArray(m.panels)
+            && this._effectiveLayerCanvasId(m) === cid);
+    }
+
+    // The numbering `layer` should draw with, or null when it is not in a
+    // group of two or more here - and then renderCabinetIDNumbers takes
+    // exactly the path it always took.
+    _groupNumberingPlan(layer) {
+        const members = this._groupNumberingMembers(layer);
+        if (members.length < 2) return null;
+        const mine = members.findIndex(m => m.id === layer.id);
+        if (mine < 0) return null;
+
+        // Slot origins per member, in the space this view draws in. The render
+        // offset is 0 on Cabinet ID today; added so the ranks stay right if
+        // the ID numbers ever draw in a view that shifts layers.
+        const key = v => Math.round(v * 100);   // pixel coords; kills float noise
+        const slots = members.map(m => {
+            const off = this.getLayerRenderOffset(m);
+            const cols = new Map();
+            const rows = new Map();
+            (m.panels || []).forEach(p => {
+                const x = (Number(p.x) || 0) + off.dx;
+                const y = (Number(p.y) || 0) + off.dy;
+                const cx = cols.get(p.col);
+                if (cx === undefined || x < cx) cols.set(p.col, x);
+                const ry = rows.get(p.row);
+                if (ry === undefined || y < ry) rows.set(p.row, y);
+            });
+            return { cols, rows };
+        });
+
+        // Every distinct column position on the wall, in order, then rows.
+        // Pooled across all N members, not just a pair.
+        const rankPositions = maps => {
+            const seen = new Set();
+            const values = [];
+            maps.forEach(map => map.forEach(v => {
+                if (seen.has(key(v))) return;
+                seen.add(key(v));
+                values.push(v);
+            }));
+            values.sort((a, b) => a - b);
+            const ranks = new Map();
+            values.forEach((v, i) => ranks.set(key(v), i));
+            return ranks;
+        };
+        const colRanks = rankPositions(slots.map(s => s.cols));
+        const rowRanks = rankPositions(slots.map(s => s.rows));
+
+        const colOf = (mi, panel) => {
+            const x = slots[mi].cols.get(panel.col);
+            const r = (x === undefined) ? undefined : colRanks.get(key(x));
+            return (r === undefined) ? panel.col : r;
+        };
+        const rowOf = (mi, panel) => {
+            const y = slots[mi].rows.get(panel.row);
+            const r = (y === undefined) ? undefined : rowRanks.get(key(y));
+            return (r === undefined) ? panel.row : r;
+        };
+
+        // Sequential = reading order over the whole wall. Ranking by the row
+        // and column ranks is ranking by slot position, and the member index
+        // then the member's own grid position break any remaining tie, so the
+        // order is stable and follows layer_ids.
+        const cells = [];
+        members.forEach((m, mi) => (m.panels || []).forEach(p => cells.push({
+            mi, panel: p, col: colOf(mi, p), row: rowOf(mi, p),
+        })));
+        cells.sort((a, b) => (a.row - b.row) || (a.col - b.col) || (a.mi - b.mi)
+            || (a.panel.row - b.panel.row) || (a.panel.col - b.panel.col));
+        const numbers = new Map();
+        cells.forEach((c, i) => numbers.set(`${c.mi}:${c.panel.row},${c.panel.col}`, i + 1));
+
+        // Can a grid style label this group uniquely? Only the cabinets that
+        // actually draw a label are checked - a hidden cabinet draws none, so
+        // it cannot collide with anything.
+        const gridSeen = new Set();
+        let gridUnique = true;
+        cells.forEach(c => {
+            if (!gridUnique || c.panel.hidden) return;
+            const k = `${c.col},${c.row}`;
+            if (gridSeen.has(k)) gridUnique = false;
+            else gridSeen.add(k);
+        });
+
+        return {
+            gridUnique,
+            // One style for the whole wall, the FIRST member's, the same rule
+            // _groupLabelPlan uses for the label config. Screen Info already
+            // propagates cabinetIdStyle across a group, so this only bites on
+            // members that disagreed before they were grouped - and there it
+            // matters, because one member drawing A1 as column-row while
+            // another draws A1 as row-column is a duplicate ID again.
+            style: members[0].cabinetIdStyle || 'column-row',
+            colOf: panel => colOf(mine, panel),
+            rowOf: panel => rowOf(mine, panel),
+            numberOf: panel => numbers.get(`${mine}:${panel.row},${panel.col}`) || panel.number,
+        };
+    }
+
     renderCabinetIDNumbers(layer) {
         if (!layer.show_numbers) return;
         
@@ -4713,7 +4874,19 @@ class CanvasRenderer {
         const cabinetIdStyle = layer.cabinetIdStyle || 'column-row';
         const cabinetIdPosition = layer.cabinetIdPosition || 'center';
         const cabinetIdColor = layer.cabinetIdColor || '#ffffff';
-        
+
+        // v0.10.9: in a screen group the IDs run across the whole wall - see
+        // _groupNumberingPlan. Null for an ungrouped layer, and every line
+        // below then reads exactly as it always did.
+        const plan = this._groupNumberingPlan(layer);
+        // A grid style that cannot label this group uniquely is dropped for
+        // the whole group in favour of the wall's sequential numbers -
+        // 'sequential' is not a stored style, it is the name of the switch's
+        // default arm below.
+        const idStyle = plan
+            ? (plan.gridUnique ? plan.style : 'sequential')
+            : cabinetIdStyle;
+
         this.ctx.fillStyle = cabinetIdColor;
         this.ctx.font = `bold ${numberSize}px ${projectFontFamily()}`;
         
@@ -4733,10 +4906,10 @@ class CanvasRenderer {
             
             // Calculate label based on style
             let label = '';
-            const col = panel.col;  // 0-indexed
-            const row = panel.row;  // 0-indexed
-            
-            switch (cabinetIdStyle) {
+            const col = plan ? plan.colOf(panel) : panel.col;  // 0-indexed
+            const row = plan ? plan.rowOf(panel) : panel.row;  // 0-indexed
+
+            switch (idStyle) {
                 case 'column-row':
                     // A1, B1, C1... (column letter + row number)
                     // Reads top-to-bottom by columns
@@ -4756,7 +4929,9 @@ class CanvasRenderer {
                     break;
                     
                 default:
-                    label = panel.number; // Fallback to sequential
+                    // Fallback to sequential - the wall's reading order in a
+                    // group, the layer's own panel numbers on their own.
+                    label = plan ? plan.numberOf(panel) : panel.number;
             }
             
             // Calculate position
