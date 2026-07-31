@@ -75,6 +75,28 @@ class _ScreenInfo {
         return group || null;
     }
 
+    // Is this layer's grid fed by a path that a PEER member owns? True only
+    // once someone has actually drawn a port or circuit that crosses onto it.
+    //
+    // v0.10.9 step 6: this is what stops a group counting the same port twice.
+    // A member in custom mode with nothing of its own drawn falls back below
+    // to "at least the active port index", which is the right answer for a
+    // standalone screen and the wrong one for a member whose cabinets are
+    // already fed by the peer's port: that port is the PEER'S, it is counted
+    // there, and counting it again here prints 2 Mains on a wall with one
+    // cable in it. Returns false for every ungrouped layer and for every
+    // project with no cross-layer step anywhere, so nothing existing moves.
+    _layerServedByPeerPath(layer, pathsKey) {
+        if (!layer || typeof this.getPathScopeLayers !== 'function') return false;
+        return this.getPathScopeLayers(layer).some(peer => {
+            if (!peer || peer.id === layer.id) return false;
+            const paths = peer[pathsKey];
+            if (!paths) return false;
+            return Object.keys(paths).some(k => (paths[k] || [])
+                .some(e => e && e.layerId === layer.id));
+        });
+    }
+
     // Ports required for ONE member, derived exactly as
     // updatePortCapacityDisplay derives it for the selected layer:
     // calculatePortAssignments does all the maths (and stamps
@@ -82,17 +104,48 @@ class _ScreenInfo {
     // automatic figure with the highest port the user actually drew. Split out
     // here rather than called through the display function because that one
     // only ever looks at this.currentLayer, and a group's members are not it.
-    getLayerPortsRequired(layer) {
+    //
+    // v0.10.9 step 6: this is now the ONE implementation. The sidebar readout,
+    // the group roll-up and the canvas label each grew their own copy, and the
+    // moment a port spans two members those three copies print three different
+    // numbers at the user. `assignments` lets a caller that has already run
+    // calculatePortAssignments (for the Low Latency derate note) pass it in
+    // rather than paying for the walk twice.
+    getLayerPortsRequired(layer, assignments = null) {
         if (!layer || (layer.type || 'screen') !== 'screen') return 0;
-        const assignments = this.calculatePortAssignments(layer) || [];
+        const a = assignments || this.calculatePortAssignments(layer) || [];
         const auto = layer._autoPortsRequired
-            || assignments.reduce((max, a) => Math.max(max, (a && a.port) || 0), 0);
+            || a.reduce((max, x) => Math.max(max, (x && x.port) || 0), 0);
         if (this.isCustomFlow(layer) && layer.customPortPaths) {
             const customPorts = Object.keys(layer.customPortPaths)
                 .map(p => parseInt(p, 10))
                 .filter(p => (layer.customPortPaths[p] || []).length > 0);
             if (customPorts.length > 0) return Math.max(...customPorts);
+            if (this._layerServedByPeerPath(layer, 'customPortPaths')) return 0;
             return auto > 0 ? auto : (layer.customPortIndex || 1);
+        }
+        return auto;
+    }
+
+    // Circuits required for ONE member. Mirrors getLayerPortsRequired exactly:
+    // the automatic assignment's circuit count, overridden by the highest
+    // circuit the user drew in custom mode, and zero for a member whose
+    // cabinets are fed by a peer's crossing circuit.
+    //
+    // `autoCircuits` defaults to the cached _powerCircuitsRequired because the
+    // two callers that want this figure (the power label editor and the canvas
+    // label) both run right after something already computed it.
+    getLayerCircuitsRequired(layer, autoCircuits = null) {
+        if (!layer || (layer.type || 'screen') !== 'screen') return 0;
+        let auto = autoCircuits;
+        if (auto === null || auto === undefined) auto = Number(layer._powerCircuitsRequired) || 0;
+        if (this.isCustomPower(layer) && layer.powerCustomPaths) {
+            const customCircuits = Object.keys(layer.powerCustomPaths)
+                .map(c => parseInt(c, 10))
+                .filter(c => (layer.powerCustomPaths[c] || []).length > 0);
+            if (customCircuits.length > 0) return Math.max(...customCircuits);
+            if (this._layerServedByPeerPath(layer, 'powerCustomPaths')) return 0;
+            return auto > 0 ? auto : (layer.powerCustomIndex || 1);
         }
         return auto;
     }

@@ -115,6 +115,13 @@ def delete_canvas(canvas_id):
         if l.get('canvas_id') != canvas_id
     ]
     layers_removed = layers_before - len(app.current_project['layers'])
+    # v0.10.9: deleting a canvas deletes every layer on it, which is the same
+    # group-integrity event as a single layer delete (routes_layers.delete_layer)
+    # only in bulk - a group can be left naming dead layers, reduced to one
+    # surviving member, or holding manual path steps that point at a panel on
+    # the canvas we just removed. Repair now so the response we return is
+    # already consistent, instead of waiting for the next undo/file load.
+    app._enforce_group_integrity(app.current_project)
     # Reassign active_canvas_id to the next remaining canvas.
     if app.current_project.get('active_canvas_id') == canvas_id:
         app.current_project['active_canvas_id'] = app.current_project['canvases'][0]['id']
@@ -154,8 +161,27 @@ def duplicate_canvas(canvas_id):
         clone['id'] = app.next_layer_id
         app.next_layer_id += 1
         clone['canvas_id'] = new_id
+        # v0.10.9: same reason routes_layers.move_layer_to_canvas clears this -
+        # the clone is a deep copy, so it would otherwise carry the source's
+        # group_id while that group's layer_ids knows nothing about it.
+        # Duplicating a canvas makes new screens, not new members of the
+        # original's groups.
+        clone['group_id'] = None
         app.current_project['layers'].append(clone)
     app.current_project['active_canvas_id'] = new_id
+    # v0.10.9: the clones also carry verbatim customPortPaths /
+    # powerCustomPaths, so any cross-layer step in them still names a layer id
+    # on the ORIGINAL canvas - wiring drawn onto someone else's screen. We do
+    # NOT remap those ids onto the corresponding clones, even though the id
+    # mapping is right here: the clones are deliberately groupless (above), and
+    # a cross-layer step is only legal between members of one group, so a
+    # remapped step would be pruned again by the very next undo or file load.
+    # Remapping would buy a wire that vanishes on the user's next keystroke.
+    # Dropping it is the honest, stable answer, and _enforce_group_integrity is
+    # the one implementation of that rule. (If a later step decides that
+    # duplicating a canvas should duplicate its groups too, the remap becomes
+    # correct and belongs here alongside that change.)
+    app._enforce_group_integrity(app.current_project)
     app.current_project['is_pristine'] = False
     log_event('canvas_duplicate', {
         'src_id': canvas_id, 'new_id': new_id,

@@ -59,6 +59,22 @@ v0.10.9 - July 26, 2026
   it is a whole-screen figure, so it cannot show per-port costs, and the list
   explains what else is being applied on top of it.
 
+- NEW: A hand-drawn data port or power circuit can now run across the screens
+  in a group, so wiring follows the wall instead of stopping at a section
+  boundary. Click cabinets in any member and they join the same port; the
+  line draws straight through, the "on port" count includes cabinets on the
+  other section, and a colour-coded circuit tints every cabinet on it. The
+  arrow keys carry on into the neighbouring section when you reach an edge,
+  finding the cabinet that is physically next even where the two sections use
+  different cabinet sizes.
+  A cabinet already wired to another port is still refused, now across the
+  whole group, and the message names the screen it is wired to - "port 1 on
+  Upper Wall" - because a cabinet reference alone is ambiguous once two grids
+  are in play.
+  Only cabinets you click are affected: drag-select still works within one
+  screen. Automatic port and circuit mapping is unchanged, and a wall that is
+  not grouped behaves exactly as before.
+
 - NEW: Screens can be grouped, so a wall built from two cabinet sizes behaves
   as one screen. A crew running 1m JP5 panels alongside 0.5m standard panels
   has to draw them as separate screens, because one screen uses one cabinet

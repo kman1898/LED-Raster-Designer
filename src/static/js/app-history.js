@@ -304,8 +304,114 @@ class _History {
         deleteNext([...idsToDelete]);
     }
     
+    // ===== CROSS-MEMBER MANUAL PATHS: WHAT A COPY IS ALLOWED TO CARRY =====
+    //
+    // v0.10.9 (step 6): an entry in customPortPaths / powerCustomPaths is
+    // normally {row, col} - a panel in the layer that OWNS the path, which is
+    // how 100% of projects written before this step look. A path hand-drawn
+    // across a group's members stores {row, col, layerId} for the panels that
+    // live in a PEER member.
+    //
+    // A layer id only means something inside the project that minted it, so
+    // every copy operation has to answer one question per entry: does the
+    // layer this entry names come along with the copy?
+    //
+    //   it does     -> rewrite the entry to point at ITS copy (via idMap), so
+    //                  a user who duplicates a wall gets their wiring with it
+    //   it does not -> DROP the entry
+    //
+    // Dropping rather than keeping, because an id that survives into a context
+    // where it means something ELSE is the worst outcome on the table: the
+    // wiring silently re-attaches to an unrelated screen and nothing errors.
+    // A path missing a panel is visible the moment the user looks at it; a
+    // path wired to the wrong wall is not.
+    //
+    // An entry naming the SOURCE OWNER itself becomes a plain {row, col}. The
+    // writer normalises that away (see makePathEntry), but a hand-edited file
+    // can still hold one, and "this layer" stays true after a copy whatever id
+    // the copy ends up with - which is also why this works for duplicate/paste,
+    // where the new id does not exist until the server answers.
+    //
+    // A path that loses SOME entries keeps the rest: it is a route the user
+    // drew, and the part still inside the copy is still their route. A path
+    // that loses ALL of them is removed key and all - an empty path is not a
+    // path, and a leftover `{"3": []}` would advertise port 3 as hand-routed
+    // with nothing drawn.
+    //
+    // `idMap` is a Map (or plain object) of source layer id -> copy layer id,
+    // or null/omitted when nothing but the owner is being copied.
+    copyPathsForNewOwner(paths, sourceOwnerId, idMap) {
+        const out = {};
+        if (!paths || typeof paths !== 'object') return out;
+        const mapId = (oldId) => {
+            if (!idMap) return undefined;
+            return (idMap instanceof Map) ? idMap.get(oldId) : idMap[oldId];
+        };
+        const newOwnerId = (sourceOwnerId != null) ? mapId(sourceOwnerId) : undefined;
+        Object.keys(paths).forEach(key => {
+            const path = paths[key];
+            if (!Array.isArray(path)) {
+                // Not a path at all (older or hand-edited payload). Carry it
+                // verbatim rather than inventing a shape for it - this branch
+                // is the pre-step-6 deep copy, unchanged.
+                out[key] = JSON.parse(JSON.stringify(path));
+                return;
+            }
+            const kept = [];
+            path.forEach(entry => {
+                if (!entry || typeof entry !== 'object') {
+                    // Nothing to validate - carry it as the old deep copy did.
+                    kept.push(entry);
+                    return;
+                }
+                if (entry.layerId === undefined || entry.layerId === null) {
+                    kept.push({ ...entry });   // "this layer" - always travels
+                    return;
+                }
+                if (entry.layerId === sourceOwnerId) {
+                    const normalised = { ...entry };
+                    delete normalised.layerId;
+                    kept.push(normalised);
+                    return;
+                }
+                const remapped = mapId(entry.layerId);
+                if (remapped === undefined || remapped === null) return;  // dropped
+                if (newOwnerId !== undefined && remapped === newOwnerId) {
+                    const normalised = { ...entry };
+                    delete normalised.layerId;
+                    kept.push(normalised);
+                    return;
+                }
+                kept.push({ ...entry, layerId: remapped });
+            });
+            if (kept.length > 0) out[key] = kept;
+        });
+        return out;
+    }
+
+    // The whole-wall shape of the same rule: N layers copied TOGETHER, so a
+    // path reaching a peer inside the copied set is rewritten to that peer's
+    // copy and the wiring survives intact. Anything reaching outside the set
+    // is dropped by copyPathsForNewOwner above.
+    //
+    // `pairs` is [{ source, clone }, ...]. Callers that copy a whole group
+    // hand over every member and its clone at once, which is the only moment
+    // the source -> copy mapping exists.
+    remapCopiedLayerPaths(pairs) {
+        const list = (pairs || []).filter(p => p && p.source && p.clone);
+        if (list.length === 0) return 0;
+        const idMap = new Map(list.map(p => [p.source.id, p.clone.id]));
+        list.forEach(({ source, clone }) => {
+            clone.customPortPaths = this.copyPathsForNewOwner(
+                source.customPortPaths, source.id, idMap);
+            clone.powerCustomPaths = this.copyPathsForNewOwner(
+                source.powerCustomPaths, source.id, idMap);
+        });
+        return list.length;
+    }
+
     // ===== DUPLICATE LAYER =====
-    
+
     duplicateLayer(layer) {
         // Smart name incrementing
         const getNextName = (baseName) => {
@@ -447,7 +553,20 @@ class _History {
                 hidden: !!p.hidden,
                 blank: !!p.blank,
             }));
-        
+
+        // v0.10.9 (step 6): Duplicate makes a NEW, UNGROUPED screen - that is
+        // the same decision the group_id note above documents. Nothing but this
+        // layer is being copied, so no peer named by a cross-member path entry
+        // has a counterpart here and every such entry drops (idMap = null).
+        // Keeping them would leave the copy's wiring pointing at the ORIGINAL
+        // wall's cabinets while the copy is not even in that wall's group.
+        // Plain {row, col} paths - every pre-step-6 project - come through
+        // copyPathsForNewOwner untouched.
+        const dupPowerCustomPaths = this.copyPathsForNewOwner(
+            layer.powerCustomPaths, layer.id, null);
+        const dupCustomPortPaths = this.copyPathsForNewOwner(
+            layer.customPortPaths, layer.id, null);
+
         const duplicateData = {
             name: getNextName(layer.name),
             columns: layer.columns,
@@ -513,7 +632,7 @@ class _History {
             powerLabelTextColor: layer.powerLabelTextColor,
             powerLabelTemplate: layer.powerLabelTemplate,
             powerLabelOverrides: JSON.parse(JSON.stringify(layer.powerLabelOverrides || {})),
-            powerCustomPaths: JSON.parse(JSON.stringify(layer.powerCustomPaths || {})),
+            powerCustomPaths: dupPowerCustomPaths,
             powerCustomIndex: layer.powerCustomIndex,
             hiddenPanels: hiddenPanels,  // Pass hidden panel info (legacy)
             panelStates: panelStates,    // Half-tile + hidden + blank (v0.8.0)
@@ -587,7 +706,7 @@ class _History {
             powerLabelSize: layer.powerLabelSize,
             powerLabelTemplate: layer.powerLabelTemplate,
             powerLabelOverrides: JSON.parse(JSON.stringify(layer.powerLabelOverrides || {})),
-            powerCustomPaths: JSON.parse(JSON.stringify(layer.powerCustomPaths || {})),
+            powerCustomPaths: dupPowerCustomPaths,
             powerCustomIndex: layer.powerCustomIndex,
             showPowerCircuitInfo: !!layer.showPowerCircuitInfo,
             showDataFlowPortInfo: !!layer.showDataFlowPortInfo,
@@ -599,7 +718,7 @@ class _History {
             portLabelTemplateReturn: layer.portLabelTemplateReturn,
             portLabelOverridesPrimary: JSON.parse(JSON.stringify(layer.portLabelOverridesPrimary || {})),
             portLabelOverridesReturn: JSON.parse(JSON.stringify(layer.portLabelOverridesReturn || {})),
-            customPortPaths: JSON.parse(JSON.stringify(layer.customPortPaths || {})),
+            customPortPaths: dupCustomPortPaths,
             customPortIndex: layer.customPortIndex,
             randomDataColors: !!layer.randomDataColors,
             arrowSize: layer.arrowSize,
@@ -759,6 +878,24 @@ class _History {
             return;
         }
 
+        // v0.10.9 (step 6): paste is the same drop as duplicate, for a harder
+        // reason. The clipboard outlives the project it was filled from - copy
+        // a screen, open another file, paste - and layer ids are per project
+        // and reused freely across them. A cross-member entry pasted into a
+        // different project would name whatever screen happens to hold that id
+        // there, so the pasted wall's port would quietly claim cabinets on an
+        // unrelated screen with nothing to show the user it had happened.
+        //
+        // We cannot tell the two cases apart from here (the clipboard is a
+        // plain deep copy, with no record of which project it came from), so
+        // paste takes the conservative branch every time: only the peers being
+        // pasted WITH it could be remapped, and paste copies exactly one layer,
+        // so nothing is. Plain {row, col} paths paste unchanged.
+        const pastePowerCustomPaths = this.copyPathsForNewOwner(
+            this.clipboard.powerCustomPaths, this.clipboard.id, null);
+        const pasteCustomPortPaths = this.copyPathsForNewOwner(
+            this.clipboard.customPortPaths, this.clipboard.id, null);
+
         const pasteData = {
             name: getNextName(this.clipboard.name),
             columns: this.clipboard.columns,
@@ -823,7 +960,7 @@ class _History {
             powerLabelTextColor: this.clipboard.powerLabelTextColor,
             powerLabelTemplate: this.clipboard.powerLabelTemplate,
             powerLabelOverrides: JSON.parse(JSON.stringify(this.clipboard.powerLabelOverrides || {})),
-            powerCustomPaths: JSON.parse(JSON.stringify(this.clipboard.powerCustomPaths || {})),
+            powerCustomPaths: pastePowerCustomPaths,
             powerCustomIndex: this.clipboard.powerCustomIndex,
             showDataFlowPortInfo: !!this.clipboard.showDataFlowPortInfo,
             showDataFlowPortLoad: !!this.clipboard.showDataFlowPortLoad,
@@ -831,7 +968,7 @@ class _History {
             portLabelTemplateReturn: this.clipboard.portLabelTemplateReturn,
             portLabelOverridesPrimary: JSON.parse(JSON.stringify(this.clipboard.portLabelOverridesPrimary || {})),
             portLabelOverridesReturn: JSON.parse(JSON.stringify(this.clipboard.portLabelOverridesReturn || {})),
-            customPortPaths: JSON.parse(JSON.stringify(this.clipboard.customPortPaths || {})),
+            customPortPaths: pasteCustomPortPaths,
             customPortIndex: this.clipboard.customPortIndex,
             randomDataColors: !!this.clipboard.randomDataColors,
             arrowSize: this.clipboard.arrowSize,

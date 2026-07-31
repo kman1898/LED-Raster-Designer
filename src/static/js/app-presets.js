@@ -1451,6 +1451,11 @@ class _Presets {
         layer.portLabelTemplateReturn = 'R#';
         layer.portLabelOverridesPrimary = {};
         layer.portLabelOverridesReturn = {};
+        // v0.10.9 (step 6): still the right reset, and it is the only one that
+        // can be right. A brand-new layer has no group, so it has no peer a
+        // cross-member path entry could legally name; a preset that carries
+        // paths overlays them AFTER this (applyPresetClientProps), already
+        // filtered down to the {row, col} entries that mean "this screen".
         layer.customPortPaths = {};
         layer.customPortIndex = 1;
         // Screen name size on the other tabs follows the label font size default
@@ -1482,7 +1487,7 @@ class _Presets {
         layer.powerLabelTextColor = '#000000';
         layer.powerLabelTemplate = 'S1-#';
         layer.powerLabelOverrides = {};
-        layer.powerCustomPaths = {};
+        layer.powerCustomPaths = {};   // same reason as customPortPaths above
         layer.powerCustomIndex = 1;
         layer.border_color_pixel = layer.border_color || prefs.borderColor;
         layer.border_color_cabinet = layer.border_color || prefs.borderColor;

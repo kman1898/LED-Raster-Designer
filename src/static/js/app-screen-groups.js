@@ -505,6 +505,14 @@ class _ScreenGroups {
             return clone;
         });
         this.project.layers.push(...clones);
+        // A hand-drawn port or circuit that crosses members names its peer by
+        // layer id, and every one of those ids just changed. Remap them onto
+        // the clones BEFORE the commit, or the copy's wiring reaches back into
+        // the wall it was copied from - and then quietly disappears, because
+        // the entry names a layer outside the copy's group and both the client
+        // sanitiser and the server prune drop exactly that. Unwired, the user
+        // loses the wiring with no error; wired, the copy is a real copy.
+        this.remapCopiedLayerPaths(members.map((source, i) => ({ source, clone: clones[i] })));
         if (!Array.isArray(this.project.groups)) this.project.groups = [];
         this.project.groups.push({
             id: newGroupId,

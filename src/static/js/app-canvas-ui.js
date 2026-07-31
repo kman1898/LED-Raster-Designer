@@ -1265,9 +1265,26 @@ class _CanvasUi {
         if (!layer.border_color_cabinet) layer.border_color_cabinet = layer.border_color || '#ffffff';
         if (!layer.border_color_data) layer.border_color_data = layer.border_color || '#ffffff';
         if (!layer.border_color_power) layer.border_color_power = layer.border_color || '#ffffff';
+        // v0.10.9 (step 6): cross-member path entries are NOT transient, so
+        // they are deliberately not in the delete list below - they are the
+        // user's hand-drawn wiring and a file is where it lives. What a file
+        // cannot be trusted about is whether the peer an entry names is still
+        // a reachable member of the owner's group, so the entries are
+        // VALIDATED here instead of dropped. Every file path runs through
+        // applyMissingLayerDefaults (File > Open and Recent Files both), and
+        // this.project is already the loaded project by the time the caller
+        // loops over its layers, so group membership is visible from here.
+        this.sanitizeCrossLayerPaths(layer);
         // Computed/transient fields should never be trusted from file payload
         delete layer._powerError;
         delete layer._powerCircuits;
+        // Per-frame render maps for cross-member circuits. A saved file can
+        // carry them as `{}` (a Map does not survive JSON), and a stale empty
+        // map reads as "this cabinet belongs to no circuit" until the next
+        // render rebuilds it.
+        delete layer._powerPanelCircuitScopedMap;
+        delete layer._powerPanelIndexScopedMap;
+        delete layer._powerCircuitOwners;
         delete layer._powerTotalAmps1;
         delete layer._powerTotalAmps3;
         delete layer._powerCircuitsRequired;

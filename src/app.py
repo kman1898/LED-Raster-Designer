@@ -1203,6 +1203,103 @@ def _enforce_group_integrity(project):
             layer['group_id'] = group_id  # mirror the authoritative side
         elif layer.get('group_id'):
             layer['group_id'] = None  # rule 3
+    # Last, because it reads the membership the rules above just repaired: a
+    # path step is only legal if it points at a CURRENT group peer, and "the
+    # group" means the group as of this repair, not as of when the user drew.
+    _prune_cross_layer_paths(project)
+    return project
+
+
+def _prune_cross_layer_paths(project):
+    """Drop manually drawn path steps that point outside the owner's group.
+
+    v0.10.9: a hand-drawn data-port path or power circuit may cross from one
+    group member onto another. The path itself never moves - it stays on the
+    layer that OWNS the port/circuit, in ``layer['customPortPaths'][port]`` /
+    ``layer['powerCustomPaths'][circuit]`` - so the only cross-layer thing in
+    the file is a pointer on the individual step:
+
+        {'row': r, 'col': c}                    -> a panel in the owning layer
+        {'row': r, 'col': c, 'layerId': <id>}   -> a panel in a group peer
+
+    That pointer is the part that rots. Delete the peer, ungroup the wall, or
+    move one member into a different group and the step now names a panel that
+    is not part of this screen at all - it would draw a cable onto an unrelated
+    layer, or onto nothing. Nobody re-draws paths on those actions, so the
+    repair has to happen here, on the funnel every undo, redo and file load
+    already passes through.
+
+    Steps WITHOUT a layerId are the shape every project written before this
+    feature has, and they are never touched: a pre-v0.10.9 file round-trips
+    unchanged. ``layerId`` is camelCase because the client writes it.
+    """
+    if not isinstance(project, dict):
+        return project
+    layers = [l for l in (project.get('layers') or []) if isinstance(l, dict)]
+    existing_layer_ids = {l.get('id') for l in layers}
+    # group_id is the mirror _enforce_group_integrity just rewrote, so reading
+    # it here is the same as reading project['groups']. A layer outside every
+    # group maps to None, and None is deliberately never a legal target: two
+    # groupless layers are two separate screens, not a wall.
+    group_of = {l.get('id'): l.get('group_id') for l in layers}
+
+    for layer in layers:
+        own_id = layer.get('id')
+        own_group = group_of.get(own_id)
+        for key in ('customPortPaths', 'powerCustomPaths'):
+            paths = layer.get(key)
+            if not isinstance(paths, dict):
+                continue  # absent (most layers), None, or hand-edited garbage
+            for path_key in list(paths.keys()):
+                steps = paths.get(path_key)
+                if not isinstance(steps, list):
+                    continue  # same reasoning as layer_ids above: a string
+                              # would iterate into single characters
+                kept = []
+                dropped = False
+                for step in steps:
+                    if not isinstance(step, dict) or 'layerId' not in step:
+                        # Plain step, or something we do not understand. Either
+                        # way it is not ours to judge - leave it exactly as is.
+                        kept.append(step)
+                        continue
+                    target = step.get('layerId')
+                    if target == own_id:
+                        # Points at its own layer, which is just the plain form
+                        # written the long way (the client does this when a
+                        # path starts on the owner and the user later drags the
+                        # whole thing back). Normalise instead of dropping so
+                        # the stored shape is identical to a never-crossed
+                        # path, and so restoring twice cannot keep churning.
+                        plain = {k: v for k, v in step.items() if k != 'layerId'}
+                        kept.append(plain)
+                        dropped = True  # the entry changed, so rewrite below
+                        continue
+                    if (target not in existing_layer_ids
+                            or own_group is None
+                            or group_of.get(target) != own_group):
+                        # Peer deleted, owner ungrouped, or the two layers are
+                        # no longer in the same group. Any of those makes the
+                        # step undrawable; keeping it would render onto a panel
+                        # that belongs to a different screen.
+                        dropped = True
+                        continue
+                    if step.get('row') is None or step.get('col') is None:
+                        # A cross-layer step with no cell to land on. Rare
+                        # enough that it means a hand-edited or truncated file;
+                        # drop it rather than let the renderer trip over it.
+                        dropped = True
+                        continue
+                    kept.append(step)
+                if not dropped:
+                    continue  # untouched path - do not rewrite it at all
+                if kept:
+                    paths[path_key] = kept
+                else:
+                    # Every step pointed somewhere dead. An empty path is not a
+                    # path: leaving the key behind would show the user a port
+                    # or circuit that claims a custom route and draws nothing.
+                    del paths[path_key]
     return project
 
 

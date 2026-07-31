@@ -362,6 +362,23 @@ class CanvasRenderer {
         return { x: g.cx + (dx * cos - dy * sin), y: g.cy + (dx * sin + dy * cos) };
     }
 
+    // v0.10.9: the forward direction of _unrotatePointForLayer - a point in the
+    // screen's own unrotated content space, mapped to where the rotated render
+    // actually puts it. The per-layer render pass never needs this (it rotates
+    // the whole ctx and keeps drawing in unrotated coords), but the cross-member
+    // path overlay does: it draws OUTSIDE any one member's transform, so it has
+    // to bake each member's own rotation into the points it hands the renderer.
+    // Identity if unrotated, so an unrotated project pays nothing for it.
+    _rotatePointForLayer(px, py, layer) {
+        const g = this._layerRotationGeom(layer);
+        if (g.deg !== 90 && g.deg !== 180 && g.deg !== 270) return { x: px, y: py };
+        const dx = px - g.cx;
+        const dy = py - g.cy;
+        const rad = g.deg * Math.PI / 180;
+        const cos = Math.cos(rad), sin = Math.sin(rad);
+        return { x: g.cx + (dx * cos - dy * sin), y: g.cy + (dx * sin + dy * cos) };
+    }
+
     /**
      * Layer bounds in the *currently active view's* coordinate space.
      * For pixel-map / cabinet-id this matches getLayerBounds (processor
@@ -1448,18 +1465,42 @@ class CanvasRenderer {
                     const clickedPanel = this.getPanelAt(this.selectionRect.x1, this.selectionRect.y1);
                     if (clickedPanel) {
                         const isPower = this.viewMode === 'power';
-                        if (isPower && window.app.isCustomPower(window.app.currentLayer) && clickedPanel.layerId === window.app.currentLayer.id) {
+                        // v0.10.9 screen groups: the gate used to be a straight
+                        // `clickedPanel.layerId === currentLayer.id`, which made
+                        // a hand-drawn path physically unable to leave its own
+                        // layer. A group is ONE wall, so the path has to be able
+                        // to run onto the next member. getPanelAt already
+                        // searched every visible layer top-down and told us
+                        // which one it hit, applying that layer's own Show Look
+                        // offset, canvas translate and rotation, so there is no
+                        // geometry to redo here - only the question of whether
+                        // the port may legally reach that layer, which
+                        // canPathReachLayer answers (same group, same effective
+                        // canvas). Without the helper it reduces to the old
+                        // identity test, so nothing changes before app-power.js
+                        // lands it.
+                        const clickedLayer = window.app.project.layers.find(
+                            l => l.id === clickedPanel.layerId) || null;
+                        const reachable = (typeof window.app.canPathReachLayer === 'function')
+                            ? !!(clickedLayer && window.app.canPathReachLayer(
+                                window.app.currentLayer, clickedLayer))
+                            : clickedPanel.layerId === window.app.currentLayer.id;
+                        if (isPower && window.app.isCustomPower(window.app.currentLayer) && reachable) {
                             if (window.app.powerCustomSelection.size > 0) {
                                 window.app.powerCustomSelection.clear();
                                 window.app.updateCustomPowerUI();
                             } else {
-                                window.app.addPanelToCustomPowerPath(clickedPanel.panel);
+                                // The clicked panel's OWN layer goes with it so
+                                // makePathEntry can stamp the right layerId;
+                                // it is omitted again when that layer is the
+                                // owner, which is every pre-group project.
+                                window.app.addPanelToCustomPowerPath(clickedPanel.panel, clickedLayer);
                             }
-                        } else if (!isPower && window.app.isCustomFlow(window.app.currentLayer) && clickedPanel.layerId === window.app.currentLayer.id) {
+                        } else if (!isPower && window.app.isCustomFlow(window.app.currentLayer) && reachable) {
                             if (window.app.customSelection.size > 0) {
                                 window.app.clearCustomSelection();
                             } else {
-                                window.app.addPanelToCustomPath(clickedPanel.panel);
+                                window.app.addPanelToCustomPath(clickedPanel.panel, clickedLayer);
                             }
                         } else if (!window.app.isCustomFlow(window.app.currentLayer) && !window.app.isCustomPower(window.app.currentLayer)) {
                             window.app.togglePanelSelection(clickedPanel.panel);
@@ -1477,6 +1518,23 @@ class CanvasRenderer {
                         return;
                     }
                 } else {
+                    // v0.10.9 screen groups: click-to-add crosses members, the
+                    // MARQUEE deliberately does not, and this is not an
+                    // oversight to be tidied up later.
+                    //
+                    // customSelection / powerCustomSelection are keyed by the
+                    // UNSCOPED getPanelKey, `${row},${col}`, and they have to
+                    // stay that way - pixelMapSelection shares the key and
+                    // three overlays parse it back with
+                    // `key.split(',').map(parseInt)`. So member A's R0C0 and
+                    // member B's R0C0 are the SAME entry in that Set, and
+                    // applyPatternToSelection (app-power.js:1311) reads the Set
+                    // back against `this.currentLayer.panels` alone before
+                    // writing plain {row, col} steps. A marquee spanning two
+                    // members could therefore only ever commit the owner's own
+                    // cabinets under the peer's row and column - a silently
+                    // wrong path, not a partly-working one. Scoping the Set is
+                    // the only real fix and it is out of scope here.
                     if (this.viewMode === 'power') {
                         window.app.selectPowerPanelsInRect(window.app.currentLayer, this.selectionRect);
                     } else {
@@ -2261,6 +2319,279 @@ class CanvasRenderer {
         return layers;
     }
 
+    // ── Screen groups (v0.10.9): paths that cross from member to member ───
+    //
+    // To the user a group IS one wall, so a hand-drawn port or circuit has to
+    // be allowed to run off one member and onto the next. The path still
+    // BELONGS to the layer that owns the port/circuit; only the individual
+    // step learns where it landed, as `{row, col, layerId}`. app-power.js owns
+    // the resolution helpers (resolvePathEntry, getResolvedPathPanels,
+    // pathCrossesMembers, ...); everything here CALLS them and degrades to
+    // plain single-layer behaviour when they are absent, so the renderer never
+    // depends on load order.
+    //
+    // WHY A SEPARATE PASS. renderDataFlowArrows / renderPowerArrows run INSIDE
+    // one layer's ctx transform: the canvas workspace translate, the canvas
+    // mirror, that layer's Show Look offset and that layer's rotation. Two
+    // members with different showOffsetX/Y or different rotation cannot both be
+    // correct under one of those, and drawing the line during the OWNER's pass
+    // would also let a peer drawn later paint its cabinets over it. So a
+    // crossing path is skipped in the per-layer pass, its owner is queued, and
+    // after the whole canvas loop has finished we re-enter the same renderers
+    // with `_crossMemberPass` set - reusing every line of the drawing code
+    // rather than growing a second copy of it that can drift.
+    //
+    // A path with NO cross-layer entry never reaches any of this: it takes the
+    // per-layer branch it always took, expression for expression. That is the
+    // whole point - the overwhelming majority of projects have no groups at
+    // all, and none of them may change by a pixel.
+
+    // Is this path one of the crossing ones? False whenever app-power.js has
+    // not defined the helper, which is also the honest answer for a project
+    // that has never had a group.
+    _pathCrossesMembers(ownerLayer, path) {
+        const app = window.app;
+        if (!app || typeof app.pathCrossesMembers !== 'function') return false;
+        return !!app.pathCrossesMembers(ownerLayer, path);
+    }
+
+    // A path resolved to {layer, panel} pairs, hidden cabinets dropped, in path
+    // order. Falls back to owner-only resolution so this is safe before
+    // app-power.js grows getResolvedPathPanels.
+    _resolvePathPanels(ownerLayer, path) {
+        const app = window.app;
+        if (!app || !Array.isArray(path)) return [];
+        if (typeof app.getResolvedPathPanels === 'function') {
+            return app.getResolvedPathPanels(ownerLayer, path) || [];
+        }
+        return path
+            .map(pos => {
+                const panel = app.getPanelByRowCol(ownerLayer, pos && pos.row, pos && pos.col);
+                return panel && !panel.hidden ? { layer: ownerLayer, panel } : null;
+            })
+            .filter(Boolean);
+    }
+
+    // One resolved cabinet as the geometry the arrow renderers actually read:
+    // an {x, y, width, height} rect in the frame the cross-member overlay draws
+    // in. That frame is the canvas workspace AFTER the mirror, so it carries
+    // the entry layer's OWN rotation and its OWN Show Look offset - the two
+    // things that differ between members - and nothing else. The workspace
+    // translate and the mirror are identical for every member (a group member
+    // on another effective canvas is not reachable at all, see
+    // _groupDrawnMembers), so the caller applies those once as a ctx transform.
+    //
+    // Under a 90/270 rotation the cabinet's footprint swaps width and height;
+    // the rect is rebuilt around the ROTATED CENTRE so `x + width / 2` - the
+    // only thing the arrow code ever asks for - still names the middle of the
+    // cabinet as drawn.
+    _crossMemberPanelShim(entryLayer, panel) {
+        const deg = this._layerRotationDeg(entryLayer);
+        const swap = (deg === 90 || deg === 270);
+        const w = swap ? (Number(panel.height) || 0) : (Number(panel.width) || 0);
+        const h = swap ? (Number(panel.width) || 0) : (Number(panel.height) || 0);
+        const c = this._rotatePointForLayer(
+            (Number(panel.x) || 0) + (Number(panel.width) || 0) / 2,
+            (Number(panel.y) || 0) + (Number(panel.height) || 0) / 2,
+            entryLayer);
+        const off = this.getLayerRenderOffset(entryLayer);
+        return {
+            x: c.x + off.dx - w / 2,
+            y: c.y + off.dy - h / 2,
+            width: w,
+            height: h,
+            hidden: false,
+            row: panel.row,
+            col: panel.col,
+        };
+    }
+
+    _crossMemberDrawPanels(ownerLayer, path) {
+        return this._resolvePathPanels(ownerLayer, path)
+            .map(hit => this._crossMemberPanelShim(hit.layer, hit.panel));
+    }
+
+    // The cabinets a crossing port is SCORED on, which is a different frame
+    // from the one it is drawn in.
+    //
+    // Port load and capacity are processor facts: the NovaStar Armor rectangle
+    // constraint is about the pixel rectangle the processor has to push, and
+    // the NovaStar low-latency (1 - Y/H) derate measures Y down the processor
+    // canvas. panel.x/panel.y are ALREADY canvas-relative - _build_panels lays
+    // each column out from layer.offset_x (app.py) - so two members of the same
+    // processor canvas already share one frame and their raw coords union
+    // correctly with no conversion at all. Adding the Show Look offset here,
+    // which is what the DRAWING frame carries, would silently move a port's Y
+    // and hand the low-latency derate a number about where the screen was
+    // dragged for the show file rather than where the processor sees it.
+    //
+    // The one case that genuinely cannot be scored: Show Look can move a member
+    // onto a different canvas (show_canvas_id), so two members can share an
+    // EFFECTIVE canvas - which is all a cross-member path requires - while
+    // their panels are laid out against different processor rasters. There is
+    // no honest union across two rasters and no honest H for the derate, so
+    // this returns null and the caller draws no badge rather than a number
+    // nobody can act on.
+    _crossMemberLoadPanels(ownerLayer, path) {
+        const hits = this._resolvePathPanels(ownerLayer, path);
+        if (hits.length === 0) return [];
+        const rasterId = ownerLayer && ownerLayer.canvas_id;
+        for (const hit of hits) {
+            if (hit.layer && hit.layer.canvas_id !== rasterId) return null;
+        }
+        return hits.map(hit => hit.panel);
+    }
+
+    // Union of the drawn members' footprints in the overlay frame, so the port
+    // and circuit labels are nudged inside THE WALL rather than inside whichever
+    // member happens to own the port. getLayerFootprintInActiveView is already
+    // exactly this frame: bounds + that member's render offset, rotated.
+    _crossMemberBounds(ownerLayer) {
+        const members = this._groupDrawnMembers(ownerLayer);
+        if (members.length === 0) return this.getLayerBoundsInActiveView(ownerLayer);
+        let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+        members.forEach(m => {
+            const b = this.getLayerFootprintInActiveView(m);
+            x1 = Math.min(x1, b.x);
+            y1 = Math.min(y1, b.y);
+            x2 = Math.max(x2, b.x + b.width);
+            y2 = Math.max(y2, b.y + b.height);
+        });
+        if (!isFinite(x1)) return this.getLayerBoundsInActiveView(ownerLayer);
+        return { x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
+    }
+
+    // The one decision every custom-path branch asks: is this path mine to draw?
+    // In the ordinary per-layer pass a crossing path is skipped and its owner
+    // remembered; in the overlay pass only crossing paths draw. Returns true
+    // when the caller should skip.
+    _deferCrossMemberPath(ownerLayer, path) {
+        const crosses = this._pathCrossesMembers(ownerLayer, path);
+        if (this._crossMemberPass) return !crosses;
+        if (crosses) {
+            if (!this._crossMemberOwners) this._crossMemberOwners = [];
+            if (!this._crossMemberOwners.includes(ownerLayer)) {
+                this._crossMemberOwners.push(ownerLayer);
+            }
+            return true;
+        }
+        return false;
+    }
+
+    // The overlay frame: the canvas workspace translate and the canvas mirror,
+    // and deliberately NOT the per-layer Show Look offset or rotation - those
+    // are per member and are already baked into the points. `_mirror` is raised
+    // for the duration for the same reason the main loop raises it, so port and
+    // circuit labels come out readable on a Back-perspective canvas instead of
+    // written backwards.
+    _withCrossMemberCanvasTransform(ownerLayer, fn) {
+        const wsOff = this._layerCanvasOffset(ownerLayer);
+        const cid = this._effectiveLayerCanvasId(ownerLayer);
+        const arr = (window.app && window.app.project && window.app.project.canvases) || [];
+        const c = Array.isArray(arr) ? arr.find(x => x && x.id === cid) : null;
+        const mirrorActive = !!(c && this._isCanvasMirrored(c));
+        const prevMirror = this._mirror;
+        this.ctx.save();
+        if (wsOff.wx || wsOff.wy) this.ctx.translate(wsOff.wx, wsOff.wy);
+        if (mirrorActive) {
+            const crw = (this.isShowLookView() && c.show_raster_width) || c.raster_width || 0;
+            this.ctx.translate(crw, 0);
+            this.ctx.scale(-1, 1);
+            this._mirror = true;
+        }
+        try {
+            fn();
+        } finally {
+            this._mirror = prevMirror;
+            this.ctx.restore();
+        }
+    }
+
+    // The post-loop pass. Runs once per owner that queued a crossing path, in
+    // the order the layers were drawn, so a crossing line lands on top of every
+    // member's cabinets - which is what "one wall" has to look like.
+    //
+    // `_activeRenderCanvas` is restored to the owner's own canvas for the
+    // duration: the loop cleared it, and without it _clipToActiveRaster would
+    // clip a group living on a background canvas against the ACTIVE canvas's
+    // raster and quietly trim the line.
+    _renderCrossMemberPaths(kind) {
+        const owners = this._crossMemberOwners;
+        if (!Array.isArray(owners) || owners.length === 0) return;
+        const canvases = (window.app && window.app.project && window.app.project.canvases) || [];
+        this._crossMemberOwners = [];
+        this._crossMemberPass = true;
+        try {
+            owners.forEach(layer => {
+                if (!layer || !layer.visible) return;
+                const cid = this._effectiveLayerCanvasId(layer);
+                const canvas = Array.isArray(canvases) ? canvases.find(c => c && c.id === cid) : null;
+                const prevCanvas = this._activeRenderCanvas;
+                this._activeRenderCanvas = canvas || null;
+                try {
+                    this._withCrossMemberCanvasTransform(layer, () => {
+                        if (kind === 'power') this.renderPowerArrows(layer);
+                        else this.renderDataFlowArrows(layer);
+                    });
+                } finally {
+                    this._activeRenderCanvas = prevCanvas;
+                }
+            });
+        } finally {
+            this._crossMemberPass = false;
+            // Re-entering the renderers re-queued nothing legitimate (the
+            // overlay pass never defers), but clear it so a helper that threw
+            // mid-pass cannot leave an owner queued for the NEXT frame.
+            this._crossMemberOwners = [];
+        }
+    }
+
+    // The circuit tinting a cabinet in the color-coded power view, and the
+    // layer that OWNS that circuit (its palette and its label are the owner's).
+    //
+    // The fast path is the layer's own unscoped map, byte for byte the lookup
+    // this has always done. Only if that misses, and only for a grouped layer,
+    // do we ask the peers: a circuit owned by member A can legally contain a
+    // cabinet of member B, and B's own map knows nothing about it. Peer maps
+    // are keyed by getScopedPanelKey - `${layerId}:${row},${col}` - because the
+    // unscoped key cannot tell A's R0C0 from B's R0C0, and putting a peer's
+    // cabinet into an unscoped map would tint the owner's OWN cabinet at that
+    // row and column instead. (getPowerPanelKey itself stays `${row},${col}`:
+    // three overlays parse those keys with `key.split(',').map(parseInt)`, and
+    // `parseInt("3:0")` is 3, so a scoped key there would silently address the
+    // wrong panel with no error at all.)
+    _powerCircuitForPanel(layer, panel) {
+        if (layer._powerPanelCircuitMap instanceof Map) {
+            const n = layer._powerPanelCircuitMap.get(this.getPowerPanelKey(panel));
+            if (n) return { owner: layer, circuitNum: n };
+        }
+        if (!layer.group_id) return null;
+        const app = window.app;
+        if (!app || typeof app.getScopedPanelKey !== 'function') return null;
+        const key = app.getScopedPanelKey(layer.id, panel);
+        const members = this._groupDrawnMembers(layer);
+        for (const peer of members) {
+            if (!peer || peer === layer || peer.id === layer.id) continue;
+            // The peer may not have had its render pass yet - preparation runs
+            // at the top of each layer's pass - so build its maps on demand.
+            // The function is a pure derivation of the layer's own state, so
+            // its own pass will simply produce the same maps again. Keyed on
+            // the frame counter rather than "does a map exist", because a map
+            // left over from the previous frame is exactly the stale tint this
+            // is here to avoid; the check also keeps this to once per peer per
+            // frame instead of once per cabinet.
+            const prepared = this._powerPrepFrame
+                && this._powerPrepFrame.get(peer) === (this._renderSeq || 0);
+            if (!prepared) this.preparePowerLayerRenderData(peer);
+            const scoped = peer._powerPanelCircuitScopedMap;
+            if (!(scoped instanceof Map)) continue;
+            if (peer._powerError) continue;
+            const n = scoped.get(key);
+            if (n) return { owner: peer, circuitNum: n };
+        }
+        return null;
+    }
+
     getPanelAt(worldX, worldY) {
         if (!window.app || !window.app.project) return null;
         for (let i = window.app.project.layers.length - 1; i >= 0; i--) {
@@ -2584,6 +2915,17 @@ class CanvasRenderer {
         // this._mirror, that flag is now toggled on/off per canvas as the
         // loop enters/exits each canvas's draw scope.
         this._mirror = false;
+        // v0.10.9: the per-layer passes below queue any manual path that
+        // crosses into a group peer; _renderCrossMemberPaths drains the queue
+        // once every layer has been drawn. Cleared here so a frame that threw
+        // part way through cannot carry an owner into the next one.
+        this._crossMemberOwners = [];
+        this._crossMemberPass = false;
+        // v0.10.9: frame counter, so _powerCircuitForPanel can tell a peer's
+        // circuit maps it built itself THIS frame from ones left over from the
+        // last one. Without it a peer drawn after its owner would keep tinting
+        // from a stale map for one frame after every edit.
+        this._renderSeq = (this._renderSeq || 0) + 1;
         // Legacy single-canvas projects (no canvases array) keep the old
         // global mirror so v0.7 fallbacks render correctly.
         const _legacyNoCanvases = !window.app || !window.app.project
@@ -2870,6 +3212,16 @@ class CanvasRenderer {
             // (overlays, badges, hit-testing during this render) sees the
             // active canvas's raster via the getter again.
             this._activeRenderCanvas = null;
+
+            // v0.10.9 screen groups: the manual paths that cross from one member
+            // to the next, drawn now that every member's cabinets are down.
+            // Deliberately NOT gated on exportMode - a wall wired across two
+            // members has to appear on the printed map too, and drawing it here
+            // is also the only way it survives being covered by a peer that
+            // renders after its owner.
+            if (this.viewMode === 'data-flow' || this.viewMode === 'power') {
+                this._renderCrossMemberPaths(this.viewMode === 'power' ? 'power' : 'data');
+            }
 
             if (!this.exportMode && this.viewMode === 'data-flow') {
                 this.renderCustomSelectionOverlay();
@@ -3797,6 +4149,17 @@ class CanvasRenderer {
     //     these processors is exactly the running `load` the port map used
     //     (hidden cabinets never reach the traversal there, getOrderedPanelsByPattern
     //     drops them unless the processor is a rectangle one).
+    //
+    // v0.10.9 screen groups: the rectangle branch unions raw p.x / p.y across
+    // the port's cabinets, and for a port that runs onto a group peer that is
+    // still the right thing - panel coords are laid out from layer.offset_x by
+    // _build_panels, so they are CANVAS-relative, and two members of the same
+    // processor canvas already share one frame. Converting to show-look world
+    // coords first would be actively wrong: it would fold in each member's
+    // Show Look offset, which is where the screen was dragged for the show
+    // file, not where the processor sees the pixels. The frame is enforced by
+    // the caller (_crossMemberLoadPanels refuses a port whose cabinets straddle
+    // two processor rasters, which Show Look's show_canvas_id can produce).
     getPortPixelLoad(layer, portPanels) {
         const app = window.app;
         if (!app || !layer || !Array.isArray(portPanels)) return 0;
@@ -3836,6 +4199,23 @@ class CanvasRenderer {
     // this port's OWN bounding box, in the same order calculatePortAssignments
     // uses (table value -> Y-derate -> penalty). Without it a penalised 5G port
     // would be scored as a percentage of a capacity it does not have.
+    //
+    // v0.10.9 screen groups: `layer` is always the port's OWNER, even when the
+    // port runs onto a group peer, and every figure below is read from it. That
+    // is not laziness about which member to ask - the port is physically on the
+    // owner's processor, so the owner's bit depth, frame rate, processor type
+    // and low-latency flag are the ones that decide what it can carry. It also
+    // matters that they are not blended: GROUP_SHARED_SETTINGS validates
+    // processorType, bitDepth and frameRate at group creation, but lowLatency
+    // and portMappingMode are only propagated on EDIT, so a group built before
+    // that can hold members that disagree. Mixing them would produce a capacity
+    // no member actually has.
+    //
+    // The 5G narrow-port penalty and the (1 - Y/H) derate both stay meaningful
+    // across members because they measure the port's own bounding box against
+    // the processor canvas, and same-canvas members' panel coords already share
+    // that frame - see _crossMemberLoadPanels, which also refuses to hand this
+    // function a port whose cabinets straddle two processor rasters.
     getPortCapacityForPanels(layer, portPanels) {
         const app = window.app;
         if (!app || !layer || typeof app.calculatePortCapacity !== 'function') return 0;
@@ -4006,14 +4386,26 @@ class CanvasRenderer {
 
         // v0.8.7.4: layer bounds in panel-local coords, used to shift
         // port labels inward when they'd overflow the screen edge.
-        const layerBoundsForPort = this.getLayerBounds(layer);
+        // v0.10.9: in the cross-member overlay pass the "screen" a label must
+        // stay inside is the whole wall, not the member that owns the port, and
+        // the frame is the overlay's rather than this layer's.
+        const layerBoundsForPort = this._crossMemberPass
+            ? this._crossMemberBounds(layer)
+            : this.getLayerBounds(layer);
         const layerLeft = layerBoundsForPort.x;
         const layerTop = layerBoundsForPort.y;
         const layerRight = layerBoundsForPort.x + layerBoundsForPort.width;
         const layerBottom = layerBoundsForPort.y + layerBoundsForPort.height;
 
-        const drawPort = (portPanels, portNum) => {
+        // `loadPanels` splits the cabinets a port is DRAWN from off the ones it
+        // is SCORED on. They are the same objects for every ordinary port and
+        // the argument is simply omitted; a crossing port is drawn from
+        // overlay-frame shims but scored on the real cabinets, in processor
+        // coords, because load and capacity are processor facts. null means the
+        // port cannot be scored honestly at all (see _crossMemberLoadPanels).
+        const drawPort = (portPanels, portNum, loadPanels) => {
             if (portPanels.length === 0) return;
+            const scoredPanels = (loadPanels === undefined) ? portPanels : loadPanels;
             
             const currentLineColor = useRandomColors ? randomColors[(portNum - 1) % randomColors.length] : lineColor;
             this.ctx.strokeStyle = currentLineColor;
@@ -4145,8 +4537,8 @@ class CanvasRenderer {
             // marker so it reads with the port it belongs to and never covers
             // the port number itself. Runs for the hand-drawn custom paths too,
             // which is the case the percentage was asked for.
-            if (showPortLoad) {
-                this.drawPortLoadBadge(layer, portPanels, px, py, primaryFit.radius, labelSize, {
+            if (showPortLoad && scoredPanels) {
+                this.drawPortLoadBadge(layer, scoredPanels, px, py, primaryFit.radius, labelSize, {
                     left: layerLeft, right: layerRight, top: layerTop, bottom: layerBottom
                 });
             }
@@ -4157,16 +4549,35 @@ class CanvasRenderer {
             const portNums = Object.keys(layer.customPortPaths)
                 .map(n => parseInt(n, 10))
                 .sort((a, b) => a - b);
-            
+
             portNums.forEach(portNum => {
                 const path = layer.customPortPaths[portNum] || [];
+                // v0.10.9: a path that stays on this layer is resolved and drawn
+                // exactly as it always was; a path that reaches into a peer is
+                // skipped here and drawn by the post-loop overlay pass, which
+                // re-enters this function with _crossMemberPass raised and
+                // takes the other side of both branches below.
+                if (this._deferCrossMemberPath(layer, path)) return;
+                if (this._crossMemberPass) {
+                    drawPort(this._crossMemberDrawPanels(layer, path), portNum,
+                        this._crossMemberLoadPanels(layer, path));
+                    return;
+                }
                 const portPanels = path.map(p => {
                     const panel = layer.panels.find(panel => panel.row === p.row && panel.col === p.col);
                     return panel && !panel.hidden ? panel : null;
                 }).filter(Boolean);
                 drawPort(portPanels, portNum);
             });
-            
+
+            this.ctx.restore();
+            return;
+        }
+
+        // v0.10.9: the overlay pass exists only to finish the crossing custom
+        // paths. Automatic assignment walks one uniform grid and never leaves
+        // its layer, so there is nothing here for it to draw a second time.
+        if (this._crossMemberPass) {
             this.ctx.restore();
             return;
         }
@@ -4235,17 +4646,30 @@ class CanvasRenderer {
         let circuits = [];
         let circuitNumKeys = null;
 
+        // v0.10.9: which LAYER each cabinet of each circuit came from, parallel
+        // to `circuits`. Every entry is this layer for an automatic map and for
+        // any custom circuit that stays home; only a circuit reaching into a
+        // group peer differs, and only that case needs the scoped keys below.
+        let circuitOwners = null;
+
         if (isCustom && layer.powerCustomPaths) {
             const circuitNums = Object.keys(layer.powerCustomPaths)
                 .map(n => parseInt(n, 10))
                 .filter(n => (layer.powerCustomPaths[n] || []).length > 0)
                 .sort((a, b) => a - b);
             circuitNumKeys = circuitNums;
+            circuitOwners = [];
             circuits = circuitNums.map(circuitNum => {
                 const path = layer.powerCustomPaths[circuitNum] || [];
-                return path
-                    .map(pos => window.app.getPanelByRowCol(layer, pos.row, pos.col))
-                    .filter(p => p && !p.hidden);
+                if (!this._pathCrossesMembers(layer, path)) {
+                    circuitOwners.push(null);   // all this layer's own cabinets
+                    return path
+                        .map(pos => window.app.getPanelByRowCol(layer, pos.row, pos.col))
+                        .filter(p => p && !p.hidden);
+                }
+                const hits = this._resolvePathPanels(layer, path);
+                circuitOwners.push(hits.map(h => h.layer));
+                return hits.map(h => h.panel);
             });
         } else {
             const assignments = window.app.calculatePowerAssignments(layer);
@@ -4256,21 +4680,46 @@ class CanvasRenderer {
         layer._powerError = error;
         layer._powerCircuits = circuits;
         layer._powerCircuitNumKeys = circuitNumKeys;
+        layer._powerCircuitOwners = circuitOwners;
 
         const panelCircuitMap = new Map();
         const panelIndexMap = new Map();
+        // v0.10.9: the same two maps keyed by `${layerId}:${row},${col}` so a
+        // circuit that reaches into a group peer can still tint the cabinets it
+        // claimed over there. It has to be a SECOND map rather than a change of
+        // key: the unscoped one is read by renderPower for this layer's own
+        // cabinets and cannot tell member A's R0C0 from member B's, so filing a
+        // peer's cabinet in it would paint the owner's own R0C0 instead.
+        const panelCircuitScopedMap = new Map();
+        const panelIndexScopedMap = new Map();
         if (!error) {
             circuits.forEach((circuitPanels, idx) => {
                 const circuitNum = circuitNumKeys ? circuitNumKeys[idx] : idx + 1;
+                const owners = circuitOwners ? circuitOwners[idx] : null;
                 (circuitPanels || []).forEach((panel, panelIdx) => {
-                    const key = this.getPowerPanelKey(panel);
-                    panelCircuitMap.set(key, circuitNum);
-                    panelIndexMap.set(key, panelIdx + 1);
+                    const owner = (owners && owners[panelIdx]) || layer;
+                    if (owner === layer || owner.id === layer.id) {
+                        const key = this.getPowerPanelKey(panel);
+                        panelCircuitMap.set(key, circuitNum);
+                        panelIndexMap.set(key, panelIdx + 1);
+                    }
+                    if (window.app && typeof window.app.getScopedPanelKey === 'function') {
+                        const scopedKey = window.app.getScopedPanelKey(owner.id, panel);
+                        panelCircuitScopedMap.set(scopedKey, circuitNum);
+                        panelIndexScopedMap.set(scopedKey, panelIdx + 1);
+                    }
                 });
             });
         }
         layer._powerPanelCircuitMap = panelCircuitMap;
         layer._powerPanelIndexMap = panelIndexMap;
+        layer._powerPanelCircuitScopedMap = panelCircuitScopedMap;
+        layer._powerPanelIndexScopedMap = panelIndexScopedMap;
+        // Which frame these maps belong to. Kept off the layer object (a
+        // WeakMap on the renderer) so it is not one more transient key the
+        // preset, file-load and history code has to remember to strip.
+        if (!this._powerPrepFrame) this._powerPrepFrame = new WeakMap();
+        this._powerPrepFrame.set(layer, this._renderSeq || 0);
     }
 
     renderPowerArrows(layer) {
@@ -4304,7 +4753,11 @@ class CanvasRenderer {
 
         // v0.8.7.4: layer bounds in panel-local coords, used to shift
         // labels inward when they'd overflow the screen edge.
-        const layerBounds = this.getLayerBounds(layer);
+        // v0.10.9: the cross-member overlay pass keeps its labels inside the
+        // whole wall instead, in the overlay's frame - see renderDataFlowArrows.
+        const layerBounds = this._crossMemberPass
+            ? this._crossMemberBounds(layer)
+            : this.getLayerBounds(layer);
         const layerLeft = layerBounds.x;
         const layerTop = layerBounds.y;
         const layerRight = layerBounds.x + layerBounds.width;
@@ -4355,9 +4808,29 @@ class CanvasRenderer {
                 return;
             }
             const colorViewKeys = layer._powerCircuitNumKeys;
+            // v0.10.9: `circuits` can now hold a peer's cabinets, and the label
+            // is parked on the circuit's FIRST cabinet - which may be one of
+            // them. Its raw x/y mean nothing inside this layer's transform, so
+            // a crossing circuit's label is deferred to the overlay pass with
+            // the lines, and there it is rebuilt from overlay-frame shims.
+            const colorViewOwners = layer._powerCircuitOwners;
             layer._powerCircuits.forEach((circuitPanels, idx) => {
                 if (!circuitPanels || circuitPanels.length === 0) return;
                 const circuitNum = colorViewKeys ? colorViewKeys[idx] : idx + 1;
+                const path = (isCustom && layer.powerCustomPaths)
+                    ? (layer.powerCustomPaths[circuitNum] || []) : [];
+                const crosses = !!(colorViewOwners && colorViewOwners[idx]);
+                if (this._crossMemberPass) {
+                    if (!crosses) return;
+                    const shims = this._crossMemberDrawPanels(layer, path);
+                    if (shims.length === 0) return;
+                    drawCircuitLabel(shims[0], shims[1], circuitNum);
+                    return;
+                }
+                if (crosses) {
+                    this._deferCrossMemberPath(layer, path);
+                    return;
+                }
                 drawCircuitLabel(circuitPanels[0], circuitPanels[1], circuitNum);
             });
             this.ctx.restore();
@@ -4422,11 +4895,27 @@ class CanvasRenderer {
                 .sort((a, b) => a - b);
             circuitNums.forEach(circuitNum => {
                 const path = layer.powerCustomPaths[circuitNum] || [];
+                // v0.10.9: same split as the data-flow custom branch, and it has
+                // to stay in step with preparePowerLayerRenderData above - the
+                // two read the same paths and a divergence would show up as a
+                // circuit that is tinted but not wired, or wired twice.
+                if (this._deferCrossMemberPath(layer, path)) return;
+                if (this._crossMemberPass) {
+                    drawCircuit(this._crossMemberDrawPanels(layer, path), circuitNum);
+                    return;
+                }
                 const panels = path
                     .map(pos => window.app.getPanelByRowCol(layer, pos.row, pos.col))
                     .filter(p => p && !p.hidden);
                 drawCircuit(panels, circuitNum);
             });
+            this.ctx.restore();
+            return;
+        }
+
+        // v0.10.9: automatic circuits never leave their layer, so the overlay
+        // pass has nothing to add here.
+        if (this._crossMemberPass) {
             this.ctx.restore();
             return;
         }
@@ -4677,12 +5166,16 @@ class CanvasRenderer {
         }
 
         let fillHex = null;
-        let panelCircuitNum = null;
-        if (layer.powerColorCodedView && !layer._powerError && layer._powerPanelCircuitMap instanceof Map) {
-            const key = this.getPowerPanelKey(panel);
-            panelCircuitNum = layer._powerPanelCircuitMap.get(key);
-            if (panelCircuitNum) {
-                fillHex = this.getPowerCircuitColor(layer, panelCircuitNum);
+        if (layer.powerColorCodedView && !layer._powerError) {
+            // v0.10.9: the circuit tinting this cabinet is usually one of this
+            // layer's own, but a group peer's circuit can have claimed it - and
+            // then the COLOUR is the peer's, because the palette and the circuit
+            // number both belong to the layer that owns the circuit. Without
+            // this a cross-member circuit tinted only the half of itself that
+            // happened to sit on the layer being drawn.
+            const hit = this._powerCircuitForPanel(layer, panel);
+            if (hit && hit.circuitNum) {
+                fillHex = this.getPowerCircuitColor(hit.owner, hit.circuitNum);
             }
         }
 
@@ -5145,22 +5638,36 @@ class CanvasRenderer {
                 // `updatePortCapacityDisplay`, so other layers' labels would go
                 // stale until clicked. `renderDataFlowArrows` ran just above and
                 // populated fresh `_autoPortsRequired` on this layer.
+                // v0.10.9: one group-aware implementation, not a third private
+                // copy. "Ports required" used to be derived here, in
+                // app-power.js and in app-screen-info.js, and the three agreed
+                // only because a port could never leave its layer; once one can,
+                // three copies print three different numbers in the sidebar, the
+                // group roll-up and this canvas label. getLayerPortsRequired
+                // (app-screen-info.js) is the single source, and it still
+                // recomputes rather than trusting the cached `_portsRequired`,
+                // which updatePortCapacityDisplay only refreshes for the
+                // selected layer.
                 let portsRequired = 0;
-                const isCustom = typeof window.app.isCustomFlow === 'function'
-                    ? window.app.isCustomFlow(layer)
-                    : (layer.flowPattern === 'custom');
-                if (isCustom && layer.customPortPaths) {
-                    const customPorts = Object.keys(layer.customPortPaths)
-                        .map(p => parseInt(p, 10))
-                        .filter(p => (layer.customPortPaths[p] || []).length > 0);
-                    portsRequired = customPorts.length > 0
-                        ? Math.max(...customPorts)
-                        : (layer._autoPortsRequired || layer.customPortIndex || 0);
+                if (typeof window.app.getLayerPortsRequired === 'function') {
+                    portsRequired = window.app.getLayerPortsRequired(layer) || 0;
                 } else {
-                    portsRequired = layer._autoPortsRequired || 0;
-                    if (portsRequired <= 0 && typeof window.app.calculatePortAssignments === 'function') {
-                        window.app.calculatePortAssignments(layer);
+                    const isCustom = typeof window.app.isCustomFlow === 'function'
+                        ? window.app.isCustomFlow(layer)
+                        : (layer.flowPattern === 'custom');
+                    if (isCustom && layer.customPortPaths) {
+                        const customPorts = Object.keys(layer.customPortPaths)
+                            .map(p => parseInt(p, 10))
+                            .filter(p => (layer.customPortPaths[p] || []).length > 0);
+                        portsRequired = customPorts.length > 0
+                            ? Math.max(...customPorts)
+                            : (layer._autoPortsRequired || layer.customPortIndex || 0);
+                    } else {
                         portsRequired = layer._autoPortsRequired || 0;
+                        if (portsRequired <= 0 && typeof window.app.calculatePortAssignments === 'function') {
+                            window.app.calculatePortAssignments(layer);
+                            portsRequired = layer._autoPortsRequired || 0;
+                        }
                     }
                 }
                 if (portsRequired > 0) {
@@ -5912,25 +6419,24 @@ class CanvasRenderer {
         this._drawActiveBadge(label, committedCount, selectedCount, 'rgba(0, 255, 102, 0.9)');
     }
 
+    // "N on port" / "N on circuit". v0.10.9: counted through the shared path
+    // resolver so a step that landed on a group peer counts too - the badge is
+    // telling the user how many cabinets they have wired to the port they are
+    // drawing, and a cabinet on the next member is still wired to it. Both
+    // resolvers drop steps whose cabinet no longer exists or is hidden, which
+    // is what the hand-rolled reduce did.
     _getCustomPortPanelCount(layer, portNum) {
         const path = (layer.customPortPaths && layer.customPortPaths[portNum]) || [];
         if (!Array.isArray(path)) return 0;
-        // Filter to panels that still exist and are not hidden
-        return path.reduce((n, pos) => {
-            if (!window.app || typeof window.app.getPanelByRowCol !== 'function') return n + 1;
-            const panel = window.app.getPanelByRowCol(layer, pos.row, pos.col);
-            return n + (panel && !panel.hidden ? 1 : 0);
-        }, 0);
+        if (!window.app || typeof window.app.getPanelByRowCol !== 'function') return path.length;
+        return this._resolvePathPanels(layer, path).length;
     }
 
     _getCustomPowerCircuitPanelCount(layer, circuitNum) {
         const path = (layer.powerCustomPaths && layer.powerCustomPaths[circuitNum]) || [];
         if (!Array.isArray(path)) return 0;
-        return path.reduce((n, pos) => {
-            if (!window.app || typeof window.app.getPanelByRowCol !== 'function') return n + 1;
-            const panel = window.app.getPanelByRowCol(layer, pos.row, pos.col);
-            return n + (panel && !panel.hidden ? 1 : 0);
-        }, 0);
+        if (!window.app || typeof window.app.getPanelByRowCol !== 'function') return path.length;
+        return this._resolvePathPanels(layer, path).length;
     }
 
     // Shared renderer for the active-port / active-circuit badge in the

@@ -520,6 +520,67 @@ export class LEDRasterApp {
         return true;
     }
 
+    // v0.10.9 (step 6): a cross-member path entry ({row, col, layerId}) is only
+    // meaningful while the layer it names is still a reachable peer of the
+    // owner. Three things restore paths without any guarantee of that:
+    // localStorage client props (keyed by layer id, so a project with the same
+    // ids gets another project's wiring stamped on it), File > Open, and
+    // Recent Files. On top of that a group can be dissolved, or a member moved
+    // to another canvas, between the save and the load.
+    //
+    // The server prunes the same entries inside _enforce_group_integrity on
+    // every restore, so this pass does not have to be exhaustive - it exists so
+    // the canvas does not draw a port reaching into an unrelated screen in the
+    // window BEFORE the first sync comes back.
+    //
+    // Entries with no layerId - every path in every pre-step-6 project - are
+    // not touched, not even rewritten, so a project with no cross-member paths
+    // comes out of here byte-for-byte as it went in. Returns the number of
+    // entries dropped.
+    sanitizeCrossLayerPaths(layer) {
+        if (!layer || (layer.type || 'screen') !== 'screen') return 0;
+        // canPathReachLayer is the single authority on "may a path owned by
+        // this layer touch that one" (group membership AND same effective
+        // canvas). If it is not on the prototype there is no cross-member path
+        // feature in this build to validate, and guessing the rule here is how
+        // two copies of it drift apart.
+        if (typeof this.canPathReachLayer !== 'function') return 0;
+        const layers = (this.project && this.project.layers) || [];
+        let dropped = 0;
+        ['customPortPaths', 'powerCustomPaths'].forEach(key => {
+            const paths = layer[key];
+            if (!paths || typeof paths !== 'object') return;
+            Object.keys(paths).forEach(pathKey => {
+                const path = paths[pathKey];
+                if (!Array.isArray(path)) return;
+                const kept = path.filter(entry => {
+                    if (!entry || typeof entry !== 'object') return true;
+                    if (entry.layerId === undefined || entry.layerId === null) return true;
+                    if (entry.layerId === layer.id) {
+                        // "this layer", written the long way. Normalise it to
+                        // the plain form the renderers fast-path on.
+                        delete entry.layerId;
+                        return true;
+                    }
+                    const target = layers.find(l => l && l.id === entry.layerId);
+                    return !!(target && this.canPathReachLayer(layer, target));
+                });
+                if (kept.length === path.length) return;
+                dropped += path.length - kept.length;
+                // An emptied path loses its key: a port listed with an empty
+                // path reads as hand-routed with nothing drawn.
+                if (kept.length === 0) delete paths[pathKey];
+                else paths[pathKey] = kept;
+            });
+        });
+        if (dropped > 0) {
+            sendClientLog('cross_layer_paths_pruned', {
+                layerId: layer.id, layerName: layer.name, entries: dropped,
+            });
+        }
+        return dropped;
+    }
+
     // Load client-side properties from localStorage
     loadClientSideProperties({ skipPreferences = false } = {}) {
         if (!this.project || !this.project.layers) return;
@@ -724,6 +785,14 @@ export class LEDRasterApp {
             if (layer.showOffsetY === undefined || layer.showOffsetY === null) {
                 layer.showOffsetY = layer.offset_y || 0;
             }
+            // v0.10.9 (step 6): last in the pass, once customPortPaths /
+            // powerCustomPaths are guaranteed to exist. It validates against
+            // group membership, which arrives with the server payload rather
+            // than from the defaults above, so position inside this loop is
+            // safe. The paths it is checking were restored from localStorage
+            // keyed by layer id - exactly where a stale peer reference from a
+            // different project gets in.
+            this.sanitizeCrossLayerPaths(layer);
         });
 
         // For startup factory-default project only, enforce saved preference defaults.
@@ -3607,6 +3676,13 @@ export class LEDRasterApp {
             'group_id',
             'panels',  // panel array is regenerated from columns/rows on server
             '_powerError', '_powerCircuits', '_powerPanelCircuitMap', '_powerPanelIndexMap',
+            // The scoped twins carry the same per-frame render data keyed by
+            // layer as well as row/col, so a circuit crossing members can tint
+            // both. Same lifetime as the unscoped maps above - rebuilt every
+            // frame, and Maps besides, so serialising them writes `{}` into a
+            // preset and leaves a dead key behind on load.
+            '_powerPanelCircuitScopedMap', '_powerPanelIndexScopedMap',
+            '_powerCircuitOwners',
             '_powerCircuitNumKeys', '_powerTotalAmps1', '_powerTotalAmps3',
             '_powerCircuitsRequired', '_capacityError', '_portsRequired', '_autoPortsRequired',
             '_lowLatencyDerate',
@@ -3634,6 +3710,25 @@ export class LEDRasterApp {
         Object.keys(ensuredDefaults).forEach(k => {
             if (out[k] === undefined) out[k] = ensuredDefaults[k];
         });
+        // v0.10.9 (step 6): hand-drawn paths still travel with a preset - the
+        // geometry that gives them meaning (columns / rows / cabinet size)
+        // travels with it too - but only the entries that mean "a panel in
+        // this screen". A preset is reused in OTHER projects, where a layer id
+        // from this one names a different screen or nothing at all, so a
+        // cross-member entry is dropped at SAVE time rather than being carried
+        // out of the only project it was ever true in. Same rule as duplicate
+        // and paste: nothing but the owner is being copied, so nothing that
+        // names a peer can survive.
+        // Only rewritten when the layer actually carried them, so a preset
+        // saved from a layer without paths keeps the exact shape it had before.
+        if (out.customPortPaths !== undefined) {
+            out.customPortPaths = this.copyPathsForNewOwner(
+                layer.customPortPaths, layer.id, null);
+        }
+        if (out.powerCustomPaths !== undefined) {
+            out.powerCustomPaths = this.copyPathsForNewOwner(
+                layer.powerCustomPaths, layer.id, null);
+        }
         return out;
     }
 
@@ -3648,6 +3743,20 @@ export class LEDRasterApp {
             if (k.startsWith('_')) return;
             layer[k] = presetData[k];
         });
+        // v0.10.9 (step 6): the same drop on the way IN. serializeLayerAsPreset
+        // strips cross-member entries at save time, but presets already sitting
+        // on disk from an in-between build can still hold one, and a preset
+        // file is hand-editable. Passing a null owner id and no idMap means no
+        // id from the preset's project maps to anything here, so every entry
+        // naming a peer is dropped and only the plain {row, col} route lands.
+        if (layer.customPortPaths !== undefined) {
+            layer.customPortPaths = this.copyPathsForNewOwner(
+                layer.customPortPaths, null, null);
+        }
+        if (layer.powerCustomPaths !== undefined) {
+            layer.powerCustomPaths = this.copyPathsForNewOwner(
+                layer.powerCustomPaths, null, null);
+        }
         // v0.10.9: presets saved before Low Latency existed can still carry
         // 'brompton-ull', so migrate here as well as on the file-load paths.
         this.migrateLowLatencyProcessor(layer);
