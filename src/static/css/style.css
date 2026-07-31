@@ -910,6 +910,98 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     padding: 6px 8px;
 }
 
+/* ----------------------------------------------------------------------
+ * Screen groups (v0.10.9), the sidebar row.
+ * A group IS A SINGLE LAYER - one wall built from more than one cabinet size.
+ * So it gets ONE row that reads exactly like a screen row (same .layer-header
+ * / .layer-info structure, same controls), with a disclosure arrow that opens
+ * the members underneath. Collapsed is the default: the members are how the
+ * wall was built, not what the user is managing.
+ * ---------------------------------------------------------------------- */
+.screen-group { margin-bottom: 8px; }
+/* The group's own row. Same tile treatment as .layer-item so the list reads as
+   one kind of thing, with a heavier left edge as the only "this is a group" cue. */
+.screen-group-row {
+    background: #1a1a1a;
+    border: 1px solid #3a3a3a;
+    border-left: 3px solid #6a6a6a;
+    border-radius: 4px;
+    padding: 10px;
+    cursor: pointer;
+    box-sizing: border-box;
+    width: 100%;
+}
+.screen-group-row:hover { background: #2a2a2a; }
+.screen-group.active > .screen-group-row { border-color: #4A90E2; background: #1a2a3a; }
+.screen-group.hidden > .screen-group-row { opacity: 0.55; }
+.screen-group-title {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex: 1;
+    min-width: 0;
+}
+.screen-group-toggle {
+    background: transparent;
+    border: none;
+    color: #999;
+    cursor: pointer;
+    font-size: 10px;
+    line-height: 1;
+    padding: 2px 3px;
+    flex: 0 0 auto;
+}
+.screen-group-toggle:hover { color: #fff; }
+.screen-group-name-input {
+    flex: 1;
+    /* Not 0: the group row carries one more control than a screen row (the ⋮),
+       and at the sidebar's 260px an unbounded shrink squeezed the name down to
+       four characters. */
+    min-width: 60px;
+    background: transparent;
+    border: 1px solid transparent;
+    color: #e0e0e0;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 2px 4px;
+    border-radius: 3px;
+}
+.screen-group-lock-badge { margin-left: 6px; color: #bbb; }
+/* Same compact treatment the per-layer reorder arrows get, so the group row is
+   the same height as a screen row. */
+.screen-group-row .layer-btn { padding: 2px 3px; }
+.layer-btn.screen-group-move-up,
+.layer-btn.screen-group-move-down {
+    font-size: 9px;
+    padding: 0 4px;
+    line-height: 1;
+    height: 11px;
+}
+.screen-group-menu-btn { font-size: 13px; line-height: 1; }
+/* Members: secondary, indented, and marked as belonging to the row above. */
+.screen-group-body { padding: 6px 0 0 16px; }
+.screen-group.collapsed > .screen-group-body { display: none; }
+.screen-group-body .layer-item { position: relative; }
+.screen-group-body .layer-item::before {
+    content: "└";
+    position: absolute;
+    left: -12px;
+    top: 9px;
+    color: #666;
+    font-size: 11px;
+    line-height: 1;
+}
+.screen-group-menu-popup button:disabled {
+    color: #666;
+    cursor: default;
+}
+.screen-group-menu-popup button:disabled:hover { background: transparent; }
+/* Dialog rows reuse the Screen Info .info-row layout; only the spacing of a
+   stacked label + select inside a modal differs. */
+.group-settings-row { margin-bottom: 8px; }
+.group-settings-select { width: 100%; }
+.group-settings-match { margin-bottom: 3px; }
+
 /* Action menu popup (Rename / Duplicate / Change Color / Delete). */
 .canvas-menu-popup {
     background: #1f1f1f;

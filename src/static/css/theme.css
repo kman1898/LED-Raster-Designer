@@ -128,7 +128,7 @@ body, #app {
 
 /* ---- inset inputs ---- */
 input[type="text"], input[type="number"], select, .info-select,
-.canvas-raster-input, .layer-name-input, .canvas-name-input, textarea {
+.canvas-raster-input, .layer-name-input, .canvas-name-input, .screen-group-name-input, textarea {
   background:var(--ps-inset) !important; color:var(--ps-text) !important; border:1px solid var(--ps-dark) !important;
   border-radius:2px !important; box-shadow:inset 0 1px 2px rgba(0,0,0,0.5) !important; font-family:var(--font-ps) !important; }
 input:focus, select:focus, textarea:focus { border-color:var(--ps-accent) !important; outline:none !important;
@@ -136,7 +136,7 @@ input:focus, select:focus, textarea:focus { border-color:var(--ps-accent) !impor
 /* v0.10.9: inline rename/invalid cues could never win against the !important
    field styling above (and `outline:none !important` killed the invalid
    outline exactly while the field was focused). Carried on classes instead. */
-.layer-name-input.editing, .canvas-name-input:not([readonly]) {
+.layer-name-input.editing, .canvas-name-input:not([readonly]), .screen-group-name-input.editing {
   background:#0e0e0e !important; border-color:var(--ps-accent) !important;
   box-shadow:inset 0 1px 2px rgba(0,0,0,0.6), 0 0 0 2px var(--ps-accent) !important; }
 input.invalid, input.invalid:focus {
@@ -207,6 +207,21 @@ input[type="radio"] { accent-color:var(--ps-accent) !important; }
   box-shadow:inset 0 1px 0 rgba(255,255,255,0.22), inset 0 0 0 2px rgba(255,255,255,0.5) !important; }
 /* the little color dot is redundant now, the whole header carries the color */
 .canvas-color-swatch { display:none !important; }
+/* v0.10.9: a screen group IS a single layer, so its row gets the layer tile
+   treatment. The heavier left edge is the only cue that it opens up, and the
+   accent selection state matches a selected screen exactly. */
+.screen-group-row { background:var(--ps-tile) !important; border:1px solid var(--ps-dark) !important;
+  border-left:3px solid var(--ps-dim) !important;
+  box-shadow:inset 0 1px 0 var(--ps-tile-hi), 0 1px 3px rgba(0,0,0,0.45) !important; border-radius:4px !important; }
+.screen-group-row:hover { background:var(--ps-tile-hi) !important; }
+.screen-group-row .screen-group-info { color:#c8c8c8 !important; }
+.screen-group.active > .screen-group-row {
+  background:linear-gradient(var(--ps-accent-hi),var(--ps-accent-deep)) !important;
+  border-color:var(--ps-accent-deep) !important; border-left-color:var(--ps-accent-deep) !important; }
+.screen-group.active > .screen-group-row,
+.screen-group.active > .screen-group-row * { color:var(--ps-on-accent) !important; }
+.screen-group.active > .screen-group-row .screen-group-info {
+  color:rgba(255,255,255,0.92) !important; text-shadow:0 1px 1px rgba(0,0,0,0.4) !important; }
 
 /* ---- workspace ---- */
 #canvas-wrapper, #canvas-container { background:var(--ps-canvas) !important; }

@@ -944,6 +944,13 @@ class _CanvasUi {
 
     applyDisplayOrder(displayIds, historyAction) {
         if (!this.project || !this.project.layers) return;
+        // v0.10.9: a screen group is one screen, so its members move as one
+        // block and can never be left separated by an unrelated layer. Every
+        // reorder path (the ▲▼ arrows and sidebar drag alike) funnels through
+        // here, so this is the one place that has to enforce it.
+        if (typeof this.normalizeGroupBlocks === 'function') {
+            displayIds = this.normalizeGroupBlocks(displayIds);
+        }
         const layerMap = new Map(this.project.layers.map(l => [l.id, l]));
         const newDisplay = displayIds.map(id => layerMap.get(id)).filter(Boolean);
         const newOrder = [...newDisplay].reverse();

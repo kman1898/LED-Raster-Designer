@@ -685,7 +685,18 @@ class _Colors {
 
     applyToSelectedLayers(fn) {
         const layers = this.getSelectedLayers();
+        // v0.10.9: a screen group is ONE screen, so an edit to a member is an
+        // edit to the wall. Rather than teach ~70 control handlers about
+        // groups, snapshot the shareable fields here, let `fn` do its existing
+        // work, then copy across only what actually changed (see
+        // GROUP_SHARED_LAYER_FIELDS in app-screen-groups.js). Diffing is what
+        // keeps an unrelated edit from silently repainting a peer.
+        const snapshot = this._snapshotSharedFields
+            ? this._snapshotSharedFields(layers) : null;
         layers.forEach(fn);
+        if (snapshot && this._propagateChangedSharedFields) {
+            this._propagateChangedSharedFields(layers, snapshot);
+        }
     }
 
     setSelectedLayersByIds(ids, primaryId = null) {

@@ -3451,7 +3451,17 @@ class CanvasRenderer {
             }
             return pal[((idx % pal.length) + pal.length) % pal.length] || '#000000';
         }
-        const color = panel.is_color1 ? layer.color1 : layer.color2;
+        // v0.10.9: a layer with no color1/color2 used to throw here, and because
+        // this runs per panel it took the WHOLE render down - one malformed
+        // layer blanked the canvas rather than just itself. create_layer always
+        // sets both, but a hand-built or hand-edited layer need not, and that
+        // was reliably breaking 31 browser tests. Fall back to the other colour,
+        // then to a neutral grey, rather than letting a missing field crash.
+        const rgb = (c) => (c && Number.isFinite(Number(c.r)) && Number.isFinite(Number(c.g))
+            && Number.isFinite(Number(c.b))) ? c : null;
+        const color = rgb(panel.is_color1 ? layer.color1 : layer.color2)
+            || rgb(panel.is_color1 ? layer.color2 : layer.color1)
+            || { r: 128, g: 128, b: 128 };
         return `rgb(${color.r}, ${color.g}, ${color.b})`;
     }
 

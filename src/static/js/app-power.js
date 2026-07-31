@@ -24,6 +24,21 @@ class _Power {
         menu.querySelectorAll('.movable-view-only').forEach(el => {
             el.style.display = canCenter ? '' : 'none';
         });
+        // v0.10.9: screen-group actions. Grouping needs 2+ screen layers
+        // selected, so with fewer the item is simply not offered (a group of
+        // one is not a group). Ungroup / Remove only mean anything once the
+        // selection is already in a group.
+        const canGroup = this.canGroupSelection();
+        const inGroup = this.getSelectedGroupIds().length > 0;
+        menu.querySelectorAll('.group-create-only').forEach(el => {
+            el.style.display = canGroup ? '' : 'none';
+        });
+        menu.querySelectorAll('.group-member-only').forEach(el => {
+            el.style.display = inGroup ? '' : 'none';
+        });
+        menu.querySelectorAll('.group-any-only').forEach(el => {
+            el.style.display = (canGroup || inGroup) ? '' : 'none';
+        });
         menu.style.visibility = 'hidden';
         menu.style.display = 'block';
         const menuRect = menu.getBoundingClientRect();
@@ -1697,6 +1712,11 @@ class _Power {
         // per-canvas group containers and add canvas headers + per-canvas
         // "+ Add Screen" buttons + cross-canvas drag/drop.
         this.regroupLayersByCanvas(container);
+
+        // v0.10.9: then nest each screen group's member rows under a group
+        // header, INSIDE the canvas group they already sit in. Runs after the
+        // canvas pass because it lifts the rows that pass has just placed.
+        this.regroupLayersByGroup(container);
 
         this.updateLayerOrderControls();
     }

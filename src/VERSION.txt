@@ -59,6 +59,29 @@ v0.10.9 - July 26, 2026
   it is a whole-screen figure, so it cannot show per-port costs, and the list
   explains what else is being applied on top of it.
 
+- NEW: Screens can be grouped, so a wall built from two cabinet sizes behaves
+  as one screen. A crew running 1m JP5 panels alongside 0.5m standard panels
+  has to draw them as separate screens, because one screen uses one cabinet
+  size throughout - but the wall is one wall. Grouping them means:
+  - cabinets, weight, watts, amps, ports and circuits add up across the whole
+    wall instead of per section, using each section's own cabinet weight and
+    wattage
+  - the canvas shows one name and one set of figures, and dragging any part
+    moves the whole wall together
+  - cabinet IDs run straight through the wall instead of restarting on each
+    section, numbered by where each cabinet actually sits
+  - exports treat it as one screen: one shape in Resolume named for the group,
+    one Photoshop layer, and a group that happens to form a rectangle exports
+    as a plain rectangle
+  Any number of screens can be grouped, and a project can hold several groups.
+  Screens in a group have to share processor, bit depth and frame rate; if
+  they don't when you group them, the app says which settings differ and lets
+  you pick one to apply to the whole group.
+
+- FIX: A screen missing its fill colours no longer blanks the canvas. The
+  colour lookup ran for every cabinet without checking the colour was there,
+  so one malformed screen took down the whole drawing rather than just itself.
+
 - NEW: NovaStar 5G narrow ports are now costed correctly. NovaStar reserve a
   band at least 128 pixels wide per Ethernet port, so a port narrower than
   that wastes the rest of the band and carries less than the headline

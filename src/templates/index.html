@@ -85,6 +85,13 @@
             <div class="menu-option" data-action="paste" data-label="Paste" data-shortcut-mac="Cmd+V" data-shortcut-win="Ctrl+V"></div>
             <div class="menu-option" data-action="duplicate" data-label="Duplicate" data-shortcut-mac="Cmd+J" data-shortcut-win="Ctrl+J"></div>
             <div class="menu-option" data-action="delete" data-label="Delete Layer" data-shortcut-mac="Del" data-shortcut-win="Del"></div>
+            <!-- Screen groups (v0.10.9). Shown/hidden in showContextMenu():
+                 group needs 2+ screen layers selected, ungroup/remove need the
+                 selection to already be in a group. -->
+            <div class="menu-divider group-any-only"></div>
+            <div class="menu-option group-create-only" data-action="group-screens" data-label="Group Screens"></div>
+            <div class="menu-option group-member-only" data-action="ungroup-screens" data-label="Ungroup Screens"></div>
+            <div class="menu-option group-member-only" data-action="remove-from-group" data-label="Remove From Group"></div>
             <div class="menu-divider movable-view-only"></div>
             <div class="menu-option movable-view-only" data-action="center-x" data-label="Center on Canvas X"></div>
             <div class="menu-option movable-view-only" data-action="center-y" data-label="Center on Canvas Y"></div>
@@ -1978,6 +1985,29 @@
         </div>
     </div>
 
+    <!-- Screen groups (v0.10.9): the settings-mismatch dialog. A group is one
+         screen, so a port crossing a member boundary needs one rule set to be
+         checked against - the members have to agree on processor, bit depth
+         and frame rate. Only the fields that actually differ get a chooser;
+         the ones that already match are listed as confirmation. -->
+    <div id="group-settings-modal" class="modal" style="display: none;">
+        <div class="modal-content" style="background: #252525; border-radius: 8px; padding: 24px; max-width: 460px; margin: 80px auto; border: 1px solid #3a3a3a;">
+            <h2 style="margin-top: 0; color: #fff; margin-bottom: 4px; font-size: 18px;">Group Settings Don't Match</h2>
+            <div id="group-settings-sublabel" style="color: #888; font-size: 12px; margin-bottom: 14px;"></div>
+            <div style="color: #aaa; font-size: 11px; margin-bottom: 6px;">Choose one value for the group</div>
+            <div id="group-settings-conflicts" style="margin-bottom: 12px;"></div>
+            <div id="group-settings-matching-section" style="margin-bottom: 12px; display: none;">
+                <div style="color: #aaa; font-size: 11px; margin-bottom: 4px;">Already the same</div>
+                <div id="group-settings-matching" style="color: #ddd; font-size: 12px;"></div>
+            </div>
+            <div id="group-settings-note" style="color: #888; font-size: 11px; min-height: 16px; margin-bottom: 12px;"></div>
+            <div style="display: flex; justify-content: flex-end; gap: 8px;">
+                <button id="group-settings-cancel" class="btn" style="background: #3a3a3a; padding: 8px 16px;">Cancel</button>
+                <button id="group-settings-apply" class="btn btn-primary" style="padding: 8px 16px;">Apply to Group</button>
+            </div>
+        </div>
+    </div>
+
     <div id="logs-modal" class="modal" style="display: none;">
         <div class="modal-content" style="background: #252525; border-radius: 8px; padding: 20px; max-width: 960px; width: 90%; margin: 40px auto; border: 1px solid #3a3a3a; display: flex; flex-direction: column; max-height: calc(100vh - 80px);">
             <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px;">
@@ -2058,7 +2088,14 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background: rgba(0, 0, 0, 0.7.1);
+            /* v0.10.9: was rgba(0, 0, 0, 0.7.1) - an invalid alpha introduced by
+               a find-replace during the v0.7 -> v0.7.1 version bump (commit
+               fbefaa1), which caught this colour in the crossfire. NOT a live
+               bug: theme.css:237 sets .modal's background with !important, so
+               the backdrop has always rendered. This declaration only matters
+               if theme.css is removed, which the codebase documents as the way
+               to revert the theme - so it is fixed rather than deleted. */
+            background: rgba(0, 0, 0, 0.7);
             z-index: 1000;
             overflow-y: auto;
         }

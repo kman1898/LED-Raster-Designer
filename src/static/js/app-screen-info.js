@@ -979,6 +979,12 @@ class _ScreenInfo {
         if (!layers || layers.length === 0) return;
         if (!this.project || !this.project.layers) return;
 
+        // v0.10.9: a screen group is one screen. When an edit propagated a
+        // wall-level field to the peers that were not themselves selected,
+        // those peers ride along on THIS call - same PUT, same history entry -
+        // so a group can never be left half-updated on the server.
+        if (this._withPendingGroupPeers) layers = this._withPendingGroupPeers(layers);
+
         if (saveHistory) {
             this.saveState(historyAction);
         }
@@ -1301,6 +1307,14 @@ class _ScreenInfo {
         const showNumbersEl = document.getElementById('show-numbers');
         const showNumbersVal = showNumbersEl && !showNumbersEl.indeterminate ? showNumbersEl.checked : null;
 
+        // v0.10.9: screen groups. Snapshot the shareable fields BEFORE the
+        // write loop below, so the propagation afterwards can tell what the
+        // user actually changed. The per-member fields this loop writes
+        // (cabinet size, columns, rows, offsets, panel weight) are absent from
+        // GROUP_SHARED_LAYER_FIELDS and therefore never travel to a peer.
+        const groupSharedBefore = this._snapshotSharedFields
+            ? this._snapshotSharedFields(targetLayers) : null;
+
         // Update the layer properties for all selected layers
         targetLayers.forEach(layer => {
             const isImage = (layer.type || 'screen') === 'image';
@@ -1413,6 +1427,13 @@ class _ScreenInfo {
             this.updatePortCapacityDisplay();
         }
         
+        // v0.10.9: carry the wall-level fields this edit changed to the rest of
+        // each group. updateLayers() picks the peers up from the pending set,
+        // so they land in the same PUT and the same undo step.
+        if (groupSharedBefore && this._propagateChangedSharedFields) {
+            this._propagateChangedSharedFields(targetLayers, groupSharedBefore);
+        }
+
         this.updateLayers(targetLayers);
         // v0.10.5: every caller of this method is a 'change' handler, i.e. an
         // edit the user has already committed (typed and tabbed out, toggled a

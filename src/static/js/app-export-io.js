@@ -2142,6 +2142,18 @@ class _ExportIo {
             case 'delete':
                 if (this.currentLayer) this.deleteLayer(this.currentLayer.id);
                 break;
+            // v0.10.9: screen groups. showContextMenu() hides these when the
+            // selection cannot take them, and each action re-checks, so a
+            // keyboard-driven call can't make a group of one either.
+            case 'group-screens':
+                this.groupSelectedLayers();
+                break;
+            case 'ungroup-screens':
+                this.ungroupSelectedLayers();
+                break;
+            case 'remove-from-group':
+                this.removeSelectedFromGroup();
+                break;
             case 'center-x':
                 this.centerLayersOnCanvas('x');
                 break;
