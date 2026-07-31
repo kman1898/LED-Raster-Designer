@@ -156,31 +156,71 @@ def duplicate_canvas(canvas_id):
         l for l in app.current_project.get('layers', [])
         if l.get('canvas_id') == canvas_id
     ]
+    # src layer id -> clone layer id, needed twice below: once to rebuild the
+    # groups and once to repoint the wiring that names a member by id.
+    id_map = {}
+    clones = []
     for src_layer in src_layers:
         clone = json.loads(json.dumps(src_layer))
         clone['id'] = app.next_layer_id
         app.next_layer_id += 1
         clone['canvas_id'] = new_id
-        # v0.10.9: same reason routes_layers.move_layer_to_canvas clears this -
-        # the clone is a deep copy, so it would otherwise carry the source's
-        # group_id while that group's layer_ids knows nothing about it.
-        # Duplicating a canvas makes new screens, not new members of the
-        # original's groups.
+        # Cleared here and re-set below only for groups we actually rebuild.
+        # A deep copy would otherwise carry the source's group_id while that
+        # group's layer_ids knows nothing about the clone.
         clone['group_id'] = None
+        id_map[src_layer.get('id')] = clone['id']
+        clones.append(clone)
         app.current_project['layers'].append(clone)
     app.current_project['active_canvas_id'] = new_id
-    # v0.10.9: the clones also carry verbatim customPortPaths /
-    # powerCustomPaths, so any cross-layer step in them still names a layer id
-    # on the ORIGINAL canvas - wiring drawn onto someone else's screen. We do
-    # NOT remap those ids onto the corresponding clones, even though the id
-    # mapping is right here: the clones are deliberately groupless (above), and
-    # a cross-layer step is only legal between members of one group, so a
-    # remapped step would be pruned again by the very next undo or file load.
-    # Remapping would buy a wire that vanishes on the user's next keystroke.
-    # Dropping it is the honest, stable answer, and _enforce_group_integrity is
-    # the one implementation of that rule. (If a later step decides that
-    # duplicating a canvas should duplicate its groups too, the remap becomes
-    # correct and belongs here alongside that change.)
+    # v0.10.9: duplicating a canvas duplicates its groups too. A group IS the
+    # wall - copying the canvas and handing back loose screens would make the
+    # user regroup them and redraw any wiring that crossed a member boundary.
+    # Only a group whose members are ALL on this canvas can be copied
+    # faithfully; one that reaches onto another canvas has no meaningful copy,
+    # so those clones stay loose rather than becoming a half-group.
+    clone_by_id = {c['id']: c for c in clones}
+    for group in (app.current_project.get('groups') or []):
+        if not isinstance(group, dict):
+            continue
+        member_ids = group.get('layer_ids')
+        if not isinstance(member_ids, list) or not member_ids:
+            continue
+        if not all(mid in id_map for mid in member_ids):
+            continue
+        new_group_id = app._next_group_id(app.current_project)
+        cloned_ids = [id_map[mid] for mid in member_ids]
+        app.current_project['groups'].append({
+            'id': new_group_id,
+            # The canvas name already tells the two apart, so the group keeps
+            # its name - it is the same wall, on a copy of the canvas.
+            'name': group.get('name') or 'Group',
+            'layer_ids': cloned_ids,
+        })
+        for lid in cloned_ids:
+            clone_by_id[lid]['group_id'] = new_group_id
+    # The clones carry verbatim customPortPaths / powerCustomPaths, so a
+    # cross-member step still names a layer id on the ORIGINAL canvas - wiring
+    # drawn onto someone else's screen. Now that the groups come across, the
+    # remap is durable: the step lands on a real peer inside the clone's own
+    # group, so it survives the next undo instead of being pruned. Anything
+    # with no counterpart (a group we could not copy faithfully) is left for
+    # _enforce_group_integrity below, which owns the one definition of a legal
+    # step and drops it.
+    for clone in clones:
+        for paths_key in ('customPortPaths', 'powerCustomPaths'):
+            paths = clone.get(paths_key)
+            if not isinstance(paths, dict):
+                continue
+            for path in paths.values():
+                if not isinstance(path, list):
+                    continue
+                for step in path:
+                    if not isinstance(step, dict) or 'layerId' not in step:
+                        continue
+                    mapped = id_map.get(step.get('layerId'))
+                    if mapped is not None:
+                        step['layerId'] = mapped
     app._enforce_group_integrity(app.current_project)
     app.current_project['is_pristine'] = False
     log_event('canvas_duplicate', {

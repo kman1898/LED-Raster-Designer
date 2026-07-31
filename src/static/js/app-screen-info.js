@@ -219,7 +219,18 @@ class _ScreenInfo {
 
             const powerAssignments = this.calculatePowerAssignments(layer)
                 || { circuits: [], error: null };
-            const circuits = (powerAssignments.circuits || []).length;
+            // The automatic figure is only the answer when the automatic map
+            // is the one in use. A member on a custom power flow is wired the
+            // way the user DREW it, so counting the assignment the app would
+            // have made instead reports circuits that are not on the wall -
+            // and step 6 made that reachable, because a circuit can now be
+            // drawn across members. getLayerCircuitsRequired picks whichever
+            // map is enabled, and returns 0 for a member whose cabinets are
+            // fed by a peer's crossing circuit so one cable is not counted
+            // twice. Ports have gone through the matching function since
+            // step 6; this brings power into line with data.
+            const autoCircuits = (powerAssignments.circuits || []).length;
+            const circuits = this.getLayerCircuitsRequired(layer, autoCircuits);
             const powerError = powerAssignments.error
                 ? powerAssignments.error.message : null;
             if (powerError && !totals.powerError) totals.powerError = powerError;

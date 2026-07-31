@@ -313,10 +313,16 @@ def test_pruning_helper_tolerates_a_non_project(client):
 
 # ── 4. THE CANVAS ROUTES ──────────────────────────────────────────────────
 
-def test_canvas_duplicate_does_not_leak_layer_ids_from_the_original(client):
-    """The clones are deep copies, so without the fix each cloned path would
-    still point at a layer on the SOURCE canvas."""
-    project, _gid, (a, b) = _grouped_pair(client)
+def test_canvas_duplicate_brings_the_group_and_repoints_the_wiring(client):
+    """Duplicating a canvas duplicates the walls on it, not loose screens.
+
+    The clones are deep copies, so each cloned path still names a layer on the
+    SOURCE canvas. Because the group comes across, those pointers can be
+    remapped onto the clone's own peer instead of dropped - and the remap is
+    durable, since the step now sits between two members of one group and
+    survives _enforce_group_integrity.
+    """
+    project, gid, (a, b) = _grouped_pair(client)
     _set_paths(client, a, 'customPortPaths', {
         '1': [{'row': 0, 'col': 0}, {'row': 0, 'col': 1, 'layerId': b}],
     })
@@ -331,23 +337,61 @@ def test_canvas_duplicate_does_not_leak_layer_ids_from_the_original(client):
 
     clones = [l for l in after['layers'] if l['canvas_id'] != src_canvas]
     assert len(clones) == 2, 'both members should have been cloned'
-    for clone in clones:
-        assert clone['group_id'] is None, 'clone leaked the source layer group_id'
-        for key in ('customPortPaths', 'powerCustomPaths'):
-            for steps in (clone.get(key) or {}).values():
-                for step in steps:
-                    assert 'layerId' not in step, (
-                        f'{key} on clone {clone["id"]} still points at a layer '
-                        f'on the original canvas')
+
+    # The copy is its OWN group - same wall, new members.
+    clone_group_ids = {c['group_id'] for c in clones}
+    assert len(clone_group_ids) == 1, 'clones landed in different groups'
+    new_gid = clone_group_ids.pop()
+    assert new_gid is not None, 'canvas copy handed back loose screens'
+    assert new_gid != gid, 'clones joined the ORIGINAL group'
+    new_group = next(g for g in after['groups'] if g['id'] == new_gid)
+    assert sorted(new_group['layer_ids']) == sorted(c['id'] for c in clones)
+
+    clone_of_a = next(l for l in clones if l['name'] == _layer(after, a)['name'])
+    clone_of_b = next(l for l in clones if l['id'] != clone_of_a['id'])
+
+    # The wiring points at the CLONE's peer, never back at the original.
+    assert clone_of_a['customPortPaths'] == {
+        '1': [{'row': 0, 'col': 0}, {'row': 0, 'col': 1, 'layerId': clone_of_b['id']}],
+    }
+    assert clone_of_a['powerCustomPaths'] == {
+        'A': [{'row': 1, 'col': 0}, {'row': 1, 'col': 1, 'layerId': clone_of_b['id']}],
+    }
+    assert clone_of_b['id'] != b
+
     # The source's own wiring is untouched by its duplicate.
     assert _paths(after, a) == {'1': [{'row': 0, 'col': 0},
                                       {'row': 0, 'col': 1, 'layerId': b}]}
-    # Only the cross-layer step goes: the clone keeps the part of the route
-    # that lives on its own panels, so the user gets everything that can still
-    # legally be drawn.
-    clone_of_a = next(l for l in clones if l['name'] == _layer(after, a)['name'])
-    assert clone_of_a['customPortPaths'] == {'1': [{'row': 0, 'col': 0}]}
-    assert clone_of_a['powerCustomPaths'] == {'A': [{'row': 1, 'col': 0}]}
+
+    # And it SURVIVES a restore - the point of remapping rather than dropping.
+    restored = client.put('/api/project', json=after)
+    assert restored.status_code == 200, restored.get_data(as_text=True)
+    settled = restored.get_json()
+    assert _paths(settled, clone_of_a['id']) == {
+        '1': [{'row': 0, 'col': 0}, {'row': 0, 'col': 1, 'layerId': clone_of_b['id']}],
+    }
+
+
+def test_canvas_duplicate_leaves_a_half_group_loose(client):
+    """A group reaching onto another canvas has no faithful copy: only some of
+    its members are being cloned. Those clones stay loose rather than becoming
+    a half-group claiming to be the wall, and their cross-canvas wiring goes."""
+    a = _add_screen(client, 'A')['id']
+    c2 = client.post('/api/canvas', json={'name': 'Second'}).get_json()
+    c2_id = c2['active_canvas_id']
+    b = _add_screen(client, 'B', canvas_id=c2_id)['id']
+    assert app_module._create_group(app_module.current_project, [a, b], name='Split')
+    _set_paths(client, a, 'customPortPaths', {
+        '1': [{'row': 0, 'col': 0}, {'row': 0, 'col': 1, 'layerId': b}],
+    })
+    src_canvas = _layer(client.get('/api/project').get_json(), a)['canvas_id']
+
+    after = client.post(f'/api/canvas/{src_canvas}/duplicate').get_json()
+    clones = [l for l in after['layers']
+              if l['canvas_id'] not in (src_canvas, c2_id)]
+    assert len(clones) == 1
+    assert clones[0]['group_id'] is None
+    assert clones[0]['customPortPaths'] == {'1': [{'row': 0, 'col': 0}]}
 
 
 def test_canvas_delete_repairs_group_integrity(client):
