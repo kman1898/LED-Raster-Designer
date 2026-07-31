@@ -59,6 +59,14 @@ v0.10.9 - July 26, 2026
   it is a whole-screen figure, so it cannot show per-port costs, and the list
   explains what else is being applied on top of it.
 
+- FIX: The circle-and-X test pattern now draws once across a whole group
+  instead of once per screen. It exists so you can look at the wall and see it
+  is whole and square - a wall built from a 1m section beside a half-metre
+  section was showing two circles and two X's on what is meant to read as one
+  wall. It is now sized to the whole group and drawn over the top of every
+  section. A screen that is not in a group is unchanged, and hiding a section
+  shrinks the pattern to what is actually on the wall.
+
 - FIX: A group's circuit count now follows the map you are actually using.
   It always reported the automatic figure, so a wall wired by hand showed the
   number of circuits the app WOULD have made rather than the ones on the wall.

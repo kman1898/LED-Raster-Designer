@@ -3143,10 +3143,11 @@ class CanvasRenderer {
                         this.renderPanel(panel, layer);
                     });
 
-                    // Render Circle with X test pattern
-                    if (layer.show_circle_with_x && this.viewMode === 'pixel-map' && (layer.type || 'screen') !== 'image') {
-                        this.renderCircleWithX(layer);
-                    }
+                    // Render Circle with X test pattern. Every condition lives
+                    // inside, because a group draws ONE pattern across its
+                    // members and the decision about which member draws it
+                    // cannot be made from this layer alone.
+                    this.renderCircleWithX(layer);
 
                     // Render Cabinet ID numbers in world space (scales with zoom)
                     if (this.viewMode === 'cabinet-id') {
@@ -3357,22 +3358,46 @@ class CanvasRenderer {
         this.ctx.restore();
     }
     
+    // The circle-and-X is a test pattern for THE WALL - you look at it to see
+    // the wall is whole and square. A group is one wall, so it gets ONE
+    // pattern spanning its members, not a circle per screen: two half-metre
+    // sections beside a one-metre section would otherwise show three separate
+    // circles on a wall that is meant to read as one.
+    //
+    // Drawn in the HOST's pass (the last member in render order) so it lands
+    // on top of every member's cabinets, and sized from the union of their
+    // bounds - the same host/union pair renderLayerLabels already uses for the
+    // group's single name label, expressed in the host's own draw space.
+    //
+    // An ungrouped screen, or a group with only one drawn member, takes the
+    // untouched original path.
     renderCircleWithX(layer) {
-        // Calculate layer dimensions
-        const bounds = this.getLayerBounds(layer);
+        if (this.viewMode !== 'pixel-map' || (layer.type || 'screen') === 'image') return;
+        const plan = this._groupLabelPlan(layer);
+        // show_circle_with_x is a shared group field, but read it off the same
+        // member that supplies the label config so the group has ONE answer
+        // even in a project saved before that field was shared.
+        const cfg = plan ? plan.cfg : layer;
+        if (!cfg.show_circle_with_x) return;
+        // Peers bow out; only the host draws, exactly once for the group.
+        if (plan && layer !== plan.host) return;
+
+        const bounds = plan
+            ? this._groupUnionBounds(plan.members, plan.host)
+            : this.getLayerBounds(layer);
         const layerWidth = bounds.width;
         const layerHeight = bounds.height;
         const centerX = bounds.x + layerWidth / 2;
         const centerY = bounds.y + layerHeight / 2;
-        
+
         // Circle radius is about 40% of the smaller dimension (based on professional LED software reference)
         const radius = Math.min(layerWidth, layerHeight) * 0.40;
-        
+
         // Save context and clip to active raster bounds (translate-aware)
         this.ctx.save();
         this._clipToActiveRaster();
 
-        this.ctx.strokeStyle = this.getLayerBorderColor(layer, 'pixel-map');
+        this.ctx.strokeStyle = this.getLayerBorderColor(cfg, 'pixel-map');
         this.ctx.lineWidth = 2;
         
         // Draw perfect circle

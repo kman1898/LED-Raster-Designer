@@ -186,6 +186,21 @@ window.__gc = {
         return texts;
     },
 
+    // Every circle the renderer draws, rounded. The circle-with-X test
+    // pattern is the only arc in pixel-map view, so this counts patterns.
+    arcs() {
+        const r = window.canvasRenderer;
+        const ctx = r.ctx;
+        const original = ctx.arc;
+        const out = [];
+        ctx.arc = function (x, y, radius, a, b, c) {
+            out.push({ x: Math.round(x), y: Math.round(y), r: Math.round(radius) });
+            return original.call(ctx, x, y, radius, a, b, c);
+        };
+        try { r.render(); } finally { ctx.arc = original; }
+        return out;
+    },
+
     // A mouse event as the canvas handlers read one. World coords in, because
     // that is what the tests reason about.
     ev(worldX, worldY, opts) {
@@ -553,3 +568,62 @@ def test_a_group_of_one_keeps_its_own_label(page):
     assert 'Main Wall' not in texts
     info = [t for t in texts if 'Cabinets Total' in t]
     assert len(info) == 1 and '4 Columns X 3 Rows' in info[0], info
+
+
+# ── One test pattern for the wall, not one per section ────────────────────
+#
+# The circle-and-X exists so you can look at the wall and see it is whole and
+# square. A group IS one wall, so three sections must not show three circles.
+#
+# The mixed wall is 2560 x 1152 (JP5) stacked on 2560 x 128 (half panels):
+#   union            2560 x 1280, centre (1280, 640)
+#   radius           min(2560, 1280) * 0.40 = 512
+# Ungrouped, each section gets its own:
+#   JP5              centre (1280, 576),  r = min(2560, 1152) * 0.40 = 461
+#   half panels      centre (1280, 1216), r = min(2560, 128)  * 0.40 = 51
+
+_CIRCLE_ON = "jp5.show_circle_with_x = true; half.show_circle_with_x = true;"
+
+
+def test_a_grouped_wall_draws_one_circle_across_the_whole_group(page):
+    arcs = _grouped_wall(page, _CIRCLE_ON + " return gc.arcs();")
+    assert len(arcs) == 1, f'expected one pattern for the wall, got {arcs}'
+    assert arcs[0] == {'x': 1280, 'y': 640, 'r': 512}, arcs
+
+
+def test_an_ungrouped_pair_still_draws_a_circle_each(page):
+    """The regression guard: nothing changes for screens that are not a wall."""
+    arcs = _ungrouped_wall(page, _CIRCLE_ON + " return gc.arcs();")
+    assert len(arcs) == 2, f'expected one pattern per screen, got {arcs}'
+    by_y = sorted(arcs, key=lambda a: a['y'])
+    assert by_y[0] == {'x': 1280, 'y': 576, 'r': 461}, arcs
+    assert by_y[1] == {'x': 1280, 'y': 1216, 'r': 51}, arcs
+
+
+def test_the_grouped_x_spans_the_whole_wall_corner_to_corner(page):
+    """The X is the other half of the pattern and must reach the wall's
+    corners, not each section's."""
+    segs = _grouped_wall(page, _CIRCLE_ON + """
+        const r = window.canvasRenderer, ctx = r.ctx;
+        const oM = ctx.moveTo, oL = ctx.lineTo, oA = ctx.arc;
+        const out = []; let cur = null, seen = false;
+        ctx.arc = function (...a) { seen = true; return oA.apply(ctx, a); };
+        ctx.moveTo = function (x, y) { cur = {x, y}; return oM.call(ctx, x, y); };
+        ctx.lineTo = function (x, y) {
+            if (cur && seen) out.push([Math.round(cur.x), Math.round(cur.y),
+                                       Math.round(x), Math.round(y)]);
+            cur = {x, y}; return oL.call(ctx, x, y);
+        };
+        try { r.render(); } finally { ctx.moveTo = oM; ctx.lineTo = oL; ctx.arc = oA; }
+        return out.filter(s => Math.abs(s[0] - s[2]) > 2000);
+    """)
+    assert sorted(segs) == sorted([[0, 0, 2560, 1280], [2560, 0, 0, 1280]]), segs
+
+
+def test_a_hidden_member_does_not_stretch_the_pattern(page):
+    """_groupDrawnMembers already skips hidden members, so the pattern covers
+    what is actually on the wall - and a group down to one drawn member falls
+    back to that member's own pattern."""
+    arcs = _grouped_wall(page, _CIRCLE_ON + " half.visible = false; return gc.arcs();")
+    assert len(arcs) == 1, arcs
+    assert arcs[0] == {'x': 1280, 'y': 576, 'r': 461}, arcs
