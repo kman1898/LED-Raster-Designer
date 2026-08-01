@@ -68,6 +68,11 @@ SCREEN GROUPS - one wall, however many cabinet sizes
   to it no longer counts a port of its own on top. A wall with one cable
   across it now reads as one port, not two.
 
+- FIX: Drag-select in Power now lights up the cabinets as you drag, the way
+  Data always has. In Power you saw nothing at all until you let go of the
+  button, so you were picking a box blind and only finding out what you had
+  caught once it was too late to adjust. Both views now behave the same.
+
 - FIX: Starting a drag-select over a neighbouring section used to make that
   section the current screen, so the port you were drawing quietly changed
   owner halfway through the gesture. Clicking to select a screen normally

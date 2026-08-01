@@ -653,3 +653,81 @@ def test_a_hidden_cabinet_on_a_peer_is_never_selected_or_wired(page):
     assert len(result['keys']) == 17, result['keys']
     assert (0, 0, 2) not in _as_tuples(result['entries']), _as_tuples(result['entries'])
     assert len(result['entries']) == 17, result['entries']
+
+
+# ── Live feedback while the button is still down ──────────────────────────
+#
+# Reported: "if i try and click drag on data it shows what i am selecting as i
+# drag. if i try this on power it doesn't show anything until i let go."
+#
+# The mousemove handler's data branch tested only isCustomFlow, with no view
+# check, so in POWER view a screen that was ALSO on a custom data pattern took
+# the data branch and filled customSelection. The power overlay reads
+# powerCustomSelection, so the drag looked dead until mouse-up - which has
+# always gated on viewMode - finally filled the right Set.
+#
+# A screen in a group is always in that state, because flowPattern is one of
+# the settings shared across members.
+
+_LIVE_DRAG_JS = """
+    const r = window.canvasRenderer;
+    const ev = (wx, wy) => {
+        const rect = r.canvas.getBoundingClientRect();
+        return { button: 0, shiftKey: false, altKey: false, metaKey: false,
+                 ctrlKey: false,
+                 clientX: rect.left + wx * r.zoom + r.panX,
+                 clientY: rect.top + wy * r.zoom + r.panY,
+                 preventDefault() {}, stopPropagation() {} };
+    };
+    const sample = () => ({ data: window.app.customSelection.size,
+                            power: window.app.powerCustomSelection.size });
+    window.app.customSelection.clear();
+    window.app.powerCustomSelection.clear();
+    r.handleMouseDown(ev(4, 4));
+    r.handleMouseMove(ev(400, 400));      // button still held
+    const midDrag = sample();
+    r.handleMouseUp(ev(400, 400));
+    return { midDrag, afterRelease: sample() };
+"""
+
+
+def _both_modes_custom():
+    """Both flow patterns custom - the state that triggered the bug."""
+    return MIXED_WALL_JS.replace(
+        "flowPattern: 'custom'", "flowPattern: 'custom', powerFlowPattern: 'custom'")
+
+
+def test_a_power_drag_shows_its_selection_while_the_button_is_still_down(page):
+    got = page.evaluate("""() => {
+        const cx = window.__cx;
+        %s
+        a.powerFlowPattern = 'custom'; b.powerFlowPattern = 'custom';
+        a.group_id = 'g1'; b.group_id = 'g1';
+        const group = cx.group([a, b]);
+        return cx.withProject([a, b], [group], 'power', () => {
+            %s
+        });
+    }""" % (MIXED_WALL_JS, _LIVE_DRAG_JS))
+    assert got['midDrag']['power'] > 0, (
+        'power drag selected nothing until the button was released: %r' % (got,))
+    assert got['midDrag']['data'] == 0, (
+        'a power drag filled the DATA selection: %r' % (got,))
+    assert got['midDrag']['power'] == got['afterRelease']['power'], (
+        'what you saw mid-drag is not what you got on release: %r' % (got,))
+
+
+def test_a_data_drag_still_shows_its_selection_while_dragging(page):
+    """The behaviour the user is happy with - guard it."""
+    got = page.evaluate("""() => {
+        const cx = window.__cx;
+        %s
+        a.powerFlowPattern = 'custom'; b.powerFlowPattern = 'custom';
+        a.group_id = 'g1'; b.group_id = 'g1';
+        const group = cx.group([a, b]);
+        return cx.withProject([a, b], [group], 'data-flow', () => {
+            %s
+        });
+    }""" % (MIXED_WALL_JS, _LIVE_DRAG_JS))
+    assert got['midDrag']['data'] > 0, got
+    assert got['midDrag']['power'] == 0, (
+        'a data drag filled the POWER selection: %r' % (got,))

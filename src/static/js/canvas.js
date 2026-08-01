@@ -1169,7 +1169,16 @@ class CanvasRenderer {
             // every member the owner's path can legally reach, so a live drag
             // lights up cabinets on the next screen of the wall as it crosses
             // onto it (see the mouse-up twin below).
-            if (window.app && window.app.currentLayer && window.app.isCustomFlow(window.app.currentLayer)) {
+            // BOTH branches test viewMode. The data branch used to test only
+            // isCustomFlow, so in POWER view a screen that was also on a custom
+            // DATA pattern took the first branch and filled the data selection
+            // instead - and since the power overlay reads the power set, the
+            // drag looked like it was doing nothing until mouse-up (which has
+            // always gated on viewMode) finally filled the right one. A screen
+            // in a group is always in that state, because the flow pattern is
+            // shared across members.
+            if (window.app && window.app.currentLayer && this.viewMode === 'data-flow'
+                && window.app.isCustomFlow(window.app.currentLayer)) {
                 window.app.selectPanelsInRect(window.app.currentLayer, this.selectionRect);
             } else if (window.app && window.app.currentLayer && this.viewMode === 'power' && window.app.isCustomPower(window.app.currentLayer)) {
                 window.app.selectPowerPanelsInRect(window.app.currentLayer, this.selectionRect);
