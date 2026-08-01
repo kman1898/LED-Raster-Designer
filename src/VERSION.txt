@@ -3,199 +3,215 @@ LED RASTER DESIGNER - VERSION HISTORY
 
 v0.10.9 - July 26, 2026
 ----------------------------
-- NEW: Port Mapping now works on NovaStar (Legacy). Both "Organized" and
-  "Max Capacity" were greyed out and unclickable on Legacy panels because
-  that processor reserves a pixel rectangle around each port, and only the
-  Organized grouping accounted for it. Max Capacity now does that same
-  rectangle math, so both modes are available and each port stays inside its
-  own limit. This matters on wide walls: a screen whose full row is too big
-  for one port could not be mapped at all before (it just showed a capacity
-  error), and Max Capacity can now split it into valid ports.
-  The rectangle rule applies only to NovaStar (Legacy). COEX 1G/5G,
-  Brompton, Brompton ULL and Megapixel HELIOS are unchanged.
-- FIX: The Port Mapping buttons could stay greyed out even after switching
-  to a processor that supports both modes, because the panel stopped
-  refreshing them when no screen (or an image layer) was selected.
-- FIX: The highlight now moves when you pick a Port Mapping mode. Clicking
-  "Max Capacity" changed the setting, but "Organized" stayed lit, so there
-  was no way to see which mode was actually in use. The buttons are styled
-  by the interface theme, which overrode the highlight the code was trying
-  to apply; they now use the theme's own selected state, on every path that
-  sets them (clicking, selecting a screen, and switching processor).
-- NEW: Low Latency is now a setting on every processor, instead of being
-  buried as a separate "Brompton Tessera (ULL)" entry in the processor list.
-  Tick Low Latency on any screen and the app applies what that processor
-  actually does:
-  - Brompton: halves the pixels per port, matching Brompton's own published
-    Ultra Low Latency figures. (ULL is an SX40/S8 feature; HDMI in, no SDI.)
-  - Megapixel HELIOS: no change to pixels per port - HELIOS low latency
-    costs daisy-chain length, not bandwidth.
-  - NovaStar (all, legacy and COEX): ports must run vertically and start at
-    the top of the canvas. A port that starts lower down loses capacity in
-    proportion, so the app shows fewer cabinets per port and tells you why.
-    Confirmed directly with NovaStar, who also confirmed the old 512-pixel
-    port width limit has been removed on current firmware - the published
-    manuals are wrong and are being revised. Low latency needs a supported
-    receiving card; note MRV328 and MRV336 cannot do it.
 
-- FIX (IMPORTANT): The Resolume export now follows the real shape of the
-  screen. It was working out where each cabinet sits by multiplying row and
-  column numbers by the full cabinet size, so it ignored half tiles entirely -
-  a wall with a half-height bottom row exported a shape a whole cabinet too
-  tall, and a half-width edge column one too wide. A comment in the code
-  claimed it accounted for half panels; it never did. It now traces the actual
-  cabinets: a plain rectangular wall exports exactly as before, and anything
-  else exports a polygon that follows only where cabinets actually are.
-  Blanked cabinets are now excluded too, matching the cabinet, weight and
-  power totals, which have always ignored them.
+SCREEN GROUPS - one wall, however many cabinet sizes
 
-- NEW: Ticking Low Latency now lists the rules it is applying, under the
-  Pixels/Port readout, for whichever processor that screen is set to. Brompton
-  says pixels per port is halved; Megapixel says pixels per port are unchanged
-  but the daisy chain is halved; NovaStar lists the vertical/top-of-canvas
-  requirement, what a port starting lower costs, and the receiving cards that
-  can do it (MRV328 and MRV336 cannot). NovaStar 5G additionally lists the
-  128-pixel narrow-port rule. The rules sit under that readout deliberately:
-  it is a whole-screen figure, so it cannot show per-port costs, and the list
-  explains what else is being applied on top of it.
+- NEW: You can now group screens, so a wall built from more than one cabinet
+  size behaves as a single screen.
+  If your crew owns 1m panels and 0.5m panels and hangs them on the same wall,
+  you have had to draw them as two screens, because one screen uses one cabinet
+  size all the way through. The wall was one wall, but the app treated it as
+  two - two names on the drawing, two sets of totals to add up in your head,
+  two things to drag, and cabinet numbers that started again halfway across.
+  To make a group: select the screens that make up the wall - click one, then
+  Shift-click or Cmd/Ctrl-click the rest - then right-click and choose
+  "Group Screens". To take one apart, right-click and choose "Ungroup Screens".
+  To drop a single section out and leave the rest grouped, use "Remove From
+  Group".
+  Once grouped:
+  - Cabinets, weight, watts, amps, ports and circuits add up across the whole
+    wall. Each section keeps its own cabinet weight and wattage, so a 1m
+    cabinet and a half-metre cabinet are never assumed to weigh the same.
+  - The drawing shows one name and one set of figures, and dragging any part
+    of the wall moves all of it.
+  - Cabinet IDs run straight through the wall instead of restarting on each
+    section, numbered by where each cabinet actually sits.
+  - Exports treat it as one screen: one shape in the Resolume XML named for
+    the group, one Photoshop layer, and a group that happens to form a
+    rectangle exports as a plain rectangle.
+  Group as many screens as you like, and keep as many groups as you like in a
+  project. Screens in a group need to agree on processor, bit depth and frame
+  rate. If they do not when you group them, the app tells you which settings
+  differ and lets you pick one value to apply to the whole wall.
 
-- FIX: The circle-and-X test pattern now draws once across a whole group
-  instead of once per screen. It exists so you can look at the wall and see it
-  is whole and square - a wall built from a 1m section beside a half-metre
-  section was showing two circles and two X's on what is meant to read as one
-  wall. It is now sized to the whole group and drawn over the top of every
-  section. A screen that is not in a group is unchanged, and hiding a section
-  shrinks the pattern to what is actually on the wall.
+- NEW: Draw a data port or a power circuit straight across the wall.
+  In custom mode, click cabinets in any section and they all join the same
+  port - the line draws through the join, the "on port" count includes the
+  cabinets on the far side, and a colour-coded circuit tints every cabinet on
+  it. When you reach the edge of a section, the arrow keys carry on into the
+  next one and find the cabinet that is physically next door, even where the
+  two sections use different cabinet sizes.
+  A cabinet already wired to another port is still refused, now across the
+  whole wall, and the message tells you which screen it is wired to - "port 1
+  on Upper Wall" - because a cabinet reference on its own is ambiguous once
+  two grids are in play.
+
+- NEW: Drag-select across the whole wall and apply a flow pattern to it.
+  Serpentine and the other patterns follow where each cabinet physically sits,
+  so a run across a 1m section and a half-metre section snakes across the wall
+  in the order you would walk it. The two sections' grids do not line up when
+  the cabinet sizes differ, and the pattern no longer pretends they do.
+
+- FIX: The circle-and-X test pattern now draws once across a whole group.
+  You look at it to see the wall is whole and square, so a wall made of a 1m
+  section beside a half-metre one should not show two circles and two X's. It
+  is now sized to the whole wall and drawn over the top of every section.
+  Hiding a section shrinks the pattern to what is actually lit. A screen that
+  is not in a group looks exactly as it did.
 
 - FIX: A group's circuit count now follows the map you are actually using.
-  It always reported the automatic figure, so a wall wired by hand showed the
-  number of circuits the app WOULD have made rather than the ones on the wall.
-  Ports already worked this way; power now matches. A section whose cabinets
-  are fed by a circuit drawn from the section next to it counts zero, so one
-  cable is never counted twice.
-
-- CHANGE: Duplicating a canvas now duplicates the walls on it, not loose
-  screens. The copy gets its own group, and any port or circuit drawn across
-  a section boundary is repointed at the copy's own sections - so a duplicated
-  canvas is wired like the one it came from instead of needing regrouping and
-  redrawing. A group that reaches onto another canvas has no faithful copy,
-  so those screens come across ungrouped.
-
-- NEW: In custom mode on a group you can now drag-select cabinets across the
-  whole wall and apply a flow pattern to them, instead of one section at a
-  time. Serpentine and the other patterns follow where each cabinet PHYSICALLY
-  sits, so a run across a 1m section and a half-metre section snakes across the
-  wall in the order you would walk it - not in the order of each section's own
-  grid, which do not line up when the cabinet sizes differ.
-
-- FIX: Starting a drag-select over a neighbouring section quietly made that
-  section the current screen, so the port you were drawing changed owner
-  mid-gesture. Clicking to select a screen normally is unaffected.
+  It always showed the automatic figure, so a wall you had wired by hand
+  reported the circuits the app would have made rather than the ones you
+  drew. Ports already worked this way; power now matches.
 
 - FIX: A section fed entirely by a port or circuit drawn from the section next
-  to it no longer also counts its own automatic port. A wall wired with one
-  cable across it reads as one port instead of two.
+  to it no longer counts a port of its own on top. A wall with one cable
+  across it now reads as one port, not two.
 
-- FIX: Drag-select on a ROTATED screen now selects the cabinets under the box
-  rather than the ones the box would have covered unrotated. Pixel Map already
-  worked this way; Data and Power did not.
+- FIX: Starting a drag-select over a neighbouring section used to make that
+  section the current screen, so the port you were drawing quietly changed
+  owner halfway through the gesture. Clicking to select a screen normally
+  works as before.
 
-- NEW: A hand-drawn data port or power circuit can now run across the screens
-  in a group, so wiring follows the wall instead of stopping at a section
-  boundary. Click cabinets in any member and they join the same port; the
-  line draws straight through, the "on port" count includes cabinets on the
-  other section, and a colour-coded circuit tints every cabinet on it. The
-  arrow keys carry on into the neighbouring section when you reach an edge,
-  finding the cabinet that is physically next even where the two sections use
-  different cabinet sizes.
-  A cabinet already wired to another port is still refused, now across the
-  whole group, and the message names the screen it is wired to - "port 1 on
-  Upper Wall" - because a cabinet reference alone is ambiguous once two grids
-  are in play.
-  Only cabinets you click are affected: drag-select still works within one
-  screen. Automatic port and circuit mapping is unchanged, and a wall that is
-  not grouped behaves exactly as before.
+- CHANGE: Duplicating a canvas now duplicates the walls on it, not a pile of
+  loose screens. The copy gets its own group, and any port or circuit drawn
+  across a join is repointed at the copy's own sections - so the duplicate is
+  wired like the one it came from, instead of needing regrouping and
+  redrawing. A group that reaches onto another canvas cannot be copied
+  faithfully, so those screens come across ungrouped.
 
-- NEW: Screens can be grouped, so a wall built from two cabinet sizes behaves
-  as one screen. A crew running 1m JP5 panels alongside 0.5m standard panels
-  has to draw them as separate screens, because one screen uses one cabinet
-  size throughout - but the wall is one wall. Grouping them means:
-  - cabinets, weight, watts, amps, ports and circuits add up across the whole
-    wall instead of per section, using each section's own cabinet weight and
-    wattage
-  - the canvas shows one name and one set of figures, and dragging any part
-    moves the whole wall together
-  - cabinet IDs run straight through the wall instead of restarting on each
-    section, numbered by where each cabinet actually sits
-  - exports treat it as one screen: one shape in Resolume named for the group,
-    one Photoshop layer, and a group that happens to form a rectangle exports
-    as a plain rectangle
-  Any number of screens can be grouped, and a project can hold several groups.
-  Screens in a group have to share processor, bit depth and frame rate; if
-  they don't when you group them, the app says which settings differ and lets
-  you pick one to apply to the whole group.
 
-- FIX: A screen missing its fill colours no longer blanks the canvas. The
-  colour lookup ran for every cabinet without checking the colour was there,
-  so one malformed screen took down the whole drawing rather than just itself.
+LOW LATENCY, ON EVERY PROCESSOR
 
-- NEW: NovaStar 5G narrow ports are now costed correctly. NovaStar reserve a
-  band at least 128 pixels wide per Ethernet port, so a port narrower than
-  that wastes the rest of the band and carries less than the headline
-  pixels-per-port figure. A port 120 px wide loses (128 - 120) x its height.
-  This applies to NovaStar 5G only, and it matters most on tall narrow ports
-  - exactly the shape low latency encourages - where it can be the difference
-  between a port that works and one that is quietly overloaded.
+- NEW: Low Latency is now a tickbox on any screen, instead of being buried as
+  a separate "Brompton Tessera (ULL)" entry in the processor list. Tick it and
+  the app applies what your processor actually does:
+  - Brompton: halves the pixels per port, matching Brompton's own published
+    Ultra Low Latency figures. (ULL is an SX40/S8 feature; HDMI in, no SDI.)
+  - Megapixel HELIOS: pixels per port are unchanged - HELIOS low latency costs
+    daisy-chain length, not bandwidth.
+  - NovaStar, legacy and COEX: ports have to run vertically and start at the
+    top of the canvas. A port starting lower down loses capacity in
+    proportion, so you get fewer cabinets on that port and the app tells you
+    why. Confirmed directly with NovaStar, who also confirmed the old
+    512-pixel port width limit is gone on current firmware - the published
+    manuals are out of date and are being revised. You need a receiving card
+    that supports it; MRV328 and MRV336 do not.
+
+- NEW: Ticking Low Latency lists the rules it is applying, under the
+  Pixels/Port readout, for whichever processor that screen is set to. Brompton
+  tells you pixels per port is halved. Megapixel tells you pixels per port are
+  unchanged but the daisy chain is halved. NovaStar lists the vertical and
+  top-of-canvas requirement, what a port starting lower costs you, and which
+  receiving cards cannot do it. NovaStar 5G adds the 128-pixel narrow-port
+  rule. They sit under that readout because Pixels/Port is a whole-screen
+  figure and cannot show you what an individual port costs.
+
+
+PORT MAPPING
+
+- NEW: Port Mapping now works on NovaStar (Legacy). "Organized" and "Max
+  Capacity" were both greyed out on Legacy screens. That processor reserves a
+  pixel rectangle around each port, and only Organized knew about it; Max
+  Capacity now does the same maths, so both modes work and every port stays
+  inside its limit. This matters most on wide walls: a screen whose full row
+  was too big for one port could not be mapped at all before - it just showed
+  a capacity error - and Max Capacity can now split it into ports that work.
+  The rectangle rule applies only to NovaStar (Legacy). COEX 1G/5G, Brompton,
+  Brompton ULL and Megapixel HELIOS are unchanged.
+
+- FIX: The Port Mapping buttons could stay greyed out even after you switched
+  to a processor that supports both modes.
+
+- FIX: The highlight now moves when you pick a Port Mapping mode. Clicking
+  "Max Capacity" changed the setting, but "Organized" stayed lit, so there was
+  no way to see which mode you were actually using.
+
+- CHANGE: Opening an older project with "Max Capacity" saved on a Legacy
+  screen switches it to "Organized". That is what it was really drawing before
+  - the setting was being ignored - so maps you have already issued keep
+  rendering exactly as they are. Choosing Max Capacity yourself from now on
+  sticks, including through undo.
+
+
+CAPACITY FIGURES - WORTH RE-CHECKING YOUR PORT COUNTS
 
 - FIX (IMPORTANT): Corrected the NovaStar 5G pixels-per-port figures against
   NovaStar's published Ethernet Port Load Capacity table. Their calculation
-  multiplies by 24 / 32 / 48 for 8 / 10 / 12-bit - our 12-bit figure used 36,
+  multiplies by 24 / 32 / 48 for 8 / 10 / 12-bit; ours used 36 at 12-bit,
   which overstated 12-bit capacity by about 17% and under-counted the ports a
   screen needs. 12-bit at 60 Hz drops from 1,728,000 to 1,475,600 per port.
-  8-bit and 10-bit rise (2,592,000 to 2,951,200 at 8-bit/60 Hz), so 5G screens
-  will show different port counts than before. These are NovaStar's published
-  numbers.
-  Existing projects saved as "Brompton Tessera (ULL)" open as Brompton with
-  Low Latency ticked, and calculate exactly the same as before - verified
-  against all 48 of the old figures.
+  8-bit and 10-bit go up (2,592,000 to 2,951,200 at 8-bit/60 Hz). Your 5G
+  screens will show different port counts than before. These are NovaStar's
+  published numbers.
+  Projects saved as "Brompton Tessera (ULL)" open as Brompton with Low Latency
+  ticked and calculate exactly as before - checked against all 48 of the old
+  figures.
 
 - FIX (IMPORTANT): Corrected the Megapixel HELIOS pixels-per-port figures.
-  Our numbers came from Megapixel's older switch spec sheets and were up to
-  6% HIGHER than the current official HELIOS User Guide - and too high is
-  the dangerous direction, because it under-counts how many ports a screen
-  needs. 40 of the 44 figures were affected, the worst at 60 Hz (the most
-  common show frame rate): 12-bit 1G read 425,000 px per port where the
-  official figure is 401,000. Both HELIOS entries now match the published
-  table, and the source and revision are recorded in the code. Existing
-  HELIOS projects may now show slightly more ports required than before.
-  That is the correct number.
-- FIX: The Data and Power flow-pattern grids highlighted the wrong tile on
-  a fresh project. The Data grid lit "top-right, vertical first" and the
-  Power grid lit nothing at all, while both actually default to "top-left,
-  horizontal first". They now show the pattern that is really in use.
+  Ours came from Megapixel's older switch spec sheets and were up to 6% higher
+  than the current official HELIOS User Guide. Too high is the dangerous
+  direction, because it under-counts how many ports a screen needs. 40 of the
+  44 figures were affected, the worst at 60 Hz - the most common show frame
+  rate - where 12-bit 1G read 425,000 pixels per port against an official
+  401,000. Both HELIOS entries now match the published table. Your HELIOS
+  projects may show slightly more ports required than before. That is the
+  correct number.
+
+- NEW: NovaStar 5G narrow ports are now costed properly. NovaStar reserve a
+  band at least 128 pixels wide per Ethernet port, so a port narrower than
+  that wastes the rest of the band and carries less than the headline
+  pixels-per-port figure - a port 120 px wide loses (128 - 120) x its height.
+  NovaStar 5G only. It bites hardest on tall narrow ports, which is exactly
+  the shape low latency encourages, and it can be the difference between a
+  port that works and one that is quietly overloaded.
+
+
+EXPORT
+
+- FIX (IMPORTANT): The Resolume XML export now follows the real shape of your
+  screen. It worked out where each cabinet sat by multiplying rows and columns
+  by the full cabinet size, so half tiles were ignored completely: a wall with
+  a half-height bottom row exported a shape a whole cabinet too tall, and a
+  half-width edge column one too wide. It now traces the actual cabinets. A
+  plain rectangular wall exports exactly as before; anything else exports a
+  polygon that follows only where cabinets really are. Blanked cabinets are
+  left out too, matching the cabinet, weight and power totals, which have
+  always ignored them.
+
+
+EVERYTHING ELSE
+
+- FIX: Drag-select on a rotated screen now selects the cabinets under the box,
+  rather than the ones the box would have covered if the screen were not
+  rotated. Pixel Map already worked this way; Data and Power did not.
+
+- FIX: A screen missing its fill colours no longer blanks the whole canvas.
+  One malformed screen used to take the entire drawing down with it instead
+  of just itself.
+
+- FIX: The Data and Power flow-pattern grids highlighted the wrong tile on a
+  fresh project. Data lit "top-right, vertical first" and Power lit nothing at
+  all, when both actually default to "top-left, horizontal first". They now
+  show the pattern really in use.
+
 - FIX: A batch of controls that were showing the wrong state, all from the
-  same cause - the interface theme was painting over what the app was
-  trying to show:
-  - Sliders were drawn as empty bars; they now show the coloured fill again.
-  - The colour picker's red/green/blue (and hue/saturation) sliders were
-    flat grey bars, so you could not see the colour you were dragging
-    through. They show their colour ramps again.
-  - The primary screen in a multi-selection had no highlight at all.
-  - Hidden screens lost their red striped "hidden" look in the layer list.
+  same cause:
+  - Sliders were drawn as empty bars; they show their coloured fill again.
+  - The colour picker's red/green/blue and hue/saturation sliders were flat
+    grey, so you could not see the colour you were dragging through. Their
+    ramps are back.
+  - The primary screen in a multi-selection had no highlight.
+  - Hidden screens lost their red striped look in the screen list.
   - Greyed-out buttons looked clickable: the up/down reorder arrows on the
     selected screen, and the Remove buttons for gradient stops and palette
-    colours. Disabled buttons now look disabled everywhere.
-  - Renaming a screen or a canvas gave no visual cue that you were editing.
-  - An invalid Watts-per-Panel entry showed no warning outline while the
-    field was still focused - which is exactly when you would see it.
-  - Bold / Italic / Underline stayed blue instead of following your chosen
-    accent colour, and the Pixels/Port and Panels/Port readouts could not
-    show their normal colour at all.
-- CHANGE: Opening an older project that had "Max Capacity" saved on a
-  Legacy screen switches it to "Organized". That is what it was really
-  drawing before - the setting was being ignored - so already-issued maps
-  keep rendering exactly as they were. Choosing Max Capacity yourself from
-  now on sticks, including through undo.
+    colours. Disabled buttons look disabled everywhere now.
+  - Renaming a screen or a canvas gave no sign you were editing.
+  - An invalid Watts-per-Panel entry showed no warning outline while the field
+    was still focused - exactly when you would be looking at it.
+  - Bold / Italic / Underline stayed blue instead of following your accent
+    colour, and the Pixels/Port and Panels/Port readouts could not show their
+    normal colour at all.
 
 v0.10.8.1 - July 26, 2026
 ----------------------------
