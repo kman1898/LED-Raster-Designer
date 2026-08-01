@@ -772,6 +772,7 @@ class CanvasRenderer {
                         window.app.setActiveCanvas(layer.canvas_id);
                     }
                     if ((!window.app.currentLayer || window.app.currentLayer.id !== layer.id)
+                        && !this._isCustomPathGesture(layer)
                         && typeof window.app.selectLayer === 'function') {
                         // selectLayer takes the layer OBJECT, not the id
                         // (the !layer.id guard rejects raw integers).
@@ -1163,6 +1164,11 @@ class CanvasRenderer {
         if (this.isSelectingPanels && this.selectionRect) {
             this.selectionRect.x2 = worldX;
             this.selectionRect.y2 = worldY;
+            // currentLayer is the OWNER of the port/circuit being drawn, not a
+            // limit on what the rect may cover: since v0.10.9 these two walk
+            // every member the owner's path can legally reach, so a live drag
+            // lights up cabinets on the next screen of the wall as it crosses
+            // onto it (see the mouse-up twin below).
             if (window.app && window.app.currentLayer && window.app.isCustomFlow(window.app.currentLayer)) {
                 window.app.selectPanelsInRect(window.app.currentLayer, this.selectionRect);
             } else if (window.app && window.app.currentLayer && this.viewMode === 'power' && window.app.isCustomPower(window.app.currentLayer)) {
@@ -1518,23 +1524,24 @@ class CanvasRenderer {
                         return;
                     }
                 } else {
-                    // v0.10.9 screen groups: click-to-add crosses members, the
-                    // MARQUEE deliberately does not, and this is not an
-                    // oversight to be tidied up later.
+                    // v0.10.9 screen groups: the marquee crosses members too.
                     //
-                    // customSelection / powerCustomSelection are keyed by the
-                    // UNSCOPED getPanelKey, `${row},${col}`, and they have to
-                    // stay that way - pixelMapSelection shares the key and
-                    // three overlays parse it back with
-                    // `key.split(',').map(parseInt)`. So member A's R0C0 and
-                    // member B's R0C0 are the SAME entry in that Set, and
-                    // applyPatternToSelection (app-power.js:1311) reads the Set
-                    // back against `this.currentLayer.panels` alone before
-                    // writing plain {row, col} steps. A marquee spanning two
-                    // members could therefore only ever commit the owner's own
-                    // cabinets under the peer's row and column - a silently
-                    // wrong path, not a partly-working one. Scoping the Set is
-                    // the only real fix and it is out of scope here.
+                    // It could not before, and the reason was real:
+                    // customSelection / powerCustomSelection were keyed by the
+                    // UNSCOPED getPanelKey, `${row},${col}`, so member A's R0C0
+                    // and member B's R0C0 were the SAME entry in the Set and a
+                    // marquee spanning two members could only ever commit the
+                    // OWNER's cabinets under the peer's row and column - a
+                    // silently wrong path, not a partly-working one. Those two
+                    // Sets are now keyed by getScopedPanelKey,
+                    // `${layerId}:${row},${col}`, which is what makes a
+                    // cross-member selection expressible at all.
+                    // (pixelMapSelection stays unscoped - it is a single-screen
+                    // feature and its overlay still parses the plain key.)
+                    //
+                    // currentLayer stays the OWNER of the port/circuit being
+                    // drawn even when the rect covers a peer; selectPanelsInRect
+                    // hit-tests every layer the owner's path may legally reach.
                     if (this.viewMode === 'power') {
                         window.app.selectPowerPanelsInRect(window.app.currentLayer, this.selectionRect);
                     } else {
@@ -2346,6 +2353,34 @@ class CanvasRenderer {
     // whole point - the overwhelming majority of projects have no groups at
     // all, and none of them may change by a pixel.
 
+    // Is a press on `hitLayer` a DRAWING gesture aimed at the current layer,
+    // rather than a request to switch to that screen?
+    //
+    // It is exactly when the user is hand-drawing a port or a circuit and the
+    // press landed on a peer member of the owner's group. Without this, the
+    // generic "click a panel, that panel's layer becomes currentLayer" step in
+    // handleMouseDown fires FIRST and quietly moves the ownership of the path
+    // being drawn onto the peer: the click-to-add gate step 6 relaxed with
+    // canPathReachLayer would then never see a peer at all (currentLayer would
+    // already BE that peer), and a marquee started over the next screen of the
+    // wall would fill the peer's port instead of the one the user has open.
+    //
+    // Only the currentLayer promotion is suppressed - the canvas activation
+    // above it still runs, and everything outside custom mode is untouched, so
+    // clicking a peer to select it works exactly as before whenever the user is
+    // not mid-draw.
+    _isCustomPathGesture(hitLayer) {
+        const app = window.app;
+        if (!app || !hitLayer) return false;
+        const owner = app.currentLayer;
+        if (!owner || owner.id === hitLayer.id) return false;
+        const drawing = (this.viewMode === 'data-flow' && app.isCustomFlow && app.isCustomFlow(owner))
+            || (this.viewMode === 'power' && app.isCustomPower && app.isCustomPower(owner));
+        if (!drawing) return false;
+        if (typeof app.canPathReachLayer !== 'function') return false;
+        return !!app.canPathReachLayer(owner, hitLayer);
+    }
+
     // Is this path one of the crossing ones? False whenever app-power.js has
     // not defined the helper, which is also the honest answer for a project
     // that has never had a group.
@@ -2556,10 +2591,13 @@ class CanvasRenderer {
     // are keyed by getScopedPanelKey - `${layerId}:${row},${col}` - because the
     // unscoped key cannot tell A's R0C0 from B's R0C0, and putting a peer's
     // cabinet into an unscoped map would tint the owner's OWN cabinet at that
-    // row and column instead. (getPowerPanelKey itself stays `${row},${col}`:
-    // three overlays parse those keys with `key.split(',').map(parseInt)`, and
-    // `parseInt("3:0")` is 3, so a scoped key there would silently address the
-    // wrong panel with no error at all.)
+    // row and column instead. (getPowerPanelKey itself stays `${row},${col}`,
+    // one map per layer keyed by that layer's own grid; the SCOPED twin lives
+    // beside it rather than replacing it, so every existing per-layer lookup is
+    // untouched. The two custom-selection overlays did move to scoped keys in
+    // v0.10.9 - see _resolveSelectionKey - but pixelMapSelection still parses
+    // `key.split(',').map(parseInt)`, where `parseInt("3:0")` is 3 and a scoped
+    // key would silently address the wrong panel with no error at all.)
     _powerCircuitForPanel(layer, panel) {
         if (layer._powerPanelCircuitMap instanceof Map) {
             const n = layer._powerPanelCircuitMap.get(this.getPowerPanelKey(panel));
@@ -5294,20 +5332,63 @@ class CanvasRenderer {
             && this._effectiveLayerCanvasId(m) === cid);
     }
 
-    // The numbering `layer` should draw with, or null when it is not in a
-    // group of two or more here - and then renderCabinetIDNumbers takes
-    // exactly the path it always took.
-    _groupNumberingPlan(layer) {
-        const members = this._groupNumberingMembers(layer);
-        if (members.length < 2) return null;
-        const mine = members.findIndex(m => m.id === layer.id);
-        if (mine < 0) return null;
+    // THE WALL LATTICE - a set of members' separate grids collapsed into one
+    // ordered set of column and row POSITIONS. This is the rank-position
+    // mapping step 5 built for continuous cabinet numbering, extracted so it
+    // has exactly ONE implementation.
+    //
+    // Two members of one wall do not share a grid: a 1m cabinet's row 1 and a
+    // 0.5m cabinet's row 1 are different physical heights, so anything that has
+    // to run ACROSS the wall - the cabinet IDs, and now a pattern applied to a
+    // selection that starts on one member and finishes on the next - is
+    // meaningless if it is ordered by the panels' own row/col indices. It has
+    // to be ordered by WHERE EACH CABINET SITS. Every distinct column x and row
+    // y any member occupies is pooled and ranked, and each cabinet then reports
+    // the rank of its own slot; a cabinet spanning two lattice rows ranks by
+    // its own top-left, exactly as step 5 numbers it.
+    //
+    // WHO CALLS IT. _groupNumberingPlan below (the cabinet IDs) and
+    // app-power.js's cross-member flow patterns, through
+    // `window.canvasRenderer.getPositionLattice(...)`. It lives on the renderer
+    // because the ranking needs getLayerRenderOffset - two members can carry
+    // different Show Look offsets, and Data Flow / Power draw at the SHOW
+    // position. The canvas workspace translate is shared by every member of a
+    // path scope, so it cancels out of a ranking and is deliberately left out.
+    // Two copies of this would eventually disagree, and a serpentine that
+    // zig-zags the wall in a different order than the IDs read is worse than no
+    // serpentine at all.
+    //
+    //   members                    the ranked members, in the order given
+    //   indexOfLayer(layerOrId)    that member's index, or -1
+    //   colOfMember(index, panel)  rank by member index, when the caller
+    //   rowOfMember(index, panel)  already knows it
+    //   colOf(layerOrId, panel)    the cabinet's lattice column rank
+    //   rowOf(layerOrId, panel)    the cabinet's lattice row rank
+    //   compare(a, b)              reading order over {layer, panel} pairs
+    //
+    // colOf/rowOf take the panel's OWN layer, because the same {row, col} means
+    // a different place on the wall in each member - that is the entire point.
+    // The panel's own index is the fallback for a panel whose layer is not in
+    // the list, so a caller handing over something outside the scope degrades
+    // to today's behaviour rather than throwing mid-render or returning NaN.
+    //
+    // A single-member list is meaningful and ranks that one screen's own slots:
+    // for a uniform grid the ranks then equal the panels' own indices, which is
+    // why an ungrouped screen can go through the same code and come out with
+    // the order it has always had.
+    //
+    // Known limit (inherited from step 5): positions are ranked in unrotated
+    // screen space, so a member carrying a screen rotation ranks by where its
+    // grid sits, not by where the rotation draws it.
+    getPositionLattice(members) {
+        const list = (members || []).filter(m => m && Array.isArray(m.panels));
 
         // Slot origins per member, in the space this view draws in. The render
-        // offset is 0 on Cabinet ID today; added so the ranks stay right if
-        // the ID numbers ever draw in a view that shifts layers.
+        // offset is 0 on Cabinet ID today; added so the ranks stay right in
+        // the views that DO shift layers (Data Flow / Power carry Show Look
+        // offsets), which is where the flow patterns read this from.
         const key = v => Math.round(v * 100);   // pixel coords; kills float noise
-        const slots = members.map(m => {
+        const slots = list.map(m => {
             const off = this.getLayerRenderOffset(m);
             const cols = new Map();
             const rows = new Map();
@@ -5340,27 +5421,89 @@ class CanvasRenderer {
         const colRanks = rankPositions(slots.map(s => s.cols));
         const rowRanks = rankPositions(slots.map(s => s.rows));
 
-        const colOf = (mi, panel) => {
-            const x = slots[mi].cols.get(panel.col);
+        // The panel's own index is the fallback for a panel that is not in the
+        // member we were handed - what a caller outside the scope wants, and
+        // what keeps a stale one from getting NaN.
+        const colOfMember = (mi, panel) => {
+            const s = slots[mi];
+            const x = (s && panel) ? s.cols.get(panel.col) : undefined;
             const r = (x === undefined) ? undefined : colRanks.get(key(x));
-            return (r === undefined) ? panel.col : r;
+            return (r === undefined) ? (panel ? panel.col : 0) : r;
         };
-        const rowOf = (mi, panel) => {
-            const y = slots[mi].rows.get(panel.row);
+        const rowOfMember = (mi, panel) => {
+            const s = slots[mi];
+            const y = (s && panel) ? s.rows.get(panel.row) : undefined;
             const r = (y === undefined) ? undefined : rowRanks.get(key(y));
-            return (r === undefined) ? panel.row : r;
+            return (r === undefined) ? (panel ? panel.row : 0) : r;
         };
 
-        // Sequential = reading order over the whole wall. Ranking by the row
-        // and column ranks is ranking by slot position, and the member index
-        // then the member's own grid position break any remaining tie, so the
-        // order is stable and follows layer_ids.
+        // Layer -> member index, by id so a caller holding a stale object
+        // reference (or just an id) still lands on the right member.
+        const byId = new Map();
+        list.forEach((m, i) => byId.set(m.id, i));
+        const indexOfLayer = target => {
+            if (target === null || target === undefined) return -1;
+            const id = (typeof target === 'object') ? target.id : target;
+            const i = byId.get(id);
+            return (i === undefined) ? -1 : i;
+        };
+
+        const colOf = (panelLayer, panel) => colOfMember(indexOfLayer(panelLayer), panel);
+        const rowOf = (panelLayer, panel) => rowOfMember(indexOfLayer(panelLayer), panel);
+
+        return {
+            members: list,
+            indexOfLayer,
+            colOfMember,
+            rowOfMember,
+            colOf,
+            rowOf,
+            // Reading order over the whole wall. Row rank then column rank IS
+            // ranking by slot position; the member index and then the member's
+            // own grid position break any remaining tie, so the order is stable
+            // and follows the order the members were given in. This is the
+            // comparator the cabinet numbers below are assigned with, because
+            // it is literally the same one.
+            compare: (a, b) => {
+                const ra = rowOf(a.layer, a.panel);
+                const rb = rowOf(b.layer, b.panel);
+                const ca = colOf(a.layer, a.panel);
+                const cb = colOf(b.layer, b.panel);
+                return (ra - rb) || (ca - cb)
+                    || (indexOfLayer(a.layer) - indexOfLayer(b.layer))
+                    || (a.panel.row - b.panel.row) || (a.panel.col - b.panel.col);
+            },
+        };
+    }
+
+    // The lattice for `layer`'s GROUP: the members this canvas ranks together,
+    // in the group's own order. Null when `layer` is not in a group of two or
+    // more here, which is what keeps every single-screen caller - the cabinet
+    // numbering below included - on the path it always took.
+    getGroupLattice(layer) {
+        const members = this._groupNumberingMembers(layer);
+        if (members.length < 2) return null;
+        return this.getPositionLattice(members);
+    }
+
+    // The numbering `layer` should draw with, or null when it is not in a
+    // group of two or more here - and then renderCabinetIDNumbers takes
+    // exactly the path it always took.
+    _groupNumberingPlan(layer) {
+        const lattice = this.getGroupLattice(layer);
+        if (!lattice) return null;
+        const members = lattice.members;
+        const mine = members.findIndex(m => m.id === layer.id);
+        if (mine < 0) return null;
+
+        // Sequential = reading order over the whole wall, which is exactly the
+        // lattice's own comparator.
         const cells = [];
         members.forEach((m, mi) => (m.panels || []).forEach(p => cells.push({
-            mi, panel: p, col: colOf(mi, p), row: rowOf(mi, p),
+            mi, panel: p, layer: m,
+            col: lattice.colOf(m, p), row: lattice.rowOf(m, p),
         })));
-        cells.sort((a, b) => (a.row - b.row) || (a.col - b.col) || (a.mi - b.mi)
-            || (a.panel.row - b.panel.row) || (a.panel.col - b.panel.col));
+        cells.sort(lattice.compare);
         const numbers = new Map();
         cells.forEach((c, i) => numbers.set(`${c.mi}:${c.panel.row},${c.panel.col}`, i + 1));
 
@@ -5385,8 +5528,8 @@ class CanvasRenderer {
             // matters, because one member drawing A1 as column-row while
             // another draws A1 as row-column is a duplicate ID again.
             style: members[0].cabinetIdStyle || 'column-row',
-            colOf: panel => colOf(mine, panel),
-            rowOf: panel => rowOf(mine, panel),
+            colOf: panel => lattice.colOf(layer, panel),
+            rowOf: panel => lattice.rowOf(layer, panel),
             numberOf: panel => numbers.get(`${mine}:${panel.row},${panel.col}`) || panel.number,
         };
     }
@@ -6196,6 +6339,104 @@ class CanvasRenderer {
         this.ctx.restore();
     }
 
+    // One key out of customSelection / powerCustomSelection, resolved to the
+    // cabinet it actually names.
+    //
+    // v0.10.9: those two Sets are keyed by getScopedPanelKey -
+    // `${layerId}:${row},${col}` - because a marquee across a screen group has
+    // to be able to hold member A's R0C0 AND member B's R0C0, and the unscoped
+    // `${row},${col}` key cannot tell them apart. The old parser here was
+    // `key.split(',').map(n => parseInt(n, 10))`, and run against a scoped key
+    // that yields parseInt("3:0") === 3 - a real row number, a real panel, the
+    // WRONG cabinet, silently and with no error at all. So the scoped Sets are
+    // read here and pixelMapSelection - still unscoped, still a single-screen
+    // feature - keeps the old parser untouched.
+    //
+    // An unscoped key is still accepted and read as the owner's own cabinet:
+    // that is what one that arrives from an older Set, or from a caller that
+    // predates the scoping, means, and treating it as owner-relative is exactly
+    // today's behaviour.
+    _resolveSelectionKey(ownerLayer, key) {
+        const app = window.app;
+        if (!app || !ownerLayer || typeof key !== 'string') return null;
+        const sep = key.indexOf(':');
+        let layer = ownerLayer;
+        let coords = key;
+        if (sep >= 0) {
+            coords = key.slice(sep + 1);
+            const layerId = parseInt(key.slice(0, sep), 10);
+            if (!Number.isNaN(layerId) && layerId !== ownerLayer.id) {
+                const layers = (app.project && app.project.layers) || [];
+                const found = layers.find(l => l && l.id === layerId) || null;
+                // The same reachability rule click-to-add uses: a selection may
+                // only reach a peer the owner's path could legally reach. A key
+                // naming a deleted layer, or one that has since left the group,
+                // resolves to nothing rather than to some other screen's grid.
+                const reachable = found && (typeof app.canPathReachLayer === 'function'
+                    ? app.canPathReachLayer(ownerLayer, found)
+                    : false);
+                if (!reachable) return null;
+                layer = found;
+            }
+        }
+        const [row, col] = coords.split(',').map(n => parseInt(n, 10));
+        const panel = app.getPanelByRowCol(layer, row, col);
+        if (!panel) return null;
+        return { layer, panel };
+    }
+
+    // The drag-select highlight for the two CUSTOM selections, which since
+    // v0.10.9 can span the members of a screen group.
+    //
+    // The owner's own cabinets draw exactly as they always have, inside the
+    // owner's overlay transform - an ungrouped screen therefore takes the same
+    // calls it took before, expression for expression, and the peer branch
+    // below is unreachable for it.
+    //
+    // A PEER's cabinet cannot be drawn in that transform, and this is the same
+    // problem step 6 hit with cross-member paths: the overlay transform carries
+    // ONE member's Show Look offset and rotation, and two members can disagree
+    // on both. So peers draw in the cross-member frame instead - workspace
+    // translate and canvas mirror only, with each cabinet's own rotation and
+    // render offset baked into its rect by _crossMemberPanelShim, which is the
+    // machinery step 6 already established for exactly this.
+    _renderScopedSelectionOverlay(layer, selection) {
+        const own = [];
+        const peers = [];
+        selection.forEach(key => {
+            const hit = this._resolveSelectionKey(layer, key);
+            if (!hit) return;
+            if (hit.layer.id === layer.id) own.push(hit.panel);
+            else peers.push(hit);
+        });
+
+        if (own.length > 0) {
+            // v0.8.7.2.1: this overlay runs AFTER the per-canvas render loop has
+            // popped its workspace translate, perspective mirror, AND per-layer
+            // Show Look offset, so re-apply all three here. Without this, on
+            // multi-canvas projects (or canvases in Back perspective, or any
+            // Show Look view), the highlight fills draw at workspace (0,0) in
+            // raw processor coords, so the user saw no panel highlight during
+            // drag-select.
+            this._withOverlayLayerTransform(layer, () => {
+                this.ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+                own.forEach(panel => {
+                    this.ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
+                });
+            });
+        }
+
+        if (peers.length > 0) {
+            this._withCrossMemberCanvasTransform(layer, () => {
+                this.ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+                peers.forEach(hit => {
+                    const rect = this._crossMemberPanelShim(hit.layer, hit.panel);
+                    this.ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+                });
+            });
+        }
+    }
+
     renderCustomSelectionOverlay() {
         if (!window.app || !window.app.currentLayer) return;
         const layer = window.app.currentLayer;
@@ -6204,22 +6445,7 @@ class CanvasRenderer {
         const selection = window.app.customSelection || new Set();
         if (selection.size === 0) return;
 
-        // v0.8.7.2.1: this overlay runs AFTER the per-canvas render loop has
-        // popped its workspace translate, perspective mirror, AND per-layer
-        // Show Look offset, so re-apply all three here. Without this, on
-        // multi-canvas projects (or canvases in Back perspective, or any
-        // Show Look view), the highlight fills draw at workspace (0,0) in
-        // raw processor coords, so the user saw no panel highlight during
-        // drag-select.
-        this._withOverlayLayerTransform(layer, () => {
-            this.ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-            selection.forEach(key => {
-                const [row, col] = key.split(',').map(n => parseInt(n, 10));
-                const panel = window.app.getPanelByRowCol(layer, row, col);
-                if (!panel) return;
-                this.ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
-            });
-        });
+        this._renderScopedSelectionOverlay(layer, selection);
     }
 
     renderPowerSelectionOverlay() {
@@ -6230,19 +6456,7 @@ class CanvasRenderer {
         const selection = window.app.powerCustomSelection || new Set();
         if (selection.size === 0) return;
 
-        // v0.8.7.2.1: same fix as renderCustomSelectionOverlay, apply the
-        // layer's canvas workspace + perspective mirror + per-layer show
-        // offset so drag-select highlights land on the panels they're
-        // targeting.
-        this._withOverlayLayerTransform(layer, () => {
-            this.ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-            selection.forEach(key => {
-                const [row, col] = key.split(',').map(n => parseInt(n, 10));
-                const panel = window.app.getPanelByRowCol(layer, row, col);
-                if (!panel) return;
-                this.ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
-            });
-        });
+        this._renderScopedSelectionOverlay(layer, selection);
     }
 
     /**
@@ -6275,6 +6489,13 @@ class CanvasRenderer {
         try { fn(); } finally { this.ctx.restore(); }
     }
 
+    // DELIBERATELY UNSCOPED, unlike the two custom-selection overlays above.
+    // pixelMapSelection is bulk hide / blank / half-tile WITHIN one screen -
+    // nothing about it is grouped, it never leaves currentLayer, and it keeps
+    // the plain `${row},${col}` getPanelKey. Do not "tidy" this into
+    // _renderScopedSelectionOverlay: the scoped resolver would still read these
+    // keys correctly, but pointing a second feature at the group machinery buys
+    // nothing and would make a single-screen action start caring about peers.
     renderPixelMapSelectionOverlay() {
         if (!window.app || !window.app.currentLayer) return;
         const selection = window.app.pixelMapSelection;

@@ -116,10 +116,19 @@ class _ScreenInfo {
         const a = assignments || this.calculatePortAssignments(layer) || [];
         const auto = layer._autoPortsRequired
             || a.reduce((max, x) => Math.max(max, (x && x.port) || 0), 0);
-        if (this.isCustomFlow(layer) && layer.customPortPaths) {
-            const customPorts = Object.keys(layer.customPortPaths)
+        // The paths object is defaulted rather than required. Guarding the whole
+        // branch on `layer.customPortPaths` meant a member in custom flow that
+        // had never had its custom state initialised - a project saved before
+        // the key existed, or a peer that inherited the group's flow pattern
+        // without ensureCustomFlowState running on it - skipped the
+        // served-by-a-peer check below and reported its AUTOMATIC port count.
+        // On a wall where a neighbour's port already feeds every one of its
+        // cabinets that is a phantom extra port in the roll-up.
+        if (this.isCustomFlow(layer)) {
+            const paths = layer.customPortPaths || {};
+            const customPorts = Object.keys(paths)
                 .map(p => parseInt(p, 10))
-                .filter(p => (layer.customPortPaths[p] || []).length > 0);
+                .filter(p => (paths[p] || []).length > 0);
             if (customPorts.length > 0) return Math.max(...customPorts);
             if (this._layerServedByPeerPath(layer, 'customPortPaths')) return 0;
             return auto > 0 ? auto : (layer.customPortIndex || 1);
@@ -139,10 +148,13 @@ class _ScreenInfo {
         if (!layer || (layer.type || 'screen') !== 'screen') return 0;
         let auto = autoCircuits;
         if (auto === null || auto === undefined) auto = Number(layer._powerCircuitsRequired) || 0;
-        if (this.isCustomPower(layer) && layer.powerCustomPaths) {
-            const customCircuits = Object.keys(layer.powerCustomPaths)
+        // Defaulted, not required - same phantom-circuit reason as the ports
+        // twin above.
+        if (this.isCustomPower(layer)) {
+            const paths = layer.powerCustomPaths || {};
+            const customCircuits = Object.keys(paths)
                 .map(c => parseInt(c, 10))
-                .filter(c => (layer.powerCustomPaths[c] || []).length > 0);
+                .filter(c => (paths[c] || []).length > 0);
             if (customCircuits.length > 0) return Math.max(...customCircuits);
             if (this._layerServedByPeerPath(layer, 'powerCustomPaths')) return 0;
             return auto > 0 ? auto : (layer.powerCustomIndex || 1);

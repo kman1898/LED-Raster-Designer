@@ -588,3 +588,52 @@ def test_an_explicitly_hidden_member_is_excluded(page):
     assert t['memberCount'] == 1
     assert t['hiddenCount'] == 1
     assert t['cabinets'] == 4
+
+
+# ── A peer fed by a neighbour's crossing port must not also count its own ──
+#
+# v0.10.9: getLayerPortsRequired guarded its whole custom branch on
+# `layer.customPortPaths` being present. A member in custom flow that had never
+# had its custom state initialised - a project saved before the key existed, or
+# a peer that inherited the group's shared flowPattern without
+# ensureCustomFlowState running on it - fell through to the AUTOMATIC count.
+# On a wall where the neighbour's port already feeds every one of its cabinets
+# that is a phantom extra port in the roll-up: the wall reads 2 Mains when one
+# cable does it. Same shape for circuits.
+
+_FED_BY_PEER_JS = """(gt) => {
+    const owner = gt.screen({ id: 1, name: 'Owner', columns: 2, rows: 1,
+        flowPattern: 'custom', powerFlowPattern: 'custom' });
+    // Every cabinet of the peer is on the OWNER's port 1 / circuit 1.
+    const peer = gt.screen({ id: 2, name: 'Peer', columns: 2, rows: 1,
+        offset_x: 256, flowPattern: 'custom', powerFlowPattern: 'custom' });
+    owner.customPortPaths = { 1: [
+        { row: 0, col: 0 }, { row: 0, col: 1 },
+        { row: 0, col: 0, layerId: 2 }, { row: 0, col: 1, layerId: 2 },
+    ] };
+    owner.powerCustomPaths = { 1: [
+        { row: 0, col: 0 }, { row: 0, col: 1 },
+        { row: 0, col: 0, layerId: 2 }, { row: 0, col: 1, layerId: 2 },
+    ] };
+    // The peer has NO custom paths object at all - the exact edge.
+    delete peer.customPortPaths;
+    delete peer.powerCustomPaths;
+    return [[owner, peer], gt.group([owner, peer])];
+}"""
+
+
+def test_a_peer_with_no_paths_object_still_counts_as_fed_by_its_neighbour(page):
+    """One cable across the wall is one port, not one per section."""
+    got = page.evaluate("""() => {
+        const gt = window.__gt;
+        const [layers, group] = (%s)(gt);
+        const totals = gt.totals(layers, group);
+        return {
+            ports: totals.portsPrimary,
+            circuits: totals.circuits,
+            peerHasPathsKey: 'customPortPaths' in layers[1],
+        };
+    }""" % _FED_BY_PEER_JS)
+    assert got['peerHasPathsKey'] is False, 'the edge under test was not set up'
+    assert got['ports'] == 1, f"phantom extra port in the roll-up: {got}"
+    assert got['circuits'] == 1, f"phantom extra circuit in the roll-up: {got}"

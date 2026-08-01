@@ -889,9 +889,16 @@ class _Power {
         return layer.panels.find(p => p.row === row && p.col === col) || null;
     }
 
-    togglePanelSelection(panel) {
+    // v0.10.9: customSelection is keyed by getScopedPanelKey, not getPanelKey -
+    // see _selectPathPanelsInRect for why. `panelLayer` names the screen the
+    // cabinet came from when it is not currentLayer; leaving it out resolves
+    // it, so every existing single-screen caller is unchanged.
+    togglePanelSelection(panel, panelLayer = null) {
         if (!panel) return;
-        const key = this.getPanelKey(panel);
+        const owner = this.currentLayer;
+        const source = this._resolvePathPanelLayer(owner, panel, panelLayer) || owner;
+        if (!source) return;
+        const key = this.getScopedPanelKey(source.id, panel);
         if (this.customSelection.has(key)) {
             this.customSelection.delete(key);
         } else {
@@ -907,21 +914,67 @@ class _Power {
         window.canvasRenderer.render();
     }
 
+    /**
+     * Marquee-select the cabinets under `rect` for a manual path owned by
+     * `ownerLayer`, filling `selection` with SCOPED keys.
+     *
+     * v0.10.9: the marquee now sweeps every member of the owner's group, the
+     * same reachability rule click-to-add uses. Before this it walked one
+     * layer, which is why dragging a box across a mixed-cabinet wall picked up
+     * only half of it.
+     *
+     * The Set has to be keyed by getScopedPanelKey and not getPanelKey:
+     * member A's R0C0 and member B's R0C0 are two different cabinets, and under
+     * the bare `${row},${col}` they are ONE entry - so a cross-member marquee
+     * could only ever have committed the owner's own cabinets under the peer's
+     * row and column. Silently wrong, not partly working. getPanelKey itself is
+     * untouched, because pixelMapSelection still uses it (one screen, no
+     * groups) and its overlay still parses it back with split(',').
+     *
+     * Each member converts the WORLD rect into its OWN frame:
+     * _getLayerWorkspaceOffset is per-layer (canvas workspace + that layer's
+     * Show Look delta), and rotation is undone per member the way
+     * selectPixelMapPanelsInRect and canvas.js getPanelAt do it. Note the
+     * members of one canvas already share an origin - _build_panels lays each
+     * member's columns out from its own offset_x - so there is no second offset
+     * to apply on top of that, and applying one would drag the peer's hit-test
+     * off the wall.
+     */
+    _selectPathPanelsInRect(ownerLayer, rect, selection) {
+        selection.clear();
+        if (!ownerLayer || !rect) return;
+        const _r = window.canvasRenderer;
+        this.getPathScopeLayers(ownerLayer).forEach(member => {
+            if (!member || !Array.isArray(member.panels)) return;
+            const off = this._getLayerWorkspaceOffset(member);
+            let x1 = Math.min(rect.x1, rect.x2) - off.wx;
+            let x2 = Math.max(rect.x1, rect.x2) - off.wx;
+            let y1 = Math.min(rect.y1, rect.y2) - off.wy;
+            let y2 = Math.max(rect.y1, rect.y2) - off.wy;
+            // Rotation is 90/180/270 only, so the unrotated rect is still
+            // axis-aligned and the corners bound it exactly.
+            if (_r && typeof _r._unrotatePointForLayer === 'function') {
+                const corners = [[x1, y1], [x2, y1], [x1, y2], [x2, y2]]
+                    .map(([x, y]) => _r._unrotatePointForLayer(x, y, member));
+                x1 = Math.min(...corners.map(c => c.x)); x2 = Math.max(...corners.map(c => c.x));
+                y1 = Math.min(...corners.map(c => c.y)); y2 = Math.max(...corners.map(c => c.y));
+            }
+            member.panels.forEach(panel => {
+                if (panel.hidden) return;
+                const intersects = panel.x <= x2 && (panel.x + panel.width) >= x1 &&
+                    panel.y <= y2 && (panel.y + panel.height) >= y1;
+                if (intersects) selection.add(this.getScopedPanelKey(member.id, panel));
+            });
+        });
+    }
+
+    // `layer` is the path's OWNER - the screen whose port is being drawn - and
+    // its group decides how far the marquee reaches. The signature is
+    // unchanged, so canvas.js still passes currentLayer.
     selectPanelsInRect(layer, rect) {
         if (!layer) return;
         if (!this.isCustomFlow(layer)) return;
-        this.customSelection.clear();
-        const off = this._getLayerWorkspaceOffset(layer);
-        const minX = Math.min(rect.x1, rect.x2) - off.wx;
-        const maxX = Math.max(rect.x1, rect.x2) - off.wx;
-        const minY = Math.min(rect.y1, rect.y2) - off.wy;
-        const maxY = Math.max(rect.y1, rect.y2) - off.wy;
-        layer.panels.forEach(panel => {
-            if (panel.hidden) return;
-            const intersects = panel.x <= maxX && (panel.x + panel.width) >= minX &&
-                panel.y <= maxY && (panel.y + panel.height) >= minY;
-            if (intersects) this.customSelection.add(this.getPanelKey(panel));
-        });
+        this._selectPathPanelsInRect(layer, rect, this.customSelection);
         this.updateCustomFlowUI();
         window.canvasRenderer.render();
     }
@@ -1136,21 +1189,12 @@ class _Power {
         }
     }
 
+    // Power's half of the marquee. Same scoping rule, same owner semantics -
+    // see _selectPathPanelsInRect.
     selectPowerPanelsInRect(layer, rect) {
         if (!layer) return;
         if (!this.isCustomPower(layer)) return;
-        this.powerCustomSelection.clear();
-        const off = this._getLayerWorkspaceOffset(layer);
-        const minX = Math.min(rect.x1, rect.x2) - off.wx;
-        const maxX = Math.max(rect.x1, rect.x2) - off.wx;
-        const minY = Math.min(rect.y1, rect.y2) - off.wy;
-        const maxY = Math.max(rect.y1, rect.y2) - off.wy;
-        layer.panels.forEach(panel => {
-            if (panel.hidden) return;
-            const intersects = panel.x <= maxX && (panel.x + panel.width) >= minX &&
-                panel.y <= maxY && (panel.y + panel.height) >= minY;
-            if (intersects) this.powerCustomSelection.add(this.getPanelKey(panel));
-        });
+        this._selectPathPanelsInRect(layer, rect, this.powerCustomSelection);
         this.updateCustomPowerUI();
         window.canvasRenderer.render();
     }
@@ -1283,11 +1327,15 @@ class _Power {
         return entry;
     }
 
-    // Ownership key for CONFLICT DETECTION ONLY. getPanelKey stays
-    // `${row},${col}` because customSelection, powerCustomSelection AND
-    // pixelMapSelection all share it, and three overlays parse those keys with
-    // `key.split(',').map(parseInt)` - a layer id in front would silently
-    // parse to the wrong panel with no error anywhere.
+    // The address of ONE cabinet on the wall. Path ownership, path dedupe and
+    // (since v0.10.9's marquee) customSelection / powerCustomSelection are all
+    // keyed on this, because inside a group `${row},${col}` names two cabinets
+    // at once and every one of those jobs has to tell them apart.
+    //
+    // getPanelKey stays `${row},${col}` regardless: pixelMapSelection still
+    // uses it - one screen, nothing grouped about it - and its overlay parses
+    // the key back with `key.split(',').map(parseInt)`, which a layer id in
+    // front would turn into the WRONG panel silently, with no error anywhere.
     getScopedPanelKey(layerId, panel) {
         return `${layerId}:${panel.row},${panel.col}`;
     }
@@ -1623,57 +1671,159 @@ class _Power {
         return true;
     }
 
+    // The wall lattice a pattern is ordered on. ONE implementation, and it is
+    // the renderer's getPositionLattice - the same one the cabinet ID numbers
+    // are assigned with (canvas.js _groupNumberingPlan). Two copies would
+    // eventually disagree, and a serpentine that snakes the wall in a different
+    // order than the IDs read is worse than no serpentine at all. It lives on
+    // the renderer because the ranking needs getLayerRenderOffset.
+    //
+    // Null only when the renderer is missing entirely, and _orderPicksForPattern
+    // then falls back to the panels' own row/col - the ordering this had before
+    // v0.10.9. A degradation, deliberately, rather than a second lattice.
+    _pathLattice(ownerLayer) {
+        const cr = window.canvasRenderer;
+        if (!cr || typeof cr.getPositionLattice !== 'function') return null;
+        return cr.getPositionLattice(this.getPathScopeLayers(ownerLayer));
+    }
+
+    /**
+     * The cabinets a scoped selection Set actually names, as {layer, panel}.
+     *
+     * Walked in path-scope order (owner first, then peers in group order) and
+     * then in each member's own panel order, so an ungrouped screen yields the
+     * exact list - and the exact order - the old `currentLayer.panels.filter()`
+     * did. Hidden cabinets are dropped here, matching that filter.
+     */
+    _selectedPathPanels(ownerLayer, selection) {
+        const out = [];
+        if (!ownerLayer || !selection || selection.size === 0) return out;
+        this.getPathScopeLayers(ownerLayer).forEach(member => {
+            if (!member || !Array.isArray(member.panels)) return;
+            member.panels.forEach(panel => {
+                if (panel.hidden) return;
+                if (selection.has(this.getScopedPanelKey(member.id, panel))) {
+                    out.push({ layer: member, panel });
+                }
+            });
+        });
+        return out;
+    }
+
+    /**
+     * Put a cross-member selection into pattern order.
+     *
+     * The picks are placed on the WALL LATTICE (canvas.js getPositionLattice:
+     * every member's column and row slots pooled and ranked by where they
+     * physically sit), the lattice is compacted to just the rows and columns
+     * the selection actually touches - exactly what the old uniqueRows /
+     * uniqueCols pass did, only over positions rather than indices - and
+     * getPatternOrderForGrid walks it. A serpentine therefore alternates
+     * direction per LATTICE row and snakes across the whole wall instead of
+     * per member.
+     *
+     * WHY position and not row/col indices. A 1m member's row 1 and a 0.5m
+     * member's row 1 are different physical heights, so a pattern ordered by
+     * the panels' own indices - which is what this did - zig-zags through an
+     * order that exists nowhere on site. A cabinet spanning two lattice rows
+     * ranks by its own top-left, exactly as step 5 numbers it.
+     *
+     * For a single ungrouped screen the lattice ranks that screen's own columns
+     * by x and rows by y, which for any grid _build_panels produces is the
+     * column and row index itself. The compacted grid is therefore identical
+     * to the one this built before, and so is the order.
+     *
+     * The bucket is for genuinely OVERLAPPING members - two cabinets whose
+     * top-left corners coincide land in one lattice cell. A plain grid write
+     * would drop one of them from the path with no error; keeping the cell's
+     * later arrivals and emitting them right behind the representative means a
+     * selected cabinet can never silently vanish.
+     */
+    _orderPicksForPattern(ownerLayer, pattern, picks) {
+        if (!picks || picks.length === 0) return [];
+        const lattice = this._pathLattice(ownerLayer);
+        const cells = picks.map(pick => ({
+            pick,
+            row: lattice ? lattice.rowOf(pick.layer, pick.panel) : pick.panel.row,
+            col: lattice ? lattice.colOf(pick.layer, pick.panel) : pick.panel.col,
+        }));
+
+        const uniqueRows = [...new Set(cells.map(c => c.row))].sort((a, b) => a - b);
+        const uniqueCols = [...new Set(cells.map(c => c.col))].sort((a, b) => a - b);
+        const rowIndex = new Map(uniqueRows.map((r, i) => [r, i]));
+        const colIndex = new Map(uniqueCols.map((c, i) => [c, i]));
+
+        const grid = Array.from({ length: uniqueRows.length },
+            () => Array(uniqueCols.length).fill(null));
+        const bucket = new Map();   // representative pick -> every pick in its cell
+        cells.forEach(c => {
+            const r = rowIndex.get(c.row);
+            const k = colIndex.get(c.col);
+            const held = grid[r][k];
+            if (held === null) {
+                grid[r][k] = c.pick;
+                bucket.set(c.pick, [c.pick]);
+            } else {
+                bucket.get(held).push(c.pick);
+            }
+        });
+
+        const ordered = this.getPatternOrderForGrid(pattern, grid);
+        const out = [];
+        ordered.forEach(pick => {
+            const group = bucket.get(pick);
+            if (group) out.push(...group);
+            else out.push(pick);
+        });
+        return out;
+    }
+
     applyPatternToSelection(pattern) {
         if (!this.currentLayer || !window.canvasRenderer) return;
         if (!this.isCustomFlow(this.currentLayer)) return;
         if (this.customSelection.size === 0) return;
 
-        this.ensureCustomFlowState(this.currentLayer);
-        const selectedPanels = this.currentLayer.panels
-            .filter(panel => this.customSelection.has(this.getPanelKey(panel)) && !panel.hidden);
-        if (selectedPanels.length === 0) return;
+        // The PORT stays on currentLayer even when the selection spans peers -
+        // a port is one physical output on one processor. Only the individual
+        // step records which screen the cable ran onto.
+        const owner = this.currentLayer;
+        this.ensureCustomFlowState(owner);
+        const picks = this._selectedPathPanels(owner, this.customSelection);
+        if (picks.length === 0) return;
 
-        const uniqueRows = [...new Set(selectedPanels.map(p => p.row))].sort((a, b) => a - b);
-        const uniqueCols = [...new Set(selectedPanels.map(p => p.col))].sort((a, b) => a - b);
-        const rowIndex = new Map(uniqueRows.map((r, i) => [r, i]));
-        const colIndex = new Map(uniqueCols.map((c, i) => [c, i]));
-
-        const normalizedGrid = Array.from({ length: uniqueRows.length }, () => Array(uniqueCols.length).fill(null));
-        selectedPanels.forEach(panel => {
-            const r = rowIndex.get(panel.row);
-            const c = colIndex.get(panel.col);
-            normalizedGrid[r][c] = panel;
-        });
-
-        const ordered = this.getPatternOrderForGrid(pattern, normalizedGrid);
+        const ordered = this._orderPicksForPattern(owner, pattern, picks);
         if (ordered.length === 0) return;
 
-        const portNum = this.currentLayer.customPortIndex || 1;
+        const portNum = owner.customPortIndex || 1;
         // Reject the entire pattern apply if any selected panel already
         // belongs to a different port. Prevents silent double-mapping.
         const conflicts = [];
-        for (const p of ordered) {
-            // The selection is always cabinets of currentLayer (a marquee runs
-            // against one grid), so the panels are the owner's - but the port
-            // that already claimed one may now live on a peer, which is why
-            // the sample below names the screen when it does.
-            const owner = this._findPanelOwnerPort(this.currentLayer, p, portNum, this.currentLayer);
-            if (owner) conflicts.push({ row: p.row, col: p.col, owner });
+        for (const pick of ordered) {
+            // The claim may live on a peer now, which is why the sample below
+            // names both the cabinet's screen and the conflicting port's.
+            const claim = this._findPanelOwnerPort(owner, pick.panel, portNum, pick.layer);
+            if (claim) conflicts.push({ pick, owner: claim });
         }
         if (conflicts.length > 0) {
             const sample = conflicts.slice(0, 3)
-                .map(c => `R${c.row + 1}C${c.col + 1}→${this._describePathConflict(c.owner, 'port')}`).join(', ');
+                .map(c => `${this._describePathPanel(owner, c.pick.layer, c.pick.panel)}→${this._describePathConflict(c.owner, 'port')}`).join(', ');
             const more = conflicts.length > 3 ? ` (+${conflicts.length - 3} more)` : '';
             if (typeof this._toast === 'function') {
                 this._toast(`Cannot apply: ${conflicts.length} panel${conflicts.length === 1 ? '' : 's'} already wired to other ports, ${sample}${more}.`, true);
             }
             return;
         }
-        this.currentLayer.customPortPaths[portNum] = ordered.map(p => ({ row: p.row, col: p.col }));
+        // makePathEntry omits layerId for the owner's own cabinets, so a path
+        // that never leaves its screen is byte-for-byte the shape it has always
+        // been written in.
+        owner.customPortPaths[portNum] = ordered
+            .map(pick => this.makePathEntry(owner, pick.layer, pick.panel));
         this.saveState('Custom Pattern Apply');
         this.saveClientSideProperties();
         // v0.8.2: PUT to server so the bulk pattern assignment persists.
-        this.updateLayers(this.getSelectedLayers());
+        // v0.10.9: the OWNER is added explicitly - a marquee that ended on a
+        // peer can leave currentLayer out of the layer selection entirely.
+        this.updateLayers(this._pathPersistLayers(owner));
         if (this.customDebug) {
             const first = ordered[0];
             const last = ordered[ordered.length - 1];
@@ -1681,10 +1831,8 @@ class _Power {
                 pattern,
                 portNum,
                 count: ordered.length,
-                gridRows: normalizedGrid.length,
-                gridCols: normalizedGrid[0] ? normalizedGrid[0].length : 0,
-                first: first ? { row: first.row, col: first.col } : null,
-                last: last ? { row: last.row, col: last.col } : null
+                first: first ? { row: first.panel.row, col: first.panel.col, layerId: first.layer.id } : null,
+                last: last ? { row: last.panel.row, col: last.panel.col, layerId: last.layer.id } : null
             });
         }
         this.updatePortLabelEditor();
@@ -1696,48 +1844,39 @@ class _Power {
         if (!this.isCustomPower(this.currentLayer)) return;
         if (this.powerCustomSelection.size === 0) return;
 
-        this.ensureCustomPowerState(this.currentLayer);
-        const selectedPanels = this.currentLayer.panels
-            .filter(panel => this.powerCustomSelection.has(this.getPanelKey(panel)) && !panel.hidden);
-        if (selectedPanels.length === 0) return;
+        // Same ownership rule as applyPatternToSelection: the CIRCUIT belongs
+        // to currentLayer, only the step learns which screen it landed on.
+        const owner = this.currentLayer;
+        this.ensureCustomPowerState(owner);
+        const picks = this._selectedPathPanels(owner, this.powerCustomSelection);
+        if (picks.length === 0) return;
 
-        const uniqueRows = [...new Set(selectedPanels.map(p => p.row))].sort((a, b) => a - b);
-        const uniqueCols = [...new Set(selectedPanels.map(p => p.col))].sort((a, b) => a - b);
-        const rowIndex = new Map(uniqueRows.map((r, i) => [r, i]));
-        const colIndex = new Map(uniqueCols.map((c, i) => [c, i]));
-
-        const normalizedGrid = Array.from({ length: uniqueRows.length }, () => Array(uniqueCols.length).fill(null));
-        selectedPanels.forEach(panel => {
-            const r = rowIndex.get(panel.row);
-            const c = colIndex.get(panel.col);
-            normalizedGrid[r][c] = panel;
-        });
-
-        const ordered = this.getPatternOrderForGrid(pattern, normalizedGrid);
+        const ordered = this._orderPicksForPattern(owner, pattern, picks);
         if (ordered.length === 0) return;
 
-        const circuitNum = this.currentLayer.powerCustomIndex || 1;
+        const circuitNum = owner.powerCustomIndex || 1;
         // Reject if any selected panel already belongs to a different
         // circuit, same policy as data-flow custom pattern apply.
         const conflicts = [];
-        for (const p of ordered) {
-            const owner = this._findPanelOwnerCircuit(this.currentLayer, p, circuitNum, this.currentLayer);
-            if (owner) conflicts.push({ row: p.row, col: p.col, owner });
+        for (const pick of ordered) {
+            const claim = this._findPanelOwnerCircuit(owner, pick.panel, circuitNum, pick.layer);
+            if (claim) conflicts.push({ pick, owner: claim });
         }
         if (conflicts.length > 0) {
             const sample = conflicts.slice(0, 3)
-                .map(c => `R${c.row + 1}C${c.col + 1}→${this._describePathConflict(c.owner, 'circuit')}`).join(', ');
+                .map(c => `${this._describePathPanel(owner, c.pick.layer, c.pick.panel)}→${this._describePathConflict(c.owner, 'circuit')}`).join(', ');
             const more = conflicts.length > 3 ? ` (+${conflicts.length - 3} more)` : '';
             if (typeof this._toast === 'function') {
                 this._toast(`Cannot apply: ${conflicts.length} panel${conflicts.length === 1 ? '' : 's'} already wired to other circuits, ${sample}${more}.`, true);
             }
             return;
         }
-        this.currentLayer.powerCustomPaths[circuitNum] = ordered.map(p => ({ row: p.row, col: p.col }));
+        owner.powerCustomPaths[circuitNum] = ordered
+            .map(pick => this.makePathEntry(owner, pick.layer, pick.panel));
         this.saveState('Power Custom Pattern Apply');
         this.saveClientSideProperties();
         // v0.8.2: PUT to server so the bulk pattern assignment persists.
-        this.updateLayers(this.getSelectedLayers());
+        this.updateLayers(this._pathPersistLayers(owner));
         if (this.powerCustomDebug) {
             const first = ordered[0];
             const last = ordered[ordered.length - 1];
@@ -1745,10 +1884,8 @@ class _Power {
                 pattern,
                 circuitNum,
                 count: ordered.length,
-                gridRows: normalizedGrid.length,
-                gridCols: normalizedGrid[0] ? normalizedGrid[0].length : 0,
-                first: first ? { row: first.row, col: first.col } : null,
-                last: last ? { row: last.row, col: last.col } : null
+                first: first ? { row: first.panel.row, col: first.panel.col, layerId: first.layer.id } : null,
+                last: last ? { row: last.panel.row, col: last.panel.col, layerId: last.layer.id } : null
             });
         }
         window.canvasRenderer.render();

@@ -81,6 +81,25 @@ v0.10.9 - July 26, 2026
   redrawing. A group that reaches onto another canvas has no faithful copy,
   so those screens come across ungrouped.
 
+- NEW: In custom mode on a group you can now drag-select cabinets across the
+  whole wall and apply a flow pattern to them, instead of one section at a
+  time. Serpentine and the other patterns follow where each cabinet PHYSICALLY
+  sits, so a run across a 1m section and a half-metre section snakes across the
+  wall in the order you would walk it - not in the order of each section's own
+  grid, which do not line up when the cabinet sizes differ.
+
+- FIX: Starting a drag-select over a neighbouring section quietly made that
+  section the current screen, so the port you were drawing changed owner
+  mid-gesture. Clicking to select a screen normally is unaffected.
+
+- FIX: A section fed entirely by a port or circuit drawn from the section next
+  to it no longer also counts its own automatic port. A wall wired with one
+  cable across it reads as one port instead of two.
+
+- FIX: Drag-select on a ROTATED screen now selects the cabinets under the box
+  rather than the ones the box would have covered unrotated. Pixel Map already
+  worked this way; Data and Power did not.
+
 - NEW: A hand-drawn data port or power circuit can now run across the screens
   in a group, so wiring follows the wall instead of stopping at a section
   boundary. Click cabinets in any member and they join the same port; the

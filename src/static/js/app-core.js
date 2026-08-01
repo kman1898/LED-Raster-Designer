@@ -11,12 +11,23 @@ export class LEDRasterApp {
         this.lastSelectedLayerId = null;
         this.selectionAnchorLayerId = null;
         this.customSelectMode = false;
+        // Manual data-flow / power selections. v0.10.9: Sets of SCOPED keys,
+        // `${layerId}:${row},${col}` (app-power.js getScopedPanelKey), because
+        // a marquee over a screen group has to be able to name member A's R0C0
+        // and member B's R0C0 as two different cabinets. Under the unscoped
+        // `${row},${col}` they were ONE entry, which is why a cross-member
+        // selection could only ever have committed the owner's cabinets under
+        // the peer's row and column. Anything reading these back must resolve
+        // the layer id first - see canvas.js renderCustomSelectionOverlay.
         this.customSelection = new Set();
         this.customDebug = false;
         this.powerCustomSelection = new Set();
         this.powerCustomDebug = false;
         // Pixel Map bulk-select: drag-select panels of the current layer to
-        // bulk-toggle blank or half-tile state. Set of "row,col" strings.
+        // bulk-toggle blank or half-tile state. Set of "row,col" strings -
+        // deliberately still UNSCOPED (getPanelKey). This is a single-screen
+        // feature, nothing about it is grouped, and its overlay parses the key
+        // back with split(','), which a layer id in front would silently break.
         this.pixelMapSelection = new Set();
         
         // Undo/Redo system
