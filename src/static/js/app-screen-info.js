@@ -75,8 +75,11 @@ class _ScreenInfo {
         return group || null;
     }
 
-    // Is this layer's grid fed by a path that a PEER member owns? True only
-    // once someone has actually drawn a port or circuit that crosses onto it.
+    // How much of this layer's grid is fed by paths a PEER member owns?
+    // Returns { total, covered } counted in CABINETS: `total` is the cabinets
+    // that need feeding at all (a blank is a hole in the wall and a hidden
+    // cabinet does not light, so neither needs a port or a circuit), `covered`
+    // is how many of those a peer's drawn path has already picked up.
     //
     // v0.10.9 step 6: this is what stops a group counting the same port twice.
     // A member in custom mode with nothing of its own drawn falls back below
@@ -84,17 +87,52 @@ class _ScreenInfo {
     // standalone screen and the wrong one for a member whose cabinets are
     // already fed by the peer's port: that port is the PEER'S, it is counted
     // there, and counting it again here prints 2 Mains on a wall with one
-    // cable in it. Returns false for every ungrouped layer and for every
+    // cable in it.
+    //
+    // v0.10.9 audit fix: this used to be a bare `.some()` - ONE cabinet
+    // claimed by a neighbour zeroed the WHOLE member. A 20 x 2 Brompton wall
+    // needing 2 ports of its own reported 0 because a peer's cable had picked
+    // up a single cabinet, so 39 cabinets were planned for with no port at
+    // all. Counting is the whole point of the change: the caller can now tell
+    // FULL coverage (the honest zero) from PARTIAL coverage (still needs its
+    // own ports).
+    //
+    // Coverage is measured by (row, col) because that is the only durable
+    // cabinet address (panel ids are regenerated on every geometry rebuild),
+    // and a claim on a blank or hidden cabinet is ignored on purpose - it
+    // cannot "cover" a cabinet that was never going to draw a port.
+    //
+    // Returns { total: 0, covered: 0 } for every ungrouped layer and for every
     // project with no cross-layer step anywhere, so nothing existing moves.
-    _layerServedByPeerPath(layer, pathsKey) {
-        if (!layer || typeof this.getPathScopeLayers !== 'function') return false;
-        return this.getPathScopeLayers(layer).some(peer => {
-            if (!peer || peer.id === layer.id) return false;
+    _peerPathCoverage(layer, pathsKey) {
+        const out = { total: 0, covered: 0 };
+        if (!layer || typeof this.getPathScopeLayers !== 'function') return out;
+        const feedable = (layer.panels || []).filter(p => p && !p.blank && !p.hidden);
+        out.total = feedable.length;
+        if (out.total === 0) return out;
+        const claimed = new Set();
+        this.getPathScopeLayers(layer).forEach(peer => {
+            if (!peer || peer.id === layer.id) return;
             const paths = peer[pathsKey];
-            if (!paths) return false;
-            return Object.keys(paths).some(k => (paths[k] || [])
-                .some(e => e && e.layerId === layer.id));
+            if (!paths) return;
+            Object.keys(paths).forEach(k => {
+                (paths[k] || []).forEach(e => {
+                    if (e && e.layerId === layer.id) claimed.add(`${e.row},${e.col}`);
+                });
+            });
         });
+        if (claimed.size === 0) return out;
+        out.covered = feedable.filter(p => claimed.has(`${p.row},${p.col}`)).length;
+        return out;
+    }
+
+    // True only when EVERY cabinet of `layer` that needs feeding is already on
+    // a peer's path. That is the only case where returning 0 is honest: the
+    // cable exists, it is counted on the member that owns it, and this member
+    // adds nothing.
+    _layerFullyServedByPeerPath(layer, pathsKey) {
+        const c = this._peerPathCoverage(layer, pathsKey);
+        return c.total > 0 && c.covered >= c.total;
     }
 
     // Ports required for ONE member, derived exactly as
@@ -130,7 +168,24 @@ class _ScreenInfo {
                 .map(p => parseInt(p, 10))
                 .filter(p => (paths[p] || []).length > 0);
             if (customPorts.length > 0) return Math.max(...customPorts);
-            if (this._layerServedByPeerPath(layer, 'customPortPaths')) return 0;
+            // FULL coverage by a peer's port is the only honest zero - every
+            // cabinet here is on the neighbour's cable, and that cable is
+            // counted on the neighbour.
+            if (this._layerFullyServedByPeerPath(layer, 'customPortPaths')) return 0;
+            // PARTIAL coverage falls through to this member's OWN requirement.
+            //
+            // What is the honest number for the cabinets a peer did NOT pick
+            // up? It is somewhere between ceil(their pixels / port capacity)
+            // and the requirement of the whole member, and the app cannot
+            // narrow it: the automatic walk packs ports along whole rows or
+            // columns of THIS grid, so dropping a cabinet out of the middle of
+            // it does not reliably drop a port, and pro-rating the figure by
+            // the uncovered share would quietly hand back FEWER ports than the
+            // remaining cabinets need. Removing cabinets can never make the
+            // automatic walk need more ports, so the whole member's own figure
+            // is a true upper bound on what the remainder needs - at worst one
+            // port too many on the order sheet, where the old behaviour was
+            // 39 cabinets with nothing to plug them into.
             return auto > 0 ? auto : (layer.customPortIndex || 1);
         }
         return auto;
@@ -156,23 +211,76 @@ class _ScreenInfo {
                 .map(c => parseInt(c, 10))
                 .filter(c => (paths[c] || []).length > 0);
             if (customCircuits.length > 0) return Math.max(...customCircuits);
-            if (this._layerServedByPeerPath(layer, 'powerCustomPaths')) return 0;
+            // Same rule as the ports twin above, and the same reasoning for
+            // partial coverage: only a member whose every cabinet is on a
+            // peer's circuit contributes nothing. One cabinet picked up by the
+            // neighbour must not zero the circuits the rest of the wall draws.
+            if (this._layerFullyServedByPeerPath(layer, 'powerCustomPaths')) return 0;
             return auto > 0 ? auto : (layer.powerCustomIndex || 1);
         }
         return auto;
     }
 
+    // The canvas a layer counts on, by the SAME rule the Screens sidebar uses
+    // to decide which canvas section a row lands in (app-canvas-ui.js
+    // regroupLayersByCanvas): Show Look / Data / Power read the show override
+    // first, Pixel Map / Cabinet ID read the processor canvas. Kept as its own
+    // helper so the roll-up and the sidebar can never drift apart.
+    _totalsCanvasIdOf(layer) {
+        if (!layer) return null;
+        const cr = window.canvasRenderer;
+        const isShowView = !!(cr && typeof cr.isShowLookView === 'function'
+            && cr.isShowLookView());
+        return ((isShowView && layer.show_canvas_id) ? layer.show_canvas_id
+            : layer.canvas_id) || null;
+    }
+
+    // The canvas a GROUP's totals are reported on. The sidebar puts the group
+    // row in the canvas section its topmost member row sits in, and lifts only
+    // the members that share that section (app-screen-groups.js
+    // regroupLayersByGroup), so the roll-up anchors on the first canvas - in
+    // project canvas order - that holds a screen member. Falls back to the
+    // first member's own canvas when the project carries no canvas list at all
+    // (single-canvas projects and every unit test that builds a bare project),
+    // which keeps those counting every member exactly as before.
+    _groupAnchorCanvasId(members) {
+        const screens = (members || []).filter(
+            l => l && (l.type || 'screen') === 'screen');
+        if (screens.length === 0) return null;
+        const cids = screens.map(l => this._totalsCanvasIdOf(l));
+        const canvases = (this.project && this.project.canvases) || [];
+        for (const c of canvases) {
+            if (c && cids.includes(c.id)) return c.id;
+        }
+        return cids[0];
+    }
+
     // Combined totals for a group. Safe on an empty group, a group of one, a
     // group whose members are all hidden, and a group that has picked up an
     // image or text layer - those are counted as skipped, not as screens.
-    getGroupTotals(group) {
+    //
+    // `canvasId` overrides which canvas the totals are reported for; leave it
+    // out and the group's anchor canvas (above) is used. The renderer wants it
+    // when it labels a group on a canvas that is not the anchor.
+    getGroupTotals(group, canvasId = undefined) {
         const g = this.resolveGroup(group);
+        const members = this.getGroupMembers(g);
+        // v0.10.9 audit fix: members sitting on ANOTHER canvas were summed in.
+        // A group row on canvas 1 read "3 screens - 48 cab - 960 kg" while
+        // showing 2 rows, because one member had been moved to canvas 2. That
+        // kg figure is what gets handed to a rigger, so it has to describe the
+        // wall in front of them and nothing else.
+        const anchorCanvasId = (canvasId === undefined)
+            ? this._groupAnchorCanvasId(members) : (canvasId || null);
         const totals = {
             groupId: g ? (g.id || null) : null,
             name: g ? (g.name || null) : null,
+            canvasId: anchorCanvasId,   // the canvas these totals describe
             memberCount: 0,        // screens actually counted
             hiddenCount: 0,        // members skipped because layer.visible is false
             nonScreenCount: 0,     // members skipped because they are not screens
+            offCanvasCount: 0,     // members skipped because they sit on another canvas
+            wattsUnset: [],        // members with no panelWatts entered
             cabinets: 0,
             pixels: 0,
             equivalentPanels: 0,
@@ -192,9 +300,17 @@ class _ScreenInfo {
         };
 
         const voltages = [];
-        this.getGroupMembers(g).forEach(layer => {
+        members.forEach(layer => {
             if ((layer.type || 'screen') !== 'screen') {
                 totals.nonScreenCount++;
+                return;
+            }
+            // A member on another canvas is a different workspace entirely -
+            // the same rule getPathScopeLayers and canvas.js _groupDrawnMembers
+            // already apply. Counted, not silently dropped, so the caller can
+            // say WHY the row count and the screen count differ.
+            if (this._totalsCanvasIdOf(layer) !== anchorCanvasId) {
+                totals.offCanvasCount++;
                 return;
             }
             // v0.10.9: `visible === false`, not `!visible`. A layer that simply
@@ -219,7 +335,15 @@ class _ScreenInfo {
             // would be incoherent. The weight fallback mirrors the canvas
             // weight label (layer.panel_weight || 20) so the group figure and
             // the member's own label can never disagree.
+            //
+            // v0.10.9 audit: this is now the ONE rule project-wide - the
+            // getPowerCounts stand-in of 200 W a cabinet is gone, because a
+            // wattage the user never entered is not a safer answer than no
+            // wattage, it is just a wrong one nobody can trace. A screen with
+            // no panelWatts is named in `wattsUnset` so the UI can say "no
+            // wattage entered" instead of printing a confident 0 A.
             const panelWatts = parseFloat(layer.panelWatts) || 0;
+            if (!(panelWatts > 0)) totals.wattsUnset.push(layer.id);
             const watts = panelWatts * equivalentPanels;
             const panelWeightValue = layer.panel_weight || 20;
             const panelWeightKg = (layer.weight_unit || 'kg') === 'lb'
@@ -569,6 +693,45 @@ class _ScreenInfo {
         if (!layer || !layer.id) {
             console.error('SELECT LAYER: Invalid layer', layer);
             return;
+        }
+
+        // v0.10.9 audit fix: a live cabinet selection must not survive a
+        // change of screen.
+        //
+        // Every one of the three Sets is addressed against the layer that was
+        // current when it was filled: customSelection / powerCustomSelection
+        // hold `${layerId}:${row},${col}` keys that only mean anything inside
+        // the OWNER's path scope, and pixelMapSelection holds bare
+        // `${row},${col}` keys that silently re-address the new screen's grid.
+        // Left alone, a marquee drawn as member A stayed live after clicking
+        // member B in the layers list and Apply Pattern then filled B's port 1
+        // with A's 18 cabinets - with an identical highlight either side of the
+        // switch, so nothing on screen said the target had moved.
+        //
+        // CLEARED rather than re-anchored. Re-anchoring would have to invent an
+        // intent the user never expressed: the keys name cabinets on screens
+        // that may not even be reachable from the new layer (another group,
+        // another canvas), and "the same cabinets, now feeding a different
+        // port" is not what picking a different screen in the list means to
+        // anyone. Clearing matches every other selection in the app - picking a
+        // new layer drops the old layer selection too - and the cost of being
+        // wrong is one re-drag, against a mis-wired port.
+        //
+        // Guarded on the id actually CHANGING, because selectLayer is also the
+        // re-selection path after undo/redo, load and layer updates, where the
+        // "new" layer is the same screen rebuilt and the selection must
+        // survive.
+        if (!this.currentLayer || this.currentLayer.id !== layer.id) {
+            if (this.customSelection) this.customSelection.clear();
+            if (this.powerCustomSelection) this.powerCustomSelection.clear();
+            if (this.pixelMapSelection) this.pixelMapSelection.clear();
+            // The custom-flow and custom-power readouts are refreshed by
+            // loadLayerToInputs at the end of this function; the Pixel Map bulk
+            // bar is not on that path, so it is told here or it keeps showing a
+            // count for a selection that no longer exists.
+            if (typeof this.updatePixelMapBulkActionUI === 'function') {
+                this.updatePixelMapBulkActionUI();
+            }
         }
 
         this.currentLayer = layer;
@@ -2325,9 +2488,30 @@ class _ScreenInfo {
             }
         }
         
-        // If frame rate is below or above all entries, use the boundary
+        // Below the table: clamp UP to the lowest published row. Capacity runs
+        // as 1/frame rate, so the lowest published row is LESS capacity than a
+        // slower frame rate really has - the conservative direction, more
+        // ports than needed and never fewer. It is also the only way 23.976 Hz
+        // (offered in the frame rate list, below every table's 24 Hz first
+        // row) has an answer at all, and the tables round it to 24 anyway.
         if (frameRate <= fpsList[0]) return fpsTable[fpsList[0]];
-        if (frameRate >= fpsList[fpsList.length - 1]) return fpsTable[fpsList[fpsList.length - 1]];
+        // ABOVE the table: no capacity. DANGEROUS as it stood - this clamped
+        // to the LAST row, so novastar-armor (no row past 120 Hz) answered a
+        // 240 Hz question with its 120 Hz figure: double the real capacity and
+        // therefore half the ports. The group settings dialog can produce
+        // exactly that state, because processor, bit depth and frame rate are
+        // picked independently of one another.
+        //
+        // Nothing is extrapolated to replace it. The manufacturer's published
+        // table is authoritative and no figure in this app is derived from a
+        // formula, so a frame rate the manufacturer does not publish for this
+        // processor has no answer - and 0 is the value the UI already treats
+        // as "no capacity": Pixels/Port renders "N/A", Panels/Port renders
+        // ERROR, Ports Required renders ERROR, and calculatePortAssignments
+        // returns no assignment rather than a plausible map. Loud and empty
+        // beats quiet and wrong. Use getSupportedFrameRates to see what a
+        // processor actually publishes.
+        if (frameRate > fpsList[fpsList.length - 1]) return 0;
         
         // Linear interpolation
         const lowerCap = fpsTable[lower];

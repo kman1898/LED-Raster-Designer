@@ -532,10 +532,19 @@ def test_arrow_key_with_nothing_drawn_falls_through(page):
 
 def test_port_spanning_two_members_counts_once(page):
     """One cable is one port. The member being fed contributes none of its
-    own, so the wall reports 1 Main and not 2."""
+    own, so the wall reports 1 Main and not 2.
+
+    FIXTURE CORRECTED (v0.10.9 audit, finding 1). This used to put ONE of B's
+    nine cabinets on A's port and still expect B to report 0 - which is the
+    finding, not the feature: a single cabinet picked up by a neighbour zeroed
+    the whole member, so B's other eight cabinets were planned for with no port
+    at all. "The member being fed" means fed, so the cable now runs across
+    every one of B's cabinets, and the zero is real."""
     ids = grouped(page)
     draw(page, ids[0], ids[0], 0, 0)
-    draw(page, ids[0], ids[1], 0, 0)
+    for row in range(3):
+        for col in range(3):
+            draw(page, ids[0], ids[1], row, col)
     page.wait_for_timeout(600)
 
     res = page.evaluate("""(ids) => {
@@ -546,13 +555,47 @@ def test_port_spanning_two_members_counts_once(page):
         return {
             owner: app.getLayerPortsRequired(a),
             fed: app.getLayerPortsRequired(b),
+            fedCabinets: (b.panels || []).length,
+            onPath: (a.customPortPaths[1] || []).filter(e => e.layerId === b.id).length,
             groupPorts: totals.portsPrimary,
         };
     }""", ids)
+    assert res['onPath'] == res['fedCabinets'], (
+        'the fixture did not put every one of the peer\'s cabinets on the '
+        'cable: %r' % (res,))
     assert res['owner'] == 1, res
     assert res['fed'] == 0, (
         'the member fed by the peer is counting a port of its own: %r' % (res,))
     assert res['groupPorts'] == 1, res
+
+
+def test_a_peer_only_partly_fed_still_counts_its_own_ports(page):
+    """The other side of the rule above, and the v0.10.9 audit's most
+    dangerous finding: ONE of B's nine cabinets on A's cable used to zero B
+    entirely, so eight cabinets were planned for with no port. Partial
+    coverage counts what the uncovered cabinets still need."""
+    ids = grouped(page)
+    draw(page, ids[0], ids[0], 0, 0)
+    draw(page, ids[0], ids[1], 0, 0)
+    page.wait_for_timeout(600)
+
+    res = page.evaluate("""(ids) => {
+        const app = window.app;
+        const a = app.project.layers.find(l => l.id === ids[0]);
+        const b = app.project.layers.find(l => l.id === ids[1]);
+        return {
+            owner: app.getLayerPortsRequired(a),
+            fed: app.getLayerPortsRequired(b),
+            uncovered: (b.panels || []).length - 1,
+            groupPorts: app.getGroupTotals('g1').portsPrimary,
+        };
+    }""", ids)
+    assert res['uncovered'] == 8, res
+    assert res['owner'] == 1, res
+    assert res['fed'] >= 1, (
+        '%d of the peer\'s cabinets have no port drawn on them and the peer '
+        'reports %r ports' % (res['uncovered'], res['fed']))
+    assert res['groupPorts'] == res['owner'] + res['fed'], res
 
 
 def test_a_member_with_its_own_port_still_counts_it(page):

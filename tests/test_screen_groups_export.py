@@ -180,13 +180,26 @@ def _ungrouped_cases():
     }
 
 
+#
+# DELIBERATELY RE-PINNED (v0.10.9.x, blank-cabinet audit finding 4):
+# 'half_and_blank' and 'multi_canvas' both contain a LONE screen with a BLANK
+# cabinet, and both used to ship as a plain rectangle over the whole grid.
+# v0.10.9 had already taught the contour that a blank cabinet is not LED
+# surface, but the shape DECISION for a lone screen still asked the old
+# hidden-only question, so the correct outline was traced and then thrown away
+# - while the identical wall, grouped with a neighbour, became a Polygon. Those
+# two now export the Polygon that follows the cabinets, which is what the
+# grouped wall has always exported and what is physically there. Every shape in
+# these projects that has no knocked-out cabinet is byte-for-byte unmoved
+# (see 'A' in multi_canvas, still the same Slice) - a plain rectangular screen
+# never changes. The readable half of both diffs is pinned right below.
 PINNED_UNGROUPED_XML = {
     'single_plain': '025b78b4c072aaf3581d12da9b0e50deedf19bb7e5ccd01d6f1d4192fedb3730',
     'two_walls': '730dbe2344024c2c3846e11b1d828b826a9f74b9c2d949b7e79171c3d7e9bd64',
     'hidden_polygon': '106e2a89354cbe1520c11c280b4db41847d48ef0a111dc6902ddc28d81b7d485',
-    'multi_canvas': 'b4355349349e5bef1292d245c961d399254f1e4a8c959e203b353f5f618cb84f',
+    'multi_canvas': '73424d4b790f0999b34ac889e754f9fbe2d237b7d18931797f3fe680c5a1227a',
     'mixed_sizes': '2e1c537267a99cfc6bfbfb597eb36544dc52d51002aad8a67c407f51b565318b',
-    'half_and_blank': '27935b59aa19b9e1da842d93137594f43696a350cd12300ca2e27fa88fdee02e',
+    'half_and_blank': '54593bfb4f084a1b532870b80019de6b7a90dab94d455c6d620fb1618691f1c2',
 }
 
 
@@ -201,6 +214,25 @@ def test_ungrouped_project_still_emits_one_shape_per_layer():
     """The readable half of the pin: names, count and order are unchanged."""
     xml = _xml(_ungrouped_cases()['two_walls'])
     assert _shape_names(xml) == [('Slice', 'Left'), ('Slice', 'Right')]
+
+
+def test_ungrouped_blank_cabinet_cases_are_the_polygon_not_a_rectangle():
+    """The readable half of the two deliberate re-pins above."""
+    xml = _xml(_ungrouped_cases()['half_and_blank'])
+    assert _shape_names(xml) == [('Polygon', 'Odd')]
+    assert _contour_points(xml) == [[
+        (384, 128), (256, 128), (256, 0), (0, 0),
+        (0, 320), (128, 320), (128, 384), (384, 384),
+    ]]
+    # The bounding box is unmoved; only the shape inside it changed.
+    assert _output_rects(xml) == [(0.0, 0.0, 384.0, 384.0)]
+
+    xml = _xml(_ungrouped_cases()['multi_canvas'])
+    # 'A' has no knocked-out cabinet, so it is the Slice it always was.
+    assert _shape_names(xml) == [('Slice', 'A'), ('Polygon', 'B')]
+    assert _contour_points(xml) == [[
+        (256, 0), (128, 0), (128, 128), (0, 128), (0, 256), (256, 256),
+    ]]
 
 
 def test_ungrouped_shape_helpers_ignore_the_new_arguments():
@@ -396,6 +428,109 @@ def test_mixed_size_wall_with_a_half_tile_row_keeps_the_real_height():
         (384, 0), (0, 0), (0, 256), (256, 256), (256, 224), (384, 224),
     ]
     _assert_axis_aligned_loop(contour)
+
+
+# ── a unit whose surface is DISCONNECTED ships one shape per island ───────
+
+def test_a_group_with_a_gap_ships_one_shape_per_wall():
+    """Two members with 256 px of air between them. A single shape cannot
+    honestly describe two separate walls: as a Slice it claims the gap, so a
+    third of the picture is mapped into the air between them; as a Polygon it
+    can only carry ONE closed contour, so whichever wall is not in it is masked
+    off and goes black. One shape per island, both named for the group."""
+    a = _screen(1, 'Left', 2, 2)
+    b = _screen(2, 'Right', 2, 2, off_x=512)
+    project = _project([a, b], groups=[_group('g1', 'Main Wall', [a, b])])
+    xml = _xml(project)
+    assert _shape_names(xml) == [('Slice', 'Main Wall'), ('Slice', 'Main Wall')]
+    assert _output_rects(xml) == [(0.0, 0.0, 256.0, 256.0),
+                                  (512.0, 0.0, 768.0, 256.0)]
+    # ...and the union bounds are still the union, for anything asking for the
+    # whole unit's extent.
+    assert _export_unit_bounds([a, b]) == {
+        'x': 0.0, 'y': 0.0, 'width': 768.0, 'height': 256.0}
+
+
+def test_one_screen_split_by_a_hidden_column_keeps_both_halves():
+    """Pre-existing, not a group regression: the trace stopped at the first
+    ring, so the left half of a screen cut in two got no slice and went black.
+    Each half is a plain rectangle, so each is a Slice."""
+    a = _screen(1, 'Solo', 1, 5, states={(0, 2): {'hidden': True}})
+    xml = _xml(_project([a]))
+    assert _shape_names(xml) == [('Slice', 'Solo'), ('Slice', 'Solo')]
+    assert _output_rects(xml) == [(0.0, 0.0, 256.0, 128.0),
+                                  (384.0, 0.0, 640.0, 128.0)]
+
+
+def test_corner_touching_members_are_two_islands_not_a_figure_of_eight():
+    """Two cabinets meeting at one corner used to trace a contour passing
+    through that vertex twice. Corner contact is not connection."""
+    a = _screen(1, 'A', 2, 2)
+    b = _screen(2, 'B', 2, 2, off_x=256, off_y=256)
+    islands = app_module._compute_layers_islands([a, b])
+    assert len(islands) == 2
+    for contour in islands:
+        _assert_axis_aligned_loop(contour)      # no repeated vertex
+
+
+def test_an_island_that_is_not_a_rectangle_is_a_polygon():
+    """The shape question is asked per island, on that island's own ring."""
+    a = _screen(1, 'A', 2, 4)                       # 512 x 256
+    b = _screen(2, 'B', 2, 2, off_y=256)            # under its left half -> L
+    c = _screen(3, 'C', 2, 2, off_x=1024)           # parked away -> rectangle
+    project = _project([a, b, c], groups=[_group('g1', 'Wall', [a, b, c])])
+    assert _shape_names(_xml(project)) == [('Polygon', 'Wall'), ('Slice', 'Wall')]
+
+
+def test_a_connected_group_is_still_exactly_one_shape():
+    """The load-bearing no-change case for all of the above."""
+    project, jp5, std = _rectangular_group()
+    assert len(app_module._compute_layers_islands([jp5, std])) == 1
+    assert _shape_names(_xml(project)) == [('Slice', 'Main Wall')]
+
+
+# ── names go through XML escaping ─────────────────────────────────────────
+
+def test_an_ampersand_in_a_name_is_escaped_everywhere():
+    """"Left & Right" is a completely normal name for a wall, and it produced
+    a file Resolume simply cannot open."""
+    import xml.etree.ElementTree as ET
+    a = _screen(1, 'A & B', 2, 2)
+    b = _screen(2, '<Right>', 2, 2, off_x=256)
+    project = _project([a, b], groups=[_group('g1', 'Left & Right', [a, b])],
+                       canvases=[{'id': 'c1', 'name': 'Canvas & Co',
+                                  'workspace_x': 0, 'workspace_y': 0,
+                                  'raster_width': 1920, 'raster_height': 1080,
+                                  'visible': True}])
+    for layer in (a, b):
+        layer['canvas_id'] = 'c1'
+    xml = _xml(project)
+    assert 'value="Left &amp; Right"' in xml
+    ET.fromstring(xml)          # parses, so Resolume can open it
+
+    ungrouped = _xml(_project([_screen(1, 'A & B', 2, 2)]))
+    assert 'value="A &amp; B"' in xml or 'value="A &amp; B"' in ungrouped
+    ET.fromstring(ungrouped)
+
+
+# ── hidden members never reach the PSD ────────────────────────────────────
+
+def test_a_hidden_group_member_draws_nothing():
+    """Resolume filters on visible before units are built; the PSD path did
+    not, so a hidden section arrived in Photoshop fully opaque."""
+    vis = _screen(1, 'Vis', 2, 2)
+    hid = _screen(2, 'Hid', 2, 2, off_x=256, visible=False)
+    img = render_unit_to_image([vis, hid], 1024, 512, include_borders=False)
+    assert img.getpixel((64, 64))[3] == 255
+    assert img.getpixel((320, 64)) == (0, 0, 0, 0)
+    assert app_module._export_unit_bounds(
+        app_module._export_unit_drawn_members([vis, hid]))['width'] == 256
+
+    # A unit with nothing visible keeps its pixels: it is emitted at opacity 0,
+    # which is what an ungrouped hidden screen has always done.
+    both = [_screen(1, 'A', 2, 2, visible=False),
+            _screen(2, 'B', 2, 2, off_x=256, visible=False)]
+    assert render_unit_to_image(both, 1024, 512).getpixel((320, 64))[3] == 255
 
 
 # ── degenerate groups ─────────────────────────────────────────────────────

@@ -1133,6 +1133,32 @@ def _create_group(project, layer_ids, name=None):
     return group
 
 
+def _is_hashable(value):
+    """Can ``value`` be put in a set or used as a dict key?
+
+    A hand-edited or truncated project file can carry a dict or a list where an
+    id belongs (``layer['id']``, a group's ``layer_ids`` entry, a path step's
+    ``layerId``). Every membership test below runs against a SET, and
+    ``{'a': 1} in some_set`` raises ``TypeError: unhashable type`` - which came
+    out as a 500 on PUT /api/project, i.e. on every undo, redo and file open of
+    such a file. The existing guards checked the CONTAINER's type (is this a
+    list?) and never the ELEMENT's, so they let those values straight through.
+
+    Unhashable means "not an id we can ever match", so callers treat it exactly
+    the way they treat an id that names nothing.
+    """
+    try:
+        hash(value)
+    except TypeError:
+        return False
+    return True
+
+
+def _hashable_id_set(values):
+    """The hashable members of ``values`` as a set, skipping the rest."""
+    return {v for v in values if _is_hashable(v)}
+
+
 def _enforce_group_integrity(project):
     """Repair the group model in place, idempotently.
 
@@ -1149,6 +1175,16 @@ def _enforce_group_integrity(project):
       4. group_id is single-valued: a layer listed by more than one group
          stays with the first group that survives rule 2, and is removed from
          the others' layer_ids.
+      5. a group id is single-valued too: the SECOND group to claim an id is
+         re-issued a fresh one from the project counter. Rule 4 is enforced
+         per layer and so never noticed two DIFFERENT groups both called 'g1':
+         both survived, every member of both mirrored group_id 'g1',
+         _find_group resolved it to the first, and _export_units keyed groups
+         by id into a dict - so the last duplicate won and one whole wall
+         vanished from the export, its screens drawn under the other wall's
+         name. Re-issuing rather than dropping keeps both walls: which of two
+         colliding groups is "the real g1" is unknowable, and deleting one
+         silently destroys a grouping the user made.
 
     Layers that never had a group_id key are left completely untouched, so a
     project saved before groups existed round-trips byte for byte.
@@ -1166,13 +1202,18 @@ def _enforce_group_integrity(project):
     sync_next_group_seq(project)
 
     layers = [l for l in (project.get('layers') or []) if isinstance(l, dict)]
-    existing_layer_ids = {l.get('id') for l in layers}
+    # Unhashable ids (a dict/list where an id belongs) can never match a real
+    # layer, so they are simply absent from the lookup - see _is_hashable.
+    existing_layer_ids = _hashable_id_set(l.get('id') for l in layers)
 
     kept = []
     claimed = set()
+    seen_group_ids = set()
     for group in project['groups']:
         if not isinstance(group, dict) or not group.get('id'):
             continue
+        if not _is_hashable(group.get('id')):
+            continue  # an id nothing can ever resolve is not an id
         # Anything that is not a list is treated as no members at all. A JSON
         # string would otherwise iterate into single-character "layer ids",
         # and an int would raise straight into a 500 on every undo.
@@ -1182,12 +1223,21 @@ def _enforce_group_integrity(project):
         members = []
         for lid in raw_ids:
             # Rule 1 (layer gone), rule 4 (already owned by an earlier group),
-            # and plain duplicates inside one group's own list.
+            # and plain duplicates inside one group's own list. The hashable
+            # test comes first because the three that follow are set lookups.
+            if not _is_hashable(lid):
+                continue
             if lid in existing_layer_ids and lid not in claimed and lid not in members:
                 members.append(lid)
         if len(members) < 2:
             continue  # rule 2 - and it claims nothing, so a one-member group
                       # listed first cannot starve a real group listed later
+        # Rule 5. The first group to claim an id keeps it; a later collision is
+        # re-issued from the counter, which never hands out an id already in
+        # the file (sync_next_group_seq seeds itself above the highest one).
+        if group['id'] in seen_group_ids:
+            group['id'] = _next_group_id(project)
+        seen_group_ids.add(group['id'])
         group['layer_ids'] = members
         claimed.update(members)
         kept.append(group)
@@ -1198,7 +1248,8 @@ def _enforce_group_integrity(project):
         for lid in group['layer_ids']:
             owner[lid] = group['id']
     for layer in layers:
-        group_id = owner.get(layer.get('id'))
+        layer_id = layer.get('id')
+        group_id = owner.get(layer_id) if _is_hashable(layer_id) else None
         if group_id is not None:
             layer['group_id'] = group_id  # mirror the authoritative side
         elif layer.get('group_id'):
@@ -1236,16 +1287,19 @@ def _prune_cross_layer_paths(project):
     if not isinstance(project, dict):
         return project
     layers = [l for l in (project.get('layers') or []) if isinstance(l, dict)]
-    existing_layer_ids = {l.get('id') for l in layers}
+    existing_layer_ids = _hashable_id_set(l.get('id') for l in layers)
     # group_id is the mirror _enforce_group_integrity just rewrote, so reading
     # it here is the same as reading project['groups']. A layer outside every
     # group maps to None, and None is deliberately never a legal target: two
     # groupless layers are two separate screens, not a wall.
-    group_of = {l.get('id'): l.get('group_id') for l in layers}
+    group_of = {
+        l.get('id'): l.get('group_id') for l in layers
+        if _is_hashable(l.get('id'))
+    }
 
     for layer in layers:
         own_id = layer.get('id')
-        own_group = group_of.get(own_id)
+        own_group = group_of.get(own_id) if _is_hashable(own_id) else None
         for key in ('customPortPaths', 'powerCustomPaths'):
             paths = layer.get(key)
             if not isinstance(paths, dict):
@@ -1264,6 +1318,13 @@ def _prune_cross_layer_paths(project):
                         kept.append(step)
                         continue
                     target = step.get('layerId')
+                    if not _is_hashable(target):
+                        # A dict/list where a layer id belongs. It can never
+                        # name a peer, so it is undrawable - same outcome as a
+                        # deleted peer below, reached without a set lookup that
+                        # would raise TypeError and 500 the restore.
+                        dropped = True
+                        continue
                     if target == own_id:
                         # Points at its own layer, which is just the plain form
                         # written the long way (the client does this when a
@@ -1347,14 +1408,24 @@ def _export_units(project, layers):
     ``name`` is None when nothing named the unit, so each caller keeps its own
     fallback (Resolume says "Layer", the PSD says "Screen <id>").
     """
-    groups = {
-        g.get('id'): g for g in (project or {}).get('groups') or []
-        if isinstance(g, dict) and g.get('id')
-    }
+    # FIRST duplicate wins, which is the group _find_group resolves and the one
+    # _enforce_group_integrity leaves holding the id. This used to be a dict
+    # comprehension, so the LAST group with a given id won instead: two groups
+    # called 'g1' meant one wall disappeared from the export and its screens
+    # were drawn inside the other wall's unit, under the other wall's name.
+    # Rule 5 of the integrity pass now prevents the collision upstream; this is
+    # the export refusing to differ from _find_group even if one slips through.
+    groups = {}
+    for g in (project or {}).get('groups') or []:
+        if not isinstance(g, dict) or not g.get('id') or not _is_hashable(g.get('id')):
+            continue
+        groups.setdefault(g['id'], g)
     units = []
     emitted = set()
     for layer in layers or []:
         group_id = layer.get('group_id')
+        if not _is_hashable(group_id):
+            group_id = None
         group = groups.get(group_id) if group_id else None
         if group is None:
             units.append((layer.get('name'), [layer]))
@@ -1472,6 +1543,28 @@ def render_layer_to_image(layer, raster_width, raster_height, include_borders=Tr
     return img
 
 
+def _export_unit_drawn_members(members):
+    """The members of an export unit that actually put ink on the page.
+
+    A hidden member contributes nothing: Resolume already filters on
+    layer.visible before units are built, and an ungrouped hidden screen has
+    always reached Photoshop as its own record at opacity 0. Grouping broke
+    that - render_unit_to_image composited every member without ever reading
+    visible, so a group of two with the second hidden arrived as ONE record at
+    opacity 255, bounds covering both, the hidden member's pixels fully there.
+    The PSD handed to graphics showed a section the designer was told had been
+    struck from the build.
+
+    A unit with NO visible member keeps all of them, which is what makes the
+    ungrouped case identical to what it always was: the record is emitted at
+    opacity 0 (invisible in Photoshop) with its pixels intact, so switching it
+    back on in Photoshop still shows the screen.
+    """
+    members = [l for l in (members or []) if isinstance(l, dict)]
+    drawn = [l for l in members if l.get('visible', True)]
+    return drawn or members
+
+
 def render_unit_to_image(members, raster_width, raster_height, include_borders=True):
     """Render one export unit - a lone layer, or every member of a screen
     group - onto a single raster-sized RGBA image.
@@ -1480,7 +1573,7 @@ def render_unit_to_image(members, raster_width, raster_height, include_borders=T
     members composite into one image first. A single member returns exactly
     what render_layer_to_image returned before groups existed.
     """
-    members = [l for l in (members or []) if isinstance(l, dict)]
+    members = _export_unit_drawn_members(members)
     if not members:
         return Image.new('RGBA', (raster_width, raster_height), (0, 0, 0, 0))
     img = render_layer_to_image(members[0], raster_width, raster_height, include_borders)
@@ -1675,8 +1768,9 @@ def create_psd_for_view(view_mode, project_name, include_borders):
         # Render the unit to image (a group composites its members first)
         layer_img = render_unit_to_image(members, raster_width, raster_height, include_borders)
 
-        # Get unit bounds
-        bounds = _export_unit_bounds(members)
+        # Get unit bounds. Hidden members neither draw nor widen the record -
+        # see _export_unit_drawn_members.
+        bounds = _export_unit_bounds(_export_unit_drawn_members(members))
         offset_x = bounds['x']
         offset_y = bounds['y']
         layer_width = bounds['width']
@@ -1789,8 +1883,9 @@ def export_psd():
         # Render the unit to image (full raster size with transparency)
         layer_img = render_unit_to_image(members, raster_width, raster_height, include_borders)
 
-        # Get unit bounds (where the actual content is)
-        bounds = _export_unit_bounds(members)
+        # Get unit bounds (where the actual content is). Hidden members neither
+        # draw nor widen the record - see _export_unit_drawn_members.
+        bounds = _export_unit_bounds(_export_unit_drawn_members(members))
         offset_x = bounds['x']
         offset_y = bounds['y']
         layer_width = bounds['width']
@@ -1874,7 +1969,7 @@ def export_layers_as_zip(include_borders, raster_width, raster_height):
 
         # Add a manifest with unit info
         def manifest_entry(unit_name, members):
-            bounds = _export_unit_bounds(members)
+            bounds = _export_unit_bounds(_export_unit_drawn_members(members))
             # A lone layer keeps reporting its own nominal offset, as it always
             # has; a group has no single offset, so it reports the union's.
             offset = (members[0] if len(members) == 1 else None)
@@ -2245,7 +2340,7 @@ def _compute_panel_contour(layer):
 
 
 def _compute_layers_contour(layers):
-    """The contour of the union of these layers' visible panels.
+    """The outline of ONE connected region of these layers' visible panels.
 
     v0.10.9: a screen group is one screen, so its members trace a SINGLE
     outline rather than one per member. Nothing else changes - the lattice
@@ -2253,6 +2348,50 @@ def _compute_layers_contour(layers):
     different cabinet sizes coming from different layers union exactly the
     way half tiles inside one layer already did. One layer in, and this is
     _compute_panel_contour as it stood before groups existed, point for point.
+
+    A union that is NOT connected - two walls with air between them, or a
+    screen cut in half by a column of deleted cabinets - has no single outline,
+    and this returns the first island's only. Anything that has to be RIGHT
+    about such a unit must call _compute_layers_islands, which returns every
+    island; this stays for the connected case and for the callers (and pinned
+    tests) that predate islands.
+    """
+    islands = _compute_layers_islands(layers)
+    return islands[0] if islands else []
+
+
+def _compute_layers_islands(layers):
+    """Every connected region of these layers' visible panels, outline traced.
+
+    Returns ``[[(x, y), ...], ...]`` - one closed, axis-aligned, counter-
+    clockwise ring per island, in reading order (top to bottom, then left to
+    right). A connected union gives exactly one ring and that ring is what
+    _compute_layers_contour has always returned.
+
+    Why islands at all: the trace below walks the boundary from one starting
+    vertex and stops the moment it closes that ring. On a disconnected union it
+    therefore returned ONE island and silently dropped the rest - two walls
+    with a gap traced as the right-hand wall alone, which then read as "this is
+    a rectangle" and shipped as a plain Slice spanning the gap, and a screen
+    split by a hidden column shipped a polygon that masked its left-hand
+    cabinets to black. Corner-touching members were worse: the shared vertex
+    was reachable from both, so one ring passed through it twice and the result
+    was a figure-of-eight, which no warper defines a fill for.
+
+    Cells are grouped 4-connected, so members meeting only at a corner are two
+    islands - which is exactly what they physically are.
+
+    Holes are not islands and are not returned: a ring is the OUTER boundary of
+    its island. A Resolume contour is a single closed loop and cannot express a
+    hole, and it does not need to - the cabinets around a hole still map to
+    their own coordinates. Only DISCONNECTED surface needs its own shape.
+
+    Known limit: one CONNECTED island can still pinch shut to a point (a wall
+    with knockouts arranged so a notch narrows to nothing, e.g. a bay closed
+    off by a single diagonal pair). Its boundary genuinely visits that vertex
+    twice and the ring says so, because splitting it there would hand the
+    notch back to whichever half kept it. That is one piece of LED with one
+    honest outline; it is not the two-separate-walls case above.
     """
     panels = []
     for layer in layers or []:
@@ -2316,17 +2455,10 @@ def _compute_layers_contour(layers):
         """Get pixel Y position for band row index."""
         return ys[row]
 
-    # Use marching squares on the band grid to trace the boundary.
-    # Each covered band occupies grid cell (row, col).
-    # We trace edges between visible and non-visible cells.
-
-    # Trace the outer boundary of visible panels using grid edge walking.
+    # Trace the boundary of the visible bands using grid edge walking.
     # This handles concavities and arbitrary shapes correctly.
-    # The contour walks counter-clockwise (matching Resolume convention):
+    # Each ring walks counter-clockwise (matching Resolume convention):
     #   top-right → across top going left → down left side → across bottom → up right side
-
-    # Build a set for O(1) lookup
-    # visible is already a set of (row, col)
 
     # Collect all boundary edges between visible and non-visible cells.
     # An edge is on the boundary if one side is visible and the other is not.
@@ -2362,63 +2494,133 @@ def _compute_layers_contour(layers):
     for i, (start, end) in enumerate(edges):
         adj[start].append((end, i))
 
-    # Walk the boundary starting from the topmost-rightmost point
-    # Find the starting point: among all edge start points, pick the one
-    # with the largest x, then smallest y (top-right corner)
-    all_starts = set(e[0] for e in edges)
-    start_pt = max(all_starts, key=lambda p: (p[0], -p[1]))
-
-    contour = [start_pt]
+    # Walk every ring, not just the first. The old code took ONE starting
+    # vertex, walked until it closed that ring and returned - so a second
+    # island was never visited at all. Each pass below starts from the
+    # top-right-most vertex among the edges nobody has walked yet, so a
+    # disconnected union yields one ring per piece.
     used = set()
-    current = start_pt
+    remaining = set(range(len(edges)))
+    rings = []
+    while remaining:
+        start_pt = max((edges[i][0] for i in remaining),
+                       key=lambda p: (p[0], -p[1]))
+        ring = [start_pt]
+        current = start_pt
+        # Implied arrival direction at a top-right corner: up the right-hand
+        # side, which is how a closed ring really does arrive back there.
+        in_dir = (0, -1)
+        for _ in range(len(edges) + 1):
+            candidates = [(end, idx) for end, idx in adj[current] if idx not in used]
+            if not candidates:
+                break
+            # A simple ring offers exactly one unused edge here and the sort is
+            # a no-op. More than one means a PINCH: two parts of the shape meet
+            # at a single vertex (two cabinets touching corner to corner is the
+            # everyday case). Taking either one at random is how the old walk
+            # produced a figure-of-eight that passed through the shared vertex
+            # twice - undefined for a warper. Turning towards the surface we are
+            # already tracing keeps each lobe a separate, simple ring.
+            def turn(candidate, _in_dir=in_dir, _cur=current):
+                end = candidate[0]
+                out_dir = (_sign(end[0] - _cur[0]), _sign(end[1] - _cur[1]))
+                return (_in_dir[0] * out_dir[1] - _in_dir[1] * out_dir[0],
+                        out_dir)
+            next_pt, edge_idx = min(candidates, key=turn)
+            used.add(edge_idx)
+            remaining.discard(edge_idx)
+            in_dir = (_sign(next_pt[0] - current[0]), _sign(next_pt[1] - current[1]))
+            ring.append(next_pt)
+            current = next_pt
+            if current == start_pt:
+                break
+        # Remove the closing duplicate
+        if len(ring) > 1 and ring[-1] == ring[0]:
+            ring.pop()
+        # A ring wound the other way is a HOLE, not an island: the surface
+        # around a missing cabinet in the middle of a wall still maps to its own
+        # coordinates, and a Resolume contour is one closed loop with no way to
+        # say "except here". Outer rings come back negative under this edge
+        # orientation (see the shoelace sign below).
+        if len(ring) >= 4 and _ring_signed_area(ring) < 0:
+            rings.append(_simplify_ring(ring))
 
-    for _ in range(len(edges) + 1):
-        candidates = [(end, idx) for end, idx in adj[current] if idx not in used]
-        if not candidates:
-            break
-        # Pick the next edge (for simple polygons there should be exactly one unused)
-        next_pt, edge_idx = candidates[0]
-        used.add(edge_idx)
-        contour.append(next_pt)
-        current = next_pt
-        if current == start_pt:
-            break
+    # Reading order: top to bottom, then left to right. Deterministic, and it
+    # puts the shapes in the Resolume layer list the way the operator reads the
+    # wall. A single-island unit is unaffected - there is only one ring.
+    rings.sort(key=lambda ring: (min(y for _x, y in ring),
+                                 min(x for x, _y in ring)))
+    return rings
 
-    # Remove the closing duplicate
-    if len(contour) > 1 and contour[-1] == contour[0]:
-        contour.pop()
 
-    # Simplify: remove collinear intermediate points (points on straight lines)
-    if len(contour) < 3:
-        return contour
+def _sign(value):
+    return 1 if value > 0 else (-1 if value < 0 else 0)
 
-    simplified = []
-    n = len(contour)
+
+def _ring_signed_area(ring):
+    """Twice the shoelace area of a closed ring; negative for an outer ring."""
+    total = 0
+    n = len(ring)
     for i in range(n):
-        prev = contour[(i - 1) % n]
-        curr = contour[i]
-        nxt = contour[(i + 1) % n]
+        x1, y1 = ring[i]
+        x2, y2 = ring[(i + 1) % n]
+        total += x1 * y2 - x2 * y1
+    return total
+
+
+def _simplify_ring(ring):
+    """Drop the intermediate points of every straight run."""
+    if len(ring) < 3:
+        return ring
+    simplified = []
+    n = len(ring)
+    for i in range(n):
+        prev = ring[(i - 1) % n]
+        curr = ring[i]
+        nxt = ring[(i + 1) % n]
         # Keep point if direction changes
-        dx1 = curr[0] - prev[0]
-        dy1 = curr[1] - prev[1]
-        dx2 = nxt[0] - curr[0]
-        dy2 = nxt[1] - curr[1]
-        # Normalize to direction signs
-        d1 = (1 if dx1 > 0 else (-1 if dx1 < 0 else 0),
-              1 if dy1 > 0 else (-1 if dy1 < 0 else 0))
-        d2 = (1 if dx2 > 0 else (-1 if dx2 < 0 else 0),
-              1 if dy2 > 0 else (-1 if dy2 < 0 else 0))
+        d1 = (_sign(curr[0] - prev[0]), _sign(curr[1] - prev[1]))
+        d2 = (_sign(nxt[0] - curr[0]), _sign(nxt[1] - curr[1]))
         if d1 != d2:
             simplified.append(curr)
-
     return simplified
+
+
+def _ring_bounds(ring):
+    """The bounding box of one traced ring, in the export's bounds shape."""
+    if not ring:
+        return {'x': 0, 'y': 0, 'width': 0, 'height': 0}
+    xs = [x for x, _y in ring]
+    ys = [y for _x, y in ring]
+    return {
+        'x': float(min(xs)), 'y': float(min(ys)),
+        'width': float(max(xs) - min(xs)), 'height': float(max(ys) - min(ys)),
+    }
+
+
+def _layer_has_knockouts(layer):
+    """Does this layer have any cabinet missing from its grid?
+
+    Hidden (deleted) OR blank. v0.10.9 taught the CONTOUR that a blank cabinet
+    is not LED surface but left the SHAPE DECISION on the old hidden-only test,
+    so a lone screen with a blanked corner traced a correct six-vertex outline
+    and then threw it away and shipped a full rectangle - while the same wall
+    grouped with a neighbour correctly became a polygon. Two crews with the
+    same wall got two different Resolume files depending on whether anyone had
+    pressed Group Screens.
+    """
+    panels = layer.get('panels', []) if isinstance(layer, dict) else []
+    return any(p.get('hidden', False) or p.get('blank', False)
+               for p in panels if isinstance(p, dict))
 
 
 def _export_unit_needs_polygon(members):
     """Does this export unit need a Polygon, or is a plain Slice enough?
 
-    A lone layer keeps the pre-v0.10.9 test verbatim - one hidden panel and it
-    is a Polygon - so every mapping already in the field re-exports unchanged.
+    A lone layer keeps the pre-v0.10.9 test: a cabinet missing anywhere in the
+    grid and it is a Polygon, so every mapping already in the field re-exports
+    unchanged. (What CHANGED in v0.10.9.x: "missing" now means blank as well as
+    hidden, matching the contour - see _layer_has_knockouts.)
 
     v0.10.9: a group is judged on the union it actually traces, because no
     member can answer the question on its own. Two rectangular members that
@@ -2427,26 +2629,83 @@ def _export_unit_needs_polygon(members):
     A traced contour with four vertices is a rectangle: the trace is
     axis-aligned and collinear points are already simplified away, so a
     concave shape can never come back with fewer than six.
+
+    Disconnected units do not go through here at all - they ship one shape per
+    island (see _export_unit_shapes), and each island answers this question for
+    itself on its own ring.
     """
-    if len(members) == 1:
-        return _layer_has_hidden_panels(members[0])
+    if len(members) == 1 and len(_compute_layers_islands(members)) <= 1:
+        return _layer_has_knockouts(members[0])
     return len(_compute_layers_contour(members)) != 4
 
 
-def _resolume_polygon(layer, unique_id, members=None, name=None):
+def _export_unit_shapes(members):
+    """The shape(s) one export unit ships as: ``[(needs_polygon, contour, bounds), ...]``.
+
+    Normally one entry - a lone screen, or a group whose members tile into one
+    connected wall. That entry carries the unit's own bounds (_export_unit_bounds,
+    i.e. _layer_bounds for a lone layer, nominal fallback and all), so every
+    export that worked before is byte-for-byte what it was.
+
+    More than one entry when the unit's LED surface is DISCONNECTED: two group
+    members with air between them, three members with one parked off to the
+    side, or a single screen cut in two by a column of deleted cabinets. One
+    shape cannot honestly describe two separate walls:
+
+      * as a Slice it claims the gap, so a third of the picture is mapped onto
+        empty air between the walls and neither wall can be positioned on its
+        own afterwards;
+      * as a Polygon it can only carry ONE closed contour, so whichever island
+        is not in it is masked off and those cabinets go black. That is exactly
+        what a screen split by a hidden column did.
+
+    So each island gets its own shape, at its own coordinates, all carrying the
+    unit's name - which is what two ungrouped walls already produce today and
+    what an operator expects to find in the Resolume layer list. Input and
+    output rectangles stay equal, so content still lands pixel-for-pixel where
+    the pixel map says it does; nothing is shifted and nothing is invented.
+    An island that is a plain rectangle is a Slice, one that is not is a
+    Polygon, judged per island on its own ring.
+    """
+    islands = _compute_layers_islands(members)
+    if len(islands) <= 1:
+        contour = islands[0] if islands else []
+        return [(_export_unit_needs_polygon(members), contour,
+                 _export_unit_bounds(members))]
+    return [(len(ring) != 4, ring, _ring_bounds(ring)) for ring in islands]
+
+
+def _xml_attr(value):
+    """Escape a value for use inside a double-quoted XML attribute.
+
+    "Left & Right" is a completely normal name for a wall, and interpolating it
+    raw produced a file Resolume simply cannot open. The canvas name has always
+    been escaped here; the shape names were not.
+    """
+    return (str(value)
+            .replace('&', '&amp;').replace('<', '&lt;')
+            .replace('>', '&gt;').replace('"', '&quot;'))
+
+
+def _resolume_polygon(layer, unique_id, members=None, name=None,
+                      bounds=None, contour=None):
     """Generate a Resolume Polygon XML block for a non-rectangular layer.
 
     v0.10.9: ``members`` is the export unit this shape covers - a screen
     group's members, or just ``layer``. ``name`` overrides the shape's name so
     a group is named once, for the group.
+
+    ``bounds``/``contour`` override the geometry, which is how a unit whose
+    surface is disconnected ships one shape per island (_export_unit_shapes).
+    Omitted, they are computed exactly as before.
     """
     members = members or [layer]
-    bounds = _export_unit_bounds(members)
+    bounds = _export_unit_bounds(members) if bounds is None else bounds
     x1 = int(bounds['x'])
     y1 = int(bounds['y'])
     x2 = x1 + int(bounds['width'])
     y2 = y1 + int(bounds['height'])
-    name = layer.get('name', 'Layer') if name is None else name
+    name = _xml_attr(layer.get('name', 'Layer') if name is None else name)
 
     # Output params (no BRed/BGreen/BBlue for Polygon)
     output_params = (
@@ -2460,7 +2719,7 @@ def _resolume_polygon(layer, unique_id, members=None, name=None):
     )
 
     # Compute contour (over the whole unit - a group traces one outline)
-    contour_pts = _compute_layers_contour(members)
+    contour_pts = _compute_layers_contour(members) if contour is None else contour
 
     def contour_xml(pts, indent):
         lines = f'{indent}<points>\n'
@@ -2510,19 +2769,23 @@ def _resolume_polygon(layer, unique_id, members=None, name=None):
     )
 
 
-def _resolume_slice(layer, unique_id, members=None, name=None):
+def _resolume_slice(layer, unique_id, members=None, name=None, bounds=None,
+                    contour=None):
     """Generate a Resolume Slice XML block for a layer.
 
     v0.10.9: ``members``/``name`` as in _resolume_polygon - a group that tiles
     into a plain rectangle is one Slice over the union, named for the group.
+    ``bounds`` overrides the rectangle (one island of a disconnected unit);
+    ``contour`` is accepted and ignored so both shape builders take the same
+    call.
     """
     members = members or [layer]
-    bounds = _export_unit_bounds(members)
+    bounds = _export_unit_bounds(members) if bounds is None else bounds
     x1 = float(bounds['x'])
     y1 = float(bounds['y'])
     x2 = x1 + float(bounds['width'])
     y2 = y1 + float(bounds['height'])
-    name = layer.get('name', 'Layer') if name is None else name
+    name = _xml_attr(layer.get('name', 'Layer') if name is None else name)
     w = x2 - x1
     h = y2 - y1
 
@@ -2719,18 +2982,19 @@ def generate_resolume_xml(project, project_name, raster_w, raster_h):
         # group's name; an ungrouped project yields the old per-layer list.
         slices_xml = ""
         for unit_name, members in _export_units(project, canvas_layers):
-            slice_id = random.randint(1000000000000, 9999999999999)
-            if _export_unit_needs_polygon(members):
-                slices_xml += _resolume_polygon(members[0], slice_id, members, unit_name)
-            else:
-                slices_xml += _resolume_slice(members[0], slice_id, members, unit_name)
+            # Usually one shape. A unit whose LED surface is in two or more
+            # disconnected pieces ships one shape per piece, all named for the
+            # unit - see _export_unit_shapes for why one shape cannot do it.
+            for needs_polygon, contour, bounds in _export_unit_shapes(members):
+                slice_id = random.randint(1000000000000, 9999999999999)
+                build = _resolume_polygon if needs_polygon else _resolume_slice
+                slices_xml += build(members[0], slice_id, members, unit_name,
+                                    bounds=bounds, contour=contour)
 
         screen_unique_id = random.randint(1000000000000, 9999999999999)
         device_hash = random.randint(1000000000000000000, 9999999999999999999)
         # Escape any "&", quote chars in the canvas name for XML attributes.
-        safe_name = (str(canvas_name)
-                     .replace('&', '&amp;').replace('<', '&lt;')
-                     .replace('>', '&gt;').replace('"', '&quot;'))
+        safe_name = _xml_attr(canvas_name)
 
         screens_xml += (
             f'\t\t\t<Screen name="{safe_name}" uniqueId="{screen_unique_id}">\n'

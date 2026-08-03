@@ -4,6 +4,39 @@ import { LEDRasterApp } from './app-core.js';
 import { sendClientLog } from './helpers.js';
 
 class _ExportIo {
+    // The frame rates a processor actually PUBLISHES a per-port figure for.
+    //
+    // Intersection across bit depths, not union: a rate present at 8-bit but
+    // missing at 12-bit would still have to be interpolated the moment the
+    // user changed bit depth, which is the thing this exists to prevent.
+    // Rounded, because lookupPortCapacity matches on Math.round - 23.976 reads
+    // the published 24 Hz row, 29.97 the 30, 59.94 the 60. Those three are
+    // safe to offer: each is slightly SLOWER than the row it borrows, and
+    // capacity rises as frame rate falls, so the published figure understates
+    // them. Understating means more ports, never fewer.
+    publishedFrameRates(processorType) {
+        const table = this.portCapacityTables
+            && this.portCapacityTables[processorType || 'novastar-armor'];
+        if (!table) return null;
+        const perDepth = Object.keys(table)
+            .map(bd => new Set(Object.keys(table[bd] || {}).map(Number)))
+            .filter(s => s.size > 0);
+        if (perDepth.length === 0) return null;
+        return perDepth.reduce((acc, s) => new Set([...acc].filter(r => s.has(r))));
+    }
+
+    // v0.10.9: the list is built from the processor's own published rows.
+    //
+    // It used to be a fixed list of 19 rates, narrowed only by "<= 120 for
+    // Armor" - so a NovaStar screen could be set to 48, 72, 100, 150, 180, 192
+    // or 200 Hz, none of which NovaStar publish a figure for. lookupPortCapacity
+    // then INTERPOLATED between the neighbouring rows, and because capacity
+    // runs as 1/fps the straight line always sits ABOVE the curve: +11% at
+    // 100 Hz, +8% at 72. Overstated capacity under-counts ports, which is the
+    // direction that leaves a crew short on site. Brompton was never affected -
+    // its table already covers every rate offered.
+    //
+    // A rate with no published figure is now simply not offerable.
     updateFrameRateOptions() {
         const frameRateSelect = document.getElementById('frame-rate');
         if (!frameRateSelect || !this.currentLayer) return;
@@ -15,9 +48,13 @@ class _ExportIo {
             23.976, 24, 25, 29.97, 30, 48, 50, 59.94, 60, 72, 100, 120, 144, 150, 180, 192, 200, 240, 250
         ];
 
-        const allowedRates = processorType === 'novastar-armor'
-            ? baseRates.filter(rate => rate <= 120)
+        const published = this.publishedFrameRates(processorType);
+        // No table at all (an unknown processor) keeps every rate rather than
+        // emptying the control and stranding the user.
+        const allowedRates = published
+            ? baseRates.filter(rate => published.has(Math.round(rate)))
             : baseRates;
+        if (allowedRates.length === 0) allowedRates.push(currentFrameRate);
 
         frameRateSelect.innerHTML = '';
         allowedRates.forEach(rate => {
@@ -29,12 +66,48 @@ class _ExportIo {
 
         if (allowedRates.includes(currentFrameRate)) {
             frameRateSelect.value = currentFrameRate;
-        } else if (allowedRates.includes(60)) {
-            frameRateSelect.value = 60;
-            this.currentLayer.frameRate = 60;
-        } else {
-            frameRateSelect.value = allowedRates[0];
-            this.currentLayer.frameRate = allowedRates[0];
+            return;
+        }
+
+        // An existing project on a rate this processor does not publish - a
+        // file saved before this list was narrowed, or a processor change.
+        // Fall back to the highest published rate BELOW it.
+        //
+        // Down, not up, because this is not an approximation of the capacity
+        // at the old rate - the processor cannot run that rate at all, so the
+        // screen is genuinely running a slower one, and the published figure
+        // for THAT rate is the true figure rather than a conservative stand-in.
+        // A processor topping out at 60 asked for 72 or 120 lands on 60.
+        //
+        // It used to fall back to a flat 60 Hz regardless, which could jump a
+        // 240 Hz screen down four rows and quadruple its pixels-per-port.
+        const below = allowedRates.filter(r => r < currentFrameRate);
+        const chosen = below.length ? Math.max(...below) : Math.min(...allowedRates);
+        frameRateSelect.value = chosen;
+        this.currentLayer.frameRate = chosen;
+        // Never silent: a slower rate means MORE pixels per port and so FEWER
+        // ports than the wall was planned with. The user has to see that the
+        // number moved and why.
+        if (typeof this._toast === 'function') {
+            // Name the processor the way the user sees it in the control -
+            // "NovaStar (Legacy)", not "novastar-armor".
+            const procSelect = document.getElementById('processor-type');
+            const procOpt = procSelect && Array.from(procSelect.options)
+                .find(o => o.value === processorType);
+            const procName = procOpt ? procOpt.textContent.trim() : processorType;
+            this._toast(
+                `${procName} has no published figure at ${currentFrameRate} Hz. `
+                + `This screen is now ${chosen} Hz - check its port count.`,
+                false, 7000);
+        }
+        if (typeof sendClientLog === 'function') {
+            sendClientLog('frame_rate_snapped_to_published', {
+                layerId: this.currentLayer.id,
+                processorType,
+                from: currentFrameRate,
+                to: chosen,
+                direction: below.length ? 'down' : 'lowest-published',
+            });
         }
     }
     

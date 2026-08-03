@@ -39,11 +39,31 @@ import { sendClientLog } from './helpers.js';
 class _ScreenGroups {
 
     // The settings every member must agree on BEFORE it can be a group.
-    // Mirrors app.py's GROUP_SHARED_SETTINGS: a group is one screen, so a port
-    // crossing a member boundary needs a single rule set to be checked
-    // against. These three are what the mismatch dialog resolves.
+    // A group is one screen, so a port crossing a member boundary needs a
+    // single rule set to be checked against. These are what the mismatch
+    // dialog resolves.
+    //
+    // lowLatency is here for the same reason bit depth is: it is a
+    // PROCESSOR-WIDE mode, not a per-cabinet dressing. Two Brompton members
+    // that disagree about it sit at 525,000 and 262,500 px/port, and a port
+    // drawn across the boundary is then judged at whichever figure the owning
+    // member happens to carry - one wall, two capacities, no error. It is also
+    // in GROUP_SHARED_LAYER_FIELDS below, but that list only propagates on an
+    // EDIT; without an entry here nothing checks it at creation.
+    //
+    // app.py's GROUP_SHARED_SETTINGS is the server's copy of this list. It is
+    // only read by validate_group_settings, which no route calls today, so the
+    // two being out of step cannot contradict a decision - but they should be
+    // brought back into line the next time that file is touched.
+    // powerVoltage is here because a GROUP is one wall, and one wall runs on
+    // one supply. Two sections of the same wall on 110 V and 208 V is a wiring
+    // error, not a configuration - so it is resolved at the point of grouping
+    // like bit depth, rather than reported forever as "Mixed voltage" with no
+    // way to answer it. (A PROJECT may legitimately span voltages: two walls,
+    // two supplies. That case is handled the other way round - getPowerCounts
+    // refuses to blend them and reports each voltage separately.)
     get GROUP_SHARED_SETTINGS() {
-        return ['processorType', 'bitDepth', 'frameRate'];
+        return ['processorType', 'bitDepth', 'frameRate', 'lowLatency', 'powerVoltage'];
     }
 
     // Fields a Screen Info edit propagates to every member, because they
@@ -271,60 +291,134 @@ class _ScreenGroups {
     }
 
     // Take a layer out of whatever group holds it, writing both sides.
-    _detachLayerFromGroups(layer) {
+    //
+    // `onlyGroupId` scopes the detach to ONE group: the layer is removed from
+    // that group's layer_ids and loses its group_id only if that is the group
+    // it claimed. Every action driven from a specific group's menu passes it,
+    // so an action aimed at one wall can never quietly rearrange another.
+    _detachLayerFromGroups(layer, onlyGroupId = null) {
         if (!layer) return;
         (((this.project) || {}).groups || []).forEach(group => {
             if (!group || !Array.isArray(group.layer_ids)) return;
+            if (onlyGroupId && group.id !== onlyGroupId) return;
             group.layer_ids = group.layer_ids.filter(id => id !== layer.id);
         });
+        if (onlyGroupId && layer.group_id !== onlyGroupId) return;
         layer.group_id = null;
+    }
+
+    // Take the repaired project the PUT handed back as the new truth.
+    //
+    // The response is what the SERVER holds after _enforce_group_integrity and
+    // _rebuild_layer_geometry_from_panel_states - and every field in it came
+    // from the body this client just sent, so nothing client-only is lost by
+    // adopting it whole. Adopting only PART of it is what made three separate
+    // things wrong at once:
+    //   * ungroup kept a cross-member path step the server had already pruned,
+    //     and the snapshot taken right after held the client's version;
+    //   * so ungroup -> regroup KEPT the wiring with no reload and LOST it
+    //     with one - same actions, two outcomes;
+    //   * duplicateGroup nudged offset_x/offset_y but deep-copied `panels`
+    //     verbatim, and panel x/y are ABSOLUTE. The server re-anchors them;
+    //     the client never adopted that, so Duplicate Group drew the copy
+    //     exactly on top of the original and looked like it had done nothing.
+    //
+    // Selection and the current layer are ids, not object identity, so they
+    // are re-pointed here rather than left aimed at the discarded copy.
+    _adoptRepairedProject(repaired) {
+        if (!repaired || !Array.isArray(repaired.layers) || !Array.isArray(repaired.groups)) {
+            return false;
+        }
+        delete repaired._migration_notice;   // transient, response-only
+        const currentId = this.currentLayer ? this.currentLayer.id : null;
+        this.project = repaired;
+        if (typeof this.dedupeProjectLayers === 'function') {
+            this.dedupeProjectLayers('screen_group_commit');
+        }
+        const layers = this.project.layers || [];
+        const byId = new Map(layers.map(l => [l.id, l]));
+        this.currentLayer = (currentId !== null && byId.has(currentId))
+            ? byId.get(currentId)
+            : (layers[layers.length - 1] || null);
+        if (this.selectedLayerIds) {
+            const kept = [...this.selectedLayerIds].filter(id => byId.has(id));
+            this.selectedLayerIds = new Set(
+                kept.length ? kept : (this.currentLayer ? [this.currentLayer.id] : []));
+        }
+        if (this.lastSelectedLayerId != null && !byId.has(this.lastSelectedLayerId)) {
+            this.lastSelectedLayerId = this.currentLayer ? this.currentLayer.id : null;
+        }
+        if (this.selectionAnchorLayerId != null && !byId.has(this.selectionAnchorLayerId)) {
+            this.selectionAnchorLayerId = this.lastSelectedLayerId;
+        }
+        return true;
     }
 
     // Persist the group model and record ONE undo step for the whole action.
     //
     // The PUT goes through /api/project (restore_project), the one funnel
     // that runs _enforce_group_integrity - so the server, not this file,
-    // decides what a membership that disagrees with itself repairs to. Only
-    // the group model is adopted back from the response, and the snapshot is
-    // taken AFTER that, so the single history entry holds the repaired state
-    // and an undo restores it whole.
-    async _commitGroupChange(actionLabel) {
-        let repaired = null;
-        try {
-            const res = await fetch('/api/project', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(this.project),
-            });
-            repaired = await res.json();
-        } catch (err) {
-            sendClientLog('screen_group_commit_failed', {
-                action: actionLabel, error: String(err),
-            });
-        }
-        if (repaired && Array.isArray(repaired.groups)) {
-            this.project.groups = repaired.groups;
-            if (repaired.next_group_seq !== undefined) {
-                this.project.next_group_seq = repaired.next_group_seq;
+    // decides what a membership that disagrees with itself repairs to. The
+    // whole repaired project is adopted back (see _adoptRepairedProject), and
+    // the snapshot is taken AFTER that, so the single history entry holds the
+    // repaired state and an undo restores it whole.
+    //
+    // Two things make that adoption DETERMINISTIC rather than a race:
+    //   1. commits are serialized on one promise chain, so a second group
+    //      action never has its PUT in flight alongside the first. Without it,
+    //      two overlapping commits both send `this.project` and the later
+    //      response could be the one built from the STALER body.
+    //   2. each issued commit takes a token; a response whose token is no
+    //      longer the newest is logged and dropped instead of overwriting a
+    //      project a newer commit already adopted.
+    // `_groupCommitDepth` is the flag the path sanitiser reads so it cannot
+    // prune wiring out of a project that is mid-commit.
+    _commitGroupChange(actionLabel) {
+        const run = async () => {
+            const token = (this._groupCommitSeq = (this._groupCommitSeq || 0) + 1);
+            this._groupCommitDepth = (this._groupCommitDepth || 0) + 1;
+            let repaired = null;
+            try {
+                const res = await fetch('/api/project', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(this.project),
+                });
+                repaired = await res.json();
+            } catch (err) {
+                sendClientLog('screen_group_commit_failed', {
+                    action: actionLabel, error: String(err),
+                });
+            } finally {
+                this._groupCommitDepth -= 1;
             }
-            const byId = new Map((repaired.layers || []).map(l => [l.id, l]));
-            (this.project.layers || []).forEach(layer => {
-                const fresh = byId.get(layer.id);
-                if (fresh) layer.group_id = fresh.group_id === undefined ? null : fresh.group_id;
+            if (token !== this._groupCommitSeq) {
+                sendClientLog('screen_group_commit_superseded', {
+                    action: actionLabel, token, current: this._groupCommitSeq,
+                });
+            } else {
+                this._adoptRepairedProject(repaired);
+            }
+            this.saveState(actionLabel);
+            sendClientLog('screen_group_change', {
+                action: actionLabel,
+                groups: (this.project.groups || []).map(g => ({
+                    id: g.id, name: g.name, members: (g.layer_ids || []).length,
+                })),
             });
-        }
-        this.saveState(actionLabel);
-        sendClientLog('screen_group_change', {
-            action: actionLabel,
-            groups: (this.project.groups || []).map(g => ({
-                id: g.id, name: g.name, members: (g.layer_ids || []).length,
-            })),
-        });
-        this.renderLayers();
-        if (typeof this.loadLayerToInputs === 'function') {
-            try { this.loadLayerToInputs(); } catch (_) { /* inputs are optional here */ }
-        }
-        if (window.canvasRenderer) window.canvasRenderer.render();
+            this.renderLayers();
+            if (typeof this.loadLayerToInputs === 'function') {
+                try { this.loadLayerToInputs(); } catch (_) { /* inputs are optional here */ }
+            }
+            if (window.canvasRenderer) window.canvasRenderer.render();
+        };
+        const chain = Promise.resolve(this._groupCommitChain || null)
+            .catch(() => {})
+            .then(run);
+        // The stored chain swallows failures so one broken commit cannot wedge
+        // every later one; the returned promise still rejects for the caller.
+        this._groupCommitChain = chain.catch(() => {});
+        return chain;
     }
 
     // ── membership actions ───────────────────────────────────────────────
@@ -386,10 +480,20 @@ class _ScreenGroups {
         return true;
     }
 
-    async removeSelectedFromGroup() {
-        const layers = this.getSelectedScreenLayers().filter(l => l.group_id);
+    // `groupId` scopes the removal to ONE group - the group whose ⋮ menu the
+    // user actually opened. Without it, a selection that spans two walls had
+    // every one of its screens pulled out of whichever group held it, from a
+    // menu that belongs to one of them and a menu item enabled by that one
+    // group alone. Called with no argument (the keyboard/menu-bar path, where
+    // there is no group in hand) it still means "out of whatever holds them".
+    async removeSelectedFromGroup(groupId = null) {
+        const group = groupId ? this.resolveGroup(groupId) : null;
+        if (groupId && !group) return false;
+        const layers = this.getSelectedScreenLayers().filter(
+            l => l.group_id && (!group || l.group_id === group.id));
         if (layers.length === 0) return false;
-        layers.forEach(layer => this._detachLayerFromGroups(layer));
+        layers.forEach(layer => this._detachLayerFromGroups(
+            layer, group ? group.id : null));
         // A group left with a single member is dissolved - by the server, on
         // the PUT inside _commitGroupChange. That rule lives in
         // _enforce_group_integrity and is deliberately not repeated here.
@@ -642,13 +746,34 @@ class _ScreenGroups {
     // values in first-seen order, and a field missing from a layer reads as
     // null and is a value like any other. `values` carries EVERY field so the
     // dialog can show the ones that already match as confirmation.
+    // One member's value for a shared setting.
+    //
+    // lowLatency is a MODE, and "absent" is the same mode as "off" - a layer
+    // written before the field existed and one with the box unticked are the
+    // same screen, so they must not read as two values and open a dialog over
+    // nothing.
+    _groupSettingValueOf(layer, field) {
+        if (!layer) return null;
+        if (field === 'lowLatency') return !!layer.lowLatency;
+        // An absent voltage is not a third opinion - it is the default the app
+        // would use anyway (create_layer writes 110). Reading it as null made
+        // a screen built without the key look like it DISAGREED with one that
+        // has it, so grouping two perfectly ordinary screens raised a voltage
+        // conflict over nothing. Same normalisation lowLatency gets above.
+        if (field === 'powerVoltage') {
+            const v = parseFloat(layer.powerVoltage);
+            return Number.isFinite(v) && v > 0 ? v : 110;
+        }
+        return layer[field] === undefined ? null : layer[field];
+    }
+
     validateGroupSettings(layers) {
         const values = {};
         this.GROUP_SHARED_SETTINGS.forEach(field => { values[field] = []; });
         (layers || []).forEach(layer => {
             if (!layer) return;
             this.GROUP_SHARED_SETTINGS.forEach(field => {
-                const value = layer[field] === undefined ? null : layer[field];
+                const value = this._groupSettingValueOf(layer, field);
                 if (!values[field].includes(value)) values[field].push(value);
             });
         });
@@ -666,6 +791,13 @@ class _ScreenGroups {
                 if (layer) layer[field] = chosen[field];
             });
         });
+        // The processor owns which bit depths and frame rates exist, so the
+        // two Screen Info selects have to be rebuilt against what was just
+        // written - the same call the single-screen processor handler makes.
+        // Without it the sidebar keeps offering the OLD processor's rates.
+        if (typeof this.updateBitDepthOptions === 'function') this.updateBitDepthOptions();
+        if (typeof this.updateFrameRateOptions === 'function') this.updateFrameRateOptions();
+        if (typeof this.updateLowLatencyUI === 'function') this.updateLowLatencyUI();
     }
 
     // Resolves to the values to write ({} when nothing had to be chosen), or
@@ -683,17 +815,23 @@ class _ScreenGroups {
             processorType: 'Processor',
             bitDepth: 'Bit Depth',
             frameRate: 'Frame Rate',
+            lowLatency: 'Low Latency',
+            powerVoltage: 'Voltage',
         }[field] || field;
     }
 
     // Read the human label off the Screen Info select that owns the field, so
     // the dialog can never drift from the wording the sidebar already uses.
     _groupSettingValueLabel(field, value) {
+        // A boolean field has no <select> to read: it is the Low Latency
+        // checkbox, and false is a real answer rather than "not set".
+        if (field === 'lowLatency') return value ? 'On' : 'Off';
         if (value === null || value === undefined || value === '') return 'Not set';
         const selectId = {
             processorType: 'processor-type',
             bitDepth: 'bit-depth',
             frameRate: 'frame-rate',
+            powerVoltage: 'power-voltage-select',
         }[field];
         const select = selectId ? document.getElementById(selectId) : null;
         if (select) {
@@ -701,7 +839,95 @@ class _ScreenGroups {
                 .find(opt => opt.value === String(value));
             if (match) return match.textContent.trim();
         }
+        // A custom voltage has no <option> to read - it is typed into
+        // power-voltage-custom - so name the unit rather than showing a bare
+        // number next to "Voltage".
+        if (field === 'powerVoltage') return `${value} V`;
         return String(value);
+    }
+
+    // ── the combination has to exist ─────────────────────────────────────
+    //
+    // The dialog used to build one <select> per field independently from the
+    // members' distinct values, so picking Processor = Armor next to Frame
+    // Rate = 240 produced a screen whose frame rate is off the end of its
+    // processor's table - a state the Screen Info panel cannot reach, because
+    // there the processor <select> rebuilds (and clamps) the other two. These
+    // helpers give the dialog the same clamp, from the same tables.
+
+    // Values `field` may hold on `processorType`, or null when the processor
+    // does not constrain it.
+    _legalGroupSettingValues(field, processorType) {
+        if (field === 'bitDepth') {
+            return (typeof this.getSupportedBitDepths === 'function')
+                ? this.getSupportedBitDepths(processorType) : null;
+        }
+        if (field === 'frameRate') {
+            return (typeof this.getSelectableFrameRates === 'function')
+                ? this.getSelectableFrameRates(processorType) : null;
+        }
+        if (field === 'lowLatency') {
+            const profile = (typeof this.getLowLatencyProfile === 'function')
+                ? this.getLowLatencyProfile(processorType) : null;
+            // Same rule updateLowLatencyUI applies to the checkbox: a
+            // processor with no Low Latency mode can only be off.
+            return (profile && profile.supported) ? [false, true] : [false];
+        }
+        return null;   // the processor itself: every member's value is real
+    }
+
+    // Numbers reach here as numbers from the sidebar and as strings from a
+    // hand-edited file, and 60 must not read as a different rate from '60'.
+    _groupSettingValueMatches(a, b) {
+        if (a === b) return true;
+        if (typeof a === 'boolean' || typeof b === 'boolean') return !!a === !!b;
+        if (a === null || a === undefined || b === null || b === undefined) return false;
+        const na = Number(a);
+        const nb = Number(b);
+        return Number.isFinite(na) && Number.isFinite(nb) && na === nb;
+    }
+
+    // The processor the dialog is currently resolving against: whatever the
+    // processor chooser shows, or the members' agreed value when there is no
+    // chooser because they already agree.
+    _chosenGroupSettingProcessor(picked) {
+        if (picked && Object.prototype.hasOwnProperty.call(picked, 'processorType')) {
+            return picked.processorType;
+        }
+        const check = this._groupSettingsCheck || { conflicts: {}, values: {} };
+        const list = (check.conflicts || {}).processorType
+            || (check.values || {}).processorType || [];
+        return list.length ? list[0] : null;
+    }
+
+    // Which value a rebuilt chooser lands on. Keeping the user's pick comes
+    // first. After that it is the same preference the Screen Info selects
+    // apply when a processor change invalidates the old value: for a frame
+    // rate, fall DOWN to the highest rate this processor publishes below the
+    // one the screens were on - never up. Capacity runs as 1/fps, so landing
+    // on a HIGHER rate would overstate pixels per port and under-count ports,
+    // and that is the direction that leaves a crew short on site. Nothing
+    // below it means the lowest published rate, which is index 0 (both
+    // candidate lists arrive ascending).
+    _preferredGroupSettingIndex(field, candidates, previousValue, fellBack, hint) {
+        if (previousValue !== undefined) {
+            const kept = candidates.findIndex(
+                v => this._groupSettingValueMatches(v, previousValue));
+            if (kept >= 0) return kept;
+        }
+        if (fellBack && field === 'frameRate') {
+            const target = Number(hint);
+            if (Number.isFinite(target)) {
+                let best = -1;
+                candidates.forEach((value, index) => {
+                    const rate = Number(value);
+                    if (!Number.isFinite(rate) || rate >= target) return;
+                    if (best < 0 || rate > Number(candidates[best])) best = index;
+                });
+                if (best >= 0) return best;
+            }
+        }
+        return 0;
     }
 
     openGroupSettingsDialog(layers, check, mode = 'create') {
@@ -717,48 +943,8 @@ class _ScreenGroups {
                 + `so all ${count} screens have to share these settings.`;
         }
 
-        conflictsEl.innerHTML = '';
-        this._groupSettingsChoices = check.conflicts;
-        Object.keys(check.conflicts).forEach(field => {
-            const row = document.createElement('div');
-            row.className = 'info-row group-settings-row';
-            row.dataset.field = field;
-            const label = document.createElement('label');
-            label.textContent = this._groupSettingFieldLabel(field);
-            const select = document.createElement('select');
-            select.className = 'info-select group-settings-select';
-            select.dataset.field = field;
-            check.conflicts[field].forEach((value, index) => {
-                const option = document.createElement('option');
-                option.value = String(index);
-                option.textContent = this._groupSettingValueLabel(field, value);
-                select.appendChild(option);
-            });
-            row.appendChild(label);
-            row.appendChild(select);
-            conflictsEl.appendChild(row);
-        });
-
-        // Fields that already agree are shown as confirmation, so the user
-        // can see what the group inherits without having to check each screen.
-        const matchingEl = document.getElementById('group-settings-matching');
-        const matchingSection = document.getElementById('group-settings-matching-section');
-        if (matchingEl) {
-            matchingEl.innerHTML = '';
-            const matching = this.GROUP_SHARED_SETTINGS
-                .filter(field => !check.conflicts[field]);
-            matching.forEach(field => {
-                const row = document.createElement('div');
-                row.className = 'group-settings-match';
-                row.dataset.field = field;
-                row.textContent = `${this._groupSettingFieldLabel(field)}: `
-                    + this._groupSettingValueLabel(field, check.values[field][0]);
-                matchingEl.appendChild(row);
-            });
-            if (matchingSection) {
-                matchingSection.style.display = matching.length ? 'block' : 'none';
-            }
-        }
+        this._groupSettingsCheck = check;
+        this._renderGroupSettingsRows();
 
         const note = document.getElementById('group-settings-note');
         if (note) {
@@ -769,6 +955,102 @@ class _ScreenGroups {
 
         modal.style.display = 'block';
         return new Promise(resolve => { this._groupSettingsResolve = resolve; });
+    }
+
+    // Build (or rebuild) the chooser rows for the settings the group has to
+    // agree on. Re-runs whenever the Processor pick changes, because the
+    // processor decides which bit depths and frame rates exist at all - the
+    // whole point of the rebuild is that a combination the hardware does not
+    // have can never be assembled out of three independent dropdowns.
+    _renderGroupSettingsRows() {
+        const check = this._groupSettingsCheck || { conflicts: {}, values: {} };
+        const conflictsEl = document.getElementById('group-settings-conflicts');
+        if (!conflictsEl) return;
+
+        // What the user has picked so far, read back as VALUES so a rebuild
+        // that changes the option list cannot silently re-point an index.
+        const picked = {};
+        conflictsEl.querySelectorAll('.group-settings-select').forEach(select => {
+            const field = select.dataset.field;
+            const list = (this._groupSettingsChoices || {})[field] || [];
+            const index = parseInt(select.value, 10);
+            if (field && index >= 0 && index < list.length) picked[field] = list[index];
+        });
+
+        const processorType = this._chosenGroupSettingProcessor(picked);
+        const choices = {};
+        const fellBack = {};
+        const bases = {};
+        const chooserFields = [];
+        this.GROUP_SHARED_SETTINGS.forEach(field => {
+            const base = ((check.conflicts || {})[field]
+                || (check.values || {})[field] || []).slice();
+            bases[field] = base;
+            const legal = this._legalGroupSettingValues(field, processorType);
+            let candidates = legal
+                ? base.filter(v => legal.some(l => this._groupSettingValueMatches(l, v)))
+                : base;
+            // A value the members agreed on but this processor does not have
+            // still needs answering, so it becomes a chooser rather than a
+            // line of confirmation text.
+            const forced = !!legal && candidates.length !== base.length;
+            fellBack[field] = candidates.length === 0;
+            if (fellBack[field]) candidates = legal ? legal.slice() : base;
+            choices[field] = candidates;
+            if (candidates.length > 1 || forced) chooserFields.push(field);
+        });
+        this._groupSettingsChoices = choices;
+
+        conflictsEl.innerHTML = '';
+        chooserFields.forEach(field => {
+            const row = document.createElement('div');
+            row.className = 'info-row group-settings-row';
+            row.dataset.field = field;
+            const label = document.createElement('label');
+            label.textContent = this._groupSettingFieldLabel(field);
+            const select = document.createElement('select');
+            select.className = 'info-select group-settings-select';
+            select.dataset.field = field;
+            choices[field].forEach((value, index) => {
+                const option = document.createElement('option');
+                option.value = String(index);
+                option.textContent = this._groupSettingValueLabel(field, value);
+                select.appendChild(option);
+            });
+            select.value = String(this._preferredGroupSettingIndex(
+                field, choices[field], picked[field], fellBack[field],
+                (bases[field] || [])[0]));
+            if (field === 'processorType') {
+                select.addEventListener('change', () => this._renderGroupSettingsRows());
+            }
+            row.appendChild(label);
+            row.appendChild(select);
+            conflictsEl.appendChild(row);
+        });
+
+        // Fields that already agree - and that the chosen processor actually
+        // offers - are shown as confirmation, so the user can see what the
+        // group inherits without having to check each screen.
+        const matchingEl = document.getElementById('group-settings-matching');
+        const matchingSection = document.getElementById('group-settings-matching-section');
+        if (matchingEl) {
+            matchingEl.innerHTML = '';
+            const matching = this.GROUP_SHARED_SETTINGS
+                .filter(field => !chooserFields.includes(field));
+            matching.forEach(field => {
+                const row = document.createElement('div');
+                row.className = 'group-settings-match';
+                row.dataset.field = field;
+                const value = choices[field].length
+                    ? choices[field][0] : (check.values[field] || [])[0];
+                row.textContent = `${this._groupSettingFieldLabel(field)}: `
+                    + this._groupSettingValueLabel(field, value);
+                matchingEl.appendChild(row);
+            });
+            if (matchingSection) {
+                matchingSection.style.display = matching.length ? 'block' : 'none';
+            }
+        }
     }
 
     closeGroupSettingsDialog(result = null) {
@@ -791,7 +1073,37 @@ class _ScreenGroups {
                     chosen[field] = values[index];
                 }
             });
-        this.closeGroupSettingsDialog(chosen);
+        this.closeGroupSettingsDialog(this._coerceGroupSettings(chosen));
+    }
+
+    // Last gate before the values are written to every member: whatever the
+    // dialog ended up holding has to be a combination the processor actually
+    // has. The rows above are built so this is already true; it runs anyway
+    // because this is the function whose OUTPUT becomes the group's settings,
+    // and a combination that does not exist must not be able to leave here.
+    _coerceGroupSettings(chosen) {
+        const out = Object.assign({}, chosen || {});
+        const check = this._groupSettingsCheck || { conflicts: {}, values: {} };
+        const agreed = (field) => {
+            if (Object.prototype.hasOwnProperty.call(out, field)) return out[field];
+            const list = (check.values || {})[field] || [];
+            return list.length === 1 ? list[0] : undefined;
+        };
+        const processorType = agreed('processorType');
+        ['bitDepth', 'frameRate', 'lowLatency'].forEach(field => {
+            const legal = this._legalGroupSettingValues(field, processorType);
+            if (!legal || legal.length === 0) return;
+            const value = agreed(field);
+            if (value === undefined) return;
+            if (legal.some(l => this._groupSettingValueMatches(l, value))) return;
+            const index = this._preferredGroupSettingIndex(
+                field, legal, undefined, true, value);
+            out[field] = legal[index];
+            sendClientLog('group_settings_coerced', {
+                field, from: value, to: out[field], processorType,
+            });
+        });
+        return out;
     }
 
     // Wired on first open rather than at boot: the modal is only ever reached
@@ -881,6 +1193,14 @@ class _ScreenGroups {
     // getGroupTotals (step 2), which already evaluates EACH member against ITS
     // OWN cabinet size and weight before summing, so this is correct for any
     // number of members and any mix of cabinet sizes.
+    // The screen count comes from the ROLL-UP, not from getGroupMembers.
+    //
+    // v0.10.9 audit: the cabinet and weight figures are filtered to the canvas
+    // this row is drawn on, but the count was a raw member count - so a group
+    // with a member moved to another canvas read "3 screens · 48 cab · 960 kg"
+    // above two rows, mixing a count of three walls with the weight of two.
+    // The kg on that row is what gets handed to a rigger; the two halves of it
+    // have to be counting the same screens.
     formatGroupTotalsLine(group) {
         const totals = this.getGroupTotals(group);
         const members = this.getGroupMembers(group);
@@ -888,8 +1208,14 @@ class _ScreenGroups {
         const unit = units.size === 1 ? [...units][0] : 'kg';
         const weight = unit === 'lb' ? totals.weightLb : totals.weightKg;
         const n = (value) => Math.round(Number(value) || 0).toLocaleString('en-US');
-        return `${members.length} screens · ${n(totals.cabinets)} cab `
+        const counted = Number(totals.memberCount) || 0;
+        const line = `${counted} screens · ${n(totals.cabinets)} cab `
             + `· ${n(weight)} ${unit}`;
+        // Say so rather than quietly counting fewer: a member sitting on
+        // another canvas is still in the group, and its absence from these
+        // figures is exactly the sort of thing that goes unnoticed.
+        const elsewhere = Number(totals.offCanvasCount) || 0;
+        return elsewhere > 0 ? `${line} (+${elsewhere} on another canvas)` : line;
     }
 
     buildScreenGroupEl(group, memberCount) {
@@ -1082,7 +1408,9 @@ class _ScreenGroups {
         } else if (action === 'add') {
             this.addSelectedToGroup(group.id);
         } else if (action === 'remove') {
-            this.removeSelectedFromGroup();
+            // Scoped to THIS group: the menu item is enabled by this group's
+            // own members (canRemove above), so it has to act on them only.
+            this.removeSelectedFromGroup(group.id);
         } else if (action === 'ungroup') {
             this.ungroupSelectedLayers(group.id);
         } else if (action === 'delete') {

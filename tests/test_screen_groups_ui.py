@@ -397,8 +397,16 @@ def test_mismatch_dialog_lists_only_the_differing_fields(page):
     assert dom['options']['processorType'] == [
         'Brompton Tessera', 'NovaStar COEX CX40 (5G)'], dom
     assert dom['options']['bitDepth'] == ['10-bit', '12-bit'], dom
-    # frameRate matched, so it is confirmation text, not a chooser.
-    assert dom['matching'] == ['Frame Rate: 60 Hz'], dom
+    # frameRate matched, so it is confirmation text, not a chooser. Low Latency
+    # joined GROUP_SHARED_SETTINGS in the v0.10.9 audit (it is a processor-wide
+    # mode, so two members that disagree about it are two capacities in one
+    # wall); both members have it off, so it confirms rather than asks.
+    # Voltage joined for the same class of reason: a GROUP is one wall, and one
+    # wall runs off one supply, so two sections on 110 V and 208 V is a wiring
+    # error to resolve here rather than a state to report forever. (A PROJECT
+    # may legitimately span voltages - that is reported per voltage instead.)
+    assert dom['matching'] == [
+        'Frame Rate: 60 Hz', 'Low Latency: Off', 'Voltage: 110V'], dom
     assert '2 screens' in dom['sublabel'], dom
     assert dom['note'] == 'Cancel leaves the screens ungrouped and unchanged.'
     assert dom['apply'] == 'Apply to Group'
@@ -1273,3 +1281,79 @@ def test_the_mismatch_dialog_reads_every_member_not_just_the_first_two(page):
     assert field_of(page, ids, 'processorType') == ['megapixel-1g'] * 3
     assert len(group_model(page)['groups'][0]['layer_ids']) == 3
     assert history_len(page) == before + 1, history_actions(page)
+
+
+# ── one wall, one supply ──────────────────────────────────────────────────
+#
+# A GROUP is a single wall, and a single wall runs off one supply. Two sections
+# of it on 110 V and 208 V is a wiring error, so it is resolved at the moment
+# of grouping - the same treatment bit depth gets - rather than reported
+# forever as "Mixed voltage" with no way to answer it from the dialog.
+#
+# A PROJECT is the opposite case and is deliberately NOT constrained: two
+# separate walls on two supplies is normal, and getPowerCounts reports each
+# voltage on its own line instead of blending them into a figure that belongs
+# to neither.
+
+def test_two_voltages_in_one_group_are_a_conflict_the_dialog_resolves(page):
+    ids = reset_project(page)[:2]
+    page.evaluate("""async (ids) => {
+        const l = window.app.project.layers.find(x => x.id === ids[1]);
+        l.powerVoltage = 208;
+        await fetch('/api/project', {
+            method: 'PUT', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(window.app.project),
+        });
+        window.app.resetHistory('Test Voltage Mismatch');
+    }""", ids)
+    select(page, ids)
+    start_group(page)
+    page.wait_for_timeout(500)
+
+    assert dialog_visible(page), 'two voltages in one wall did not raise the dialog'
+    dom = page.evaluate("""() => ({
+        fields: [...document.querySelectorAll('#group-settings-conflicts .group-settings-row')]
+            .map(r => r.dataset.field),
+        options: Object.fromEntries(
+            [...document.querySelectorAll('#group-settings-conflicts .group-settings-row')]
+                .map(r => [r.dataset.field,
+                           [...r.querySelectorAll('option')].map(o => o.textContent)])),
+        labels: [...document.querySelectorAll('#group-settings-conflicts .group-settings-row label')]
+            .map(l => l.textContent.trim()),
+    })""")
+    assert dom['fields'] == ['powerVoltage'], dom
+    assert 'Voltage' in dom['labels'], dom
+    assert len(dom['options']['powerVoltage']) == 2, dom
+
+    page.evaluate("document.getElementById('group-settings-cancel').click()")
+    page.wait_for_timeout(400)
+
+
+def test_applying_one_voltage_writes_it_to_every_member(page):
+    ids = reset_project(page)[:2]
+    page.evaluate("""async (ids) => {
+        const l = window.app.project.layers.find(x => x.id === ids[1]);
+        l.powerVoltage = 208;
+        await fetch('/api/project', {
+            method: 'PUT', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(window.app.project),
+        });
+        window.app.resetHistory('Test Voltage Mismatch');
+    }""", ids)
+    select(page, ids)
+    start_group(page)
+    page.wait_for_timeout(500)
+    assert dialog_visible(page)
+
+    page.evaluate("""() => {
+        const sel = document.querySelector(
+            '#group-settings-conflicts .group-settings-row[data-field="powerVoltage"] select');
+        sel.value = '0';                       // first offered value
+        sel.dispatchEvent(new Event('change', {bubbles: true}));
+        document.getElementById('group-settings-apply').click();
+    }""")
+    page.wait_for_timeout(900)
+
+    volts = page.evaluate("""(ids) => ids.map(
+        id => window.app.project.layers.find(l => l.id === id).powerVoltage)""", ids)
+    assert len(set(volts)) == 1, f'the wall still spans two voltages: {volts}'

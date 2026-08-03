@@ -86,6 +86,93 @@ SCREEN GROUPS - one wall, however many cabinet sizes
   faithfully, so those screens come across ungrouped.
 
 
+FROM A FULL AUDIT OF THIS RELEASE
+
+Five passes over the new group work turned up a number of things worth
+knowing about, and a few that change numbers on drawings you already have.
+
+- FIX (IMPORTANT): A wall with a GAP in it exported as one solid rectangle
+  straight over the gap. Two sections with air between them, or one screen
+  split in two by hidden cabinets, traced only one side and shipped it as a
+  plain rectangle - so content was mapped across the hole, both sections
+  landed shifted, and anything in the gap went to the floor. Each separate
+  piece of wall now exports as its own shape, at its own position.
+
+- FIX (IMPORTANT): A blanked cabinet now changes the exported shape on ANY
+  screen. It already did inside a group, but a screen on its own still shipped
+  a full rectangle - so the same wall gave two different files depending on
+  whether anyone had pressed Group Screens.
+
+- FIX: An "&" in a screen or group name produced a file Resolume could not
+  open at all. "Left & Right" is a perfectly normal wall name.
+
+- FIX: A hidden section is no longer painted into the Photoshop export. A
+  section struck from the build was still appearing, at full opacity, in the
+  file handed to graphics.
+
+- FIX: Rotated screens. The circle-and-X, the wall's name, the drag-select
+  highlight and the cabinet numbers were all worked out as if the screen were
+  not rotated and then drawn rotated - so the test pattern and the name landed
+  off the wall, the highlight sat a cabinet away from the one you pointed at,
+  and a rotated section's numbers could land on top of its neighbour's.
+
+- FIX: Drag-select and the arrow keys could reach cabinets on a HIDDEN
+  section, so a port could quietly pick up cabinets you could not see, click
+  or remove without unhiding. Clicking never could; now nothing can.
+
+- FIX (IMPORTANT): A section fed by a cable from the section next to it
+  reported ZERO ports of its own, even when only one of its cabinets was on
+  that cable. A 40-cabinet section could be planned with no port at all. Only
+  a section fed ENTIRELY by its neighbour counts zero now.
+
+- CHANGE (IMPORTANT): Frame rates are now limited to the ones your processor
+  actually publishes a figure for. The list used to offer the same 19 rates to
+  everything, and NovaStar publish nothing at 48, 72, 100, 150, 180, 192 or
+  200 Hz - so the app was estimating between the rates either side and coming
+  out as much as 11% HIGH at 100 Hz. Too high means too few ports.
+  If you open a project set to a rate its processor does not publish, the
+  screen drops to the nearest published rate BELOW it and tells you so. Your
+  port count will change. Brompton is unaffected - it publishes every rate the
+  app offers.
+
+- CHANGE: Screens in a group now have to agree on VOLTAGE, the same way they
+  agree on processor and bit depth. One wall runs off one supply, so two
+  sections on 110 V and 208 V is a wiring mistake rather than a setting. If
+  they disagree when you group them, you pick one. A PROJECT can still hold
+  walls on different voltages - that is normal - and the totals now report
+  each voltage on its own line instead of blending them into one figure that
+  belonged to neither wall.
+
+- FIX (IMPORTANT): The project circuit total was worked out by dividing total
+  watts by the watts a circuit carries, which ignores how circuits actually
+  pack along rows and columns. It read 2 circuits where the map you drew needs
+  3. It now counts the map. The same readout also ignored hand-drawn power and
+  port maps entirely, showing the automatic figure instead of what you drew.
+
+- FIX: "Remove Selected Screens" pulled screens out of OTHER groups. If your
+  selection reached across two walls, the second wall silently lost a section,
+  changing its totals and its export with nothing on screen to say so.
+
+- FIX: Duplicate Group looked like it did nothing - the copy landed exactly on
+  top of the original until the file was reopened.
+
+- FIX: Whether hand-drawn wiring across a section boundary survived depended
+  on timing. The same sequence of actions kept it or lost it depending on
+  whether the file had been reopened in between.
+
+- FIX: Redo after undoing a Delete Screen did not delete it again.
+
+- FIX: Cabinet borders and label colour each took TWO undos to reverse one
+  click, so the first Ctrl+Z appeared to do nothing.
+
+- FIX: A damaged project file no longer fails to open. Certain malformed
+  files errored on every undo, redo and open.
+
+- FIX: A group whose members sit on different canvases no longer reports the
+  cabinets and weight of screens that are not on the canvas you are looking
+  at. The row now says how many are elsewhere instead of silently adding them.
+
+
 LOW LATENCY, ON EVERY PROCESSOR
 
 - NEW: Low Latency is now a tickbox on any screen, instead of being buried as
@@ -150,8 +237,12 @@ CAPACITY FIGURES - WORTH RE-CHECKING YOUR PORT COUNTS
   screens will show different port counts than before. These are NovaStar's
   published numbers.
   Projects saved as "Brompton Tessera (ULL)" open as Brompton with Low Latency
-  ticked and calculate exactly as before - checked against all 48 of the old
-  figures.
+  ticked. 46 of the 48 old figures come out identical. The other two differ by
+  a single pixel per port, because halving an odd published figure rounds down:
+  12-bit at 144 Hz reads 72,916 where the old table said 72,917, and at 192 Hz
+  54,687 where it said 54,688. One pixel in roughly 73,000 cannot change how
+  many cabinets fit on a port, so no real screen moves - but the two numbers
+  are not identical and it would be wrong to say they were.
 
 - FIX (IMPORTANT): Corrected the Megapixel HELIOS pixels-per-port figures.
   Ours came from Megapixel's older switch spec sheets and were up to 6% higher

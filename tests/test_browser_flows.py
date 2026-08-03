@@ -3561,22 +3561,59 @@ def test_5g_port_load_percent_uses_the_penalised_capacity(page):
 def test_group_id_survives_the_real_client_save_path(page):
     """updateLayer() PUTs the whole layer object. If the server whitelist
     drops group_id, every edit to a grouped screen silently leaves the group.
+
+    The membership has to be REAL. The v0.10.9 audit found PUT /api/layer/<id>
+    took group_id with no validation at all, so a layer could claim a group
+    that did not exist; the route now resolves it. Asserting with an invented
+    id would therefore be asserting the forgery still works.
     """
-    before = page.evaluate("window.app.currentLayer.group_id ?? null")
-    page.evaluate("window.app.currentLayer.group_id = 'gTest'")
-    page.evaluate("window.app.updateLayer()")
-    page.wait_for_timeout(600)
     stored = page.evaluate("""async () => {
-        const r = await fetch('/api/project');
-        const p = await r.json();
-        const id = window.app.currentLayer.id;
-        return (p.layers.find(l => l.id === id) || {}).group_id ?? null;
+        const app = window.app;
+        const id = app.currentLayer.id;
+        // A second screen, so the group has the two members it needs to survive
+        // _enforce_group_integrity, then a real group naming both.
+        const other = await fetch('/api/layer/add', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name: 'GroupMate', columns: 2, rows: 2}),
+        }).then(r => r.json());
+        const otherId = other.layer ? other.layer.id : other.id;
+        const p = await (await fetch('/api/project')).json();
+        p.groups = [{id: 'gReal', name: 'Real', layer_ids: [id, otherId]}];
+        p.layers.forEach(l => {
+            if (l.id === id || l.id === otherId) l.group_id = 'gReal';
+        });
+        await fetch('/api/project', {
+            method: 'PUT', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(p),
+        });
+        app.project = await (await fetch('/api/project')).json();
+        app.currentLayer = app.project.layers.find(l => l.id === id);
+
+        // The thing under test: an ordinary edit through the real save path.
+        app.currentLayer.name = 'Edited While Grouped';
+        await app.updateLayer();
+        await new Promise(r => setTimeout(r, 400));
+
+        const after = await (await fetch('/api/project')).json();
+        const layer = after.layers.find(l => l.id === id) || {};
+        return {groupId: layer.group_id ?? null, name: layer.name, otherId};
     }""")
-    assert stored == 'gTest', f'group_id did not reach the server (got {stored})'
-    # restore
-    page.evaluate("(v) => { window.app.currentLayer.group_id = v; }", before)
-    page.evaluate("window.app.updateLayer()")
-    page.wait_for_timeout(400)
+    assert stored['groupId'] == 'gReal', (
+        f"an edit dropped the screen out of its group (got {stored['groupId']})")
+    assert stored['name'] == 'Edited While Grouped', stored
+
+    # And the forgery the route now refuses: a group id naming nothing.
+    forged = page.evaluate("""async () => {
+        const app = window.app;
+        const id = app.currentLayer.id;
+        app.currentLayer.group_id = 'gDoesNotExist';
+        await app.updateLayer();
+        await new Promise(r => setTimeout(r, 400));
+        const after = await (await fetch('/api/project')).json();
+        return (after.layers.find(l => l.id === id) || {}).group_id ?? null;
+    }""")
+    assert forged != 'gDoesNotExist', (
+        'a layer forged membership in a group that does not exist')
 
 
 def test_group_id_is_excluded_from_presets(page):

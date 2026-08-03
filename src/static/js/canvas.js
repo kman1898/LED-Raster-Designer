@@ -370,13 +370,111 @@ class CanvasRenderer {
     // to bake each member's own rotation into the points it hands the renderer.
     // Identity if unrotated, so an unrotated project pays nothing for it.
     _rotatePointForLayer(px, py, layer) {
+        return this._drawnPoint(this._layerDrawFrame(layer), px, py);
+    }
+
+    // ── THE ONE MAPPING: a member's own grid -> where that member DRAWS ──────
+    //
+    // v0.10.9: rotation used to be applied at draw time only - the per-layer
+    // render pass rotates the whole ctx and keeps drawing in unrotated coords -
+    // so anything that RANKED or BOUNDED a member (the wall lattice, the group's
+    // union bounds, the drag-select highlight) silently worked in unrotated
+    // space and was then drawn inside somebody's rotation transform. On a
+    // rotated member that puts the answer a cabinet - or a whole wall - away
+    // from the thing it names.
+    //
+    // `_layerDrawFrame` is that member's draw frame computed ONCE (its rotation
+    // pivot and its Show Look render offset); `_drawnPanelRect` maps one cabinet
+    // through it. Every consumer goes through this pair so they cannot drift,
+    // and it is a strict identity for an unrotated screen with no show offset -
+    // which is why an ungrouped, unrotated project pays nothing and changes by
+    // nothing.
+    //
+    // Computing the frame once matters: _layerRotationGeom calls getLayerBounds,
+    // which is O(panels), so a per-panel call would make any whole-screen sweep
+    // quadratic.
+    _layerDrawFrame(layer) {
         const g = this._layerRotationGeom(layer);
-        if (g.deg !== 90 && g.deg !== 180 && g.deg !== 270) return { x: px, y: py };
-        const dx = px - g.cx;
-        const dy = py - g.cy;
+        const rot = (g.deg === 90 || g.deg === 180 || g.deg === 270);
         const rad = g.deg * Math.PI / 180;
-        const cos = Math.cos(rad), sin = Math.sin(rad);
-        return { x: g.cx + (dx * cos - dy * sin), y: g.cy + (dx * sin + dy * cos) };
+        return {
+            deg: g.deg,
+            rot,
+            swap: (g.deg === 90 || g.deg === 270),
+            cx: g.cx,
+            cy: g.cy,
+            // Kept exact (not Math.cos of a right angle) when there is no
+            // rotation, so the unrotated path is bit-for-bit the identity.
+            cos: rot ? Math.cos(rad) : 1,
+            sin: rot ? Math.sin(rad) : 0,
+            off: this.getLayerRenderOffset(layer),
+        };
+    }
+
+    // A point in the member's own unrotated content space, rotated the way the
+    // render pass rotates it. Does NOT add the render offset - callers that draw
+    // inside the per-layer translate must not have it added twice.
+    _drawnPoint(frame, px, py) {
+        if (!frame.rot) return { x: px, y: py };
+        const dx = px - frame.cx;
+        const dy = py - frame.cy;
+        return {
+            x: frame.cx + (dx * frame.cos - dy * frame.sin),
+            y: frame.cy + (dx * frame.sin + dy * frame.cos),
+        };
+    }
+
+    // One cabinet as the {x, y, width, height} rect it is actually DRAWN at,
+    // including that member's own rotation and its own Show Look offset.
+    //
+    // Under a 90/270 rotation the cabinet's footprint swaps width and height;
+    // the rect is rebuilt around the ROTATED CENTRE so `x + width / 2` - the
+    // thing the arrow code and the lattice both ask for - still names the middle
+    // of the cabinet as drawn.
+    _drawnPanelRect(frame, panel) {
+        const pw = Number(panel.width) || 0;
+        const ph = Number(panel.height) || 0;
+        const w = frame.swap ? ph : pw;
+        const h = frame.swap ? pw : ph;
+        const c = this._drawnPoint(frame,
+            (Number(panel.x) || 0) + pw / 2,
+            (Number(panel.y) || 0) + ph / 2);
+        return {
+            x: c.x + frame.off.dx - w / 2,
+            y: c.y + frame.off.dy - h / 2,
+            width: w,
+            height: h,
+            hidden: false,
+            row: panel.row,
+            col: panel.col,
+        };
+    }
+
+    // Which of a member's grid axes runs along the DRAWN x axis, and which along
+    // the drawn y. A 90/270 turn trades them: that member's rows become the
+    // wall's columns. Used to group cabinets into drawn columns/rows before
+    // their positions are ranked, so a half-tile still shares its slot with the
+    // full cabinets beside it.
+    _drawnColKey(frame, panel) { return frame.swap ? panel.row : panel.col; }
+    _drawnRowKey(frame, panel) { return frame.swap ? panel.col : panel.row; }
+
+    // Undo a layer's own rotation for the duration of `fn`, WITHOUT its own
+    // save/restore - the caller's surrounding ctx.save() pops it. Returns true
+    // if anything was applied.
+    //
+    // The render loop wraps each member's pass in _beginLayerRotation, which
+    // turns the ctx about THAT member's centre. Anything measured in the WALL's
+    // frame (a group's union bounds) must not be turned about one member's
+    // centre, so it cancels the rotation first and draws in the same space it
+    // measured in.
+    _unrotateLayerInPlace(layer) {
+        if (!this._layerRotating) return false;
+        const g = this._layerRotationGeom(layer);
+        if (g.deg !== 90 && g.deg !== 180 && g.deg !== 270) return false;
+        this.ctx.translate(g.cx, g.cy);
+        this.ctx.rotate(-g.deg * Math.PI / 180);
+        this.ctx.translate(-g.cx, -g.cy);
+        return true;
     }
 
     /**
@@ -2261,15 +2359,28 @@ class CanvasRenderer {
         };
     }
 
-    // Union of the members' bounds, expressed in the space the HOST layer
-    // draws in: renderLayerLabels runs inside the host's per-layer
-    // ctx.translate, so each member's active-view bounds are brought back by
-    // the host's own render offset.
+    // THE WALL'S OWN RECTANGLE - the union of where its members are DRAWN,
+    // expressed in the space the HOST layer draws in: renderCircleWithX and
+    // renderLayerLabels both run inside the host's per-layer ctx.translate, so
+    // each member's footprint is brought back by the host's own render offset.
+    //
+    // v0.10.9: the footprint, not the bounds. A member carrying a screen
+    // rotation is drawn turned about its own centre, so its unrotated bounds
+    // name a rectangle that is nowhere on the wall - and a 90/270 turn changes
+    // the wall's width and height, which is what sizes the circle-and-X.
+    // getLayerFootprintInActiveView is exactly "where this member draws", and
+    // equals the bounds for an unrotated member, so an unrotated group is
+    // unchanged.
+    //
+    // The two callers must therefore also DRAW in this frame: both cancel the
+    // host's rotation (_unrotateLayerInPlace) before using these bounds. Measure
+    // the wall, then rotate it about one member's centre, and the wall's own
+    // centre lands off the wall.
     _groupUnionBounds(members, host) {
         const off = this.getLayerRenderOffset(host);
         let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
         members.forEach(m => {
-            const b = this.getLayerBoundsInActiveView(m);
+            const b = this.getLayerFootprintInActiveView(m);
             x1 = Math.min(x1, b.x - off.dx);
             y1 = Math.min(y1, b.y - off.dy);
             x2 = Math.max(x2, b.x + b.width - off.dx);
@@ -2429,29 +2540,28 @@ class CanvasRenderer {
     // the rect is rebuilt around the ROTATED CENTRE so `x + width / 2` - the
     // only thing the arrow code ever asks for - still names the middle of the
     // cabinet as drawn.
+    //
+    // v0.10.9: this is _drawnPanelRect with the member's frame computed on the
+    // spot. It stays as a named entry point because it reads at the call sites
+    // as "put this peer's cabinet where it is drawn", and because the audit
+    // helpers and tests address it by name; a caller mapping MANY cabinets of
+    // one member should hoist _layerDrawFrame itself rather than pay for it per
+    // cabinet.
     _crossMemberPanelShim(entryLayer, panel) {
-        const deg = this._layerRotationDeg(entryLayer);
-        const swap = (deg === 90 || deg === 270);
-        const w = swap ? (Number(panel.height) || 0) : (Number(panel.width) || 0);
-        const h = swap ? (Number(panel.width) || 0) : (Number(panel.height) || 0);
-        const c = this._rotatePointForLayer(
-            (Number(panel.x) || 0) + (Number(panel.width) || 0) / 2,
-            (Number(panel.y) || 0) + (Number(panel.height) || 0) / 2,
-            entryLayer);
-        const off = this.getLayerRenderOffset(entryLayer);
-        return {
-            x: c.x + off.dx - w / 2,
-            y: c.y + off.dy - h / 2,
-            width: w,
-            height: h,
-            hidden: false,
-            row: panel.row,
-            col: panel.col,
-        };
+        return this._drawnPanelRect(this._layerDrawFrame(entryLayer), panel);
     }
 
+    // v0.10.9: a cabinet on a member this view does not draw is not on the
+    // drawing, so no cable may be drawn onto it. getResolvedPathPanels
+    // deliberately KEEPS entries pointing at a hidden member (app-power.js) so
+    // that hiding a member and showing it again does not destroy wiring already
+    // drawn onto it - that is the model's job. The DRAWING side has the opposite
+    // duty: a printed map must not carry a data cable running off the wall onto
+    // blank paper. So the line stops at the last cabinet that is actually drawn,
+    // which is the same way the circle-and-X shrinks to what is lit.
     _crossMemberDrawPanels(ownerLayer, path) {
         return this._resolvePathPanels(ownerLayer, path)
+            .filter(hit => hit && hit.layer && hit.layer.visible !== false)
             .map(hit => this._crossMemberPanelShim(hit.layer, hit.panel));
     }
 
@@ -2843,14 +2953,38 @@ class CanvasRenderer {
                 }
                 if (wantsPower) {
                     const pwr = window.app.getPowerCounts(filter);
-                    if (layer.showCircuits && pwr.circuits > 0) {
-                        dynamicLines.push(`Circuits${pass.suffix}: ${pwr.circuits} @ ${pwr.voltage}V`);
-                    }
-                    if (layer.showSinglePhase && pwr.circuits > 0) {
-                        dynamicLines.push(`1-Phase${pass.suffix}: ${pwr.singlePhaseAmps.toFixed(2)}A`);
-                    }
-                    if (layer.showThreePhase && pwr.circuits >= 3) {
-                        dynamicLines.push(`3-Phase${pass.suffix}: ${pwr.threePhaseAmps.toFixed(2)}A`);
+                    // A project may legitimately span voltages - two walls on
+                    // different supplies. getPowerCounts refuses to blend them
+                    // (the combined amps come back NULL, because 800 W at 110 V
+                    // plus 800 W at 208 V is not 1600 W at either), so print a
+                    // line PER VOLTAGE instead of one figure belonging to
+                    // neither wall. Calling .toFixed on the null combined value
+                    // used to take the whole renderer down.
+                    const perVoltage = pwr.voltageMismatch && Array.isArray(pwr.byVoltage)
+                        ? pwr.byVoltage.filter(b => b && b.circuits > 0)
+                        : null;
+                    if (perVoltage && perVoltage.length > 0) {
+                        perVoltage.forEach(b => {
+                            if (layer.showCircuits) {
+                                dynamicLines.push(`Circuits${pass.suffix} @ ${b.voltage}V: ${b.circuits}`);
+                            }
+                            if (layer.showSinglePhase) {
+                                dynamicLines.push(`1-Phase${pass.suffix} @ ${b.voltage}V: ${b.amps1ph.toFixed(2)}A`);
+                            }
+                            if (layer.showThreePhase && b.circuits >= 3) {
+                                dynamicLines.push(`3-Phase${pass.suffix} @ ${b.voltage}V: ${b.amps3ph.toFixed(2)}A`);
+                            }
+                        });
+                    } else {
+                        if (layer.showCircuits && pwr.circuits > 0) {
+                            dynamicLines.push(`Circuits${pass.suffix}: ${pwr.circuits} @ ${pwr.voltage}V`);
+                        }
+                        if (layer.showSinglePhase && pwr.circuits > 0 && pwr.singlePhaseAmps != null) {
+                            dynamicLines.push(`1-Phase${pass.suffix}: ${pwr.singlePhaseAmps.toFixed(2)}A`);
+                        }
+                        if (layer.showThreePhase && pwr.circuits >= 3 && pwr.threePhaseAmps != null) {
+                            dynamicLines.push(`3-Phase${pass.suffix}: ${pwr.threePhaseAmps.toFixed(2)}A`);
+                        }
                     }
                 }
             });
@@ -3443,6 +3577,13 @@ class CanvasRenderer {
         // Save context and clip to active raster bounds (translate-aware)
         this.ctx.save();
         this._clipToActiveRaster();
+
+        // v0.10.9: the group's pattern is measured across the whole wall
+        // (_groupUnionBounds), so it must not be turned about the HOST member's
+        // centre - the render loop is inside _beginLayerRotation(host) here.
+        // Cancel that for the pattern only; the ctx.save above pops it. A lone
+        // screen keeps rotating with its own pattern, as it always has.
+        if (plan) this._unrotateLayerInPlace(layer);
 
         this.ctx.strokeStyle = this.getLayerBorderColor(cfg, 'pixel-map');
         this.ctx.lineWidth = 2;
@@ -5324,9 +5465,10 @@ class CanvasRenderer {
     // hidden ones are not - so hidden cabinets are ranked too, and their
     // columns and rows still take their place.
     //
-    // Known limit: positions are ranked in unrotated screen space, so a member
-    // carrying a screen rotation (_layerRotationDeg) ranks by where its grid
-    // sits, not by where the rotation draws it.
+    // v0.10.9: positions are ranked where the cabinets DRAW, so a member
+    // carrying a screen rotation is numbered in the order the eye follows it
+    // across the wall rather than by where its unrotated grid would have sat.
+    // See getPositionLattice.
     _groupNumberingMembers(layer) {
         const g = this._groupForLayer(layer);
         if (!g || !window.app || typeof window.app.getGroupMembers !== 'function') return [];
@@ -5386,30 +5528,43 @@ class CanvasRenderer {
     // why an ungrouped screen can go through the same code and come out with
     // the order it has always had.
     //
-    // Known limit (inherited from step 5): positions are ranked in unrotated
-    // screen space, so a member carrying a screen rotation ranks by where its
-    // grid sits, not by where the rotation draws it.
+    // ROTATION. Positions are ranked where each cabinet is DRAWN, through that
+    // member's own draw frame (_layerDrawFrame / _drawnPanelRect) - the same
+    // mapping the marquee, the arrow handoff and the selection highlight use. A
+    // wall with one member turned 90 therefore numbers, and serpentines, in the
+    // order somebody walking the wall reads it. Ranking in unrotated space (what
+    // this did before v0.10.9) produced an order that existed nowhere on site.
     getPositionLattice(members) {
         const list = (members || []).filter(m => m && Array.isArray(m.panels));
 
-        // Slot origins per member, in the space this view draws in. The render
-        // offset is 0 on Cabinet ID today; added so the ranks stay right in
-        // the views that DO shift layers (Data Flow / Power carry Show Look
-        // offsets), which is where the flow patterns read this from.
+        // Slot origins per member, in the space this view DRAWS in: each
+        // cabinet's rect through that member's own draw frame, which carries its
+        // rotation and its Show Look offset. The render offset is 0 on Cabinet
+        // ID today; it matters in the views that DO shift layers (Data Flow /
+        // Power carry Show Look offsets), which is where the flow patterns read
+        // this from.
+        //
+        // v0.10.9: a 90/270 turn trades a member's axes - its rows run along the
+        // wall's x - so the cabinets are grouped into drawn columns and rows by
+        // _drawnColKey / _drawnRowKey before their positions are pooled. Without
+        // it a rotated member ranks where its grid sits rather than where it
+        // draws, and a serpentine enters it at a corner that is nowhere on site.
+        // The frame is hoisted per member: it is O(panels) to build.
         const key = v => Math.round(v * 100);   // pixel coords; kills float noise
         const slots = list.map(m => {
-            const off = this.getLayerRenderOffset(m);
+            const frame = this._layerDrawFrame(m);
             const cols = new Map();
             const rows = new Map();
             (m.panels || []).forEach(p => {
-                const x = (Number(p.x) || 0) + off.dx;
-                const y = (Number(p.y) || 0) + off.dy;
-                const cx = cols.get(p.col);
-                if (cx === undefined || x < cx) cols.set(p.col, x);
-                const ry = rows.get(p.row);
-                if (ry === undefined || y < ry) rows.set(p.row, y);
+                const r = this._drawnPanelRect(frame, p);
+                const ck = this._drawnColKey(frame, p);
+                const rk = this._drawnRowKey(frame, p);
+                const cx = cols.get(ck);
+                if (cx === undefined || r.x < cx) cols.set(ck, r.x);
+                const ry = rows.get(rk);
+                if (ry === undefined || r.y < ry) rows.set(rk, r.y);
             });
-            return { cols, rows };
+            return { cols, rows, frame };
         });
 
         // Every distinct column position on the wall, in order, then rows.
@@ -5435,13 +5590,13 @@ class CanvasRenderer {
         // what keeps a stale one from getting NaN.
         const colOfMember = (mi, panel) => {
             const s = slots[mi];
-            const x = (s && panel) ? s.cols.get(panel.col) : undefined;
+            const x = (s && panel) ? s.cols.get(this._drawnColKey(s.frame, panel)) : undefined;
             const r = (x === undefined) ? undefined : colRanks.get(key(x));
             return (r === undefined) ? (panel ? panel.col : 0) : r;
         };
         const rowOfMember = (mi, panel) => {
             const s = slots[mi];
-            const y = (s && panel) ? s.rows.get(panel.row) : undefined;
+            const y = (s && panel) ? s.rows.get(this._drawnRowKey(s.frame, panel)) : undefined;
             const r = (y === undefined) ? undefined : rowRanks.get(key(y));
             return (r === undefined) ? (panel ? panel.row : 0) : r;
         };
@@ -5674,8 +5829,17 @@ class CanvasRenderer {
         this.ctx.save();
         this._clipToActiveRaster();
 
+        // v0.10.9: a group's label belongs to THE WALL, and _groupUnionBounds
+        // measures the wall. The render loop has the ctx turned about the host
+        // member's own centre, so cancel that before the label is positioned -
+        // otherwise the wall's centre is thrown wherever one member's rotation
+        // sends it. The ctx.save above pops it; an ungrouped screen's name still
+        // rotates with its screen.
+        if (plan) this._unrotateLayerInPlace(layer);
+
         // v0.10.9: a group's label is positioned against the union of its
-        // members' bounds - the real shape of the wall - not one member's.
+        // members' drawn footprints - the real shape of the wall - not one
+        // member's.
         const bounds = plan ? this._groupUnionBounds(plan.members, layer) : this.getLayerBounds(layer);
         const layerWidth = bounds.width;
         const layerHeight = bounds.height;
@@ -5685,8 +5849,13 @@ class CanvasRenderer {
 
         // v0.10.9: and its figures are the COMBINED figures, straight from the
         // step-2 roll-up. No calculation is repeated here.
+        // The canvas being drawn is passed through: a group is labelled once
+        // per canvas, and its figures must describe the members ON that canvas
+        // rather than every member wherever it sits. Without it the label under
+        // a two-section wall could carry the weight of a third section drawn
+        // somewhere else entirely.
         const groupTotals = (plan && window.app && typeof window.app.getGroupTotals === 'function')
-            ? window.app.getGroupTotals(plan.group)
+            ? window.app.getGroupTotals(plan.group, this._effectiveLayerCanvasId(layer))
             : null;
 
         // Calculate physical dimensions. For a group the pixel span is the
@@ -6397,53 +6566,65 @@ class CanvasRenderer {
     // The drag-select highlight for the two CUSTOM selections, which since
     // v0.10.9 can span the members of a screen group.
     //
-    // The owner's own cabinets draw exactly as they always have, inside the
-    // owner's overlay transform - an ungrouped screen therefore takes the same
-    // calls it took before, expression for expression, and the peer branch
-    // below is unreachable for it.
+    // This overlay runs AFTER the per-canvas render loop has popped its
+    // workspace translate, its perspective mirror, every per-layer Show Look
+    // offset and every per-layer rotation, so all of that has to be re-applied
+    // here - without it (v0.8.7.2.1) the fills landed at workspace (0, 0) in raw
+    // processor coords and the user saw no highlight at all while dragging.
     //
-    // A PEER's cabinet cannot be drawn in that transform, and this is the same
-    // problem step 6 hit with cross-member paths: the overlay transform carries
-    // ONE member's Show Look offset and rotation, and two members can disagree
-    // on both. So peers draw in the cross-member frame instead - workspace
-    // translate and canvas mirror only, with each cabinet's own rotation and
-    // render offset baked into its rect by _crossMemberPanelShim, which is the
-    // machinery step 6 already established for exactly this.
+    // ONE convention for owner and peer. A per-layer transform can only carry
+    // ONE member's Show Look offset and ONE member's rotation, and two members of
+    // a wall can disagree on both, so every cabinet - the owner's included -
+    // draws in the cross-member frame: the workspace translate and the canvas
+    // mirror once, with each cabinet's own rotation and render offset baked into
+    // its rect by _crossMemberPanelShim.
+    //
+    // Before v0.10.9 the owner's half went through _withOverlayLayerTransform,
+    // which applied the translate, the mirror and the Show Look offset but NOT
+    // the rotation. On a rotated wall that put the owner's highlight a cabinet
+    // away from the cabinet it meant while the peer's landed correctly - mid
+    // drag-select, half the highlighted cabinets were the ones being pointed at
+    // and half were not, and the operator wired the wrong cabinet to the port.
+    //
+    // Owner first, then peers, so the drawn order is unchanged; for an
+    // unrotated screen with no show offset the shim is the identity and the
+    // fills are the same rects at the same world coords as before.
     _renderScopedSelectionOverlay(layer, selection) {
         const own = [];
         const peers = [];
         selection.forEach(key => {
             const hit = this._resolveSelectionKey(layer, key);
             if (!hit) return;
-            if (hit.layer.id === layer.id) own.push(hit.panel);
-            else peers.push(hit);
+            if (hit.layer.id === layer.id) { own.push(hit); return; }
+            // v0.10.9: the same rule the crossing cable follows - a member this
+            // view does not draw has no cabinets on screen, so there is nothing
+            // there to highlight. The key can still legitimately be in the Set:
+            // a path scope deliberately keeps hidden members so wiring already
+            // drawn onto one survives a hide. Only the OWNER is exempt, because
+            // it is the screen the user has open and is drawing on.
+            if (hit.layer.visible === false) return;
+            peers.push(hit);
         });
+        if (own.length === 0 && peers.length === 0) return;
 
-        if (own.length > 0) {
-            // v0.8.7.2.1: this overlay runs AFTER the per-canvas render loop has
-            // popped its workspace translate, perspective mirror, AND per-layer
-            // Show Look offset, so re-apply all three here. Without this, on
-            // multi-canvas projects (or canvases in Back perspective, or any
-            // Show Look view), the highlight fills draw at workspace (0,0) in
-            // raw processor coords, so the user saw no panel highlight during
-            // drag-select.
-            this._withOverlayLayerTransform(layer, () => {
-                this.ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-                own.forEach(panel => {
-                    this.ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
-                });
-            });
-        }
+        // One draw frame per MEMBER, not per cabinet: a drag-select can hold
+        // thousands of keys and building a frame is O(panels).
+        const frames = new Map();
+        const frameFor = m => {
+            let f = frames.get(m.id);
+            if (!f) { f = this._layerDrawFrame(m); frames.set(m.id, f); }
+            return f;
+        };
 
-        if (peers.length > 0) {
-            this._withCrossMemberCanvasTransform(layer, () => {
-                this.ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-                peers.forEach(hit => {
-                    const rect = this._crossMemberPanelShim(hit.layer, hit.panel);
-                    this.ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
-                });
-            });
-        }
+        this._withCrossMemberCanvasTransform(layer, () => {
+            this.ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+            const fill = hit => {
+                const rect = this._drawnPanelRect(frameFor(hit.layer), hit.panel);
+                this.ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+            };
+            own.forEach(fill);
+            peers.forEach(fill);
+        });
     }
 
     renderCustomSelectionOverlay() {
@@ -6475,6 +6656,14 @@ class CanvasRenderer {
      * canvas workspace translate, the canvas's Front/Back mirror around
      * its right edge, and the per-layer Show Look offset, exactly the
      * stack the main render loop wraps a layer in.
+     *
+     * CAUTION (v0.10.9): it does NOT apply the layer's rotation, so anything
+     * drawn through it at raw panel coords lands on a rotated screen's
+     * UNROTATED grid. Use _withCrossMemberCanvasTransform plus
+     * _drawnPanelRect / _crossMemberPanelShim for anything that has to sit on a
+     * specific cabinet - that is why the drag-select highlight moved off this.
+     * Kept for overlays that only need the layer's frame and draw nothing
+     * cabinet-specific.
      */
     _withOverlayLayerTransform(layer, fn) {
         const wsOff = (typeof this._layerCanvasOffset === 'function')

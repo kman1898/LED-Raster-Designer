@@ -223,10 +223,24 @@ class _Power {
                 capacityEl.textContent = portCapacity.toLocaleString();
                 capacityEl.classList.add('value-normal');
                 capacityEl.style.color = '';
+                capacityEl.title = '';
             } else {
                 capacityEl.textContent = 'N/A';
                 capacityEl.classList.remove('value-normal');
                 capacityEl.style.color = '#ff6600';
+                // v0.10.9 audit: say WHY there is no figure when the reason is
+                // knowable. A frame rate the manufacturer does not publish for
+                // this processor used to be answered with the nearest row's
+                // capacity - on Armor, 240 Hz got the 120 Hz figure, double the
+                // truth - and nothing is extrapolated to replace it, so the
+                // readout has to name the fix rather than just go blank.
+                const rates = (typeof this.getSupportedFrameRates === 'function')
+                    ? this.getSupportedFrameRates(processorType, bitDepth) : [];
+                capacityEl.title = (rates.length > 0 && frameRate > rates[rates.length - 1])
+                    ? `${processorType} publishes no ${frameRate} Hz figure at `
+                      + `${bitDepth}-bit. Published frame rates: `
+                      + `${rates.join(', ')} Hz.`
+                    : '';
             }
         }
 
@@ -264,7 +278,14 @@ class _Power {
         // debug toggle removed
         const portsRequiredEl = document.getElementById('ports-required');
         if (portsRequiredEl) {
-            if ((this.currentLayer._capacityError || (portsRequired === 0 && panelsPerPort > 0 && panelCountForStatus > 0))) {
+            // v0.10.9 audit: no capacity at all is an ERROR here too. Without
+            // this, a screen whose processor publishes no figure for its frame
+            // rate showed "N/A" pixels/port, "ERROR" panels/port and then a
+            // calm green 0 next to Ports Required - and 0 ports reads as "none
+            // needed", which is the one thing it does not mean.
+            const noCapacity = !(portCapacity > 0) && panelCountForStatus > 0;
+            if ((this.currentLayer._capacityError || noCapacity
+                    || (portsRequired === 0 && panelsPerPort > 0 && panelCountForStatus > 0))) {
                 portsRequiredEl.textContent = 'ERROR';
                 portsRequiredEl.style.color = '#ff0000';
             } else if (panelCountForStatus === 0) {
@@ -305,8 +326,15 @@ class _Power {
         const panelWatts = parseFloat(layer.panelWatts) || 0;
         const wattsPerCircuit = voltage * amperage;
         const panelsPerCircuit = panelWatts > 0 ? Math.floor(wattsPerCircuit / panelWatts) : 0;
-        const visiblePanels = layer.panels ? layer.panels.filter(p => !p.hidden) : [];
-        const equivalentPanels = visiblePanels.reduce((sum, p) => sum + this.getPanelLoadFactor(layer, p), 0);
+        // v0.10.9 audit fix: `!p.blank` as well as `!p.hidden`. This filter used
+        // to drop hidden cabinets only, so a 2 x 2 screen with one cabinet
+        // blanked read 800 W here and 600 W in the group roll-up and the
+        // project totals - GROUPING A SCREEN CHANGED ITS WATTAGE. A blank is a
+        // hole in the wall: no cabinet hangs there, it has no weight and it
+        // draws nothing. Matches getGroupTotals, getPowerCounts and the canvas
+        // weight label.
+        const activePanels = layer.panels ? layer.panels.filter(p => !p.blank && !p.hidden) : [];
+        const equivalentPanels = activePanels.reduce((sum, p) => sum + this.getPanelLoadFactor(layer, p), 0);
         const totalWatts = panelWatts * equivalentPanels;
         const totalAmps1 = voltage > 0 ? totalWatts / voltage : 0;
         const totalAmps3 = voltage > 0 ? totalWatts / (voltage * 1.73) : 0;
@@ -944,7 +972,9 @@ class _Power {
         selection.clear();
         if (!ownerLayer || !rect) return;
         const _r = window.canvasRenderer;
-        this.getPathScopeLayers(ownerLayer).forEach(member => {
+        // Selection scope, not path scope: a marquee must not sweep up a
+        // member the user cannot see or click. See getSelectionScopeLayers.
+        this.getSelectionScopeLayers(ownerLayer).forEach(member => {
             if (!member || !Array.isArray(member.panels)) return;
             const off = this._getLayerWorkspaceOffset(member);
             let x1 = Math.min(rect.x1, rect.x2) - off.wx;
@@ -1261,6 +1291,33 @@ class _Power {
             scope.push(m);
         });
         return scope;
+    }
+
+    // The layers a SELECTION owned by `layer` may touch: the path scope, less
+    // the members the user cannot see.
+    //
+    // getPathScopeLayers deliberately keeps hidden members, because a path
+    // already drawn onto a screen must survive that screen being hidden and
+    // come straight back when it is unhidden. That is right for RESOLVING a
+    // path and wrong for BUILDING one: a hidden member is not drawn
+    // (canvas.js _groupDrawnMembers filters visible !== false) and cannot be
+    // clicked (getPanelAt skips it), so a marquee, an arrow handoff or an
+    // Apply Pattern that reached it wired cabinets nobody could see - 12 of
+    // them, on a screen that is not on the canvas, into the visible screen's
+    // port 1.
+    //
+    // The OWNER is never filtered out. It is the layer the user is working on
+    // and the port belongs to it; dropping it would make a hidden current
+    // layer un-drawable rather than merely un-reachable, and it keeps an
+    // ungrouped screen byte-identical to before.
+    //
+    // `visible === false`, not `!visible`: a layer with no visible key is
+    // visible everywhere else in this app (the server reads
+    // layer.get('visible', True)).
+    getSelectionScopeLayers(layer) {
+        if (!layer) return [];
+        return this.getPathScopeLayers(layer)
+            .filter(l => l && (l.id === layer.id || l.visible !== false));
     }
 
     canPathReachLayer(ownerLayer, targetLayer) {
@@ -1580,7 +1637,12 @@ class _Power {
 
     _panelAcrossPathBoundary(ownerLayer, from, drow, dcol) {
         if (!window.canvasRenderer || !from) return null;
-        const peers = this.getPathScopeLayers(ownerLayer)
+        // An arrow key hands the cable to the cabinet the user can see next
+        // door, so a hidden member is not a candidate - the same rule the
+        // marquee and click-to-add follow. The hidden member's cabinets are
+        // still where they were, so this walks PAST it exactly as it walks
+        // past a gap: nothing is added and the key is swallowed.
+        const peers = this.getSelectionScopeLayers(ownerLayer)
             .filter(l => l && l.id !== from.layer.id);
         if (peers.length === 0) return null;
         const p = from.panel;
@@ -1698,7 +1760,11 @@ class _Power {
     _selectedPathPanels(ownerLayer, selection) {
         const out = [];
         if (!ownerLayer || !selection || selection.size === 0) return out;
-        this.getPathScopeLayers(ownerLayer).forEach(member => {
+        // Selection scope again, so a key that was already in the Set when its
+        // screen was hidden cannot be committed by a later Apply Pattern. The
+        // marquee is filtered at source; this is the same rule applied at the
+        // moment of writing, which is the one that reaches the wall.
+        this.getSelectionScopeLayers(ownerLayer).forEach(member => {
             if (!member || !Array.isArray(member.panels)) return;
             member.panels.forEach(panel => {
                 if (panel.hidden) return;

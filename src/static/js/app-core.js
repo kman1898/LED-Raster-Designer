@@ -550,13 +550,30 @@ export class LEDRasterApp {
     // entries dropped.
     sanitizeCrossLayerPaths(layer) {
         if (!layer || (layer.type || 'screen') !== 'screen') return 0;
-        // canPathReachLayer is the single authority on "may a path owned by
-        // this layer touch that one" (group membership AND same effective
-        // canvas). If it is not on the prototype there is no cross-member path
-        // feature in this build to validate, and guessing the rule here is how
-        // two copies of it drift apart.
-        if (typeof this.canPathReachLayer !== 'function') return 0;
+        // A group commit is mid-flight: the client's copy is half-written and
+        // the repaired project is already on its way back. Judging wiring
+        // against a project in that state is exactly how the same sequence of
+        // actions produced two different outcomes depending on timing.
+        if (this._groupCommitDepth > 0) return 0;
         const layers = (this.project && this.project.layers) || [];
+        // THE SERVER'S RULE, deliberately - _prune_cross_layer_paths in app.py:
+        // a step is legal while it names a layer that exists and sits in the
+        // SAME GROUP as the owner. It is not canPathReachLayer's rule, which
+        // additionally requires the same canvas: that is a DRAWABILITY test
+        // (the renderer must not paint a cable into another workspace) and it
+        // is right for the renderer, but a destructive pass that used it
+        // deleted wiring the server had kept, so whether a wall survived
+        // "move a member to canvas 2, save, reopen" came down to which pass
+        // ran first. The renderer still refuses to draw those steps; this one
+        // no longer throws them away.
+        const groupIdOf = (l) => {
+            if (!l || !l.group_id) return null;
+            if (typeof this.resolveGroup === 'function') {
+                return this.resolveGroup(l.group_id) ? l.group_id : null;
+            }
+            return l.group_id;
+        };
+        const ownGroup = groupIdOf(layer);
         let dropped = 0;
         ['customPortPaths', 'powerCustomPaths'].forEach(key => {
             const paths = layer[key];
@@ -573,8 +590,13 @@ export class LEDRasterApp {
                         delete entry.layerId;
                         return true;
                     }
+                    if (!ownGroup) return false;   // owner is not in a group at all
                     const target = layers.find(l => l && l.id === entry.layerId);
-                    return !!(target && this.canPathReachLayer(layer, target));
+                    if (!target || groupIdOf(target) !== ownGroup) return false;
+                    // A cross-layer step with no cell to land on is a
+                    // truncated or hand-edited file; the server drops it too.
+                    return entry.row !== undefined && entry.row !== null
+                        && entry.col !== undefined && entry.col !== null;
                 });
                 if (kept.length === path.length) return;
                 dropped += path.length - kept.length;
@@ -589,6 +611,25 @@ export class LEDRasterApp {
                 layerId: layer.id, layerName: layer.name, entries: dropped,
             });
         }
+        return dropped;
+    }
+
+    // Run the pass above over every layer, and answer how many entries went.
+    //
+    // POST /api/project (saveProject) is a straight dict update on the server:
+    // no _enforce_group_integrity, no _prune_cross_layer_paths. Whatever the
+    // client sends through it BECOMES the canonical project, so a client
+    // holding a step the server already pruned would put it straight back -
+    // onto layers that are no longer grouped. Callers that save through that
+    // route run this first: it applies the server's own rule, so it can only
+    // remove what the server would have removed anyway.
+    //
+    // A project with no cross-member wiring - every project written before
+    // v0.10.9 - comes out of here untouched, not even rewritten.
+    pruneStaleCrossLayerPaths() {
+        const layers = (this.project && this.project.layers) || [];
+        let dropped = 0;
+        layers.forEach(layer => { dropped += this.sanitizeCrossLayerPaths(layer); });
         return dropped;
     }
 
@@ -1512,20 +1553,40 @@ export class LEDRasterApp {
         setText('data-totals-project-backup', dataProject.backup);
 
         // Power totals
-        buildPerCanvas('power-totals-per-canvas', (cid) => {
-            const p = this.getPowerCounts(cid);
-            return [
+        // Two walls on different supplies is a real thing, so the amps are
+        // reported PER VOLTAGE rather than blended: getPowerCounts returns null
+        // for the combined figures when voltages differ, and fmtAmps would
+        // print a confident "0" over a wall that is actually drawing current.
+        const powerRows = (p) => {
+            const rows = [
                 ['Watts', fmtWatts(p.totalWatts)],
                 ['Circuits', p.circuits],
-                ['Amps (1φ)', fmtAmps(p.singlePhaseAmps)],
-                ['Amps (3φ)', fmtAmps(p.threePhaseAmps)],
             ];
-        });
+            if (p.voltageMismatch && Array.isArray(p.byVoltage) && p.byVoltage.length) {
+                p.byVoltage.forEach(b => {
+                    rows.push([`Amps (1φ) @ ${b.voltage}V`, fmtAmps(b.amps1ph)]);
+                    rows.push([`Amps (3φ) @ ${b.voltage}V`, fmtAmps(b.amps3ph)]);
+                });
+            } else {
+                rows.push(['Amps (1φ)', fmtAmps(p.singlePhaseAmps)]);
+                rows.push(['Amps (3φ)', fmtAmps(p.threePhaseAmps)]);
+            }
+            return rows;
+        };
+        buildPerCanvas('power-totals-per-canvas', (cid) => powerRows(this.getPowerCounts(cid)));
         const pwrProject = this.getPowerCounts();
         setText('power-totals-project-watts', fmtWatts(pwrProject.totalWatts));
         setText('power-totals-project-circuits', pwrProject.circuits);
-        setText('power-totals-project-1ph', fmtAmps(pwrProject.singlePhaseAmps));
-        setText('power-totals-project-3ph', fmtAmps(pwrProject.threePhaseAmps));
+        // The single-figure readouts have nowhere to put two answers, so they
+        // say which voltages are in play rather than printing one of them.
+        if (pwrProject.voltageMismatch) {
+            const volts = (pwrProject.voltages || []).filter(v => v > 0).join(' / ');
+            setText('power-totals-project-1ph', `mixed: ${volts} V`);
+            setText('power-totals-project-3ph', `mixed: ${volts} V`);
+        } else {
+            setText('power-totals-project-1ph', fmtAmps(pwrProject.singlePhaseAmps));
+            setText('power-totals-project-3ph', fmtAmps(pwrProject.threePhaseAmps));
+        }
     }
 
     /**
@@ -2010,15 +2071,14 @@ export class LEDRasterApp {
         });
         
         // Border settings (Pixel Map tab)
-        const showPanelBordersCheck = document.getElementById('show-panel-borders');
-        if (showPanelBordersCheck) {
-            showPanelBordersCheck.addEventListener('change', () => {
-                if (this.currentLayer) {
-                    this.updateLayerFromInputs();
-                }
-            });
-        }
-        
+        //
+        // #show-panel-borders is NOT wired here. It is one of the four
+        // cross-tab border-visibility checkboxes wired further down (search
+        // "Sync border visibility checkboxes across tabs"), and that handler
+        // already mirrors the state to the other three tabs AND calls
+        // updateLayerFromInputs(). A second listener here called
+        // updateLayerFromInputs() as well, so one click pushed two identical
+        // snapshots and the first Ctrl+Z appeared to do nothing.
         const showCircleWithXCheck = document.getElementById('show-circle-with-x');
         if (showCircleWithXCheck) {
             showCircleWithXCheck.addEventListener('change', () => {
@@ -3307,15 +3367,15 @@ export class LEDRasterApp {
         }
         
         // Labels color and font size
-        const labelsColorInput = document.getElementById('labels-color');
-        if (labelsColorInput) {
-            labelsColorInput.addEventListener('change', () => {
-                if (this.currentLayer) {
-                    this.updateLayerFromInputs();
-                }
-            });
-        }
-        
+        //
+        // #labels-color is NOT wired here. setupColorPickerWithHex already
+        // owns it (search "Labels color with hex sync"), the way it owns every
+        // other colour picker in the sidebar: write the value, render, and on
+        // a COMMIT record one debounced undo step. A plain change listener
+        // here called updateLayerFromInputs() -> saveState() as well, and
+        // saveState() flushes the pending debounce first - so one colour
+        // commit landed two snapshots that BOTH already held the new colour,
+        // and the first Ctrl+Z did nothing.
         const labelsFontSizeInput = document.getElementById('labels-fontsize');
         if (labelsFontSizeInput) {
             labelsFontSizeInput.addEventListener('change', () => {
@@ -3928,6 +3988,39 @@ export class LEDRasterApp {
     // list in pass 2, when calculatePortAssignments started applying the
     // per-port (1 - Y/H) derate.
     lowLatencyImplementedKinds = ['factor', 'none', 'novastar-ll'];
+
+    // The frame rates the Screen Info #frame-rate dropdown offers, before the
+    // processor narrows them.
+    //
+    // TWIN of `baseRates` inside updateFrameRateOptions() (app-export-io.js),
+    // which owns that <select> and needs a currentLayer to render into. The
+    // group settings dialog has no current layer and no <select> to read, so
+    // the list is stated here for callers that only have a processor name.
+    //
+    // NOT a capacity table: no figure here feeds a calculation. It is the set
+    // of rates a user may pick from; which of them a given processor actually
+    // publishes is publishedFrameRates' answer, not this list's.
+    frameRateChoices = [
+        23.976, 24, 25, 29.97, 30, 48, 50, 59.94, 60, 72, 100, 120, 144, 150,
+        180, 192, 200, 240, 250
+    ];
+
+    // Which of those a processor may be set to. publishedFrameRates
+    // (app-export-io.js) is the authority - the rates the processor's own
+    // table has a row for - and this makes the same call, in the same way, as
+    // updateFrameRateOptions, so the group settings dialog and the Screen Info
+    // dropdown can never offer different lists.
+    // tests/test_screen_groups_integrity.py pins the two together.
+    getSelectableFrameRates(processorType) {
+        const published = (typeof this.publishedFrameRates === 'function')
+            ? this.publishedFrameRates(processorType) : null;
+        // No table at all (an unknown processor) keeps every rate rather than
+        // leaving nothing to pick, same as the dropdown.
+        if (!published) return this.frameRateChoices.slice();
+        const allowed = this.frameRateChoices.filter(
+            rate => published.has(Math.round(rate)));
+        return allowed.length ? allowed : this.frameRateChoices.slice();
+    }
 
     // Port capacity lookup tables from manufacturer specs
     // Keys are frame rates, values are pixel capacities

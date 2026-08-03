@@ -962,6 +962,15 @@ class _CanvasUi {
         // the pre-reorder order, so Undo-then-Redo silently lost the reorder
         // (same bug class as the v0.10.0 "Add Layer" fix).
         this.project.layers = newOrder;
+        // v0.10.9: this save goes out as POST /api/project, which merges the
+        // payload with NO group integrity pass - so anything stale in the
+        // client's copy becomes the canonical project. Drop the cross-member
+        // steps the server's own rule would have pruned BEFORE the snapshot,
+        // so the history entry and the server end up holding the same thing.
+        // No-op on a project with no cross-member wiring.
+        if (typeof this.pruneStaleCrossLayerPaths === 'function') {
+            this.pruneStaleCrossLayerPaths();
+        }
         this.saveState(historyAction);
         this.updateUI();
         this.saveProject();

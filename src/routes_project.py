@@ -67,6 +67,14 @@ def save_project():
     app.current_project.update(data)
     app.current_project['is_pristine'] = False
     app._mirror_active_canvas_to_root(app.current_project)
+    # v0.10.9.x: the same repair PUT has always run. This route is not just
+    # "save as" - every sidebar reorder comes through it with the whole layers
+    # array - and without the pass it would happily store two groups both
+    # called g1, a group naming a layer that does not exist, or a groups array
+    # with no group_id mirror written back onto the layers. Whatever bad shape
+    # it stored then survived until the next undo, and the export read it in
+    # the meantime. Idempotent, so a well-formed save is untouched.
+    app._enforce_group_integrity(app.current_project)
     app.sync_next_layer_id()
     log_event('save_project', {'name': app.current_project.get('name')})
     return jsonify({'status': 'success'})

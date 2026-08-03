@@ -231,8 +231,16 @@ class _History {
         }
         
         this.deletionInProgress = true;
-        this.saveState('Delete Layer');
-        
+        // The 'Delete Layer' snapshot is taken AFTER the deletes land, at the
+        // bottom of deleteNext(), not here. Taken here it held the project
+        // WITH the screen still in it, so redo restored the screen instead of
+        // removing it: Delete -> Ctrl+Z -> Ctrl+Shift+Z left the screen on
+        // screen with no way to get the delete back except doing it again.
+        // Snapshotting after the mutation is what every other action in the
+        // app does, and it leaves the undo side untouched - one Ctrl+Z still
+        // lands on the previous entry, which still holds the edit made before
+        // the delete.
+
         // Find index of current layer for post-delete selection
         const currentIndex = this.project.layers.findIndex(l => l.id === this.currentLayer.id);
         this.currentLayer = null;
@@ -278,6 +286,11 @@ class _History {
                         if (this.currentLayer && typeof this.loadLayerToInputs === 'function') {
                             try { this.loadLayerToInputs(); } catch (_) {}
                         }
+                        // Post-mutation snapshot: this entry is the project
+                        // WITHOUT the deleted screen, so redo re-applies the
+                        // delete. See the note where deletionInProgress is
+                        // set.
+                        this.saveState('Delete Layer');
                         this.updateUI();
                     })
                     .finally(() => {

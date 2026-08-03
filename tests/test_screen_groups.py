@@ -476,6 +476,115 @@ def test_rule4_does_not_let_a_group_of_one_starve_a_real_group(client):
     _assert_idempotent(client, broken, 'rule4 vs rule2 ordering')
 
 
+def test_rule5_two_groups_sharing_an_id_are_given_distinct_ids(client):
+    """Rule 4 is enforced per LAYER, so it never noticed two DIFFERENT groups
+    both called 'g1'. Both survived, all four layers mirrored 'g1', _find_group
+    resolved it to the first and _export_units keyed groups by id into a dict -
+    last duplicate won, so one whole wall vanished from the export and its
+    screens were drawn under the other wall's name."""
+    ids = [_add_screen(client, f'S{i}', offset_x=i * 600)['id'] for i in range(4)]
+    project = _get_project(client)
+
+    def _break(p):
+        p['groups'] = [
+            {'id': 'g1', 'name': 'Wall A', 'layer_ids': ids[:2]},
+            {'id': 'g1', 'name': 'Wall B', 'layer_ids': ids[2:]},
+        ]
+        for lid in ids:
+            _layer(p, lid)['group_id'] = 'g1'
+
+    broken = _broken(project, _break)
+    restored = _put(client, broken)
+    gids = [g['id'] for g in restored['groups']]
+    assert len(gids) == 2 and len(set(gids)) == 2, gids
+    assert gids[0] == 'g1'          # the first claimant keeps the id
+    assert _group_of(restored, gids[1])['layer_ids'] == ids[2:]
+    assert _layer(restored, ids[2])['group_id'] == gids[1]
+    # Both walls reach the export, with their own members and their own names.
+    units = app_module._export_units(restored, restored['layers'])
+    assert [u[0] for u in units] == ['Wall A', 'Wall B']
+    assert [len(u[1]) for u in units] == [2, 2]
+    _assert_idempotent(client, broken, 'rule5 duplicate group id')
+
+
+@pytest.mark.parametrize('bad', [
+    {'nested': 1},      # a dict where a layer id belongs
+    [2],                # a list
+])
+def test_an_unhashable_id_does_not_500_the_restore(client, bad):
+    """Every membership test runs against a SET, so a dict or a list where an
+    id belongs raised TypeError - a 500 on PUT /api/project, i.e. on every
+    undo, redo and file open of such a file. The guards checked the CONTAINER's
+    type, never the ELEMENT's."""
+    project, gid, ids = _grouped_project(client)
+
+    def _break(p):
+        _group_of(p, gid)['layer_ids'] = list(ids) + [bad]
+        _layer(p, ids[0])['customPortPaths'] = {
+            '1': [{'row': 0, 'col': 0}, {'row': 0, 'col': 1, 'layerId': bad}]}
+
+    broken = _broken(project, _break)
+    restored = _put(client, broken)
+    assert _group_of(restored, gid)['layer_ids'] == ids
+    assert _layer(restored, ids[0])['customPortPaths'] == {
+        '1': [{'row': 0, 'col': 0}]}
+    _assert_idempotent(client, broken, 'unhashable id')
+
+
+def test_an_unhashable_layer_id_does_not_500_the_restore(client):
+    project, gid, ids = _grouped_project(client)
+    broken = _broken(project, lambda p: _layer(p, ids[0]).__setitem__(
+        'id', {'oops': 1}))
+    resp = client.put('/api/project', json=broken)
+    assert resp.status_code == 200, resp.get_data(as_text=True)[:400]
+    # The layer can no longer be named, so the group is left with one member
+    # and dissolves - the same outcome as a deleted member.
+    assert resp.get_json()['groups'] == []
+
+
+def test_post_save_repairs_the_group_model_too(client):
+    """POST /api/project is not just "save as" - every sidebar reorder goes
+    through it with the whole layers array - and it used to merge the payload
+    with no repair at all."""
+    a = _add_screen(client, 'A')['id']
+    b = _add_screen(client, 'B', offset_x=600)['id']
+    resp = client.post('/api/project', json={
+        'groups': [{'id': 'g1', 'name': 'W', 'layer_ids': [a, b, 99999]}],
+    })
+    assert resp.status_code == 200
+    out = _get_project(client)
+    assert out['groups'] == [{'id': 'g1', 'name': 'W', 'layer_ids': [a, b]}]
+    assert _layer(out, a)['group_id'] == 'g1'      # the mirror IS written
+    assert _layer(out, b)['group_id'] == 'g1'
+
+
+def test_put_layer_will_not_invent_a_group(client):
+    """group_id is the one whitelisted field that names another object, and it
+    was taken on trust: a layer could claim membership of a group that does not
+    exist and the export then built a unit around it."""
+    a = _add_screen(client, 'A')['id']
+    resp = client.put(f'/api/layer/{a}', json={'group_id': 'g-nope'})
+    assert resp.status_code == 200
+    assert resp.get_json().get('group_id') is None
+    assert _layer(_get_project(client), a).get('group_id') is None
+
+
+def test_put_layer_joins_a_real_group_on_both_sides(client):
+    project, gid, ids = _grouped_project(client)
+    loose = _add_screen(client, 'Loose', offset_x=2000)['id']
+    assert client.put(f'/api/layer/{loose}',
+                      json={'group_id': gid}).status_code == 200
+    out = _get_project(client)
+    assert _layer(out, loose)['group_id'] == gid
+    assert _group_of(out, gid)['layer_ids'] == list(ids) + [loose]
+    # null leaves on both sides
+    assert client.put(f'/api/layer/{loose}',
+                      json={'group_id': None}).status_code == 200
+    out = _get_project(client)
+    assert _layer(out, loose)['group_id'] is None
+    assert _group_of(out, gid)['layer_ids'] == list(ids)
+
+
 def test_duplicate_layer_id_inside_one_group_is_deduped(client):
     project, gid, ids = _grouped_project(client)
     broken = _broken(project, lambda p: _group_of(p, gid).__setitem__(

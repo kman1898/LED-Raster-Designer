@@ -162,6 +162,54 @@ def add_text_layer():
     socketio.emit('layer_added', layer)
     return jsonify(layer)
 
+def _group_containing(layer_id):
+    """The group that lists ``layer_id``, or None."""
+    for group in (app.current_project.get('groups') or []):
+        if not isinstance(group, dict):
+            continue
+        member_ids = group.get('layer_ids')
+        if isinstance(member_ids, list) and layer_id in member_ids:
+            return group
+    return None
+
+
+def _apply_group_id(layer, previous_group_id, requested):
+    """Write a validated group_id onto ``layer``, mirroring both sides.
+
+    Returns nothing; the layer is repaired in place. See the caller for why
+    this cannot just take the client's word for it.
+    """
+    layer_id = layer.get('id')
+    if requested is None:
+        layer['group_id'] = None
+        holder = _group_containing(layer_id)
+        if holder is not None:
+            holder['layer_ids'] = [i for i in holder['layer_ids'] if i != layer_id]
+            # A group of one is not a group, and the integrity pass is the one
+            # place that decides that - run it rather than repeat the rule.
+            app._enforce_group_integrity(app.current_project)
+        return
+    group = app._find_group(app.current_project, requested)
+    if group is None:
+        # Forged membership: no such group. Keep what the layer had.
+        layer['group_id'] = previous_group_id
+        log_event('update_layer_group_id_refused', {
+            'layer_id': layer_id, 'requested': requested,
+        })
+        return
+    layer['group_id'] = requested
+    member_ids = group.get('layer_ids')
+    if not isinstance(member_ids, list):
+        group['layer_ids'] = member_ids = []
+    if layer_id not in member_ids:
+        member_ids.append(layer_id)
+    if previous_group_id and previous_group_id != requested:
+        old = app._find_group(app.current_project, previous_group_id)
+        if old is not None and isinstance(old.get('layer_ids'), list):
+            old['layer_ids'] = [i for i in old['layer_ids'] if i != layer_id]
+    app._enforce_group_integrity(app.current_project)
+
+
 @layers_bp.route('/api/layer/<int:layer_id>', methods=['PUT'])
 def update_layer(layer_id):
     data = request.json
@@ -172,6 +220,7 @@ def update_layer(layer_id):
     
     previous_offset_x = layer.get('offset_x', 0)
     previous_offset_y = layer.get('offset_y', 0)
+    previous_group_id = layer.get('group_id')
 
     for key in ['name', 'columns', 'rows', 'cabinet_width', 'cabinet_height',
                 'offset_x', 'offset_y', 'rotation', 'color1', 'color2',
@@ -233,6 +282,17 @@ def update_layer(layer_id):
                 'showPowerCircuitInfo']:
         if key in data:
             layer[key] = data[key]
+
+    # v0.10.9.x: group_id is the ONE whitelisted field that names another
+    # object, and it was taken on trust - so a layer could claim membership of
+    # a group that does not exist (or of one that does not list it), and the
+    # export then built a unit around a group nobody could resolve. Membership
+    # lives on two sides; this route may only write the mirror, never invent
+    # it. An id that resolves is accepted and the group's layer_ids is brought
+    # into line; null clears both sides; anything else is refused and the
+    # layer keeps the membership it had.
+    if 'group_id' in data:
+        _apply_group_id(layer, previous_group_id, data.get('group_id'))
 
     # Log with actual changed values (exclude large arrays for readability)
     changed_values = {}
@@ -302,6 +362,28 @@ def delete_layer(layer_id):
     return jsonify(app.current_project)
 
 
+def _detach_from_cross_canvas_group(layer, target_canvas_id):
+    """Take ``layer`` out of its group if the group would then span canvases.
+
+    Only when it WOULD span: move the last member across and the group arrives
+    intact, which is the case where the wall really did move as a whole.
+    _enforce_group_integrity (run by the caller) dissolves whatever is left of
+    a group reduced to one member.
+    """
+    group = _group_containing(layer.get('id'))
+    if group is None:
+        return
+    by_id = {l.get('id'): l for l in app.current_project.get('layers') or []
+             if isinstance(l, dict)}
+    others = [by_id.get(i) for i in group.get('layer_ids') or []
+              if i != layer.get('id')]
+    if all(o is not None and o.get('canvas_id') == target_canvas_id
+           for o in others):
+        return  # the whole wall lives on the target canvas
+    group['layer_ids'] = [i for i in group['layer_ids'] if i != layer.get('id')]
+    layer['group_id'] = None
+
+
 @layers_bp.route('/api/layer/<int:layer_id>/canvas', methods=['PUT'])
 def move_layer_to_canvas(layer_id):
     """Move or duplicate a layer onto a different canvas.
@@ -352,9 +434,21 @@ def move_layer_to_canvas(layer_id):
         layer['showOffsetY'] = 0
         # Same panel re-anchor as the duplicate branch above.
         _rebuild_layer_geometry_from_panel_states(layer)
+        # v0.10.9.x: a group is one physical wall driven by one canvas. Moving
+        # a member to a different canvas takes it out of that wall - the route
+        # used to leave membership alone, which is how a group ended up
+        # spanning two canvases, with wiring pointing at a peer 5000 px away in
+        # another workspace that the client then refused to draw.
+        _detach_from_cross_canvas_group(layer, target_id)
         log_event('layer_move_to_canvas', {
             'layer_id': layer_id, 'target_canvas_id': target_id,
         })
+    # v0.10.9.x: both branches are group-integrity events. The duplicate branch
+    # clears the clone's group_id but the clone is a deep copy, so its wiring
+    # still names the source's group peers - the response handed the client a
+    # loose screen whose ports pointed into a group it is not in, and only the
+    # NEXT undo cleaned it up.
+    app._enforce_group_integrity(app.current_project)
     app.current_project['is_pristine'] = False
     socketio.emit('project_updated', app.current_project)
     return jsonify(app.current_project)
