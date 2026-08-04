@@ -173,10 +173,140 @@ def test_ps_quote_handles_every_special_character():
 
 # ── the guard that keeps this host-only ───────────────────────────────────
 
-def test_a_remote_client_still_cannot_open_a_dialog_on_the_host(client):
+def test_a_remote_client_still_cannot_open_a_dialog_on_the_host(client, monkeypatch):
     """These routes open dialogs on, and write files to, the HOST. A LAN peer
     must not be able to do either - unchanged, asserted so it stays that way."""
+    # Pin the trusted set: without this the test depends on the developer's
+    # own DHCP lease, and 192.168.1.50 is a perfectly plausible one.
+    monkeypatch.setattr(rd, '_own_addresses', lambda: {'127.0.0.1', '::1'})
     resp = client.post('/api/native-dialog/select-directory',
                        environ_overrides={'REMOTE_ADDR': '192.168.1.50'})
     assert resp.status_code == 403
     assert resp.get_json()['ok'] is False
+
+
+# ── the host reached at its OWN LAN address is still the host ─────────────
+#
+# Reported: export kept dropping files into Downloads on Windows even after
+# the dialog fix. The log showed why, and it was not the dialog at all:
+#
+#   server_start   {"host": "192.168.2.5", "port": 8050}
+#   url            "http://192.168.2.5:8050/"
+#   message        "remote client: skip host dialog"
+#
+# The launcher had bound the server to a network interface so the drawing
+# could be opened from another machine. The HOST's own browser then reached
+# the app at that LAN address too, so request.remote_addr was the machine's
+# own IP rather than 127.0.0.1 - and a loopback-only test called the host a
+# remote client and deliberately skipped the folder chooser.
+#
+# (A second, independent blocker in the same situation: Chrome only exposes
+# showDirectoryPicker in a secure context, so http://192.168.2.5 gets no File
+# System Access API either. Both routes to a chooser were shut at once, which
+# is why the fallback was the only thing left.)
+
+def test_the_machines_own_lan_address_counts_as_the_host(monkeypatch):
+    monkeypatch.setattr(rd, '_own_addresses',
+                        lambda: {'127.0.0.1', '::1', '192.168.2.5'})
+    assert rd._is_same_machine('192.168.2.5') is True
+    assert rd._is_same_machine('127.0.0.1') is True
+
+
+def test_a_different_machine_on_the_same_lan_is_not_the_host(monkeypatch):
+    """The security property that must NOT be weakened: a LAN peer still
+    cannot open a dialog on, or write a file to, this machine."""
+    monkeypatch.setattr(rd, '_own_addresses',
+                        lambda: {'127.0.0.1', '::1', '192.168.2.5'})
+    assert rd._is_same_machine('192.168.2.9') is False
+    assert rd._is_same_machine('10.0.0.4') is False
+    assert rd._is_same_machine('') is False
+    assert rd._is_same_machine(None) is False
+
+
+def test_own_addresses_always_contains_loopback():
+    addrs = rd._own_addresses()
+    assert '127.0.0.1' in addrs
+    assert '::1' in addrs
+
+
+def test_the_bound_interface_is_what_makes_the_host_the_host(monkeypatch):
+    """The POINT of the change, tested end to end rather than around.
+
+    An audit found the first version derived the address set from
+    socket.gethostname(), which MISSES a secondary NIC - the exact case the
+    feature exists for - so the host stayed misclassified and Export still
+    went to Downloads. And the tests monkeypatched _own_addresses, so they
+    proved nothing about the real one.
+    """
+    import app as app_module
+    monkeypatch.setattr(app_module, 'BOUND_HOST', '10.77.0.5', raising=False)
+    assert rd._bound_host() == '10.77.0.5'
+    assert rd._is_same_machine('10.77.0.5') is True
+    assert rd._is_same_machine('10.77.0.9') is False
+
+
+def test_binding_all_interfaces_names_no_particular_address(monkeypatch):
+    """0.0.0.0 means "everything" and therefore identifies nothing. Loopback
+    still qualifies; a LAN peer must not."""
+    import app as app_module
+    monkeypatch.setattr(app_module, 'BOUND_HOST', '0.0.0.0', raising=False)
+    assert rd._bound_host() is None
+    assert rd._is_same_machine('127.0.0.1') is True
+
+
+def test_it_fails_closed_when_the_bound_address_is_unknown(monkeypatch):
+    """Losing the folder chooser is annoying. Trusting an address we cannot
+    vouch for is not - so the unknown case must not widen the set."""
+    import app as app_module
+    monkeypatch.setattr(app_module, 'BOUND_HOST', None, raising=False)
+    monkeypatch.setattr(rd, '_default_route_address', lambda: None)
+    assert rd._own_addresses() == set(rd._LOOPBACK)
+
+
+def test_no_address_comes_from_name_resolution(monkeypatch):
+    """Hard rule. A hostile or misconfigured DNS/mDNS responder must not be
+    able to put a peer's IP into the trusted set - that set gates
+    /api/native-dialog/write-file, which writes to any absolute path."""
+    import app as app_module
+    monkeypatch.setattr(app_module, 'BOUND_HOST', None, raising=False)
+    monkeypatch.setattr(rd, '_default_route_address', lambda: None)
+
+    def poisoned(*a, **k):
+        raise AssertionError('_own_addresses must not consult DNS')
+    monkeypatch.setattr(rd.socket, 'gethostbyname', poisoned)
+    monkeypatch.setattr(rd.socket, 'getaddrinfo', poisoned)
+    assert rd._own_addresses() == set(rd._LOOPBACK)
+
+
+def test_ipv4_mapped_ipv6_is_the_same_machine(monkeypatch):
+    """A client reaching an IPv4 service over a dual-stack socket presents
+    ::ffff:a.b.c.d."""
+    import app as app_module
+    monkeypatch.setattr(app_module, 'BOUND_HOST', '10.77.0.5', raising=False)
+    assert rd._is_same_machine('::ffff:10.77.0.5') is True
+    assert rd._is_same_machine('::ffff:10.77.0.9') is False
+
+
+def test_the_availability_probe_answers_for_the_host(client):
+    """The browser cannot work this out for itself - it only sees the address
+    it was opened at. This endpoint is how it asks."""
+    resp = client.get('/api/native-dialog/available')
+    assert resp.status_code == 200
+    assert resp.get_json()['host'] is True
+
+
+def test_the_availability_probe_refuses_a_remote_client(client, monkeypatch):
+    monkeypatch.setattr(rd, '_own_addresses', lambda: {'127.0.0.1', '::1'})
+    resp = client.get('/api/native-dialog/available',
+                      environ_overrides={'REMOTE_ADDR': '192.168.99.99'})
+    assert resp.status_code == 403, (
+        'a LAN peer must not be told it can open dialogs on this machine')
+
+
+def test_a_lan_peer_still_cannot_write_files_to_the_host(client, monkeypatch):
+    """The whole point of the loopback guard, re-asserted after widening it."""
+    monkeypatch.setattr(rd, '_own_addresses', lambda: {'127.0.0.1', '::1'})
+    resp = client.post('/api/native-dialog/write-file',
+                       environ_overrides={'REMOTE_ADDR': '192.168.99.99'},
+                       data={'path': '/tmp/should-never-happen.txt'})
+    assert resp.status_code == 403

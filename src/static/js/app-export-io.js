@@ -1269,16 +1269,56 @@ class _ExportIo {
         });
     }
 
+    // Returns { path, cancelled, unavailable } - the same contract as
+    // nativeSelectDirectory, and for the same reason.
+    //
+    // This used to return a bare path-or-null, and the caller read null as
+    // "the user cancelled" and stopped. That was survivable while the host at
+    // a LAN address was misclassified as remote, because the native path was
+    // skipped entirely and the file still arrived as a browser download.
+    // Once that misclassification was fixed, the same null began meaning
+    // "the dialog could not open" - and a failed dialog silently ABANDONED
+    // the export. No file anywhere, no message. Worse than the bug it
+    // replaced. Cancel must stop; unavailable must fall back.
     async nativeSelectSavePath(suggestedName) {
-        const response = await fetch('/api/native-dialog/save-file', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ suggested_name: suggestedName })
-        });
-        if (!response.ok) return null;
-        const data = await response.json();
-        if (!data || !data.ok || !data.path) return null;
-        return data.path;
+        let data = null;
+        try {
+            const response = await fetch('/api/native-dialog/save-file', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ suggested_name: suggestedName })
+            });
+            if (!response.ok) return { path: null, cancelled: false, unavailable: true };
+            data = await response.json();
+        } catch (err) {
+            return { path: null, cancelled: false, unavailable: true };
+        }
+        if (data && data.ok && data.path) {
+            return { path: data.path, cancelled: false, unavailable: false };
+        }
+        return {
+            path: null,
+            cancelled: !!(data && data.cancelled),
+            unavailable: !(data && data.cancelled),
+        };
+    }
+
+
+    // Only the HOST is warned about a missing folder chooser.
+    //
+    // On the host, a chooser is what should happen, so failing to get one is a
+    // real fault and the reason is worth surfacing. On a machine connected
+    // over the network, a plain download IS the expected behaviour - the files
+    // land on that machine, which is the point - so a warning there would be
+    // crying wolf about something working as intended.
+    //
+    // (Browsers only expose folder access over a SECURE connection, so a
+    // remote client on plain http:// could not be given a chooser anyway.)
+    _noFolderChooserMessage() {
+        if (!this.isLocalConnection()) return null;
+        return 'Could not open the folder chooser, so the files were saved to '
+            + 'your browser\'s downloads folder instead. The reason is in '
+            + 'Help > Show Logs.';
     }
 
     // Returns { path, cancelled, unavailable }.
@@ -1333,9 +1373,55 @@ class _ExportIo {
         return !!(data && data.ok);
     }
 
+    // Is this browser running ON the machine hosting the app?
+    //
+    // The hostname alone cannot answer that. When the launcher binds the
+    // server to a network interface so the drawing can be opened from another
+    // machine, the HOST's own browser also reaches it at that LAN address -
+    // and http://192.168.2.5:8050 looks exactly the same whether it is this
+    // machine or a laptop across the room. Judging by hostname concluded
+    // "remote", so Export skipped the folder chooser and dropped the files
+    // into the browser's downloads folder with no way to choose where.
+    //
+    // Only the server can tell, by comparing the caller's address to its own,
+    // so ask it once and remember the answer.
     isLocalConnection() {
+        if (this._isHostClient !== undefined && this._isHostClient !== null) {
+            return this._isHostClient;
+        }
+        // Not probed yet: fall back to the address test, which is right
+        // whenever the app is opened at localhost (the usual case).
         const host = window.location.hostname;
         return host === 'localhost' || host === '127.0.0.1' || host === '::1';
+    }
+
+    // Memoised probe. Safe to call on every export; only the first one
+    // reaches the server.
+    async ensureHostCapability() {
+        if (this._hostCapabilityProbe) return this._hostCapabilityProbe;
+        this._hostCapabilityProbe = (async () => {
+            try {
+                const r = await fetch('/api/native-dialog/available');
+                // 403 is the server saying "you are not this machine" - a real
+                // answer, not a failure.
+                this._isHostClient = r.ok;
+            } catch (err) {
+                // Server unreachable: leave it unknown so isLocalConnection
+                // falls back to the address test rather than locking the host
+                // out of its own dialogs - and DROP the memo, so the next
+                // export asks again. Caching a transient network blip would
+                // reinstate the original bug for the rest of the session with
+                // no way to recover short of a reload.
+                this._isHostClient = null;
+                this._hostCapabilityProbe = null;
+            }
+            sendClientLog('host_capability_probe', {
+                isHost: this._isHostClient,
+                hostname: window.location.hostname,
+            });
+            return this._isHostClient;
+        })();
+        return this._hostCapabilityProbe;
     }
 
     browserDownload(blob, filename) {
@@ -1351,6 +1437,7 @@ class _ExportIo {
     }
 
     async saveBlobWithPicker(blobOrFn, filename, mimeType) {
+        await this.ensureHostCapability();
         // Sanitize so a project name with "/" or other illegal chars doesn't
         // get rejected by showSaveFilePicker / OS file APIs.
         filename = this.sanitizeFilename(filename);
@@ -1401,10 +1488,21 @@ class _ExportIo {
         // on the remote machine (browser download below), not on the server.
         try {
             if (!this.isLocalConnection()) throw new Error('remote client: skip host dialog');
-            const savePath = await this.nativeSelectSavePath(filename);
-            if (!savePath) {
+            const picked = await this.nativeSelectSavePath(filename);
+            if (picked.cancelled) {
+                // The user said no. Stop - saving anyway ignores them.
                 sendClientLog('save_blob_native_dialog_cancelled', { filename });
+                if (typeof this._toast === 'function') {
+                    this._toast('Export cancelled - nothing was saved.', false, 4000);
+                }
                 return;
+            }
+            const savePath = picked.path;
+            if (!savePath) {
+                // Dialog could not open. Fall through to the browser download
+                // rather than lose the export.
+                sendClientLog('save_blob_native_dialog_unavailable', { filename });
+                throw new Error('native dialog unavailable');
             }
             sendClientLog('save_blob_native_dialog_selected', { filename, savePath });
             const blob = await resolveBlob();
@@ -1440,6 +1538,8 @@ class _ExportIo {
     }
 
     async saveMultipleFiles(files) {
+        // Ask the server whether we are the host BEFORE deciding how to save.
+        await this.ensureHostCapability();
         // Sanitize each filename so path separators (e.g. "/" in a project name)
         // don't break getFileHandle() with "Name is not allowed."
         files = files.map(f => ({ ...f, filename: this.sanitizeFilename(f.filename) }));
@@ -1516,10 +1616,9 @@ class _ExportIo {
         // folder chooser never appeared, the files landed in Downloads, and
         // nothing on screen connected the two. The reason itself is in the
         // app log (Help > Show Logs) under native_dialog_command_failed.
-        if (typeof this._toast === 'function') {
-            this._toast(
-                'Could not open the folder chooser, so the files were saved to '
-                + 'your browser\'s downloads folder instead.', true, 8000);
+        const noChooserMsg = this._noFolderChooserMessage();
+        if (noChooserMsg && typeof this._toast === 'function') {
+            this._toast(noChooserMsg, true, 9000);
         }
         if (window.showSaveFilePicker) {
             for (const file of files) {

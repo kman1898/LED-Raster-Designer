@@ -230,7 +230,10 @@ def test_write_multiple_path_traversal_safety(client):
 # machine; a remote LAN client must get a 403 (its saves belong on the
 # remote machine via browser download).
 
-def test_native_dialogs_reject_remote_clients(client):
+def test_native_dialogs_reject_remote_clients(client, monkeypatch):
+    import routes_dialog as _rd
+    # Pin the trusted set so this cannot depend on the developer's LAN.
+    monkeypatch.setattr(_rd, '_own_addresses', lambda: {'127.0.0.1', '::1'})
     for path in ('/api/native-dialog/save-file',
                  '/api/native-dialog/select-directory',
                  '/api/native-dialog/write-file',

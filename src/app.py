@@ -3144,8 +3144,17 @@ app.register_blueprint(canvas_bp)
 app.register_blueprint(layers_bp)
 
 
+# The address the server was told to listen on, recorded so the native
+# dialog routes can tell "this machine reached at its own LAN IP" apart from
+# a genuine remote client. Set by whichever launcher binds the socket; None
+# means unknown, and routes_dialog then trusts loopback only (fails closed).
+BOUND_HOST = None
+
+
 def run_server(host='127.0.0.1', port=8050):
     """Start the Flask-SocketIO server. Called by the launcher or __main__."""
+    global BOUND_HOST
+    BOUND_HOST = host
     socketio.run(app, host=host, port=port, debug=not getattr(sys, 'frozen', False), allow_unsafe_werkzeug=True)
 
 

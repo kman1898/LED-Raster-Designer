@@ -57,6 +57,24 @@ def _epoch_ms_arg(name):
         return None
 
 
+def _reject_if_not_host():
+    """403 unless the request came from the machine running the app.
+
+    Shares routes_dialog's definition rather than re-testing loopback here.
+    A loopback-only test is wrong the moment the launcher binds the server to
+    a network interface so the drawing can be opened from another machine -
+    the HOST then reaches its own app at that LAN address, and a loopback test
+    locks it out of its own logs. Returns a response to return, or None.
+    """
+    from routes_dialog import _is_same_machine
+    addr = request.remote_addr or ''
+    if _is_same_machine(addr):
+        return None
+    log_event('logs_host_action_rejected_remote',
+              {'remote_addr': addr, 'path': request.path})
+    return jsonify({'error': 'Only available on the host machine.'}), 403
+
+
 @logs_bp.route('/api/logs', methods=['GET'])
 def get_logs():
     """Return last N lines of the current log file (most recent at bottom).
@@ -152,6 +170,12 @@ def get_logs():
 @logs_bp.route('/api/logs', methods=['DELETE'])
 def clear_logs():
     """Truncate the active log file. Archived (rotated) logs are preserved."""
+    # Host only. This had NO check at all while its sibling `reveal` did, so an
+    # unauthenticated LAN peer could wipe the host's diagnostic trail - the
+    # same log used to diagnose bugs like the one that led here.
+    denied = _reject_if_not_host()
+    if denied:
+        return denied
     try:
         os.makedirs(LOG_DIR_PATH, exist_ok=True)
         with open(LOG_FILE_PATH, 'w', encoding='utf-8') as f:
@@ -167,8 +191,9 @@ def reveal_logs_folder():
     """Open the logs directory in the OS file manager (Finder / Explorer / xdg-open)."""
     # Host-machine action: opening windows on the host must not be remotely
     # triggerable by an unauthenticated LAN peer.
-    if (request.remote_addr or '') not in ('127.0.0.1', '::1'):
-        return jsonify({'error': 'Only available on the host machine.'}), 403
+    denied = _reject_if_not_host()
+    if denied:
+        return denied
     try:
         os.makedirs(LOG_DIR_PATH, exist_ok=True)
         if sys.platform == 'darwin':

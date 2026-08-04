@@ -7,6 +7,7 @@ bypassing the browser download flow.
 """
 import os
 import platform
+import socket
 import subprocess
 import base64
 
@@ -24,14 +25,115 @@ dialog_bp = Blueprint('dialog', __name__)
 _LOOPBACK = ('127.0.0.1', '::1')
 
 
+def _bound_host():
+    """The address the server was actually told to listen on, or None.
+
+    This is the AUTHORITATIVE answer to "which address is this machine",
+    because it is the one the user picked in the launcher. Everything else
+    here is a fallback for when the app was started some other way.
+    """
+    try:
+        import app as _app
+    except Exception:
+        return None
+    host = getattr(_app, 'BOUND_HOST', None)
+    # 0.0.0.0 means "every interface" and names none of them.
+    if not host or host in ('0.0.0.0', '::'):
+        return None
+    return host
+
+
+def _default_route_address():
+    """This machine's IP on the route out, without asking DNS.
+
+    Opening a UDP socket to a public address makes the OS pick a source
+    address; nothing is sent. Same trick launcher_settings uses to build the
+    interface list.
+    """
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(('8.8.8.8', 80))
+            return s.getsockname()[0]
+        finally:
+            s.close()
+    except OSError:
+        return None
+
+
+def _own_addresses():
+    """Every address that means "this machine", for the host check below.
+
+    Deliberately NOT derived from socket.gethostname()/getaddrinfo:
+
+    * It MISSES the address that matters. The launcher lets the user bind to
+      a specific NIC so the drawing can be opened from another machine, and a
+      secondary NIC's address is usually not what the hostname resolves to.
+      An audit caught this exact gap: the host bound to a second NIC was still
+      classed remote, so Export still skipped the folder chooser - the very
+      bug this function was added to fix, silently unfixed.
+    * It TRUSTS DNS. A hostile or misconfigured DNS/mDNS responder could
+      resolve this machine's hostname to somebody else's IP and hand them
+      /api/native-dialog/write-file, which writes to any absolute path.
+
+    So: loopback, the interface the server was told to bind to, and the
+    default-route address. All three are known locally. Nothing a name
+    server says gets in.
+    """
+    addrs = set(_LOOPBACK)
+    for candidate in (_bound_host(), _default_route_address()):
+        if candidate:
+            addrs.add(candidate)
+            # A client reaching an IPv4 service over a dual-stack socket
+            # presents ::ffff:a.b.c.d, which is the same machine.
+            if ':' not in candidate:
+                addrs.add('::ffff:' + candidate)
+    return addrs
+
+
+def _is_same_machine(addr):
+    """True when the request came from this machine.
+
+    A packet's source address is only this machine's own address if it
+    originated here - a different host connecting over TCP presents ITS
+    address, and completing a TCP handshake from a forged source is not
+    something a LAN peer can do. So this stays as strict as the loopback test
+    in the way that matters: another machine still cannot open a dialog on, or
+    write a file to, this one.
+
+    Fails CLOSED. If the bound address cannot be determined, only loopback
+    qualifies - the host loses its folder chooser, which is annoying; the
+    alternative is trusting an address we cannot vouch for, which is not.
+    """
+    if not addr:
+        return False
+    # Normalise the IPv4-mapped IPv6 form before comparing.
+    if addr.startswith('::ffff:'):
+        addr = addr[len('::ffff:'):]
+    return addr in _own_addresses() or ('::ffff:' + addr) in _own_addresses()
+
+
 @dialog_bp.before_request
 def _local_only():
     addr = request.remote_addr or ''
-    if addr not in _LOOPBACK:
+    if not _is_same_machine(addr):
         log_event('native_dialog_rejected_remote', {
             'remote_addr': addr, 'path': request.path})
         return jsonify({'ok': False,
                         'error': 'Native dialogs are only available on the host machine.'}), 403
+
+
+@dialog_bp.route('/api/native-dialog/available', methods=['GET'])
+def native_dialog_available():
+    """Can THIS client open a dialog on the host?
+
+    The browser cannot answer this itself. It only sees the address it was
+    opened at, and http://192.168.2.5:8050 looks identical whether it is the
+    host's own browser or a laptop across the room. The server is the only
+    side that can compare the caller's address against its own.
+    """
+    addr = request.remote_addr or ''
+    return jsonify({'ok': True, 'host': True, 'remote_addr': addr})
 
 
 def decode_base64_bytes(data_url):

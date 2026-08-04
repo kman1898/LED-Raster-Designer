@@ -1615,12 +1615,40 @@ class _Power {
      * the caller lets it fall through), `null` when there is nowhere to go
      * (the key is swallowed, exactly as before), or {layer, panel}.
      */
+    // Is the view this path is drawn in mirrored left-to-right?
+    //
+    // Rear perspective draws the canvas through ctx.scale(-1, 1), so world +X
+    // appears on the viewer's LEFT. Anything that turns a user's intent into a
+    // world-space direction has to account for that - the screen-name drag
+    // already does (canvas.js, `_visualDx`).
+    _pathViewIsMirrored(layer) {
+        const cr = window.canvasRenderer;
+        if (!cr || !layer || typeof cr._effectiveLayerCanvasId !== 'function') return false;
+        if (typeof cr._isCanvasMirrored !== 'function') return false;
+        const canvases = (this.project && this.project.canvases) || [];
+        if (!Array.isArray(canvases)) return false;
+        const cid = cr._effectiveLayerCanvasId(layer);
+        const canvas = canvases.find(c => c && c.id === cid);
+        return !!(canvas && cr._isCanvasMirrored(canvas));
+    }
+
     _stepPathFromLastEntry(ownerLayer, path, dir) {
         if (!Array.isArray(path) || path.length === 0) return false;
         const last = this.resolvePathEntry(ownerLayer, path[path.length - 1]);
         if (!last) return null;
         const drow = dir === 'ArrowUp' ? -1 : (dir === 'ArrowDown' ? 1 : 0);
-        const dcol = dir === 'ArrowLeft' ? -1 : (dir === 'ArrowRight' ? 1 : 0);
+        let dcol = dir === 'ArrowLeft' ? -1 : (dir === 'ArrowRight' ? 1 : 0);
+        // Issue #111: in Rear view the arrows walked the cable backwards -
+        // Right went left and Left went right. The keys were never wrong; the
+        // CANVAS is mirrored and the step was computed in unmirrored world
+        // space. Flip the horizontal component so the cable follows the arrow
+        // the user actually pressed. Vertical is unaffected: the mirror is
+        // left-to-right only.
+        //
+        // Applied HERE rather than in handleCustomArrowKey so the cross-member
+        // handoff below inherits it too - stepping off the right-hand edge in
+        // Rear view has to look for the neighbour on the viewer's right.
+        if (dcol !== 0 && this._pathViewIsMirrored(last.layer)) dcol = -dcol;
         // Step inside the END STEP'S OWN grid first. row/col are per-layer
         // indices, and this branch is byte-for-byte what the key did before.
         const within = this.getPanelByRowCol(

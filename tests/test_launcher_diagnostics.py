@@ -98,13 +98,26 @@ def test_startup_environment_reports_dotnet_on_windows(monkeypatch, caplog_event
 @pytest.mark.parametrize('release,expected', [
     (None, 'does not appear to be installed'),
     (394802, 'older than 4.7.2'),          # 4.6.2
-    (461808, 'blocked'),                   # 4.7.2 — .NET is fine, suspect MOTW/AV
-    (528040, 'blocked'),                   # 4.8
+    (461808, 'blocking'),                  # 4.7.2 — .NET is fine, suspect MOTW/AV
+    (528040, 'blocking'),                  # 4.8
 ])
 def test_failure_hint_matches_dotnet_state(monkeypatch, release, expected):
     monkeypatch.setattr(launcher_window.sys, 'platform', 'win32')
     monkeypatch.setattr(launcher_window, '_windows_dotnet_release', lambda: release)
     assert expected in launcher_window._launcher_failure_hint()
+
+
+def test_the_blocked_hint_leads_with_relaunching_not_right_clicking(monkeypatch):
+    """The app now clears Mark of the Web from its own files on first run, so
+    a second launch usually fixes this by itself. The old hint sent the user
+    straight to "right-click the .zip and tick Unblock", which is a step
+    nobody performs - it should be the fallback, not the headline."""
+    monkeypatch.setattr(launcher_window.sys, 'platform', 'win32')
+    monkeypatch.setattr(launcher_window, '_windows_dotnet_release', lambda: 528040)
+    hint = launcher_window._launcher_failure_hint()
+    assert 'once more' in hint, hint
+    assert hint.index('once more') < hint.index('right-click'), (
+        'the manual unblock should come after the self-healing advice')
 
 
 # ── window fallback ──────────────────────────────────────────────────────────

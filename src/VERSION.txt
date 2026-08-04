@@ -86,6 +86,42 @@ SCREEN GROUPS - one wall, however many cabinet sizes
   faithfully, so those screens come across ungrouped.
 
 
+EXPORT, AND THE APP OPENING IN A BROWSER (WINDOWS)
+
+- FIX (IMPORTANT): Export now asks where to put the files when you are on the
+  machine running the app, even when you reach it at its network address.
+  The launcher lets you serve the app on your network so another machine can
+  open the drawing. When you did that, YOUR OWN browser also reached it at
+  that address - and the app could not tell that apart from a laptop across
+  the room, so it treated you as a remote viewer and quietly sent the files
+  to your downloads folder with no way to choose a folder.
+  A machine connected over the network still downloads to itself, which is
+  what you want - it just does not get asked where, because browsers only
+  offer a folder chooser over a secure connection.
+
+- FIX: Cancelling the folder chooser now cancels. It used to save everything
+  to your downloads folder anyway.
+
+- FIX: If the folder chooser cannot open at all, the files still get saved -
+  to your downloads folder - and the app says so instead of leaving you to
+  work it out. The reason is written to the log.
+
+- FIX: On Windows the app no longer needs the downloaded .zip to be
+  "unblocked" before it will open in its own window. Windows tags everything
+  extracted from a downloaded zip, and that tag stopped part of the app
+  loading, so it fell back to opening in a browser - which is what made
+  exports behave like a remote machine. The app now clears that tag from its
+  own files on first run. Nothing about your antivirus or Windows security
+  changes; it is what an installer would have done.
+
+- FIX: Arrow keys now walk the cable the way you press them in Rear view.
+  Right went left and left went right, because the drawing is mirrored in
+  Rear view and the keys were not. Up and down were always correct and still
+  are. (Reported as issue #111.)
+
+- FIX: The app log can no longer be read or erased by another machine on the
+  network, and only the machine running the app can open the log folder.
+
 FROM A FULL AUDIT OF THIS RELEASE
 
 Five passes over the new group work turned up a number of things worth
