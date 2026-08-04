@@ -1281,16 +1281,37 @@ class _ExportIo {
         return data.path;
     }
 
+    // Returns { path, cancelled, unavailable }.
+    //
+    // The two failure modes MUST stay apart. `cancelled` means the user
+    // dismissed the folder chooser and nothing should be written;
+    // `unavailable` means the dialog could not be opened at all and the
+    // browser download is the only way to get the files out. They used to
+    // collapse into a bare null, so pressing Cancel on an export still dumped
+    // every file into Downloads.
     async nativeSelectDirectory() {
-        const response = await fetch('/api/native-dialog/select-directory', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({})
-        });
-        if (!response.ok) return null;
-        const data = await response.json();
-        if (!data || !data.ok || !data.path) return null;
-        return data.path;
+        let data = null;
+        try {
+            const response = await fetch('/api/native-dialog/select-directory', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({})
+            });
+            if (!response.ok) return { path: null, cancelled: false, unavailable: true };
+            data = await response.json();
+        } catch (err) {
+            return { path: null, cancelled: false, unavailable: true };
+        }
+        if (data && data.ok && data.path) {
+            return { path: data.path, cancelled: false, unavailable: false };
+        }
+        return {
+            path: null,
+            cancelled: !!(data && data.cancelled),
+            // Anything that is not an explicit cancel is treated as the dialog
+            // being unavailable, so an unexpected shape still yields files.
+            unavailable: !(data && data.cancelled),
+        };
     }
 
     async nativeWriteFile(path, blob) {
@@ -1461,7 +1482,17 @@ class _ExportIo {
         // machine (per-file download below), not on the server.
         try {
             if (!this.isLocalConnection()) throw new Error('remote client: skip host dialog');
-            const targetDir = await this.nativeSelectDirectory();
+            const picked = await this.nativeSelectDirectory();
+            if (picked.cancelled) {
+                // The user said no. Saving to Downloads anyway is not a
+                // fallback, it is ignoring them.
+                sendClientLog('save_multiple_files_cancelled_by_user', { count: files.length });
+                if (typeof this._toast === 'function') {
+                    this._toast('Export cancelled - nothing was saved.', false, 4000);
+                }
+                return;
+            }
+            const targetDir = picked.path;
             if (targetDir) {
                 for (const file of files) {
                     const filePath = `${targetDir.replace(/[\\/]$/, '')}/${file.filename}`;
@@ -1474,12 +1505,22 @@ class _ExportIo {
                 sendClientLog('save_multiple_files_native_dialog_success', { count: files.length, directory: targetDir });
                 return;
             }
-            sendClientLog('save_multiple_files_native_dialog_cancelled', { count: files.length });
+            sendClientLog('save_multiple_files_native_dialog_unavailable', { count: files.length });
         } catch (err) {
             sendClientLog('save_multiple_files_native_dialog_error', { message: err.message });
         }
         // Last resort: per-file saveBlobWithPicker (multiple dialogs) or
         // browser download.
+        //
+        // Say so. Falling back silently is what made this look broken: the
+        // folder chooser never appeared, the files landed in Downloads, and
+        // nothing on screen connected the two. The reason itself is in the
+        // app log (Help > Show Logs) under native_dialog_command_failed.
+        if (typeof this._toast === 'function') {
+            this._toast(
+                'Could not open the folder chooser, so the files were saved to '
+                + 'your browser\'s downloads folder instead.', true, 8000);
+        }
         if (window.showSaveFilePicker) {
             for (const file of files) {
                 const mimeType = file.blob && file.blob.type ? file.blob.type : 'application/octet-stream';

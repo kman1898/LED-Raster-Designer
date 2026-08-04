@@ -40,47 +40,121 @@ def decode_base64_bytes(data_url):
     return base64.b64decode(data_url)
 
 
-def _run_dialog_command(cmd):
+def _run_dialog_command(cmd, what='dialog'):
+    """Run an OS dialog helper. Returns (path_or_None, status).
+
+    status is 'ok', 'cancelled' (the user dismissed it) or 'unavailable' (the
+    dialog could not be opened at all). The caller MUST tell those apart: a
+    cancel means "do nothing", while unavailable means "fall back to a browser
+    download". Conflating them is why cancelling an export still dropped the
+    files into Downloads.
+
+    Failures are LOGGED, not swallowed. This used to return a bare None on any
+    non-zero exit, so when the Windows dialog failed to open the export fell
+    silently through to a browser download and the only symptom was "the files
+    went to Downloads" with nothing anywhere saying why.
+    """
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=False)
-        if result.returncode != 0:
-            return None
-        value = (result.stdout or '').strip()
-        return value or None
-    except Exception:
-        return None
+    except FileNotFoundError:
+        # The helper itself is missing - powershell/osascript/zenity not on PATH.
+        log_event('native_dialog_helper_missing', {'what': what, 'cmd': cmd[0]})
+        return None, 'unavailable'
+    except Exception as exc:
+        log_event('native_dialog_command_error', {
+            'what': what, 'cmd': cmd[0], 'error': str(exc)})
+        return None, 'unavailable'
+    if result.returncode != 0:
+        log_event('native_dialog_command_failed', {
+            'what': what,
+            'cmd': cmd[0],
+            'returncode': result.returncode,
+            # Trimmed: a PowerShell stack trace is long and the first lines
+            # carry the reason.
+            'stderr': (result.stderr or '').strip()[:600],
+        })
+        return None, 'unavailable'
+    value = (result.stdout or '').strip()
+    if not value:
+        # Exit 0 with no path is a genuine user cancel, not a fault.
+        log_event('native_dialog_cancelled', {'what': what})
+        return None, 'cancelled'
+    return value, 'ok'
+
+
+# Windows: WinForms dialogs must run in a single-threaded apartment, and with
+# no owner window they can open BEHIND the browser where the user never sees
+# them - which reads as "the dialog never appeared" and ends in a silent
+# fallback to Downloads. So: force -STA, and hand ShowDialog a TopMost owner
+# so the dialog is guaranteed to come to the front.
+_WIN_PS = ['powershell', '-NoProfile', '-STA', '-Command']
+
+_WIN_OWNER_PREAMBLE = (
+    'Add-Type -AssemblyName System.Windows.Forms;'
+    'Add-Type -AssemblyName System.Drawing;'
+    '$owner=New-Object System.Windows.Forms.Form;'
+    '$owner.TopMost=$true;'
+    '$owner.ShowInTaskbar=$false;'
+    '$owner.StartPosition="CenterScreen";'
+    '$owner.Size=New-Object System.Drawing.Size(1,1);'
+    '$owner.Opacity=0;'
+    '$owner.Show();'
+    '$owner.Activate();'
+)
+
+
+def _ps_quote(value):
+    """Quote a value for a PowerShell double-quoted string.
+
+    A project called Wall "A" or a path with a $ in it would otherwise break
+    the script, or - worse - be interpreted. Backtick is PowerShell's escape.
+    """
+    return (str(value)
+            .replace('`', '``')
+            .replace('"', '`"')
+            .replace('$', '`$'))
 
 
 def _native_choose_save_file(suggested_name):
     system = platform.system()
     if system == 'Darwin':
         script = f'POSIX path of (choose file name with prompt "Save File" default name "{suggested_name}")'
-        return _run_dialog_command(['osascript', '-e', script])
+        return _run_dialog_command(['osascript', '-e', script], 'save_file')
     if system == 'Windows':
         script = (
-            'Add-Type -AssemblyName System.Windows.Forms;'
-            '$d=New-Object System.Windows.Forms.SaveFileDialog;'
-            f'$d.FileName="{suggested_name}";'
-            'if($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK){Write-Output $d.FileName}'
+            _WIN_OWNER_PREAMBLE
+            + '$d=New-Object System.Windows.Forms.SaveFileDialog;'
+            + f'$d.FileName="{_ps_quote(suggested_name)}";'
+            + 'try{if($d.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK)'
+              '{Write-Output $d.FileName}}finally{$owner.Close()}'
         )
-        return _run_dialog_command(['powershell', '-NoProfile', '-Command', script])
+        return _run_dialog_command(_WIN_PS + [script], 'save_file')
     # Linux fallback (if zenity is installed)
-    return _run_dialog_command(['zenity', '--file-selection', '--save', '--confirm-overwrite', f'--filename={suggested_name}'])
+    return _run_dialog_command(
+        ['zenity', '--file-selection', '--save', '--confirm-overwrite',
+         f'--filename={suggested_name}'], 'save_file')
 
 
 def _native_choose_directory():
     system = platform.system()
     if system == 'Darwin':
         script = 'POSIX path of (choose folder with prompt "Select Export Folder")'
-        return _run_dialog_command(['osascript', '-e', script])
+        return _run_dialog_command(['osascript', '-e', script], 'choose_directory')
     if system == 'Windows':
+        # FolderBrowserDialog is the tree-view picker; on Vista+ setting
+        # UseDescriptionForTitle gives it a real title bar instead of the
+        # legacy description label.
         script = (
-            'Add-Type -AssemblyName System.Windows.Forms;'
-            '$d=New-Object System.Windows.Forms.FolderBrowserDialog;'
-            'if($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK){Write-Output $d.SelectedPath}'
+            _WIN_OWNER_PREAMBLE
+            + '$d=New-Object System.Windows.Forms.FolderBrowserDialog;'
+              '$d.Description="Select Export Folder";'
+              '$d.UseDescriptionForTitle=$true;'
+              'try{if($d.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK)'
+              '{Write-Output $d.SelectedPath}}finally{$owner.Close()}'
         )
-        return _run_dialog_command(['powershell', '-NoProfile', '-Command', script])
-    return _run_dialog_command(['zenity', '--file-selection', '--directory'])
+        return _run_dialog_command(_WIN_PS + [script], 'choose_directory')
+    return _run_dialog_command(
+        ['zenity', '--file-selection', '--directory'], 'choose_directory')
 
 
 @dialog_bp.route('/api/native-dialog/save-file', methods=['POST'])
@@ -89,10 +163,16 @@ def native_dialog_save_file():
     suggested_name = data.get('suggested_name', 'output.bin')
     try:
         log_event('native_dialog_save_file_start', {'suggested_name': suggested_name})
-        file_path = _native_choose_save_file(suggested_name)
+        file_path, status = _native_choose_save_file(suggested_name)
         if not file_path:
-            log_event('native_dialog_save_file_cancelled', {'suggested_name': suggested_name})
-            return jsonify({'ok': False, 'cancelled': True})
+            # 'cancelled' means the user said no and NOTHING should be saved.
+            # 'unavailable' means the dialog never opened, and the caller should
+            # fall back to a browser download rather than lose the export.
+            log_event('native_dialog_save_file_no_path',
+                      {'suggested_name': suggested_name, 'status': status})
+            return jsonify({'ok': False,
+                            'cancelled': status == 'cancelled',
+                            'unavailable': status == 'unavailable'})
         log_event('native_dialog_save_file', {'path': file_path})
         return jsonify({'ok': True, 'path': file_path})
     except Exception as e:
@@ -104,10 +184,12 @@ def native_dialog_save_file():
 def native_dialog_select_directory():
     try:
         log_event('native_dialog_select_directory_start', {})
-        directory = _native_choose_directory()
+        directory, status = _native_choose_directory()
         if not directory:
-            log_event('native_dialog_select_directory_cancelled', {})
-            return jsonify({'ok': False, 'cancelled': True})
+            log_event('native_dialog_select_directory_no_path', {'status': status})
+            return jsonify({'ok': False,
+                            'cancelled': status == 'cancelled',
+                            'unavailable': status == 'unavailable'})
         log_event('native_dialog_select_directory', {'directory': directory})
         return jsonify({'ok': True, 'path': directory})
     except Exception as e:
