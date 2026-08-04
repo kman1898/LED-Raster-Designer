@@ -256,8 +256,19 @@ jobs:
           $exe = "LED Raster Designer App\LED Raster Designer.exe"
           $env:LRD_SELFTEST = "1"
 
+          # The app is built windowed (console=False), so `& $exe` returns
+          # IMMEDIATELY and never sets $LASTEXITCODE - the first version of
+          # this step raced its own subject and read an empty exit code as a
+          # failure while the app was still starting. Start-Process -Wait
+          # -PassThru is the only reliable way to get an exit code out of a
+          # GUI-subsystem binary.
+          function Invoke-SelfTest {
+            $p = Start-Process -FilePath $exe -Wait -PassThru -NoNewWindow
+            return $p.ExitCode
+          }
+
           Write-Host "--- 1/3 clean bundle (baseline) ---"
-          & $exe; $clean = $LASTEXITCODE
+          $clean = Invoke-SelfTest
           Write-Host "baseline exit: $clean"
           if ($clean -ne 0) {
             Write-Error "The .NET backend does not load even on a CLEAN bundle. That is a packaging fault, not Mark of the Web."
@@ -270,18 +281,26 @@ jobs:
               Set-Content -Path "$($_.FullName):Zone.Identifier" `
                           -Value "[ZoneTransfer]`nZoneId=3" -ErrorAction SilentlyContinue
             }
-          & $exe; $tagged = $LASTEXITCODE
+          # Prove the tagging actually took - otherwise a silent Set-Content
+          # failure would look exactly like "Mark of the Web is harmless".
+          $probe = Get-Content -Path "LED Raster Designer App\_internal\pythonnet\runtime\Python.Runtime.dll:Zone.Identifier" -ErrorAction SilentlyContinue
+          Write-Host "Python.Runtime.dll zone tag now: $probe"
+          if (-not $probe) {
+            Write-Error "Could not tag the bundle, so this experiment proves nothing. Fix the harness."
+            exit 1
+          }
+          $tagged = Invoke-SelfTest
           Write-Host "tagged exit: $tagged"
 
           Write-Host "--- 3/3 after the app clears the tags itself ---"
           $env:LRD_SELFTEST_CLEAR = "1"
-          & $exe; $cleared = $LASTEXITCODE
+          $cleared = Invoke-SelfTest
           Write-Host "cleared exit: $cleared"
 
           if ($tagged -ne 0 -and $cleared -eq 0) {
             Write-Host "PROVEN: Mark of the Web breaks the .NET backend, and clearing it fixes it."
           } elseif ($tagged -eq 0) {
-            Write-Host "NOTE: a fully tagged bundle still loaded. Mark of the Web is NOT sufficient to cause the reported failure on this runner - do not present it as the diagnosis."
+            Write-Host "NOTE: a fully tagged bundle still loaded on this runner. Mark of the Web alone does NOT reproduce the reported failure here - do not present it as the diagnosis. The unblock step is harmless and stays, but the real cause is still open."
           } else {
             Write-Error "Tagging broke it and clearing did NOT fix it. The unblock fix is insufficient."
             exit 1
