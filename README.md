@@ -197,7 +197,7 @@ If you want to build the app yourself instead of downloading the release:
 - **Mac:** `make clean`
 - **Windows:** `Build Windows.bat clean` (from Command Prompt)
 
-Source code is in the `src/` folder. See [BUILD.md](BUILD.md) for more details.
+Source code is in the `src/` folder.
 
 ---
 
