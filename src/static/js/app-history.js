@@ -647,6 +647,33 @@ class _History {
             powerLabelOverrides: JSON.parse(JSON.stringify(layer.powerLabelOverrides || {})),
             powerCustomPaths: dupPowerCustomPaths,
             powerCustomIndex: layer.powerCustomIndex,
+            // v0.10.9: the appearance block was listed ONLY in clientProps
+            // below, which is applied to the response in the browser and never
+            // sent. The copy therefore looked right and the server held a
+            // screen with no gradient at all, so duplicating a screen and
+            // reloading lost the copy's gradient - the same symptom as editing
+            // one and reloading, reached by a different door.
+            gradientEnabled: layer.gradientEnabled,
+            gradientType: layer.gradientType,
+            gradientScope: layer.gradientScope,
+            gradientPanelAlternate: layer.gradientPanelAlternate,
+            gradientRadialCenterX: layer.gradientRadialCenterX,
+            gradientRadialCenterY: layer.gradientRadialCenterY,
+            gradientRadialRadius: layer.gradientRadialRadius,
+            gradientAngle: layer.gradientAngle,
+            gradientOpacity: layer.gradientOpacity,
+            gradientBlend: layer.gradientBlend,
+            gradientStops: Array.isArray(layer.gradientStops)
+                ? layer.gradientStops.map(s => ({ pos: s.pos, color: s.color }))
+                : undefined,
+            panelColorMode: layer.panelColorMode,
+            panelColors: Array.isArray(layer.panelColors)
+                ? layer.panelColors.slice() : undefined,
+            transparentFill: layer.transparentFill,
+            screenNameOffsetXPixelMap: layer.screenNameOffsetXPixelMap,
+            screenNameOffsetYPixelMap: layer.screenNameOffsetYPixelMap,
+            screenNameOffsetXShowLook: layer.screenNameOffsetXShowLook,
+            screenNameOffsetYShowLook: layer.screenNameOffsetYShowLook,
             hiddenPanels: hiddenPanels,  // Pass hidden panel info (legacy)
             panelStates: panelStates,    // Half-tile + hidden + blank (v0.8.0)
         };
@@ -692,9 +719,20 @@ class _History {
             gradientAngle: layer.gradientAngle,
             gradientOpacity: layer.gradientOpacity,
             gradientBlend: layer.gradientBlend,
-            gradientStops: layer.gradientStops,
+            // v0.10.9: copies, not the source arrays. This object is
+            // Object.assign'd onto the new layer AFTER duplicateData's
+            // .map()/.slice() copies have already gone to the server, so
+            // passing references here handed the duplicate the ORIGINAL's
+            // arrays and quietly undid that copy. Nothing mutates either array
+            // in place today - every writer assigns a fresh one - so this was
+            // luck rather than design, and it is one in-place edit away from
+            // the two screens sharing a gradient.
+            gradientStops: Array.isArray(layer.gradientStops)
+                ? layer.gradientStops.map(s => ({ pos: s.pos, color: s.color }))
+                : layer.gradientStops,
             panelColorMode: layer.panelColorMode,
-            panelColors: layer.panelColors,
+            panelColors: Array.isArray(layer.panelColors)
+                ? layer.panelColors.slice() : layer.panelColors,
             border_color_pixel: layer.border_color_pixel,
             border_color_cabinet: layer.border_color_cabinet,
             border_color_data: layer.border_color_data,
@@ -985,6 +1023,33 @@ class _History {
             customPortIndex: this.clipboard.customPortIndex,
             randomDataColors: !!this.clipboard.randomDataColors,
             arrowSize: this.clipboard.arrowSize,
+            // v0.10.9: paste never carried the appearance block at all -
+            // not in this payload and not in pasteClientProps below, which is
+            // eight colours and nothing else. So a pasted screen lost its
+            // gradient, palette and Transparent Fill immediately on screen,
+            // not merely after a reload. Copy/Paste and Duplicate are the same
+            // intent; they now produce the same screen.
+            gradientEnabled: this.clipboard.gradientEnabled,
+            gradientType: this.clipboard.gradientType,
+            gradientScope: this.clipboard.gradientScope,
+            gradientPanelAlternate: this.clipboard.gradientPanelAlternate,
+            gradientRadialCenterX: this.clipboard.gradientRadialCenterX,
+            gradientRadialCenterY: this.clipboard.gradientRadialCenterY,
+            gradientRadialRadius: this.clipboard.gradientRadialRadius,
+            gradientAngle: this.clipboard.gradientAngle,
+            gradientOpacity: this.clipboard.gradientOpacity,
+            gradientBlend: this.clipboard.gradientBlend,
+            gradientStops: Array.isArray(this.clipboard.gradientStops)
+                ? this.clipboard.gradientStops.map(s => ({ pos: s.pos, color: s.color }))
+                : undefined,
+            panelColorMode: this.clipboard.panelColorMode,
+            panelColors: Array.isArray(this.clipboard.panelColors)
+                ? this.clipboard.panelColors.slice() : undefined,
+            transparentFill: this.clipboard.transparentFill,
+            screenNameOffsetXPixelMap: this.clipboard.screenNameOffsetXPixelMap,
+            screenNameOffsetYPixelMap: this.clipboard.screenNameOffsetYPixelMap,
+            screenNameOffsetXShowLook: this.clipboard.screenNameOffsetXShowLook,
+            screenNameOffsetYShowLook: this.clipboard.screenNameOffsetYShowLook,
             ..._carryShow(this.clipboard, 50, 50),
         };
         const pasteClientProps = {

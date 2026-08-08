@@ -41,7 +41,14 @@ jobs:
       - name: Check version consistency
         run: |
           source .venv/bin/activate
-          python -m pytest tests/test_version.py -v --tb=short -k "version_sources_match or version_txt_is_four_part or updater_reads_correct or api_version_matches"
+          # NOTE: a -k clause that matches nothing is NOT an error in pytest -
+          # it just silently selects fewer tests. "version_txt_is_four_part"
+          # named a test that has never existed (the real one is
+          # test_version_txt_is_valid), so the version-shape check was dead
+          # here for as long as this line has been in the file. Any clause
+          # edited below must still name a real test; tests/test_version.py
+          # asserts exactly that, so this cannot rot again unnoticed.
+          python -m pytest tests/test_version.py -v --tb=short -k "version_sources_match or version_txt_is_valid or updater_reads_correct or api_version_matches"
 
   lint:
     name: Lint

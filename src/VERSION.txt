@@ -1,7 +1,7 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
-v0.10.9 - July 26, 2026
+v0.10.9 - August 7, 2026
 ----------------------------
 
 SCREEN GROUPS - one wall, however many cabinet sizes
@@ -106,13 +106,16 @@ EXPORT, AND THE APP OPENING IN A BROWSER (WINDOWS)
   to your downloads folder - and the app says so instead of leaving you to
   work it out. The reason is written to the log.
 
-- FIX: On Windows the app no longer needs the downloaded .zip to be
-  "unblocked" before it will open in its own window. Windows tags everything
-  extracted from a downloaded zip, and that tag stopped part of the app
-  loading, so it fell back to opening in a browser - which is what made
-  exports behave like a remote machine. The app now clears that tag from its
-  own files on first run. Nothing about your antivirus or Windows security
-  changes; it is what an installer would have done.
+- CHANGE: On Windows the app now clears the "downloaded from the internet"
+  tag from its own files on first run, so nothing has to be unblocked by
+  hand. Windows puts that tag on everything extracted from a downloaded zip.
+  Being straight with you: we first thought that tag was what stopped the app
+  opening in its own window on one tester's PC, and we tested it - a fully
+  tagged copy started normally, so that was not the cause. The tag is cleared
+  anyway because it costs nothing and is what an installer would have done.
+  If the app still opens in a browser instead of its own window, please send
+  a log (Help > Show Logs); this build records what we need to find the real
+  cause. Nothing about your antivirus or Windows security changes.
 
 - FIX: Arrow keys now walk the cable the way you press them in Rear view.
   Right went left and left went right, because the drawing is mirrored in
@@ -121,6 +124,31 @@ EXPORT, AND THE APP OPENING IN A BROWSER (WINDOWS)
 
 - FIX: The app log can no longer be read or erased by another machine on the
   network, and only the machine running the app can open the log folder.
+
+- FIX: Gradients no longer disappear when you reload.
+  Everything in the Gradient panel - the colour stops and where they sit, plus
+  type, angle, opacity, blend and scope - was being held on screen but never
+  written into the drawing. Reload the page, or close and reopen the window,
+  and the gradient came back the way it was at your last save with everything
+  since gone. Panel colours, Transparent Fill, and the screen name position on
+  the Pixel Map and Show Look tabs were lost the same way.
+  Saving the project or pressing undo writes the whole drawing at once, so
+  either of those healed it by accident - which is why this came and went
+  instead of failing every time. Files you had already saved were never
+  affected; the settings just never reached the drawing in the first place.
+
+- FIX: Duplicating or pasting a screen no longer loses the copy's gradient.
+  Duplicate looked right on screen but never wrote the copy's gradient, panel
+  colours or Transparent Fill into the drawing, so the copy came back plain
+  after a reload. Paste dropped them straight away - a pasted screen has been
+  arriving plain for some time. Copy/Paste and Duplicate now give you the same
+  screen.
+
+- FIX: A gradient stop no longer jumps back on its own.
+  Moving one stop and then moving another straight after could send the first
+  one back where it started, because the app was still finishing the first
+  change. Undo recorded the jumped-back position too, so stepping back walked
+  you through gradients you never chose.
 
 FROM A FULL AUDIT OF THIS RELEASE
 

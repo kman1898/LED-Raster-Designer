@@ -1242,141 +1242,69 @@ class _ScreenInfo {
         });
 
         const requests = layers.map(layer => {
-            const preservedProps = {
-                // Show Look position, keep in sync across the server
-                // round-trip (server whitelists the field, but echoing the
-                // same value is safer than dropping it).
-                showOffsetX: layer.showOffsetX,
-                showOffsetY: layer.showOffsetY,
-                screenNameOffsetX: layer.screenNameOffsetX,
-                screenNameOffsetY: layer.screenNameOffsetY,
-                screenNameOffsetXPixelMap: layer.screenNameOffsetXPixelMap,
-                screenNameOffsetYPixelMap: layer.screenNameOffsetYPixelMap,
-                screenNameOffsetXCabinet: layer.screenNameOffsetXCabinet,
-                screenNameOffsetYCabinet: layer.screenNameOffsetYCabinet,
-                screenNameOffsetXDataFlow: layer.screenNameOffsetXDataFlow,
-                screenNameOffsetYDataFlow: layer.screenNameOffsetYDataFlow,
-                screenNameOffsetXPower: layer.screenNameOffsetXPower,
-                screenNameOffsetYPower: layer.screenNameOffsetYPower,
-                screenNameOffsetXShowLook: layer.screenNameOffsetXShowLook,
-                screenNameOffsetYShowLook: layer.screenNameOffsetYShowLook,
-                gradientEnabled: layer.gradientEnabled,
-                transparentFill: layer.transparentFill,
-                rotation: layer.rotation,
-                gradientType: layer.gradientType,
-                gradientScope: layer.gradientScope,
-                gradientPanelAlternate: layer.gradientPanelAlternate,
-                gradientRadialCenterX: layer.gradientRadialCenterX,
-                gradientRadialCenterY: layer.gradientRadialCenterY,
-                gradientRadialRadius: layer.gradientRadialRadius,
-            gradientRadialCenterX: layer.gradientRadialCenterX,
-            gradientRadialCenterY: layer.gradientRadialCenterY,
-            gradientRadialRadius: layer.gradientRadialRadius,
-            gradientPanelAlternate: layer.gradientPanelAlternate,
-            gradientRadialCenterX: layer.gradientRadialCenterX,
-            gradientRadialCenterY: layer.gradientRadialCenterY,
-            gradientRadialRadius: layer.gradientRadialRadius,
-            gradientScope: layer.gradientScope,
-            gradientPanelAlternate: layer.gradientPanelAlternate,
-            gradientRadialCenterX: layer.gradientRadialCenterX,
-            gradientRadialCenterY: layer.gradientRadialCenterY,
-            gradientRadialRadius: layer.gradientRadialRadius,
-                gradientAngle: layer.gradientAngle,
-                gradientOpacity: layer.gradientOpacity,
-                gradientBlend: layer.gradientBlend,
-                gradientStops: layer.gradientStops,
-                panelColorMode: layer.panelColorMode,
-                panelColors: layer.panelColors,
-            panelColorMode: layer.panelColorMode,
-            panelColors: layer.panelColors,
-            gradientEnabled: layer.gradientEnabled,
-            transparentFill: layer.transparentFill,
-            rotation: layer.rotation,
-            gradientType: layer.gradientType,
-            gradientScope: layer.gradientScope,
-            gradientPanelAlternate: layer.gradientPanelAlternate,
-            gradientRadialCenterX: layer.gradientRadialCenterX,
-            gradientRadialCenterY: layer.gradientRadialCenterY,
-            gradientRadialRadius: layer.gradientRadialRadius,
-            gradientAngle: layer.gradientAngle,
-            gradientOpacity: layer.gradientOpacity,
-            gradientBlend: layer.gradientBlend,
-            gradientStops: layer.gradientStops,
-            panelColorMode: layer.panelColorMode,
-            panelColors: layer.panelColors,
-                screenNameSize: layer.screenNameSize,
-                screenNameSizeCabinet: layer.screenNameSizeCabinet,
-                screenNameSizeDataFlow: layer.screenNameSizeDataFlow,
-                screenNameSizePower: layer.screenNameSizePower,
-                flowPattern: layer.flowPattern,
-                dataFlowColor: layer.dataFlowColor,
-                dataFlowLabelSize: layer.dataFlowLabelSize,
-                arrowLineWidth: layer.arrowLineWidth,
-                primaryColor: layer.primaryColor,
-                primaryTextColor: layer.primaryTextColor,
-                backupColor: layer.backupColor,
-                backupTextColor: layer.backupTextColor,
-                randomDataColors: layer.randomDataColors,
-                portLabelTemplatePrimary: layer.portLabelTemplatePrimary,
-                portLabelTemplateReturn: layer.portLabelTemplateReturn,
-                portLabelOverridesPrimary: layer.portLabelOverridesPrimary,
-                portLabelOverridesReturn: layer.portLabelOverridesReturn,
-                customPortPaths: layer.customPortPaths,
-                customPortIndex: layer.customPortIndex,
-                processorType: layer.processorType,
-                lowLatency: layer.lowLatency,
-                bitDepth: layer.bitDepth,
-                frameRate: layer.frameRate,
-                portMappingMode: layer.portMappingMode,
-                powerVoltage: layer.powerVoltage,
-                powerVoltageCustom: layer.powerVoltageCustom,
-                powerAmperage: layer.powerAmperage,
-                powerAmperageCustom: layer.powerAmperageCustom,
-                panelWatts: layer.panelWatts,
-                powerMaximize: layer.powerMaximize,
-                powerOrganized: layer.powerOrganized,
-                powerCustomPath: layer.powerCustomPath,
-                powerFlowPattern: layer.powerFlowPattern,
-                powerLineWidth: layer.powerLineWidth,
-                powerLineColor: layer.powerLineColor,
-                powerArrowColor: layer.powerArrowColor,
-                powerRandomColors: layer.powerRandomColors,
-                powerColorCodedView: layer.powerColorCodedView,
-                powerCircuitColors: layer.powerCircuitColors,
-                powerLabelSize: layer.powerLabelSize,
-                powerLabelBgColor: layer.powerLabelBgColor,
-                powerLabelTextColor: layer.powerLabelTextColor,
-                powerLabelTemplate: layer.powerLabelTemplate,
-                powerLabelOverrides: layer.powerLabelOverrides,
-                powerCustomPaths: layer.powerCustomPaths,
-                powerCustomIndex: layer.powerCustomIndex,
-                border_color_pixel: layer.border_color_pixel,
-                border_color_cabinet: layer.border_color_cabinet,
-                border_color_data: layer.border_color_data,
-                border_color_power: layer.border_color_power,
-                lastPowerFlowPattern: layer.lastPowerFlowPattern,
-                showDataFlowPortInfo: layer.showDataFlowPortInfo,
-                showPowerCircuitInfo: layer.showPowerCircuitInfo,
-                _powerTotalAmps1: layer._powerTotalAmps1,
-                _powerTotalAmps3: layer._powerTotalAmps3,
-                _powerCircuitsRequired: layer._powerCircuitsRequired,
-                // Preserve client-computed port counts across the server
-                // roundtrip, server doesn't whitelist these fields, so its
-                // echo carries stale values that would otherwise overwrite
-                // the freshly recomputed numbers (causes ports-required and
-                // the port-rename editor to show too few ports in custom
-                // flow mode after toggling).
-                _portsRequired: layer._portsRequired,
-                _autoPortsRequired: layer._autoPortsRequired,
-                panel_weight: layer.panel_weight,
-                weight_unit: layer.weight_unit,
-                infoLabelSize: layer.infoLabelSize,
-                type: layer.type,
-                imageData: layer.imageData,
-                imageWidth: layer.imageWidth,
-                imageHeight: layer.imageHeight,
-                imageScale: layer.imageScale
-            };
+            // Fields whose server echo does not carry what the client
+            // holds, re-stamped onto the response below.
+            //
+            // v0.10.9: this used to snapshot the VALUES here, at request
+            // time, and stamp that snapshot onto the response. Every gradient
+            // control assigns a BRAND-NEW stops array (_applyGradient maps a
+            // fresh object per stop), so a second edit made while the first
+            // PUT was still in flight was undone the moment that first
+            // response landed - the stop the user had just dragged jumped
+            // back on its own, and the undo snapshot taken 400ms later
+            // recorded the reverted value as if the user had chosen it.
+            // Local round-trips are ~10ms and these controls fire on every
+            // input event, so a drag hit it constantly.
+            //
+            // Read the LIVE layer at response time instead: the re-stamp can
+            // then only ever carry the newest value, never resurrect an older
+            // one. Names only, so there is nothing here to go stale.
+            const preservedKeys = [
+                'showOffsetX', 'showOffsetY', 'screenNameOffsetX',
+                'screenNameOffsetY', 'screenNameOffsetXPixelMap',
+                'screenNameOffsetYPixelMap',
+                'screenNameOffsetXCabinet',
+                'screenNameOffsetYCabinet',
+                'screenNameOffsetXDataFlow',
+                'screenNameOffsetYDataFlow', 'screenNameOffsetXPower',
+                'screenNameOffsetYPower', 'screenNameOffsetXShowLook',
+                'screenNameOffsetYShowLook', 'gradientEnabled',
+                'transparentFill', 'rotation', 'gradientType',
+                'gradientScope', 'gradientPanelAlternate',
+                'gradientRadialCenterX', 'gradientRadialCenterY',
+                'gradientRadialRadius', 'gradientAngle',
+                'gradientOpacity', 'gradientBlend', 'gradientStops',
+                'panelColorMode', 'panelColors', 'screenNameSize',
+                'screenNameSizeCabinet', 'screenNameSizeDataFlow',
+                'screenNameSizePower', 'flowPattern', 'dataFlowColor',
+                'dataFlowLabelSize', 'arrowLineWidth', 'primaryColor',
+                'primaryTextColor', 'backupColor', 'backupTextColor',
+                'randomDataColors', 'portLabelTemplatePrimary',
+                'portLabelTemplateReturn',
+                'portLabelOverridesPrimary',
+                'portLabelOverridesReturn', 'customPortPaths',
+                'customPortIndex', 'processorType', 'lowLatency',
+                'bitDepth', 'frameRate', 'portMappingMode',
+                'powerVoltage', 'powerVoltageCustom', 'powerAmperage',
+                'powerAmperageCustom', 'panelWatts', 'powerMaximize',
+                'powerOrganized', 'powerCustomPath',
+                'powerFlowPattern', 'powerLineWidth',
+                'powerLineColor', 'powerArrowColor',
+                'powerRandomColors', 'powerColorCodedView',
+                'powerCircuitColors', 'powerLabelSize',
+                'powerLabelBgColor', 'powerLabelTextColor',
+                'powerLabelTemplate', 'powerLabelOverrides',
+                'powerCustomPaths', 'powerCustomIndex',
+                'border_color_pixel', 'border_color_cabinet',
+                'border_color_data', 'border_color_power',
+                'lastPowerFlowPattern', 'showDataFlowPortInfo',
+                'showPowerCircuitInfo', '_powerTotalAmps1',
+                '_powerTotalAmps3', '_powerCircuitsRequired',
+                '_portsRequired', '_autoPortsRequired',
+                'panel_weight', 'weight_unit', 'infoLabelSize',
+                'type', 'imageData', 'imageWidth', 'imageHeight',
+                'imageScale'
+            ];
 
             return fetch(`/api/layer/${layer.id}`, {
                 method: 'PUT',
@@ -1385,15 +1313,19 @@ class _ScreenInfo {
             })
             .then(res => res.json())
             .then(updated => {
-                Object.keys(preservedProps).forEach(key => {
-                    if (preservedProps[key] !== undefined) {
-                        updated[key] = preservedProps[key];
-                    }
-                });
                 const index = this.project.layers.findIndex(l => l.id === updated.id);
-                if (index >= 0) {
-                    this.project.layers[index] = updated;
-                }
+                // Deleted while this request was in flight - there is nothing
+                // to merge into, and stamping a copy we then drop would just
+                // be dead work.
+                if (index < 0) return;
+                // The LIVE object: the one any later edit mutated while the
+                // request was out. Reading it here is the whole point - the
+                // re-stamp can only ever carry the newest value.
+                const live = this.project.layers[index];
+                preservedKeys.forEach(key => {
+                    if (live[key] !== undefined) updated[key] = live[key];
+                });
+                this.project.layers[index] = updated;
             });
         });
 

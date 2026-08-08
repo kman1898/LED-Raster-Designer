@@ -61,6 +61,19 @@ def add_layer():
         # in Show Look (and Data + Power, which render at the show layout).
         # null/missing = mirror canvas_id.
         'show_canvas_id',
+        # v0.10.9: same omission as the PUT allow-list, on the route that
+        # creates a layer. Duplicate/paste sends the source screen's whole
+        # appearance and this list dropped the gradient block on the floor, so
+        # the copy carried a gradient in the browser and none on the server -
+        # gone on the next reload. Pure appearance: nothing here feeds panel
+        # construction, so none of it can reach _build_panels.
+        'gradientEnabled', 'gradientType', 'gradientScope',
+        'gradientPanelAlternate', 'gradientRadialCenterX',
+        'gradientRadialCenterY', 'gradientRadialRadius', 'gradientAngle',
+        'gradientOpacity', 'gradientBlend', 'gradientStops',
+        'panelColorMode', 'panelColors', 'transparentFill',
+        'screenNameOffsetXPixelMap', 'screenNameOffsetYPixelMap',
+        'screenNameOffsetXShowLook', 'screenNameOffsetYShowLook',
     ]
 
     half_fields = {'halfFirstColumn', 'halfLastColumn', 'halfFirstRow', 'halfLastRow'}
@@ -279,7 +292,40 @@ def update_layer(layer_id):
                 # dropped. null clears membership.
                 'group_id',
                 'showDataFlowPortInfo', 'showDataFlowPortLoad',
-                'showPowerCircuitInfo']:
+                'showPowerCircuitInfo',
+                # v0.10.9: the gradient/panel-colour block was never on this
+                # list - not removed, never added (git log -S finds no commit
+                # that took it out). The client has always PUT these fields and
+                # this route has always dropped them on the floor, then echoed
+                # the layer back WITHOUT them; the client papered over the echo
+                # by re-stamping its own copy afterwards, so the app looked
+                # right and the server quietly held the pre-edit gradient.
+                #
+                # Nothing reconciled that. POST/PUT /api/project store the whole
+                # layer dict, so a full save or an undo healed it by accident,
+                # but GET /api/project on a page reload served the stale copy -
+                # and loadClientSideProperties only patches over it from
+                # localStorage for the untouched single-layer "Untitled
+                # Project" (shouldUseSavedClientProps), which no real drawing
+                # is. So every gradient edit made since the last full save was
+                # lost on reload, with nothing in the log but
+                # skip_saved_client_props.
+                #
+                # These are plain per-layer values with no cross-object
+                # meaning - unlike group_id below, there is nothing to
+                # validate, they just have to be stored.
+                'gradientEnabled', 'gradientType', 'gradientScope',
+                'gradientPanelAlternate', 'gradientRadialCenterX',
+                'gradientRadialCenterY', 'gradientRadialRadius',
+                'gradientAngle', 'gradientOpacity', 'gradientBlend',
+                'gradientStops', 'panelColorMode', 'panelColors',
+                'transparentFill',
+                # Same omission, same consequence: the Pixel Map and Show Look
+                # screen-name offsets are the only two views whose offsets were
+                # missing, so dragging a screen name reverted on reload there
+                # and nowhere else.
+                'screenNameOffsetXPixelMap', 'screenNameOffsetYPixelMap',
+                'screenNameOffsetXShowLook', 'screenNameOffsetYShowLook']:
         if key in data:
             layer[key] = data[key]
 
