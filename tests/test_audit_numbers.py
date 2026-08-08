@@ -1,4 +1,4 @@
-"""v0.10.9 numbers audit - independent re-derivation of every figure that
+"""v0.11.0 numbers audit - independent re-derivation of every figure that
 decides how many Ethernet ports, power circuits and kilograms a crew plans for.
 
 Nothing here is a self-consistency check. Each expectation is computed by hand
@@ -93,7 +93,7 @@ PUBLISHED_OVERRIDES = {
 def test_novastar_5g_matches_novastars_published_table():
     """8-bit x24 @0.85, 10-bit x32 @0.88, 12-bit x48 @0.85 over a 5 Gbit link.
 
-    Hand check of the two cells v0.10.9 corrected:
+    Hand check of the two cells v0.11.0 corrected:
       12-bit 60 Hz = 5e9 x 0.85 / (48 x 60) = 1,475,694 -> table 1,475,600
        8-bit 60 Hz = 5e9 x 0.85 / (24 x 60) = 2,951,389 -> table 2,951,200
     """
@@ -195,7 +195,7 @@ def test_megapixel_helios_figures_are_not_derivable_from_anything_in_the_repo():
     The HELIOS rows do not follow a 1/frame-rate bandwidth curve: capacity x
     frame rate falls ~19% from 24 Hz to 240 Hz. There is no formula in the repo
     that reproduces them, so the only check possible is that the one figure
-    v0.10.9 claims to have corrected is present. Everything else must be
+    v0.11.0 claims to have corrected is present. Everything else must be
     checked against the cited User Guide by a human.
     """
     assert TABLES['megapixel-1g'][12][60] == 401000
@@ -635,7 +635,7 @@ def test_project_wide_circuit_total_is_the_real_map_not_a_bulk_division(page):
 
 def test_project_wide_port_total_honours_a_hand_drawn_port_map(page):
     """A screen wired by hand to 3 ports. getLayerPortsRequired - the one
-    v0.10.9 collapsed the three copies into - says 3. getPortCounts, which
+    v0.11.0 collapsed the three copies into - says 3. getPortCounts, which
     feeds the on-canvas text layer, was a FOURTH copy: it re-ran the AUTOMATIC
     assignment and said 1, because 4 x 128 x 128 = 65,536 px fits one
     525,000 px Brompton port. It now routes through getLayerPortsRequired.

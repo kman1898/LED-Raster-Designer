@@ -1,4 +1,4 @@
-"""v0.10.9 - a copied screen arrived without its gradient.
+"""v0.11.0 - a copied screen arrived without its gradient.
 
 Found while auditing the reload fix. Duplicate and Paste each build their own
 payload by hand for POST /api/layer/add, and both were missing the appearance

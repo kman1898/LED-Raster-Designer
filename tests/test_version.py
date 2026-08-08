@@ -236,7 +236,7 @@ def test_api_version_matches_version_txt(client):
 
 # ── CI selector hygiene ─────────────────────────────────────────────
 #
-# v0.10.9: the version-consistency job selects its tests with
+# v0.11.0: the version-consistency job selects its tests with
 # `pytest -k "a or b or c"`. A clause that matches NOTHING is not an error in
 # pytest - it silently selects fewer tests and the job still goes green. One
 # clause, "version_txt_is_four_part", named a test that has never existed

@@ -944,7 +944,7 @@ class _CanvasUi {
 
     applyDisplayOrder(displayIds, historyAction) {
         if (!this.project || !this.project.layers) return;
-        // v0.10.9: a screen group is one screen, so its members move as one
+        // v0.11.0: a screen group is one screen, so its members move as one
         // block and can never be left separated by an unrelated layer. Every
         // reorder path (the ▲▼ arrows and sidebar drag alike) funnels through
         // here, so this is the one place that has to enforce it.
@@ -962,7 +962,7 @@ class _CanvasUi {
         // the pre-reorder order, so Undo-then-Redo silently lost the reorder
         // (same bug class as the v0.10.0 "Add Layer" fix).
         this.project.layers = newOrder;
-        // v0.10.9: this save goes out as POST /api/project, which merges the
+        // v0.11.0: this save goes out as POST /api/project, which merges the
         // payload with NO group integrity pass - so anything stale in the
         // client's copy becomes the canonical project. Drop the cross-member
         // steps the server's own rule would have pruned BEFORE the snapshot,
@@ -1103,7 +1103,7 @@ class _CanvasUi {
                                 this.normalizeLoadedPowerFlowPattern(layer);
                             });
                         }
-                        // v0.10.9: fix up Armor layers that carry a Max Capacity
+                        // v0.11.0: fix up Armor layers that carry a Max Capacity
                         // flag they were never actually drawn with. Runs before
                         // the PUT so the server (and the first undo snapshot)
                         // get the corrected mode.
@@ -1160,7 +1160,7 @@ class _CanvasUi {
                                         this.normalizeLoadedPowerFlowPattern(layer);
                                     });
                                 }
-                                // v0.10.9: no-op when the pre-PUT pass already
+                                // v0.11.0: no-op when the pre-PUT pass already
                                 // fixed them; kept so the object that feeds
                                 // resetHistory() below is always normalized.
                                 this.normalizeArmorPortMapping(this.project);
@@ -1240,7 +1240,7 @@ class _CanvasUi {
 
     applyMissingLayerDefaults(layer) {
         if (layer.locked === undefined) layer.locked = false;
-        // v0.10.9: File > Open and Recent Files come through here, not through
+        // v0.11.0: File > Open and Recent Files come through here, not through
         // loadClientSideProperties, so the brompton-ull migration has to run on
         // this path too or an old file would keep a processor that is no longer
         // offered. Runs before the default below: it sets lowLatency itself.
@@ -1274,7 +1274,7 @@ class _CanvasUi {
         if (!layer.border_color_cabinet) layer.border_color_cabinet = layer.border_color || '#ffffff';
         if (!layer.border_color_data) layer.border_color_data = layer.border_color || '#ffffff';
         if (!layer.border_color_power) layer.border_color_power = layer.border_color || '#ffffff';
-        // v0.10.9 (step 6): cross-member path entries are NOT transient, so
+        // v0.11.0 (step 6): cross-member path entries are NOT transient, so
         // they are deliberately not in the delete list below - they are the
         // user's hand-drawn wiring and a file is where it lives. What a file
         // cannot be trusted about is whether the peer an entry names is still
@@ -1327,7 +1327,7 @@ class _CanvasUi {
         layer.powerFlowPattern = originalPattern;
     }
 
-    // v0.10.9: NovaStar Armor used to discard portMappingMode entirely -
+    // v0.11.0: NovaStar Armor used to discard portMappingMode entirely -
     // calculatePortAssignments forced Organized on it no matter what the layer
     // said. Projects saved in that window can carry 'max-capacity' on an Armor
     // screen while having been drawn (and printed) as Organized the whole time.
@@ -1361,7 +1361,7 @@ class _CanvasUi {
         const input = document.createElement('input');
         input.type = 'text';
         input.value = currentName;
-        // v0.10.9: the edit cue rides on .editing (styled in theme.css); an
+        // v0.11.0: the edit cue rides on .editing (styled in theme.css); an
         // inline border/background loses to the themed field rule's !important.
         input.className = 'layer-name-input editing';
         input.style.cssText = 'color: #e0e0e0; padding: 2px 4px; border-radius: 3px; font-size: 13px; font-weight: 600; width: 100%;';

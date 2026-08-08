@@ -450,7 +450,7 @@ class _LogsRecent {
                     this.normalizeLoadedPowerFlowPattern(layer);
                 });
             }
-            // v0.10.9: same Armor Port Mapping fix-up as loadProjectFromFile.
+            // v0.11.0: same Armor Port Mapping fix-up as loadProjectFromFile.
             // Runs before the PUT so the server (and the first undo snapshot)
             // get the corrected mode.
             this.normalizeArmorPortMapping(this.project);
@@ -486,7 +486,7 @@ class _LogsRecent {
                             this.normalizeLoadedPowerFlowPattern(layer);
                         });
                     }
-                    // v0.10.9: no-op when the pre-PUT pass already fixed them;
+                    // v0.11.0: no-op when the pre-PUT pass already fixed them;
                     // kept so the object that feeds resetHistory() below is
                     // always normalized.
                     this.normalizeArmorPortMapping(this.project);

@@ -1,6 +1,6 @@
-"""v0.10.9 audit - RENDERING AND EXPORT.
+"""v0.11.0 audit - RENDERING AND EXPORT.
 
-An adversarial pass over what v0.10.9 draws on screen and what it writes into
+An adversarial pass over what v0.11.0 draws on screen and what it writes into
 the files a crew takes to site. Written as a standalone audit file so nothing
 here can be mistaken for the feature's own tests.
 
@@ -294,7 +294,7 @@ def test_fixed_a_corner_touching_group_traces_two_simple_rings():
 
 
 def test_fixed_a_blanked_cabinet_makes_a_LONE_screen_a_polygon():
-    """WAS: v0.10.9 taught the CONTOUR that a blank cabinet is not LED but left
+    """WAS: v0.11.0 taught the CONTOUR that a blank cabinet is not LED but left
     the shape DECISION for a lone screen on the old hidden-only test, so a
     single screen with a blanked corner traced a correct six-vertex outline
     that was then thrown away and shipped as a full rectangle.

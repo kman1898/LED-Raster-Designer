@@ -1,4 +1,4 @@
-"""Screen groups - the v0.10.9 audit fixes, as permanent guards.
+"""Screen groups - the v0.11.0 audit fixes, as permanent guards.
 
 The audit files (test_audit_*.py) are throwaway; these are the assertions worth
 keeping from them, plus the ones the audit could not make because the fix did

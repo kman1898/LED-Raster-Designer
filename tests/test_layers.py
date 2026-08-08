@@ -262,7 +262,7 @@ def test_duplicate_layer_preserves_data_label_properties(client):
     assert layer['randomDataColors'] is True
 
 
-# ── Per-layer Low Latency (v0.10.9) ──────────────────────────────────────
+# ── Per-layer Low Latency (v0.11.0) ──────────────────────────────────────
 # lowLatency changes how many pixels a data port can carry, so a value that
 # silently fails to persist would hand the user a port count that does not
 # match what they configured.

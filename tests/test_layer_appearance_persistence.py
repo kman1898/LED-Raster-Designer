@@ -1,6 +1,6 @@
-"""v0.10.9 - appearance settings vanished when the page was reloaded.
+"""v0.11.0 - appearance settings vanished when the page was reloaded.
 
-Reported on macOS against 0.10.9: "things reverting when I reloaded the page".
+Reported on macOS against 0.11.0: "things reverting when I reloaded the page".
 The app log (14:20-14:21) shows it exactly. Layer 2 "UPSTAGE" had its gradient
 stops walked from 0.25/0.4/0.6/0.8/1 down to 0/0.25/0.5/0.75/1 over ~11
 seconds. At 14:21:02 the page reloaded. At 14:21:52 the same layer came back

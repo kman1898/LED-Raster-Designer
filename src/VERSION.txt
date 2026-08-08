@@ -1,7 +1,7 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
-v0.10.9 - August 7, 2026
+v0.11.0 - August 8, 2026
 ----------------------------
 
 SCREEN GROUPS - one wall, however many cabinet sizes

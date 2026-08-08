@@ -516,7 +516,7 @@ def _build_initial_project():
         'data_flow_perspective': 'front',
         'power_perspective': 'front',
         'layers': [],
-        # v0.10.9: screen groups. Same shape as `canvases`: an array of
+        # v0.11.0: screen groups. Same shape as `canvases`: an array of
         # {id, name, layer_ids} objects, with membership mirrored onto each
         # member layer as `group_id`. Empty on a fresh project; a group only
         # exists once the user makes one.
@@ -611,7 +611,7 @@ def _seed_data_with_canvas_defaults(data):
         donor = max(siblings, key=lambda l: int(l.get('id') or 0))
     except Exception:
         donor = siblings[-1]
-    # v0.10.9: `group_id` is deliberately NOT inheritable. Everything in this
+    # v0.11.0: `group_id` is deliberately NOT inheritable. Everything in this
     # tuple is a *setting* the user would have to retype; group membership is a
     # structural decision about which screens are one wall. Adding a second
     # screen next to a grouped one must not silently enrol it in that group -
@@ -709,7 +709,7 @@ def create_layer(name, columns, rows, cabinet_width, cabinet_height, offset_x=0,
         'flowPattern': 'tl-h',
         'bitDepth': 8,
         'frameRate': 60,
-        # v0.10.9: per-layer Low Latency. Off by default; the client overlays
+        # v0.11.0: per-layer Low Latency. Off by default; the client overlays
         # the user's preference on top, same as bitDepth/frameRate.
         'lowLatency': False,
         # Power settings defaults
@@ -752,7 +752,7 @@ def create_layer(name, columns, rows, cabinet_width, cabinet_height, offset_x=0,
         'infoLabelSize': 14,
         'labelsColor': '#ffffff',
         'labelsFontSize': 30,
-        # v0.10.9: screen group membership. null = not in a group, which is
+        # v0.11.0: screen group membership. null = not in a group, which is
         # every freshly created layer. Mirrors the owning group's layer_ids.
         'group_id': None,
         # Screen name sizes per tab
@@ -1006,7 +1006,7 @@ def _next_duplicate_canvas_name(src_name):
 
 
 # ---------------------------------------------------------------------------
-# Screen groups (v0.10.9).
+# Screen groups (v0.11.0).
 #
 # A group makes a set of layers behave as one screen for totals, export,
 # naming and movement. It exists because the per-layer grid is uniform: a wall
@@ -1192,7 +1192,7 @@ def _enforce_group_integrity(project):
     if not isinstance(project, dict):
         return project
     if not isinstance(project.get('groups'), list):
-        # Missing (pre-v0.10.9 file) or malformed. Normalise to the empty
+        # Missing (pre-v0.11.0 file) or malformed. Normalise to the empty
         # array so every consumer can assume the shape, same as the canvas
         # migrator does for `canvases`.
         project['groups'] = []
@@ -1264,7 +1264,7 @@ def _enforce_group_integrity(project):
 def _prune_cross_layer_paths(project):
     """Drop manually drawn path steps that point outside the owner's group.
 
-    v0.10.9: a hand-drawn data-port path or power circuit may cross from one
+    v0.11.0: a hand-drawn data-port path or power circuit may cross from one
     group member onto another. The path itself never moves - it stays on the
     layer that OWNS the port/circuit, in ``layer['customPortPaths'][port]`` /
     ``layer['powerCustomPaths'][circuit]`` - so the only cross-layer thing in
@@ -1281,7 +1281,7 @@ def _prune_cross_layer_paths(project):
     already passes through.
 
     Steps WITHOUT a layerId are the shape every project written before this
-    feature has, and they are never touched: a pre-v0.10.9 file round-trips
+    feature has, and they are never touched: a pre-v0.11.0 file round-trips
     unchanged. ``layerId`` is camelCase because the client writes it.
     """
     if not isinstance(project, dict):
@@ -1392,7 +1392,7 @@ def validate_group_settings(layers):
 def _export_units(project, layers):
     """Split ``layers`` into the units an export draws and names as ONE screen.
 
-    v0.10.9: the whole point of a group is that an outside viewer - Resolume,
+    v0.11.0: the whole point of a group is that an outside viewer - Resolume,
     Photoshop, the person holding the print - sees one screen, so a group's
     members must produce a single shape carrying the GROUP's name, not one per
     member.
@@ -1569,7 +1569,7 @@ def render_unit_to_image(members, raster_width, raster_height, include_borders=T
     """Render one export unit - a lone layer, or every member of a screen
     group - onto a single raster-sized RGBA image.
 
-    v0.10.9: a group has to reach Photoshop as ONE Photoshop layer, so its
+    v0.11.0: a group has to reach Photoshop as ONE Photoshop layer, so its
     members composite into one image first. A single member returns exactly
     what render_layer_to_image returned before groups existed.
     """
@@ -1760,7 +1760,7 @@ def create_psd_for_view(view_mode, project_name, include_borders):
     
     layer_records = []
 
-    # v0.10.9: one Photoshop layer per export unit. A screen group is one
+    # v0.11.0: one Photoshop layer per export unit. A screen group is one
     # screen, so it gets ONE Photoshop layer named for the group - anything
     # else and the person opening the PSD sees the seam we exist to hide.
     for unit_name, members in _export_units(current_project, current_project['layers']):
@@ -1876,7 +1876,7 @@ def export_psd():
     layer_records = []
     
     # Add each export unit (in reverse order so first layer is on bottom in a
-    # layer panel). v0.10.9: a screen group is ONE Photoshop layer, named for
+    # layer panel). v0.11.0: a screen group is ONE Photoshop layer, named for
     # the group - see create_psd_for_view.
     for unit_name, members in _export_units(current_project, current_project['layers']):
         layer = members[0]
@@ -1948,7 +1948,7 @@ def export_layers_as_zip(include_borders, raster_width, raster_height):
     
     zip_bytes = io.BytesIO()
     
-    # v0.10.9: one PNG per export unit, so a screen group leaves one file
+    # v0.11.0: one PNG per export unit, so a screen group leaves one file
     # named for the group rather than one file per member.
     units = _export_units(current_project, current_project['layers'])
 
@@ -2342,7 +2342,7 @@ def _compute_panel_contour(layer):
 def _compute_layers_contour(layers):
     """The outline of ONE connected region of these layers' visible panels.
 
-    v0.10.9: a screen group is one screen, so its members trace a SINGLE
+    v0.11.0: a screen group is one screen, so its members trace a SINGLE
     outline rather than one per member. Nothing else changes - the lattice
     below was already built from each panel's own rectangle, so panels of
     different cabinet sizes coming from different layers union exactly the
@@ -2399,7 +2399,7 @@ def _compute_layers_islands(layers):
     if not panels:
         return []
 
-    # v0.10.9: trace the union of the visible panels' REAL rectangles. The old
+    # v0.11.0: trace the union of the visible panels' REAL rectangles. The old
     # code walked a uniform row/col * cabinet-size grid, which is a whole
     # cabinet too tall/wide whenever a half tile shrinks a row or column.
     # Every rect comes from the panel's own x/y/width/height, which is where
@@ -2407,7 +2407,7 @@ def _compute_layers_islands(layers):
     # column and anchors a half tile inside its full-size slot otherwise).
     rects = []
     for p in panels:
-        # v0.10.9: exclude blank as well as hidden. The contour is "where the
+        # v0.11.0: exclude blank as well as hidden. The contour is "where the
         # LED surface actually is", and every count that answers that question
         # - cabinet totals, weight, power - filters on `not blank and not
         # hidden` (canvas.js:4640, app-presets.js:1329, app-power.js:1517).
@@ -2601,7 +2601,7 @@ def _ring_bounds(ring):
 def _layer_has_knockouts(layer):
     """Does this layer have any cabinet missing from its grid?
 
-    Hidden (deleted) OR blank. v0.10.9 taught the CONTOUR that a blank cabinet
+    Hidden (deleted) OR blank. v0.11.0 taught the CONTOUR that a blank cabinet
     is not LED surface but left the SHAPE DECISION on the old hidden-only test,
     so a lone screen with a blanked corner traced a correct six-vertex outline
     and then threw it away and shipped a full rectangle - while the same wall
@@ -2617,12 +2617,12 @@ def _layer_has_knockouts(layer):
 def _export_unit_needs_polygon(members):
     """Does this export unit need a Polygon, or is a plain Slice enough?
 
-    A lone layer keeps the pre-v0.10.9 test: a cabinet missing anywhere in the
+    A lone layer keeps the pre-v0.11.0 test: a cabinet missing anywhere in the
     grid and it is a Polygon, so every mapping already in the field re-exports
-    unchanged. (What CHANGED in v0.10.9.x: "missing" now means blank as well as
+    unchanged. (What CHANGED in v0.11.0: "missing" now means blank as well as
     hidden, matching the contour - see _layer_has_knockouts.)
 
-    v0.10.9: a group is judged on the union it actually traces, because no
+    v0.11.0: a group is judged on the union it actually traces, because no
     member can answer the question on its own. Two rectangular members that
     tile into a rectangle ARE a rectangle and ship as a Slice; two that tile
     into an L are a polygon even though neither member has a hidden panel.
@@ -2691,7 +2691,7 @@ def _resolume_polygon(layer, unique_id, members=None, name=None,
                       bounds=None, contour=None):
     """Generate a Resolume Polygon XML block for a non-rectangular layer.
 
-    v0.10.9: ``members`` is the export unit this shape covers - a screen
+    v0.11.0: ``members`` is the export unit this shape covers - a screen
     group's members, or just ``layer``. ``name`` overrides the shape's name so
     a group is named once, for the group.
 
@@ -2773,7 +2773,7 @@ def _resolume_slice(layer, unique_id, members=None, name=None, bounds=None,
                     contour=None):
     """Generate a Resolume Slice XML block for a layer.
 
-    v0.10.9: ``members``/``name`` as in _resolume_polygon - a group that tiles
+    v0.11.0: ``members``/``name`` as in _resolume_polygon - a group that tiles
     into a plain rectangle is one Slice over the union, named for the group.
     ``bounds`` overrides the rectangle (one island of a disconnected unit);
     ``contour`` is accepted and ignored so both shape builders take the same
@@ -2977,7 +2977,7 @@ def generate_resolume_xml(project, project_name, raster_w, raster_h):
         else:
             canvas_layers = screen_layers
 
-        # v0.10.9: one shape per export unit, not per layer. A screen group's
+        # v0.11.0: one shape per export unit, not per layer. A screen group's
         # members become a single Slice/Polygon over their union, carrying the
         # group's name; an ungrouped project yields the old per-layer list.
         slices_xml = ""

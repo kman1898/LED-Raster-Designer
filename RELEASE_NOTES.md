@@ -1,4 +1,4 @@
-# LED Raster Designer v0.10.9
+# LED Raster Designer v0.11.0
 
 Screen groups: a wall built from more than one cabinet size now behaves as a single
 screen. Plus corrected capacity figures and a number of fixes worth reading if you

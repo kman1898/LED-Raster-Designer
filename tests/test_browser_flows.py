@@ -542,7 +542,7 @@ def test_wheel_zoom_on_canvas(page):
     z2 = page.evaluate("window.canvasRenderer.zoom")
     assert z2 < z1, f"wheel down did not zoom out ({z1} -> {z2})"
 
-# ── Port mapping: Organized vs Max Capacity (v0.10.9) ────────────────────
+# ── Port mapping: Organized vs Max Capacity (v0.11.0) ────────────────────
 # calculatePortAssignments() is the single source of truth for every port map
 # the app emits. These tests drive it directly with synthetic layers through
 # the live page (no DOM needed, the method is pure), and independently
@@ -755,7 +755,7 @@ def test_non_armor_max_capacity_ignores_bounding_rect(page):
     assert mx['totalPanels'] == 25
 
 
-# v0.10.9: Megapixel HELIOS pixels-per-port, pinned against the primary source:
+# v0.11.0: Megapixel HELIOS pixels-per-port, pinned against the primary source:
 # "HELIOS(R) LED Processing Platform - User Guide" v26.04.0 (2026-04-20),
 # Appendix K.14, p.216. These numbers previously came from the rounded switch
 # spec sheet and ran up to ~6% HIGH, which under-counts ports and can leave a
@@ -825,7 +825,7 @@ def test_port_mapping_buttons_live_for_armor(page):
             orgOpacity: o.style.opacity, maxOpacity: m.style.opacity,
             orgEvents: o.style.pointerEvents, maxEvents: m.style.pointerEvents,
             orgTitle: o.title, maxTitle: m.title,
-            // v0.10.9: the theme's !important rules mean the .active CLASS is
+            // v0.11.0: the theme's !important rules mean the .active CLASS is
             // the highlight. Reading o.style.background here passed even while
             // the button rendered unhighlighted -- never assert on it.
             orgActive: o.classList.contains('active'),
@@ -869,7 +869,7 @@ def test_port_mapping_buttons_not_latched_by_early_return(page):
     assert state['afterImage'] == {'o': '1', 'm': '1'}, state
 
 
-# ── Port Mapping highlight (v0.10.9) ─────────────────────────────────────
+# ── Port Mapping highlight (v0.11.0) ─────────────────────────────────────
 # theme.css styles .mapping-mode-btn and .mapping-mode-btn.active with
 # !important, so the ONLY thing that can move the highlight is the .active
 # class -- inline background/color writes are painted over. These tests
@@ -1033,7 +1033,7 @@ def test_flow_pattern_buttons_highlight_by_class(page):
     page.wait_for_timeout(300)
 
 
-# ── Armor Port Mapping normalization on project load (v0.10.9) ───────────
+# ── Armor Port Mapping normalization on project load (v0.11.0) ───────────
 
 
 def armor_fixture_project(flows_server, name):
@@ -1210,7 +1210,7 @@ def test_armor_max_capacity_normalized_on_recent_file_load(page, flows_server):
     page.wait_for_timeout(800)
 
 
-# ── Per-layer Low Latency (v0.10.9) ──────────────────────────────────────
+# ── Per-layer Low Latency (v0.11.0) ──────────────────────────────────────
 # Low latency is not one number: it is a different behaviour per processor
 # family. Brompton ULL halves pixels-per-port; Megapixel HELIOS costs no
 # capacity at all; NovaStar is GEOMETRIC -- a 512 px port width cap on every
@@ -1413,7 +1413,7 @@ def test_low_latency_note_follows_processor(page, processor, pending):
     """The note beside the control is the descriptor's own text, plus a plain
     statement when the constraint is not in the figures yet.
 
-    v0.10.9: it is the OFF-state note now -- what enabling Low Latency would
+    v0.11.0: it is the OFF-state note now -- what enabling Low Latency would
     cost. Once it is on, the rules list under the readout says it at length and
     this note stands down (test_low_latency_notes_do_not_repeat_each_other), so
     the state has to be pinned here rather than inherited from another test."""
@@ -1435,7 +1435,7 @@ def test_low_latency_note_follows_processor(page, processor, pending):
     assert ('Not applied to the figures below yet.' in state['note']) is pending, state
 
 
-# ── Low Latency rules under the readout (v0.10.9) ────────────────────────
+# ── Low Latency rules under the readout (v0.11.0) ────────────────────────
 # Pixels/Port in the Data sidebar is the flat table lookup for the whole layer,
 # so it shows NEITHER the per-port (1 - Y/H) derate NOR the 5G narrow-port
 # penalty -- both need a port, and it has none. That figure can therefore
@@ -1661,7 +1661,7 @@ def test_low_latency_rules_clear_on_a_layer_that_cannot_have_them(page):
     assert state['cleared'] == {'display': 'none', 'count': 0}, state
 
 
-# ── NovaStar Low Latency port geometry (v0.10.9, pass 2) ─────────────────
+# ── NovaStar Low Latency port geometry (v0.11.0, pass 2) ─────────────────
 # calculatePortAssignments is the only thing that knows where a port sits, so
 # it owns the NovaStar geometry rule. There is exactly ONE rule now: a port's
 # capacity is (1 - Y/H) * TOTAL, where TOTAL is the plain table lookup at the
@@ -2064,7 +2064,7 @@ def test_low_latency_load_accounting_stays_per_processor(page):
     assert [p['pixelSum'] for p in coex['ports']] == [40 * 16384, 2 * 16384]
 
 
-# ── Flow patterns under low latency (v0.10.9) ────────────────────────────
+# ── Flow patterns under low latency (v0.11.0) ────────────────────────────
 # With the 512 px cap retired, the only NovaStar rule left is the per-port
 # (1 - Y/H) derate, and it says nothing about the ROUTE: it prices a port that
 # starts low on the canvas, which is what a horizontal-first pattern does from
@@ -2592,7 +2592,7 @@ def test_brompton_ull_migrates_on_recent_file_load(page, flows_server):
     page.wait_for_timeout(800)
 
 
-# ── Themed state cues actually reach the screen (v0.10.9) ────────────────
+# ── Themed state cues actually reach the screen (v0.11.0) ────────────────
 # theme.css is loaded last and paints with !important, so any UI state the JS
 # indicated via an INLINE style, or that style.css declared without
 # !important, was silently overridden and never rendered. Every assertion
@@ -2837,7 +2837,7 @@ def test_accent_readouts_are_renderable(page):
 
 
 def test_healthy_port_readouts_do_not_look_like_an_error(page):
-    """v0.10.9 correction: Pixels/Port and Panels/Port sit in the same box as
+    """v0.11.0 correction: Pixels/Port and Panels/Port sit in the same box as
     #ff0000 (Panels/Port ERROR) and #ff6600 (N/A), and the default accent is
     red, so an accent-coloured healthy figure read as a fault. A healthy value
     renders in the ordinary text colour and nothing else in that box does."""
@@ -2895,7 +2895,7 @@ def test_text_style_buttons_follow_the_accent(page):
     assert '42, 109, 212' not in res['on']['bgi'], "still the hard-coded blue"
 
 
-# ── Port load percentage (v0.10.9) ───────────────────────────────────────
+# ── Port load percentage (v0.11.0) ───────────────────────────────────────
 # The Data Flow tab can print how full each port is, as a percentage of THAT
 # port's capacity. The figure has to come from the same accounting the port
 # map itself used, which differs per processor: NovaStar Armor pays for the
@@ -3267,7 +3267,7 @@ def test_port_load_toggle_defaults_off_and_gates_the_drawing(page):
     page.wait_for_timeout(600)
 
 
-# ── NovaStar 5G minimum Ethernet-port load width (v0.10.9) ───────────────
+# ── NovaStar 5G minimum Ethernet-port load width (v0.11.0) ───────────────
 # NovaStar publish this under the "Ethernet Port Load Capacity" table on the 5G
 # page (XA50 Pro / CA50E receiving cards):
 #
@@ -3551,7 +3551,7 @@ def test_5g_port_load_percent_uses_the_penalised_capacity(page):
         'the unpenalised reading has to differ, or this test proves nothing')
 
 
-# ── Screen groups: the client-side half of the model (v0.10.9) ──────────
+# ── Screen groups: the client-side half of the model (v0.11.0) ──────────
 #
 # `group_id` is server-owned, exactly like `canvas_id`. These pin the three
 # client-side decisions that go with that, each of which a future change
@@ -3562,7 +3562,7 @@ def test_group_id_survives_the_real_client_save_path(page):
     """updateLayer() PUTs the whole layer object. If the server whitelist
     drops group_id, every edit to a grouped screen silently leaves the group.
 
-    The membership has to be REAL. The v0.10.9 audit found PUT /api/layer/<id>
+    The membership has to be REAL. The v0.11.0 audit found PUT /api/layer/<id>
     took group_id with no validation at all, so a layer could claim a group
     that did not exist; the route now resolves it. Asserting with an invented
     id would therefore be asserting the forgery still works.

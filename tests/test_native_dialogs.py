@@ -1,6 +1,6 @@
 """Tests for native dialog API endpoints with mocked OS interactions.
 
-v0.10.9: the dialog helpers now return (path, status) rather than a bare path.
+v0.11.0: the dialog helpers now return (path, status) rather than a bare path.
 status is 'ok', 'cancelled' (the user dismissed the dialog) or 'unavailable'
 (it could not be opened at all). Conflating the last two is what made a failed
 Windows folder chooser - and a deliberate Cancel - both dump the export into

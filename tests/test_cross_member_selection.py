@@ -1,4 +1,4 @@
-"""Screen groups (v0.10.9) - MARQUEE SELECT and APPLY PATTERN across members.
+"""Screen groups (v0.11.0) - MARQUEE SELECT and APPLY PATTERN across members.
 
 The report this exists for: "when we do custom mode on a group i need to be
 able to select panels across layers. i can draw across fine but select and use

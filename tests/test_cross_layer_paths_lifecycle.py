@@ -1,4 +1,4 @@
-"""Cross-member manual paths (v0.10.9, step 6) - the COPY lifecycle (Playwright).
+"""Cross-member manual paths (v0.11.0, step 6) - the COPY lifecycle (Playwright).
 
 A customPortPaths / powerCustomPaths entry is normally {row, col}: a panel in
 the layer that owns the path, which is how every project written before step 6

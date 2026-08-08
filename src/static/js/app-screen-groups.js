@@ -1,7 +1,7 @@
 // app-screen-groups: feature methods for LEDRasterApp, attached to the
 // prototype via the carrier class.
 //
-// ── Screen groups (v0.10.9), step 3: the Screens sidebar ─────────────────
+// ── Screen groups (v0.11.0), step 3: the Screens sidebar ─────────────────
 //
 // A group IS A SINGLE LAYER. It is one wall that happens to be built from two
 // cabinet sizes: the per-layer grid is uniform, so a wall of 1m JP5 cabinets
@@ -1195,7 +1195,7 @@ class _ScreenGroups {
     // number of members and any mix of cabinet sizes.
     // The screen count comes from the ROLL-UP, not from getGroupMembers.
     //
-    // v0.10.9 audit: the cabinet and weight figures are filtered to the canvas
+    // v0.11.0 audit: the cabinet and weight figures are filtered to the canvas
     // this row is drawn on, but the count was a raw member count - so a group
     // with a member moved to another canvas read "3 screens · 48 cab · 960 kg"
     // above two rows, mixing a count of three walls with the weight of two.

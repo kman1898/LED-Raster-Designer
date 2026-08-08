@@ -1,4 +1,4 @@
-"""ADVERSARIAL AUDIT of v0.10.9 cross-member wiring and selection.
+"""ADVERSARIAL AUDIT of v0.11.0 cross-member wiring and selection.
 
 Written to BREAK the feature, not to document it. Everything asserted here is
 either exact model state (the two scoped Sets, the stored path entries) or

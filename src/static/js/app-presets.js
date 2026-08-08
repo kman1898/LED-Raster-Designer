@@ -1322,20 +1322,20 @@ class _Presets {
         const effCid = (l) => (isShowView && l.show_canvas_id) ? l.show_canvas_id : l.canvas_id;
         this.project.layers.forEach(layer => {
             if ((layer.type || 'screen') !== 'screen') return;
-            if (layer.visible === false) return;  // v0.10.9: missing key means visible
+            if (layer.visible === false) return;  // v0.11.0: missing key means visible
             const lcid = effCid(layer);
             if (lcid && hiddenCanvasIds.has(lcid)) return;
             if (onlyCanvasId && lcid !== onlyCanvasId) return;
             const activePanels = (layer.panels || []).filter(p => !p.blank && !p.hidden);
             if (activePanels.length === 0) return;
-            // v0.10.9 fix: this used to re-run calculatePortAssignments and
+            // v0.11.0 fix: this used to re-run calculatePortAssignments and
             // count distinct a.port, which is the AUTOMATIC map and nothing
             // else. A screen hand-wired to three ports read 3 in the sidebar,
             // 3 on its screen label and 3 in the group roll-up - and 1 here,
             // on the text layer that gets printed and handed to the crew,
             // because four cabinets fit one Brompton port.
             //
-            // getLayerPortsRequired is the one implementation v0.10.9
+            // getLayerPortsRequired is the one implementation v0.11.0
             // collapsed the other three copies into: it prefers the drawn
             // customPortPaths over the automatic figure and returns 0 for a
             // member whose cabinets are already fed by a peer's crossing
@@ -1351,7 +1351,7 @@ class _Presets {
     // Slice 9: exclude layers whose canvas is hidden.
     // Slice 10: optional onlyCanvasId filter for per-canvas sidebar totals.
     //
-    // v0.10.9 fix, three parts:
+    // v0.11.0 fix, three parts:
     //   circuits  came from a bulk division, ceil(layerWatts / circuitWatts),
     //             which ignores row/column packing entirely and can only ever
     //             UNDER-count. It now comes from the map the app actually
@@ -1386,7 +1386,7 @@ class _Presets {
         const effCid = (l) => (isShowView && l.show_canvas_id) ? l.show_canvas_id : l.canvas_id;
         this.project.layers.forEach(layer => {
             if ((layer.type || 'screen') !== 'screen') return;
-            if (layer.visible === false) return;  // v0.10.9: missing key means visible
+            if (layer.visible === false) return;  // v0.11.0: missing key means visible
             const lcid = effCid(layer);
             if (lcid && hiddenCanvasIds.has(lcid)) return;
             if (onlyCanvasId && lcid !== onlyCanvasId) return;
@@ -1520,7 +1520,7 @@ class _Presets {
         layer.portLabelTemplateReturn = 'R#';
         layer.portLabelOverridesPrimary = {};
         layer.portLabelOverridesReturn = {};
-        // v0.10.9 (step 6): still the right reset, and it is the only one that
+        // v0.11.0 (step 6): still the right reset, and it is the only one that
         // can be right. A brand-new layer has no group, so it has no peer a
         // cross-member path entry could legally name; a preset that carries
         // paths overlays them AFTER this (applyPresetClientProps), already

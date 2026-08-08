@@ -24,7 +24,7 @@ class _Power {
         menu.querySelectorAll('.movable-view-only').forEach(el => {
             el.style.display = canCenter ? '' : 'none';
         });
-        // v0.10.9: screen-group actions. Grouping needs 2+ screen layers
+        // v0.11.0: screen-group actions. Grouping needs 2+ screen layers
         // selected, so with fewer the item is simply not offered (a group of
         // one is not a group). Ungroup / Remove only mean anything once the
         // selection is already in a group.
@@ -152,7 +152,7 @@ class _Power {
         }
     }
     
-    // v0.10.9: Enable + highlight the Organized / Max Capacity buttons from the
+    // v0.11.0: Enable + highlight the Organized / Max Capacity buttons from the
     // current layer's portMappingMode. Both modes are valid on every processor
     // now; NovaStar Armor honours its reserved-rectangle rule in BOTH of them,
     // which is why its usable capacity is lower than a plain pixel sum.
@@ -177,7 +177,7 @@ class _Power {
         mappingOrgBtn.title = 'Ports fill complete rows or columns only.' + rectNote;
         mappingMaxBtn.title = 'Ports fill to max pixel capacity - may split mid-row/column.' + rectNote;
 
-        // v0.10.9: the theme styles .mapping-mode-btn / .mapping-mode-btn.active
+        // v0.11.0: the theme styles .mapping-mode-btn / .mapping-mode-btn.active
         // with !important, so the .active class is the ONLY thing that can move
         // the highlight. Inline background/color writes here were dead.
         mappingOrgBtn.classList.toggle('active', isOrganized);
@@ -186,11 +186,11 @@ class _Power {
 
     // Update the port capacity display in the UI
     updatePortCapacityDisplay() {
-        // v0.10.9: run the button pass FIRST. It used to sit at the end of this
+        // v0.11.0: run the button pass FIRST. It used to sit at the end of this
         // function, behind the early returns below (no current layer / image
         // layer), so the buttons could latch into a stale state.
         this.updatePortMappingButtons();
-        // v0.10.9: same reasoning - the Low Latency control and its note must
+        // v0.11.0: same reasoning - the Low Latency control and its note must
         // not latch on a stale processor when the early returns below fire.
         this.updateLowLatencyUI();
 
@@ -216,7 +216,7 @@ class _Power {
         // Update capacity display
         const capacityEl = document.getElementById('port-capacity');
         if (capacityEl) {
-            // v0.10.9: a healthy figure renders in the ordinary text colour on
+            // v0.11.0: a healthy figure renders in the ordinary text colour on
             // .value-normal, so it cannot be mistaken for a fault; the warning
             // colour is the only inline override and the only colour here.
             if (portCapacity > 0) {
@@ -228,7 +228,7 @@ class _Power {
                 capacityEl.textContent = 'N/A';
                 capacityEl.classList.remove('value-normal');
                 capacityEl.style.color = '#ff6600';
-                // v0.10.9 audit: say WHY there is no figure when the reason is
+                // v0.11.0 audit: say WHY there is no figure when the reason is
                 // knowable. A frame rate the manufacturer does not publish for
                 // this processor used to be answered with the nearest row's
                 // capacity - on Armor, 240 Hz got the 120 Hz figure, double the
@@ -265,10 +265,10 @@ class _Power {
         const visiblePanels = this.currentLayer.panels ? this.currentLayer.panels.filter(p => !p.hidden).length : 0;
         const panelCountForStatus = usesRectangle && this.currentLayer.panels ? this.currentLayer.panels.length : visiblePanels;
         const assignments = this.calculatePortAssignments(this.currentLayer);
-        // v0.10.9: calculatePortAssignments is the only thing that knows where
+        // v0.11.0: calculatePortAssignments is the only thing that knows where
         // each Low Latency port sits, so it hands back the derate for the note.
         this.setLowLatencyDerateNote(this.currentLayer._lowLatencyDerate);
-        // v0.10.9 step 6: one group-aware implementation, shared with the
+        // v0.11.0 step 6: one group-aware implementation, shared with the
         // group roll-up and the canvas label, so a port that spans two members
         // cannot read as two different numbers in three places. `assignments`
         // is handed straight through - it was just computed above for the
@@ -278,7 +278,7 @@ class _Power {
         // debug toggle removed
         const portsRequiredEl = document.getElementById('ports-required');
         if (portsRequiredEl) {
-            // v0.10.9 audit: no capacity at all is an ERROR here too. Without
+            // v0.11.0 audit: no capacity at all is an ERROR here too. Without
             // this, a screen whose processor publishes no figure for its frame
             // rate showed "N/A" pixels/port, "ERROR" panels/port and then a
             // calm green 0 next to Ports Required - and 0 ports reads as "none
@@ -326,7 +326,7 @@ class _Power {
         const panelWatts = parseFloat(layer.panelWatts) || 0;
         const wattsPerCircuit = voltage * amperage;
         const panelsPerCircuit = panelWatts > 0 ? Math.floor(wattsPerCircuit / panelWatts) : 0;
-        // v0.10.9 audit fix: `!p.blank` as well as `!p.hidden`. This filter used
+        // v0.11.0 audit fix: `!p.blank` as well as `!p.hidden`. This filter used
         // to drop hidden cabinets only, so a 2 x 2 screen with one cabinet
         // blanked read 800 W here and 600 W in the group roll-up and the
         // project totals - GROUPING A SCREEN CHANGED ITS WATTAGE. A blank is a
@@ -673,7 +673,7 @@ class _Power {
         if (!list) return;
         list.style.overflowX = 'hidden';
 
-        // v0.10.9 step 6: same single implementation the ports readout now
+        // v0.11.0 step 6: same single implementation the ports readout now
         // uses - a circuit drawn across two members is one circuit, and the
         // editor must offer exactly that many label rows.
         const circuitsRequired = this.getLayerCircuitsRequired(this.currentLayer);
@@ -917,7 +917,7 @@ class _Power {
         return layer.panels.find(p => p.row === row && p.col === col) || null;
     }
 
-    // v0.10.9: customSelection is keyed by getScopedPanelKey, not getPanelKey -
+    // v0.11.0: customSelection is keyed by getScopedPanelKey, not getPanelKey -
     // see _selectPathPanelsInRect for why. `panelLayer` names the screen the
     // cabinet came from when it is not currentLayer; leaving it out resolves
     // it, so every existing single-screen caller is unchanged.
@@ -946,7 +946,7 @@ class _Power {
      * Marquee-select the cabinets under `rect` for a manual path owned by
      * `ownerLayer`, filling `selection` with SCOPED keys.
      *
-     * v0.10.9: the marquee now sweeps every member of the owner's group, the
+     * v0.11.0: the marquee now sweeps every member of the owner's group, the
      * same reachability rule click-to-add uses. Before this it walked one
      * layer, which is why dragging a box across a mixed-cabinet wall picked up
      * only half of it.
@@ -1229,7 +1229,7 @@ class _Power {
         window.canvasRenderer.render();
     }
 
-    // ── Cross-member manual paths (v0.10.9, step 6) ──────────────────────
+    // ── Cross-member manual paths (v0.11.0, step 6) ──────────────────────
     //
     // A group IS ONE WALL, so a hand-drawn port path or power circuit has to
     // be allowed to run off one member and onto the next. The path itself
@@ -1385,7 +1385,7 @@ class _Power {
     }
 
     // The address of ONE cabinet on the wall. Path ownership, path dedupe and
-    // (since v0.10.9's marquee) customSelection / powerCustomSelection are all
+    // (since v0.11.0's marquee) customSelection / powerCustomSelection are all
     // keyed on this, because inside a group `${row},${col}` names two cabinets
     // at once and every one of those jobs has to tell them apart.
     //
@@ -1654,7 +1654,7 @@ class _Power {
         const within = this.getPanelByRowCol(
             last.layer, last.panel.row + drow, last.panel.col + dcol);
         if (within) return within.hidden ? null : { layer: last.layer, panel: within };
-        // Grid edge. Before v0.10.9 the key was swallowed here with no feedback
+        // Grid edge. Before v0.11.0 the key was swallowed here with no feedback
         // at all, which inside a group is simply wrong: the wall continues, it
         // just continues on a different layer. Hand off GEOMETRICALLY, because
         // a member built from a different cabinet size has a completely
@@ -1770,7 +1770,7 @@ class _Power {
     //
     // Null only when the renderer is missing entirely, and _orderPicksForPattern
     // then falls back to the panels' own row/col - the ordering this had before
-    // v0.10.9. A degradation, deliberately, rather than a second lattice.
+    // v0.11.0. A degradation, deliberately, rather than a second lattice.
     _pathLattice(ownerLayer) {
         const cr = window.canvasRenderer;
         if (!cr || typeof cr.getPositionLattice !== 'function') return null;
@@ -1915,7 +1915,7 @@ class _Power {
         this.saveState('Custom Pattern Apply');
         this.saveClientSideProperties();
         // v0.8.2: PUT to server so the bulk pattern assignment persists.
-        // v0.10.9: the OWNER is added explicitly - a marquee that ended on a
+        // v0.11.0: the OWNER is added explicitly - a marquee that ended on a
         // peer can leave currentLayer out of the layer selection entirely.
         this.updateLayers(this._pathPersistLayers(owner));
         if (this.customDebug) {
@@ -2219,7 +2219,7 @@ class _Power {
                 nameInput.readOnly = false;
                 nameInput.draggable = false;
                 nameInput.style.cursor = 'text';
-                // v0.10.9: class, not inline - theme.css styles .layer-name-input
+                // v0.11.0: class, not inline - theme.css styles .layer-name-input
                 // with !important, so an inline border/background never painted.
                 nameInput.classList.add('editing');
                 nameInput.focus();
@@ -2268,7 +2268,7 @@ class _Power {
         // "+ Add Screen" buttons + cross-canvas drag/drop.
         this.regroupLayersByCanvas(container);
 
-        // v0.10.9: then nest each screen group's member rows under a group
+        // v0.11.0: then nest each screen group's member rows under a group
         // header, INSIDE the canvas group they already sit in. Runs after the
         // canvas pass because it lifts the rows that pass has just placed.
         this.regroupLayersByGroup(container);

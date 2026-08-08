@@ -1,6 +1,6 @@
-"""v0.10.9 audit - REGRESSIONS AND UNDO (auditor 5).
+"""v0.11.0 audit - REGRESSIONS AND UNDO (auditor 5).
 
-Everything v0.10.9 added is for GROUPS. Most projects have no group in them at
+Everything v0.11.0 added is for GROUPS. Most projects have no group in them at
 all, so the question this file answers is: does the plain, ungrouped,
 single-screen app still behave exactly as it did in v0.10.8.1, and is undo
 trustworthy?
@@ -568,7 +568,7 @@ def test_lifecycle_action_is_one_undo_step_that_round_trips(page, label, js, act
 
 
 def test_group_and_ungroup_are_one_undo_step_each(page):
-    """ASSERTS CURRENT BEHAVIOUR (the v0.10.9 feature itself, undo side)."""
+    """ASSERTS CURRENT BEHAVIOUR (the v0.11.0 feature itself, undo side)."""
     _fresh(page)
     _add_screen(page)
     # Screens in a group have to agree on processor, bit depth and frame rate;
@@ -831,7 +831,7 @@ def test_undo_never_jumps_more_than_one_step(page):
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# 2. UNGROUPED REGRESSION - v0.10.9 must not be visible without a group
+# 2. UNGROUPED REGRESSION - v0.11.0 must not be visible without a group
 # ══════════════════════════════════════════════════════════════════════════
 
 def test_group_machinery_is_inert_without_a_group(page):
@@ -866,7 +866,7 @@ def test_group_machinery_is_inert_without_a_group(page):
 def test_an_ungrouped_screen_still_draws_its_own_circle_and_x(page):
     """ASSERTS CURRENT BEHAVIOUR.
 
-    v0.10.9 made the circle-and-X span a whole group. A screen with no group
+    v0.11.0 made the circle-and-X span a whole group. A screen with no group
     draws exactly one circle, centred on itself, exactly as before.
     """
     arcs = page.evaluate("""() => {
@@ -900,7 +900,7 @@ def test_two_ungrouped_screens_still_draw_a_circle_each(page):
 def test_pixel_map_marquee_is_unchanged_at_every_rotation(page, rotation, expected):
     """ASSERTS CURRENT BEHAVIOUR (identical to v0.10.8.1).
 
-    Pixel Map's marquee has un-rotated its box since v0.9.3 and v0.10.9 did not
+    Pixel Map's marquee has un-rotated its box since v0.9.3 and v0.11.0 did not
     touch it. These are the v0.10.8.1 answers, verbatim.
     """
     got = page.evaluate("""(rot) => {
@@ -917,7 +917,7 @@ def test_pixel_map_marquee_is_unchanged_at_every_rotation(page, rotation, expect
 def test_unrotated_custom_marquee_picks_the_same_cabinets_as_before(page):
     """ASSERTS CURRENT BEHAVIOUR.
 
-    v0.10.9 re-keyed customSelection / powerCustomSelection from `row,col` to
+    v0.11.0 re-keyed customSelection / powerCustomSelection from `row,col` to
     `layerId:row,col`. On an UNROTATED ungrouped screen the set of CABINETS is
     unchanged - only the key spelling moved - which is what "no observable
     change" means for a screen with no group.
@@ -953,7 +953,7 @@ def test_unrotated_custom_marquee_picks_the_same_cabinets_as_before(page):
 def test_rotated_custom_marquee_now_unrotates_the_box(page, rotation, before_v0109, now):
     """ASSERTS CURRENT BEHAVIOUR - the ONE deliberate change outside a group.
 
-    v0.10.9 release notes: "Drag-select on a rotated screen now selects the
+    v0.11.0 release notes: "Drag-select on a rotated screen now selects the
     cabinets under the box... Pixel Map already worked this way; Data and Power
     did not." Both halves are pinned here, with the v0.10.8.1 answer recorded
     so the change stays deliberate.
@@ -986,7 +986,7 @@ def test_rotated_custom_marquee_now_unrotates_the_box(page, rotation, before_v01
 def test_flow_patterns_on_an_ungrouped_screen_are_unchanged(page, pattern):
     """ASSERTS CURRENT BEHAVIOUR (identical to v0.10.8.1).
 
-    v0.10.9 made patterns follow where cabinets physically sit across a group.
+    v0.11.0 made patterns follow where cabinets physically sit across a group.
     On one screen the order is still the plain grid walk, so the labels the
     renderer draws in Data Flow are the same strings in the same order.
     """
@@ -1004,7 +1004,7 @@ def test_ungrouped_port_and_circuit_counts_are_unchanged(page):
     """ASSERTS CURRENT BEHAVIOUR (identical to v0.10.8.1).
 
     6x4 of 128px Brompton 8-bit/60 and 200 W at 208 V / 20 A. These are the
-    v0.10.8.1 numbers; v0.10.9 changed the NovaStar 5G and Megapixel tables
+    v0.10.8.1 numbers; v0.11.0 changed the NovaStar 5G and Megapixel tables
     (documented, and re-checked in the capacity tests below) but not Brompton
     and not the circuit math.
     """
@@ -1034,7 +1034,7 @@ def test_ungrouped_port_and_circuit_counts_are_unchanged(page):
     ('brompton', 525000, 32),
     ('novastar-armor', 659722, 40),
     ('novastar-coex-1g', 659722, 40),
-    # v0.10.9 corrected these three against the manufacturers' published tables.
+    # v0.11.0 corrected these three against the manufacturers' published tables.
     # Recorded so the correction cannot silently drift back.
     ('novastar-5g', 2951200, 180),          # was 2,592,000 / 158
     ('megapixel-1g', 482000, 29),           # was 510,000 / 31
@@ -1044,7 +1044,7 @@ def test_pixels_per_port_at_8bit_60hz(page, processor, capacity, per_port):
     """ASSERTS CURRENT BEHAVIOUR.
 
     A CHANGE outside a group, and a deliberate, documented one: NovaStar 5G and
-    both Megapixel entries moved in v0.10.9. Brompton and the two NovaStar
+    both Megapixel entries moved in v0.11.0. Brompton and the two NovaStar
     Legacy/COEX-1G entries did not.
     """
     got = page.evaluate("""(proc) => {
@@ -1060,7 +1060,7 @@ def test_pixels_per_port_at_8bit_60hz(page, processor, capacity, per_port):
 def test_legacy_organized_port_mapping_is_unchanged(page, dims):
     """ASSERTS CURRENT BEHAVIOUR (identical to v0.10.8.1).
 
-    v0.10.9 taught Max Capacity the NovaStar Legacy rectangle rule. Organized
+    v0.11.0 taught Max Capacity the NovaStar Legacy rectangle rule. Organized
     already knew it, and every one of these walls maps exactly as it did.
     """
     cols, rows = dims
@@ -1087,7 +1087,7 @@ def test_legacy_max_capacity_now_maps_walls_it_used_to_refuse(page, dims):
     """ASSERTS CURRENT BEHAVIOUR - another deliberate change outside a group.
 
     In v0.10.8.1 these returned a capacity error and NO assignments at all
-    (auto = 0, byPort = {}). v0.10.9 gives them a real map.
+    (auto = 0, byPort = {}). v0.11.0 gives them a real map.
     """
     cols, rows = dims
     got = page.evaluate("""(d) => {
@@ -1153,7 +1153,7 @@ def test_a_screen_with_no_fill_colours_no_longer_blanks_the_canvas(page):
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# 3. THE v0.10.9 UI-STATE FIXES - do they actually render?
+# 3. THE v0.11.0 UI-STATE FIXES - do they actually render?
 #
 # Asserted through classList and getComputedStyle, never el.style.*: theme.css
 # uses !important throughout, so an inline value can be present and still lose.
@@ -1423,7 +1423,7 @@ def test_brompton_ull_capacities_survive_the_migration(page):
 def test_max_capacity_on_a_legacy_screen_opens_as_organized(page):
     """ASSERTS CURRENT BEHAVIOUR.
 
-    Legacy ignored Max Capacity before v0.10.9, so a file carrying that flag
+    Legacy ignored Max Capacity before v0.11.0, so a file carrying that flag
     was actually drawn Organized. Now that Max Capacity works, opening such a
     file has to pin it back or an already-issued map silently redraws.
     """
@@ -1446,7 +1446,7 @@ def test_max_capacity_on_a_legacy_screen_opens_as_organized(page):
 def test_a_pre_v0109_file_with_no_groups_key_loads_and_calculates(client):
     """ASSERTS CURRENT BEHAVIOUR (server side, no browser).
 
-    The shape of every project written before v0.10.9: no `groups`, no
+    The shape of every project written before v0.11.0: no `groups`, no
     `next_group_seq`, no `group_id` on the layers, and manual paths whose
     entries are bare {row, col} with no layerId.
     """
@@ -1458,7 +1458,7 @@ def test_a_pre_v0109_file_with_no_groups_key_loads_and_calculates(client):
     project = client.get('/api/project').get_json()
 
     old = {
-        'name': 'Pre-0.10.9',
+        'name': 'Pre-0.11.0',
         'raster_width': 1920, 'raster_height': 1080,
         'canvases': project['canvases'],
         'active_canvas_id': project['active_canvas_id'],
@@ -1477,7 +1477,7 @@ def test_a_pre_v0109_file_with_no_groups_key_loads_and_calculates(client):
 
     assert restored.get('groups') == [], "the server did not seed an empty groups list"
     assert layer.get('group_id') is None
-    # A pre-v0.10.9 path has no layerId; nothing may be pruned from it.
+    # A pre-v0.11.0 path has no layerId; nothing may be pruned from it.
     assert layer['customPortPaths'] == {'1': [{'row': 0, 'col': 0}, {'row': 0, 'col': 1}]}, \
         "a plain {row,col} path was rewritten or pruned on load"
     assert layer['powerCustomPaths'] == {'1': [{'row': 1, 'col': 0}]}
@@ -1507,13 +1507,13 @@ def test_restoring_the_same_old_project_twice_changes_nothing(client):
     twice = client.put('/api/project', json=once).get_json()
     once.pop('_migration_notice', None)
     twice.pop('_migration_notice', None)
-    assert once == twice, "restore_project is not idempotent for a pre-v0.10.9 file"
+    assert once == twice, "restore_project is not idempotent for a pre-v0.11.0 file"
 
 
 def test_a_plain_ungrouped_screen_still_exports_as_a_rectangle(client):
     """ASSERTS CURRENT BEHAVIOUR (server side).
 
-    v0.10.9 changed the Resolume export to trace the real cabinet outline. A
+    v0.11.0 changed the Resolume export to trace the real cabinet outline. A
     plain rectangular wall must still come out as a Slice, not a Polygon, and a
     wall with cabinets missing must still come out as a Polygon.
     """

@@ -1,4 +1,4 @@
-"""Screen groups (v0.10.9) - combined totals across a group's members.
+"""Screen groups (v0.11.0) - combined totals across a group's members.
 
 Step 1 gave groups a data model. This is the part that makes a group worth
 having: a wall built from 1m JP5 cabinets AND 0.5m standard cabinets has to be
@@ -592,7 +592,7 @@ def test_an_explicitly_hidden_member_is_excluded(page):
 
 # ── A peer fed by a neighbour's crossing port must not also count its own ──
 #
-# v0.10.9: getLayerPortsRequired guarded its whole custom branch on
+# v0.11.0: getLayerPortsRequired guarded its whole custom branch on
 # `layer.customPortPaths` being present. A member in custom flow that had never
 # had its custom state initialised - a project saved before the key existed, or
 # a peer that inherited the group's shared flowPattern without

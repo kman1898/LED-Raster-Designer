@@ -103,7 +103,7 @@
   }
 
   function scan() {
-    // v0.10.9: the colour picker's channel sliders paint their own inline
+    // v0.11.0: the colour picker's channel sliders paint their own inline
     // ramp (color_picker.js _trackGradient); enhancing them would repaint the
     // ramp as a flat accent fill and drop a value bubble on top of it.
     var list = document.querySelectorAll(

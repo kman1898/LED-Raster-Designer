@@ -11,7 +11,7 @@ export class LEDRasterApp {
         this.lastSelectedLayerId = null;
         this.selectionAnchorLayerId = null;
         this.customSelectMode = false;
-        // Manual data-flow / power selections. v0.10.9: Sets of SCOPED keys,
+        // Manual data-flow / power selections. v0.11.0: Sets of SCOPED keys,
         // `${layerId}:${row},${col}` (app-power.js getScopedPanelKey), because
         // a marquee over a screen group has to be able to name member A's R0C0
         // and member B's R0C0 as two different cabinets. Under the unscoped
@@ -310,7 +310,7 @@ export class LEDRasterApp {
 
     // Extract client-side only properties from a layer.
     //
-    // v0.10.9: `group_id` does NOT belong here, for the same reason
+    // v0.11.0: `group_id` does NOT belong here, for the same reason
     // `canvas_id` / `show_canvas_id` never have. This list (and its twin in
     // saveClientSideProperties / loadClientSideProperties) exists for fields
     // the SERVER does not round-trip, which are then re-applied on top of a
@@ -519,7 +519,7 @@ export class LEDRasterApp {
             });
     }
     
-    // v0.10.9: 'brompton-ull' used to be its own processor entry holding the
+    // v0.11.0: 'brompton-ull' used to be its own processor entry holding the
     // Brompton table halved. It is now Brompton + Low Latency, which produces
     // the same numbers from one table. Old files and old presets keep the old
     // value forever, so every load path runs this. Returns true if it changed
@@ -531,7 +531,7 @@ export class LEDRasterApp {
         return true;
     }
 
-    // v0.10.9 (step 6): a cross-member path entry ({row, col, layerId}) is only
+    // v0.11.0 (step 6): a cross-member path entry ({row, col, layerId}) is only
     // meaningful while the layer it names is still a reachable peer of the
     // owner. Three things restore paths without any guarantee of that:
     // localStorage client props (keyed by layer id, so a project with the same
@@ -625,7 +625,7 @@ export class LEDRasterApp {
     // remove what the server would have removed anyway.
     //
     // A project with no cross-member wiring - every project written before
-    // v0.10.9 - comes out of here untouched, not even rewritten.
+    // v0.11.0 - comes out of here untouched, not even rewritten.
     pruneStaleCrossLayerPaths() {
         const layers = (this.project && this.project.layers) || [];
         let dropped = 0;
@@ -773,7 +773,7 @@ export class LEDRasterApp {
             if (layer.processorType === undefined) layer.processorType = prefs.processorType;
             if (layer.processorType === 'novastar-1g') layer.processorType = 'novastar-coex-1g';
             if (layer.processorType === 'novastar-armor-1g') layer.processorType = 'novastar-armor';
-            // v0.10.9: sets lowLatency itself when it fires, so it has to run
+            // v0.11.0: sets lowLatency itself when it fires, so it has to run
             // before the default below or the migrated flag gets stamped out.
             this.migrateLowLatencyProcessor(layer);
             if (layer.lowLatency === undefined) layer.lowLatency = !!prefs.lowLatency;
@@ -825,7 +825,7 @@ export class LEDRasterApp {
             if (layer.panel_weight === undefined) layer.panel_weight = prefs.panelWeight || 20;
             if (layer.infoLabelSize === undefined) layer.infoLabelSize = 14;
             if (layer.showDataFlowPortInfo === undefined) layer.showDataFlowPortInfo = false;
-            // v0.10.9: port load % defaults OFF - an existing project must open
+            // v0.11.0: port load % defaults OFF - an existing project must open
             // and export exactly as it did before.
             if (layer.showDataFlowPortLoad === undefined) layer.showDataFlowPortLoad = false;
             if (layer.showPowerCircuitInfo === undefined) layer.showPowerCircuitInfo = false;
@@ -837,7 +837,7 @@ export class LEDRasterApp {
             if (layer.showOffsetY === undefined || layer.showOffsetY === null) {
                 layer.showOffsetY = layer.offset_y || 0;
             }
-            // v0.10.9 (step 6): last in the pass, once customPortPaths /
+            // v0.11.0 (step 6): last in the pass, once customPortPaths /
             // powerCustomPaths are guaranteed to exist. It validates against
             // group membership, which arrives with the server payload rather
             // than from the defaults above, so position inside this loop is
@@ -2283,7 +2283,7 @@ export class LEDRasterApp {
             });
         }
 
-        // v0.10.9: Low Latency mirrors the Processor Type handler above - same
+        // v0.11.0: Low Latency mirrors the Processor Type handler above - same
         // capacity + port-label refresh, and a single updateLayers(..., true)
         // so the toggle records exactly ONE undo step.
         const lowLatencyCheckbox = document.getElementById('low-latency');
@@ -2336,7 +2336,7 @@ export class LEDRasterApp {
                 layer.portMappingMode = mode;
             });
             
-            // v0.10.9: highlight via the .active CLASS, not inline styles. The
+            // v0.11.0: highlight via the .active CLASS, not inline styles. The
             // theme's .mapping-mode-btn rules are !important, so inline
             // background/color writes were painted over and the highlight
             // never moved off Organized.
@@ -2368,7 +2368,7 @@ export class LEDRasterApp {
                     return;
                 }
                 
-                // Remove active class from all buttons. v0.10.9: scope this to the
+                // Remove active class from all buttons. v0.11.0: scope this to the
                 // Data grid - the Power tiles carry BOTH classes, so an unscoped
                 // selector cleared their highlight too (matching the listener
                 // registration above and the Power grid's own handler).
@@ -2853,7 +2853,7 @@ export class LEDRasterApp {
                 const val = parsed === null ? 0 : parsed;
                 // Write the resolved number back so the field shows the result
                 if (parsed !== null) powerPanelWattsInput.value = this._formatEvaluatedNumber(parsed);
-                // v0.10.9: class, not an inline outline - Enter fires `change`
+                // v0.11.0: class, not an inline outline - Enter fires `change`
                 // while the field still has focus and theme.css forces
                 // `input:focus { outline:none !important }`, so the cue never showed.
                 powerPanelWattsInput.classList.toggle('invalid', parsed === null);
@@ -3738,7 +3738,7 @@ export class LEDRasterApp {
         return new Set([
             'id', 'name', 'visible', 'locked',
             'offset_x', 'offset_y',
-            // v0.10.9: group membership is identity, not a setting. A preset
+            // v0.11.0: group membership is identity, not a setting. A preset
             // is a bag of hardware/appearance values reused across projects,
             // and a group id only means anything inside the one project that
             // owns it - carrying it would drop a fresh screen into a group
@@ -3781,7 +3781,7 @@ export class LEDRasterApp {
         Object.keys(ensuredDefaults).forEach(k => {
             if (out[k] === undefined) out[k] = ensuredDefaults[k];
         });
-        // v0.10.9 (step 6): hand-drawn paths still travel with a preset - the
+        // v0.11.0 (step 6): hand-drawn paths still travel with a preset - the
         // geometry that gives them meaning (columns / rows / cabinet size)
         // travels with it too - but only the entries that mean "a panel in
         // this screen". A preset is reused in OTHER projects, where a layer id
@@ -3814,7 +3814,7 @@ export class LEDRasterApp {
             if (k.startsWith('_')) return;
             layer[k] = presetData[k];
         });
-        // v0.10.9 (step 6): the same drop on the way IN. serializeLayerAsPreset
+        // v0.11.0 (step 6): the same drop on the way IN. serializeLayerAsPreset
         // strips cross-member entries at save time, but presets already sitting
         // on disk from an in-between build can still hold one, and a preset
         // file is hand-editable. Passing a null owner id and no idMap means no
@@ -3828,13 +3828,13 @@ export class LEDRasterApp {
             layer.powerCustomPaths = this.copyPathsForNewOwner(
                 layer.powerCustomPaths, null, null);
         }
-        // v0.10.9: presets saved before Low Latency existed can still carry
+        // v0.11.0: presets saved before Low Latency existed can still carry
         // 'brompton-ull', so migrate here as well as on the file-load paths.
         this.migrateLowLatencyProcessor(layer);
         if (layer.lowLatency === undefined) layer.lowLatency = false;
     }
 
-    // v0.10.9: Low Latency behaviour per processor family. Single source of
+    // v0.11.0: Low Latency behaviour per processor family. Single source of
     // truth for both the capacity math (calculatePortCapacity) and the note
     // shown next to the Low Latency control.
     //
@@ -3886,7 +3886,7 @@ export class LEDRasterApp {
     // `cards`: receiving cards, shown as the note's tooltip. Informational -
     // the app does not model cards, so nothing in the math reads this.
     //
-    // v0.10.9: `rules` is the same behaviour written out as the rules the user
+    // v0.11.0: `rules` is the same behaviour written out as the rules the user
     // is actually working under, listed in the Data sidebar under the
     // Pixels/Port readout whenever Low Latency is on (setLowLatencyRules in
     // app-screen-info.js). It lives HERE, next to the capacity block it
@@ -3941,7 +3941,7 @@ export class LEDRasterApp {
                     tip: 'Receiving cards with low latency: A5S Plus, A5S Plus-N, A8S, A8S-N, A8S Pro, A10S Plus, A10S Plus-N, A10S Pro, MRV208-N, MRV412-N, MRV416-N. MRV328 and MRV336 do NOT support low latency.'
                 },
                 {
-                    // v0.10.9: 5G only - novastarMinLoadWidth returns 0 everywhere
+                    // v0.11.0: 5G only - novastarMinLoadWidth returns 0 everywhere
                     // else, so no other entry may carry this rule. The second
                     // sentence is not padding: calculatePortAssignments reads
                     // novastarMinLoadWidth unconditionally, so the penalty is a
@@ -3982,7 +3982,7 @@ export class LEDRasterApp {
         }
     };
 
-    // v0.10.9: capacity kinds whose math actually runs today. Until a kind is
+    // v0.11.0: capacity kinds whose math actually runs today. Until a kind is
     // listed, isLowLatencyCapacityPending() is true and the UI states plainly
     // that the constraint is not in the numbers yet. 'novastar-ll' joined the
     // list in pass 2, when calculatePortAssignments started applying the
@@ -4040,7 +4040,7 @@ export class LEDRasterApp {
             12: { 24:824653,  25:791667,  30:659722,  50:395833, 60:329861, 120:164931, 144:137442, 240:82465 }
         },
         // NovaStar COEX 5G (CX40 Pro) receiving cards
-        // v0.10.9: NovaStar 5G (CX40 Pro etc. with XA50 Pro / CA50E receiving
+        // v0.11.0: NovaStar 5G (CX40 Pro etc. with XA50 Pro / CA50E receiving
         // cards), from NovaStar's published "Ethernet Port Load Capacity" table,
         // confirmed direct with NovaStar. Their formula is
         //   8-bit:  capacity x 24 x frame rate < 5G x 0.85
@@ -4061,7 +4061,7 @@ export class LEDRasterApp {
             10: { 24:1050000, 25:1008000, 30:840000,  48:525000, 50:504000, 60:420000, 72:350000, 100:252000, 120:210000, 144:175000, 150:168000, 180:140000, 192:131250, 200:126000, 240:105000, 250:100800 },
             12: { 24:875000,  25:840000,  30:700000,   48:437500, 50:420000, 60:350000, 72:291667, 100:210000, 120:175000, 144:145833, 150:140000, 180:116667, 192:109375, 200:105000, 240:87500,  250:84000 }
         },
-        // v0.10.9: superseded by 'brompton' + lowLatency (migrateLowLatencyProcessor).
+        // v0.11.0: superseded by 'brompton' + lowLatency (migrateLowLatencyProcessor).
         // Kept so a stale value that slipped past the migration - an old preset, a
         // hand-edited file, a layer restored from localStorage - still resolves to a
         // real capacity instead of falling through to 0 / "N/A". Removed from both
@@ -4072,7 +4072,7 @@ export class LEDRasterApp {
             10: { 24:525000,  25:504000,  30:420000,  48:262500, 50:252000, 60:210000, 72:175000, 100:126000, 120:105000, 144:87500,  150:84000,  180:70000,  192:65625,  200:63000,  240:52500,  250:50400 },
             12: { 24:437500,  25:420000,  30:350000,  48:218750, 50:210000, 60:175000, 72:145833, 100:105000, 120:87500,  144:72917,  150:70000,  180:58333,  192:54688,  200:52500,  240:43750,  250:42000 }
         },
-        // v0.10.9: Megapixel HELIOS switch-to-tile output port capacity.
+        // v0.11.0: Megapixel HELIOS switch-to-tile output port capacity.
         // Source: "HELIOS(R) LED Processing Platform - User Guide", v26.04.0 (2026-04-20),
         // Appendix K.14 "HELIOS & Switch - Output Port Capacity (Pixels)", p.216.
         // Megapixel publishes no 8-bit figures for HELIOS, so only 10/12 exist here.

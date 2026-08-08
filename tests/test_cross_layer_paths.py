@@ -1,4 +1,4 @@
-"""Screen groups (v0.10.9) - manual paths that cross from one member to another.
+"""Screen groups (v0.11.0) - manual paths that cross from one member to another.
 
 A hand-drawn data-port path or power circuit can run off one group member and
 onto the next, because to the user the group IS one wall. The path never moves

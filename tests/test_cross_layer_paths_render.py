@@ -1,4 +1,4 @@
-"""Screen groups (v0.10.9) - DRAWING and SCORING a path that crosses members.
+"""Screen groups (v0.11.0) - DRAWING and SCORING a path that crosses members.
 
 test_cross_layer_paths.py covers the server side: what a `{row, col, layerId}`
 step is, and what the integrity pass does to a stale one. This file covers the

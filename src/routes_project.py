@@ -67,7 +67,7 @@ def save_project():
     app.current_project.update(data)
     app.current_project['is_pristine'] = False
     app._mirror_active_canvas_to_root(app.current_project)
-    # v0.10.9.x: the same repair PUT has always run. This route is not just
+    # v0.11.0: the same repair PUT has always run. This route is not just
     # "save as" - every sidebar reorder comes through it with the whole layers
     # array - and without the pass it would happily store two groups both
     # called g1, a group naming a layer that does not exist, or a groups array
@@ -144,7 +144,7 @@ def restore_project():
     for layer in app.current_project.get('layers', []):
         if (layer.get('type') or 'screen') == 'screen':
             app._rebuild_layer_geometry_from_panel_states(layer)
-    # v0.10.9: same reasoning as the geometry rebuild above, for the screen
+    # v0.11.0: same reasoning as the geometry rebuild above, for the screen
     # group model. Membership lives on two sides (project['groups'][n]
     # ['layer_ids'] and layer['group_id']) and the client can hand back a
     # payload where they disagree - a layer deleted while its group still

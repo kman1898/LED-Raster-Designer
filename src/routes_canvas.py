@@ -115,7 +115,7 @@ def delete_canvas(canvas_id):
         if l.get('canvas_id') != canvas_id
     ]
     layers_removed = layers_before - len(app.current_project['layers'])
-    # v0.10.9: deleting a canvas deletes every layer on it, which is the same
+    # v0.11.0: deleting a canvas deletes every layer on it, which is the same
     # group-integrity event as a single layer delete (routes_layers.delete_layer)
     # only in bulk - a group can be left naming dead layers, reduced to one
     # surviving member, or holding manual path steps that point at a panel on
@@ -173,7 +173,7 @@ def duplicate_canvas(canvas_id):
         clones.append(clone)
         app.current_project['layers'].append(clone)
     app.current_project['active_canvas_id'] = new_id
-    # v0.10.9: duplicating a canvas duplicates its groups too. A group IS the
+    # v0.11.0: duplicating a canvas duplicates its groups too. A group IS the
     # wall - copying the canvas and handing back loose screens would make the
     # user regroup them and redraw any wiring that crossed a member boundary.
     # Only a group whose members are ALL on this canvas can be copied

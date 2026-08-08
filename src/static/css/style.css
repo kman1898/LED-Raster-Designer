@@ -911,7 +911,7 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 }
 
 /* ----------------------------------------------------------------------
- * Screen groups (v0.10.9), the sidebar row.
+ * Screen groups (v0.11.0), the sidebar row.
  * A group IS A SINGLE LAYER - one wall built from more than one cabinet size.
  * So it gets ONE row that reads exactly like a screen row (same .layer-header
  * / .layer-info structure, same controls), with a disclosure arrow that opens

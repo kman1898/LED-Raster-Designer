@@ -13,7 +13,7 @@ class _ScreenInfo {
         return Math.min(1, areaRatio * 1.3);
     }
 
-    // ── Screen groups (v0.10.9): combined totals across a group's members ──
+    // ── Screen groups (v0.11.0): combined totals across a group's members ──
     //
     // A group is one screen built from more than one layer, because the
     // per-layer grid is uniform: a wall of 1m JP5 cabinets AND 0.5m standard
@@ -81,7 +81,7 @@ class _ScreenInfo {
     // cabinet does not light, so neither needs a port or a circuit), `covered`
     // is how many of those a peer's drawn path has already picked up.
     //
-    // v0.10.9 step 6: this is what stops a group counting the same port twice.
+    // v0.11.0 step 6: this is what stops a group counting the same port twice.
     // A member in custom mode with nothing of its own drawn falls back below
     // to "at least the active port index", which is the right answer for a
     // standalone screen and the wrong one for a member whose cabinets are
@@ -89,7 +89,7 @@ class _ScreenInfo {
     // there, and counting it again here prints 2 Mains on a wall with one
     // cable in it.
     //
-    // v0.10.9 audit fix: this used to be a bare `.some()` - ONE cabinet
+    // v0.11.0 audit fix: this used to be a bare `.some()` - ONE cabinet
     // claimed by a neighbour zeroed the WHOLE member. A 20 x 2 Brompton wall
     // needing 2 ports of its own reported 0 because a peer's cable had picked
     // up a single cabinet, so 39 cabinets were planned for with no port at
@@ -143,7 +143,7 @@ class _ScreenInfo {
     // here rather than called through the display function because that one
     // only ever looks at this.currentLayer, and a group's members are not it.
     //
-    // v0.10.9 step 6: this is now the ONE implementation. The sidebar readout,
+    // v0.11.0 step 6: this is now the ONE implementation. The sidebar readout,
     // the group roll-up and the canvas label each grew their own copy, and the
     // moment a port spans two members those three copies print three different
     // numbers at the user. `assignments` lets a caller that has already run
@@ -265,7 +265,7 @@ class _ScreenInfo {
     getGroupTotals(group, canvasId = undefined) {
         const g = this.resolveGroup(group);
         const members = this.getGroupMembers(g);
-        // v0.10.9 audit fix: members sitting on ANOTHER canvas were summed in.
+        // v0.11.0 audit fix: members sitting on ANOTHER canvas were summed in.
         // A group row on canvas 1 read "3 screens - 48 cab - 960 kg" while
         // showing 2 rows, because one member had been moved to canvas 2. That
         // kg figure is what gets handed to a rigger, so it has to describe the
@@ -313,7 +313,7 @@ class _ScreenInfo {
                 totals.offCanvasCount++;
                 return;
             }
-            // v0.10.9: `visible === false`, not `!visible`. A layer that simply
+            // v0.11.0: `visible === false`, not `!visible`. A layer that simply
             // has no `visible` key is visible everywhere else in the app - the
             // Python side reads `layer.get('visible', True)` and the layer list
             // and canvas both test `=== false`. Treating a missing key as hidden
@@ -336,7 +336,7 @@ class _ScreenInfo {
             // weight label (layer.panel_weight || 20) so the group figure and
             // the member's own label can never disagree.
             //
-            // v0.10.9 audit: this is now the ONE rule project-wide - the
+            // v0.11.0 audit: this is now the ONE rule project-wide - the
             // getPowerCounts stand-in of 200 W a cabinet is gone, because a
             // wattage the user never entered is not a safer answer than no
             // wattage, it is just a wrong one nobody can trace. A screen with
@@ -469,7 +469,7 @@ class _ScreenInfo {
         return ordered;
     }
 
-    // v0.10.9: the sub-grid `bounds` argument added for the retired 512 px
+    // v0.11.0: the sub-grid `bounds` argument added for the retired 512 px
     // NovaStar Low Latency bands is gone with them - low latency now walks the
     // whole screen like every other mode, so this is back to its plain form.
     getOrderedPanelsByPattern(layer, pattern = 'tl-h', includeHidden = false) {
@@ -695,7 +695,7 @@ class _ScreenInfo {
             return;
         }
 
-        // v0.10.9 audit fix: a live cabinet selection must not survive a
+        // v0.11.0 audit fix: a live cabinet selection must not survive a
         // change of screen.
         //
         // Every one of the three Sets is addressed against the layer that was
@@ -1218,7 +1218,7 @@ class _ScreenInfo {
         if (!layers || layers.length === 0) return;
         if (!this.project || !this.project.layers) return;
 
-        // v0.10.9: a screen group is one screen. When an edit propagated a
+        // v0.11.0: a screen group is one screen. When an edit propagated a
         // wall-level field to the peers that were not themselves selected,
         // those peers ride along on THIS call - same PUT, same history entry -
         // so a group can never be left half-updated on the server.
@@ -1245,7 +1245,7 @@ class _ScreenInfo {
             // Fields whose server echo does not carry what the client
             // holds, re-stamped onto the response below.
             //
-            // v0.10.9: this used to snapshot the VALUES here, at request
+            // v0.11.0: this used to snapshot the VALUES here, at request
             // time, and stamp that snapshot onto the response. Every gradient
             // control assigns a BRAND-NEW stops array (_applyGradient maps a
             // fresh object per stop), so a second edit made while the first
@@ -1478,7 +1478,7 @@ class _ScreenInfo {
         const showNumbersEl = document.getElementById('show-numbers');
         const showNumbersVal = showNumbersEl && !showNumbersEl.indeterminate ? showNumbersEl.checked : null;
 
-        // v0.10.9: screen groups. Snapshot the shareable fields BEFORE the
+        // v0.11.0: screen groups. Snapshot the shareable fields BEFORE the
         // write loop below, so the propagation afterwards can tell what the
         // user actually changed. The per-member fields this loop writes
         // (cabinet size, columns, rows, offsets, panel weight) are absent from
@@ -1598,7 +1598,7 @@ class _ScreenInfo {
             this.updatePortCapacityDisplay();
         }
         
-        // v0.10.9: carry the wall-level fields this edit changed to the rest of
+        // v0.11.0: carry the wall-level fields this edit changed to the rest of
         // each group. updateLayers() picks the peers up from the pending set,
         // so they land in the same PUT and the same undo step.
         if (groupSharedBefore && this._propagateChangedSharedFields) {
@@ -1993,7 +1993,7 @@ class _ScreenInfo {
         if (document.getElementById('frame-rate')) {
             document.getElementById('frame-rate').value = this.currentLayer.frameRate || this.getPreferences().frameRate || 60;
         }
-        // v0.10.9: checkbox + note follow the selected layer's processor.
+        // v0.11.0: checkbox + note follow the selected layer's processor.
         this.updateLowLatencyUI();
 
         // Load port mapping mode button states
@@ -2001,7 +2001,7 @@ class _ScreenInfo {
         const mappingOrgBtn = document.getElementById('mapping-organized');
         const mappingMaxBtn = document.getElementById('mapping-max-capacity');
         if (mappingOrgBtn && mappingMaxBtn) {
-            // v0.10.9: highlight is the .active class (theme rules are
+            // v0.11.0: highlight is the .active class (theme rules are
             // !important), not inline background/color.
             mappingOrgBtn.classList.toggle('active', mappingMode === 'organized');
             mappingMaxBtn.classList.toggle('active', mappingMode !== 'organized');
@@ -2248,13 +2248,13 @@ class _ScreenInfo {
         return Object.keys(table[bitDepth]).map(Number).sort((a, b) => a - b);
     }
     
-    // v0.10.9: descriptor for a processor's Low Latency behaviour, or null when
+    // v0.11.0: descriptor for a processor's Low Latency behaviour, or null when
     // the processor has no entry (a stale value like the retired brompton-ull).
     getLowLatencyProfile(processorType) {
         return this.lowLatencyProfiles[processorType || 'novastar-armor'] || null;
     }
 
-    // v0.10.9: true when the processor's Low Latency behaviour is real but its
+    // v0.11.0: true when the processor's Low Latency behaviour is real but its
     // math has not shipped yet ('y-derate' / 'port-width' in pass 1). Callers
     // must SAY so rather than let the displayed capacity imply it is included.
     isLowLatencyCapacityPending(processorType) {
@@ -2264,7 +2264,7 @@ class _ScreenInfo {
         return !this.lowLatencyImplementedKinds.includes(kind);
     }
 
-    // v0.10.9: apply the processor's Low Latency capacity behaviour on top of a
+    // v0.11.0: apply the processor's Low Latency capacity behaviour on top of a
     // table lookup.
     //   'factor'      - Brompton publishes ULL as the normal column halved and
     //                   floored, so floor here too. Flooring also means we
@@ -2283,7 +2283,7 @@ class _ScreenInfo {
         return capacity;
     }
 
-    // v0.10.9: the geometric Low Latency rules for THIS layer, or null when
+    // v0.11.0: the geometric Low Latency rules for THIS layer, or null when
     // they do not apply (low latency off, or a processor family whose low
     // latency is a plain capacity change). Returns the descriptor's own
     // capacity block: { yDerate } - true on every NovaStar line, legacy and
@@ -2297,7 +2297,7 @@ class _ScreenInfo {
         return cap.kind === 'novastar-ll' ? cap : null;
     }
 
-    // v0.10.9: pixel-raster height of the layer's OWN canvas - the H in the
+    // v0.11.0: pixel-raster height of the layer's OWN canvas - the H in the
     // NovaStar (1 - Y/H) derate. Panel x/y are already canvas-relative (the
     // server builds them from offset_x/offset_y), so they compare directly
     // against this. Falls back to the pre-canvases project raster, then 0;
@@ -2314,7 +2314,7 @@ class _ScreenInfo {
         return height > 0 ? height : 0;
     }
 
-    // v0.10.9: capacity of one NovaStar Low Latency port, given the topmost
+    // v0.11.0: capacity of one NovaStar Low Latency port, given the topmost
     // canvas Y of its visible cabinets. Every NovaStar line calls this now -
     // top alignment is a requirement of the mode itself, not a COEX extra.
     // `total` is the plain table lookup at the current bit depth and frame
@@ -2329,7 +2329,7 @@ class _ScreenInfo {
         return Math.floor(factor * total);
     }
 
-    // v0.10.9: NovaStar 5G's minimum Ethernet-port load width, in pixels, or 0
+    // v0.11.0: NovaStar 5G's minimum Ethernet-port load width, in pixels, or 0
     // for every other processor - which is to say "this rule does not exist
     // there", not "the threshold happens to be zero".
     //
@@ -2350,7 +2350,7 @@ class _ScreenInfo {
         return processorType === 'novastar-5g' ? 128 : 0;
     }
 
-    // v0.10.9: `capacity` less the 5G minimum-load-width penalty, for a port
+    // v0.11.0: `capacity` less the 5G minimum-load-width penalty, for a port
     // whose VISIBLE cabinets span `width` x `height` pixels.
     //
     // "load width" is the ETHERNET PORT'S load width - the horizontal pixel
@@ -2373,7 +2373,7 @@ class _ScreenInfo {
     }
 
     // Calculate port capacity using lookup tables with interpolation
-    // v0.10.9: `lowLatency` layers the processor's Low Latency behaviour on
+    // v0.11.0: `lowLatency` layers the processor's Low Latency behaviour on
     // top of the raw lookup. Split in two so pass 2, which needs per-port
     // geometry, has a seam that does not disturb the table lookup.
     calculatePortCapacity(bitDepth, frameRate, processorType, lowLatency = false) {
@@ -2457,7 +2457,7 @@ class _ScreenInfo {
         return processorType === 'novastar-armor';
     }
     
-    // v0.10.9: keep the Low Latency checkbox and its note in step with the
+    // v0.11.0: keep the Low Latency checkbox and its note in step with the
     // selected layer's processor. The note is the descriptor's own text; when
     // the behaviour is a pass-2 geometric one the note says the constraint is
     // NOT in the figures, so nobody reads an unchanged Pixels/Port as proof
@@ -2497,7 +2497,7 @@ class _ScreenInfo {
             checkbox.disabled = !supported;
         }
         if (note) {
-            // v0.10.9: stand down once the rules list is up. This note used to
+            // v0.11.0: stand down once the rules list is up. This note used to
             // show in both states, which put a short version of the rules
             // directly above the long version and read as two half-answers.
             let text = (supported && !enabled) ? (profile.note || '') : '';
@@ -2505,7 +2505,7 @@ class _ScreenInfo {
                 text += ' Not applied to the figures below yet.';
             }
             note.textContent = text;
-            // v0.10.9: the receiving-card list is a tooltip - too long for the
+            // v0.11.0: the receiving-card list is a tooltip - too long for the
             // note itself, and the MRV328/MRV336 trap is already in the note.
             // Set in both states: the rules list carries the same tooltip on
             // its own card line, and this one is what the checkbox row offers.
@@ -2514,7 +2514,7 @@ class _ScreenInfo {
         if (enabled) this.setLowLatencyRules(profile);
     }
 
-    // v0.10.9: list the Low Latency rules in force for the selected layer's
+    // v0.11.0: list the Low Latency rules in force for the selected layer's
     // processor, directly under the Pixels/Port readout - the one figure that
     // cannot show them. That figure is the flat table lookup for the whole
     // layer, so it carries neither the per-port (1 - Y/H) derate nor the 5G
@@ -2548,7 +2548,7 @@ class _ScreenInfo {
         el.style.display = '';
     }
 
-    // v0.10.9: say WHY a Low Latency port count moved. Pixels/Port is the
+    // v0.11.0: say WHY a Low Latency port count moved. Pixels/Port is the
     // port's TOTAL; a NovaStar port that does not start at canvas Y=0 keeps
     // only (1 - Y/H) of it, so without this line nudging a screen down the
     // canvas would silently change Ports Required and read as a bug. `derate`

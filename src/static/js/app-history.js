@@ -319,7 +319,7 @@ class _History {
     
     // ===== CROSS-MEMBER MANUAL PATHS: WHAT A COPY IS ALLOWED TO CARRY =====
     //
-    // v0.10.9 (step 6): an entry in customPortPaths / powerCustomPaths is
+    // v0.11.0 (step 6): an entry in customPortPaths / powerCustomPaths is
     // normally {row, col} - a panel in the layer that OWNS the path, which is
     // how 100% of projects written before this step look. A path hand-drawn
     // across a group's members stores {row, col, layerId} for the panels that
@@ -447,7 +447,7 @@ class _History {
         // copied with its Show Look position intact, not snapped back to
         // mirror Pixel Map.
         //
-        // v0.10.9: `group_id` is deliberately absent from this helper and
+        // v0.11.0: `group_id` is deliberately absent from this helper and
         // from duplicateData / clientProps below. Duplicating a screen makes
         // a new screen; enrolling it in the source's group would change that
         // group's totals, port numbering and export the moment the user hits
@@ -567,7 +567,7 @@ class _History {
                 blank: !!p.blank,
             }));
 
-        // v0.10.9 (step 6): Duplicate makes a NEW, UNGROUPED screen - that is
+        // v0.11.0 (step 6): Duplicate makes a NEW, UNGROUPED screen - that is
         // the same decision the group_id note above documents. Nothing but this
         // layer is being copied, so no peer named by a cross-member path entry
         // has a counterpart here and every such entry drops (idMap = null).
@@ -647,7 +647,7 @@ class _History {
             powerLabelOverrides: JSON.parse(JSON.stringify(layer.powerLabelOverrides || {})),
             powerCustomPaths: dupPowerCustomPaths,
             powerCustomIndex: layer.powerCustomIndex,
-            // v0.10.9: the appearance block was listed ONLY in clientProps
+            // v0.11.0: the appearance block was listed ONLY in clientProps
             // below, which is applied to the response in the browser and never
             // sent. The copy therefore looked right and the server held a
             // screen with no gradient at all, so duplicating a screen and
@@ -719,7 +719,7 @@ class _History {
             gradientAngle: layer.gradientAngle,
             gradientOpacity: layer.gradientOpacity,
             gradientBlend: layer.gradientBlend,
-            // v0.10.9: copies, not the source arrays. This object is
+            // v0.11.0: copies, not the source arrays. This object is
             // Object.assign'd onto the new layer AFTER duplicateData's
             // .map()/.slice() copies have already gone to the server, so
             // passing references here handed the duplicate the ORIGINAL's
@@ -929,7 +929,7 @@ class _History {
             return;
         }
 
-        // v0.10.9 (step 6): paste is the same drop as duplicate, for a harder
+        // v0.11.0 (step 6): paste is the same drop as duplicate, for a harder
         // reason. The clipboard outlives the project it was filled from - copy
         // a screen, open another file, paste - and layer ids are per project
         // and reused freely across them. A cross-member entry pasted into a
@@ -1023,7 +1023,7 @@ class _History {
             customPortIndex: this.clipboard.customPortIndex,
             randomDataColors: !!this.clipboard.randomDataColors,
             arrowSize: this.clipboard.arrowSize,
-            // v0.10.9: paste never carried the appearance block at all -
+            // v0.11.0: paste never carried the appearance block at all -
             // not in this payload and not in pasteClientProps below, which is
             // eight colours and nothing else. So a pasted screen lost its
             // gradient, palette and Transparent Fill immediately on screen,

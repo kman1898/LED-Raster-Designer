@@ -1,4 +1,4 @@
-"""Screen groups (v0.10.9) - the Screens sidebar UI (Playwright).
+"""Screen groups (v0.11.0) - the Screens sidebar UI (Playwright).
 
 Step 1 built the model, step 2 the combined totals. This file covers step 3:
 a group presented and acted on as A SINGLE LAYER - one collapsed row carrying
@@ -14,7 +14,7 @@ Three things these tests pin deliberately:
   them. Asserted as a history LENGTH delta, so an action that quietly records
   two entries fails here rather than surfacing as "undo does half a thing".
 * UI state is read from classList / textContent / getComputedStyle, never from
-  el.style.*. A v0.10.9 rename cue shipped broken precisely because its test
+  el.style.*. A v0.11.0 rename cue shipped broken precisely because its test
   read the inline style it had just written, while theme.css painted over it.
 * SHARED vs PER MEMBER. A wall-level setting written on one member reaches all
   of them; a grid-level one (columns, cabinet size, offsets) must not. Both
@@ -398,7 +398,7 @@ def test_mismatch_dialog_lists_only_the_differing_fields(page):
         'Brompton Tessera', 'NovaStar COEX CX40 (5G)'], dom
     assert dom['options']['bitDepth'] == ['10-bit', '12-bit'], dom
     # frameRate matched, so it is confirmation text, not a chooser. Low Latency
-    # joined GROUP_SHARED_SETTINGS in the v0.10.9 audit (it is a processor-wide
+    # joined GROUP_SHARED_SETTINGS in the v0.11.0 audit (it is a processor-wide
     # mode, so two members that disagree about it are two capacities in one
     # wall); both members have it off, so it confirms rather than asks.
     # Voltage joined for the same class of reason: a GROUP is one wall, and one

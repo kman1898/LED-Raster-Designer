@@ -1,4 +1,4 @@
-"""Screen groups (v0.10.9) - DRAWING a selection that crosses members.
+"""Screen groups (v0.11.0) - DRAWING a selection that crosses members.
 
 Step 6 let a hand-drawn port run off one member of a group and onto the next.
 The marquee could not follow, because `customSelection` / `powerCustomSelection`
@@ -458,7 +458,7 @@ def test_an_ungrouped_screens_selection_draws_exactly_as_before(page):
 
 
 def test_a_legacy_unscoped_key_still_reads_as_the_owners_cabinet(page):
-    """'0,0' - the key shape every pre-v0.10.9 Set held - is owner-relative.
+    """'0,0' - the key shape every pre-v0.11.0 Set held - is owner-relative.
 
     Not a compatibility nicety for saved data (selections are never persisted),
     but the guarantee that a caller which has not been scoped yet keeps working

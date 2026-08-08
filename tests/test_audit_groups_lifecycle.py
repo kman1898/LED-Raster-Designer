@@ -1,6 +1,6 @@
 """ADVERSARIAL AUDIT (throwaway) - screen groups data model + lifecycle.
 
-Not part of the shipped suite. Written to try to BREAK the v0.10.9 group
+Not part of the shipped suite. Written to try to BREAK the v0.11.0 group
 model, not to document it.
 """
 
@@ -437,7 +437,7 @@ def test_duplicate_canvas_after_a_member_moved_away_leaves_clones_loose(client):
 
 
 def test_duplicate_canvas_on_a_project_with_no_groups_key(client):
-    """A pre-v0.10.9 file has no 'groups'. duplicate_canvas appends to
+    """A pre-v0.11.0 file has no 'groups'. duplicate_canvas appends to
     current_project['groups'] directly."""
     a = _add(client, 'A')['id']
     b = _add(client, 'B')['id']

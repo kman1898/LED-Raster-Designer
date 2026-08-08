@@ -61,7 +61,7 @@ def add_layer():
         # in Show Look (and Data + Power, which render at the show layout).
         # null/missing = mirror canvas_id.
         'show_canvas_id',
-        # v0.10.9: same omission as the PUT allow-list, on the route that
+        # v0.11.0: same omission as the PUT allow-list, on the route that
         # creates a layer. Duplicate/paste sends the source screen's whole
         # appearance and this list dropped the gradient block on the floor, so
         # the copy carried a gradient in the browser and none on the server -
@@ -269,7 +269,7 @@ def update_layer(layer_id):
                 'fontBold', 'fontItalic', 'fontUnderline',
                 # Data flow / processing settings (previously silently dropped on PUT
                 # which broke preset application and label updates on re-fetch)
-                # v0.10.9: lowLatency rides with processorType - leaving it out
+                # v0.11.0: lowLatency rides with processorType - leaving it out
                 # would drop the flag on every per-layer PUT.
                 'flowPattern', 'bitDepth', 'frameRate', 'processorType', 'lowLatency',
                 'portMappingMode',
@@ -286,14 +286,14 @@ def update_layer(layer_id):
                 'showOffsetX', 'showOffsetY',
                 # v0.8.5: per-layer Show Look canvas override. null clears.
                 'show_canvas_id',
-                # v0.10.9: screen group membership. The client PUTs the whole
+                # v0.11.0: screen group membership. The client PUTs the whole
                 # layer object, so leaving this out would drop group_id on
                 # every per-layer save the way processorType used to be
                 # dropped. null clears membership.
                 'group_id',
                 'showDataFlowPortInfo', 'showDataFlowPortLoad',
                 'showPowerCircuitInfo',
-                # v0.10.9: the gradient/panel-colour block was never on this
+                # v0.11.0: the gradient/panel-colour block was never on this
                 # list - not removed, never added (git log -S finds no commit
                 # that took it out). The client has always PUT these fields and
                 # this route has always dropped them on the floor, then echoed
@@ -329,7 +329,7 @@ def update_layer(layer_id):
         if key in data:
             layer[key] = data[key]
 
-    # v0.10.9.x: group_id is the ONE whitelisted field that names another
+    # v0.11.0: group_id is the ONE whitelisted field that names another
     # object, and it was taken on trust - so a layer could claim membership of
     # a group that does not exist (or of one that does not list it), and the
     # export then built a unit around a group nobody could resolve. Membership
@@ -397,7 +397,7 @@ def delete_layer(layer_id):
             deleted_name = l.get('name', '?')
             break
     app.current_project['layers'] = [l for l in app.current_project['layers'] if l['id'] != layer_id]
-    # v0.10.9: deleting a member is a group-integrity event - the group would
+    # v0.11.0: deleting a member is a group-integrity event - the group would
     # otherwise keep listing a layer that is gone, and a two-member group would
     # be left as a group of one. restore_project repairs this too, but only on
     # the next undo/file load; do it now so the response is already consistent.
@@ -452,7 +452,7 @@ def move_layer_to_canvas(layer_id):
         clone['id'] = app.next_layer_id
         app.next_layer_id += 1
         clone['canvas_id'] = target_id
-        # v0.10.9: the clone is a deep copy, so it would otherwise carry the
+        # v0.11.0: the clone is a deep copy, so it would otherwise carry the
         # source's group_id while the group's layer_ids knows nothing about
         # it. Duplicating a screen makes a new screen, not a new group member.
         clone['group_id'] = None
@@ -480,7 +480,7 @@ def move_layer_to_canvas(layer_id):
         layer['showOffsetY'] = 0
         # Same panel re-anchor as the duplicate branch above.
         _rebuild_layer_geometry_from_panel_states(layer)
-        # v0.10.9.x: a group is one physical wall driven by one canvas. Moving
+        # v0.11.0: a group is one physical wall driven by one canvas. Moving
         # a member to a different canvas takes it out of that wall - the route
         # used to leave membership alone, which is how a group ended up
         # spanning two canvases, with wiring pointing at a peer 5000 px away in
@@ -489,7 +489,7 @@ def move_layer_to_canvas(layer_id):
         log_event('layer_move_to_canvas', {
             'layer_id': layer_id, 'target_canvas_id': target_id,
         })
-    # v0.10.9.x: both branches are group-integrity events. The duplicate branch
+    # v0.11.0: both branches are group-integrity events. The duplicate branch
     # clears the clone's group_id but the clone is a deep copy, so its wiring
     # still names the source's group peers - the response handed the client a
     # loose screen whose ports pointed into a group it is not in, and only the

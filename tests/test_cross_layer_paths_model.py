@@ -1,4 +1,4 @@
-"""Screen groups (v0.10.9) - the CLIENT model behind cross-member manual paths.
+"""Screen groups (v0.11.0) - the CLIENT model behind cross-member manual paths.
 
 test_cross_layer_paths.py covers the server: what survives a restore and what
 ``_prune_cross_layer_paths`` repairs. This file covers the other half, in a real
@@ -232,7 +232,7 @@ def clear_toasts(page):
 
 
 def test_plain_entry_resolves_to_the_owner(page):
-    """The shape every project written before v0.10.9 has. It must resolve
+    """The shape every project written before v0.11.0 has. It must resolve
     against the owning layer and never consult the group at all."""
     ids = grouped(page)
     res = page.evaluate("""(ids) => {
@@ -509,7 +509,7 @@ def test_arrow_key_inside_one_grid_is_unchanged(page):
 
 def test_arrow_key_at_the_edge_of_a_lone_screen_is_swallowed(page):
     """No peer to hand off to: the key is still consumed and nothing is
-    appended, exactly as before v0.10.9."""
+    appended, exactly as before v0.11.0."""
     ids = reset_project(page)            # ungrouped
     draw(page, ids[0], ids[0], 0, 1)
     page.wait_for_timeout(400)
@@ -534,7 +534,7 @@ def test_port_spanning_two_members_counts_once(page):
     """One cable is one port. The member being fed contributes none of its
     own, so the wall reports 1 Main and not 2.
 
-    FIXTURE CORRECTED (v0.10.9 audit, finding 1). This used to put ONE of B's
+    FIXTURE CORRECTED (v0.11.0 audit, finding 1). This used to put ONE of B's
     nine cabinets on A's port and still expect B to report 0 - which is the
     finding, not the feature: a single cabinet picked up by a neighbour zeroed
     the whole member, so B's other eight cabinets were planned for with no port
@@ -570,7 +570,7 @@ def test_port_spanning_two_members_counts_once(page):
 
 
 def test_a_peer_only_partly_fed_still_counts_its_own_ports(page):
-    """The other side of the rule above, and the v0.10.9 audit's most
+    """The other side of the rule above, and the v0.11.0 audit's most
     dangerous finding: ONE of B's nine cabinets on A's cable used to zero B
     entirely, so eight cabinets were planned for with no port. Partial
     coverage counts what the uncovered cabinets still need."""

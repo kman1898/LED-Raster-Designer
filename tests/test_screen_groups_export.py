@@ -1,4 +1,4 @@
-"""Screen groups (v0.10.9) - exporting a group as ONE screen.
+"""Screen groups (v0.11.0) - exporting a group as ONE screen.
 
 A wall built from 1m JP5 cabinets AND 0.5m standard cabinets has to be two
 layers, because the grid is uniform per layer. A group makes them behave as
@@ -181,10 +181,10 @@ def _ungrouped_cases():
 
 
 #
-# DELIBERATELY RE-PINNED (v0.10.9.x, blank-cabinet audit finding 4):
+# DELIBERATELY RE-PINNED (v0.11.0, blank-cabinet audit finding 4):
 # 'half_and_blank' and 'multi_canvas' both contain a LONE screen with a BLANK
 # cabinet, and both used to ship as a plain rectangle over the whole grid.
-# v0.10.9 had already taught the contour that a blank cabinet is not LED
+# v0.11.0 had already taught the contour that a blank cabinet is not LED
 # surface, but the shape DECISION for a lone screen still asked the old
 # hidden-only question, so the correct outline was traced and then thrown away
 # - while the identical wall, grouped with a neighbour, became a Polygon. Those
@@ -262,7 +262,7 @@ def test_ungrouped_project_units_are_one_per_layer():
     layers = [_screen(1, 'A', 1, 1), _screen(2, 'B', 1, 1, off_x=200)]
     assert _export_units(_project(layers), layers) == [('A', [layers[0]]),
                                                        ('B', [layers[1]])]
-    # A project with no 'groups' key at all (pre-v0.10.9 file) behaves the same.
+    # A project with no 'groups' key at all (pre-v0.11.0 file) behaves the same.
     assert _export_units({'layers': layers}, layers) == [('A', [layers[0]]),
                                                          ('B', [layers[1]])]
 

@@ -1,4 +1,4 @@
-"""Screen groups (v0.10.9) - cabinet IDs that run across the whole group.
+"""Screen groups (v0.11.0) - cabinet IDs that run across the whole group.
 
 A group is ONE screen built from more than one layer, because the per-layer
 grid is uniform: a wall of 1m JP5 cabinets AND 0.5m standard cabinets has to be

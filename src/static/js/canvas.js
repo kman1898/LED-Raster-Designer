@@ -362,7 +362,7 @@ class CanvasRenderer {
         return { x: g.cx + (dx * cos - dy * sin), y: g.cy + (dx * sin + dy * cos) };
     }
 
-    // v0.10.9: the forward direction of _unrotatePointForLayer - a point in the
+    // v0.11.0: the forward direction of _unrotatePointForLayer - a point in the
     // screen's own unrotated content space, mapped to where the rotated render
     // actually puts it. The per-layer render pass never needs this (it rotates
     // the whole ctx and keeps drawing in unrotated coords), but the cross-member
@@ -375,7 +375,7 @@ class CanvasRenderer {
 
     // ── THE ONE MAPPING: a member's own grid -> where that member DRAWS ──────
     //
-    // v0.10.9: rotation used to be applied at draw time only - the per-layer
+    // v0.11.0: rotation used to be applied at draw time only - the per-layer
     // render pass rotates the whole ctx and keeps drawing in unrotated coords -
     // so anything that RANKED or BOUNDED a member (the wall lattice, the group's
     // union bounds, the drag-select highlight) silently worked in unrotated
@@ -1035,7 +1035,7 @@ class CanvasRenderer {
                         seenIds.add(layer.id);
                         uniqueSelected.push(layer);
                     });
-                    // v0.10.9: a group moves as one screen, so any selected
+                    // v0.11.0: a group moves as one screen, so any selected
                     // member pulls in its peers (and puts them in the app's
                     // selection, so mouseup persists every layer that moved).
                     // Relative offsets are preserved for free: the drag applies
@@ -1263,7 +1263,7 @@ class CanvasRenderer {
             this.selectionRect.x2 = worldX;
             this.selectionRect.y2 = worldY;
             // currentLayer is the OWNER of the port/circuit being drawn, not a
-            // limit on what the rect may cover: since v0.10.9 these two walk
+            // limit on what the rect may cover: since v0.11.0 these two walk
             // every member the owner's path can legally reach, so a live drag
             // lights up cabinets on the next screen of the wall as it crosses
             // onto it (see the mouse-up twin below).
@@ -1578,7 +1578,7 @@ class CanvasRenderer {
                     const clickedPanel = this.getPanelAt(this.selectionRect.x1, this.selectionRect.y1);
                     if (clickedPanel) {
                         const isPower = this.viewMode === 'power';
-                        // v0.10.9 screen groups: the gate used to be a straight
+                        // v0.11.0 screen groups: the gate used to be a straight
                         // `clickedPanel.layerId === currentLayer.id`, which made
                         // a hand-drawn path physically unable to leave its own
                         // layer. A group is ONE wall, so the path has to be able
@@ -1631,7 +1631,7 @@ class CanvasRenderer {
                         return;
                     }
                 } else {
-                    // v0.10.9 screen groups: the marquee crosses members too.
+                    // v0.11.0 screen groups: the marquee crosses members too.
                     //
                     // It could not before, and the reason was real:
                     // customSelection / powerCustomSelection were keyed by the
@@ -1728,7 +1728,7 @@ class CanvasRenderer {
                     }
                 } else {
                     window.app.selectLayersInRect(this.layerSelectionRect, isToggle);
-                    // v0.10.9: a marquee that catches one member of a group
+                    // v0.11.0: a marquee that catches one member of a group
                     // catches the group. Skipped for the toggle (Cmd/Ctrl)
                     // marquee, where re-adding what the user just toggled OUT
                     // would fight the gesture.
@@ -2300,7 +2300,7 @@ class CanvasRenderer {
         return { wx: 0, wy: 0 };
     }
 
-    // ── Screen groups (v0.10.9): the canvas half ──────────────────────────
+    // ── Screen groups (v0.11.0): the canvas half ──────────────────────────
     //
     // Step 2 built the roll-up (app-screen-info.js getGroupTotals). A group is
     // ONE screen that had to be built from more than one layer, because the
@@ -2364,7 +2364,7 @@ class CanvasRenderer {
     // renderLayerLabels both run inside the host's per-layer ctx.translate, so
     // each member's footprint is brought back by the host's own render offset.
     //
-    // v0.10.9: the footprint, not the bounds. A member carrying a screen
+    // v0.11.0: the footprint, not the bounds. A member carrying a screen
     // rotation is drawn turned about its own centre, so its unrotated bounds
     // name a rectangle that is nowhere on the wall - and a 90/270 turn changes
     // the wall's width and height, which is what sizes the circle-and-X.
@@ -2446,7 +2446,7 @@ class CanvasRenderer {
         return layers;
     }
 
-    // ── Screen groups (v0.10.9): paths that cross from member to member ───
+    // ── Screen groups (v0.11.0): paths that cross from member to member ───
     //
     // To the user a group IS one wall, so a hand-drawn port or circuit has to
     // be allowed to run off one member and onto the next. The path still
@@ -2541,7 +2541,7 @@ class CanvasRenderer {
     // only thing the arrow code ever asks for - still names the middle of the
     // cabinet as drawn.
     //
-    // v0.10.9: this is _drawnPanelRect with the member's frame computed on the
+    // v0.11.0: this is _drawnPanelRect with the member's frame computed on the
     // spot. It stays as a named entry point because it reads at the call sites
     // as "put this peer's cabinet where it is drawn", and because the audit
     // helpers and tests address it by name; a caller mapping MANY cabinets of
@@ -2551,7 +2551,7 @@ class CanvasRenderer {
         return this._drawnPanelRect(this._layerDrawFrame(entryLayer), panel);
     }
 
-    // v0.10.9: a cabinet on a member this view does not draw is not on the
+    // v0.11.0: a cabinet on a member this view does not draw is not on the
     // drawing, so no cable may be drawn onto it. getResolvedPathPanels
     // deliberately KEEPS entries pointing at a hidden member (app-power.js) so
     // that hiding a member and showing it again does not destroy wiring already
@@ -2714,7 +2714,7 @@ class CanvasRenderer {
     // one map per layer keyed by that layer's own grid; the SCOPED twin lives
     // beside it rather than replacing it, so every existing per-layer lookup is
     // untouched. The two custom-selection overlays did move to scoped keys in
-    // v0.10.9 - see _resolveSelectionKey - but pixelMapSelection still parses
+    // v0.11.0 - see _resolveSelectionKey - but pixelMapSelection still parses
     // `key.split(',').map(parseInt)`, where `parseInt("3:0")` is 3 and a scoped
     // key would silently address the wrong panel with no error at all.)
     _powerCircuitForPanel(layer, panel) {
@@ -3096,13 +3096,13 @@ class CanvasRenderer {
         // this._mirror, that flag is now toggled on/off per canvas as the
         // loop enters/exits each canvas's draw scope.
         this._mirror = false;
-        // v0.10.9: the per-layer passes below queue any manual path that
+        // v0.11.0: the per-layer passes below queue any manual path that
         // crosses into a group peer; _renderCrossMemberPaths drains the queue
         // once every layer has been drawn. Cleared here so a frame that threw
         // part way through cannot carry an owner into the next one.
         this._crossMemberOwners = [];
         this._crossMemberPass = false;
-        // v0.10.9: frame counter, so _powerCircuitForPanel can tell a peer's
+        // v0.11.0: frame counter, so _powerCircuitForPanel can tell a peer's
         // circuit maps it built itself THIS frame from ones left over from the
         // last one. Without it a peer drawn after its owner would keep tinting
         // from a stale map for one frame after every edit.
@@ -3395,7 +3395,7 @@ class CanvasRenderer {
             // active canvas's raster via the getter again.
             this._activeRenderCanvas = null;
 
-            // v0.10.9 screen groups: the manual paths that cross from one member
+            // v0.11.0 screen groups: the manual paths that cross from one member
             // to the next, drawn now that every member's cabinets are down.
             // Deliberately NOT gated on exportMode - a wall wired across two
             // members has to appear on the printed map too, and drawing it here
@@ -3578,7 +3578,7 @@ class CanvasRenderer {
         this.ctx.save();
         this._clipToActiveRaster();
 
-        // v0.10.9: the group's pattern is measured across the whole wall
+        // v0.11.0: the group's pattern is measured across the whole wall
         // (_groupUnionBounds), so it must not be turned about the HOST member's
         // centre - the render loop is inside _beginLayerRotation(host) here.
         // Cancel that for the pattern only; the ctx.save above pops it. A lone
@@ -3808,7 +3808,7 @@ class CanvasRenderer {
         const currentTop = offsetY + fpDy;
         const currentBottom = currentTop + layerHeight;
 
-        // v0.10.9: a screen group snaps as ONE object. The edges offered to the
+        // v0.11.0: a screen group snaps as ONE object. The edges offered to the
         // snap are the UNION of the group's footprints (so the wall's left edge
         // is its left-most member's), and the peers are dropped as snap TARGETS
         // - they travel with the drag, so snapping to one would only ever pin
@@ -3853,7 +3853,7 @@ class CanvasRenderer {
         };
 
         // Snap to raster boundaries, HARD EDGES ONLY.
-        // v0.10.9: every candidate below is now written as "the offset that
+        // v0.11.0: every candidate below is now written as "the offset that
         // puts THIS edge on THAT target" - offsetX + (target - edge). For an
         // ungrouped layer the group edges ARE the layer's edges, so each of
         // these still evaluates to exactly what it did before.
@@ -4016,7 +4016,7 @@ class CanvasRenderer {
             }
             return pal[((idx % pal.length) + pal.length) % pal.length] || '#000000';
         }
-        // v0.10.9: a layer with no color1/color2 used to throw here, and because
+        // v0.11.0: a layer with no color1/color2 used to throw here, and because
         // this runs per panel it took the WHOLE render down - one malformed
         // layer blanked the canvas rather than just itself. create_layer always
         // sets both, but a hand-built or hand-edited layer need not, and that
@@ -4351,7 +4351,7 @@ class CanvasRenderer {
         this._fillText(infoText, layerCenterX, layerCenterY + 45);
     }
 
-    // v0.10.9: pixel load of ONE port, in the same terms calculatePortAssignments
+    // v0.11.0: pixel load of ONE port, in the same terms calculatePortAssignments
     // charged it. The accounting differs per processor and both forms live here
     // so the custom-path branch (which never goes through calculatePortAssignments)
     // is scored the same way the automatic map is:
@@ -4363,7 +4363,7 @@ class CanvasRenderer {
     //     (hidden cabinets never reach the traversal there, getOrderedPanelsByPattern
     //     drops them unless the processor is a rectangle one).
     //
-    // v0.10.9 screen groups: the rectangle branch unions raw p.x / p.y across
+    // v0.11.0 screen groups: the rectangle branch unions raw p.x / p.y across
     // the port's cabinets, and for a port that runs onto a group peer that is
     // still the right thing - panel coords are laid out from layer.offset_x by
     // _build_panels, so they are CANVAS-relative, and two members of the same
@@ -4399,7 +4399,7 @@ class CanvasRenderer {
         return (maxX - minX) * (maxY - minY);
     }
 
-    // v0.10.9: capacity of ONE port, so a percentage is always measured against
+    // v0.11.0: capacity of ONE port, so a percentage is always measured against
     // the capacity THAT port actually has. The base figure is the app's own
     // table lookup (never re-derived here); on NovaStar Low Latency the
     // (1 - Y/H) derate is then applied from the port's OWN topmost cabinet,
@@ -4408,12 +4408,12 @@ class CanvasRenderer {
     // layer._lowLatencyDerate is the sidebar note's layer-wide summary, so it
     // is only a fallback here - it carries the worst case, not this port's.
     //
-    // v0.10.9: the NovaStar 5G narrow-port penalty is then subtracted, from
+    // v0.11.0: the NovaStar 5G narrow-port penalty is then subtracted, from
     // this port's OWN bounding box, in the same order calculatePortAssignments
     // uses (table value -> Y-derate -> penalty). Without it a penalised 5G port
     // would be scored as a percentage of a capacity it does not have.
     //
-    // v0.10.9 screen groups: `layer` is always the port's OWNER, even when the
+    // v0.11.0 screen groups: `layer` is always the port's OWNER, even when the
     // port runs onto a group peer, and every figure below is read from it. That
     // is not laziness about which member to ask - the port is physically on the
     // owner's processor, so the owner's bit depth, frame rate, processor type
@@ -4484,7 +4484,7 @@ class CanvasRenderer {
         return withWidthPenalty(app.lowLatencyPortCapacity(base, minY, canvasHeight));
     }
 
-    // v0.10.9: how full one port is, as a percentage of ITS capacity. Returns
+    // v0.11.0: how full one port is, as a percentage of ITS capacity. Returns
     // null when there is no capacity figure to measure against (unknown
     // processor, image layer), so callers draw nothing rather than "NaN%".
     // "100%" means the port is at or past its limit and nothing else: a port
@@ -4508,7 +4508,7 @@ class CanvasRenderer {
         };
     }
 
-    // v0.10.9: the load badge that sits under a port's primary marker. Healthy
+    // v0.11.0: the load badge that sits under a port's primary marker. Healthy
     // reads in the ordinary label colour - the owner reported coloured healthy
     // readouts being taken for faults - and only the warning (#ff6600) and
     // over-capacity (#ff0000) states get a colour, the same two the Port
@@ -4571,7 +4571,7 @@ class CanvasRenderer {
         const lineColor = layer.dataFlowColor || '#FFFFFF';
         const arrowColor = layer.arrowColor || '#0042AA';
         const useRandomColors = layer.randomDataColors || false;
-        // v0.10.9: per-port load percentage, off by default so no existing
+        // v0.11.0: per-port load percentage, off by default so no existing
         // export changes. Drawn beside the port marker by drawPortLoadBadge.
         const showPortLoad = !!layer.showDataFlowPortLoad;
         const isCustomFlow = pattern === 'custom';
@@ -4599,7 +4599,7 @@ class CanvasRenderer {
 
         // v0.8.7.4: layer bounds in panel-local coords, used to shift
         // port labels inward when they'd overflow the screen edge.
-        // v0.10.9: in the cross-member overlay pass the "screen" a label must
+        // v0.11.0: in the cross-member overlay pass the "screen" a label must
         // stay inside is the whole wall, not the member that owns the port, and
         // the frame is the overlay's rather than this layer's.
         const layerBoundsForPort = this._crossMemberPass
@@ -4746,7 +4746,7 @@ class CanvasRenderer {
                 this._fillText(returnLabel, rx, ry);
             }
 
-            // v0.10.9: how close this port is to its limit, under the primary
+            // v0.11.0: how close this port is to its limit, under the primary
             // marker so it reads with the port it belongs to and never covers
             // the port number itself. Runs for the hand-drawn custom paths too,
             // which is the case the percentage was asked for.
@@ -4765,7 +4765,7 @@ class CanvasRenderer {
 
             portNums.forEach(portNum => {
                 const path = layer.customPortPaths[portNum] || [];
-                // v0.10.9: a path that stays on this layer is resolved and drawn
+                // v0.11.0: a path that stays on this layer is resolved and drawn
                 // exactly as it always was; a path that reaches into a peer is
                 // skipped here and drawn by the post-loop overlay pass, which
                 // re-enters this function with _crossMemberPass raised and
@@ -4787,7 +4787,7 @@ class CanvasRenderer {
             return;
         }
 
-        // v0.10.9: the overlay pass exists only to finish the crossing custom
+        // v0.11.0: the overlay pass exists only to finish the crossing custom
         // paths. Automatic assignment walks one uniform grid and never leaves
         // its layer, so there is nothing here for it to draw a second time.
         if (this._crossMemberPass) {
@@ -4859,7 +4859,7 @@ class CanvasRenderer {
         let circuits = [];
         let circuitNumKeys = null;
 
-        // v0.10.9: which LAYER each cabinet of each circuit came from, parallel
+        // v0.11.0: which LAYER each cabinet of each circuit came from, parallel
         // to `circuits`. Every entry is this layer for an automatic map and for
         // any custom circuit that stays home; only a circuit reaching into a
         // group peer differs, and only that case needs the scoped keys below.
@@ -4897,7 +4897,7 @@ class CanvasRenderer {
 
         const panelCircuitMap = new Map();
         const panelIndexMap = new Map();
-        // v0.10.9: the same two maps keyed by `${layerId}:${row},${col}` so a
+        // v0.11.0: the same two maps keyed by `${layerId}:${row},${col}` so a
         // circuit that reaches into a group peer can still tint the cabinets it
         // claimed over there. It has to be a SECOND map rather than a change of
         // key: the unscoped one is read by renderPower for this layer's own
@@ -4966,7 +4966,7 @@ class CanvasRenderer {
 
         // v0.8.7.4: layer bounds in panel-local coords, used to shift
         // labels inward when they'd overflow the screen edge.
-        // v0.10.9: the cross-member overlay pass keeps its labels inside the
+        // v0.11.0: the cross-member overlay pass keeps its labels inside the
         // whole wall instead, in the overlay's frame - see renderDataFlowArrows.
         const layerBounds = this._crossMemberPass
             ? this._crossMemberBounds(layer)
@@ -5021,7 +5021,7 @@ class CanvasRenderer {
                 return;
             }
             const colorViewKeys = layer._powerCircuitNumKeys;
-            // v0.10.9: `circuits` can now hold a peer's cabinets, and the label
+            // v0.11.0: `circuits` can now hold a peer's cabinets, and the label
             // is parked on the circuit's FIRST cabinet - which may be one of
             // them. Its raw x/y mean nothing inside this layer's transform, so
             // a crossing circuit's label is deferred to the overlay pass with
@@ -5108,7 +5108,7 @@ class CanvasRenderer {
                 .sort((a, b) => a - b);
             circuitNums.forEach(circuitNum => {
                 const path = layer.powerCustomPaths[circuitNum] || [];
-                // v0.10.9: same split as the data-flow custom branch, and it has
+                // v0.11.0: same split as the data-flow custom branch, and it has
                 // to stay in step with preparePowerLayerRenderData above - the
                 // two read the same paths and a divergence would show up as a
                 // circuit that is tinted but not wired, or wired twice.
@@ -5126,7 +5126,7 @@ class CanvasRenderer {
             return;
         }
 
-        // v0.10.9: automatic circuits never leave their layer, so the overlay
+        // v0.11.0: automatic circuits never leave their layer, so the overlay
         // pass has nothing to add here.
         if (this._crossMemberPass) {
             this.ctx.restore();
@@ -5380,7 +5380,7 @@ class CanvasRenderer {
 
         let fillHex = null;
         if (layer.powerColorCodedView && !layer._powerError) {
-            // v0.10.9: the circuit tinting this cabinet is usually one of this
+            // v0.11.0: the circuit tinting this cabinet is usually one of this
             // layer's own, but a group peer's circuit can have claimed it - and
             // then the COLOUR is the peer's, because the palette and the circuit
             // number both belong to the layer that owns the circuit. Without
@@ -5418,7 +5418,7 @@ class CanvasRenderer {
         }
     }
     
-    // ── Screen groups (v0.10.9): cabinet IDs that run across the group ────
+    // ── Screen groups (v0.11.0): cabinet IDs that run across the group ────
     //
     // A group is ONE screen built from more than one layer, so its cabinet IDs
     // have to read as one screen too. Per layer they are grid indices, so the
@@ -5465,7 +5465,7 @@ class CanvasRenderer {
     // hidden ones are not - so hidden cabinets are ranked too, and their
     // columns and rows still take their place.
     //
-    // v0.10.9: positions are ranked where the cabinets DRAW, so a member
+    // v0.11.0: positions are ranked where the cabinets DRAW, so a member
     // carrying a screen rotation is numbered in the order the eye follows it
     // across the wall rather than by where its unrotated grid would have sat.
     // See getPositionLattice.
@@ -5533,7 +5533,7 @@ class CanvasRenderer {
     // mapping the marquee, the arrow handoff and the selection highlight use. A
     // wall with one member turned 90 therefore numbers, and serpentines, in the
     // order somebody walking the wall reads it. Ranking in unrotated space (what
-    // this did before v0.10.9) produced an order that existed nowhere on site.
+    // this did before v0.11.0) produced an order that existed nowhere on site.
     getPositionLattice(members) {
         const list = (members || []).filter(m => m && Array.isArray(m.panels));
 
@@ -5544,7 +5544,7 @@ class CanvasRenderer {
         // Power carry Show Look offsets), which is where the flow patterns read
         // this from.
         //
-        // v0.10.9: a 90/270 turn trades a member's axes - its rows run along the
+        // v0.11.0: a 90/270 turn trades a member's axes - its rows run along the
         // wall's x - so the cabinets are grouped into drawn columns and rows by
         // _drawnColKey / _drawnRowKey before their positions are pooled. Without
         // it a rotated member ranks where its grid sits rather than where it
@@ -5710,7 +5710,7 @@ class CanvasRenderer {
         const cabinetIdPosition = layer.cabinetIdPosition || 'center';
         const cabinetIdColor = layer.cabinetIdColor || '#ffffff';
 
-        // v0.10.9: in a screen group the IDs run across the whole wall - see
+        // v0.11.0: in a screen group the IDs run across the whole wall - see
         // _groupNumberingPlan. Null for an ungrouped layer, and every line
         // below then reads exactly as it always did.
         const plan = this._groupNumberingPlan(layer);
@@ -5797,7 +5797,7 @@ class CanvasRenderer {
     }
     
     renderLayerLabels(layer) {
-        // v0.10.9: screen groups draw ONE label for the whole group. The host
+        // v0.11.0: screen groups draw ONE label for the whole group. The host
         // member draws it (see _groupLabelPlan) and every peer bows out right
         // here - peers keep drawing their own cabinets, only the label
         // consolidates. `plan` is null for an ungrouped layer, so everything
@@ -5829,7 +5829,7 @@ class CanvasRenderer {
         this.ctx.save();
         this._clipToActiveRaster();
 
-        // v0.10.9: a group's label belongs to THE WALL, and _groupUnionBounds
+        // v0.11.0: a group's label belongs to THE WALL, and _groupUnionBounds
         // measures the wall. The render loop has the ctx turned about the host
         // member's own centre, so cancel that before the label is positioned -
         // otherwise the wall's centre is thrown wherever one member's rotation
@@ -5837,7 +5837,7 @@ class CanvasRenderer {
         // rotates with its screen.
         if (plan) this._unrotateLayerInPlace(layer);
 
-        // v0.10.9: a group's label is positioned against the union of its
+        // v0.11.0: a group's label is positioned against the union of its
         // members' drawn footprints - the real shape of the wall - not one
         // member's.
         const bounds = plan ? this._groupUnionBounds(plan.members, layer) : this.getLayerBounds(layer);
@@ -5847,7 +5847,7 @@ class CanvasRenderer {
         const centerY = bounds.y + layerHeight / 2;
         const bottomY = bounds.y + layerHeight;
 
-        // v0.10.9: and its figures are the COMBINED figures, straight from the
+        // v0.11.0: and its figures are the COMBINED figures, straight from the
         // step-2 roll-up. No calculation is repeated here.
         // The canvas being drawn is passed through: a group is labelled once
         // per canvas, and its figures must describe the members ON that canvas
@@ -5902,7 +5902,7 @@ class CanvasRenderer {
         } else {
             showLabelName = cfg.showLabelName !== undefined ? cfg.showLabelName : true;
         }
-        // v0.10.9: the group's name, not the host member's - the wall has one
+        // v0.11.0: the group's name, not the host member's - the wall has one
         // name on site and now one on the drawing.
         const screenName = showLabelName
             ? (groupTotals ? (groupTotals.name || cfg.name) : layer.name)
@@ -5970,7 +5970,7 @@ class CanvasRenderer {
             }
         } else if (this.viewMode === 'data-flow') {
             if (cfg.showDataFlowPortInfo && groupTotals) {
-                // v0.10.9: a group's ports are the SUM of its members' own
+                // v0.11.0: a group's ports are the SUM of its members' own
                 // requirements (automatic assignment walks one uniform grid,
                 // so there is nothing to re-run across the combined shape).
                 const mains = groupTotals.portsPrimary;
@@ -5984,7 +5984,7 @@ class CanvasRenderer {
                 // `updatePortCapacityDisplay`, so other layers' labels would go
                 // stale until clicked. `renderDataFlowArrows` ran just above and
                 // populated fresh `_autoPortsRequired` on this layer.
-                // v0.10.9: one group-aware implementation, not a third private
+                // v0.11.0: one group-aware implementation, not a third private
                 // copy. "Ports required" used to be derived here, in
                 // app-power.js and in app-screen-info.js, and the three agreed
                 // only because a port could never leave its layer; once one can,
@@ -6024,7 +6024,7 @@ class CanvasRenderer {
             }
         } else if (this.viewMode === 'power') {
             if (cfg.showPowerCircuitInfo && groupTotals) {
-                // v0.10.9: circuits sum the same way ports do. Amps do NOT:
+                // v0.11.0: circuits sum the same way ports do. Amps do NOT:
                 // 200 A at 110 V and 200 A at 208 V are not the same load, so
                 // when the members disagree on voltage the roll-up hands back
                 // null and the label says so instead of printing a blended
@@ -6083,7 +6083,7 @@ class CanvasRenderer {
         if (this.viewMode === 'pixel-map' && cfg.showLabelInfo) {
             const aspectRatio = layerWidth / layerHeight;
             const aspectRatioStr = `${aspectRatio.toFixed(2)}`;
-            // v0.10.9: a group has no single Columns X Rows - that is the whole
+            // v0.11.0: a group has no single Columns X Rows - that is the whole
             // reason it is more than one layer - so it reports how many screens
             // it is built from instead of quoting one member's grid.
             if (groupTotals) {
@@ -6228,7 +6228,7 @@ class CanvasRenderer {
                     ? this._layerCanvasOffset(layer) : { wx: 0, wy: 0 };
                 const _ldx = (typeof this._renderDx === 'number') ? this._renderDx : 0;
                 const _ldy = (typeof this._renderDy === 'number') ? this._renderDy : 0;
-                // v0.10.9: cached on `cfg`, so a group's single label has a
+                // v0.11.0: cached on `cfg`, so a group's single label has a
                 // single owner for the plain-click drag hit-test.
                 cfg._screenNameHitRect = {
                     x1: _wsOff.wx + _ldx + nameX,
@@ -6520,7 +6520,7 @@ class CanvasRenderer {
     // One key out of customSelection / powerCustomSelection, resolved to the
     // cabinet it actually names.
     //
-    // v0.10.9: those two Sets are keyed by getScopedPanelKey -
+    // v0.11.0: those two Sets are keyed by getScopedPanelKey -
     // `${layerId}:${row},${col}` - because a marquee across a screen group has
     // to be able to hold member A's R0C0 AND member B's R0C0, and the unscoped
     // `${row},${col}` key cannot tell them apart. The old parser here was
@@ -6564,7 +6564,7 @@ class CanvasRenderer {
     }
 
     // The drag-select highlight for the two CUSTOM selections, which since
-    // v0.10.9 can span the members of a screen group.
+    // v0.11.0 can span the members of a screen group.
     //
     // This overlay runs AFTER the per-canvas render loop has popped its
     // workspace translate, its perspective mirror, every per-layer Show Look
@@ -6579,7 +6579,7 @@ class CanvasRenderer {
     // mirror once, with each cabinet's own rotation and render offset baked into
     // its rect by _crossMemberPanelShim.
     //
-    // Before v0.10.9 the owner's half went through _withOverlayLayerTransform,
+    // Before v0.11.0 the owner's half went through _withOverlayLayerTransform,
     // which applied the translate, the mirror and the Show Look offset but NOT
     // the rotation. On a rotated wall that put the owner's highlight a cabinet
     // away from the cabinet it meant while the peer's landed correctly - mid
@@ -6596,7 +6596,7 @@ class CanvasRenderer {
             const hit = this._resolveSelectionKey(layer, key);
             if (!hit) return;
             if (hit.layer.id === layer.id) { own.push(hit); return; }
-            // v0.10.9: the same rule the crossing cable follows - a member this
+            // v0.11.0: the same rule the crossing cable follows - a member this
             // view does not draw has no cabinets on screen, so there is nothing
             // there to highlight. The key can still legitimately be in the Set:
             // a path scope deliberately keeps hidden members so wiring already
@@ -6657,7 +6657,7 @@ class CanvasRenderer {
      * its right edge, and the per-layer Show Look offset, exactly the
      * stack the main render loop wraps a layer in.
      *
-     * CAUTION (v0.10.9): it does NOT apply the layer's rotation, so anything
+     * CAUTION (v0.11.0): it does NOT apply the layer's rotation, so anything
      * drawn through it at raw panel coords lands on a rotated screen's
      * UNROTATED grid. Use _withCrossMemberCanvasTransform plus
      * _drawnPanelRect / _crossMemberPanelShim for anything that has to sit on a
@@ -6863,7 +6863,7 @@ class CanvasRenderer {
         this._drawActiveBadge(label, committedCount, selectedCount, 'rgba(0, 255, 102, 0.9)');
     }
 
-    // "N on port" / "N on circuit". v0.10.9: counted through the shared path
+    // "N on port" / "N on circuit". v0.11.0: counted through the shared path
     // resolver so a step that landed on a group peer counts too - the badge is
     // telling the user how many cabinets they have wired to the port they are
     // drawing, and a cabinet on the next member is still wired to it. Both

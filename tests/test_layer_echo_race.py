@@ -1,4 +1,4 @@
-"""v0.10.9 - a slow PUT put back the value the user had just replaced.
+"""v0.11.0 - a slow PUT put back the value the user had just replaced.
 
 Second half of the "things revert" report. updateLayers() sends the layer, then
 re-stamps a set of fields onto the server's echo because the echo does not

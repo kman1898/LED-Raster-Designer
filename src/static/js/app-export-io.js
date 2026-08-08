@@ -25,7 +25,7 @@ class _ExportIo {
         return perDepth.reduce((acc, s) => new Set([...acc].filter(r => s.has(r))));
     }
 
-    // v0.10.9: the list is built from the processor's own published rows.
+    // v0.11.0: the list is built from the processor's own published rows.
     //
     // It used to be a fixed list of 19 rates, narrowed only by "<= 120 for
     // Armor" - so a NovaStar screen could be set to 48, 72, 100, 150, 180, 192
@@ -123,7 +123,7 @@ class _ExportIo {
             bitDepth, frameRate, processorType, !!layer.lowLatency);
         const pattern = layer.flowPattern || 'tl-h';
         const usesRectangle = this.usesRectangleConstraint(processorType);
-        // v0.10.9: honour the layer's Port Mapping mode on EVERY processor.
+        // v0.11.0: honour the layer's Port Mapping mode on EVERY processor.
         // Rectangle-constraint processors (NovaStar Armor) used to be forced
         // into Organized; they now support Max Capacity as well, and the
         // reserved-rectangle rule is enforced in both branches below.
@@ -132,14 +132,14 @@ class _ExportIo {
         const startsTop = pattern.startsWith('t');
         const startsLeft = pattern.includes('l-');
         const fullPanelPixels = this.getFullPanelPixels(layer);
-        // v0.10.9: NovaStar Low Latency replaces the flow pattern's row/column
+        // v0.11.0: NovaStar Low Latency replaces the flow pattern's row/column
         // units with a per-cabinet fill under a per-port (1 - Y/H) derate, so
         // it gets its own branch below. It is the hardware's geometry, not the
         // user's, so BOTH Port Mapping modes end up in that branch. Null for
         // every other processor and whenever low latency is off, which is what
         // keeps normal mode byte-identical.
         const llGeometry = this.getLowLatencyGeometry(layer);
-        // v0.10.9: NovaStar 5G's 128 px minimum Ethernet-port load width. 0 on
+        // v0.11.0: NovaStar 5G's 128 px minimum Ethernet-port load width. 0 on
         // every other processor, which makes capacityForRect below a straight
         // pass-through and leaves their traversals byte-identical. See
         // novastarMinLoadWidth / minLoadWidthPortCapacity in app-screen-info.js
@@ -191,7 +191,7 @@ class _ExportIo {
         const rectArea = (rect) => (rect.count === 0 ? 0 : (rect.maxX - rect.minX) * (rect.maxY - rect.minY));
         const emptyRect = () => ({ minX: 0, minY: 0, maxX: 0, maxY: 0, count: 0 });
 
-        // v0.10.9: `base` less the NovaStar 5G narrow-port penalty, measured
+        // v0.11.0: `base` less the NovaStar 5G narrow-port penalty, measured
         // from the bounding box of the port's VISIBLE cabinets - the port's own
         // load width and load height. A no-op wherever minLoadWidth is 0, i.e.
         // everywhere but 5G, so the other processors never see this at all.
@@ -203,7 +203,7 @@ class _ExportIo {
             : base);
 
         if (llGeometry) {
-            // v0.10.9: NovaStar Low Latency.
+            // v0.11.0: NovaStar Low Latency.
             //   - there is NO port-width cap. NovaStar answered us directly:
             //     the 512 px single-port loading width printed in the NovaPro
             //     UHD Jr, MCTRL4K and MCTRL660 Pro manuals has been REMOVED in
@@ -247,7 +247,7 @@ class _ExportIo {
             const capacityAtY = (minY) => (llGeometry.yDerate
                 ? this.lowLatencyPortCapacity(portCapacity, minY, canvasHeight)
                 : portCapacity);
-            // v0.10.9: the limit a port is actually judged against. ORDER OF
+            // v0.11.0: the limit a port is actually judged against. ORDER OF
             // OPERATIONS: the table value, then the (1 - Y/H) derate, THEN the
             // 5G narrow-port penalty subtracted from what is left. Doing it the
             // other way round - penalty first, derate second - would scale the
@@ -288,7 +288,7 @@ class _ExportIo {
                     const candMinY = Math.min(current.minY, y);
                     const candRect = usesRectangle ? unionRect(current.rect, panel) : null;
                     const candLoad = usesRectangle ? rectArea(candRect) : (current.load + area);
-                    // v0.10.9: on 5G the LIMIT moves as well as the load - a
+                    // v0.11.0: on 5G the LIMIT moves as well as the load - a
                     // cabinet that widens the port shrinks the narrow-port
                     // penalty (or removes it), one that only makes the port
                     // taller deepens it. So the limit is re-evaluated against
@@ -387,7 +387,7 @@ class _ExportIo {
                 return (maxX - minX) * (maxY - minY);
             };
 
-            // v0.10.9: bounding box of the VISIBLE cabinets in a unit list -
+            // v0.11.0: bounding box of the VISIBLE cabinets in a unit list -
             // the port's load width and load height for the NovaStar 5G
             // narrow-port penalty. Built only when that penalty is live, so
             // every other processor keeps its old single-figure limit.
@@ -429,7 +429,7 @@ class _ExportIo {
                         return (mxX - mnX) * (mxY - mnY);
                     })()
                     : unitPanelsAll.reduce((sum, p) => sum + this.getPanelPixelArea(p), 0);
-                // v0.10.9: judged against the capacity THIS unit has - on 5G a
+                // v0.11.0: judged against the capacity THIS unit has - on 5G a
                 // single narrow column is penalised in its own right, so the
                 // unpenalised table figure would let an over-filled unit past.
                 if (singleUnitLoad > capacityForUnits([unitIdx])) {
@@ -450,7 +450,7 @@ class _ExportIo {
                 const candidateIndices = [...current.unitIndices, unitIdx];
                 const candidateLoad = calcBoundingRectLoad(candidateIndices);
 
-                // v0.10.9: adding a unit moves the 5G limit as well as the
+                // v0.11.0: adding a unit moves the 5G limit as well as the
                 // load - a second column widens the port and can lift the
                 // narrow-port penalty, another row deepens it - so the limit is
                 // re-read for the CANDIDATE set. Every other processor gets
@@ -469,7 +469,7 @@ class _ExportIo {
             if (layer._capacityError) return [];
             if (current.load > 0 || current.unitIndices.length > 0) ports.push(current);
         } else if (usesRectangle) {
-            // v0.10.9: Max Capacity for rectangle-constraint processors
+            // v0.11.0: Max Capacity for rectangle-constraint processors
             // (NovaStar Armor). The port's load is the pixel RECTANGLE the
             // processor reserves around every visible cabinet in the port, not
             // a plain pixel sum, so we carry a running bounding rect and grow
@@ -535,7 +535,7 @@ class _ExportIo {
             if (current.panels.length > 0) ports.push(current);
         } else {
             let current = { panels: [], load: 0 };
-            // v0.10.9: the port's bounding box, carried alongside the running
+            // v0.11.0: the port's bounding box, carried alongside the running
             // pixel sum purely so the NovaStar 5G narrow-port penalty can read
             // the port's load width and height. Stays null on every other
             // processor and capacityForRect then hands back portCapacity, so
@@ -586,7 +586,7 @@ class _ExportIo {
         const assignments = [];
         layer._autoPortsRequired = ports.length;
         ports.forEach((port, idx) => {
-            // v0.10.9: only the Organized branch stores row/column indices;
+            // v0.11.0: only the Organized branch stores row/column indices;
             // the Low Latency branch carries its own ordered panel list.
             const portPanels = (isOrganized && !llGeometry)
                 ? this.getOrganizedPanelsForUnits(layer, pattern, isHorizontalFirst, port.unitIndices || [], false)
@@ -629,7 +629,7 @@ class _ExportIo {
         }
 
         if (format === 'resolume-xml') {
-            // v0.10.9: the preview keeps .value-accent. It is the only thing in
+            // v0.11.0: the preview keeps .value-accent. It is the only thing in
             // its box and the accent reads as HIGHLIGHT there, unlike
             // Pixels/Port and Panels/Port, which share a box with error
             // colours and so use .value-normal. Error colours stay inline.
@@ -2355,7 +2355,7 @@ class _ExportIo {
             case 'delete':
                 if (this.currentLayer) this.deleteLayer(this.currentLayer.id);
                 break;
-            // v0.10.9: screen groups. showContextMenu() hides these when the
+            // v0.11.0: screen groups. showContextMenu() hides these when the
             // selection cannot take them, and each action re-checks, so a
             // keyboard-driven call can't make a group of one either.
             case 'group-screens':

@@ -1,4 +1,4 @@
-"""Screen groups (v0.10.9) - data model, persistence and integrity.
+"""Screen groups (v0.11.0) - data model, persistence and integrity.
 
 A group makes a set of layers behave as one screen (a wall built from 1m JP5
 cabinets AND 0.5m standard cabinets has to be two layers, because the grid is

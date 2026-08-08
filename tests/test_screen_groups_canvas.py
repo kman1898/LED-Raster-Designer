@@ -1,4 +1,4 @@
-"""Screen groups (v0.10.9) - how a group DRAWS, SELECTS and MOVES.
+"""Screen groups (v0.11.0) - how a group DRAWS, SELECTS and MOVES.
 
 Step 1 gave groups a data model, step 2 the combined totals. This is the canvas
 half: a wall built from 1m JP5 cabinets AND 0.5m standard cabinets has to be two
