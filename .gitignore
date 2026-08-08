@@ -47,3 +47,7 @@ desktop.ini
 
 # Installer zips
 *.zip
+
+# Generated at release time from src/VERSION.txt by
+# scripts/generate_release_notes.py - never hand-maintained.
+RELEASE_NOTES.md
