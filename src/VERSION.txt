@@ -8,83 +8,56 @@ SCREEN GROUPS - one wall, however many cabinet sizes
 
 - NEW: You can now group screens, so a wall built from more than one cabinet
   size behaves as a single screen.
-  If your crew owns 1m panels and 0.5m panels and hangs them on the same wall,
-  you have had to draw them as two screens, because one screen uses one cabinet
-  size all the way through. The wall was one wall, but the app treated it as
-  two - two names on the drawing, two sets of totals to add up in your head,
-  two things to drag, and cabinet numbers that started again halfway across.
+  If your crew owns 1m x 1m panels and 0.5m x 0.5m panels and hangs them on
+  the same wall, you have had to draw them as two screens, because one screen
+  uses one cabinet size all the way through. The wall was one wall, but the
+  app treated it as two - two names on the drawing, two sets of totals to add
+  up in your head, two things to drag, and cabinet numbers that started again
+  halfway across.
   To make a group: select the screens that make up the wall - click one, then
   Shift-click or Cmd/Ctrl-click the rest - then right-click and choose
   "Group Screens". To take one apart, right-click and choose "Ungroup Screens".
-  To drop a single section out and leave the rest grouped, use "Remove From
+  To drop a single screen out and leave the rest grouped, use "Remove From
   Group".
   Once grouped:
   - Cabinets, weight, watts, amps, ports and circuits add up across the whole
-    wall. Each section keeps its own cabinet weight and wattage, so a 1m
-    cabinet and a half-metre cabinet are never assumed to weigh the same.
+    group. Each screen keeps its own cabinet weight and wattage, so a 1m x 1m
+    cabinet and a 0.5m x 0.5m cabinet are never assumed to weigh the same.
   - The drawing shows one name and one set of figures, and dragging any part
-    of the wall moves all of it.
-  - Cabinet IDs run straight through the wall instead of restarting on each
-    section, numbered by where each cabinet actually sits.
+    of the group moves all of it.
+  - Cabinet IDs run straight through the group instead of restarting on each
+    screen, numbered by where each cabinet actually sits.
   - Exports treat it as one screen: one shape in the Resolume XML named for
     the group, one Photoshop layer, and a group that happens to form a
     rectangle exports as a plain rectangle.
-  Group as many screens as you like, and keep as many groups as you like in a
-  project. Screens in a group need to agree on processor, bit depth and frame
-  rate. If they do not when you group them, the app tells you which settings
-  differ and lets you pick one value to apply to the whole wall.
+  A group can hold any number of screens - two, or a dozen - and you can keep
+  as many groups as you like in a project. Screens in a group need to agree on
+  processor, bit depth and frame rate. If they do not when you group them, the
+  app tells you which settings differ and lets you pick one value to apply to
+  the whole group.
 
-- NEW: Draw a data port or a power circuit straight across the wall.
-  In custom mode, click cabinets in any section and they all join the same
+- NEW: Draw a data port or a power circuit straight across a group.
+  In custom mode, click cabinets in any screen and they all join the same
   port - the line draws through the join, the "on port" count includes the
   cabinets on the far side, and a colour-coded circuit tints every cabinet on
-  it. When you reach the edge of a section, the arrow keys carry on into the
+  it. When you reach the edge of a screen, the arrow keys carry on into the
   next one and find the cabinet that is physically next door, even where the
-  two sections use different cabinet sizes.
+  two screens use different cabinet sizes.
   A cabinet already wired to another port is still refused, now across the
-  whole wall, and the message tells you which screen it is wired to - "port 1
+  whole group, and the message tells you which screen it is wired to - "port 1
   on Upper Wall" - because a cabinet reference on its own is ambiguous once
   two grids are in play.
 
-- NEW: Drag-select across the whole wall and apply a flow pattern to it.
+- NEW: Drag-select across a whole group and apply a flow pattern to it.
   Serpentine and the other patterns follow where each cabinet physically sits,
-  so a run across a 1m section and a half-metre section snakes across the wall
-  in the order you would walk it. The two sections' grids do not line up when
-  the cabinet sizes differ, and the pattern no longer pretends they do.
-
-- FIX: The circle-and-X test pattern now draws once across a whole group.
-  You look at it to see the wall is whole and square, so a wall made of a 1m
-  section beside a half-metre one should not show two circles and two X's. It
-  is now sized to the whole wall and drawn over the top of every section.
-  Hiding a section shrinks the pattern to what is actually lit. A screen that
-  is not in a group looks exactly as it did.
-
-- FIX: A group's circuit count now follows the map you are actually using.
-  It always showed the automatic figure, so a wall you had wired by hand
-  reported the circuits the app would have made rather than the ones you
-  drew. Ports already worked this way; power now matches.
-
-- FIX: A section fed entirely by a port or circuit drawn from the section next
-  to it no longer counts a port of its own on top. A wall with one cable
-  across it now reads as one port, not two.
+  so a run across a 1m x 1m screen and a 0.5m x 0.5m screen snakes across the
+  group in the order you would walk it. The two screens' grids do not line up
+  when the cabinet sizes differ, and the pattern no longer pretends they do.
 
 - FIX: Drag-select in Power now lights up the cabinets as you drag, the way
   Data always has. In Power you saw nothing at all until you let go of the
   button, so you were picking a box blind and only finding out what you had
   caught once it was too late to adjust. Both views now behave the same.
-
-- FIX: Starting a drag-select over a neighbouring section used to make that
-  section the current screen, so the port you were drawing quietly changed
-  owner halfway through the gesture. Clicking to select a screen normally
-  works as before.
-
-- CHANGE: Duplicating a canvas now duplicates the walls on it, not a pile of
-  loose screens. The copy gets its own group, and any port or circuit drawn
-  across a join is repointed at the copy's own sections - so the duplicate is
-  wired like the one it came from, instead of needing regrouping and
-  redrawing. A group that reaches onto another canvas cannot be copied
-  faithfully, so those screens come across ungrouped.
-
 
 EXPORT, AND THE APP OPENING IN A BROWSER (WINDOWS)
 
@@ -150,17 +123,19 @@ EXPORT, AND THE APP OPENING IN A BROWSER (WINDOWS)
   change. Undo recorded the jumped-back position too, so stepping back walked
   you through gradients you never chose.
 
-FROM A FULL AUDIT OF THIS RELEASE
+FIXES THAT CHANGE NUMBERS ON DRAWINGS YOU ALREADY HAVE
 
-Five passes over the new group work turned up a number of things worth
-knowing about, and a few that change numbers on drawings you already have.
+These were found by going back over the app with fresh eyes. They are not new
+faults - they have been there a while, and a few of them change figures you
+may have already read off a drawing and ordered against, so they are worth a
+minute of your time.
 
 - FIX (IMPORTANT): A wall with a GAP in it exported as one solid rectangle
-  straight over the gap. Two sections with air between them, or one screen
+  straight over the gap. Two screens with air between them, or one screen
   split in two by hidden cabinets, traced only one side and shipped it as a
-  plain rectangle - so content was mapped across the hole, both sections
-  landed shifted, and anything in the gap went to the floor. Each separate
-  piece of wall now exports as its own shape, at its own position.
+  plain rectangle - so content was mapped across the hole, both screens landed
+  shifted, and anything in the gap went to the floor. Each separate piece of
+  wall now exports as its own shape, at its own position.
 
 - FIX (IMPORTANT): A blanked cabinet now changes the exported shape on ANY
   screen. It already did inside a group, but a screen on its own still shipped
@@ -170,24 +145,10 @@ knowing about, and a few that change numbers on drawings you already have.
 - FIX: An "&" in a screen or group name produced a file Resolume could not
   open at all. "Left & Right" is a perfectly normal wall name.
 
-- FIX: A hidden section is no longer painted into the Photoshop export. A
-  section struck from the build was still appearing, at full opacity, in the
-  file handed to graphics.
-
-- FIX: Rotated screens. The circle-and-X, the wall's name, the drag-select
-  highlight and the cabinet numbers were all worked out as if the screen were
-  not rotated and then drawn rotated - so the test pattern and the name landed
-  off the wall, the highlight sat a cabinet away from the one you pointed at,
-  and a rotated section's numbers could land on top of its neighbour's.
-
-- FIX: Drag-select and the arrow keys could reach cabinets on a HIDDEN
-  section, so a port could quietly pick up cabinets you could not see, click
-  or remove without unhiding. Clicking never could; now nothing can.
-
-- FIX (IMPORTANT): A section fed by a cable from the section next to it
-  reported ZERO ports of its own, even when only one of its cabinets was on
-  that cable. A 40-cabinet section could be planned with no port at all. Only
-  a section fed ENTIRELY by its neighbour counts zero now.
+- FIX: Drag-select now lands on the cabinet you pointed at on a ROTATED
+  screen. The highlight was worked out as if the screen were not rotated and
+  then drawn rotated, so it sat a cabinet or more away from the one under your
+  cursor - the more rotation, the further out it was.
 
 - CHANGE (IMPORTANT): Frame rates are now limited to the ones your processor
   actually publishes a figure for. The list used to offer the same 19 rates to
@@ -199,13 +160,14 @@ knowing about, and a few that change numbers on drawings you already have.
   port count will change. Brompton is unaffected - it publishes every rate the
   app offers.
 
-- CHANGE: Screens in a group now have to agree on VOLTAGE, the same way they
-  agree on processor and bit depth. One wall runs off one supply, so two
-  sections on 110 V and 208 V is a wiring mistake rather than a setting. If
-  they disagree when you group them, you pick one. A PROJECT can still hold
-  walls on different voltages - that is normal - and the totals now report
-  each voltage on its own line instead of blending them into one figure that
-  belonged to neither wall.
+- FIX (IMPORTANT): Project totals no longer blend screens running on
+  different voltages into one figure. A project with a 110 V wall and a 208 V
+  wall took whichever voltage it happened to see first and divided EVERY
+  screen's watts by it, so the amps belonged to neither wall. Each voltage is
+  now reported on its own line. A project can of course hold walls on
+  different supplies - that is normal - but screens grouped into one wall now
+  have to agree on voltage, the same way they agree on processor and bit
+  depth.
 
 - FIX (IMPORTANT): The project circuit total was worked out by dividing total
   watts by the watts a circuit carries, which ignores how circuits actually
@@ -213,29 +175,10 @@ knowing about, and a few that change numbers on drawings you already have.
   3. It now counts the map. The same readout also ignored hand-drawn power and
   port maps entirely, showing the automatic figure instead of what you drew.
 
-- FIX: "Remove Selected Screens" pulled screens out of OTHER groups. If your
-  selection reached across two walls, the second wall silently lost a section,
-  changing its totals and its export with nothing on screen to say so.
-
-- FIX: Duplicate Group looked like it did nothing - the copy landed exactly on
-  top of the original until the file was reopened.
-
-- FIX: Whether hand-drawn wiring across a section boundary survived depended
-  on timing. The same sequence of actions kept it or lost it depending on
-  whether the file had been reopened in between.
-
 - FIX: Redo after undoing a Delete Screen did not delete it again.
 
 - FIX: Cabinet borders and label colour each took TWO undos to reverse one
   click, so the first Ctrl+Z appeared to do nothing.
-
-- FIX: A damaged project file no longer fails to open. Certain malformed
-  files errored on every undo, redo and open.
-
-- FIX: A group whose members sit on different canvases no longer reports the
-  cabinets and weight of screens that are not on the canvas you are looking
-  at. The row now says how many are elsewhere instead of silently adding them.
-
 
 LOW LATENCY, ON EVERY PROCESSOR
 
@@ -263,7 +206,6 @@ LOW LATENCY, ON EVERY PROCESSOR
   rule. They sit under that readout because Pixels/Port is a whole-screen
   figure and cannot show you what an individual port costs.
 
-
 PORT MAPPING
 
 - NEW: Port Mapping now works on NovaStar (Legacy). "Organized" and "Max
@@ -276,9 +218,6 @@ PORT MAPPING
   The rectangle rule applies only to NovaStar (Legacy). COEX 1G/5G, Brompton,
   Brompton ULL and Megapixel HELIOS are unchanged.
 
-- FIX: The Port Mapping buttons could stay greyed out even after you switched
-  to a processor that supports both modes.
-
 - FIX: The highlight now moves when you pick a Port Mapping mode. Clicking
   "Max Capacity" changed the setting, but "Organized" stayed lit, so there was
   no way to see which mode you were actually using.
@@ -288,7 +227,6 @@ PORT MAPPING
   - the setting was being ignored - so maps you have already issued keep
   rendering exactly as they are. Choosing Max Capacity yourself from now on
   sticks, including through undo.
-
 
 CAPACITY FIGURES - WORTH RE-CHECKING YOUR PORT COUNTS
 
@@ -326,7 +264,6 @@ CAPACITY FIGURES - WORTH RE-CHECKING YOUR PORT COUNTS
   the shape low latency encourages, and it can be the difference between a
   port that works and one that is quietly overloaded.
 
-
 EXPORT
 
 - FIX (IMPORTANT): The Resolume XML export now follows the real shape of your
@@ -338,7 +275,6 @@ EXPORT
   polygon that follows only where cabinets really are. Blanked cabinets are
   left out too, matching the cabinet, weight and power totals, which have
   always ignored them.
-
 
 EVERYTHING ELSE
 
@@ -632,14 +568,12 @@ v0.9.3 - July 6, 2026
 - Magnetic snap is stronger and stays consistent across zoom levels.
 - Larger app logo in the toolbar.
 
-
 v0.9.2 - July 6, 2026
 ----------------------------
 - FIX: PSD export now preserves Transparent (no fill) screen interiors as
   real layer transparency. Exports keep the PSD document RGB, write the
   rendered alpha channel into each layer's transparency channel, and avoid
   phantom layer-mask metadata that caused mask warnings in some PSD readers.
-
 
 v0.9.1 - July 2, 2026
 ----------------------------
@@ -649,14 +583,12 @@ v0.9.1 - July 2, 2026
   Export dialog's Transparent Background option for overlays. Saved per
   screen with the project.
 
-
 v0.9.0.1 - June 28, 2026
 ----------------------------
 - FIX: In the Export dialog, checked checkboxes (canvases, views, options)
   now fill solid with a checkmark instead of showing only a colored
   outline. A modal-input style was overriding the checked state.
 - Transparent Background is now checked by default in the Export dialog.
-
 
 v0.9.0 - June 28, 2026
 ----------------------------
@@ -2722,14 +2654,12 @@ DATA FLOW: Selection UX + shift-drag precedence
 - ✅ Selection highlight now darkens panels for visibility
 - ✅ Shift+drag screen-name move supersedes custom selection
 
-
 v0.5.5.21 - February 5, 2026
 ---------------------------
 DATA FLOW: Space+drag pan overrides selection
 
 **Completed:**
 - ✅ Space+click now pans instead of starting selection in custom mode
-
 
 v0.5.5.20 - February 5, 2026
 ---------------------------
@@ -2739,7 +2669,6 @@ DATA FLOW: Custom selection undo support
 - ✅ Custom selection state is now part of undo/redo history
 - ✅ Selection changes are captured on mouse-up
 
-
 v0.5.5.19 - February 5, 2026
 ---------------------------
 DATA FLOW: Selection locks path editing
@@ -2748,7 +2677,6 @@ DATA FLOW: Selection locks path editing
 - ✅ Clicking while selection exists now clears selection instead of adding panels
 - ✅ Custom path clicks are ignored when a selection is active
 
-
 v0.5.5.18 - February 5, 2026
 ---------------------------
 DATA FLOW: Active port badge in canvas corner
@@ -2756,14 +2684,12 @@ DATA FLOW: Active port badge in canvas corner
 **Completed:**
 - ✅ Active port badge now renders in top-left of canvas (screen space)
 
-
 v0.5.5.17 - February 5, 2026
 ---------------------------
 DATA FLOW: Single-panel port label order
 
 **Completed:**
 - ✅ In custom flow, single-panel ports now show Primary label on top
-
 
 v0.5.5.16 - February 5, 2026
 ---------------------------
@@ -2773,14 +2699,12 @@ DATA FLOW: Custom mode shortcuts + port badge position
 - ✅ Shift+N for next port, Shift+B for previous
 - ✅ Active port badge now anchored to top-left of canvas
 
-
 v0.5.5.15 - February 5, 2026
 ---------------------------
 FIX: Custom flow label rendering crash
 
 **Completed:**
 - ✅ Fixed circleRadius scope error in custom flow rendering
-
 
 v0.5.5.14 - February 5, 2026
 ---------------------------
@@ -2791,7 +2715,6 @@ DATA FLOW: Custom mode fixes (labels, selection, persistence)
 - ✅ Drag selection uses panel intersection (not full containment)
 - ✅ Added debug toggle for custom mode console logging
 
-
 v0.5.5.13 - February 5, 2026
 ---------------------------
 DATA FLOW: Custom mode stability + shortcut change
@@ -2799,7 +2722,6 @@ DATA FLOW: Custom mode stability + shortcut change
 **Completed:**
 - ✅ Added Cmd/Ctrl+N for next custom port
 - ✅ Prevented selection from flooding undo history
-
 
 v0.5.5.12 - February 5, 2026
 ---------------------------
@@ -2811,7 +2733,6 @@ DATA FLOW: Custom path UX fixes + undo/redo support
 - ✅ Added large on-screen active port badge in custom mode
 - ✅ Custom path actions now save to undo/redo history
 
-
 v0.5.5.11 - February 5, 2026
 ---------------------------
 DATA FLOW: Custom Path mode (manual + pattern on selection)
@@ -2821,7 +2742,6 @@ DATA FLOW: Custom Path mode (manual + pattern on selection)
 - ✅ Click panels or use arrow keys to build port paths (skips hidden)
 - ✅ Select panels and apply built-in patterns to the selection
 
-
 v0.5.5.10 - February 5, 2026
 ---------------------------
 UI: Processing label and NovaStar legacy naming
@@ -2829,7 +2749,6 @@ UI: Processing label and NovaStar legacy naming
 **Completed:**
 - ✅ Renamed "Processor" label to "Processing"
 - ✅ Renamed first NovaStar option to "NovaStar (Legacy)"
-
 
 v0.5.5.9 - February 5, 2026
 ---------------------------
@@ -2839,7 +2758,6 @@ DATA FLOW: Port label token simplified
 - ✅ Replaced {n} with # for port number templating
 - ✅ Renamed "Bulk Override" UI to "Apply Style"
 
-
 v0.5.5.8 - February 5, 2026
 ---------------------------
 DATA FLOW: Editable port labels (template + per-port overrides)
@@ -2848,14 +2766,12 @@ DATA FLOW: Editable port labels (template + per-port overrides)
 - ✅ Added Port Labels editor in Data Flow panel (template + per-port overrides)
 - ✅ Port label text now supports {n} templating and overrides in render
 
-
 v0.5.5.7 - February 5, 2026
 ---------------------------
 DEFAULTS: NovaStar Armor set as default processor
 
 **Completed:**
 - ✅ Default processor set to NovaStar Armor (legacy 1G)
-
 
 v0.5.5.6 - February 5, 2026
 ---------------------------
@@ -2864,7 +2780,6 @@ CAPACITY: Legacy NovaStar Armor capped at 120 Hz
 **Completed:**
 - ✅ Armor (MSD/MRV) table capped at 120 Hz
 - ✅ Frame-rate dropdown now limits Armor to 120 Hz max
-
 
 v0.5.5.5 - February 5, 2026
 ---------------------------
@@ -2875,7 +2790,6 @@ CAPACITY: Split NovaStar systems (Armor vs COEX 1G)
 - ✅ Renamed NovaStar COEX 1G key to `novastar-coex-1g` and migrated old `novastar-1g`
 - ✅ Updated UI labels and defaults to match the three NovaStar systems
 
-
 v0.5.5.4 - February 5, 2026
 ---------------------------
 CAPACITY: Added NovaStar Armor (Other 1G) receiving cards
@@ -2883,7 +2797,6 @@ CAPACITY: Added NovaStar Armor (Other 1G) receiving cards
 **Completed:**
 - ✅ Added NovaStar Armor (Other 1G) processor option and lookup table
 - ✅ Applied rectangle-constraint rules to Armor (same as NovaStar 1G)
-
 
 v0.5.5.3 - February 5, 2026
 ---------------------------
@@ -2893,7 +2806,6 @@ EXPORT: Crisper pixel-to-pixel output (no UI change)
 - ✅ Export rendering now snaps key draw positions to whole pixels (export mode only)
 - ✅ Data flow line widths snap to whole pixels in export mode for cleaner edges
 - ✅ Label backgrounds and text positions snap during export to reduce soft edges
-
 
 v0.3.9.6 - January 28, 2026
 ---------------------------
@@ -2916,7 +2828,6 @@ DATA FLOW TAB: Complete serpentine arrow rendering
 Row 1: TL-H, TL-V, TR-H, TR-V (top start patterns)
 Row 2: BL-H, BL-V, BR-H, BR-V (bottom start patterns)
 Where: H=horizontal-first serpentine, V=vertical-first serpentine
-
 
 v0.3.9.5 - January 28, 2026
 ---------------------------
@@ -2949,7 +2860,6 @@ CHECKPOINT: Data Flow UI in progress - continue in new thread
 - professional LED software data flow diagrams showing 8 serpentine patterns
 - Each pattern has: Green arrow (start), white curved path, Red arrow (end)
 
-
 v0.3.9.4 - January 28, 2026
 ---------------------------
 SIMPLIFICATION: Just S-shapes in 8 orientations
@@ -2974,7 +2884,6 @@ SIMPLIFICATION: Just S-shapes in 8 orientations
 8. Bottom-right S up
 
 Much simpler and clearer!
-
 
 v0.3.9.3 - January 28, 2026
 ---------------------------
@@ -3001,7 +2910,6 @@ Each pattern now correctly shows:
 - Simple line path
 - Arrow at END (or circle for endpoints)
 
-
 v0.3.9.2 - January 28, 2026
 ---------------------------
 UI: Visual flow pattern diagrams with SVG icons
@@ -3025,7 +2933,6 @@ Row 2:
 8. Vertical B→T Serpentine Alt (columns, starts right)
 
 **Next Step:** Wire up button click handlers and implement rendering logic
-
 
 v0.3.9.1 - January 28, 2026
 ---------------------------
@@ -3052,7 +2959,6 @@ Row 2 (Top-Right start): Horizontal Serpentine, Vertical Serpentine, Horizontal 
 - Backup Color (red R1 label)
 
 **Next Step:** Implement rendering logic for arrows and P1/R1 labels
-
 
 v0.3.9 - January 28, 2026
 -------------------------
@@ -3081,7 +2987,6 @@ FEATURE: Data Flow Tab UI (Part 1 - UI Only)
 **Next Step (v0.3.10):**
 Implement rendering logic for arrows, P1/R1 labels, and flow visualization
 
-
 v0.3.8.4 - January 28, 2026
 ---------------------------
 BUG FIX: Cabinet ID numbers now clipped to raster bounds
@@ -3093,7 +2998,6 @@ Cabinet ID numbers were rendering outside the raster box (the red dashed boundar
 - ✅ Added `ctx.save()` / `ctx.clip()` / `ctx.restore()` to renderCabinetIDNumbers
 - ✅ Numbers now clip to raster bounds, just like other elements (borders, circle with X, etc.)
 - ✅ Consistent with existing rendering behavior
-
 
 v0.3.8.3 - January 28, 2026
 ---------------------------
@@ -3115,7 +3019,6 @@ The `add_layer` endpoint needs to handle two cases:
 
 Now it checks the request data and applies any provided settings.
 
-
 v0.3.8.2 - January 28, 2026
 ---------------------------
 BUG FIX: Duplicate/Paste now preserves Cabinet ID settings
@@ -3128,7 +3031,6 @@ BUG FIX: Duplicate/Paste now preserves Cabinet ID settings
 **What Was Broken:**
 When duplicating or pasting a layer, the Cabinet ID settings would revert to default instead of copying from the source layer.
 
-
 v0.3.8.1 - January 28, 2026
 ---------------------------
 UI POLISH: Shortened labels, Colors panel fixed
@@ -3140,7 +3042,6 @@ UI POLISH: Shortened labels, Colors panel fixed
   - "1,1  1,2  1,3" (was "Row,Col (1,1  1,2  1,3...)")
 - ✅ Fixed Colors panel - now ONLY shows on Pixel Map tab
 - ✅ Cabinet ID, Data Flow, Power tabs have no Colors section
-
 
 v0.3.8 - January 28, 2026
 -------------------------
@@ -3185,7 +3086,6 @@ Transform Mode - Resize screens by dragging corners
 - Optional: Toggle button "Transform" at top toolbar with `T` shortcut
 - Cursor changes per corner (nwse-resize, nesw-resize)
 
-
 v0.3.7 - January 28, 2026
 -------------------------
 UX IMPROVEMENT: Default label settings
@@ -3203,7 +3103,6 @@ Transform Mode - Resize screens by dragging corners
 - Activation: Cmd/Ctrl + Shift + click any corner
 - Optional: Toggle button "Transform" at top toolbar with `T` shortcut
 - Cursor changes per corner (nwse-resize, nesw-resize)
-
 
 v0.3.6 - January 28, 2026
 -------------------------
@@ -3225,7 +3124,6 @@ CLEANUP: Removed all debug logging
 - v0.3.5.4: Selection bounding box during Shift+Drag only
 - v0.3.6: Debug cleanup (this version)
 
-
 v0.3.5.4 - January 28, 2026
 ---------------------------
 UX IMPROVEMENT: Bounding box only during Shift+Drag
@@ -3242,7 +3140,6 @@ UX IMPROVEMENT: Bounding box only during Shift+Drag
 1. Select a layer → no blue box ✅
 2. Hold Shift + Drag layer → blue box appears ✅
 3. Release mouse → blue box disappears ✅
-
 
 v0.3.5.3 - January 28, 2026
 ---------------------------
@@ -3268,16 +3165,13 @@ Used `this.camera.zoom` but this codebase uses `this.zoom` directly!
 4. ✅ Blue box highlights selected layer
 5. ✅ No TypeError on render
 
-
 v0.3.5.2 - January 28, 2026 [BROKEN - zoom reference bug]
 ---------------------------
 Used wrong zoom reference (this.camera.zoom instead of this.zoom).
 
-
 v0.3.5.1 - January 28, 2026 [BROKEN - sed destroyed code]
 ---------------------------
 Render broken by sed command.
-
 
 v0.3.5 - January 28, 2026
 -------------------------
@@ -3317,7 +3211,6 @@ reversedLayers.forEach(layer => { /* render */ });
 3. ✅ Delete bottom layer → Top layer auto-selects
 
 **Note:** Screens panel will move to bottom-right in future for preset system!
-
 
 v0.3.4 - January 28, 2026
 -------------------------
@@ -3359,7 +3252,6 @@ The DELETE layer endpoint was returning `{status: "success"}` instead of the ful
 
 This should be THE fix!
 
-
 v0.3.3.1 DEBUG - January 27, 2026
 ----------------------------------
 DEBUG BUILD - Delete Key Issue Investigation
@@ -3397,7 +3289,6 @@ Added extensive console logging to track down the delete key freeze issue:
 3. Press Delete key
 4. Send ALL console output from "=== DELETE CURRENT LAYER ===" onwards
 
-
 v0.3.3 - January 27, 2026
 -------------------------
 REMOVED DELETE CONFIRMATIONS - Undo/Redo Makes Them Unnecessary
@@ -3423,7 +3314,6 @@ Test:
 2. ✅ Press Cmd+Z → Layer restored
 3. ✅ Click trash button → Layer deleted immediately
 4. ✅ Try to delete last layer → Shows alert (still protected)
-
 
 v0.3.2 - January 27, 2026
 -------------------------
@@ -3458,7 +3348,6 @@ Fix: Added `deletionInProgress` flag
 3. ✅ Press Delete, then Enter - layer deletes correctly
 
 Debugging logs still active for troubleshooting!
-
 
 v0.3.1 - January 27, 2026
 -------------------------
@@ -3520,7 +3409,6 @@ Undo: 1 layer [restores initial(1)] ✅
 Redo: 2 layers [restores dup1(2)] ✅
 Redo: 3 layers [restores dup2(3)] ✅
 ```
-
 
 v0.3.0 - January 27, 2026
 -------------------------
@@ -3592,7 +3480,6 @@ Test:
 4. ✅ Redo (Cmd+Shift+Z) - duplicate reappears
 5. ✅ Press Delete, then Enter - layer deleted correctly
 
-
 v0.2.9.1 - January 27, 2026
 ---------------------------
 DEBUG BUILD - Undo/Redo Troubleshooting
@@ -3643,7 +3530,6 @@ Added extensive console logging to diagnose undo/redo issues:
 - Are there any errors in backend sync?
 - How many layers are in the restored state?
 
-
 v0.2.9 - January 27, 2026
 -------------------------
 CRITICAL FIX: Undo/Redo Now Working
@@ -3676,7 +3562,6 @@ Test:
 2. Duplicate it (Cmd+J)
 3. Undo (Cmd+Z) - layer should disappear ✅
 4. Redo (Cmd+Shift+Z) - layer should reappear ✅
-
 
 v0.2.8 - January 27, 2026
 -------------------------
@@ -3721,7 +3606,6 @@ Complete Shortcut List (Windows/Linux):
 standard image editors Muscle Memory:
 If you're a standard image editors user, all shortcuts will feel natural!
 
-
 v0.2.7 - January 27, 2026
 -------------------------
 KEYBOARD SHORTCUTS ENHANCED
@@ -3765,7 +3649,6 @@ Technical:
 - `isTyping` check prevents shortcuts when in text fields
 - `e.preventDefault()` blocks browser defaults
 
-
 v0.2.6 - January 27, 2026
 -------------------------
 UI & NAMING IMPROVEMENTS
@@ -3799,7 +3682,6 @@ Main12 → duplicate → Main13
 Test → copy/paste → Test 1
 ```
 
-
 v0.2.5 - January 27, 2026
 -------------------------
 BUG FIXES
@@ -3827,7 +3709,6 @@ Visual Improvement:
 
 Note:
 - Trash can (🗑) already present in layer list (was never removed)
-
 
 v0.2.4 - January 27, 2026
 -------------------------
@@ -3861,7 +3742,6 @@ Technical:
 - Frontend toggles between decimal (toFixed(1)) and fraction conversion
 - Fraction conversion function handles all common fractions
 
-
 v0.2.3 - January 27, 2026
 -------------------------
 BUG FIXES
@@ -3894,7 +3774,6 @@ Test Case (84px × 84px, 8col × 14row):
 - ✅ Now shows: "W 2' 2.46" X H 3' 10.31""
 - ❌ Was showing: "W 2' 2.-41" X H 3' 10.-69""
 
-
 v0.2.2 - January 27, 2026
 -------------------------
 IMPROVEMENTS
@@ -3918,7 +3797,6 @@ Technical Changes:
 - renderLayerLabels() now uses ctx.save(), ctx.clip(), ctx.restore()
 - Clips to rect(0, 0, rasterWidth, rasterHeight) before rendering
 - Zoom factor reduced from ±10% to ±5%
-
 
 v0.2.1 - January 27, 2026
 -------------------------
@@ -3954,7 +3832,6 @@ Kept as `type="number"` (no math needed):
 Removed:
 - Debug logging from v0.2.0.3
 
-
 v0.2.0.3 - January 27, 2026
 ---------------------------
 DEBUG BUILD
@@ -3985,7 +3862,6 @@ Asterisk key pressed: {
 
 If `defaultPrevented: true`, something else is blocking it!
 
-
 v0.2.0.2 - January 27, 2026
 ---------------------------
 CRITICAL FIX
@@ -4014,7 +3890,6 @@ Behavior Now:
 - **Ctrl/Cmd+Z**: Undo works everywhere (including text fields) ✅
 - **Asterisk (*)**: Works normally in all text inputs ✅
 
-
 v0.2.0.1 - January 27, 2026
 ---------------------------
 CRITICAL FIX
@@ -4033,7 +3908,6 @@ Math Expressions:
 - Multiplication (e.g., "2*3") works correctly
 - Function tested and verified working
 - If you're seeing issues, please provide specific example
-
 
 v0.2.0 - January 27, 2026
 -------------------------
@@ -4090,7 +3964,6 @@ UI Changes:
 - Added tooltips to all layer control buttons
 - Layer control buttons: 👁 (visibility), 📋 (duplicate), 🗑 (delete)
 
-
 v0.1.8 - January 27, 2026
 -------------------------
 FEATURE IMPROVEMENT
@@ -4109,7 +3982,6 @@ Updated TODO List:
 Changes:
 - Updated HTML input max="48" to max="100"
 - TODO.txt reorganized with completed items and QOL section
-
 
 v0.1.7.3 - January 27, 2026
 ---------------------------
@@ -4136,7 +4008,6 @@ Reverted v0.1.7.2 Changes:
 - That was solving the wrong problem
 - Info label now just uses constant 14, ignores slider
 
-
 v0.1.7.2 - January 27, 2026
 ---------------------------
 BUG FIX
@@ -4161,7 +4032,6 @@ Technical:
 - Info font: `const infoFontSize = 14 / this.zoom;`
 - Info line height: `const infoLineHeight = infoFontSize + 4;`
 - Updated all info label rendering to use these constants
-
 
 v0.1.7.1 - January 27, 2026
 ---------------------------
@@ -4199,7 +4069,6 @@ Technical:
 - Split update logic: offset-only vs full regeneration
 - Preserve states using old_panel_states dictionary
 
-
 v0.1.7 - January 27, 2026
 -------------------------
 IMPROVEMENTS & DEBUG
@@ -4224,7 +4093,6 @@ Notes for Future:
 - Top menu bar planned with various functions
 - Ctrl+Shift+Click currently restoring hidden panels - investigating cause
 
-
 v0.1.6 - January 27, 2026
 -------------------------
 NEW FEATURE - Default Layer on Startup
@@ -4245,7 +4113,6 @@ Behavior:
 - First time opening app: Screen1 already present and selected
 - Click "New": Creates new project with Screen1 already present and selected
 - Start editing immediately without clicking "Add Screen"
-
 
 v0.1.5.3 - January 27, 2026
 ---------------------------
@@ -4269,7 +4136,6 @@ What was happening:
 Now fixed:
 - Backend now accepts and saves `show_circle_with_x` in the update
 - Toggle state persists properly
-
 
 v0.1.5.2 - January 27, 2026
 ---------------------------
@@ -4302,7 +4168,6 @@ Debug Notes:
 - Issue was lack of immediate render - now fixed
 - Blank mode completely removed from codebase
 
-
 v0.1.5.1 - January 27, 2026
 ---------------------------
 BUG FIXES & DEBUG
@@ -4331,7 +4196,6 @@ Still investigating:
 - Why Circle/X toggle doesn't hide/show despite correct event listeners
 - Shift+Ctrl behavior (may be browser default on Mac)
 
-
 v0.1.5 - January 27, 2026
 -------------------------
 BUG FIXES
@@ -4356,7 +4220,6 @@ Technical Details:
 - loadLayerToInputs() now handles undefined with ternary operator
 - renderCircleWithX() wraps drawing in save/clip/restore for bounds enforcement
 - Clipping prevents any part of circle or X from appearing outside raster
-
 
 v0.1.4 - January 27, 2026
 -------------------------
@@ -4393,7 +4256,6 @@ Technical:
 - X draws from (offset_x, offset_y) to (offset_x + width, offset_y + height) and opposite corners
 - Default values in create_layer(): `show_panel_borders: True`, `show_circle_with_x: True`
 
-
 v0.1.3 - January 27, 2026
 -------------------------
 CRITICAL FIXES
@@ -4427,7 +4289,6 @@ Technical:
 - All lineWidth values now use absolute numbers (2, 1) instead of divided by zoom
 - This makes borders "painted onto" the content, scaling proportionally like text
 
-
 v0.1.2 - January 27, 2026
 -------------------------
 IMPROVEMENTS & FIXES
@@ -4446,7 +4307,6 @@ Changes:
 - Info label consolidated from 2 rows to 1 row: "8 Columns X 5 Rows • 40 Cabinets Total / Resolution: 1024 X 640 • Weight: 800.0 kg / 1763.7 lb"
 - Added /api/project/new endpoint for creating new projects
 - Added createNewProject() method in frontend
-
 
 v0.1.1 - January 27, 2026
 -------------------------
@@ -4470,7 +4330,6 @@ Technical changes:
 - Moved renderLayerLabels(), renderLayerOffsets(), renderCabinetIDNumbers() before ctx.restore()
 - Changed all text coordinates from screen space (x * zoom + panX) to world space (x)
 - Text now scales with zoom transform matrix automatically
-
 
 v0.1 - January 27, 2026
 -----------------------
@@ -4538,7 +4397,6 @@ Technical:
 - All lineWidth values now use absolute numbers (2, 1) instead of divided by zoom
 - This makes borders "painted onto" the content, scaling proportionally like text
 
-
 v0.1.2 - January 27, 2026
 -------------------------
 IMPROVEMENTS & FIXES
@@ -4557,7 +4415,6 @@ Changes:
 - Info label consolidated from 2 rows to 1 row: "8 Columns X 5 Rows • 40 Cabinets Total / Resolution: 1024 X 640 • Weight: 800.0 kg / 1763.7 lb"
 - Added /api/project/new endpoint for creating new projects
 - Added createNewProject() method in frontend
-
 
 v0.1.1 - January 27, 2026
 -------------------------
@@ -4581,7 +4438,6 @@ Technical changes:
 - Moved renderLayerLabels(), renderLayerOffsets(), renderCabinetIDNumbers() before ctx.restore()
 - Changed all text coordinates from screen space (x * zoom + panX) to world space (x)
 - Text now scales with zoom transform matrix automatically
-
 
 v0.1 - January 27, 2026
 -----------------------

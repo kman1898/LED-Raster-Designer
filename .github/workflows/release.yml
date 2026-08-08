@@ -391,7 +391,13 @@ jobs:
           # /releases/latest page pointing at an old version.
           draft: false
           make_latest: true
-          generate_release_notes: true
+          # v0.10.9: was generate_release_notes: true, which builds the body
+          # from the COMMIT LIST. That threw away the notes written for users
+          # in VERSION.txt and shipped a wall of commit subjects instead.
+          # RELEASE_NOTES.md is written as part of the version bump and is the
+          # user-facing text; it is what the release page shows.
+          generate_release_notes: false
+          body_path: RELEASE_NOTES.md
           files: |
             artifacts/macos-build/*.dmg
             artifacts/windows-build/*.zip
