@@ -1322,19 +1322,26 @@ class _Presets {
         const effCid = (l) => (isShowView && l.show_canvas_id) ? l.show_canvas_id : l.canvas_id;
         this.project.layers.forEach(layer => {
             if ((layer.type || 'screen') !== 'screen') return;
-            if (!layer.visible) return;
+            if (layer.visible === false) return;  // v0.10.9: missing key means visible
             const lcid = effCid(layer);
             if (lcid && hiddenCanvasIds.has(lcid)) return;
             if (onlyCanvasId && lcid !== onlyCanvasId) return;
             const activePanels = (layer.panels || []).filter(p => !p.blank && !p.hidden);
             if (activePanels.length === 0) return;
-            const assignments = this.calculatePortAssignments(layer);
-            if (!assignments || assignments.length === 0) return;
-            const ports = new Set();
-            assignments.forEach(a => {
-                if (a && a.port) ports.add(a.port);
-            });
-            totalPrimary += ports.size;
+            // v0.10.9 fix: this used to re-run calculatePortAssignments and
+            // count distinct a.port, which is the AUTOMATIC map and nothing
+            // else. A screen hand-wired to three ports read 3 in the sidebar,
+            // 3 on its screen label and 3 in the group roll-up - and 1 here,
+            // on the text layer that gets printed and handed to the crew,
+            // because four cabinets fit one Brompton port.
+            //
+            // getLayerPortsRequired is the one implementation v0.10.9
+            // collapsed the other three copies into: it prefers the drawn
+            // customPortPaths over the automatic figure and returns 0 for a
+            // member whose cabinets are already fed by a peer's crossing
+            // port, so summing it across the project can neither miss a
+            // hand-drawn port nor count one cable twice.
+            totalPrimary += this.getLayerPortsRequired(layer) || 0;
         });
         // Every primary port has a backup/return port
         return { primary: totalPrimary, backup: totalPrimary };
@@ -1343,11 +1350,35 @@ class _Presets {
     // Aggregate power stats across all visible screen layers.
     // Slice 9: exclude layers whose canvas is hidden.
     // Slice 10: optional onlyCanvasId filter for per-canvas sidebar totals.
+    //
+    // v0.10.9 fix, three parts:
+    //   circuits  came from a bulk division, ceil(layerWatts / circuitWatts),
+    //             which ignores row/column packing entirely and can only ever
+    //             UNDER-count. It now comes from the map the app actually
+    //             draws, through the same getLayerCircuitsRequired the group
+    //             roll-up uses, so a hand-drawn circuit map is honoured too.
+    //   voltage   mixed voltages were blended: all the watts divided by
+    //             whichever voltage was seen first. There is no honest
+    //             combined amps figure across two voltages, so the combined
+    //             ones go null and `byVoltage` carries the real per-wall
+    //             answers. Same contract as getGroupTotals.
+    //   watts     panelWatts is read parseFloat(...) || 0, as every other
+    //             reader in the app does (calculatePowerAssignments,
+    //             getGroupTotals, updatePowerCapacityDisplay, the canvas
+    //             power label). The old `|| 200` stand-in invented a wattage
+    //             the user never entered.
     getPowerCounts(onlyCanvasId) {
-        if (!this.project || !this.project.layers) return { circuits: 0, totalWatts: 0, singlePhaseAmps: 0, threePhaseAmps: 0, voltage: 0 };
+        const empty = {
+            circuits: 0, totalWatts: 0, singlePhaseAmps: 0, threePhaseAmps: 0,
+            voltage: 0, voltages: [], voltageMismatch: false, byVoltage: [],
+            wattsUnset: [],
+        };
+        if (!this.project || !this.project.layers) return empty;
         let totalCircuits = 0;
         let totalWattsAll = 0;
-        const voltages = new Set();
+        const voltages = [];
+        const byVoltage = new Map();
+        const wattsUnset = [];
         const hiddenCanvasIds = this._hiddenCanvasIdSet();
         // v0.8.6.3: same Show-Look-aware grouping as getPortCounts.
         const isShowView = !!(window.canvasRenderer && window.canvasRenderer.isShowLookView
@@ -1355,28 +1386,66 @@ class _Presets {
         const effCid = (l) => (isShowView && l.show_canvas_id) ? l.show_canvas_id : l.canvas_id;
         this.project.layers.forEach(layer => {
             if ((layer.type || 'screen') !== 'screen') return;
-            if (!layer.visible) return;
+            if (layer.visible === false) return;  // v0.10.9: missing key means visible
             const lcid = effCid(layer);
             if (lcid && hiddenCanvasIds.has(lcid)) return;
             if (onlyCanvasId && lcid !== onlyCanvasId) return;
             const activePanels = (layer.panels || []).filter(p => !p.blank && !p.hidden);
             if (activePanels.length === 0) return;
             const voltage = Number(layer.powerVoltage) || 110;
-            const amperage = Number(layer.powerAmperage) || 20;
-            const panelWatts = Number(layer.panelWatts) || 200;
-            voltages.add(voltage);
+            const panelWatts = parseFloat(layer.panelWatts) || 0;
+            if (!(panelWatts > 0)) wattsUnset.push(layer.id);
+            if (!voltages.includes(voltage)) voltages.push(voltage);
             const equivalentPanels = activePanels.reduce((sum, p) => sum + this.getPanelLoadFactor(layer, p), 0);
             const layerWatts = panelWatts * equivalentPanels;
             totalWattsAll += layerWatts;
-            const circuitWatts = voltage * amperage;
-            if (circuitWatts > 0) {
-                totalCircuits += Math.ceil(layerWatts / circuitWatts);
-            }
+            // The circuits the app DRAWS, not a bulk division. Worked example:
+            // 3 columns x 6 rows, 200 W a cabinet, 110 V x 20 A = 2200 W a
+            // circuit, Organized column-first. Each column is 6 x 200 =
+            // 1200 W and two columns are 2400 W > 2200, so the map is one
+            // circuit per column = 3. ceil(3600 / 2200) said 2.
+            const powerAssignments = this.calculatePowerAssignments(layer)
+                || { circuits: [], error: null };
+            const autoCircuits = (powerAssignments.circuits || []).length;
+            const circuits = this.getLayerCircuitsRequired(layer, autoCircuits) || 0;
+            totalCircuits += circuits;
+            const bucket = byVoltage.get(voltage)
+                || { voltage, watts: 0, circuits: 0, amps1ph: 0, amps3ph: 0 };
+            bucket.watts += layerWatts;
+            bucket.circuits += circuits;
+            byVoltage.set(voltage, bucket);
         });
-        const voltage = [...voltages][0] || 110;
-        const singlePhaseAmps = voltage > 0 ? totalWattsAll / voltage : 0;
-        const threePhaseAmps = voltage > 0 ? totalWattsAll / (voltage * 1.73) : 0;
-        return { circuits: totalCircuits, totalWatts: totalWattsAll, singlePhaseAmps, threePhaseAmps, voltage };
+        // I = P / V single phase, I = P / (V x 1.73) three phase.
+        byVoltage.forEach(b => {
+            b.amps1ph = b.voltage > 0 ? b.watts / b.voltage : 0;
+            b.amps3ph = b.voltage > 0 ? b.watts / (b.voltage * 1.73) : 0;
+        });
+        const voltageMismatch = voltages.length > 1;
+        // No layers counted keeps the old 110 V stand-in so a project with
+        // nothing in it reports 0 A rather than dividing by zero.
+        const voltage = voltageMismatch ? null : (voltages[0] || 110);
+        const singlePhaseAmps = voltageMismatch
+            ? null : (voltage > 0 ? totalWattsAll / voltage : 0);
+        const threePhaseAmps = voltageMismatch
+            ? null : (voltage > 0 ? totalWattsAll / (voltage * 1.73) : 0);
+        return {
+            circuits: totalCircuits,
+            totalWatts: totalWattsAll,
+            singlePhaseAmps,
+            threePhaseAmps,
+            voltage,
+            voltages,
+            // True when the project spans more than one voltage. The combined
+            // amps are null in that case - callers must show byVoltage (or
+            // per-screen figures) instead of printing a blended number that
+            // belongs to neither wall.
+            voltageMismatch,
+            byVoltage: [...byVoltage.values()],
+            // Screens whose panelWatts is unset/zero: they contribute 0 W and
+            // 0 circuits, so a caller can say "not entered" rather than let a
+            // confident 0 A stand for a wall nobody has costed yet.
+            wattsUnset,
+        };
     }
 
     getNextImageLayerName() {
@@ -1441,6 +1510,7 @@ class _Presets {
         layer.bitDepth = prefs.bitDepth;
         layer.frameRate = prefs.frameRate;
         layer.processorType = prefs.processorType;
+        layer.lowLatency = !!prefs.lowLatency;
         layer.portMappingMode = 'organized';
         layer.halfFirstColumn = !!layer.halfFirstColumn;
         layer.halfLastColumn = !!layer.halfLastColumn;
@@ -1450,6 +1520,11 @@ class _Presets {
         layer.portLabelTemplateReturn = 'R#';
         layer.portLabelOverridesPrimary = {};
         layer.portLabelOverridesReturn = {};
+        // v0.10.9 (step 6): still the right reset, and it is the only one that
+        // can be right. A brand-new layer has no group, so it has no peer a
+        // cross-member path entry could legally name; a preset that carries
+        // paths overlays them AFTER this (applyPresetClientProps), already
+        // filtered down to the {row, col} entries that mean "this screen".
         layer.customPortPaths = {};
         layer.customPortIndex = 1;
         // Screen name size on the other tabs follows the label font size default
@@ -1481,7 +1556,7 @@ class _Presets {
         layer.powerLabelTextColor = '#000000';
         layer.powerLabelTemplate = 'S1-#';
         layer.powerLabelOverrides = {};
-        layer.powerCustomPaths = {};
+        layer.powerCustomPaths = {};   // same reason as customPortPaths above
         layer.powerCustomIndex = 1;
         layer.border_color_pixel = layer.border_color || prefs.borderColor;
         layer.border_color_cabinet = layer.border_color || prefs.borderColor;

@@ -13,6 +13,416 @@ class _ScreenInfo {
         return Math.min(1, areaRatio * 1.3);
     }
 
+    // ── Screen groups (v0.10.9): combined totals across a group's members ──
+    //
+    // A group is one screen built from more than one layer, because the
+    // per-layer grid is uniform: a wall of 1m JP5 cabinets AND 0.5m standard
+    // cabinets has to be two layers. The geometry already lands correctly -
+    // what does not is every TOTAL, which still reads per layer, so the user
+    // building that wall gets two half-answers and adds them up by hand.
+    //
+    // There is no new maths below. Each figure is the per-layer figure the app
+    // already computes, evaluated against EACH member's own cabinet size,
+    // weight and wattage, and then summed:
+    //
+    //   equivalentPanels  getPanelLoadFactor          (area derate; already
+    //                                                  correct for mixed sizes)
+    //   pixels            getPanelPixelArea
+    //   watts / weight    equivalentPanels x the MEMBER's panelWatts /
+    //                     panel_weight - members differ, so one member's
+    //                     per-cabinet figure can never stand in for the group
+    //   amps              I = P / V and I = P / (V x 1.73), exactly as
+    //                     updatePowerCapacityDisplay writes
+    //                     _powerTotalAmps1 / _powerTotalAmps3
+    //   circuits          calculatePowerAssignments(member).circuits.length
+    //   ports             calculatePortAssignments(member), read the same way
+    //                     updatePortCapacityDisplay reads it
+    //
+    // Ports and circuits stay PER MEMBER by design: automatic assignment walks
+    // one uniform grid, so a group's requirement is the sum of its members'
+    // own requirements, not a re-run across the combined shape.
+    //
+    // Which panels count: non-blank AND non-hidden, matching getPowerCounts
+    // and the canvas weight label. A blanked panel is a hole in the wall - no
+    // cabinet hangs there, so it has no weight and draws nothing.
+
+    // Resolve a group (or a bare group id) to its member layers, in the order
+    // the group lists them. layer_ids is the authoritative side of the
+    // relationship server-side (see _enforce_group_integrity), so it is the
+    // side walked here too.
+    getGroupMembers(group) {
+        const g = this.resolveGroup(group);
+        if (!g || !Array.isArray(g.layer_ids)) return [];
+        const layers = (this.project && this.project.layers) || [];
+        const byId = new Map(layers.map(l => [l.id, l]));
+        const seen = new Set();
+        const members = [];
+        g.layer_ids.forEach(lid => {
+            if (seen.has(lid)) return;
+            const layer = byId.get(lid);
+            if (!layer) return;
+            seen.add(lid);
+            members.push(layer);
+        });
+        return members;
+    }
+
+    resolveGroup(group) {
+        if (typeof group === 'string') {
+            const groups = (this.project && this.project.groups) || [];
+            return groups.find(g => g && g.id === group) || null;
+        }
+        return group || null;
+    }
+
+    // How much of this layer's grid is fed by paths a PEER member owns?
+    // Returns { total, covered } counted in CABINETS: `total` is the cabinets
+    // that need feeding at all (a blank is a hole in the wall and a hidden
+    // cabinet does not light, so neither needs a port or a circuit), `covered`
+    // is how many of those a peer's drawn path has already picked up.
+    //
+    // v0.10.9 step 6: this is what stops a group counting the same port twice.
+    // A member in custom mode with nothing of its own drawn falls back below
+    // to "at least the active port index", which is the right answer for a
+    // standalone screen and the wrong one for a member whose cabinets are
+    // already fed by the peer's port: that port is the PEER'S, it is counted
+    // there, and counting it again here prints 2 Mains on a wall with one
+    // cable in it.
+    //
+    // v0.10.9 audit fix: this used to be a bare `.some()` - ONE cabinet
+    // claimed by a neighbour zeroed the WHOLE member. A 20 x 2 Brompton wall
+    // needing 2 ports of its own reported 0 because a peer's cable had picked
+    // up a single cabinet, so 39 cabinets were planned for with no port at
+    // all. Counting is the whole point of the change: the caller can now tell
+    // FULL coverage (the honest zero) from PARTIAL coverage (still needs its
+    // own ports).
+    //
+    // Coverage is measured by (row, col) because that is the only durable
+    // cabinet address (panel ids are regenerated on every geometry rebuild),
+    // and a claim on a blank or hidden cabinet is ignored on purpose - it
+    // cannot "cover" a cabinet that was never going to draw a port.
+    //
+    // Returns { total: 0, covered: 0 } for every ungrouped layer and for every
+    // project with no cross-layer step anywhere, so nothing existing moves.
+    _peerPathCoverage(layer, pathsKey) {
+        const out = { total: 0, covered: 0 };
+        if (!layer || typeof this.getPathScopeLayers !== 'function') return out;
+        const feedable = (layer.panels || []).filter(p => p && !p.blank && !p.hidden);
+        out.total = feedable.length;
+        if (out.total === 0) return out;
+        const claimed = new Set();
+        this.getPathScopeLayers(layer).forEach(peer => {
+            if (!peer || peer.id === layer.id) return;
+            const paths = peer[pathsKey];
+            if (!paths) return;
+            Object.keys(paths).forEach(k => {
+                (paths[k] || []).forEach(e => {
+                    if (e && e.layerId === layer.id) claimed.add(`${e.row},${e.col}`);
+                });
+            });
+        });
+        if (claimed.size === 0) return out;
+        out.covered = feedable.filter(p => claimed.has(`${p.row},${p.col}`)).length;
+        return out;
+    }
+
+    // True only when EVERY cabinet of `layer` that needs feeding is already on
+    // a peer's path. That is the only case where returning 0 is honest: the
+    // cable exists, it is counted on the member that owns it, and this member
+    // adds nothing.
+    _layerFullyServedByPeerPath(layer, pathsKey) {
+        const c = this._peerPathCoverage(layer, pathsKey);
+        return c.total > 0 && c.covered >= c.total;
+    }
+
+    // Ports required for ONE member, derived exactly as
+    // updatePortCapacityDisplay derives it for the selected layer:
+    // calculatePortAssignments does all the maths (and stamps
+    // _autoPortsRequired on the way through), and a custom flow overrides the
+    // automatic figure with the highest port the user actually drew. Split out
+    // here rather than called through the display function because that one
+    // only ever looks at this.currentLayer, and a group's members are not it.
+    //
+    // v0.10.9 step 6: this is now the ONE implementation. The sidebar readout,
+    // the group roll-up and the canvas label each grew their own copy, and the
+    // moment a port spans two members those three copies print three different
+    // numbers at the user. `assignments` lets a caller that has already run
+    // calculatePortAssignments (for the Low Latency derate note) pass it in
+    // rather than paying for the walk twice.
+    getLayerPortsRequired(layer, assignments = null) {
+        if (!layer || (layer.type || 'screen') !== 'screen') return 0;
+        const a = assignments || this.calculatePortAssignments(layer) || [];
+        const auto = layer._autoPortsRequired
+            || a.reduce((max, x) => Math.max(max, (x && x.port) || 0), 0);
+        // The paths object is defaulted rather than required. Guarding the whole
+        // branch on `layer.customPortPaths` meant a member in custom flow that
+        // had never had its custom state initialised - a project saved before
+        // the key existed, or a peer that inherited the group's flow pattern
+        // without ensureCustomFlowState running on it - skipped the
+        // served-by-a-peer check below and reported its AUTOMATIC port count.
+        // On a wall where a neighbour's port already feeds every one of its
+        // cabinets that is a phantom extra port in the roll-up.
+        if (this.isCustomFlow(layer)) {
+            const paths = layer.customPortPaths || {};
+            const customPorts = Object.keys(paths)
+                .map(p => parseInt(p, 10))
+                .filter(p => (paths[p] || []).length > 0);
+            if (customPorts.length > 0) return Math.max(...customPorts);
+            // FULL coverage by a peer's port is the only honest zero - every
+            // cabinet here is on the neighbour's cable, and that cable is
+            // counted on the neighbour.
+            if (this._layerFullyServedByPeerPath(layer, 'customPortPaths')) return 0;
+            // PARTIAL coverage falls through to this member's OWN requirement.
+            //
+            // What is the honest number for the cabinets a peer did NOT pick
+            // up? It is somewhere between ceil(their pixels / port capacity)
+            // and the requirement of the whole member, and the app cannot
+            // narrow it: the automatic walk packs ports along whole rows or
+            // columns of THIS grid, so dropping a cabinet out of the middle of
+            // it does not reliably drop a port, and pro-rating the figure by
+            // the uncovered share would quietly hand back FEWER ports than the
+            // remaining cabinets need. Removing cabinets can never make the
+            // automatic walk need more ports, so the whole member's own figure
+            // is a true upper bound on what the remainder needs - at worst one
+            // port too many on the order sheet, where the old behaviour was
+            // 39 cabinets with nothing to plug them into.
+            return auto > 0 ? auto : (layer.customPortIndex || 1);
+        }
+        return auto;
+    }
+
+    // Circuits required for ONE member. Mirrors getLayerPortsRequired exactly:
+    // the automatic assignment's circuit count, overridden by the highest
+    // circuit the user drew in custom mode, and zero for a member whose
+    // cabinets are fed by a peer's crossing circuit.
+    //
+    // `autoCircuits` defaults to the cached _powerCircuitsRequired because the
+    // two callers that want this figure (the power label editor and the canvas
+    // label) both run right after something already computed it.
+    getLayerCircuitsRequired(layer, autoCircuits = null) {
+        if (!layer || (layer.type || 'screen') !== 'screen') return 0;
+        let auto = autoCircuits;
+        if (auto === null || auto === undefined) auto = Number(layer._powerCircuitsRequired) || 0;
+        // Defaulted, not required - same phantom-circuit reason as the ports
+        // twin above.
+        if (this.isCustomPower(layer)) {
+            const paths = layer.powerCustomPaths || {};
+            const customCircuits = Object.keys(paths)
+                .map(c => parseInt(c, 10))
+                .filter(c => (paths[c] || []).length > 0);
+            if (customCircuits.length > 0) return Math.max(...customCircuits);
+            // Same rule as the ports twin above, and the same reasoning for
+            // partial coverage: only a member whose every cabinet is on a
+            // peer's circuit contributes nothing. One cabinet picked up by the
+            // neighbour must not zero the circuits the rest of the wall draws.
+            if (this._layerFullyServedByPeerPath(layer, 'powerCustomPaths')) return 0;
+            return auto > 0 ? auto : (layer.powerCustomIndex || 1);
+        }
+        return auto;
+    }
+
+    // The canvas a layer counts on, by the SAME rule the Screens sidebar uses
+    // to decide which canvas section a row lands in (app-canvas-ui.js
+    // regroupLayersByCanvas): Show Look / Data / Power read the show override
+    // first, Pixel Map / Cabinet ID read the processor canvas. Kept as its own
+    // helper so the roll-up and the sidebar can never drift apart.
+    _totalsCanvasIdOf(layer) {
+        if (!layer) return null;
+        const cr = window.canvasRenderer;
+        const isShowView = !!(cr && typeof cr.isShowLookView === 'function'
+            && cr.isShowLookView());
+        return ((isShowView && layer.show_canvas_id) ? layer.show_canvas_id
+            : layer.canvas_id) || null;
+    }
+
+    // The canvas a GROUP's totals are reported on. The sidebar puts the group
+    // row in the canvas section its topmost member row sits in, and lifts only
+    // the members that share that section (app-screen-groups.js
+    // regroupLayersByGroup), so the roll-up anchors on the first canvas - in
+    // project canvas order - that holds a screen member. Falls back to the
+    // first member's own canvas when the project carries no canvas list at all
+    // (single-canvas projects and every unit test that builds a bare project),
+    // which keeps those counting every member exactly as before.
+    _groupAnchorCanvasId(members) {
+        const screens = (members || []).filter(
+            l => l && (l.type || 'screen') === 'screen');
+        if (screens.length === 0) return null;
+        const cids = screens.map(l => this._totalsCanvasIdOf(l));
+        const canvases = (this.project && this.project.canvases) || [];
+        for (const c of canvases) {
+            if (c && cids.includes(c.id)) return c.id;
+        }
+        return cids[0];
+    }
+
+    // Combined totals for a group. Safe on an empty group, a group of one, a
+    // group whose members are all hidden, and a group that has picked up an
+    // image or text layer - those are counted as skipped, not as screens.
+    //
+    // `canvasId` overrides which canvas the totals are reported for; leave it
+    // out and the group's anchor canvas (above) is used. The renderer wants it
+    // when it labels a group on a canvas that is not the anchor.
+    getGroupTotals(group, canvasId = undefined) {
+        const g = this.resolveGroup(group);
+        const members = this.getGroupMembers(g);
+        // v0.10.9 audit fix: members sitting on ANOTHER canvas were summed in.
+        // A group row on canvas 1 read "3 screens - 48 cab - 960 kg" while
+        // showing 2 rows, because one member had been moved to canvas 2. That
+        // kg figure is what gets handed to a rigger, so it has to describe the
+        // wall in front of them and nothing else.
+        const anchorCanvasId = (canvasId === undefined)
+            ? this._groupAnchorCanvasId(members) : (canvasId || null);
+        const totals = {
+            groupId: g ? (g.id || null) : null,
+            name: g ? (g.name || null) : null,
+            canvasId: anchorCanvasId,   // the canvas these totals describe
+            memberCount: 0,        // screens actually counted
+            hiddenCount: 0,        // members skipped because layer.visible is false
+            nonScreenCount: 0,     // members skipped because they are not screens
+            offCanvasCount: 0,     // members skipped because they sit on another canvas
+            wattsUnset: [],        // members with no panelWatts entered
+            cabinets: 0,
+            pixels: 0,
+            equivalentPanels: 0,
+            weightKg: 0,
+            weightLb: 0,
+            watts: 0,
+            voltage: null,         // the shared voltage, or null when they differ
+            voltages: [],          // distinct voltages, first-seen order
+            voltageMismatch: false,
+            amps1ph: null,
+            amps3ph: null,
+            portsPrimary: 0,
+            portsBackup: 0,
+            circuits: 0,
+            powerError: null,      // first member whose circuits could not be built
+            members: [],
+        };
+
+        const voltages = [];
+        members.forEach(layer => {
+            if ((layer.type || 'screen') !== 'screen') {
+                totals.nonScreenCount++;
+                return;
+            }
+            // A member on another canvas is a different workspace entirely -
+            // the same rule getPathScopeLayers and canvas.js _groupDrawnMembers
+            // already apply. Counted, not silently dropped, so the caller can
+            // say WHY the row count and the screen count differ.
+            if (this._totalsCanvasIdOf(layer) !== anchorCanvasId) {
+                totals.offCanvasCount++;
+                return;
+            }
+            // v0.10.9: `visible === false`, not `!visible`. A layer that simply
+            // has no `visible` key is visible everywhere else in the app - the
+            // Python side reads `layer.get('visible', True)` and the layer list
+            // and canvas both test `=== false`. Treating a missing key as hidden
+            // silently drops that screen's cabinets, weight and watts from the
+            // group total.
+            if (layer.visible === false) {
+                totals.hiddenCount++;
+                return;
+            }
+            const activePanels = (layer.panels || []).filter(p => !p.blank && !p.hidden);
+            const equivalentPanels = activePanels.reduce(
+                (sum, p) => sum + this.getPanelLoadFactor(layer, p), 0);
+            const pixels = activePanels.reduce(
+                (sum, p) => sum + this.getPanelPixelArea(p), 0);
+
+            // parseFloat(...) || 0 rather than a stand-in default, because
+            // calculatePowerAssignments below reads panelWatts the same way -
+            // a group reporting 200 W a cabinet while reporting 0 circuits
+            // would be incoherent. The weight fallback mirrors the canvas
+            // weight label (layer.panel_weight || 20) so the group figure and
+            // the member's own label can never disagree.
+            //
+            // v0.10.9 audit: this is now the ONE rule project-wide - the
+            // getPowerCounts stand-in of 200 W a cabinet is gone, because a
+            // wattage the user never entered is not a safer answer than no
+            // wattage, it is just a wrong one nobody can trace. A screen with
+            // no panelWatts is named in `wattsUnset` so the UI can say "no
+            // wattage entered" instead of printing a confident 0 A.
+            const panelWatts = parseFloat(layer.panelWatts) || 0;
+            if (!(panelWatts > 0)) totals.wattsUnset.push(layer.id);
+            const watts = panelWatts * equivalentPanels;
+            const panelWeightValue = layer.panel_weight || 20;
+            const panelWeightKg = (layer.weight_unit || 'kg') === 'lb'
+                ? (panelWeightValue / 2.20462)
+                : panelWeightValue;
+            const weightKg = equivalentPanels * panelWeightKg;
+            const voltage = parseFloat(layer.powerVoltage) || 0;
+            if (!voltages.includes(voltage)) voltages.push(voltage);
+
+            const powerAssignments = this.calculatePowerAssignments(layer)
+                || { circuits: [], error: null };
+            // The automatic figure is only the answer when the automatic map
+            // is the one in use. A member on a custom power flow is wired the
+            // way the user DREW it, so counting the assignment the app would
+            // have made instead reports circuits that are not on the wall -
+            // and step 6 made that reachable, because a circuit can now be
+            // drawn across members. getLayerCircuitsRequired picks whichever
+            // map is enabled, and returns 0 for a member whose cabinets are
+            // fed by a peer's crossing circuit so one cable is not counted
+            // twice. Ports have gone through the matching function since
+            // step 6; this brings power into line with data.
+            const autoCircuits = (powerAssignments.circuits || []).length;
+            const circuits = this.getLayerCircuitsRequired(layer, autoCircuits);
+            const powerError = powerAssignments.error
+                ? powerAssignments.error.message : null;
+            if (powerError && !totals.powerError) totals.powerError = powerError;
+            const ports = this.getLayerPortsRequired(layer);
+
+            totals.memberCount++;
+            totals.cabinets += activePanels.length;
+            totals.pixels += pixels;
+            totals.equivalentPanels += equivalentPanels;
+            totals.weightKg += weightKg;
+            totals.watts += watts;
+            totals.portsPrimary += ports;
+            totals.circuits += circuits;
+            totals.members.push({
+                id: layer.id,
+                name: layer.name || '',
+                cabinets: activePanels.length,
+                pixels,
+                equivalentPanels,
+                weightKg,
+                weightLb: weightKg * 2.20462,
+                watts,
+                voltage,
+                // Per member as well as combined, so a mixed-voltage group has
+                // something real to show instead of a blended figure.
+                amps1ph: voltage > 0 ? watts / voltage : 0,
+                amps3ph: voltage > 0 ? watts / (voltage * 1.73) : 0,
+                ports,
+                circuits,
+                powerError,
+            });
+        });
+
+        totals.weightLb = totals.weightKg * 2.20462;
+        // Every primary port has a backup/return port, same convention as
+        // getPortCounts.
+        totals.portsBackup = totals.portsPrimary;
+        totals.voltages = voltages;
+        totals.voltageMismatch = voltages.length > 1;
+        if (totals.voltageMismatch) {
+            // 200 A at 110 V and 200 A at 208 V are not the same load, so
+            // there is no honest combined amps figure. Null forces the caller
+            // to show the per-member ones rather than print a plausible
+            // average nobody can act on.
+            totals.voltage = null;
+            totals.amps1ph = null;
+            totals.amps3ph = null;
+        } else {
+            const voltage = voltages.length === 1 ? voltages[0] : 0;
+            totals.voltage = voltages.length === 1 ? voltage : null;
+            totals.amps1ph = voltage > 0 ? totals.watts / voltage : 0;
+            totals.amps3ph = voltage > 0 ? totals.watts / (voltage * 1.73) : 0;
+        }
+        return totals;
+    }
+
     getOrganizedPanelsForUnits(layer, pattern, isHorizontalFirst, orderedUnitIndices, includeHidden = false) {
         if (!layer || !Array.isArray(layer.panels) || !Array.isArray(orderedUnitIndices)) return [];
         const startsTop = pattern.startsWith('t');
@@ -59,6 +469,9 @@ class _ScreenInfo {
         return ordered;
     }
 
+    // v0.10.9: the sub-grid `bounds` argument added for the retired 512 px
+    // NovaStar Low Latency bands is gone with them - low latency now walks the
+    // whole screen like every other mode, so this is back to its plain form.
     getOrderedPanelsByPattern(layer, pattern = 'tl-h', includeHidden = false) {
         if (!layer || !Array.isArray(layer.panels) || layer.panels.length === 0) return [];
         const cols = Number(layer.columns) || 0;
@@ -282,6 +695,45 @@ class _ScreenInfo {
             return;
         }
 
+        // v0.10.9 audit fix: a live cabinet selection must not survive a
+        // change of screen.
+        //
+        // Every one of the three Sets is addressed against the layer that was
+        // current when it was filled: customSelection / powerCustomSelection
+        // hold `${layerId}:${row},${col}` keys that only mean anything inside
+        // the OWNER's path scope, and pixelMapSelection holds bare
+        // `${row},${col}` keys that silently re-address the new screen's grid.
+        // Left alone, a marquee drawn as member A stayed live after clicking
+        // member B in the layers list and Apply Pattern then filled B's port 1
+        // with A's 18 cabinets - with an identical highlight either side of the
+        // switch, so nothing on screen said the target had moved.
+        //
+        // CLEARED rather than re-anchored. Re-anchoring would have to invent an
+        // intent the user never expressed: the keys name cabinets on screens
+        // that may not even be reachable from the new layer (another group,
+        // another canvas), and "the same cabinets, now feeding a different
+        // port" is not what picking a different screen in the list means to
+        // anyone. Clearing matches every other selection in the app - picking a
+        // new layer drops the old layer selection too - and the cost of being
+        // wrong is one re-drag, against a mis-wired port.
+        //
+        // Guarded on the id actually CHANGING, because selectLayer is also the
+        // re-selection path after undo/redo, load and layer updates, where the
+        // "new" layer is the same screen rebuilt and the selection must
+        // survive.
+        if (!this.currentLayer || this.currentLayer.id !== layer.id) {
+            if (this.customSelection) this.customSelection.clear();
+            if (this.powerCustomSelection) this.powerCustomSelection.clear();
+            if (this.pixelMapSelection) this.pixelMapSelection.clear();
+            // The custom-flow and custom-power readouts are refreshed by
+            // loadLayerToInputs at the end of this function; the Pixel Map bulk
+            // bar is not on that path, so it is told here or it keeps showing a
+            // count for a selection that no longer exists.
+            if (typeof this.updatePixelMapBulkActionUI === 'function') {
+                this.updatePixelMapBulkActionUI();
+            }
+        }
+
         this.currentLayer = layer;
         this.selectedLayerIds = new Set([layer.id]);
         this.lastSelectedLayerId = layer.id;
@@ -363,6 +815,9 @@ class _ScreenInfo {
         if (this.currentLayer.showDataFlowPortInfo === undefined) {
             this.currentLayer.showDataFlowPortInfo = false;
         }
+        if (this.currentLayer.showDataFlowPortLoad === undefined) {
+            this.currentLayer.showDataFlowPortLoad = false;
+        }
         if (this.currentLayer.showPowerCircuitInfo === undefined) {
             this.currentLayer.showPowerCircuitInfo = false;
         }
@@ -377,6 +832,9 @@ class _ScreenInfo {
         }
         if (this.currentLayer.processorType === undefined) {
             this.currentLayer.processorType = this.getPreferences().processorType;
+        }
+        if (this.currentLayer.lowLatency === undefined) {
+            this.currentLayer.lowLatency = !!this.getPreferences().lowLatency;
         }
         if (!this.currentLayer.type) {
             this.currentLayer.type = 'screen';
@@ -690,6 +1148,7 @@ class _ScreenInfo {
                     customPortPaths: this.currentLayer.customPortPaths,
                     customPortIndex: this.currentLayer.customPortIndex,
                     processorType: this.currentLayer.processorType,
+                    lowLatency: this.currentLayer.lowLatency,
                     bitDepth: this.currentLayer.bitDepth,
                     frameRate: this.currentLayer.frameRate,
                     portMappingMode: this.currentLayer.portMappingMode,
@@ -759,6 +1218,12 @@ class _ScreenInfo {
         if (!layers || layers.length === 0) return;
         if (!this.project || !this.project.layers) return;
 
+        // v0.10.9: a screen group is one screen. When an edit propagated a
+        // wall-level field to the peers that were not themselves selected,
+        // those peers ride along on THIS call - same PUT, same history entry -
+        // so a group can never be left half-updated on the server.
+        if (this._withPendingGroupPeers) layers = this._withPendingGroupPeers(layers);
+
         if (saveHistory) {
             this.saveState(historyAction);
         }
@@ -777,140 +1242,69 @@ class _ScreenInfo {
         });
 
         const requests = layers.map(layer => {
-            const preservedProps = {
-                // Show Look position, keep in sync across the server
-                // round-trip (server whitelists the field, but echoing the
-                // same value is safer than dropping it).
-                showOffsetX: layer.showOffsetX,
-                showOffsetY: layer.showOffsetY,
-                screenNameOffsetX: layer.screenNameOffsetX,
-                screenNameOffsetY: layer.screenNameOffsetY,
-                screenNameOffsetXPixelMap: layer.screenNameOffsetXPixelMap,
-                screenNameOffsetYPixelMap: layer.screenNameOffsetYPixelMap,
-                screenNameOffsetXCabinet: layer.screenNameOffsetXCabinet,
-                screenNameOffsetYCabinet: layer.screenNameOffsetYCabinet,
-                screenNameOffsetXDataFlow: layer.screenNameOffsetXDataFlow,
-                screenNameOffsetYDataFlow: layer.screenNameOffsetYDataFlow,
-                screenNameOffsetXPower: layer.screenNameOffsetXPower,
-                screenNameOffsetYPower: layer.screenNameOffsetYPower,
-                screenNameOffsetXShowLook: layer.screenNameOffsetXShowLook,
-                screenNameOffsetYShowLook: layer.screenNameOffsetYShowLook,
-                gradientEnabled: layer.gradientEnabled,
-                transparentFill: layer.transparentFill,
-                rotation: layer.rotation,
-                gradientType: layer.gradientType,
-                gradientScope: layer.gradientScope,
-                gradientPanelAlternate: layer.gradientPanelAlternate,
-                gradientRadialCenterX: layer.gradientRadialCenterX,
-                gradientRadialCenterY: layer.gradientRadialCenterY,
-                gradientRadialRadius: layer.gradientRadialRadius,
-            gradientRadialCenterX: layer.gradientRadialCenterX,
-            gradientRadialCenterY: layer.gradientRadialCenterY,
-            gradientRadialRadius: layer.gradientRadialRadius,
-            gradientPanelAlternate: layer.gradientPanelAlternate,
-            gradientRadialCenterX: layer.gradientRadialCenterX,
-            gradientRadialCenterY: layer.gradientRadialCenterY,
-            gradientRadialRadius: layer.gradientRadialRadius,
-            gradientScope: layer.gradientScope,
-            gradientPanelAlternate: layer.gradientPanelAlternate,
-            gradientRadialCenterX: layer.gradientRadialCenterX,
-            gradientRadialCenterY: layer.gradientRadialCenterY,
-            gradientRadialRadius: layer.gradientRadialRadius,
-                gradientAngle: layer.gradientAngle,
-                gradientOpacity: layer.gradientOpacity,
-                gradientBlend: layer.gradientBlend,
-                gradientStops: layer.gradientStops,
-                panelColorMode: layer.panelColorMode,
-                panelColors: layer.panelColors,
-            panelColorMode: layer.panelColorMode,
-            panelColors: layer.panelColors,
-            gradientEnabled: layer.gradientEnabled,
-            transparentFill: layer.transparentFill,
-            rotation: layer.rotation,
-            gradientType: layer.gradientType,
-            gradientScope: layer.gradientScope,
-            gradientPanelAlternate: layer.gradientPanelAlternate,
-            gradientRadialCenterX: layer.gradientRadialCenterX,
-            gradientRadialCenterY: layer.gradientRadialCenterY,
-            gradientRadialRadius: layer.gradientRadialRadius,
-            gradientAngle: layer.gradientAngle,
-            gradientOpacity: layer.gradientOpacity,
-            gradientBlend: layer.gradientBlend,
-            gradientStops: layer.gradientStops,
-            panelColorMode: layer.panelColorMode,
-            panelColors: layer.panelColors,
-                screenNameSize: layer.screenNameSize,
-                screenNameSizeCabinet: layer.screenNameSizeCabinet,
-                screenNameSizeDataFlow: layer.screenNameSizeDataFlow,
-                screenNameSizePower: layer.screenNameSizePower,
-                flowPattern: layer.flowPattern,
-                dataFlowColor: layer.dataFlowColor,
-                dataFlowLabelSize: layer.dataFlowLabelSize,
-                arrowLineWidth: layer.arrowLineWidth,
-                primaryColor: layer.primaryColor,
-                primaryTextColor: layer.primaryTextColor,
-                backupColor: layer.backupColor,
-                backupTextColor: layer.backupTextColor,
-                randomDataColors: layer.randomDataColors,
-                portLabelTemplatePrimary: layer.portLabelTemplatePrimary,
-                portLabelTemplateReturn: layer.portLabelTemplateReturn,
-                portLabelOverridesPrimary: layer.portLabelOverridesPrimary,
-                portLabelOverridesReturn: layer.portLabelOverridesReturn,
-                customPortPaths: layer.customPortPaths,
-                customPortIndex: layer.customPortIndex,
-                processorType: layer.processorType,
-                bitDepth: layer.bitDepth,
-                frameRate: layer.frameRate,
-                portMappingMode: layer.portMappingMode,
-                powerVoltage: layer.powerVoltage,
-                powerVoltageCustom: layer.powerVoltageCustom,
-                powerAmperage: layer.powerAmperage,
-                powerAmperageCustom: layer.powerAmperageCustom,
-                panelWatts: layer.panelWatts,
-                powerMaximize: layer.powerMaximize,
-                powerOrganized: layer.powerOrganized,
-                powerCustomPath: layer.powerCustomPath,
-                powerFlowPattern: layer.powerFlowPattern,
-                powerLineWidth: layer.powerLineWidth,
-                powerLineColor: layer.powerLineColor,
-                powerArrowColor: layer.powerArrowColor,
-                powerRandomColors: layer.powerRandomColors,
-                powerColorCodedView: layer.powerColorCodedView,
-                powerCircuitColors: layer.powerCircuitColors,
-                powerLabelSize: layer.powerLabelSize,
-                powerLabelBgColor: layer.powerLabelBgColor,
-                powerLabelTextColor: layer.powerLabelTextColor,
-                powerLabelTemplate: layer.powerLabelTemplate,
-                powerLabelOverrides: layer.powerLabelOverrides,
-                powerCustomPaths: layer.powerCustomPaths,
-                powerCustomIndex: layer.powerCustomIndex,
-                border_color_pixel: layer.border_color_pixel,
-                border_color_cabinet: layer.border_color_cabinet,
-                border_color_data: layer.border_color_data,
-                border_color_power: layer.border_color_power,
-                lastPowerFlowPattern: layer.lastPowerFlowPattern,
-                showDataFlowPortInfo: layer.showDataFlowPortInfo,
-                showPowerCircuitInfo: layer.showPowerCircuitInfo,
-                _powerTotalAmps1: layer._powerTotalAmps1,
-                _powerTotalAmps3: layer._powerTotalAmps3,
-                _powerCircuitsRequired: layer._powerCircuitsRequired,
-                // Preserve client-computed port counts across the server
-                // roundtrip, server doesn't whitelist these fields, so its
-                // echo carries stale values that would otherwise overwrite
-                // the freshly recomputed numbers (causes ports-required and
-                // the port-rename editor to show too few ports in custom
-                // flow mode after toggling).
-                _portsRequired: layer._portsRequired,
-                _autoPortsRequired: layer._autoPortsRequired,
-                panel_weight: layer.panel_weight,
-                weight_unit: layer.weight_unit,
-                infoLabelSize: layer.infoLabelSize,
-                type: layer.type,
-                imageData: layer.imageData,
-                imageWidth: layer.imageWidth,
-                imageHeight: layer.imageHeight,
-                imageScale: layer.imageScale
-            };
+            // Fields whose server echo does not carry what the client
+            // holds, re-stamped onto the response below.
+            //
+            // v0.10.9: this used to snapshot the VALUES here, at request
+            // time, and stamp that snapshot onto the response. Every gradient
+            // control assigns a BRAND-NEW stops array (_applyGradient maps a
+            // fresh object per stop), so a second edit made while the first
+            // PUT was still in flight was undone the moment that first
+            // response landed - the stop the user had just dragged jumped
+            // back on its own, and the undo snapshot taken 400ms later
+            // recorded the reverted value as if the user had chosen it.
+            // Local round-trips are ~10ms and these controls fire on every
+            // input event, so a drag hit it constantly.
+            //
+            // Read the LIVE layer at response time instead: the re-stamp can
+            // then only ever carry the newest value, never resurrect an older
+            // one. Names only, so there is nothing here to go stale.
+            const preservedKeys = [
+                'showOffsetX', 'showOffsetY', 'screenNameOffsetX',
+                'screenNameOffsetY', 'screenNameOffsetXPixelMap',
+                'screenNameOffsetYPixelMap',
+                'screenNameOffsetXCabinet',
+                'screenNameOffsetYCabinet',
+                'screenNameOffsetXDataFlow',
+                'screenNameOffsetYDataFlow', 'screenNameOffsetXPower',
+                'screenNameOffsetYPower', 'screenNameOffsetXShowLook',
+                'screenNameOffsetYShowLook', 'gradientEnabled',
+                'transparentFill', 'rotation', 'gradientType',
+                'gradientScope', 'gradientPanelAlternate',
+                'gradientRadialCenterX', 'gradientRadialCenterY',
+                'gradientRadialRadius', 'gradientAngle',
+                'gradientOpacity', 'gradientBlend', 'gradientStops',
+                'panelColorMode', 'panelColors', 'screenNameSize',
+                'screenNameSizeCabinet', 'screenNameSizeDataFlow',
+                'screenNameSizePower', 'flowPattern', 'dataFlowColor',
+                'dataFlowLabelSize', 'arrowLineWidth', 'primaryColor',
+                'primaryTextColor', 'backupColor', 'backupTextColor',
+                'randomDataColors', 'portLabelTemplatePrimary',
+                'portLabelTemplateReturn',
+                'portLabelOverridesPrimary',
+                'portLabelOverridesReturn', 'customPortPaths',
+                'customPortIndex', 'processorType', 'lowLatency',
+                'bitDepth', 'frameRate', 'portMappingMode',
+                'powerVoltage', 'powerVoltageCustom', 'powerAmperage',
+                'powerAmperageCustom', 'panelWatts', 'powerMaximize',
+                'powerOrganized', 'powerCustomPath',
+                'powerFlowPattern', 'powerLineWidth',
+                'powerLineColor', 'powerArrowColor',
+                'powerRandomColors', 'powerColorCodedView',
+                'powerCircuitColors', 'powerLabelSize',
+                'powerLabelBgColor', 'powerLabelTextColor',
+                'powerLabelTemplate', 'powerLabelOverrides',
+                'powerCustomPaths', 'powerCustomIndex',
+                'border_color_pixel', 'border_color_cabinet',
+                'border_color_data', 'border_color_power',
+                'lastPowerFlowPattern', 'showDataFlowPortInfo',
+                'showPowerCircuitInfo', '_powerTotalAmps1',
+                '_powerTotalAmps3', '_powerCircuitsRequired',
+                '_portsRequired', '_autoPortsRequired',
+                'panel_weight', 'weight_unit', 'infoLabelSize',
+                'type', 'imageData', 'imageWidth', 'imageHeight',
+                'imageScale'
+            ];
 
             return fetch(`/api/layer/${layer.id}`, {
                 method: 'PUT',
@@ -919,15 +1313,19 @@ class _ScreenInfo {
             })
             .then(res => res.json())
             .then(updated => {
-                Object.keys(preservedProps).forEach(key => {
-                    if (preservedProps[key] !== undefined) {
-                        updated[key] = preservedProps[key];
-                    }
-                });
                 const index = this.project.layers.findIndex(l => l.id === updated.id);
-                if (index >= 0) {
-                    this.project.layers[index] = updated;
-                }
+                // Deleted while this request was in flight - there is nothing
+                // to merge into, and stamping a copy we then drop would just
+                // be dead work.
+                if (index < 0) return;
+                // The LIVE object: the one any later edit mutated while the
+                // request was out. Reading it here is the whole point - the
+                // re-stamp can only ever carry the newest value.
+                const live = this.project.layers[index];
+                preservedKeys.forEach(key => {
+                    if (live[key] !== undefined) updated[key] = live[key];
+                });
+                this.project.layers[index] = updated;
             });
         });
 
@@ -1080,6 +1478,14 @@ class _ScreenInfo {
         const showNumbersEl = document.getElementById('show-numbers');
         const showNumbersVal = showNumbersEl && !showNumbersEl.indeterminate ? showNumbersEl.checked : null;
 
+        // v0.10.9: screen groups. Snapshot the shareable fields BEFORE the
+        // write loop below, so the propagation afterwards can tell what the
+        // user actually changed. The per-member fields this loop writes
+        // (cabinet size, columns, rows, offsets, panel weight) are absent from
+        // GROUP_SHARED_LAYER_FIELDS and therefore never travel to a peer.
+        const groupSharedBefore = this._snapshotSharedFields
+            ? this._snapshotSharedFields(targetLayers) : null;
+
         // Update the layer properties for all selected layers
         targetLayers.forEach(layer => {
             const isImage = (layer.type || 'screen') === 'image';
@@ -1192,6 +1598,13 @@ class _ScreenInfo {
             this.updatePortCapacityDisplay();
         }
         
+        // v0.10.9: carry the wall-level fields this edit changed to the rest of
+        // each group. updateLayers() picks the peers up from the pending set,
+        // so they land in the same PUT and the same undo step.
+        if (groupSharedBefore && this._propagateChangedSharedFields) {
+            this._propagateChangedSharedFields(targetLayers, groupSharedBefore);
+        }
+
         this.updateLayers(targetLayers);
         // v0.10.5: every caller of this method is a 'change' handler, i.e. an
         // edit the user has already committed (typed and tabbed out, toggled a
@@ -1580,23 +1993,18 @@ class _ScreenInfo {
         if (document.getElementById('frame-rate')) {
             document.getElementById('frame-rate').value = this.currentLayer.frameRate || this.getPreferences().frameRate || 60;
         }
-        
+        // v0.10.9: checkbox + note follow the selected layer's processor.
+        this.updateLowLatencyUI();
+
         // Load port mapping mode button states
         const mappingMode = this.currentLayer.portMappingMode || 'organized';
         const mappingOrgBtn = document.getElementById('mapping-organized');
         const mappingMaxBtn = document.getElementById('mapping-max-capacity');
         if (mappingOrgBtn && mappingMaxBtn) {
-            if (mappingMode === 'organized') {
-                mappingOrgBtn.style.background = '#4A90E2';
-                mappingOrgBtn.style.color = '#fff';
-                mappingMaxBtn.style.background = '#333';
-                mappingMaxBtn.style.color = '#ccc';
-            } else {
-                mappingMaxBtn.style.background = '#4A90E2';
-                mappingMaxBtn.style.color = '#fff';
-                mappingOrgBtn.style.background = '#333';
-                mappingOrgBtn.style.color = '#ccc';
-            }
+            // v0.10.9: highlight is the .active class (theme rules are
+            // !important), not inline background/color.
+            mappingOrgBtn.classList.toggle('active', mappingMode === 'organized');
+            mappingMaxBtn.classList.toggle('active', mappingMode !== 'organized');
         }
         
         // Update port capacity display
@@ -1701,6 +2109,10 @@ class _ScreenInfo {
         const showDataFlowPortInfoEl = document.getElementById('show-data-flow-port-info');
         if (showDataFlowPortInfoEl) {
             showDataFlowPortInfoEl.checked = !!this.currentLayer.showDataFlowPortInfo;
+        }
+        const showDataFlowPortLoadEl = document.getElementById('show-data-flow-port-load');
+        if (showDataFlowPortLoadEl) {
+            showDataFlowPortLoadEl.checked = !!this.currentLayer.showDataFlowPortLoad;
         }
         const showPowerCircuitInfoEl = document.getElementById('show-power-circuit-info');
         if (showPowerCircuitInfoEl) {
@@ -1836,8 +2248,141 @@ class _ScreenInfo {
         return Object.keys(table[bitDepth]).map(Number).sort((a, b) => a - b);
     }
     
+    // v0.10.9: descriptor for a processor's Low Latency behaviour, or null when
+    // the processor has no entry (a stale value like the retired brompton-ull).
+    getLowLatencyProfile(processorType) {
+        return this.lowLatencyProfiles[processorType || 'novastar-armor'] || null;
+    }
+
+    // v0.10.9: true when the processor's Low Latency behaviour is real but its
+    // math has not shipped yet ('y-derate' / 'port-width' in pass 1). Callers
+    // must SAY so rather than let the displayed capacity imply it is included.
+    isLowLatencyCapacityPending(processorType) {
+        const profile = this.getLowLatencyProfile(processorType);
+        if (!profile || !profile.supported) return false;
+        const kind = (profile.capacity && profile.capacity.kind) || 'none';
+        return !this.lowLatencyImplementedKinds.includes(kind);
+    }
+
+    // v0.10.9: apply the processor's Low Latency capacity behaviour on top of a
+    // table lookup.
+    //   'factor'      - Brompton publishes ULL as the normal column halved and
+    //                   floored, so floor here too. Flooring also means we
+    //                   never hand back MORE capacity than the manual does.
+    //   'none'        - no pixels-per-port cost.
+    //   'novastar-ll' - geometric: the table value IS the port's TOTAL, so it
+    //                   comes back unchanged. The (1 - Y/H) derate needs each
+    //                   port's position and is applied in
+    //                   calculatePortAssignments instead.
+    applyLowLatencyCapacity(capacity, processorType, lowLatency) {
+        if (!lowLatency || !(capacity > 0)) return capacity;
+        const profile = this.getLowLatencyProfile(processorType);
+        if (!profile || !profile.supported) return capacity;
+        const cap = profile.capacity || {};
+        if (cap.kind === 'factor') return Math.floor(capacity * cap.factor);
+        return capacity;
+    }
+
+    // v0.10.9: the geometric Low Latency rules for THIS layer, or null when
+    // they do not apply (low latency off, or a processor family whose low
+    // latency is a plain capacity change). Returns the descriptor's own
+    // capacity block: { yDerate } - true on every NovaStar line, legacy and
+    // COEX, per NovaStar's own answer.
+    getLowLatencyGeometry(layer) {
+        if (!layer || !layer.lowLatency) return null;
+        if ((layer.type || 'screen') !== 'screen') return null;
+        const profile = this.getLowLatencyProfile(layer.processorType || 'novastar-armor');
+        if (!profile || !profile.supported) return null;
+        const cap = profile.capacity || {};
+        return cap.kind === 'novastar-ll' ? cap : null;
+    }
+
+    // v0.10.9: pixel-raster height of the layer's OWN canvas - the H in the
+    // NovaStar (1 - Y/H) derate. Panel x/y are already canvas-relative (the
+    // server builds them from offset_x/offset_y), so they compare directly
+    // against this. Falls back to the pre-canvases project raster, then 0;
+    // 0 means "unknown" and callers must not derate rather than guess.
+    getLayerCanvasHeight(layer) {
+        if (!layer) return 0;
+        const canvases = (this.project && this.project.canvases) || [];
+        const canvas = (Array.isArray(canvases) && layer.canvas_id)
+            ? canvases.find(c => c && c.id === layer.canvas_id)
+            : null;
+        const height = canvas
+            ? Number(canvas.raster_height) || 0
+            : Number(this.project && this.project.raster_height) || 0;
+        return height > 0 ? height : 0;
+    }
+
+    // v0.10.9: capacity of one NovaStar Low Latency port, given the topmost
+    // canvas Y of its visible cabinets. Every NovaStar line calls this now -
+    // top alignment is a requirement of the mode itself, not a COEX extra.
+    // `total` is the plain table lookup at the current bit depth and frame
+    // rate - never a fixed constant, so the derate tracks 8/10/12-bit and the
+    // frame rate like everything else.
+    // Y = 0 (a top-aligned port, which is what a correctly built layout gives)
+    // returns `total` untouched. An unknown canvas height derates NOTHING.
+    lowLatencyPortCapacity(total, minY, canvasHeight) {
+        if (!(total > 0)) return 0;
+        if (!(canvasHeight > 0)) return total;
+        const factor = Math.min(1, Math.max(0, 1 - ((Number(minY) || 0) / canvasHeight)));
+        return Math.floor(factor * total);
+    }
+
+    // v0.10.9: NovaStar 5G's minimum Ethernet-port load width, in pixels, or 0
+    // for every other processor - which is to say "this rule does not exist
+    // there", not "the threshold happens to be zero".
+    //
+    // PROVENANCE, so nobody widens this later: NovaStar publish the note under
+    // the "Ethernet Port Load Capacity" table on their 5G page (XA50 Pro /
+    // CA50E receiving cards) and NOWHERE else -
+    //   "The load capacity of a single Ethernet port can only achieve its
+    //    maximum when the load width is 128 pixels or more. If the load width
+    //    is less than that, the load capacity will be reduced accordingly,
+    //    calculated as (128 - load width) x load height."
+    // It is deliberately NOT applied to novastar-armor, novastar-coex-1g,
+    // brompton, megapixel-1g or megapixel-2.5g. The owner has rejected
+    // extending it to those lines, including on a "it is the conservative
+    // direction" argument: the rule is not published for them, and inventing
+    // it would under-report their capacity and add ports to a live show for no
+    // reason. Change the processor key here only against a published source.
+    novastarMinLoadWidth(processorType) {
+        return processorType === 'novastar-5g' ? 128 : 0;
+    }
+
+    // v0.10.9: `capacity` less the 5G minimum-load-width penalty, for a port
+    // whose VISIBLE cabinets span `width` x `height` pixels.
+    //
+    // "load width" is the ETHERNET PORT'S load width - the horizontal pixel
+    // extent of the cabinets carried on that port - not one cabinet's width.
+    // A port carrying two 60 x 120 cabinets side by side is 120 px wide, so
+    // 120 < 128 and it IS penalised.
+    //
+    // Physically the controller reserves a band at least 128 px wide: a port
+    // filling only 120 px of it wastes (128 - 120) x height, and the usable
+    // capacity drops by exactly that wasted area. Same "reserved area" idea as
+    // the Armor bounding-rectangle rule. Clamped at 0 - a port narrow and tall
+    // enough to eat the whole figure carries nothing, not a negative.
+    minLoadWidthPortCapacity(capacity, processorType, width, height) {
+        const minWidth = this.novastarMinLoadWidth(processorType);
+        if (!(minWidth > 0) || !(capacity > 0)) return capacity;
+        const w = Number(width) || 0;
+        const h = Number(height) || 0;
+        if (!(w > 0) || !(h > 0) || w >= minWidth) return capacity;
+        return Math.max(0, capacity - ((minWidth - w) * h));
+    }
+
     // Calculate port capacity using lookup tables with interpolation
-    calculatePortCapacity(bitDepth, frameRate, processorType) {
+    // v0.10.9: `lowLatency` layers the processor's Low Latency behaviour on
+    // top of the raw lookup. Split in two so pass 2, which needs per-port
+    // geometry, has a seam that does not disturb the table lookup.
+    calculatePortCapacity(bitDepth, frameRate, processorType, lowLatency = false) {
+        const capacity = this.lookupPortCapacity(bitDepth, frameRate, processorType);
+        return this.applyLowLatencyCapacity(capacity, processorType, lowLatency);
+    }
+
+    // Raw manufacturer-table lookup, before any Low Latency behaviour.
+    lookupPortCapacity(bitDepth, frameRate, processorType) {
         processorType = processorType || 'novastar-armor';
         const table = this.portCapacityTables[processorType];
         
@@ -1875,9 +2420,30 @@ class _ScreenInfo {
             }
         }
         
-        // If frame rate is below or above all entries, use the boundary
+        // Below the table: clamp UP to the lowest published row. Capacity runs
+        // as 1/frame rate, so the lowest published row is LESS capacity than a
+        // slower frame rate really has - the conservative direction, more
+        // ports than needed and never fewer. It is also the only way 23.976 Hz
+        // (offered in the frame rate list, below every table's 24 Hz first
+        // row) has an answer at all, and the tables round it to 24 anyway.
         if (frameRate <= fpsList[0]) return fpsTable[fpsList[0]];
-        if (frameRate >= fpsList[fpsList.length - 1]) return fpsTable[fpsList[fpsList.length - 1]];
+        // ABOVE the table: no capacity. DANGEROUS as it stood - this clamped
+        // to the LAST row, so novastar-armor (no row past 120 Hz) answered a
+        // 240 Hz question with its 120 Hz figure: double the real capacity and
+        // therefore half the ports. The group settings dialog can produce
+        // exactly that state, because processor, bit depth and frame rate are
+        // picked independently of one another.
+        //
+        // Nothing is extrapolated to replace it. The manufacturer's published
+        // table is authoritative and no figure in this app is derived from a
+        // formula, so a frame rate the manufacturer does not publish for this
+        // processor has no answer - and 0 is the value the UI already treats
+        // as "no capacity": Pixels/Port renders "N/A", Panels/Port renders
+        // ERROR, Ports Required renders ERROR, and calculatePortAssignments
+        // returns no assignment rather than a plausible map. Loud and empty
+        // beats quiet and wrong. Use getSupportedFrameRates to see what a
+        // processor actually publishes.
+        if (frameRate > fpsList[fpsList.length - 1]) return 0;
         
         // Linear interpolation
         const lowerCap = fpsTable[lower];
@@ -1891,6 +2457,120 @@ class _ScreenInfo {
         return processorType === 'novastar-armor';
     }
     
+    // v0.10.9: keep the Low Latency checkbox and its note in step with the
+    // selected layer's processor. The note is the descriptor's own text; when
+    // the behaviour is a pass-2 geometric one the note says the constraint is
+    // NOT in the figures, so nobody reads an unchanged Pixels/Port as proof
+    // that low latency has been accounted for.
+    //
+    // Three things sit in this area and they each say ONE thing, once:
+    //   #low-latency-note        - beside the checkbox, what turning Low
+    //                              Latency ON would cost. Shown only while it
+    //                              is OFF, because once it is on the rules list
+    //                              says the same thing properly and at length.
+    //   #low-latency-rules       - under the readout, the rules in force for
+    //                              this processor. Shown only while ON.
+    //   #low-latency-derate-note - under the rules, what the derate is costing
+    //                              THIS screen right now. Shown only when a
+    //                              port is actually being derated.
+    // Two of the three can be on screen at a time and they never overlap.
+    updateLowLatencyUI() {
+        const checkbox = document.getElementById('low-latency');
+        const note = document.getElementById('low-latency-note');
+        // The derate note below the figures is re-stated by
+        // updatePortCapacityDisplay once the ports are known; clear it here so
+        // it cannot survive that function's early returns on a stale layer.
+        this.setLowLatencyDerateNote(null);
+        // Same reason: a stale layer's rules must not outlive it.
+        this.setLowLatencyRules(null);
+        if (!checkbox && !note) return;
+
+        const layer = this.currentLayer;
+        const isScreen = !!layer && (layer.type || 'screen') === 'screen';
+        const processorType = (isScreen && layer.processorType) || 'novastar-armor';
+        const profile = isScreen ? this.getLowLatencyProfile(processorType) : null;
+        const supported = !!(profile && profile.supported);
+        const enabled = !!(isScreen && layer.lowLatency && supported);
+
+        if (checkbox) {
+            checkbox.checked = !!(isScreen && layer.lowLatency);
+            checkbox.disabled = !supported;
+        }
+        if (note) {
+            // v0.10.9: stand down once the rules list is up. This note used to
+            // show in both states, which put a short version of the rules
+            // directly above the long version and read as two half-answers.
+            let text = (supported && !enabled) ? (profile.note || '') : '';
+            if (text && this.isLowLatencyCapacityPending(processorType)) {
+                text += ' Not applied to the figures below yet.';
+            }
+            note.textContent = text;
+            // v0.10.9: the receiving-card list is a tooltip - too long for the
+            // note itself, and the MRV328/MRV336 trap is already in the note.
+            // Set in both states: the rules list carries the same tooltip on
+            // its own card line, and this one is what the checkbox row offers.
+            note.title = supported ? (profile.cards || '') : '';
+        }
+        if (enabled) this.setLowLatencyRules(profile);
+    }
+
+    // v0.10.9: list the Low Latency rules in force for the selected layer's
+    // processor, directly under the Pixels/Port readout - the one figure that
+    // cannot show them. That figure is the flat table lookup for the whole
+    // layer, so it carries neither the per-port (1 - Y/H) derate nor the 5G
+    // narrow-port penalty, and on its own it can disagree with the per-port
+    // percentages on the canvas. This list is what reconciles the two.
+    //
+    // `profile` is the lowLatencyProfiles entry, or null to clear (Low Latency
+    // off, no layer, an image layer, or a stale processor with no entry).
+    //
+    // DISPLAY ONLY. Every rule here is already in the math - see
+    // applyLowLatencyCapacity ('factor' / 'none'), lowLatencyPortCapacity
+    // ((1 - Y/H)) and minLoadWidthPortCapacity (the 128 px penalty). The 128 px
+    // rule appears only on the entry whose novastarMinLoadWidth is non-zero, so
+    // the UI's scope is the math's scope rather than a rule invented for the
+    // other lines.
+    setLowLatencyRules(profile) {
+        const el = document.getElementById('low-latency-rules');
+        if (!el) return;
+        const rules = (profile && Array.isArray(profile.rules)) ? profile.rules : [];
+        el.textContent = '';
+        if (rules.length === 0) {
+            el.style.display = 'none';
+            return;
+        }
+        rules.forEach(rule => {
+            const item = document.createElement('li');
+            item.textContent = (rule && rule.text) || '';
+            if (rule && rule.tip) item.title = rule.tip;
+            el.appendChild(item);
+        });
+        el.style.display = '';
+    }
+
+    // v0.10.9: say WHY a Low Latency port count moved. Pixels/Port is the
+    // port's TOTAL; a NovaStar port that does not start at canvas Y=0 keeps
+    // only (1 - Y/H) of it, so without this line nudging a screen down the
+    // canvas would silently change Ports Required and read as a bug. `derate`
+    // is layer._lowLatencyDerate - null whenever nothing was derated, and then
+    // the line is cleared.
+    setLowLatencyDerateNote(derate) {
+        const el = document.getElementById('low-latency-derate-note');
+        if (!el) return;
+        if (!derate || !(derate.deratedPorts > 0)) {
+            el.textContent = '';
+            el.style.display = 'none';
+            return;
+        }
+        const verb = derate.deratedPorts === 1 ? 'port starts' : 'ports start';
+        el.textContent = `Low Latency: ${derate.deratedPorts} of ${derate.totalPorts} `
+            + `${verb} below the top of the ${derate.canvasHeight.toLocaleString()} px `
+            + `canvas, so capacity there drops to as little as `
+            + `${derate.worstCapacity.toLocaleString()} px, from `
+            + `${derate.portCapacity.toLocaleString()} px.`;
+        el.style.display = '';
+    }
+
     // Update bit depth dropdown options based on selected processor
     updateBitDepthOptions() {
         const bitDepthSelect = document.getElementById('bit-depth');

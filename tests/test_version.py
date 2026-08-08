@@ -232,3 +232,117 @@ def test_api_version_matches_version_txt(client):
     assert data['version'] == version_txt, (
         f"/api/version returned '{data['version']}' but VERSION.txt has '{version_txt}'"
     )
+
+
+# ── CI selector hygiene ─────────────────────────────────────────────
+#
+# v0.10.9: the version-consistency job selects its tests with
+# `pytest -k "a or b or c"`. A clause that matches NOTHING is not an error in
+# pytest - it silently selects fewer tests and the job still goes green. One
+# clause, "version_txt_is_four_part", named a test that has never existed
+# (test_version_txt_is_valid is the real one), so the version-shape check was
+# dead in CI for as long as that line had been in the file. Nothing could
+# notice: a dead clause and a passing test look identical from outside.
+#
+# This reads the workflows and holds every selector to naming something real.
+# It deliberately scans EVERY workflow rather than just ci.yml, and accepts
+# either quote style, because a guard with the same blind spot as the bug it
+# guards against is not a guard.
+
+WORKFLOWS = os.path.join(ROOT, '.github', 'workflows')
+
+
+def _test_names(rel_path=None):
+    """Every test function name in a file, or across tests/ when None.
+
+    Matches at ANY indentation: tests/test_launcher_settings.py keeps 21 of
+    its tests as methods inside `class Test*` blocks, and an anchored `^def`
+    would miss all of them - reporting a live selector as dead.
+    """
+    if rel_path:
+        paths = [os.path.join(ROOT, rel_path)]
+    else:
+        paths = [os.path.join(WORKFLOWS, '..', '..', 'tests', f)
+                 for f in sorted(os.listdir(os.path.join(ROOT, 'tests')))
+                 if f.startswith('test_') and f.endswith('.py')]
+    names = []
+    for path in paths:
+        if not os.path.exists(path):
+            continue
+        with open(path, encoding='utf-8') as fh:
+            names.extend(re.findall(r'^\s*def (test_\w+)', fh.read(), re.M))
+    return names
+
+
+def _workflow_pytest_lines():
+    """(workflow, lineno, line) for every pytest invocation in .github."""
+    out = []
+    for name in sorted(os.listdir(WORKFLOWS)):
+        if not name.endswith(('.yml', '.yaml')):
+            continue
+        path = os.path.join(WORKFLOWS, name)
+        with open(path, encoding='utf-8') as fh:
+            for lineno, line in enumerate(fh.read().splitlines(), 1):
+                # `security -k` / `ditto -c -k` also use -k; requiring the
+                # word pytest on the line keeps those out.
+                if re.search(r'\bpytest\b', line):
+                    out.append((name, lineno, line))
+    return out
+
+
+def test_ci_selectors_all_name_something_real():
+    """Every pytest selector in every workflow must resolve to a real test.
+
+    pytest treats an unmatched -k clause as "select nothing extra" rather than
+    an error, and a --deselect path that does not exist is likewise quiet, so
+    a typo removes a guard from CI without ever failing a build. This is the
+    only place that can catch that.
+    """
+    lines = _workflow_pytest_lines()
+    assert lines, 'found no pytest invocations in .github/workflows - moved?'
+
+    problems = []
+    for wf, lineno, line in lines:
+        where = f'{wf}:{lineno}'
+        target = re.search(r'(tests/[\w/]+\.py)(?!::)', line)
+        target = target.group(1) if target else None
+
+        # -k "a or b", or -k 'a or b'
+        k_expr = re.search(r'-k\s+"([^"]+)"', line) or \
+            re.search(r"-k\s+'([^']+)'", line)
+        if k_expr:
+            names = _test_names(target)
+            for clause in re.split(r'\bor\b|\band\b', k_expr.group(1)):
+                clause = clause.strip()
+                if not clause or clause.startswith('not '):
+                    continue
+                if not any(clause in n for n in names):
+                    near = [n for n in names if clause.split('_')[0] in n][:3]
+                    problems.append(
+                        f'{where}: -k clause "{clause}" matches no test in '
+                        f'{target or "tests/"}'
+                        + (f' (closest: {", ".join(near)})' if near else ''))
+
+        # Explicit node ids: tests/test_x.py::test_y
+        for node in re.findall(r'(tests/[\w/]+\.py)::(\w+)', line):
+            path, func = node
+            if func not in _test_names(path):
+                problems.append(
+                    f'{where}: node id {path}::{func} names no such test')
+
+        # --deselect <path>
+        for target_path in re.findall(r'--deselect[= ]+(\S+)', line):
+            bare = target_path.split('::')[0]
+            if not os.path.exists(os.path.join(ROOT, bare)):
+                problems.append(
+                    f'{where}: --deselect {target_path} - {bare} does not exist')
+
+        # --ignore <path>
+        for target_path in re.findall(r'--ignore[= ]+(\S+)', line):
+            if not os.path.exists(os.path.join(ROOT, target_path)):
+                problems.append(
+                    f'{where}: --ignore {target_path} does not exist')
+
+    assert not problems, (
+        'these CI selectors silently select nothing, so the checks they were '
+        'meant to run are not running:\n  ' + '\n  '.join(problems))

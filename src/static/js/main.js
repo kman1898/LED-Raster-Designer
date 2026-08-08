@@ -9,6 +9,7 @@ import './app-export-io.js';
 import './app-logs-recent.js';
 import './app-power.js';
 import './app-canvas-ui.js';
+import './app-screen-groups.js';
 import './app-history.js';
 import { registerGlobalClientLogging, sendClientLog } from './helpers.js';
 

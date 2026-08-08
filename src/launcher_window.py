@@ -159,7 +159,74 @@ def _log_startup_environment():
                     pass
         except Exception:
             pass
+        # Captured BEFORE _clear_mark_of_the_web() mutates anything, so a
+        # failure report says what the state actually WAS.
+        info['assemblies'] = _assembly_evidence()
     _launcher_log('launcher_environment', info)
+
+
+# The three assemblies whose failure to load costs the native window. Named
+# explicitly because "walk the bundle" produces noise, and these are the ones
+# the traceback ever implicates.
+_KEY_ASSEMBLIES = (
+    os.path.join('_internal', 'pythonnet', 'runtime', 'Python.Runtime.dll'),
+    os.path.join('_internal', 'clr_loader', 'ffi', 'dlls', 'amd64', 'ClrLoader.dll'),
+    os.path.join('_internal', 'webview', 'lib', 'Microsoft.Web.WebView2.Core.dll'),
+)
+
+
+def _zone_identifier_of(path):
+    """The literal contents of path:Zone.Identifier, or None if untagged.
+
+    THIS is the evidence. `ZoneId=3` (internet) vs absent is the entire
+    difference between "Windows blocked the DLL" and "something else did", and
+    a previous round of this bug was spent guessing because nobody had read
+    it. HostUrl usually names where it was downloaded from too.
+    """
+    try:
+        with open(path + ':Zone.Identifier', 'r', encoding='utf-8', errors='replace') as fh:
+            return fh.read().strip()[:200]
+    except OSError:
+        return None
+
+
+def _assembly_evidence():
+    """Facts about the assemblies that decide whether the window can start.
+
+    Deliberately facts and not a verdict: size and hash catch antivirus
+    quarantine or truncation, the zone tag catches Mark of the Web, and the
+    drive type catches the UNC / mapped-drive / removable case, which throws
+    the SAME exception with no tag involved at all.
+    """
+    out = {}
+    try:
+        import ctypes
+        import hashlib
+        out['app_dir'] = APP_DIR
+        out['app_dir_len'] = len(APP_DIR)
+        try:
+            drive = os.path.splitdrive(APP_DIR)[0] + os.sep
+            out['drive_type'] = int(ctypes.windll.kernel32.GetDriveTypeW(drive))
+        except Exception:
+            pass
+        out['pythonnet_runtime_env'] = os.environ.get('PYTHONNET_RUNTIME')
+        out['is_64bit'] = sys.maxsize > 2 ** 32
+        for rel in _KEY_ASSEMBLIES:
+            full = os.path.join(APP_DIR, rel)
+            name = os.path.basename(rel)
+            entry = {'exists': os.path.exists(full)}
+            if entry['exists']:
+                try:
+                    entry['size'] = os.path.getsize(full)
+                    with open(full, 'rb') as fh:
+                        entry['sha256_8'] = hashlib.sha256(fh.read()).hexdigest()[:8]
+                except OSError as exc:
+                    entry['read_error'] = str(exc)
+                entry['zone'] = _zone_identifier_of(full)
+            out[name] = entry
+    except Exception as exc:
+        out['error'] = f'{type(exc).__name__}: {exc}'
+    return out
 
 
 def _launcher_failure_hint():
@@ -174,8 +241,11 @@ def _launcher_failure_hint():
         return ('Microsoft .NET Framework looks older than 4.7.2 '
                 f'(release {release}). Updating to 4.8 should restore the '
                 'window.')
-    return ('The file may be blocked by Windows or antivirus. Right-click '
-            'the downloaded .zip, tick Unblock, then extract it again.')
+    return ('Windows or antivirus may be blocking part of the app. Try '
+            'launching it once more. If it keeps happening, right-click the '
+            'downloaded .zip, choose Properties, tick Unblock, then extract '
+            'it again - and send the log, which now records exactly what was '
+            'blocked.')
 
 
 def _show_windows_error(title, message):
@@ -223,6 +293,7 @@ def start_flask_server(settings):
     host = settings.get('interface', '127.0.0.1')
     port = int(settings.get('port', 8050))
 
+    import app as _app_module
     from app import app, socketio, log_event
     _socketio = socketio
 
@@ -240,6 +311,10 @@ def start_flask_server(settings):
 
     _server_running = True
     try:
+        # Tell the app which address it is reachable at, so the native dialog
+        # routes can recognise this machine when the user opens it at that
+        # address rather than at localhost.
+        _app_module.BOUND_HOST = host
         socketio.run(app, **kwargs)
     finally:
         _server_running = False
@@ -674,15 +749,134 @@ def _setup_launcher_debug_log():
         pass
 
 
+
+# ── Mark of the Web ───────────────────────────────────────────────────────
+#
+# Windows tags every file extracted from a downloaded .zip with a
+# Zone.Identifier alternate data stream ("this came from the internet"). The
+# .NET loader refuses to load a tagged managed DLL, so pythonnet cannot
+# resolve Python.Runtime.Loader.Initialize, pywebview cannot start, and the
+# app silently falls back to a browser window - which is where the "export
+# goes to Downloads" report actually began.
+#
+# The documented workaround is "right-click the .zip, tick Unblock, extract
+# again". Nobody does that, and they should not have to.
+#
+# So the app clears the tag from ITS OWN bundled files on first run. This is
+# not a security bypass: the user has already chosen to run this executable,
+# these are the files that shipped inside it, and nothing about SmartScreen,
+# Smart App Control or antivirus scanning changes. It is what an installer
+# would have done at install time - which is the real long-term fix, and the
+# reason this is scoped to the app's own runtime directory and nothing else.
+_MOTW_SENTINEL = '.lrd-unblocked'
+
+
+def _motw_sentinel_stamp():
+    """Identity of the install this sentinel belongs to.
+
+    Users upgrade by extracting the new .zip OVER the old folder. The sentinel
+    is not in the zip, so it survives - and the freshly extracted, freshly
+    TAGGED DLLs would never be cleared, leaving the upgrade permanently
+    broken while a fresh install worked. Stamping it with the executable's
+    size and mtime makes a new build read as a new install.
+    """
+    try:
+        st = os.stat(sys.executable)
+        return f'{st.st_size}:{int(st.st_mtime)}'
+    except OSError:
+        return 'unknown'
+
+
+def _clear_mark_of_the_web():
+    """Strip Zone.Identifier from the app's own files. Windows, frozen only.
+
+    Runs once and leaves a sentinel, because walking the bundle on every
+    launch would cost startup time for nothing.
+    """
+    if sys.platform != 'win32' or not getattr(sys, 'frozen', False):
+        return
+    root = APP_DIR
+    sentinel = os.path.join(root, _MOTW_SENTINEL)
+    stamp = _motw_sentinel_stamp()
+    try:
+        with open(sentinel, 'r', encoding='utf-8') as fh:
+            if fh.read().strip() == stamp:
+                return
+    except OSError:
+        pass          # missing or unreadable: do the work
+    cleared = 0
+    failed = 0
+    try:
+        for dirpath, _dirnames, filenames in os.walk(root):
+            for name in filenames:
+                # Only the loadable code carries the problem; skipping data
+                # keeps this to a fraction of the bundle.
+                if not name.lower().endswith(('.dll', '.exe', '.pyd')):
+                    continue
+                stream = os.path.join(dirpath, name) + ':Zone.Identifier'
+                try:
+                    os.remove(stream)
+                    cleared += 1
+                except FileNotFoundError:
+                    pass          # not tagged - the common case
+                except OSError:
+                    failed += 1   # locked or denied; not fatal
+    except Exception as exc:
+        _launcher_log('motw_clear_error', {'error': f'{type(exc).__name__}: {exc}'})
+        return
+    # Only claim the job is done when it ACTUALLY finished. If a file was
+    # locked or access-denied - antivirus holding Python.Runtime.dll is the
+    # very case this exists for - leave no sentinel so the next launch tries
+    # again. The failure hint tells the user to relaunch; that has to be true.
+    if failed == 0:
+        try:
+            with open(sentinel, 'w', encoding='utf-8') as fh:
+                fh.write(stamp)
+        except OSError:
+            pass                  # read-only install dir: just re-run next time
+    if cleared or failed:
+        _launcher_log('motw_cleared', {'cleared': cleared, 'failed': failed})
+
+
 def main():
     # First thing: from here on, nothing can fail silently.
     _install_crash_logger()
+    # Before ANY pywebview/pythonnet import: a blocked Python.Runtime.dll is
+    # the difference between the real window and a browser fallback.
+    _clear_mark_of_the_web()
     settings = load_settings()
     _setup_launcher_debug_log()
 
     # Packaged-build smoke mode (CI): run the server only — no launcher
     # window, no tray/menu-bar icon, no browser. Lets the release workflow
     # launch the frozen binary on a headless runner and probe the HTTP API.
+    # Self-test: run the ONE step that fails in the field - loading the .NET
+    # backend - and report it. Exists so CI can settle whether Mark of the Web
+    # is actually the cause instead of shipping another confident guess: tag
+    # the bundle with a Zone.Identifier on a Windows runner, run this, clear
+    # the tags, run it again. Fails at step 2 and passes at step 3 = proven.
+    # Passes at step 2 = the theory is dead and we look elsewhere.
+    if os.environ.get('LRD_SELFTEST'):
+        _clear = os.environ.get('LRD_SELFTEST_CLEAR') == '1'
+        print('[selftest] evidence BEFORE:', _assembly_evidence())
+        if _clear:
+            _clear_mark_of_the_web()
+            print('[selftest] cleared Mark of the Web')
+            print('[selftest] evidence AFTER :', _assembly_evidence())
+        try:
+            from webview.guilib import initialize
+            initialize()
+        except Exception as exc:
+            print(f'[selftest] FAILED: {type(exc).__name__}: {exc}')
+            # pywebview retries netfx -> coreclr, so the interesting failure is
+            # often the one CHAINED behind the visible one.
+            if getattr(exc, '__context__', None) is not None:
+                print(f'[selftest] caused by: {exc.__context__!r}')
+            print(_format_exc(exc))
+            sys.exit(1)
+        print('[selftest] OK: the .NET backend loaded')
+        sys.exit(0)
+
     if os.environ.get('LRD_NO_WINDOW'):
         port = os.environ.get('LRD_SMOKE_PORT')
         if port:

@@ -7,6 +7,7 @@ bypassing the browser download flow.
 """
 import os
 import platform
+import socket
 import subprocess
 import base64
 
@@ -24,14 +25,115 @@ dialog_bp = Blueprint('dialog', __name__)
 _LOOPBACK = ('127.0.0.1', '::1')
 
 
+def _bound_host():
+    """The address the server was actually told to listen on, or None.
+
+    This is the AUTHORITATIVE answer to "which address is this machine",
+    because it is the one the user picked in the launcher. Everything else
+    here is a fallback for when the app was started some other way.
+    """
+    try:
+        import app as _app
+    except Exception:
+        return None
+    host = getattr(_app, 'BOUND_HOST', None)
+    # 0.0.0.0 means "every interface" and names none of them.
+    if not host or host in ('0.0.0.0', '::'):
+        return None
+    return host
+
+
+def _default_route_address():
+    """This machine's IP on the route out, without asking DNS.
+
+    Opening a UDP socket to a public address makes the OS pick a source
+    address; nothing is sent. Same trick launcher_settings uses to build the
+    interface list.
+    """
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(('8.8.8.8', 80))
+            return s.getsockname()[0]
+        finally:
+            s.close()
+    except OSError:
+        return None
+
+
+def _own_addresses():
+    """Every address that means "this machine", for the host check below.
+
+    Deliberately NOT derived from socket.gethostname()/getaddrinfo:
+
+    * It MISSES the address that matters. The launcher lets the user bind to
+      a specific NIC so the drawing can be opened from another machine, and a
+      secondary NIC's address is usually not what the hostname resolves to.
+      An audit caught this exact gap: the host bound to a second NIC was still
+      classed remote, so Export still skipped the folder chooser - the very
+      bug this function was added to fix, silently unfixed.
+    * It TRUSTS DNS. A hostile or misconfigured DNS/mDNS responder could
+      resolve this machine's hostname to somebody else's IP and hand them
+      /api/native-dialog/write-file, which writes to any absolute path.
+
+    So: loopback, the interface the server was told to bind to, and the
+    default-route address. All three are known locally. Nothing a name
+    server says gets in.
+    """
+    addrs = set(_LOOPBACK)
+    for candidate in (_bound_host(), _default_route_address()):
+        if candidate:
+            addrs.add(candidate)
+            # A client reaching an IPv4 service over a dual-stack socket
+            # presents ::ffff:a.b.c.d, which is the same machine.
+            if ':' not in candidate:
+                addrs.add('::ffff:' + candidate)
+    return addrs
+
+
+def _is_same_machine(addr):
+    """True when the request came from this machine.
+
+    A packet's source address is only this machine's own address if it
+    originated here - a different host connecting over TCP presents ITS
+    address, and completing a TCP handshake from a forged source is not
+    something a LAN peer can do. So this stays as strict as the loopback test
+    in the way that matters: another machine still cannot open a dialog on, or
+    write a file to, this one.
+
+    Fails CLOSED. If the bound address cannot be determined, only loopback
+    qualifies - the host loses its folder chooser, which is annoying; the
+    alternative is trusting an address we cannot vouch for, which is not.
+    """
+    if not addr:
+        return False
+    # Normalise the IPv4-mapped IPv6 form before comparing.
+    if addr.startswith('::ffff:'):
+        addr = addr[len('::ffff:'):]
+    return addr in _own_addresses() or ('::ffff:' + addr) in _own_addresses()
+
+
 @dialog_bp.before_request
 def _local_only():
     addr = request.remote_addr or ''
-    if addr not in _LOOPBACK:
+    if not _is_same_machine(addr):
         log_event('native_dialog_rejected_remote', {
             'remote_addr': addr, 'path': request.path})
         return jsonify({'ok': False,
                         'error': 'Native dialogs are only available on the host machine.'}), 403
+
+
+@dialog_bp.route('/api/native-dialog/available', methods=['GET'])
+def native_dialog_available():
+    """Can THIS client open a dialog on the host?
+
+    The browser cannot answer this itself. It only sees the address it was
+    opened at, and http://192.168.2.5:8050 looks identical whether it is the
+    host's own browser or a laptop across the room. The server is the only
+    side that can compare the caller's address against its own.
+    """
+    addr = request.remote_addr or ''
+    return jsonify({'ok': True, 'host': True, 'remote_addr': addr})
 
 
 def decode_base64_bytes(data_url):
@@ -40,47 +142,121 @@ def decode_base64_bytes(data_url):
     return base64.b64decode(data_url)
 
 
-def _run_dialog_command(cmd):
+def _run_dialog_command(cmd, what='dialog'):
+    """Run an OS dialog helper. Returns (path_or_None, status).
+
+    status is 'ok', 'cancelled' (the user dismissed it) or 'unavailable' (the
+    dialog could not be opened at all). The caller MUST tell those apart: a
+    cancel means "do nothing", while unavailable means "fall back to a browser
+    download". Conflating them is why cancelling an export still dropped the
+    files into Downloads.
+
+    Failures are LOGGED, not swallowed. This used to return a bare None on any
+    non-zero exit, so when the Windows dialog failed to open the export fell
+    silently through to a browser download and the only symptom was "the files
+    went to Downloads" with nothing anywhere saying why.
+    """
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=False)
-        if result.returncode != 0:
-            return None
-        value = (result.stdout or '').strip()
-        return value or None
-    except Exception:
-        return None
+    except FileNotFoundError:
+        # The helper itself is missing - powershell/osascript/zenity not on PATH.
+        log_event('native_dialog_helper_missing', {'what': what, 'cmd': cmd[0]})
+        return None, 'unavailable'
+    except Exception as exc:
+        log_event('native_dialog_command_error', {
+            'what': what, 'cmd': cmd[0], 'error': str(exc)})
+        return None, 'unavailable'
+    if result.returncode != 0:
+        log_event('native_dialog_command_failed', {
+            'what': what,
+            'cmd': cmd[0],
+            'returncode': result.returncode,
+            # Trimmed: a PowerShell stack trace is long and the first lines
+            # carry the reason.
+            'stderr': (result.stderr or '').strip()[:600],
+        })
+        return None, 'unavailable'
+    value = (result.stdout or '').strip()
+    if not value:
+        # Exit 0 with no path is a genuine user cancel, not a fault.
+        log_event('native_dialog_cancelled', {'what': what})
+        return None, 'cancelled'
+    return value, 'ok'
+
+
+# Windows: WinForms dialogs must run in a single-threaded apartment, and with
+# no owner window they can open BEHIND the browser where the user never sees
+# them - which reads as "the dialog never appeared" and ends in a silent
+# fallback to Downloads. So: force -STA, and hand ShowDialog a TopMost owner
+# so the dialog is guaranteed to come to the front.
+_WIN_PS = ['powershell', '-NoProfile', '-STA', '-Command']
+
+_WIN_OWNER_PREAMBLE = (
+    'Add-Type -AssemblyName System.Windows.Forms;'
+    'Add-Type -AssemblyName System.Drawing;'
+    '$owner=New-Object System.Windows.Forms.Form;'
+    '$owner.TopMost=$true;'
+    '$owner.ShowInTaskbar=$false;'
+    '$owner.StartPosition="CenterScreen";'
+    '$owner.Size=New-Object System.Drawing.Size(1,1);'
+    '$owner.Opacity=0;'
+    '$owner.Show();'
+    '$owner.Activate();'
+)
+
+
+def _ps_quote(value):
+    """Quote a value for a PowerShell double-quoted string.
+
+    A project called Wall "A" or a path with a $ in it would otherwise break
+    the script, or - worse - be interpreted. Backtick is PowerShell's escape.
+    """
+    return (str(value)
+            .replace('`', '``')
+            .replace('"', '`"')
+            .replace('$', '`$'))
 
 
 def _native_choose_save_file(suggested_name):
     system = platform.system()
     if system == 'Darwin':
         script = f'POSIX path of (choose file name with prompt "Save File" default name "{suggested_name}")'
-        return _run_dialog_command(['osascript', '-e', script])
+        return _run_dialog_command(['osascript', '-e', script], 'save_file')
     if system == 'Windows':
         script = (
-            'Add-Type -AssemblyName System.Windows.Forms;'
-            '$d=New-Object System.Windows.Forms.SaveFileDialog;'
-            f'$d.FileName="{suggested_name}";'
-            'if($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK){Write-Output $d.FileName}'
+            _WIN_OWNER_PREAMBLE
+            + '$d=New-Object System.Windows.Forms.SaveFileDialog;'
+            + f'$d.FileName="{_ps_quote(suggested_name)}";'
+            + 'try{if($d.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK)'
+              '{Write-Output $d.FileName}}finally{$owner.Close()}'
         )
-        return _run_dialog_command(['powershell', '-NoProfile', '-Command', script])
+        return _run_dialog_command(_WIN_PS + [script], 'save_file')
     # Linux fallback (if zenity is installed)
-    return _run_dialog_command(['zenity', '--file-selection', '--save', '--confirm-overwrite', f'--filename={suggested_name}'])
+    return _run_dialog_command(
+        ['zenity', '--file-selection', '--save', '--confirm-overwrite',
+         f'--filename={suggested_name}'], 'save_file')
 
 
 def _native_choose_directory():
     system = platform.system()
     if system == 'Darwin':
         script = 'POSIX path of (choose folder with prompt "Select Export Folder")'
-        return _run_dialog_command(['osascript', '-e', script])
+        return _run_dialog_command(['osascript', '-e', script], 'choose_directory')
     if system == 'Windows':
+        # FolderBrowserDialog is the tree-view picker; on Vista+ setting
+        # UseDescriptionForTitle gives it a real title bar instead of the
+        # legacy description label.
         script = (
-            'Add-Type -AssemblyName System.Windows.Forms;'
-            '$d=New-Object System.Windows.Forms.FolderBrowserDialog;'
-            'if($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK){Write-Output $d.SelectedPath}'
+            _WIN_OWNER_PREAMBLE
+            + '$d=New-Object System.Windows.Forms.FolderBrowserDialog;'
+              '$d.Description="Select Export Folder";'
+              '$d.UseDescriptionForTitle=$true;'
+              'try{if($d.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK)'
+              '{Write-Output $d.SelectedPath}}finally{$owner.Close()}'
         )
-        return _run_dialog_command(['powershell', '-NoProfile', '-Command', script])
-    return _run_dialog_command(['zenity', '--file-selection', '--directory'])
+        return _run_dialog_command(_WIN_PS + [script], 'choose_directory')
+    return _run_dialog_command(
+        ['zenity', '--file-selection', '--directory'], 'choose_directory')
 
 
 @dialog_bp.route('/api/native-dialog/save-file', methods=['POST'])
@@ -89,10 +265,16 @@ def native_dialog_save_file():
     suggested_name = data.get('suggested_name', 'output.bin')
     try:
         log_event('native_dialog_save_file_start', {'suggested_name': suggested_name})
-        file_path = _native_choose_save_file(suggested_name)
+        file_path, status = _native_choose_save_file(suggested_name)
         if not file_path:
-            log_event('native_dialog_save_file_cancelled', {'suggested_name': suggested_name})
-            return jsonify({'ok': False, 'cancelled': True})
+            # 'cancelled' means the user said no and NOTHING should be saved.
+            # 'unavailable' means the dialog never opened, and the caller should
+            # fall back to a browser download rather than lose the export.
+            log_event('native_dialog_save_file_no_path',
+                      {'suggested_name': suggested_name, 'status': status})
+            return jsonify({'ok': False,
+                            'cancelled': status == 'cancelled',
+                            'unavailable': status == 'unavailable'})
         log_event('native_dialog_save_file', {'path': file_path})
         return jsonify({'ok': True, 'path': file_path})
     except Exception as e:
@@ -104,10 +286,12 @@ def native_dialog_save_file():
 def native_dialog_select_directory():
     try:
         log_event('native_dialog_select_directory_start', {})
-        directory = _native_choose_directory()
+        directory, status = _native_choose_directory()
         if not directory:
-            log_event('native_dialog_select_directory_cancelled', {})
-            return jsonify({'ok': False, 'cancelled': True})
+            log_event('native_dialog_select_directory_no_path', {'status': status})
+            return jsonify({'ok': False,
+                            'cancelled': status == 'cancelled',
+                            'unavailable': status == 'unavailable'})
         log_event('native_dialog_select_directory', {'directory': directory})
         return jsonify({'ok': True, 'path': directory})
     except Exception as e:

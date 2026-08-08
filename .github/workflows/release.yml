@@ -237,6 +237,92 @@ jobs:
           Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:18750/api/panel-catalog/info" | Out-Null; Write-Host "catalog API: ok"
           Stop-Process -Id $proc.Id -Force
 
+      # ── The .NET backend, and whether Mark of the Web breaks it ──
+      #
+      # The smoke test above runs with LRD_NO_WINDOW, which returns BEFORE the
+      # native window is built - so a completely broken .NET path shipped green
+      # for the whole life of this workflow. A user hit exactly that: the
+      # window failed, the app fell back to a browser, and diagnosing it cost
+      # two releases of guessing.
+      #
+      # This settles it mechanically. Load the backend clean; tag every file
+      # the way Windows tags a downloaded .zip; load it again; clear the tags;
+      # load once more. If step 2 fails and step 3 passes, Mark of the Web is
+      # PROVEN and so is the fix. If step 2 passes, the theory is dead and we
+      # stop repeating it.
+      - name: .NET backend loads (and survives Mark of the Web)
+        shell: pwsh
+        run: |
+          $exe = "LED Raster Designer App\LED Raster Designer.exe"
+          $env:LRD_SELFTEST = "1"
+
+          # The app is built windowed (console=False), so `& $exe` returns
+          # IMMEDIATELY and never sets $LASTEXITCODE - the first version of
+          # this step raced its own subject and read an empty exit code as a
+          # failure while the app was still starting. Start-Process -Wait
+          # -PassThru is the only reliable way to get an exit code out of a
+          # GUI-subsystem binary.
+          function Invoke-SelfTest {
+            $p = Start-Process -FilePath $exe -Wait -PassThru -NoNewWindow
+            return $p.ExitCode
+          }
+
+          Write-Host "--- 1/3 clean bundle (baseline) ---"
+          $clean = Invoke-SelfTest
+          Write-Host "baseline exit: $clean"
+          if ($clean -ne 0) {
+            Write-Error "The .NET backend does not load even on a CLEAN bundle. That is a packaging fault, not Mark of the Web."
+            exit 1
+          }
+
+          Write-Host "--- 2/3 every file tagged as downloaded-from-internet ---"
+          # Alternate data streams are an NTFS feature. The runner workspace
+          # lives on a temporary disk, so report the filesystem before drawing
+          # any conclusion from a tag that would not not stick.
+          $vol = (Get-Item "LED Raster Designer App").PSDrive.Name
+          $fs = (Get-Volume -DriveLetter $vol -ErrorAction SilentlyContinue).FileSystemType
+          Write-Host "workspace volume ${vol}: filesystem=$fs"
+
+          $target = "LED Raster Designer App\_internal\pythonnet\runtime\Python.Runtime.dll"
+          # Tag the ONE file the theory is about, and let the error SHOW.
+          # Silencing it is how the last two runs produced an unreadable result.
+          try {
+            Set-Content -Path $target -Stream Zone.Identifier -Value "[ZoneTransfer]`nZoneId=3" -ErrorAction Stop
+            Write-Host "tagged $target"
+          } catch {
+            Write-Host "TAGGING FAILED: $($_.Exception.GetType().FullName): $($_.Exception.Message)"
+          }
+
+          $probe = Get-Content -Path $target -Stream Zone.Identifier -ErrorAction SilentlyContinue
+          Write-Host "Python.Runtime.dll zone tag now: $probe"
+          if (-not $probe) {
+            Write-Host "INCONCLUSIVE: this runner cannot carry a Zone.Identifier (filesystem=$fs), so the Mark of the Web theory can be neither proven nor refuted here. Baseline passed, so the bundle itself is sound. Not failing the build over an environment limitation."
+            exit 0
+          }
+
+          # The rest of the bundle, now that tagging is known to work.
+          Get-ChildItem -Recurse -File "LED Raster Designer App" |
+            ForEach-Object {
+              Set-Content -Path $_.FullName -Stream Zone.Identifier `
+                          -Value "[ZoneTransfer]`nZoneId=3" -ErrorAction SilentlyContinue
+            }
+          $tagged = Invoke-SelfTest
+          Write-Host "tagged exit: $tagged"
+
+          Write-Host "--- 3/3 after the app clears the tags itself ---"
+          $env:LRD_SELFTEST_CLEAR = "1"
+          $cleared = Invoke-SelfTest
+          Write-Host "cleared exit: $cleared"
+
+          if ($tagged -ne 0 -and $cleared -eq 0) {
+            Write-Host "PROVEN: Mark of the Web breaks the .NET backend, and clearing it fixes it."
+          } elseif ($tagged -eq 0) {
+            Write-Host "NOTE: a fully tagged bundle still loaded on this runner. Mark of the Web alone does NOT reproduce the reported failure here - do not present it as the diagnosis. The unblock step is harmless and stays, but the real cause is still open."
+          } else {
+            Write-Error "Tagging broke it and clearing did NOT fix it. The unblock fix is insufficient."
+            exit 1
+          }
+
       # ── Code Signing (requires certificate in secrets) ──
       - name: Sign executable
         if: env.WINDOWS_CERTIFICATE != ''
@@ -305,7 +391,13 @@ jobs:
           # /releases/latest page pointing at an old version.
           draft: false
           make_latest: true
-          generate_release_notes: true
+          # v0.10.9: was generate_release_notes: true, which builds the body
+          # from the COMMIT LIST. That threw away the notes written for users
+          # in VERSION.txt and shipped a wall of commit subjects instead.
+          # RELEASE_NOTES.md is written as part of the version bump and is the
+          # user-facing text; it is what the release page shows.
+          generate_release_notes: false
+          body_path: RELEASE_NOTES.md
           files: |
             artifacts/macos-build/*.dmg
             artifacts/windows-build/*.zip

@@ -35,6 +35,7 @@ def start_flask_server(settings):
     host = settings.get('interface', '127.0.0.1')
     port = int(settings.get('port', 8050))
 
+    import app as _app_module
     from app import app, socketio, log_event
     _socketio = socketio
     _app = app
@@ -55,6 +56,10 @@ def start_flask_server(settings):
         kwargs['certfile'] = ssl_ctx[0]
         kwargs['keyfile'] = ssl_ctx[1]
 
+    # Tell the app which address it is reachable at, so the native
+    # dialog routes can recognise this machine when the user opens it
+    # at that address rather than at localhost.
+    _app_module.BOUND_HOST = host
     socketio.run(app, **kwargs)
 
 

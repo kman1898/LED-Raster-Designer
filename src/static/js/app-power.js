@@ -24,6 +24,21 @@ class _Power {
         menu.querySelectorAll('.movable-view-only').forEach(el => {
             el.style.display = canCenter ? '' : 'none';
         });
+        // v0.10.9: screen-group actions. Grouping needs 2+ screen layers
+        // selected, so with fewer the item is simply not offered (a group of
+        // one is not a group). Ungroup / Remove only mean anything once the
+        // selection is already in a group.
+        const canGroup = this.canGroupSelection();
+        const inGroup = this.getSelectedGroupIds().length > 0;
+        menu.querySelectorAll('.group-create-only').forEach(el => {
+            el.style.display = canGroup ? '' : 'none';
+        });
+        menu.querySelectorAll('.group-member-only').forEach(el => {
+            el.style.display = inGroup ? '' : 'none';
+        });
+        menu.querySelectorAll('.group-any-only').forEach(el => {
+            el.style.display = (canGroup || inGroup) ? '' : 'none';
+        });
         menu.style.visibility = 'hidden';
         menu.style.display = 'block';
         const menuRect = menu.getBoundingClientRect();
@@ -137,8 +152,48 @@ class _Power {
         }
     }
     
+    // v0.10.9: Enable + highlight the Organized / Max Capacity buttons from the
+    // current layer's portMappingMode. Both modes are valid on every processor
+    // now; NovaStar Armor honours its reserved-rectangle rule in BOTH of them,
+    // which is why its usable capacity is lower than a plain pixel sum.
+    updatePortMappingButtons() {
+        const mappingOrgBtn = document.getElementById('mapping-organized');
+        const mappingMaxBtn = document.getElementById('mapping-max-capacity');
+        if (!mappingOrgBtn || !mappingMaxBtn) return;
+
+        const layer = this.currentLayer;
+        const processorType = (layer && layer.processorType) || 'novastar-armor';
+        const usesRectangle = this.usesRectangleConstraint(processorType);
+        const isOrganized = ((layer && layer.portMappingMode) || 'organized') === 'organized';
+
+        mappingOrgBtn.style.opacity = '1';
+        mappingOrgBtn.style.pointerEvents = 'auto';
+        mappingMaxBtn.style.opacity = '1';
+        mappingMaxBtn.style.pointerEvents = 'auto';
+
+        const rectNote = usesRectangle
+            ? ' NovaStar Armor reserves a pixel rectangle enclosing every cabinet in the port, so a port holds fewer pixels than the raw limit.'
+            : '';
+        mappingOrgBtn.title = 'Ports fill complete rows or columns only.' + rectNote;
+        mappingMaxBtn.title = 'Ports fill to max pixel capacity - may split mid-row/column.' + rectNote;
+
+        // v0.10.9: the theme styles .mapping-mode-btn / .mapping-mode-btn.active
+        // with !important, so the .active class is the ONLY thing that can move
+        // the highlight. Inline background/color writes here were dead.
+        mappingOrgBtn.classList.toggle('active', isOrganized);
+        mappingMaxBtn.classList.toggle('active', !isOrganized);
+    }
+
     // Update the port capacity display in the UI
     updatePortCapacityDisplay() {
+        // v0.10.9: run the button pass FIRST. It used to sit at the end of this
+        // function, behind the early returns below (no current layer / image
+        // layer), so the buttons could latch into a stale state.
+        this.updatePortMappingButtons();
+        // v0.10.9: same reasoning - the Low Latency control and its note must
+        // not latch on a stale processor when the early returns below fire.
+        this.updateLowLatencyUI();
+
         if (!this.currentLayer) {
             return;
         }
@@ -155,18 +210,37 @@ class _Power {
         const bitDepth = this.currentLayer.bitDepth || 8;
         const frameRate = this.currentLayer.frameRate || 60;
         const processorType = this.currentLayer.processorType || 'novastar-armor';
-        const mappingMode = this.currentLayer.portMappingMode || 'organized';
-        const portCapacity = this.calculatePortCapacity(bitDepth, frameRate, processorType);
+        const portCapacity = this.calculatePortCapacity(
+            bitDepth, frameRate, processorType, !!this.currentLayer.lowLatency);
         
         // Update capacity display
         const capacityEl = document.getElementById('port-capacity');
         if (capacityEl) {
+            // v0.10.9: a healthy figure renders in the ordinary text colour on
+            // .value-normal, so it cannot be mistaken for a fault; the warning
+            // colour is the only inline override and the only colour here.
             if (portCapacity > 0) {
                 capacityEl.textContent = portCapacity.toLocaleString();
-                capacityEl.style.color = '#4A90E2';
+                capacityEl.classList.add('value-normal');
+                capacityEl.style.color = '';
+                capacityEl.title = '';
             } else {
                 capacityEl.textContent = 'N/A';
+                capacityEl.classList.remove('value-normal');
                 capacityEl.style.color = '#ff6600';
+                // v0.10.9 audit: say WHY there is no figure when the reason is
+                // knowable. A frame rate the manufacturer does not publish for
+                // this processor used to be answered with the nearest row's
+                // capacity - on Armor, 240 Hz got the 120 Hz figure, double the
+                // truth - and nothing is extrapolated to replace it, so the
+                // readout has to name the fix rather than just go blank.
+                const rates = (typeof this.getSupportedFrameRates === 'function')
+                    ? this.getSupportedFrameRates(processorType, bitDepth) : [];
+                capacityEl.title = (rates.length > 0 && frameRate > rates[rates.length - 1])
+                    ? `${processorType} publishes no ${frameRate} Hz figure at `
+                      + `${bitDepth}-bit. Published frame rates: `
+                      + `${rates.join(', ')} Hz.`
+                    : '';
             }
         }
 
@@ -177,37 +251,41 @@ class _Power {
         if (panelsPerPortEl) {
             if (panelsPerPort < 1) {
                 panelsPerPortEl.textContent = 'ERROR';
+                panelsPerPortEl.classList.remove('value-normal');
                 panelsPerPortEl.style.color = '#ff0000';
             } else {
                 panelsPerPortEl.textContent = panelsPerPort.toLocaleString();
-                panelsPerPortEl.style.color = '#4A90E2';
+                panelsPerPortEl.classList.add('value-normal');
+                panelsPerPortEl.style.color = '';
             }
         }
         
         // Calculate total ports required from assignments
         const usesRectangle = this.usesRectangleConstraint(processorType);
-        const isOrganized = mappingMode === 'organized';
         const visiblePanels = this.currentLayer.panels ? this.currentLayer.panels.filter(p => !p.hidden).length : 0;
         const panelCountForStatus = usesRectangle && this.currentLayer.panels ? this.currentLayer.panels.length : visiblePanels;
         const assignments = this.calculatePortAssignments(this.currentLayer);
-        let portsRequired = this.currentLayer._autoPortsRequired || assignments.reduce((max, a) => Math.max(max, a.port || 0), 0);
-
-        const basePortsRequired = portsRequired;
-        if (this.isCustomFlow(this.currentLayer) && this.currentLayer.customPortPaths) {
-            const customPorts = Object.keys(this.currentLayer.customPortPaths)
-                .map(p => parseInt(p, 10))
-                .filter(p => (this.currentLayer.customPortPaths[p] || []).length > 0);
-            if (customPorts.length > 0) {
-                portsRequired = Math.max(...customPorts);
-            } else {
-                portsRequired = basePortsRequired > 0 ? basePortsRequired : (this.currentLayer.customPortIndex || 1);
-            }
-        }
+        // v0.10.9: calculatePortAssignments is the only thing that knows where
+        // each Low Latency port sits, so it hands back the derate for the note.
+        this.setLowLatencyDerateNote(this.currentLayer._lowLatencyDerate);
+        // v0.10.9 step 6: one group-aware implementation, shared with the
+        // group roll-up and the canvas label, so a port that spans two members
+        // cannot read as two different numbers in three places. `assignments`
+        // is handed straight through - it was just computed above for the
+        // derate note, and re-walking it would be pure waste.
+        const portsRequired = this.getLayerPortsRequired(this.currentLayer, assignments);
         this.currentLayer._portsRequired = portsRequired;
         // debug toggle removed
         const portsRequiredEl = document.getElementById('ports-required');
         if (portsRequiredEl) {
-            if ((this.currentLayer._capacityError || (portsRequired === 0 && panelsPerPort > 0 && panelCountForStatus > 0))) {
+            // v0.10.9 audit: no capacity at all is an ERROR here too. Without
+            // this, a screen whose processor publishes no figure for its frame
+            // rate showed "N/A" pixels/port, "ERROR" panels/port and then a
+            // calm green 0 next to Ports Required - and 0 ports reads as "none
+            // needed", which is the one thing it does not mean.
+            const noCapacity = !(portCapacity > 0) && panelCountForStatus > 0;
+            if ((this.currentLayer._capacityError || noCapacity
+                    || (portsRequired === 0 && panelsPerPort > 0 && panelCountForStatus > 0))) {
                 portsRequiredEl.textContent = 'ERROR';
                 portsRequiredEl.style.color = '#ff0000';
             } else if (panelCountForStatus === 0) {
@@ -225,44 +303,6 @@ class _Power {
             }
         }
         
-        // Update mapping mode button states
-        const mappingOrgBtn = document.getElementById('mapping-organized');
-        const mappingMaxBtn = document.getElementById('mapping-max-capacity');
-        if (mappingOrgBtn && mappingMaxBtn) {
-            if (usesRectangle) {
-                // NovaStar 1G/Armor: always rectangle, disable both buttons
-                mappingOrgBtn.style.opacity = '0.5';
-                mappingOrgBtn.style.pointerEvents = 'none';
-                mappingOrgBtn.style.background = '#4A90E2';
-                mappingOrgBtn.style.color = '#fff';
-                mappingMaxBtn.style.opacity = '0.5';
-                mappingMaxBtn.style.pointerEvents = 'none';
-                mappingMaxBtn.style.background = '#333';
-                mappingMaxBtn.style.color = '#ccc';
-                mappingOrgBtn.title = 'NovaStar 1G/Armor always uses rectangle-based mapping';
-                mappingMaxBtn.title = 'NovaStar 1G/Armor always uses rectangle-based mapping';
-            } else {
-                // Enable both buttons and set active state
-                mappingOrgBtn.style.opacity = '1';
-                mappingOrgBtn.style.pointerEvents = 'auto';
-                mappingMaxBtn.style.opacity = '1';
-                mappingMaxBtn.style.pointerEvents = 'auto';
-                mappingOrgBtn.title = 'Ports fill complete rows or columns only';
-                mappingMaxBtn.title = 'Ports fill to max pixel capacity - may split mid-row/column';
-                
-                if (isOrganized) {
-                    mappingOrgBtn.style.background = '#4A90E2';
-                    mappingOrgBtn.style.color = '#fff';
-                    mappingMaxBtn.style.background = '#333';
-                    mappingMaxBtn.style.color = '#ccc';
-                } else {
-                    mappingMaxBtn.style.background = '#4A90E2';
-                    mappingMaxBtn.style.color = '#fff';
-                    mappingOrgBtn.style.background = '#333';
-                    mappingOrgBtn.style.color = '#ccc';
-                }
-            }
-        }
     }
 
     updatePowerCapacityDisplay() {
@@ -286,8 +326,15 @@ class _Power {
         const panelWatts = parseFloat(layer.panelWatts) || 0;
         const wattsPerCircuit = voltage * amperage;
         const panelsPerCircuit = panelWatts > 0 ? Math.floor(wattsPerCircuit / panelWatts) : 0;
-        const visiblePanels = layer.panels ? layer.panels.filter(p => !p.hidden) : [];
-        const equivalentPanels = visiblePanels.reduce((sum, p) => sum + this.getPanelLoadFactor(layer, p), 0);
+        // v0.10.9 audit fix: `!p.blank` as well as `!p.hidden`. This filter used
+        // to drop hidden cabinets only, so a 2 x 2 screen with one cabinet
+        // blanked read 800 W here and 600 W in the group roll-up and the
+        // project totals - GROUPING A SCREEN CHANGED ITS WATTAGE. A blank is a
+        // hole in the wall: no cabinet hangs there, it has no weight and it
+        // draws nothing. Matches getGroupTotals, getPowerCounts and the canvas
+        // weight label.
+        const activePanels = layer.panels ? layer.panels.filter(p => !p.blank && !p.hidden) : [];
+        const equivalentPanels = activePanels.reduce((sum, p) => sum + this.getPanelLoadFactor(layer, p), 0);
         const totalWatts = panelWatts * equivalentPanels;
         const totalAmps1 = voltage > 0 ? totalWatts / voltage : 0;
         const totalAmps3 = voltage > 0 ? totalWatts / (voltage * 1.73) : 0;
@@ -626,17 +673,10 @@ class _Power {
         if (!list) return;
         list.style.overflowX = 'hidden';
 
-        let circuitsRequired = this.currentLayer._powerCircuitsRequired || 0;
-        if (this.isCustomPower(this.currentLayer) && this.currentLayer.powerCustomPaths) {
-            const customCircuits = Object.keys(this.currentLayer.powerCustomPaths)
-                .map(c => parseInt(c, 10))
-                .filter(c => (this.currentLayer.powerCustomPaths[c] || []).length > 0);
-            if (customCircuits.length > 0) {
-                circuitsRequired = Math.max(...customCircuits);
-            } else {
-                circuitsRequired = circuitsRequired > 0 ? circuitsRequired : (this.currentLayer.powerCustomIndex || 1);
-            }
-        }
+        // v0.10.9 step 6: same single implementation the ports readout now
+        // uses - a circuit drawn across two members is one circuit, and the
+        // editor must offer exactly that many label rows.
+        const circuitsRequired = this.getLayerCircuitsRequired(this.currentLayer);
 
         list.innerHTML = '';
         // v0.8.7.3: stretch each row to full list width, trim padding,
@@ -877,9 +917,16 @@ class _Power {
         return layer.panels.find(p => p.row === row && p.col === col) || null;
     }
 
-    togglePanelSelection(panel) {
+    // v0.10.9: customSelection is keyed by getScopedPanelKey, not getPanelKey -
+    // see _selectPathPanelsInRect for why. `panelLayer` names the screen the
+    // cabinet came from when it is not currentLayer; leaving it out resolves
+    // it, so every existing single-screen caller is unchanged.
+    togglePanelSelection(panel, panelLayer = null) {
         if (!panel) return;
-        const key = this.getPanelKey(panel);
+        const owner = this.currentLayer;
+        const source = this._resolvePathPanelLayer(owner, panel, panelLayer) || owner;
+        if (!source) return;
+        const key = this.getScopedPanelKey(source.id, panel);
         if (this.customSelection.has(key)) {
             this.customSelection.delete(key);
         } else {
@@ -895,21 +942,69 @@ class _Power {
         window.canvasRenderer.render();
     }
 
+    /**
+     * Marquee-select the cabinets under `rect` for a manual path owned by
+     * `ownerLayer`, filling `selection` with SCOPED keys.
+     *
+     * v0.10.9: the marquee now sweeps every member of the owner's group, the
+     * same reachability rule click-to-add uses. Before this it walked one
+     * layer, which is why dragging a box across a mixed-cabinet wall picked up
+     * only half of it.
+     *
+     * The Set has to be keyed by getScopedPanelKey and not getPanelKey:
+     * member A's R0C0 and member B's R0C0 are two different cabinets, and under
+     * the bare `${row},${col}` they are ONE entry - so a cross-member marquee
+     * could only ever have committed the owner's own cabinets under the peer's
+     * row and column. Silently wrong, not partly working. getPanelKey itself is
+     * untouched, because pixelMapSelection still uses it (one screen, no
+     * groups) and its overlay still parses it back with split(',').
+     *
+     * Each member converts the WORLD rect into its OWN frame:
+     * _getLayerWorkspaceOffset is per-layer (canvas workspace + that layer's
+     * Show Look delta), and rotation is undone per member the way
+     * selectPixelMapPanelsInRect and canvas.js getPanelAt do it. Note the
+     * members of one canvas already share an origin - _build_panels lays each
+     * member's columns out from its own offset_x - so there is no second offset
+     * to apply on top of that, and applying one would drag the peer's hit-test
+     * off the wall.
+     */
+    _selectPathPanelsInRect(ownerLayer, rect, selection) {
+        selection.clear();
+        if (!ownerLayer || !rect) return;
+        const _r = window.canvasRenderer;
+        // Selection scope, not path scope: a marquee must not sweep up a
+        // member the user cannot see or click. See getSelectionScopeLayers.
+        this.getSelectionScopeLayers(ownerLayer).forEach(member => {
+            if (!member || !Array.isArray(member.panels)) return;
+            const off = this._getLayerWorkspaceOffset(member);
+            let x1 = Math.min(rect.x1, rect.x2) - off.wx;
+            let x2 = Math.max(rect.x1, rect.x2) - off.wx;
+            let y1 = Math.min(rect.y1, rect.y2) - off.wy;
+            let y2 = Math.max(rect.y1, rect.y2) - off.wy;
+            // Rotation is 90/180/270 only, so the unrotated rect is still
+            // axis-aligned and the corners bound it exactly.
+            if (_r && typeof _r._unrotatePointForLayer === 'function') {
+                const corners = [[x1, y1], [x2, y1], [x1, y2], [x2, y2]]
+                    .map(([x, y]) => _r._unrotatePointForLayer(x, y, member));
+                x1 = Math.min(...corners.map(c => c.x)); x2 = Math.max(...corners.map(c => c.x));
+                y1 = Math.min(...corners.map(c => c.y)); y2 = Math.max(...corners.map(c => c.y));
+            }
+            member.panels.forEach(panel => {
+                if (panel.hidden) return;
+                const intersects = panel.x <= x2 && (panel.x + panel.width) >= x1 &&
+                    panel.y <= y2 && (panel.y + panel.height) >= y1;
+                if (intersects) selection.add(this.getScopedPanelKey(member.id, panel));
+            });
+        });
+    }
+
+    // `layer` is the path's OWNER - the screen whose port is being drawn - and
+    // its group decides how far the marquee reaches. The signature is
+    // unchanged, so canvas.js still passes currentLayer.
     selectPanelsInRect(layer, rect) {
         if (!layer) return;
         if (!this.isCustomFlow(layer)) return;
-        this.customSelection.clear();
-        const off = this._getLayerWorkspaceOffset(layer);
-        const minX = Math.min(rect.x1, rect.x2) - off.wx;
-        const maxX = Math.max(rect.x1, rect.x2) - off.wx;
-        const minY = Math.min(rect.y1, rect.y2) - off.wy;
-        const maxY = Math.max(rect.y1, rect.y2) - off.wy;
-        layer.panels.forEach(panel => {
-            if (panel.hidden) return;
-            const intersects = panel.x <= maxX && (panel.x + panel.width) >= minX &&
-                panel.y <= maxY && (panel.y + panel.height) >= minY;
-            if (intersects) this.customSelection.add(this.getPanelKey(panel));
-        });
+        this._selectPathPanelsInRect(layer, rect, this.customSelection);
         this.updateCustomFlowUI();
         window.canvasRenderer.render();
     }
@@ -1124,116 +1219,521 @@ class _Power {
         }
     }
 
+    // Power's half of the marquee. Same scoping rule, same owner semantics -
+    // see _selectPathPanelsInRect.
     selectPowerPanelsInRect(layer, rect) {
         if (!layer) return;
         if (!this.isCustomPower(layer)) return;
-        this.powerCustomSelection.clear();
-        const off = this._getLayerWorkspaceOffset(layer);
-        const minX = Math.min(rect.x1, rect.x2) - off.wx;
-        const maxX = Math.max(rect.x1, rect.x2) - off.wx;
-        const minY = Math.min(rect.y1, rect.y2) - off.wy;
-        const maxY = Math.max(rect.y1, rect.y2) - off.wy;
-        layer.panels.forEach(panel => {
-            if (panel.hidden) return;
-            const intersects = panel.x <= maxX && (panel.x + panel.width) >= minX &&
-                panel.y <= maxY && (panel.y + panel.height) >= minY;
-            if (intersects) this.powerCustomSelection.add(this.getPanelKey(panel));
-        });
+        this._selectPathPanelsInRect(layer, rect, this.powerCustomSelection);
         this.updateCustomPowerUI();
         window.canvasRenderer.render();
     }
 
+    // ── Cross-member manual paths (v0.10.9, step 6) ──────────────────────
+    //
+    // A group IS ONE WALL, so a hand-drawn port path or power circuit has to
+    // be allowed to run off one member and onto the next. The path itself
+    // never moves: it stays on the layer that OWNS the port or circuit -
+    // a port is a physical output on ONE processor - and only the individual
+    // step learns where the cable landed.
+    //
+    //     {row, col}            a panel in the OWNING layer. Unchanged, and
+    //                           the shape 100% of existing projects have.
+    //     {row, col, layerId}   a panel in a PEER member of the same group.
+    //
+    // Why a key on the STEP rather than a new key on the layer: the server's
+    // add / update allow-lists silently DROP layer keys they do not know,
+    // which has already cost this codebase two features (processorType,
+    // lowLatency). A step lives inside customPortPaths, which is already
+    // allow-listed, so it rides in for free.
+    //
+    // Why (layerId, row, col) rather than panel.id: _build_panels regenerates
+    // panel ids on every geometry rebuild, so an id is worthless the moment
+    // anyone changes a column count. (row, col) is the only durable address.
+    //
+    // Every helper below returns the ungrouped answer for an ungrouped layer,
+    // and a path with no layerId anywhere reads exactly as it did before, so a
+    // project without groups takes precisely the code path it took before.
+
+    // The canvas a manual path treats a layer as living on. Paths are only
+    // ever drawn in Data Flow and Power, which are both Show Look views, so
+    // the show override is the right answer REGARDLESS of which tab is open.
+    // Deliberately NOT canvasRenderer._effectiveLayerCanvasId, which flips
+    // with viewMode: reachability that changed the moment the user clicked the
+    // Pixel Map tab would mean the same stored step resolving on one tab and
+    // reading as dangling on another.
+    _pathCanvasIdOf(layer) {
+        if (!layer) return null;
+        return layer.show_canvas_id || layer.canvas_id || null;
+    }
+
+    // Every layer a path owned by `layer` may legally touch. The owner is
+    // always first, so callers that want "the owner, then its peers" get a
+    // stable order without re-sorting.
+    getPathScopeLayers(layer) {
+        if (!layer) return [];
+        const group = (typeof this.getGroupOfLayer === 'function')
+            ? this.getGroupOfLayer(layer) : null;
+        if (!group) return [layer];
+        const cid = this._pathCanvasIdOf(layer);
+        const scope = [layer];
+        (this.getGroupMembers(group) || []).forEach(m => {
+            if (!m || m.id === layer.id) return;
+            if ((m.type || 'screen') !== 'screen') return;
+            // The same rule canvas.js _groupDrawnMembers applies: a member
+            // sitting on another canvas is a different workspace entirely, so
+            // a cable drawn onto it would be drawn at a position that means
+            // nothing. Hidden members are NOT excluded here (where
+            // _groupDrawnMembers does exclude them) - hiding a screen must not
+            // quietly invalidate paths the user already drew onto it, because
+            // unhiding has to bring them straight back.
+            if (this._pathCanvasIdOf(m) !== cid) return;
+            scope.push(m);
+        });
+        return scope;
+    }
+
+    // The layers a SELECTION owned by `layer` may touch: the path scope, less
+    // the members the user cannot see.
+    //
+    // getPathScopeLayers deliberately keeps hidden members, because a path
+    // already drawn onto a screen must survive that screen being hidden and
+    // come straight back when it is unhidden. That is right for RESOLVING a
+    // path and wrong for BUILDING one: a hidden member is not drawn
+    // (canvas.js _groupDrawnMembers filters visible !== false) and cannot be
+    // clicked (getPanelAt skips it), so a marquee, an arrow handoff or an
+    // Apply Pattern that reached it wired cabinets nobody could see - 12 of
+    // them, on a screen that is not on the canvas, into the visible screen's
+    // port 1.
+    //
+    // The OWNER is never filtered out. It is the layer the user is working on
+    // and the port belongs to it; dropping it would make a hidden current
+    // layer un-drawable rather than merely un-reachable, and it keeps an
+    // ungrouped screen byte-identical to before.
+    //
+    // `visible === false`, not `!visible`: a layer with no visible key is
+    // visible everywhere else in this app (the server reads
+    // layer.get('visible', True)).
+    getSelectionScopeLayers(layer) {
+        if (!layer) return [];
+        return this.getPathScopeLayers(layer)
+            .filter(l => l && (l.id === layer.id || l.visible !== false));
+    }
+
+    canPathReachLayer(ownerLayer, targetLayer) {
+        if (!ownerLayer || !targetLayer) return false;
+        if (ownerLayer.id === targetLayer.id) return true;
+        return this.getPathScopeLayers(ownerLayer).some(l => l && l.id === targetLayer.id);
+    }
+
+    // The layer id a step names, resolving the plain form to the owner. Kept
+    // separate from resolvePathEntryLayer because the conflict scan wants the
+    // id without paying for a lookup and a legality check per step.
+    getPathEntryLayerId(ownerLayer, entry) {
+        const lid = entry ? entry.layerId : undefined;
+        if (lid === undefined || lid === null) return ownerLayer ? ownerLayer.id : null;
+        return lid;
+    }
+
+    resolvePathEntryLayer(ownerLayer, entry) {
+        if (!ownerLayer || !entry) return null;
+        const lid = entry.layerId;
+        if (lid === undefined || lid === null || lid === ownerLayer.id) return ownerLayer;
+        const target = ((this.project && this.project.layers) || [])
+            .find(l => l && l.id === lid) || null;
+        if (!target) return null;
+        // A pointer at a layer that exists but is no longer a reachable peer
+        // (ungrouped, regrouped, or dragged onto another canvas) is dead, not
+        // drawable. The server prunes it on the next round-trip; until then
+        // reading it as null keeps the renderer from drawing a cable onto an
+        // unrelated screen.
+        return this.canPathReachLayer(ownerLayer, target) ? target : null;
+    }
+
+    resolvePathEntry(ownerLayer, entry) {
+        const layer = this.resolvePathEntryLayer(ownerLayer, entry);
+        if (!layer || !entry) return null;
+        const panel = this.getPanelByRowCol(layer, entry.row, entry.col);
+        if (!panel) return null;
+        return { layer, panel };
+    }
+
+    // Hidden panels are dropped HERE rather than by each caller, matching the
+    // read-time `.filter(p => p && !p.hidden)` every path consumer already ran
+    // before a step could name a peer.
+    getResolvedPathPanels(ownerLayer, path) {
+        if (!ownerLayer || !Array.isArray(path)) return [];
+        const out = [];
+        path.forEach(entry => {
+            const resolved = this.resolvePathEntry(ownerLayer, entry);
+            if (resolved && !resolved.panel.hidden) out.push(resolved);
+        });
+        return out;
+    }
+
+    // layerId is written ONLY when it differs from the owner, so a path that
+    // never leaves its own screen is byte-for-byte the shape it has always
+    // been. (The server's prune pass normalises a self-pointer the same way,
+    // so the two sides can never drift into writing different files.)
+    makePathEntry(ownerLayer, panelLayer, panel) {
+        if (!panel) return null;
+        const entry = { row: panel.row, col: panel.col };
+        if (panelLayer && ownerLayer && panelLayer.id !== ownerLayer.id) {
+            entry.layerId = panelLayer.id;
+        }
+        return entry;
+    }
+
+    // The address of ONE cabinet on the wall. Path ownership, path dedupe and
+    // (since v0.10.9's marquee) customSelection / powerCustomSelection are all
+    // keyed on this, because inside a group `${row},${col}` names two cabinets
+    // at once and every one of those jobs has to tell them apart.
+    //
+    // getPanelKey stays `${row},${col}` regardless: pixelMapSelection still
+    // uses it - one screen, nothing grouped about it - and its overlay parses
+    // the key back with `key.split(',').map(parseInt)`, which a layer id in
+    // front would turn into the WRONG panel silently, with no error anywhere.
+    getScopedPanelKey(layerId, panel) {
+        return `${layerId}:${panel.row},${panel.col}`;
+    }
+
+    pathCrossesMembers(ownerLayer, path) {
+        if (!ownerLayer || !Array.isArray(path)) return false;
+        return path.some(e => e && e.layerId !== undefined && e.layerId !== null
+            && e.layerId !== ownerLayer.id);
+    }
+
+    // Which layer does this panel object belong to, as far as a path owned by
+    // `ownerLayer` is concerned? Null when the panel is not reachable at all.
+    // Identity first - the click handler and the arrow keys both hand us the
+    // panel straight out of a layer's own array - and the (row, col) fallback
+    // is what keeps a caller that rebuilt the panel behaving exactly as before.
+    _resolvePathPanelLayer(ownerLayer, panel, explicitLayer) {
+        if (!ownerLayer || !panel) return null;
+        if (explicitLayer) {
+            return this.canPathReachLayer(ownerLayer, explicitLayer) ? explicitLayer : null;
+        }
+        const scope = this.getPathScopeLayers(ownerLayer);
+        const byIdentity = scope.find(l => l && Array.isArray(l.panels)
+            && l.panels.includes(panel));
+        if (byIdentity) return byIdentity;
+        return this.getPanelByRowCol(ownerLayer, panel.row, panel.col) ? ownerLayer : null;
+    }
+
+    _pathLayerName(layer) {
+        if (!layer) return 'another screen';
+        return layer.name || `Screen ${layer.id}`;
+    }
+
+    // "port 2", or "port 2 on North Lower" when the conflict lives on a peer.
+    // R3C4 alone stops meaning anything the moment two grids are in play, so
+    // a toast that names only the number sends the user hunting.
+    _describePathConflict(conflict, kind) {
+        if (!conflict) return '';
+        const base = `${kind} ${conflict.number}`;
+        return conflict.foreign ? `${base} on ${this._pathLayerName(conflict.layer)}` : base;
+    }
+
+    _describePathPanel(ownerLayer, panelLayer, panel) {
+        const base = `R${panel.row + 1}C${panel.col + 1}`;
+        if (panelLayer && ownerLayer && panelLayer.id !== ownerLayer.id) {
+            return `${base} on ${this._pathLayerName(panelLayer)}`;
+        }
+        return base;
+    }
+
     /**
-     * Find the OTHER port number (if any) that already owns this panel in
-     * the layer's custom data-flow paths. Returns the conflicting port's
-     * number, or null if the panel is unassigned (or only assigned to the
-     * caller-supplied excludePortNum, which we treat as "not a conflict").
+     * Which port / circuit (if any) already owns this cabinet, anywhere in the
+     * owner's path scope. Returns {number, layer, layerId, foreign} or null.
+     *
+     * `foreign` is the whole reason this returns an object rather than the
+     * bare number it used to: with a group in play the answer may live on a
+     * different screen, and the caller has to be able to say which.
      */
-    _findPanelOwnerPort(layer, panel, excludePortNum) {
-        if (!layer || !layer.customPortPaths || !panel) return null;
-        const key = `${panel.row},${panel.col}`;
-        for (const portNumStr of Object.keys(layer.customPortPaths)) {
-            const portNum = Number(portNumStr) || portNumStr;
-            if (portNum === excludePortNum) continue;
-            const path = layer.customPortPaths[portNumStr] || [];
-            if (path.some(p => `${p.row},${p.col}` === key)) return portNum;
+    _findPathOwner(ownerLayer, panel, excludeNum, panelLayer, pathsKey) {
+        if (!ownerLayer || !panel) return null;
+        const source = panelLayer || ownerLayer;
+        const key = this.getScopedPanelKey(source.id, panel);
+        for (const scope of this.getPathScopeLayers(ownerLayer)) {
+            const paths = scope && scope[pathsKey];
+            if (!paths) continue;
+            for (const numStr of Object.keys(paths)) {
+                // Number("0") is 0, which is falsy - the old `Number(s) || s`
+                // handed back the STRING "0" and then failed to match a
+                // numeric exclude. Ports and circuits are 1-based so it never
+                // bit anyone, but a quirk that only works because a value is
+                // impossible is a trap for whoever changes that.
+                const parsed = Number(numStr);
+                const num = Number.isFinite(parsed) ? parsed : numStr;
+                // Only the port being drawn RIGHT NOW is exempt, and only on
+                // its own layer: port 1 of member A and port 1 of member B are
+                // two different physical outputs (getGroupTotals sums each
+                // member's own requirement), so a cabinet already claimed by
+                // the peer's port 1 genuinely is taken.
+                if (scope.id === ownerLayer.id && num === excludeNum) continue;
+                const path = paths[numStr] || [];
+                const hit = path.some(e => e && this.getScopedPanelKey(
+                    this.getPathEntryLayerId(scope, e), e) === key);
+                if (hit) {
+                    return {
+                        number: num,
+                        layer: scope,
+                        layerId: scope.id,
+                        foreign: scope.id !== ownerLayer.id,
+                    };
+                }
+            }
         }
         return null;
+    }
+
+    /**
+     * The OTHER port (if any) that already owns this panel. Scans every layer
+     * in the owner's path scope, not just the owner's own paths, so a cabinet
+     * claimed by a port drawn from member A is seen as taken while drawing
+     * from member B.
+     */
+    _findPanelOwnerPort(layer, panel, excludePortNum, panelLayer) {
+        return this._findPathOwner(layer, panel, excludePortNum, panelLayer, 'customPortPaths');
     }
 
     /**
      * Same as _findPanelOwnerPort but for power circuits.
      */
-    _findPanelOwnerCircuit(layer, panel, excludeCircuitNum) {
-        if (!layer || !layer.powerCustomPaths || !panel) return null;
-        const key = `${panel.row},${panel.col}`;
-        for (const circuitNumStr of Object.keys(layer.powerCustomPaths)) {
-            const circuitNum = Number(circuitNumStr) || circuitNumStr;
-            if (circuitNum === excludeCircuitNum) continue;
-            const path = layer.powerCustomPaths[circuitNumStr] || [];
-            if (path.some(p => `${p.row},${p.col}` === key)) return circuitNum;
-        }
-        return null;
+    _findPanelOwnerCircuit(layer, panel, excludeCircuitNum, panelLayer) {
+        return this._findPathOwner(layer, panel, excludeCircuitNum, panelLayer, 'powerCustomPaths');
     }
 
-    addPanelToCustomPath(panel) {
+    /**
+     * The layers a path edit has to PUT. updateLayers only sends what it is
+     * handed (plus peers a shared-field edit left pending), and clicking a
+     * peer member's cabinet writes onto currentLayer - which is not guaranteed
+     * to be in the selection, since a marquee or a click on the peer alone can
+     * leave it out. The owner is therefore added explicitly. Nothing else
+     * changed, so nothing else is sent.
+     */
+    _pathPersistLayers(ownerLayer) {
+        const layers = this.getSelectedLayers() || [];
+        if (ownerLayer && !layers.some(l => l && l.id === ownerLayer.id)) {
+            return layers.concat([ownerLayer]);
+        }
+        return layers;
+    }
+
+    /**
+     * Append a cabinet to the active port's path. `panelLayer` names the
+     * screen the cabinet came from when it is not currentLayer; leaving it out
+     * resolves it, so every existing single-screen caller is unchanged.
+     *
+     * The PORT stays on currentLayer even when the user clicked a peer's
+     * cabinet - a port is one physical output on one processor, and only the
+     * step records which screen the cable ran onto.
+     */
+    addPanelToCustomPath(panel, panelLayer = null) {
         if (!this.currentLayer || !panel || panel.hidden) return;
         if (!this.isCustomFlow(this.currentLayer)) return;
         if (this.customSelection.size > 0) return;
-        this.ensureCustomFlowState(this.currentLayer);
-        const portNum = this.currentLayer.customPortIndex || 1;
-        if (!this.currentLayer.customPortPaths[portNum]) this.currentLayer.customPortPaths[portNum] = [];
-        const key = this.getPanelKey(panel);
-        const exists = this.currentLayer.customPortPaths[portNum].some(p => `${p.row},${p.col}` === key);
+        const owner = this.currentLayer;
+        const source = this._resolvePathPanelLayer(owner, panel, panelLayer);
+        if (!source) return;
+        this.ensureCustomFlowState(owner);
+        const portNum = owner.customPortIndex || 1;
+        if (!owner.customPortPaths[portNum]) owner.customPortPaths[portNum] = [];
+        // Scoped key, not getPanelKey: R0C0 of the owner and R0C0 of a peer
+        // are two different cabinets, and a bare `${row},${col}` compare would
+        // refuse to add the second one.
+        const key = this.getScopedPanelKey(source.id, panel);
+        const exists = owner.customPortPaths[portNum].some(e => e
+            && this.getScopedPanelKey(this.getPathEntryLayerId(owner, e), e) === key);
         if (exists) return;
         // Reject if the panel already belongs to a different port, user
         // must clear the existing assignment first. Avoids silent
         // double-mapping that the user has to undo manually.
-        const conflict = this._findPanelOwnerPort(this.currentLayer, panel, portNum);
-        if (conflict !== null) {
+        const conflict = this._findPanelOwnerPort(owner, panel, portNum, source);
+        if (conflict) {
             if (typeof this._toast === 'function') {
-                this._toast(`Panel R${panel.row + 1}C${panel.col + 1} is already wired to port ${conflict}. Clear it from port ${conflict} first.`, true);
+                const where = this._describePathConflict(conflict, 'port');
+                this._toast(`Panel ${this._describePathPanel(owner, source, panel)} is already wired to ${where}. Clear it from ${where} first.`, true);
             }
             return;
         }
-        this.currentLayer.customPortPaths[portNum].push({ row: panel.row, col: panel.col });
+        owner.customPortPaths[portNum].push(this.makePathEntry(owner, source, panel));
         this.saveState('Custom Path Edit');
         this.saveClientSideProperties();
         // v0.8.2: PUT to server so per-panel port assignments persist.
-        this.updateLayers(this.getSelectedLayers());
+        this.updateLayers(this._pathPersistLayers(owner));
         if (this.customDebug) {
-            console.log('[CustomFlow] Add panel', { portNum, row: panel.row, col: panel.col });
+            console.log('[CustomFlow] Add panel', {
+                portNum, row: panel.row, col: panel.col,
+                layerId: source.id !== owner.id ? source.id : undefined,
+            });
         }
         this.updatePortLabelEditor();
         window.canvasRenderer.render();
     }
 
-    addPanelToCustomPowerPath(panel) {
+    addPanelToCustomPowerPath(panel, panelLayer = null) {
         if (!this.currentLayer || !panel || panel.hidden) return;
         if (!this.isCustomPower(this.currentLayer)) return;
         if (this.powerCustomSelection.size > 0) return;
-        this.ensureCustomPowerState(this.currentLayer);
-        const circuitNum = this.currentLayer.powerCustomIndex || 1;
-        if (!this.currentLayer.powerCustomPaths[circuitNum]) this.currentLayer.powerCustomPaths[circuitNum] = [];
-        const key = this.getPanelKey(panel);
-        const exists = this.currentLayer.powerCustomPaths[circuitNum].some(p => `${p.row},${p.col}` === key);
+        const owner = this.currentLayer;
+        const source = this._resolvePathPanelLayer(owner, panel, panelLayer);
+        if (!source) return;
+        this.ensureCustomPowerState(owner);
+        const circuitNum = owner.powerCustomIndex || 1;
+        if (!owner.powerCustomPaths[circuitNum]) owner.powerCustomPaths[circuitNum] = [];
+        const key = this.getScopedPanelKey(source.id, panel);
+        const exists = owner.powerCustomPaths[circuitNum].some(e => e
+            && this.getScopedPanelKey(this.getPathEntryLayerId(owner, e), e) === key);
         if (exists) return;
-        const conflict = this._findPanelOwnerCircuit(this.currentLayer, panel, circuitNum);
-        if (conflict !== null) {
+        const conflict = this._findPanelOwnerCircuit(owner, panel, circuitNum, source);
+        if (conflict) {
             if (typeof this._toast === 'function') {
-                this._toast(`Panel R${panel.row + 1}C${panel.col + 1} is already wired to circuit ${conflict}. Clear it from circuit ${conflict} first.`, true);
+                const where = this._describePathConflict(conflict, 'circuit');
+                this._toast(`Panel ${this._describePathPanel(owner, source, panel)} is already wired to ${where}. Clear it from ${where} first.`, true);
             }
             return;
         }
-        this.currentLayer.powerCustomPaths[circuitNum].push({ row: panel.row, col: panel.col });
+        owner.powerCustomPaths[circuitNum].push(this.makePathEntry(owner, source, panel));
         this.saveState('Power Custom Path Edit');
         this.saveClientSideProperties();
         // v0.8.2: PUT to server so per-panel circuit assignments persist.
-        this.updateLayers(this.getSelectedLayers());
+        this.updateLayers(this._pathPersistLayers(owner));
         if (this.powerCustomDebug) {
-            console.log('[CustomPower] Add panel', { circuitNum, row: panel.row, col: panel.col });
+            console.log('[CustomPower] Add panel', {
+                circuitNum, row: panel.row, col: panel.col,
+                layerId: source.id !== owner.id ? source.id : undefined,
+            });
         }
         window.canvasRenderer.render();
+    }
+
+    /**
+     * Where an arrow key takes the path from its current end.
+     *
+     * Returns `false` when there is nothing drawn yet (the key is NOT ours,
+     * the caller lets it fall through), `null` when there is nowhere to go
+     * (the key is swallowed, exactly as before), or {layer, panel}.
+     */
+    // Is the view this path is drawn in mirrored left-to-right?
+    //
+    // Rear perspective draws the canvas through ctx.scale(-1, 1), so world +X
+    // appears on the viewer's LEFT. Anything that turns a user's intent into a
+    // world-space direction has to account for that - the screen-name drag
+    // already does (canvas.js, `_visualDx`).
+    _pathViewIsMirrored(layer) {
+        const cr = window.canvasRenderer;
+        if (!cr || !layer || typeof cr._effectiveLayerCanvasId !== 'function') return false;
+        if (typeof cr._isCanvasMirrored !== 'function') return false;
+        const canvases = (this.project && this.project.canvases) || [];
+        if (!Array.isArray(canvases)) return false;
+        const cid = cr._effectiveLayerCanvasId(layer);
+        const canvas = canvases.find(c => c && c.id === cid);
+        return !!(canvas && cr._isCanvasMirrored(canvas));
+    }
+
+    _stepPathFromLastEntry(ownerLayer, path, dir) {
+        if (!Array.isArray(path) || path.length === 0) return false;
+        const last = this.resolvePathEntry(ownerLayer, path[path.length - 1]);
+        if (!last) return null;
+        const drow = dir === 'ArrowUp' ? -1 : (dir === 'ArrowDown' ? 1 : 0);
+        let dcol = dir === 'ArrowLeft' ? -1 : (dir === 'ArrowRight' ? 1 : 0);
+        // Issue #111: in Rear view the arrows walked the cable backwards -
+        // Right went left and Left went right. The keys were never wrong; the
+        // CANVAS is mirrored and the step was computed in unmirrored world
+        // space. Flip the horizontal component so the cable follows the arrow
+        // the user actually pressed. Vertical is unaffected: the mirror is
+        // left-to-right only.
+        //
+        // Applied HERE rather than in handleCustomArrowKey so the cross-member
+        // handoff below inherits it too - stepping off the right-hand edge in
+        // Rear view has to look for the neighbour on the viewer's right.
+        if (dcol !== 0 && this._pathViewIsMirrored(last.layer)) dcol = -dcol;
+        // Step inside the END STEP'S OWN grid first. row/col are per-layer
+        // indices, and this branch is byte-for-byte what the key did before.
+        const within = this.getPanelByRowCol(
+            last.layer, last.panel.row + drow, last.panel.col + dcol);
+        if (within) return within.hidden ? null : { layer: last.layer, panel: within };
+        // Grid edge. Before v0.10.9 the key was swallowed here with no feedback
+        // at all, which inside a group is simply wrong: the wall continues, it
+        // just continues on a different layer. Hand off GEOMETRICALLY, because
+        // a member built from a different cabinet size has a completely
+        // different index space - "row + 1" means nothing across the boundary
+        // and only world coordinates do.
+        return this._panelAcrossPathBoundary(ownerLayer, last, drow, dcol);
+    }
+
+    _panelAcrossPathBoundary(ownerLayer, from, drow, dcol) {
+        if (!window.canvasRenderer || !from) return null;
+        // An arrow key hands the cable to the cabinet the user can see next
+        // door, so a hidden member is not a candidate - the same rule the
+        // marquee and click-to-add follow. The hidden member's cabinets are
+        // still where they were, so this walks PAST it exactly as it walks
+        // past a gap: nothing is added and the key is swallowed.
+        const peers = this.getSelectionScopeLayers(ownerLayer)
+            .filter(l => l && l.id !== from.layer.id);
+        if (peers.length === 0) return null;
+        const p = from.panel;
+        // Probe a hair PAST the edge we just walked off, centred on the other
+        // axis. Aiming at "where the next cell would have been" instead would
+        // land exactly on a shared cabinet boundary whenever the neighbouring
+        // member's cabinets are a different size, and the hit-test is
+        // inclusive at both edges - so it would be a coin flip which of the
+        // peer's two cabinets answered.
+        const eps = 1;
+        const lx = p.x + (dcol > 0 ? p.width + eps : (dcol < 0 ? -eps : p.width / 2));
+        const ly = p.y + (drow > 0 ? p.height + eps : (drow < 0 ? -eps : p.height / 2));
+        const world = this._pathPointToWorld(from.layer, lx, ly);
+        if (!world) return null;
+        for (const peer of peers) {
+            const local = this._pathPointFromWorld(peer, world.x, world.y);
+            if (!local) continue;
+            const hit = (peer.panels || []).find(q => local.x >= q.x
+                && local.x <= q.x + q.width
+                && local.y >= q.y && local.y <= q.y + q.height);
+            if (hit) return hit.hidden ? null : { layer: peer, panel: hit };
+        }
+        return null;
+    }
+
+    // Layer space -> world, the exact inverse of canvas.js getPanelAt. The
+    // offsets belong to the renderer, so they are CALLED here rather than
+    // re-derived: a rotated or cross-canvas member would silently drift the
+    // day one of them changed there and not here.
+    _pathPointToWorld(layer, lx, ly) {
+        const cr = window.canvasRenderer;
+        if (!cr) return null;
+        const r = this._rotatePathPoint(layer, lx, ly);
+        const { dx, dy } = cr.getLayerRenderOffset(layer);
+        const { wx, wy } = cr._layerCanvasOffset(layer);
+        return { x: r.x + dx + wx, y: r.y + dy + wy };
+    }
+
+    _pathPointFromWorld(layer, worldX, worldY) {
+        const cr = window.canvasRenderer;
+        if (!cr || typeof cr._unrotatePointForLayer !== 'function') return null;
+        const { dx, dy } = cr.getLayerRenderOffset(layer);
+        const { wx, wy } = cr._layerCanvasOffset(layer);
+        return cr._unrotatePointForLayer(worldX - dx - wx, worldY - dy - wy, layer);
+    }
+
+    // Forward rotation. canvas.js ships the inverse (_unrotatePointForLayer)
+    // and the pivot geometry (_layerRotationGeom) but not yet this direction;
+    // the moment it grows a _rotatePointForLayer this picks it up instead, so
+    // the two can never end up disagreeing about where a rotated screen's
+    // cabinet actually sits.
+    _rotatePathPoint(layer, lx, ly) {
+        const cr = window.canvasRenderer;
+        if (cr && typeof cr._rotatePointForLayer === 'function') {
+            return cr._rotatePointForLayer(lx, ly, layer);
+        }
+        const g = (cr && typeof cr._layerRotationGeom === 'function')
+            ? cr._layerRotationGeom(layer) : null;
+        if (!g || (g.deg !== 90 && g.deg !== 180 && g.deg !== 270)) return { x: lx, y: ly };
+        const rad = g.deg * Math.PI / 180;
+        const cos = Math.cos(rad), sin = Math.sin(rad);
+        const dx = lx - g.cx, dy = ly - g.cy;
+        return { x: g.cx + (dx * cos - dy * sin), y: g.cy + (dx * sin + dy * cos) };
     }
 
     handleCustomArrowKey(e) {
@@ -1246,35 +1746,130 @@ class _Power {
             this.ensureCustomPowerState(this.currentLayer);
             const circuitNum = this.currentLayer.powerCustomIndex || 1;
             const path = this.currentLayer.powerCustomPaths[circuitNum] || [];
-            if (path.length === 0) return false;
-            const last = path[path.length - 1];
-            let nextRow = last.row;
-            let nextCol = last.col;
-            if (dir === 'ArrowUp') nextRow -= 1;
-            if (dir === 'ArrowDown') nextRow += 1;
-            if (dir === 'ArrowLeft') nextCol -= 1;
-            if (dir === 'ArrowRight') nextCol += 1;
-            const panel = this.getPanelByRowCol(this.currentLayer, nextRow, nextCol);
-            if (!panel || panel.hidden) return true;
-            this.addPanelToCustomPowerPath(panel);
+            const next = this._stepPathFromLastEntry(this.currentLayer, path, dir);
+            if (next === false) return false;
+            if (next) this.addPanelToCustomPowerPath(next.panel, next.layer);
             return true;
         }
         if (!this.isCustomFlow(this.currentLayer)) return false;
         this.ensureCustomFlowState(this.currentLayer);
         const portNum = this.currentLayer.customPortIndex || 1;
         const path = this.currentLayer.customPortPaths[portNum] || [];
-        if (path.length === 0) return false;
-        const last = path[path.length - 1];
-        let nextRow = last.row;
-        let nextCol = last.col;
-        if (dir === 'ArrowUp') nextRow -= 1;
-        if (dir === 'ArrowDown') nextRow += 1;
-        if (dir === 'ArrowLeft') nextCol -= 1;
-        if (dir === 'ArrowRight') nextCol += 1;
-        const panel = this.getPanelByRowCol(this.currentLayer, nextRow, nextCol);
-        if (!panel || panel.hidden) return true;
-        this.addPanelToCustomPath(panel);
+        const next = this._stepPathFromLastEntry(this.currentLayer, path, dir);
+        if (next === false) return false;
+        if (next) this.addPanelToCustomPath(next.panel, next.layer);
         return true;
+    }
+
+    // The wall lattice a pattern is ordered on. ONE implementation, and it is
+    // the renderer's getPositionLattice - the same one the cabinet ID numbers
+    // are assigned with (canvas.js _groupNumberingPlan). Two copies would
+    // eventually disagree, and a serpentine that snakes the wall in a different
+    // order than the IDs read is worse than no serpentine at all. It lives on
+    // the renderer because the ranking needs getLayerRenderOffset.
+    //
+    // Null only when the renderer is missing entirely, and _orderPicksForPattern
+    // then falls back to the panels' own row/col - the ordering this had before
+    // v0.10.9. A degradation, deliberately, rather than a second lattice.
+    _pathLattice(ownerLayer) {
+        const cr = window.canvasRenderer;
+        if (!cr || typeof cr.getPositionLattice !== 'function') return null;
+        return cr.getPositionLattice(this.getPathScopeLayers(ownerLayer));
+    }
+
+    /**
+     * The cabinets a scoped selection Set actually names, as {layer, panel}.
+     *
+     * Walked in path-scope order (owner first, then peers in group order) and
+     * then in each member's own panel order, so an ungrouped screen yields the
+     * exact list - and the exact order - the old `currentLayer.panels.filter()`
+     * did. Hidden cabinets are dropped here, matching that filter.
+     */
+    _selectedPathPanels(ownerLayer, selection) {
+        const out = [];
+        if (!ownerLayer || !selection || selection.size === 0) return out;
+        // Selection scope again, so a key that was already in the Set when its
+        // screen was hidden cannot be committed by a later Apply Pattern. The
+        // marquee is filtered at source; this is the same rule applied at the
+        // moment of writing, which is the one that reaches the wall.
+        this.getSelectionScopeLayers(ownerLayer).forEach(member => {
+            if (!member || !Array.isArray(member.panels)) return;
+            member.panels.forEach(panel => {
+                if (panel.hidden) return;
+                if (selection.has(this.getScopedPanelKey(member.id, panel))) {
+                    out.push({ layer: member, panel });
+                }
+            });
+        });
+        return out;
+    }
+
+    /**
+     * Put a cross-member selection into pattern order.
+     *
+     * The picks are placed on the WALL LATTICE (canvas.js getPositionLattice:
+     * every member's column and row slots pooled and ranked by where they
+     * physically sit), the lattice is compacted to just the rows and columns
+     * the selection actually touches - exactly what the old uniqueRows /
+     * uniqueCols pass did, only over positions rather than indices - and
+     * getPatternOrderForGrid walks it. A serpentine therefore alternates
+     * direction per LATTICE row and snakes across the whole wall instead of
+     * per member.
+     *
+     * WHY position and not row/col indices. A 1m member's row 1 and a 0.5m
+     * member's row 1 are different physical heights, so a pattern ordered by
+     * the panels' own indices - which is what this did - zig-zags through an
+     * order that exists nowhere on site. A cabinet spanning two lattice rows
+     * ranks by its own top-left, exactly as step 5 numbers it.
+     *
+     * For a single ungrouped screen the lattice ranks that screen's own columns
+     * by x and rows by y, which for any grid _build_panels produces is the
+     * column and row index itself. The compacted grid is therefore identical
+     * to the one this built before, and so is the order.
+     *
+     * The bucket is for genuinely OVERLAPPING members - two cabinets whose
+     * top-left corners coincide land in one lattice cell. A plain grid write
+     * would drop one of them from the path with no error; keeping the cell's
+     * later arrivals and emitting them right behind the representative means a
+     * selected cabinet can never silently vanish.
+     */
+    _orderPicksForPattern(ownerLayer, pattern, picks) {
+        if (!picks || picks.length === 0) return [];
+        const lattice = this._pathLattice(ownerLayer);
+        const cells = picks.map(pick => ({
+            pick,
+            row: lattice ? lattice.rowOf(pick.layer, pick.panel) : pick.panel.row,
+            col: lattice ? lattice.colOf(pick.layer, pick.panel) : pick.panel.col,
+        }));
+
+        const uniqueRows = [...new Set(cells.map(c => c.row))].sort((a, b) => a - b);
+        const uniqueCols = [...new Set(cells.map(c => c.col))].sort((a, b) => a - b);
+        const rowIndex = new Map(uniqueRows.map((r, i) => [r, i]));
+        const colIndex = new Map(uniqueCols.map((c, i) => [c, i]));
+
+        const grid = Array.from({ length: uniqueRows.length },
+            () => Array(uniqueCols.length).fill(null));
+        const bucket = new Map();   // representative pick -> every pick in its cell
+        cells.forEach(c => {
+            const r = rowIndex.get(c.row);
+            const k = colIndex.get(c.col);
+            const held = grid[r][k];
+            if (held === null) {
+                grid[r][k] = c.pick;
+                bucket.set(c.pick, [c.pick]);
+            } else {
+                bucket.get(held).push(c.pick);
+            }
+        });
+
+        const ordered = this.getPatternOrderForGrid(pattern, grid);
+        const out = [];
+        ordered.forEach(pick => {
+            const group = bucket.get(pick);
+            if (group) out.push(...group);
+            else out.push(pick);
+        });
+        return out;
     }
 
     applyPatternToSelection(pattern) {
@@ -1282,48 +1877,47 @@ class _Power {
         if (!this.isCustomFlow(this.currentLayer)) return;
         if (this.customSelection.size === 0) return;
 
-        this.ensureCustomFlowState(this.currentLayer);
-        const selectedPanels = this.currentLayer.panels
-            .filter(panel => this.customSelection.has(this.getPanelKey(panel)) && !panel.hidden);
-        if (selectedPanels.length === 0) return;
+        // The PORT stays on currentLayer even when the selection spans peers -
+        // a port is one physical output on one processor. Only the individual
+        // step records which screen the cable ran onto.
+        const owner = this.currentLayer;
+        this.ensureCustomFlowState(owner);
+        const picks = this._selectedPathPanels(owner, this.customSelection);
+        if (picks.length === 0) return;
 
-        const uniqueRows = [...new Set(selectedPanels.map(p => p.row))].sort((a, b) => a - b);
-        const uniqueCols = [...new Set(selectedPanels.map(p => p.col))].sort((a, b) => a - b);
-        const rowIndex = new Map(uniqueRows.map((r, i) => [r, i]));
-        const colIndex = new Map(uniqueCols.map((c, i) => [c, i]));
-
-        const normalizedGrid = Array.from({ length: uniqueRows.length }, () => Array(uniqueCols.length).fill(null));
-        selectedPanels.forEach(panel => {
-            const r = rowIndex.get(panel.row);
-            const c = colIndex.get(panel.col);
-            normalizedGrid[r][c] = panel;
-        });
-
-        const ordered = this.getPatternOrderForGrid(pattern, normalizedGrid);
+        const ordered = this._orderPicksForPattern(owner, pattern, picks);
         if (ordered.length === 0) return;
 
-        const portNum = this.currentLayer.customPortIndex || 1;
+        const portNum = owner.customPortIndex || 1;
         // Reject the entire pattern apply if any selected panel already
         // belongs to a different port. Prevents silent double-mapping.
         const conflicts = [];
-        for (const p of ordered) {
-            const owner = this._findPanelOwnerPort(this.currentLayer, p, portNum);
-            if (owner !== null) conflicts.push({ row: p.row, col: p.col, owner });
+        for (const pick of ordered) {
+            // The claim may live on a peer now, which is why the sample below
+            // names both the cabinet's screen and the conflicting port's.
+            const claim = this._findPanelOwnerPort(owner, pick.panel, portNum, pick.layer);
+            if (claim) conflicts.push({ pick, owner: claim });
         }
         if (conflicts.length > 0) {
             const sample = conflicts.slice(0, 3)
-                .map(c => `R${c.row + 1}C${c.col + 1}→port ${c.owner}`).join(', ');
+                .map(c => `${this._describePathPanel(owner, c.pick.layer, c.pick.panel)}→${this._describePathConflict(c.owner, 'port')}`).join(', ');
             const more = conflicts.length > 3 ? ` (+${conflicts.length - 3} more)` : '';
             if (typeof this._toast === 'function') {
                 this._toast(`Cannot apply: ${conflicts.length} panel${conflicts.length === 1 ? '' : 's'} already wired to other ports, ${sample}${more}.`, true);
             }
             return;
         }
-        this.currentLayer.customPortPaths[portNum] = ordered.map(p => ({ row: p.row, col: p.col }));
+        // makePathEntry omits layerId for the owner's own cabinets, so a path
+        // that never leaves its screen is byte-for-byte the shape it has always
+        // been written in.
+        owner.customPortPaths[portNum] = ordered
+            .map(pick => this.makePathEntry(owner, pick.layer, pick.panel));
         this.saveState('Custom Pattern Apply');
         this.saveClientSideProperties();
         // v0.8.2: PUT to server so the bulk pattern assignment persists.
-        this.updateLayers(this.getSelectedLayers());
+        // v0.10.9: the OWNER is added explicitly - a marquee that ended on a
+        // peer can leave currentLayer out of the layer selection entirely.
+        this.updateLayers(this._pathPersistLayers(owner));
         if (this.customDebug) {
             const first = ordered[0];
             const last = ordered[ordered.length - 1];
@@ -1331,10 +1925,8 @@ class _Power {
                 pattern,
                 portNum,
                 count: ordered.length,
-                gridRows: normalizedGrid.length,
-                gridCols: normalizedGrid[0] ? normalizedGrid[0].length : 0,
-                first: first ? { row: first.row, col: first.col } : null,
-                last: last ? { row: last.row, col: last.col } : null
+                first: first ? { row: first.panel.row, col: first.panel.col, layerId: first.layer.id } : null,
+                last: last ? { row: last.panel.row, col: last.panel.col, layerId: last.layer.id } : null
             });
         }
         this.updatePortLabelEditor();
@@ -1346,48 +1938,39 @@ class _Power {
         if (!this.isCustomPower(this.currentLayer)) return;
         if (this.powerCustomSelection.size === 0) return;
 
-        this.ensureCustomPowerState(this.currentLayer);
-        const selectedPanels = this.currentLayer.panels
-            .filter(panel => this.powerCustomSelection.has(this.getPanelKey(panel)) && !panel.hidden);
-        if (selectedPanels.length === 0) return;
+        // Same ownership rule as applyPatternToSelection: the CIRCUIT belongs
+        // to currentLayer, only the step learns which screen it landed on.
+        const owner = this.currentLayer;
+        this.ensureCustomPowerState(owner);
+        const picks = this._selectedPathPanels(owner, this.powerCustomSelection);
+        if (picks.length === 0) return;
 
-        const uniqueRows = [...new Set(selectedPanels.map(p => p.row))].sort((a, b) => a - b);
-        const uniqueCols = [...new Set(selectedPanels.map(p => p.col))].sort((a, b) => a - b);
-        const rowIndex = new Map(uniqueRows.map((r, i) => [r, i]));
-        const colIndex = new Map(uniqueCols.map((c, i) => [c, i]));
-
-        const normalizedGrid = Array.from({ length: uniqueRows.length }, () => Array(uniqueCols.length).fill(null));
-        selectedPanels.forEach(panel => {
-            const r = rowIndex.get(panel.row);
-            const c = colIndex.get(panel.col);
-            normalizedGrid[r][c] = panel;
-        });
-
-        const ordered = this.getPatternOrderForGrid(pattern, normalizedGrid);
+        const ordered = this._orderPicksForPattern(owner, pattern, picks);
         if (ordered.length === 0) return;
 
-        const circuitNum = this.currentLayer.powerCustomIndex || 1;
+        const circuitNum = owner.powerCustomIndex || 1;
         // Reject if any selected panel already belongs to a different
         // circuit, same policy as data-flow custom pattern apply.
         const conflicts = [];
-        for (const p of ordered) {
-            const owner = this._findPanelOwnerCircuit(this.currentLayer, p, circuitNum);
-            if (owner !== null) conflicts.push({ row: p.row, col: p.col, owner });
+        for (const pick of ordered) {
+            const claim = this._findPanelOwnerCircuit(owner, pick.panel, circuitNum, pick.layer);
+            if (claim) conflicts.push({ pick, owner: claim });
         }
         if (conflicts.length > 0) {
             const sample = conflicts.slice(0, 3)
-                .map(c => `R${c.row + 1}C${c.col + 1}→circuit ${c.owner}`).join(', ');
+                .map(c => `${this._describePathPanel(owner, c.pick.layer, c.pick.panel)}→${this._describePathConflict(c.owner, 'circuit')}`).join(', ');
             const more = conflicts.length > 3 ? ` (+${conflicts.length - 3} more)` : '';
             if (typeof this._toast === 'function') {
                 this._toast(`Cannot apply: ${conflicts.length} panel${conflicts.length === 1 ? '' : 's'} already wired to other circuits, ${sample}${more}.`, true);
             }
             return;
         }
-        this.currentLayer.powerCustomPaths[circuitNum] = ordered.map(p => ({ row: p.row, col: p.col }));
+        owner.powerCustomPaths[circuitNum] = ordered
+            .map(pick => this.makePathEntry(owner, pick.layer, pick.panel));
         this.saveState('Power Custom Pattern Apply');
         this.saveClientSideProperties();
         // v0.8.2: PUT to server so the bulk pattern assignment persists.
-        this.updateLayers(this.getSelectedLayers());
+        this.updateLayers(this._pathPersistLayers(owner));
         if (this.powerCustomDebug) {
             const first = ordered[0];
             const last = ordered[ordered.length - 1];
@@ -1395,10 +1978,8 @@ class _Power {
                 pattern,
                 circuitNum,
                 count: ordered.length,
-                gridRows: normalizedGrid.length,
-                gridCols: normalizedGrid[0] ? normalizedGrid[0].length : 0,
-                first: first ? { row: first.row, col: first.col } : null,
-                last: last ? { row: last.row, col: last.col } : null
+                first: first ? { row: first.panel.row, col: first.panel.col, layerId: first.layer.id } : null,
+                last: last ? { row: last.panel.row, col: last.panel.col, layerId: last.layer.id } : null
             });
         }
         window.canvasRenderer.render();
@@ -1638,8 +2219,9 @@ class _Power {
                 nameInput.readOnly = false;
                 nameInput.draggable = false;
                 nameInput.style.cursor = 'text';
-                nameInput.style.border = '1px solid #4A90E2';
-                nameInput.style.background = '#1a1a1a';
+                // v0.10.9: class, not inline - theme.css styles .layer-name-input
+                // with !important, so an inline border/background never painted.
+                nameInput.classList.add('editing');
                 nameInput.focus();
                 nameInput.select();
             };
@@ -1648,8 +2230,7 @@ class _Power {
                 nameInput.readOnly = true;
                 nameInput.draggable = true;
                 nameInput.style.cursor = 'default';
-                nameInput.style.border = '1px solid transparent';
-                nameInput.style.background = 'transparent';
+                nameInput.classList.remove('editing');
                 const newName = nameInput.value.trim() || layer.name;
                 if (newName !== layer.name) {
                     layer.name = newName;
@@ -1686,6 +2267,11 @@ class _Power {
         // per-canvas group containers and add canvas headers + per-canvas
         // "+ Add Screen" buttons + cross-canvas drag/drop.
         this.regroupLayersByCanvas(container);
+
+        // v0.10.9: then nest each screen group's member rows under a group
+        // header, INSIDE the canvas group they already sit in. Runs after the
+        // canvas pass because it lifts the rows that pass has just placed.
+        this.regroupLayersByGroup(container);
 
         this.updateLayerOrderControls();
     }
