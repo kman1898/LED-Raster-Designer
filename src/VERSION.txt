@@ -1,6 +1,29 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.11.1 - August 9, 2026
+----------------------------
+
+- FIX: Tab and Shift+Tab now step the CIRCUIT in Power view, not the data
+  port. On a screen that had both a custom data pattern and custom power -
+  which every screen in a group has, because the flow pattern is shared
+  across the group - the keys quietly moved the data port instead, so the
+  circuit never changed and the key looked dead. Data Flow was always
+  correct, which is why only half of it appeared broken.
+  Note: these keys are ignored while the cursor is in a text field, so if
+  nothing happens, click the drawing first.
+
+- FIX: The [ and ] keys now keep the port or circuit they step to. They
+  changed it on screen but never wrote it down, so the number went back to
+  whatever it was on the next reload.
+
+- FIX: The crosshair no longer disappears while you are drawing a custom data
+  path. Selecting the screen again dropped the cursor back to an arrow on any
+  screen whose power pattern was not also custom.
+
+- FIX: Undo and redo now refresh the Power custom controls, not just the Data
+  Flow ones.
+
 v0.11.0 - August 8, 2026
 ----------------------------
 
