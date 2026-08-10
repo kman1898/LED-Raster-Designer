@@ -122,7 +122,12 @@ class _History {
             if (this.currentLayer) {
                 this.currentLayer = this.project.layers.find(l => l.id === this.currentLayer.id) || null;
             }
+            // Both, not just the data side. loadLayerToInputs() below happens
+            // to refresh the power one too, so this was only exposed on its
+            // early-return paths - but an undo in Power view has no business
+            // depending on that.
             this.updateCustomFlowUI();
+            this.updateCustomPowerUI();
             // v0.10.7.2: updateUI() re-renders the canvas but does NOT reload the
             // Screen Info fields or the toolbar Raster inputs, so without this an
             // undo/redo reverts the geometry while the sidebar keeps showing the
@@ -177,7 +182,12 @@ class _History {
             if (this.currentLayer) {
                 this.currentLayer = this.project.layers.find(l => l.id === this.currentLayer.id) || null;
             }
+            // Both, not just the data side. loadLayerToInputs() below happens
+            // to refresh the power one too, so this was only exposed on its
+            // early-return paths - but an undo in Power view has no business
+            // depending on that.
             this.updateCustomFlowUI();
+            this.updateCustomPowerUI();
             // v0.10.7.2: updateUI() re-renders the canvas but does NOT reload the
             // Screen Info fields or the toolbar Raster inputs, so without this an
             // undo/redo reverts the geometry while the sidebar keeps showing the

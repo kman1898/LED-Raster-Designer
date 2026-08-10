@@ -847,7 +847,15 @@ class _Power {
         if (portInput && this.currentLayer) {
             portInput.value = `${this.currentLayer.customPortIndex || 1}`;
         }
-        if (window.canvasRenderer) {
+        // Only while the DATA view is the one on screen. There is one canvas
+        // cursor and both this and updateCustomPowerUI were writing it from
+        // their own pattern with no view test, so whichever ran last won -
+        // and loadLayerToInputs runs the power one second. A screen with
+        // custom data flow and automatic power (the normal state for a
+        // grouped screen, since the flow pattern is shared across members but
+        // power need not be) lost its crosshair in Data Flow the moment the
+        // layer was re-selected, while custom drawing was still active.
+        if (window.canvasRenderer && window.canvasRenderer.viewMode === 'data-flow') {
             window.canvasRenderer.canvas.style.cursor = isCustom ? 'crosshair' : 'default';
         }
     }
@@ -903,7 +911,9 @@ class _Power {
         if (portInput && this.currentLayer) {
             portInput.value = `${this.currentLayer.powerCustomIndex || 1}`;
         }
-        if (window.canvasRenderer) {
+        // Power view only - see the note on the same line in
+        // updateCustomFlowUI. Unguarded, this one always won.
+        if (window.canvasRenderer && window.canvasRenderer.viewMode === 'power') {
             window.canvasRenderer.canvas.style.cursor = isCustom ? 'crosshair' : 'default';
         }
     }
