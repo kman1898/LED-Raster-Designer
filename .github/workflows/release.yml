@@ -380,6 +380,19 @@ jobs:
           sha256sum macos-build/*.dmg windows-build/*.zip > checksums.txt
           cat checksums.txt
 
+      # The release body is BUILT from src/VERSION.txt, never hand-maintained.
+      # A checked-in RELEASE_NOTES.md only moved the rot: forget to regenerate
+      # it and the release ships the previous version's text, silently. This
+      # also FAILS THE BUILD if VERSION.txt's top entry is not the tag being
+      # released, which is the mistake worth catching before publish.
+      - name: Build release notes from VERSION.txt
+        run: |
+          python3 scripts/generate_release_notes.py \
+            --tag "${{ github.ref_name }}" \
+            --out RELEASE_NOTES.md
+          echo "──────── release body ────────"
+          cat RELEASE_NOTES.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
@@ -391,11 +404,9 @@ jobs:
           # /releases/latest page pointing at an old version.
           draft: false
           make_latest: true
-          # v0.11.0: was generate_release_notes: true, which builds the body
-          # from the COMMIT LIST. That threw away the notes written for users
-          # in VERSION.txt and shipped a wall of commit subjects instead.
-          # RELEASE_NOTES.md is written as part of the version bump and is the
-          # user-facing text; it is what the release page shows.
+          # Was generate_release_notes: true, which builds the body from the
+          # COMMIT LIST and threw away the notes written for users. The body
+          # now comes from RELEASE_NOTES.md, generated above from VERSION.txt.
           generate_release_notes: false
           body_path: RELEASE_NOTES.md
           files: |

@@ -2129,91 +2129,55 @@ class CanvasRenderer {
             }
         }
 
-        // Tab - Next port (custom flow/power, only when custom mode active)
-        if (e.code === 'Tab' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !isTyping) {
-            if (window.app && window.app.currentLayer && window.app.isCustomFlow(window.app.currentLayer)) {
+        // Tab / Shift+Tab - next / previous custom PORT in Data Flow, custom
+        // CIRCUIT in Power.
+        //
+        // These two used to inline their own copy of the step, testing
+        // isCustomFlow FIRST with no view check - and isCustomFlow is a pure
+        // layer-state predicate (flowPattern === 'custom'), not a view test.
+        // So on a screen that had BOTH a custom data pattern and custom power
+        // - which every screen in a group has, because the flow pattern is
+        // shared across members - Tab in POWER view took the data branch and
+        // silently advanced the DATA port. The circuit never moved, so the key
+        // looked dead. Data flow worked, which is exactly why it went unseen:
+        // there the first branch IS the right one. Same defect the drag-select
+        // handler above carries a comment about; this copy was missed.
+        //
+        // Routed through stepCustomPort now, so there is ONE implementation
+        // shared with the on-screen Next/Prev buttons. It checks the VIEW as
+        // well as the pattern, and it PUTs the new index to the server -
+        // which this handler also never did, so a Tab'd index was lost on the
+        // next reload even when it moved the right one.
+        if (e.code === 'Tab' && !e.metaKey && !e.ctrlKey && !isTyping
+                && window.app && window.app.currentLayer) {
+            const layer = window.app.currentLayer;
+            const handled =
+                (this.viewMode === 'data-flow' && window.app.isCustomFlow(layer))
+                || (this.viewMode === 'power' && window.app.isCustomPower(layer));
+            if (handled) {
                 e.preventDefault();
-                const layer = window.app.currentLayer;
-                window.app.ensureCustomFlowState(layer);
-                window.app.saveState('Custom Port Change');
-                layer.customPortIndex = (layer.customPortIndex || 1) + 1;
-                window.app.updateCustomFlowUI();
-                window.app.updatePortLabelEditor();
-                this.render();
-            } else if (window.app && window.app.currentLayer && window.app.isCustomPower(window.app.currentLayer)) {
-                e.preventDefault();
-                const layer = window.app.currentLayer;
-                window.app.ensureCustomPowerState(layer);
-                window.app.saveState('Power Custom Circuit Change');
-                layer.powerCustomIndex = (layer.powerCustomIndex || 1) + 1;
-                window.app.updateCustomPowerUI();
-                this.render();
+                window.app.stepCustomPort(e.shiftKey ? -1 : 1);
             }
         }
 
-        // Shift+Tab - Previous port (custom flow/power, only when custom mode active)
-        if (e.code === 'Tab' && e.shiftKey && !e.metaKey && !e.ctrlKey && !isTyping) {
-            if (window.app && window.app.currentLayer && window.app.isCustomFlow(window.app.currentLayer)) {
-                e.preventDefault();
-                const layer = window.app.currentLayer;
-                window.app.ensureCustomFlowState(layer);
-                window.app.saveState('Custom Port Change');
-                layer.customPortIndex = Math.max(1, (layer.customPortIndex || 1) - 1);
-                window.app.updateCustomFlowUI();
-                window.app.updatePortLabelEditor();
-                this.render();
-            } else if (window.app && window.app.currentLayer && window.app.isCustomPower(window.app.currentLayer)) {
-                e.preventDefault();
-                const layer = window.app.currentLayer;
-                window.app.ensureCustomPowerState(layer);
-                window.app.saveState('Power Custom Circuit Change');
-                layer.powerCustomIndex = Math.max(1, (layer.powerCustomIndex || 1) - 1);
-                window.app.updateCustomPowerUI();
-                this.render();
-            }
-        }
-
-        // Custom flow port shortcuts: [ prev, ] next
-        if (!isTyping && this.viewMode === 'data-flow' && window.app && window.app.currentLayer) {
+        // [ prev / ] next - the same step as Tab, and now the same one call.
+        //
+        // These two blocks were correctly view-guarded, so they never stepped
+        // the wrong thing. They did mutate the index inline without either
+        // updateLayers() or saveClientSideProperties(), and customPortIndex /
+        // powerCustomIndex are persisted fields - so stepping to port 7 with
+        // "]" and reloading, or letting any other edit PUT first, snapped the
+        // index back to whatever a button had last written. stepCustomPort
+        // does the step, the save, the localStorage write and the PUT.
+        if (!isTyping && (e.code === 'BracketLeft' || e.code === 'BracketRight')
+                && window.app && window.app.currentLayer) {
             const layer = window.app.currentLayer;
-            if (window.app.isCustomFlow(layer)) {
-                if (e.code === 'BracketLeft') {
-                    e.preventDefault();
-                    window.app.ensureCustomFlowState(layer);
-                    window.app.saveState('Custom Port Change');
-                    layer.customPortIndex = Math.max(1, (layer.customPortIndex || 1) - 1);
-                    window.app.updateCustomFlowUI();
-                    window.app.updatePortLabelEditor();
-                    this.render();
-                } else if (e.code === 'BracketRight') {
-                    e.preventDefault();
-                    window.app.ensureCustomFlowState(layer);
-                    window.app.saveState('Custom Port Change');
-                    layer.customPortIndex = (layer.customPortIndex || 1) + 1;
-                    window.app.updateCustomFlowUI();
-                    window.app.updatePortLabelEditor();
-                    this.render();
-                }
-            }
-        }
-        if (!isTyping && this.viewMode === 'power' && window.app && window.app.currentLayer) {
-            const layer = window.app.currentLayer;
-            if (window.app.isCustomPower(layer)) {
-                if (e.code === 'BracketLeft') {
-                    e.preventDefault();
-                    window.app.ensureCustomPowerState(layer);
-                    window.app.saveState('Power Custom Circuit Change');
-                    layer.powerCustomIndex = Math.max(1, (layer.powerCustomIndex || 1) - 1);
-                    window.app.updateCustomPowerUI();
-                    this.render();
-                } else if (e.code === 'BracketRight') {
-                    e.preventDefault();
-                    window.app.ensureCustomPowerState(layer);
-                    window.app.saveState('Power Custom Circuit Change');
-                    layer.powerCustomIndex = (layer.powerCustomIndex || 1) + 1;
-                    window.app.updateCustomPowerUI();
-                    this.render();
-                }
+            const handled =
+                (this.viewMode === 'data-flow' && window.app.isCustomFlow(layer))
+                || (this.viewMode === 'power' && window.app.isCustomPower(layer));
+            if (handled) {
+                e.preventDefault();
+                window.app.stepCustomPort(e.code === 'BracketLeft' ? -1 : 1);
             }
         }
 

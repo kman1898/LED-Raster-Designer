@@ -1,4 +1,4 @@
-# LED Raster Designer v0.11.0
+# LED Raster Designer v0.11.1
 
 A professional LED video wall layout designer for live events, concerts, and installations.
 
@@ -111,7 +111,8 @@ Half-tiles count as **0.5 panel** for data/port math and **0.65 panel** for powe
 | **Cmd/Ctrl + Shift + 1** | Fit raster to view |
 | **Cmd/Ctrl + Shift + 2** | Zoom to selected screen at 1:1 |
 | **Cmd/Ctrl + Shift + '** | Toggle magnetic snap |
-| **Tab / Shift + Tab** | Next / previous port (in Data Flow custom mode) |
+| **Tab / Shift + Tab** | Next / previous port in Data Flow custom mode, or circuit in Power custom mode. Ignored while the cursor is in a text field, click the drawing first. |
+| **[ / ]** | Same step as Tab / Shift+Tab |
 | **Delete / Backspace** | Delete layer |
 
 ### Data Tab
@@ -197,7 +198,7 @@ If you want to build the app yourself instead of downloading the release:
 - **Mac:** `make clean`
 - **Windows:** `Build Windows.bat clean` (from Command Prompt)
 
-Source code is in the `src/` folder. See [BUILD.md](BUILD.md) for more details.
+Source code is in the `src/` folder.
 
 ---
 

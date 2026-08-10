@@ -1,6 +1,22 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.11.1 - August 9, 2026
+----------------------------
+
+- FIX: Tab and Shift+Tab now change the circuit in Power, not the data port.
+  On a screen wired by hand for both data and power, the keys moved the data
+  port instead, so the circuit never budged. (They are ignored while you are
+  typing in a field - click the drawing first.)
+
+- FIX: The [ and ] keys now keep the port or circuit you step to. The number
+  changed on screen, then went back on the next reload.
+
+- FIX: The crosshair stays while you draw a custom data path. Clicking the
+  screen again turned it back into an arrow.
+
+- FIX: Undo and redo now refresh the Power controls, not just Data Flow.
+
 v0.11.0 - August 8, 2026
 ----------------------------
 
