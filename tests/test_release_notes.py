@@ -91,17 +91,32 @@ def test_every_entry_in_version_txt_reaches_the_notes(tmp_path):
 
 
 def test_sections_are_features_first_fixes_last(tmp_path):
-    proc, out = run(tmp_path, "--tag", top_version())
+    """Uses a fixed sample, NOT the live VERSION.txt. Asserting against
+    whatever happens to be at the top made this fail the moment a patch
+    release (fixes only, no "What's new") landed there - the test was
+    tracking today's release shape instead of the ordering rule."""
+    vf = tmp_path / "VERSION.txt"
+    vf.write_text(SAMPLE)                       # NEW + CHANGE + both FIX kinds
+    proc, out = run(tmp_path, "--tag", "9.9.9", version_file=vf)
     assert proc.returncode == 0, proc.stderr
     headings = re.findall(r"^## (.+)$", out.read_text(), re.M)
     assert headings[0] == "What's new"
     assert headings[-1] == "Install"
-    assert "Other fixes" in headings
+    assert headings.index("Changes worth knowing about") < headings.index(
+        "Fixes that change numbers on drawings you already have")
     # the fixes that change existing drawings must precede the routine ones
-    if "Fixes that change numbers on drawings you already have" in headings:
-        assert headings.index(
-            "Fixes that change numbers on drawings you already have") \
-            < headings.index("Other fixes")
+    assert headings.index(
+        "Fixes that change numbers on drawings you already have") \
+        < headings.index("Other fixes")
+
+
+def test_the_live_version_txt_still_generates(tmp_path):
+    """Whatever shape the current top entry is, it must produce notes."""
+    proc, out = run(tmp_path, "--tag", top_version())
+    assert proc.returncode == 0, proc.stderr
+    headings = re.findall(r"^## (.+)$", out.read_text(), re.M)
+    assert headings, "no sections rendered"
+    assert headings[-1] == "Install"
 
 
 # ── Ordering inside an entry ─────────────────────────────────────────────
@@ -175,3 +190,47 @@ def test_no_checked_in_release_notes_file():
     assert not tracked.strip(), (
         "RELEASE_NOTES.md is tracked again - the release body is generated "
         "from src/VERSION.txt, so a checked-in copy can only go stale")
+
+
+# ── A patch release is fixes and nothing else ────────────────────────────
+
+PATCH_ONLY = """v9.9.9 - January 1, 2099
+----------------------------
+
+- FIX: One thing that was wrong.
+
+- FIX: Another thing that was wrong.
+"""
+
+MIXED = """v9.9.9 - January 1, 2099
+----------------------------
+
+- FIX (IMPORTANT): A figure on your drawing changed.
+
+- FIX: Something ordinary.
+"""
+
+
+def test_a_fixes_only_release_does_not_say_other_fixes(tmp_path):
+    """"Other fixes" has nothing to be other THAN on a patch release, and
+    reads as though the real list is somewhere further up the page."""
+    vf = tmp_path / "VERSION.txt"
+    vf.write_text(PATCH_ONLY)
+    proc, out = run(tmp_path, "--tag", "9.9.9", version_file=vf)
+    assert proc.returncode == 0, proc.stderr
+    text = out.read_text()
+    assert "## Fixes" in text
+    assert "## Other fixes" not in text
+    assert "Everything else that was wrong" not in text
+
+
+def test_other_fixes_survives_when_it_is_doing_real_work(tmp_path):
+    """With the important-fixes section present, "other" distinguishes the
+    two - renaming there would lose that."""
+    vf = tmp_path / "VERSION.txt"
+    vf.write_text(MIXED)
+    proc, out = run(tmp_path, "--tag", "9.9.9", version_file=vf)
+    assert proc.returncode == 0, proc.stderr
+    text = out.read_text()
+    assert "## Other fixes" in text
+    assert "## Fixes that change numbers on drawings you already have" in text

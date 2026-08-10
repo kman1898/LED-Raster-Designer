@@ -192,10 +192,19 @@ def build(version, items, summary=None):
     md = [f"# LED Raster Designer v{version}", ""]
     if summary:
         md += [wrap(summary), ""]
-    for title, blurb, matches in SECTIONS:
-        group = [i for i in items if matches(i)]
-        if not group:
-            continue
+
+    groups = [(title, blurb, [i for i in items if matches(i)])
+              for title, blurb, matches in SECTIONS]
+    groups = [g for g in groups if g[2]]
+
+    # A patch release is fixes and nothing else, and then "Other fixes"
+    # has nothing to be other THAN - it reads as though the real list is
+    # somewhere further up the page. Only rename when it stands alone; when
+    # the important-fixes section is also present, "other" is doing real work.
+    if len(groups) == 1 and groups[0][0] == "Other fixes":
+        groups = [("Fixes", "What this release fixes.", groups[0][2])]
+
+    for title, blurb, group in groups:
         md += [f"## {title}", "", wrap(blurb), ""]
         for item in group:
             md += [render_item(item), ""]
