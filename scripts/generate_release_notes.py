@@ -202,10 +202,14 @@ def build(version, items, summary=None):
     # somewhere further up the page. Only rename when it stands alone; when
     # the important-fixes section is also present, "other" is doing real work.
     if len(groups) == 1 and groups[0][0] == "Other fixes":
-        groups = [("Fixes", "What this release fixes.", groups[0][2])]
+        # No blurb: "## Fixes" followed by "What this release fixes." says
+        # the same thing twice, and a patch release should be quick to read.
+        groups = [("Fixes", "", groups[0][2])]
 
     for title, blurb, group in groups:
-        md += [f"## {title}", "", wrap(blurb), ""]
+        md += [f"## {title}", ""]
+        if blurb:
+            md += [wrap(blurb), ""]
         for item in group:
             md += [render_item(item), ""]
     md.append(INSTALL)
