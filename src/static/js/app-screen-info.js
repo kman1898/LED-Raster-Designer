@@ -1303,7 +1303,11 @@ class _ScreenInfo {
                 '_portsRequired', '_autoPortsRequired',
                 'panel_weight', 'weight_unit', 'infoLabelSize',
                 'type', 'imageData', 'imageWidth', 'imageHeight',
-                'imageScale'
+                'imageScale',
+                'imageShadowEnabled', 'imageShadowColor',
+                'imageShadowOpacity', 'imageShadowAngle',
+                'imageShadowDistance', 'imageShadowSpread',
+                'imageShadowSize'
             ];
 
             return fetch(`/api/layer/${layer.id}`, {
@@ -1759,6 +1763,34 @@ class _ScreenInfo {
                 const h = primary.imageHeight || 0;
                 imageSizeEl.textContent = `${w}×${h}px`;
             }
+            // Drop Shadow. Read straight off the layer so a reload, an undo or
+            // a selection change all show what is actually being rendered.
+            const shadowNumbers = [
+                ['image-shadow-opacity', 'imageShadowOpacity', 75],
+                ['image-shadow-angle', 'imageShadowAngle', 120],
+                ['image-shadow-distance', 'imageShadowDistance', 10],
+                ['image-shadow-spread', 'imageShadowSpread', 0],
+                ['image-shadow-size', 'imageShadowSize', 10],
+            ];
+            const shadowOnEl = document.getElementById('image-shadow-enabled');
+            if (shadowOnEl) {
+                const onCommon = getCommon(l => !!l.imageShadowEnabled);
+                shadowOnEl.indeterminate = !!onCommon.mixed;
+                shadowOnEl.checked = onCommon.mixed ? false : !!onCommon.value;
+            }
+            shadowNumbers.forEach(([id, key, dflt]) => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                const c = getCommon(l => (l[key] == null ? dflt : Number(l[key])));
+                el.value = c.mixed ? '' : String(c.value);
+                el.placeholder = c.mixed ? '-' : '';
+            });
+            const shadowColorEl = document.getElementById('image-shadow-color');
+            const shadowColorHexEl = document.getElementById('image-shadow-color-hex');
+            const colorCommon = getCommon(l => l.imageShadowColor || '#000000');
+            const colorVal = colorCommon.mixed ? '#000000' : String(colorCommon.value);
+            if (shadowColorEl) shadowColorEl.value = colorVal;
+            if (shadowColorHexEl) shadowColorHexEl.value = colorVal.toUpperCase();
         } else {
             if (imageScaleEl) {
                 imageScaleEl.value = '';

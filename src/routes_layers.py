@@ -74,6 +74,12 @@ def add_layer():
         'panelColorMode', 'panelColors', 'transparentFill',
         'screenNameOffsetXPixelMap', 'screenNameOffsetYPixelMap',
         'screenNameOffsetXShowLook', 'screenNameOffsetYShowLook',
+        # Image Drop Shadow, same reason as the gradient block above: a
+        # duplicate/paste posts the source's whole appearance here, and a
+        # field missing from this list is gone the moment the page reloads.
+        'imageShadowEnabled', 'imageShadowColor', 'imageShadowOpacity',
+        'imageShadowAngle', 'imageShadowDistance', 'imageShadowSpread',
+        'imageShadowSize',
     ]
 
     half_fields = {'halfFirstColumn', 'halfLastColumn', 'halfFirstRow', 'halfLastRow'}
@@ -144,6 +150,13 @@ def add_image_layer():
     )
     if 'imageScale' in data:
         layer['imageScale'] = data['imageScale']
+    # Drop Shadow: duplicate/paste of an image layer comes through THIS route,
+    # not /api/layer/add, so the fields have to be carried here as well.
+    for key in ('imageShadowEnabled', 'imageShadowColor', 'imageShadowOpacity',
+                'imageShadowAngle', 'imageShadowDistance', 'imageShadowSpread',
+                'imageShadowSize'):
+        if key in data:
+            layer[key] = data[key]
     _assign_canvas_id(layer, data)
     log_event('add_image_layer', {'name': layer.get('name'), 'id': layer.get('id')})
     app.current_project['layers'].append(layer)
@@ -252,6 +265,13 @@ def update_layer(layer_id):
                 'powerLineColor', 'powerArrowColor', 'powerRandomColors', 'powerColorCodedView', 'powerCircuitColors', 'powerLabelSize', 'powerLabelBgColor', 'powerLabelTextColor',
                 'powerLabelTemplate', 'powerLabelOverrides', 'powerCustomPaths', 'powerCustomIndex',
                 'lastPowerFlowPattern', 'type', 'imageData', 'imageWidth', 'imageHeight', 'imageScale',
+                # Drop Shadow on an image layer. Pure appearance, per layer,
+                # nothing else reads it - but it has to be listed here or the
+                # PUT drops it and the echo hands the client back a layer with
+                # no shadow, the gradient bug one door over.
+                'imageShadowEnabled', 'imageShadowColor', 'imageShadowOpacity',
+                'imageShadowAngle', 'imageShadowDistance', 'imageShadowSpread',
+                'imageShadowSize',
                 'locked', 'screenNameSizeCabinet', 'screenNameSizeDataFlow', 'screenNameSizePower',
                 'textContent', 'textContentPixelMap', 'textContentCabinetId',
                 'textContentShowLook', 'textContentDataFlow', 'textContentPower',

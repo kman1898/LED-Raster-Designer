@@ -246,6 +246,38 @@
                             <div class="info-row">
                                 <input type="range" id="image-scale-range" min="10" max="500" value="100" step="1" style="width: 100%;">
                             </div>
+                            <div class="info-row checkbox-row" data-tooltip="Drop Shadow, Cast a shadow behind this image. Off by default; the shadow is included in PNG and PDF exports.">
+                                <input type="checkbox" id="image-shadow-enabled">
+                                <label for="image-shadow-enabled">Drop Shadow</label>
+                            </div>
+                            <div class="info-row" data-tooltip="Shadow Color, Color of the drop shadow.">
+                                <label>Shadow Color</label>
+                                <div style="display: flex; gap: 5px; align-items: center;">
+                                    <input type="color" id="image-shadow-color" value="#000000">
+                                    <button class="color-swatch" id="image-shadow-color-swatch" aria-label="Shadow Color"></button>
+                                    <input type="text" id="image-shadow-color-hex" value="#000000" maxlength="7" style="width: 70px; font-family: monospace;">
+                                </div>
+                            </div>
+                            <div class="info-row" data-tooltip="Shadow Opacity, How solid the shadow is, 0 to 100 percent.">
+                                <label>Shadow Opacity (%)</label>
+                                <input type="number" id="image-shadow-opacity" value="75" min="0" max="100" step="1" autocomplete="off" style="width: 70px;">
+                            </div>
+                            <div class="info-row" data-tooltip="Shadow Angle, Direction the light comes from, in degrees. 120 puts the shadow down and to the right.">
+                                <label>Shadow Angle (deg)</label>
+                                <input type="number" id="image-shadow-angle" value="120" min="0" max="360" step="1" autocomplete="off" style="width: 70px;">
+                            </div>
+                            <div class="info-row" data-tooltip="Shadow Distance, How far the shadow is offset from the image, in pixels.">
+                                <label>Shadow Distance (px)</label>
+                                <input type="number" id="image-shadow-distance" value="10" min="0" max="250" step="1" autocomplete="off" style="width: 70px;">
+                            </div>
+                            <div class="info-row" data-tooltip="Shadow Spread, How much of the Size is solid before the shadow starts to fade. 100 gives a hard edge.">
+                                <label>Shadow Spread (%)</label>
+                                <input type="number" id="image-shadow-spread" value="0" min="0" max="100" step="1" autocomplete="off" style="width: 70px;">
+                            </div>
+                            <div class="info-row" data-tooltip="Shadow Size, How far the shadow reaches past the image, in pixels. This is the blur.">
+                                <label>Shadow Size (px)</label>
+                                <input type="number" id="image-shadow-size" value="10" min="0" max="250" step="1" autocomplete="off" style="width: 70px;">
+                            </div>
                         </div>
                     </div>
                 </div>

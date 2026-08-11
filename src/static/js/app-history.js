@@ -3,6 +3,24 @@
 import { LEDRasterApp } from './app-core.js';
 import { sendClientLog } from './helpers.js';
 
+// Carry an image layer's Drop Shadow onto its duplicate / paste. /api/layer/
+// add-image only stores what it is sent, so a field left out here gives the
+// copy a shadow in the browser and none on the server - right until the next
+// reload, the way the gradient block used to be lost.
+const IMAGE_SHADOW_KEYS = [
+    'imageShadowEnabled', 'imageShadowColor', 'imageShadowOpacity',
+    'imageShadowAngle', 'imageShadowDistance', 'imageShadowSpread',
+    'imageShadowSize',
+];
+
+function _carryImageShadow(layer) {
+    const out = {};
+    IMAGE_SHADOW_KEYS.forEach(k => {
+        if (layer && layer[k] !== undefined) out[k] = layer[k];
+    });
+    return out;
+}
+
 class _History {
     // ===== HISTORY SYSTEM =====
     resetHistory(initialAction = 'Initial State') {
@@ -480,6 +498,7 @@ class _History {
                 imageScale: layer.imageScale || 1.0,
                 offset_x: layer.offset_x + 50,
                 offset_y: layer.offset_y + 50,
+                ..._carryImageShadow(layer),
                 ..._carryShow(layer, 50, 50),
             };
             fetch('/api/layer/add-image', {
@@ -861,6 +880,7 @@ class _History {
                 imageScale: this.clipboard.imageScale || 1.0,
                 offset_x: (this.clipboard.offset_x || 0) + 50,
                 offset_y: (this.clipboard.offset_y || 0) + 50,
+                ..._carryImageShadow(this.clipboard),
                 ..._carryShow(this.clipboard, 50, 50),
             };
             fetch('/api/layer/add-image', {
