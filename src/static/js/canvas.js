@@ -854,7 +854,15 @@ class CanvasRenderer {
         //   (c) hits empty area outside any canvas → no canvas change.
         // Skipped for pan (space) and shift/alt modifiers (existing drag
         // behaviors). Additive, the rest of mouse-down still runs.
-        if (e.button === 0 && !this.spacePressed && !e.shiftKey && !e.altKey) {
+        // Also skipped for Cmd/Ctrl: that is the selection-TOGGLE gesture,
+        // resolved on mouse-up. Running the plain-click activate/promote here
+        // would replace the multi-selection with the clicked layer before the
+        // toggle ever read it (selectLayer resets selectedLayerIds), and
+        // setActiveCanvas without preserveSelection would cull anything
+        // selected on another canvas. The toggle path activates the right
+        // canvas itself, with preserveSelection.
+        if (e.button === 0 && !this.spacePressed && !e.shiftKey && !e.altKey
+                && !e.metaKey && !e.ctrlKey) {
             const hitPanel = this.getPanelAt(worldX, worldY);
             if (hitPanel) {
                 // Panel hit: switch to its layer's canvas if needed, and
@@ -936,9 +944,18 @@ class CanvasRenderer {
             }
         }
 
+        // Custom data / power: arm the PATH marquee only when the press lands
+        // on a cabinet this gesture can actually draw on.
+        //
+        // These two branches used to arm anywhere on the canvas and then
+        // `return`, with no position test at all - so for every plain press
+        // while custom mode was on, the layer marquee further down was
+        // unreachable. You could not rubber-band several screens without
+        // leaving custom mode first. Pixel Map has always done this properly
+        // (hit-test, otherwise fall through); this brings custom mode in line.
         if (e.button === 0 && window.app && window.app.currentLayer && this.viewMode === 'data-flow') {
             const layer = window.app.currentLayer;
-            if (window.app.isCustomFlow(layer)) {
+            if (window.app.isCustomFlow(layer) && this._customDrawStartsInScope(worldX, worldY)) {
                 this.isSelectingPanels = true;
                 this.selectionRect = { x1: worldX, y1: worldY, x2: worldX, y2: worldY };
                 if (typeof sendClientLog === 'function') {
@@ -949,7 +966,7 @@ class CanvasRenderer {
         }
         if (e.button === 0 && window.app && window.app.currentLayer && this.viewMode === 'power') {
             const layer = window.app.currentLayer;
-            if (window.app.isCustomPower(layer)) {
+            if (window.app.isCustomPower(layer) && this._customDrawStartsInScope(worldX, worldY)) {
                 this.isSelectingPanels = true;
                 this.selectionRect = { x1: worldX, y1: worldY, x2: worldX, y2: worldY };
                 if (typeof sendClientLog === 'function') {
@@ -999,6 +1016,20 @@ class CanvasRenderer {
             if (this.viewMode === 'pixel-map' && window.app && window.app.pixelMapSelection
                     && window.app.pixelMapSelection.size > 0) {
                 window.app.clearPixelMapSelection();
+            }
+            // Same for custom data / power: reaching here means the press
+            // landed outside every screen this path can draw on, so the panels
+            // highlighted for the port or circuit are no longer the subject of
+            // what the user is doing. Leaving them lit made the next click
+            // inside the screen extend a selection the user thought they had
+            // dropped when they clicked away.
+            if (this.viewMode === 'data-flow' && window.app
+                    && window.app.customSelection && window.app.customSelection.size > 0) {
+                window.app.clearCustomSelection();
+            }
+            if (this.viewMode === 'power' && window.app
+                    && window.app.powerCustomSelection && window.app.powerCustomSelection.size > 0) {
+                window.app.clearPowerCustomSelection();
             }
             this.isSelectingLayers = true;
             this.layerSelectionRect = { x1: worldX, y1: worldY, x2: worldX, y2: worldY };
@@ -1718,7 +1749,7 @@ class CanvasRenderer {
                     }
                     if (layer) {
                         if (isToggle) {
-                            window.app.toggleLayerSelection(layer);
+                            this._toggleLayerSelectionFromCanvas(layer);
                         } else {
                             this._selectLayerFromCanvas(layer);
                         }
@@ -2390,6 +2421,61 @@ class CanvasRenderer {
         this.render();
     }
 
+    // Cmd/Ctrl+click from the canvas: toggle the clicked layer in/out of the
+    // multi-selection (the same selectedLayerIds Set the sidebar's Ctrl-click
+    // uses, so bulk edits / group actions / totals downstream see one model).
+    // The toggle UNIT is whatever a plain click would select: the whole group
+    // when the clicked layer is a grouped member, the single layer otherwise.
+    // So toggling an unselected member brings its whole group in, and toggling
+    // a selected member takes the whole group out. Ungrouped layers delegate
+    // to the app's own toggleLayerSelection so canvas and sidebar stay one
+    // behaviour. Selection is view state - no saveState anywhere on this path.
+    _toggleLayerSelectionFromCanvas(layer) {
+        const app = window.app;
+        if (!app || !layer) return;
+        let unit = null;
+        const g = this._groupForLayer(layer);
+        if (g && typeof app.getGroupMembers === 'function') {
+            const members = app.getGroupMembers(g)
+                .filter(m => m && m.visible !== false);
+            if (members.length > 1 && members.some(m => m.id === layer.id)) {
+                unit = members;
+            }
+        }
+        if (!unit) {
+            if (typeof app.toggleLayerSelection === 'function') {
+                app.toggleLayerSelection(layer);
+            }
+            return;
+        }
+        if (!app.selectedLayerIds) app.selectedLayerIds = new Set();
+        const sel = app.selectedLayerIds;
+        if (sel.has(layer.id)) {
+            // Toggling a selected member OUT removes its whole group.
+            unit.forEach(m => sel.delete(m.id));
+            if (app.currentLayer && !sel.has(app.currentLayer.id)) {
+                const nextId = sel.values().next().value;
+                app.currentLayer = nextId
+                    ? (app.project.layers.find(l => l.id === nextId) || null)
+                    : null;
+                app.lastSelectedLayerId = app.currentLayer ? app.currentLayer.id : null;
+            }
+        } else {
+            unit.forEach(m => sel.add(m.id));
+            app.currentLayer = layer;
+            app.lastSelectedLayerId = layer.id;
+            if (!app.selectionAnchorLayerId) app.selectionAnchorLayerId = layer.id;
+            // Same preserveSelection contract as toggleLayerSelection, so a
+            // cross-canvas multi-selection survives the canvas activation.
+            if (typeof app._activateCanvasForLayer === 'function') {
+                app._activateCanvasForLayer(layer, { preserveSelection: true });
+            }
+        }
+        if (typeof app.renderLayers === 'function') app.renderLayers();
+        if (typeof app.loadLayerToInputs === 'function') app.loadLayerToInputs();
+        this.render();
+    }
+
     // Add the group peers of everything in `layers` (in place), and to the
     // app's selection, so a drag started on one member moves the whole group
     // AND mouseup's updateLayers persists every layer the drag actually moved.
@@ -2463,6 +2549,27 @@ class CanvasRenderer {
         if (!drawing) return false;
         if (typeof app.canPathReachLayer !== 'function') return false;
         return !!app.canPathReachLayer(owner, hitLayer);
+    }
+
+    // Does a press at this point belong to the custom path being drawn?
+    //
+    // True only inside a screen the gesture can actually draw on: the screen
+    // whose port/circuit is open, or a group peer the path can reach. Anywhere
+    // else - empty canvas, an unrelated screen, an image on top - the press is
+    // an ordinary layer-level press and mousedown must fall through to the
+    // layer marquee below.
+    //
+    // getLayerAt is the bounds test, and it is the topmost layer at that point,
+    // so a text or image layer sitting over the screen takes the press rather
+    // than the marquee underneath it - the same occlusion rule Pixel Map's
+    // panel drag already follows.
+    _customDrawStartsInScope(worldX, worldY) {
+        const app = window.app;
+        if (!app || !app.currentLayer) return false;
+        const hitLayer = this.getLayerAt(worldX, worldY);
+        if (!hitLayer) return false;                       // empty canvas
+        if (hitLayer.id === app.currentLayer.id) return true;
+        return this._isCustomPathGesture(hitLayer);        // reachable peer
     }
 
     // Is this path one of the crossing ones? False whenever app-power.js has
