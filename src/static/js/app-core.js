@@ -439,7 +439,17 @@ export class LEDRasterApp {
             showThreePhase: layer.showThreePhase,
             fontBold: layer.fontBold,
             fontItalic: layer.fontItalic,
-            fontUnderline: layer.fontUnderline
+            fontUnderline: layer.fontUnderline,
+            // Image layer Drop Shadow. The server does store these now, but a
+            // socket echo of a layer that was PUT before the shadow edit would
+            // otherwise land on top of it and un-shadow the layer for a frame.
+            imageShadowEnabled: layer.imageShadowEnabled,
+            imageShadowColor: layer.imageShadowColor,
+            imageShadowOpacity: layer.imageShadowOpacity,
+            imageShadowAngle: layer.imageShadowAngle,
+            imageShadowDistance: layer.imageShadowDistance,
+            imageShadowSpread: layer.imageShadowSpread,
+            imageShadowSize: layer.imageShadowSize
         };
     }
 
@@ -1998,7 +2008,69 @@ export class LEDRasterApp {
                 commitScale();
             });
         }
-        
+
+        // Drop Shadow (image layers). Same shape as the Image Scale wiring
+        // above: mutate the layer, re-render live, then push to the server and
+        // record one history entry on commit.
+        const applyImageShadow = (mutate, label, isFinal) => {
+            const targets = (this.getSelectedLayers ? this.getSelectedLayers() : [])
+                .filter(l => (l.type || 'screen') === 'image');
+            if (targets.length === 0) return;
+            targets.forEach(mutate);
+            window.canvasRenderer.render();
+            if (isFinal) {
+                this.updateLayers(targets);
+                this.debouncedSaveState(label);
+            }
+        };
+        const shadowEnabledCheck = document.getElementById('image-shadow-enabled');
+        if (shadowEnabledCheck) {
+            shadowEnabledCheck.addEventListener('change', () => {
+                const on = shadowEnabledCheck.checked;
+                applyImageShadow(l => {
+                    l.imageShadowEnabled = on;
+                    // First time on, stamp Photoshop's own defaults so the
+                    // user sees a shadow immediately instead of nothing.
+                    if (on) {
+                        if (l.imageShadowColor == null) l.imageShadowColor = '#000000';
+                        if (l.imageShadowOpacity == null) l.imageShadowOpacity = 75;
+                        if (l.imageShadowAngle == null) l.imageShadowAngle = 120;
+                        if (l.imageShadowDistance == null) l.imageShadowDistance = 10;
+                        if (l.imageShadowSpread == null) l.imageShadowSpread = 0;
+                        if (l.imageShadowSize == null) l.imageShadowSize = 10;
+                    }
+                }, 'Drop Shadow', true);
+                this.loadLayerToInputs();
+            });
+        }
+        setupColorPickerWithHex('image-shadow-color', 'image-shadow-color-hex', (val, isFinal) => {
+            applyImageShadow(l => { l.imageShadowColor = val; }, 'Shadow Color', isFinal);
+        });
+        [
+            ['image-shadow-opacity', 'imageShadowOpacity', 0, 100, 75, 'Shadow Opacity'],
+            ['image-shadow-angle', 'imageShadowAngle', 0, 360, 120, 'Shadow Angle'],
+            ['image-shadow-distance', 'imageShadowDistance', 0, 250, 10, 'Shadow Distance'],
+            ['image-shadow-spread', 'imageShadowSpread', 0, 100, 0, 'Shadow Spread'],
+            ['image-shadow-size', 'imageShadowSize', 0, 250, 10, 'Shadow Size'],
+        ].forEach(([id, key, lo, hi, dflt, label]) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            const read = () => {
+                const n = parseFloat(el.value);
+                if (Number.isNaN(n)) return dflt;
+                return Math.max(lo, Math.min(hi, n));
+            };
+            el.addEventListener('input', () => {
+                applyImageShadow(l => { l[key] = read(); }, label, false);
+            });
+            el.addEventListener('change', () => {
+                const v = read();
+                el.value = String(v);
+                applyImageShadow(l => { l[key] = v; }, label, true);
+            });
+        });
+
+
         const showNumbersCheck = document.getElementById('show-numbers');
         if (showNumbersCheck) {
             showNumbersCheck.addEventListener('change', () => {
@@ -2746,45 +2818,18 @@ export class LEDRasterApp {
             });
         };
 
-        const renderPowerCircuitColorRows = () => {
-            if (!powerCircuitColorList || !this.currentLayer) return;
-            const colors = this.normalizePowerCircuitColors(this.currentLayer.powerCircuitColors);
-            powerCircuitColorList.innerHTML = '';
-            Object.keys(colors).forEach((letter, index) => {
-                const row = document.createElement('div');
-                row.style.display = 'grid';
-                row.style.gridTemplateColumns = '20px 26px 1fr';
-                row.style.gap = '6px';
-                row.style.alignItems = 'center';
-
-                const cb = document.createElement('input');
-                cb.type = 'checkbox';
-                cb.setAttribute('data-circuit-letter', letter);
-
-                const swatch = document.createElement('div');
-                swatch.style.width = '20px';
-                swatch.style.height = '20px';
-                swatch.style.borderRadius = '4px';
-                swatch.style.border = '1px solid #333';
-                swatch.style.background = colors[letter];
-
-                const text = document.createElement('div');
-                text.style.fontSize = '12px';
-                text.style.color = '#ccc';
-                text.textContent = `Circuit ${index + 1}`;
-
-                row.appendChild(cb);
-                row.appendChild(swatch);
-                row.appendChild(text);
-                powerCircuitColorList.appendChild(row);
-            });
-        };
-
+        // There used to be a second copy of the circuit-colour row builder
+        // here, identical to updatePowerCircuitColorEditor() except that its
+        // rows carried no data-lrd-field and it did not preserve focus. Both
+        // wrote the same container, so whichever ran last won - and this one
+        // ran on the colour-coded-view toggle, which quietly undid the keys
+        // the other one had just set. One builder now, in app-power.js beside
+        // the other two editors.
         const updatePowerCircuitColorSection = () => {
             if (powerCircuitColorSection) {
                 powerCircuitColorSection.style.display = (this.currentLayer && this.currentLayer.powerColorCodedView) ? 'block' : 'none';
             }
-            renderPowerCircuitColorRows();
+            this.updatePowerCircuitColorEditor();
         };
 
         if (powerVoltageSelect && powerVoltageCustomInput) {

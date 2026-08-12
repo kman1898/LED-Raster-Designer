@@ -1,6 +1,44 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v0.11.2 - August 11, 2026
+----------------------------
+
+DROP SHADOW ON LOGOS AND IMAGES
+
+- NEW: An image or logo layer can cast a drop shadow, with the controls you
+  already know: colour, opacity, angle, distance, spread and size. It is off
+  by default, so nothing you have already drawn changes.
+  The shadow is drawn into the artwork rather than added by the screen, so it
+  comes out in the PNG and PDF exports exactly as you see it, at any zoom.
+
+SELECTING AND DRAWING
+
+- NEW: Cmd-click a screen on the canvas (Ctrl-click on Windows) to add it to
+  or take it out of the selection, the way the layer list already worked. A
+  plain click still selects just that screen.
+
+- FIX: Drag-selecting several screens works again while you are drawing a
+  custom data or power path. A drag that starts on empty canvas selects
+  screens; one that starts on the screen you are wiring still draws. Before,
+  the drawing took every drag and multi-select was dead until you left custom
+  mode.
+
+PANELS AND SETTINGS THAT DID NOT STICK
+
+- FIX: Typing a port or circuit label and pressing Tab keeps you in the
+  panel. Focus dropped out the moment the label saved, so the next thing you
+  typed went nowhere.
+
+- FIX: Sizing a screen by dimensions is saved with the project. The checkbox
+  and the width, height and unit you entered were lost on reload.
+
+- FIX: Turning custom data mode off puts the screen back to the pattern it
+  had before, instead of top-left horizontal.
+
+- FIX: Text label colours are saved. The colour looked right on screen and
+  was gone after a reload.
+
 v0.11.1 - August 9, 2026
 ----------------------------
 

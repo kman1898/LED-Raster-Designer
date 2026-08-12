@@ -523,6 +523,52 @@ class _Power {
         return colors[slotKey] || '#BC382F';
     }
 
+    // Keep the caret where the user put it across an editor rebuild.
+    //
+    // Editing a label and pressing Tab fires the input's `change` handler,
+    // which PUTs to the server. The browser moves focus to the NEXT input
+    // immediately; the rebuild (`list.innerHTML = ''`) only happens a
+    // round-trip later, when the response - or the socket `layer_updated`
+    // echo - lands. By then the field the user is typing in is the one the
+    // rebuild destroys, so focus falls to <body> and the next keystroke goes
+    // nowhere. Pressing Tab again appears to work only because an unedited
+    // field fires no `change` and nothing rebuilds.
+    //
+    // Capture the focused field's stable key plus its caret, then restore in
+    // a microtask: that runs after the synchronous rebuild whichever return
+    // path the builder takes, and does not care which of the two triggers
+    // fired.
+    _preserveEditorFocus() {
+        const active = document.activeElement;
+        const key = active && active.dataset ? active.dataset.lrdField : null;
+        if (!key) return;
+        let start = null;
+        let end = null;
+        try {
+            start = active.selectionStart;
+            end = active.selectionEnd;
+        } catch (_) {
+            // Not every input type exposes a selection (number, color, ...).
+            start = null;
+            end = null;
+        }
+        Promise.resolve().then(() => {
+            const el = document.querySelector(`[data-lrd-field="${key}"]`);
+            // Gone - the port/circuit count shrank out from under it. Leave
+            // focus alone rather than throwing.
+            if (!el || el === document.activeElement) return;
+            try {
+                el.focus();
+            } catch (_) {
+                return;
+            }
+            if (start === null || typeof el.setSelectionRange !== 'function') return;
+            try {
+                el.setSelectionRange(start, end);
+            } catch (_) { /* selection unsupported on this element */ }
+        });
+    }
+
     updatePortLabelEditor() {
         if (!this.currentLayer) return;
         if ((this.currentLayer.type || 'screen') === 'image') return;
@@ -546,6 +592,7 @@ class _Power {
                 panels: this.currentLayer.panels ? this.currentLayer.panels.length : 0
             });
         }
+        this._preserveEditorFocus();
         list.innerHTML = '';
         // v0.8.7.3: force the list's grid to 1fr so each row stretches
         // the full list width instead of collapsing to content width
@@ -584,6 +631,9 @@ class _Power {
             const cb = document.createElement('input');
             cb.type = 'checkbox';
             cb.setAttribute('data-port', String(portNum));
+            // Tab out of a port's Return field lands on the NEXT row's
+            // checkbox, so it needs a stable key too or the rebuild drops it.
+            cb.dataset.lrdField = `port-check-${portNum}`;
             cb.title = `Port ${portNum}`;
             cb.style.margin = '0';
 
@@ -597,6 +647,9 @@ class _Power {
 
             const primaryInput = document.createElement('input');
             primaryInput.type = 'text';
+            // Stable identity across rebuilds, so focus + caret can be
+            // restored into the same field after list.innerHTML = ''.
+            primaryInput.dataset.lrdField = `port-primary-${portNum}`;
             primaryInput.value = (this.currentLayer.portLabelOverridesPrimary && this.currentLayer.portLabelOverridesPrimary[portNum]) || '';
             primaryInput.placeholder = this.getPortLabelText(this.currentLayer, portNum, 'primary');
             primaryInput.style.padding = '3px 4px';
@@ -630,6 +683,7 @@ class _Power {
 
             const returnInput = document.createElement('input');
             returnInput.type = 'text';
+            returnInput.dataset.lrdField = `port-return-${portNum}`;
             returnInput.value = (this.currentLayer.portLabelOverridesReturn && this.currentLayer.portLabelOverridesReturn[portNum]) || '';
             returnInput.placeholder = this.getPortLabelText(this.currentLayer, portNum, 'return');
             returnInput.style.padding = '3px 4px';
@@ -678,6 +732,7 @@ class _Power {
         // editor must offer exactly that many label rows.
         const circuitsRequired = this.getLayerCircuitsRequired(this.currentLayer);
 
+        this._preserveEditorFocus();
         list.innerHTML = '';
         // v0.8.7.3: stretch each row to full list width, trim padding,
         // and extend past panel-content padding for more input room.
@@ -707,6 +762,9 @@ class _Power {
             const cb = document.createElement('input');
             cb.type = 'checkbox';
             cb.setAttribute('data-circuit', String(circuitNum));
+            // Tab out of a circuit's label field lands here, on the next
+            // row's checkbox - the first thing the rebuild destroys.
+            cb.dataset.lrdField = `power-check-${circuitNum}`;
             cb.title = `Circuit ${circuitNum}`;
             cb.style.margin = '0';
 
@@ -720,6 +778,7 @@ class _Power {
 
             const input = document.createElement('input');
             input.type = 'text';
+            input.dataset.lrdField = `power-label-${circuitNum}`;
             input.value = (this.currentLayer.powerLabelOverrides && this.currentLayer.powerLabelOverrides[circuitNum]) || '';
             input.placeholder = this.getPowerCircuitLabel(this.currentLayer, circuitNum);
             input.style.padding = '3px 4px';
@@ -763,6 +822,7 @@ class _Power {
             section.style.display = this.currentLayer.powerColorCodedView ? 'block' : 'none';
         }
         if (!list) return;
+        this._preserveEditorFocus();
         list.innerHTML = '';
         const colors = this.normalizePowerCircuitColors(this.currentLayer.powerCircuitColors);
         Object.keys(colors).forEach((letter, index) => {
@@ -775,6 +835,7 @@ class _Power {
             const cb = document.createElement('input');
             cb.type = 'checkbox';
             cb.setAttribute('data-circuit-letter', letter);
+            cb.dataset.lrdField = `power-circuit-color-${letter}`;
 
             const swatch = document.createElement('div');
             swatch.style.width = '20px';
@@ -950,6 +1011,15 @@ class _Power {
         this.customSelection.clear();
         this.updateCustomFlowUI();
         window.canvasRenderer.render();
+    }
+
+    // The power-side twin. canvas.js used to clear powerCustomSelection inline
+    // and separately remember to refresh the UI and re-render; the data side
+    // has had this helper all along.
+    clearPowerCustomSelection() {
+        this.powerCustomSelection.clear();
+        this.updateCustomPowerUI();
+        if (window.canvasRenderer) window.canvasRenderer.render();
     }
 
     /**
