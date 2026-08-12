@@ -1,7 +1,7 @@
 // app-presets: feature methods for LEDRasterApp (verbatim from the old
 // monolithic app.js), attached to the prototype via the carrier class.
 import { LEDRasterApp } from './app-core.js';
-import { sendClientLog } from './helpers.js';
+import { sendClientLog, setupColorPickerWithHex } from './helpers.js';
 
 class _Presets {
     // ── Preset CRUD (server) ──
@@ -1199,26 +1199,31 @@ class _Presets {
                 window.canvasRenderer.render();
             });
         });
-        // Color pickers
-        const setupColorSync = (pickerId, hexId, prop) => {
-            const picker = document.getElementById(pickerId);
-            const hex = document.getElementById(hexId);
-            if (!picker || !hex) return;
-            const apply = (val) => {
+        // Color pickers.
+        //
+        // These two used to have their own picker/hex wiring, which did
+        // everything the field handlers above do EXCEPT call updateLayers().
+        // So recolouring a text label looked right and stayed right until the
+        // page reloaded: nothing ever PUT it, and the server kept the colour
+        // the layer was created with. Going through the shared helper fixes
+        // that and gets the isFinal distinction with it - the live drag
+        // re-renders, and only the commit hits the server.
+        const setupTextColor = (pickerId, hexId, prop) => {
+            setupColorPickerWithHex(pickerId, hexId, (val, isFinal) => {
                 if (!this.currentLayer || (this.currentLayer.type || 'screen') !== 'text') return;
                 this.applyToSelectedLayers(layer => {
                     if ((layer.type || 'screen') !== 'text') return;
                     layer[prop] = val;
                 });
+                window.canvasRenderer.render();
+                if (!isFinal) return;
                 this.debouncedSaveState('Update Text Color', 500, `text:${prop}`);
                 this.saveClientSideProperties();
-                window.canvasRenderer.render();
-            };
-            picker.addEventListener('input', () => { hex.value = picker.value.toUpperCase(); apply(picker.value); });
-            hex.addEventListener('change', () => { picker.value = hex.value; apply(hex.value); });
+                this.updateLayers(this.getSelectedLayers());
+            });
         };
-        setupColorSync('text-layer-font-color', 'text-layer-font-color-hex', 'fontColor');
-        setupColorSync('text-layer-bg-color', 'text-layer-bg-color-hex', 'bgColor');
+        setupTextColor('text-layer-font-color', 'text-layer-font-color-hex', 'fontColor');
+        setupTextColor('text-layer-bg-color', 'text-layer-bg-color-hex', 'bgColor');
 
         // Bold / Italic / Underline toggle buttons
         const setupStyleToggle = (btnId, prop) => {

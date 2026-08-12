@@ -2818,45 +2818,18 @@ export class LEDRasterApp {
             });
         };
 
-        const renderPowerCircuitColorRows = () => {
-            if (!powerCircuitColorList || !this.currentLayer) return;
-            const colors = this.normalizePowerCircuitColors(this.currentLayer.powerCircuitColors);
-            powerCircuitColorList.innerHTML = '';
-            Object.keys(colors).forEach((letter, index) => {
-                const row = document.createElement('div');
-                row.style.display = 'grid';
-                row.style.gridTemplateColumns = '20px 26px 1fr';
-                row.style.gap = '6px';
-                row.style.alignItems = 'center';
-
-                const cb = document.createElement('input');
-                cb.type = 'checkbox';
-                cb.setAttribute('data-circuit-letter', letter);
-
-                const swatch = document.createElement('div');
-                swatch.style.width = '20px';
-                swatch.style.height = '20px';
-                swatch.style.borderRadius = '4px';
-                swatch.style.border = '1px solid #333';
-                swatch.style.background = colors[letter];
-
-                const text = document.createElement('div');
-                text.style.fontSize = '12px';
-                text.style.color = '#ccc';
-                text.textContent = `Circuit ${index + 1}`;
-
-                row.appendChild(cb);
-                row.appendChild(swatch);
-                row.appendChild(text);
-                powerCircuitColorList.appendChild(row);
-            });
-        };
-
+        // There used to be a second copy of the circuit-colour row builder
+        // here, identical to updatePowerCircuitColorEditor() except that its
+        // rows carried no data-lrd-field and it did not preserve focus. Both
+        // wrote the same container, so whichever ran last won - and this one
+        // ran on the colour-coded-view toggle, which quietly undid the keys
+        // the other one had just set. One builder now, in app-power.js beside
+        // the other two editors.
         const updatePowerCircuitColorSection = () => {
             if (powerCircuitColorSection) {
                 powerCircuitColorSection.style.display = (this.currentLayer && this.currentLayer.powerColorCodedView) ? 'block' : 'none';
             }
-            renderPowerCircuitColorRows();
+            this.updatePowerCircuitColorEditor();
         };
 
         if (powerVoltageSelect && powerVoltageCustomInput) {

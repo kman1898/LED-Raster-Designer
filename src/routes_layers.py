@@ -34,6 +34,8 @@ def add_layer():
     # Apply additional settings from request (for duplicate/paste)
     optional_fields = [
         'color1', 'color2', 'panel_width_mm', 'panel_height_mm', 'panel_weight',
+        'sizeByDimensions', 'targetWidth', 'targetHeight', 'targetUnit',
+        'lastFlowPattern',
         'weight_unit', 'infoLabelSize',
         'halfFirstColumn', 'halfLastColumn', 'halfFirstRow', 'halfLastRow',
         'show_numbers', 'number_size', 'show_panel_borders', 'panel_border_width', 'show_circle_with_x',
@@ -265,6 +267,14 @@ def update_layer(layer_id):
                 'powerLineColor', 'powerArrowColor', 'powerRandomColors', 'powerColorCodedView', 'powerCircuitColors', 'powerLabelSize', 'powerLabelBgColor', 'powerLabelTextColor',
                 'powerLabelTemplate', 'powerLabelOverrides', 'powerCustomPaths', 'powerCustomIndex',
                 'lastPowerFlowPattern', 'type', 'imageData', 'imageWidth', 'imageHeight', 'imageScale',
+                # Sizing a screen by physical dimensions, and the pattern a
+                # custom data path falls back to. Both were missing here, so
+                # the mode and its targets were dropped on every save: you set
+                # a wall by metres, reloaded, and got the checkbox off and the
+                # targets blank. lastFlowPattern's power twin was listed all
+                # along, one line up.
+                'sizeByDimensions', 'targetWidth', 'targetHeight', 'targetUnit',
+                'lastFlowPattern',
                 # Drop Shadow on an image layer. Pure appearance, per layer,
                 # nothing else reads it - but it has to be listed here or the
                 # PUT drops it and the echo hands the client back a layer with
