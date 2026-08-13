@@ -38,9 +38,15 @@ SCREENCOUNT_OFFSET = 132
 SECTIONLEN_OFFSET = 133
 
 RECORD_SIZE = 17
+SECTION_HEADER_SIZE = 14
 FORMAT_A_MARKER = b'\xff\x01\x01\x00'
+# Every section seen so far is: 14-byte header + N x 17-byte records + suffix.
+# Only the suffix length varies - 11 bytes on 2026 files, 13 on 2025 ones - so
+# these are the two possible overheads. (The old value of 10 here encoded a
+# "records start at +10, no suffix" layout that no real file uses; it divided
+# evenly on 2025 files by coincidence and decoded every field 4 bytes off.)
 FORMAT_A_OVERHEAD = 25   # 14-byte header + 11-byte suffix
-FORMAT_B_OVERHEAD = 10   # 10-byte StandardScreen header only
+FORMAT_B_OVERHEAD = 27   # 14-byte header + 13-byte suffix
 
 
 def decode_scr(data: bytes) -> dict:
@@ -190,20 +196,38 @@ def _decode_section(data: bytes, offset: int, size: int, s_idx: int):
     # Strategy: if bytes 10-13 are non-zero (a potential marker is present) AND
     # the first record from offset+14 has plausible panel dimensions (pw/ph in 16-4096),
     # treat as Format A. Otherwise use Format B.
-    _marker = data[offset + 10:offset + 14]
-    _use_format_a = False
-    if _marker != b'\x00\x00\x00\x00' and offset + 14 + RECORD_SIZE <= len(data):
-        _test_pw = struct.unpack_from('<H', data, offset + 14 + 8)[0]
-        _test_ph = struct.unpack_from('<H', data, offset + 14 + 10)[0]
-        if 16 <= _test_pw <= 4096 and 16 <= _test_ph <= 4096:
-            _use_format_a = True
-
-    if _use_format_a:
-        rec_start = offset + 14
-        n_panels = (size - 14) // RECORD_SIZE
+    # Which overhead this section uses is decided by ARITHMETIC, not by
+    # sniffing the bytes at 10-13.
+    #
+    # The old code treated a non-zero value there as a Format A marker. It is
+    # not a marker - it is per-section data (sending card, first port), and
+    # plenty of real sections carry zeros there. Files whose sections did not
+    # happen to match the guess had every record read 4 bytes off: a 2025
+    # Pitbull file decoded its Active byte as 112, which is a cabinet width.
+    #
+    # A section is a header plus a whole number of fixed-size records, so the
+    # only overhead that can be right is one where (size - overhead) divides by
+    # RECORD_SIZE. Across the reference corpus exactly one candidate fits each
+    # section - 2026 files divide only at 25, 2025 files only at 10 - so the
+    # file tells us which it is and we do not have to guess.
+    _fits = [oh for oh in (FORMAT_A_OVERHEAD, FORMAT_B_OVERHEAD)
+             if size > oh and (size - oh) % RECORD_SIZE == 0]
+    if len(_fits) == 1:
+        _overhead = _fits[0]
+    elif _fits:
+        # Ambiguous (both divide): prefer A when bytes 10-13 look like the
+        # classic marker, else B. Rare; kept explicit rather than silent.
+        _overhead = (FORMAT_A_OVERHEAD
+                     if data[offset + 10:offset + 14] == FORMAT_A_MARKER
+                     else FORMAT_B_OVERHEAD)
     else:
-        rec_start = offset + 10
-        n_panels = (size - FORMAT_B_OVERHEAD) // RECORD_SIZE
+        # Neither fits: not a 17-byte-record section at all. Older files use a
+        # 16-byte cabinet record (seen in 2025 Rezz / Nocturnal) and are not
+        # supported yet - say so rather than returning nonsense.
+        return None
+
+    rec_start = offset + SECTION_HEADER_SIZE
+    n_panels = (size - _overhead) // RECORD_SIZE
 
     if n_panels <= 0:
         return None
@@ -265,6 +289,11 @@ def _decode_section(data: bytes, offset: int, size: int, s_idx: int):
                 ph_counts[height] = ph_counts.get(height, 0) + 1
 
         panels.append({
+            # byte 12. Two spellings appear on placeholder records (0x01 and
+            # 0xFF); real cabinets are always 0x01. Verified cosmetic - files
+            # that differ only here load identically in NovaLCT - but exposed
+            # so a round-trip can reproduce it exactly.
+            'active': data[off + 12],
             'col': col,
             'row': row,
             'x': x,

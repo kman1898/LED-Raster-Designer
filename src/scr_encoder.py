@@ -224,6 +224,16 @@ def build_single_screen_scr(cols, rows, pw, ph, port_assignments=None):
     return calc_checksums(data, screens)
 
 
+def _omits_terminator(screen):
+    """1 when this section stops before the trailing terminator record.
+
+    Keyed off the suffix length because that is what the file actually tells
+    us: every section with a 13-byte suffix in the reference corpus holds
+    cols*rows-1 records, every 11-byte one holds cols*rows.
+    """
+    return 1 if screen.get('suffix_len', 11) == 13 else 0
+
+
 def build_multi_screen_scr(screens_list):
     """
     Build a multi-screen SCR file from scratch.
@@ -248,7 +258,14 @@ def build_multi_screen_scr(screens_list):
     """
     num_screens = len(screens_list)
 
-    if num_screens == 1:
+    # A single screen is built by the SAME section builder as any other count.
+    #
+    # It used to divert to build_single_screen_scr(), which lays the file out
+    # by hand and came out exactly 15 bytes short on every real single-screen
+    # file - 15 being the difference between the two section overheads. Going
+    # through the section path makes those files reproduce byte for byte.
+    # build_single_screen_scr is kept for its existing callers/tests.
+    if False:
         s = screens_list[0]
         port_assignments = []
         for p in s.get('panels', []):
@@ -270,7 +287,15 @@ def build_multi_screen_scr(screens_list):
     # ALL panels in the bounding box are written. Hidden/stair-step panels use
     # sender=0xFF, port=1, chain=1 as a NovaStar placeholder — they are never skipped.
     # (10-byte StandardScreen header + 4-byte marker + cols*rows*17 records + 11-byte suffix)
-    section_sizes = [25 + s['cols'] * s['rows'] * 17 for s in screens_list]
+    # Suffix length varies by file generation: 11 bytes on 2026-era files,
+    # 13 on 2025-era ones. Everything else about the section is identical, so
+    # it is carried per screen rather than being a separate "format".
+    # 2025-era sections carry one FEWER record than cols*rows: they stop
+    # before the all-zero terminator that 2026 files write at (cols-1,rows-1),
+    # and pad with a 13-byte suffix instead of 11. Same header, same records.
+    section_sizes = [14 + (s['cols'] * s['rows'] - _omits_terminator(s)) * 17
+                     + s.get('suffix_len', 11)
+                     for s in screens_list]
 
     total_sections = sum(section_sizes)
 
@@ -353,8 +378,16 @@ def build_multi_screen_scr(screens_list):
             if not p.get('hidden', False)
         ]
         min_port_0based = (min(non_hidden_ports) - 1) if non_hidden_ports else 0
-        if sc_idx <= 1 and min_port_0based <= 7:
-            marker = b'\xff\x01\x01\x00'  # Format A (standard)
+        # Bytes 10-13 are per-section DATA, not a format flag: real files carry
+        # the sending card and first port there (EDC section 3 = 01 09, being
+        # card 1 on port 9). Hardcoding ff 01 01 00 under a rule inferred from
+        # one file made NovaLCT drop a cabinet - it rendered as a blank cell -
+        # while the byte diff looked like nothing. When the caller knows the
+        # real value (a round-trip does), it wins.
+        if s.get('marker') is not None:
+            marker = bytes(s['marker'])
+        elif sc_idx <= 1 and min_port_0based <= 7:
+            marker = b'\xff\x01\x01\x00'
         else:
             marker = bytes([sc_idx & 0xFF, min_port_0based & 0xFF, 0x00, 0x00])
 
@@ -386,30 +419,47 @@ def build_multi_screen_scr(screens_list):
         # Formula: app_row = (binary_row + 1) % rows
         records = bytearray()
         chain_counter = 0
+        _n_records = cols * rows - _omits_terminator(s)
+        _written = 0
         for col in range(cols):
             for row in range(rows):
+                if _written >= _n_records:
+                    break
+                _written += 1
                 # Map binary row to app row for panel data lookup
                 app_row = (row + 1) % rows
                 rec = bytearray(17)
-                struct.pack_into('<H', rec, 0, screen_x + col * pw)
-                struct.pack_into('<H', rec, 2, screen_y + row * ph)
+                # Per-cabinet geometry when the caller has it. A uniform grid
+                # (screen_x + col*pw) is only right for a wall of identical
+                # cabinets on exact centres; real walls mix sizes and sit off
+                # the grid, and flattening that lost 360 bytes on one show.
+                _g = panel_map.get((col, app_row), {})
+                struct.pack_into('<H', rec, 0, _g.get('x', screen_x + col * pw))
+                struct.pack_into('<H', rec, 2, _g.get('y', screen_y + row * ph))
                 struct.pack_into('<H', rec, 4, col)
                 struct.pack_into('<H', rec, 6, row)
-                struct.pack_into('<H', rec, 8, pw)
-                struct.pack_into('<H', rec, 10, ph)
+                struct.pack_into('<H', rec, 8, _g.get('w', pw))
+                struct.pack_into('<H', rec, 10, _g.get('h', ph))
                 rec[12] = 0x01  # Active always 1
                 if col == origin_col and row == origin_row:
                     if has_anchor:
                         # Anchor panel: sender=0 (SC0), port=0 (Port 1)
                         rec[13] = 0x00  # sender=0
-                        rec[14] = 0x00  # port=0 (0-based)
-                        struct.pack_into('<H', rec, 15, anchor_chain)
+                        rec[14] = 0x00
+                        struct.pack_into('<H', rec, 15, 0)
                     else:
-                        # Origin duplicate: visible, same port as first data
-                        # panel, chain=0 (duplicates the cable entry)
-                        rec[13] = sc_idx & 0xFF
-                        rec[14] = first_port_0based
-                        struct.pack_into('<H', rec, 15, 0)  # chain=0
+                        # The record at (cols-1, rows-1) is a terminator, not a
+                        # cabinet. The previous cols*rows "anchor" chain and the
+                        # origin-duplicate port were both invented; real files
+                        # write sender 0 and chain 0. Active/port are NOT
+                        # uniform though - EDC and Murph use 1/0, Griztronics
+                        # uses 255/255 - so a caller that knows the real values
+                        # (a round trip does) passes them through.
+                        _t = s.get('terminator') or {}
+                        rec[12] = _t.get('active', 0x01) & 0xFF
+                        rec[13] = _t.get('sender', 0x00) & 0xFF
+                        rec[14] = _t.get('port', 0x00) & 0xFF
+                        struct.pack_into('<H', rec, 15, _t.get('chain', 0) & 0xFFFF)
                 elif panel_map.get((col, app_row), {}).get('hidden', False):
                     # Stair-step/unconnected panel: NovaStar placeholder convention
                     rec[13] = 0xFF  # sender=255
@@ -423,8 +473,7 @@ def build_multi_screen_scr(screens_list):
                     chain_counter += 1
                 records += rec
 
-        # 11-byte suffix (zeros)
-        suffix = bytes(11)
+        suffix = bytes(s.get('suffix_len', 11))
 
         all_screen_data += bytes(sec_hdr) + marker + records + suffix
 
