@@ -1,252 +1,1966 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
-v0.7.5.43 - April 1, 2026
+v0.11.2 - August 11, 2026
 ----------------------------
-- Fix test_default_snake_order test to match single-screen encoder behavior (no row
-  convention). Test previously expected row convention mapping that was removed in v0.7.5.42.
 
-v0.7.5.42 - April 1, 2026
+DROP SHADOW ON LOGOS AND IMAGES
+
+- NEW: An image or logo layer can cast a drop shadow, with the controls you
+  already know: colour, opacity, angle, distance, spread and size. It is off
+  by default, so nothing you have already drawn changes.
+  The shadow is drawn into the artwork rather than added by the screen, so it
+  comes out in the PNG and PDF exports exactly as you see it, at any zoom.
+
+SELECTING AND DRAWING
+
+- NEW: Cmd-click a screen on the canvas (Ctrl-click on Windows) to add it to
+  or take it out of the selection, the way the layer list already worked. A
+  plain click still selects just that screen.
+
+- FIX: Drag-selecting several screens works again while you are drawing a
+  custom data or power path. A drag that starts on empty canvas selects
+  screens; one that starts on the screen you are wiring still draws. Before,
+  the drawing took every drag and multi-select was dead until you left custom
+  mode.
+
+PANELS AND SETTINGS THAT DID NOT STICK
+
+- FIX: Typing a port or circuit label and pressing Tab keeps you in the
+  panel. Focus dropped out the moment the label saved, so the next thing you
+  typed went nowhere.
+
+- FIX: Sizing a screen by dimensions is saved with the project. The checkbox
+  and the width, height and unit you entered were lost on reload.
+
+- FIX: Turning custom data mode off puts the screen back to the pattern it
+  had before, instead of top-left horizontal.
+
+- FIX: Text label colours are saved. The colour looked right on screen and
+  was gone after a reload.
+
+v0.11.1 - August 9, 2026
 ----------------------------
-- SCR export: restore v0.7.5.12 single-screen behavior — remove NovaStar row convention
-  from single-screen builder (NovaLCT handles it internally), only skip origin position
-  for anchor screens. Merge multiple layers sharing the same screen number into a single
-  screen entry instead of creating separate screens per layer.
 
-v0.7.5.40 - April 1, 2026
+- FIX: Tab and Shift+Tab now change the circuit in Power, not the data port.
+  On a screen wired by hand for both data and power, the keys moved the data
+  port instead, so the circuit never budged. (They are ignored while you are
+  typing in a field - click the drawing first.)
+
+- FIX: The [ and ] keys now keep the port or circuit you step to. The number
+  changed on screen, then went back on the next reload.
+
+- FIX: The crosshair stays while you draw a custom data path. Clicking the
+  screen again turned it back into an arrow.
+
+- FIX: Undo and redo now refresh the Power controls, not just Data Flow.
+
+v0.11.0 - August 8, 2026
 ----------------------------
-- SCR export: fix origin row column placement. Compute target origin data columns as the
-  leftmost N adjacent-row columns instead of using app's existing row-0 positions (which
-  could be shifted right due to stairstepping). Fixes UPSTAGE origin row shifted right by
-  1 panel. Fix chain start for horizontal anchor screens (start at 1, not 0) —
-  fixes SL showing duplicate port 1 / RC1 positions.
 
-v0.7.5.39 - April 1, 2026
+SCREEN GROUPS - one wall, however many cabinet sizes
+
+- NEW: You can now group screens, so a wall built from more than one cabinet
+  size behaves as a single screen.
+  If your crew owns 1m x 1m panels and 0.5m x 0.5m panels and hangs them on
+  the same wall, you have had to draw them as two screens, because one screen
+  uses one cabinet size all the way through. The wall was one wall, but the
+  app treated it as two - two names on the drawing, two sets of totals to add
+  up in your head, two things to drag, and cabinet numbers that started again
+  halfway across.
+  To make a group: select the screens that make up the wall - click one, then
+  Shift-click or Cmd/Ctrl-click the rest - then right-click and choose
+  "Group Screens". To take one apart, right-click and choose "Ungroup Screens".
+  To drop a single screen out and leave the rest grouped, use "Remove From
+  Group".
+  Once grouped:
+  - Cabinets, weight, watts, amps, ports and circuits add up across the whole
+    group. Each screen keeps its own cabinet weight and wattage, so a 1m x 1m
+    cabinet and a 0.5m x 0.5m cabinet are never assumed to weigh the same.
+  - The drawing shows one name and one set of figures, and dragging any part
+    of the group moves all of it.
+  - Cabinet IDs run straight through the group instead of restarting on each
+    screen, numbered by where each cabinet actually sits.
+  - Exports treat it as one screen: one shape in the Resolume XML named for
+    the group, one Photoshop layer, and a group that happens to form a
+    rectangle exports as a plain rectangle.
+  A group can hold any number of screens - two, or a dozen - and you can keep
+  as many groups as you like in a project. Screens in a group need to agree on
+  processor, bit depth and frame rate. If they do not when you group them, the
+  app tells you which settings differ and lets you pick one value to apply to
+  the whole group.
+
+- NEW: Draw a data port or a power circuit straight across a group.
+  In custom mode, click cabinets in any screen and they all join the same
+  port - the line draws through the join, the "on port" count includes the
+  cabinets on the far side, and a colour-coded circuit tints every cabinet on
+  it. When you reach the edge of a screen, the arrow keys carry on into the
+  next one and find the cabinet that is physically next door, even where the
+  two screens use different cabinet sizes.
+  A cabinet already wired to another port is still refused, now across the
+  whole group, and the message tells you which screen it is wired to - "port 1
+  on Upper Wall" - because a cabinet reference on its own is ambiguous once
+  two grids are in play.
+
+- NEW: Drag-select across a whole group and apply a flow pattern to it.
+  Serpentine and the other patterns follow where each cabinet physically sits,
+  so a run across a 1m x 1m screen and a 0.5m x 0.5m screen snakes across the
+  group in the order you would walk it. The two screens' grids do not line up
+  when the cabinet sizes differ, and the pattern no longer pretends they do.
+
+- FIX: Drag-select in Power now lights up the cabinets as you drag, the way
+  Data always has. In Power you saw nothing at all until you let go of the
+  button, so you were picking a box blind and only finding out what you had
+  caught once it was too late to adjust. Both views now behave the same.
+
+EXPORT, AND THE APP OPENING IN A BROWSER (WINDOWS)
+
+- FIX (IMPORTANT): Export now asks where to put the files when you are on the
+  machine running the app, even when you reach it at its network address.
+  The launcher lets you serve the app on your network so another machine can
+  open the drawing. When you did that, YOUR OWN browser also reached it at
+  that address - and the app could not tell that apart from a laptop across
+  the room, so it treated you as a remote viewer and quietly sent the files
+  to your downloads folder with no way to choose a folder.
+  A machine connected over the network still downloads to itself, which is
+  what you want - it just does not get asked where, because browsers only
+  offer a folder chooser over a secure connection.
+
+- FIX: Cancelling the folder chooser now cancels. It used to save everything
+  to your downloads folder anyway.
+
+- FIX: If the folder chooser cannot open at all, the files still get saved -
+  to your downloads folder - and the app says so instead of leaving you to
+  work it out. The reason is written to the log.
+
+- CHANGE: On Windows the app now clears the "downloaded from the internet"
+  tag from its own files on first run, so nothing has to be unblocked by
+  hand. Windows puts that tag on everything extracted from a downloaded zip.
+  Being straight with you: we first thought that tag was what stopped the app
+  opening in its own window on one tester's PC, and we tested it - a fully
+  tagged copy started normally, so that was not the cause. The tag is cleared
+  anyway because it costs nothing and is what an installer would have done.
+  If the app still opens in a browser instead of its own window, please send
+  a log (Help > Show Logs); this build records what we need to find the real
+  cause. Nothing about your antivirus or Windows security changes.
+
+- FIX: Arrow keys now walk the cable the way you press them in Rear view.
+  Right went left and left went right, because the drawing is mirrored in
+  Rear view and the keys were not. Up and down were always correct and still
+  are. (Reported as issue #111.)
+
+- FIX: The app log can no longer be read or erased by another machine on the
+  network, and only the machine running the app can open the log folder.
+
+- FIX: Gradients no longer disappear when you reload.
+  Everything in the Gradient panel - the colour stops and where they sit, plus
+  type, angle, opacity, blend and scope - was being held on screen but never
+  written into the drawing. Reload the page, or close and reopen the window,
+  and the gradient came back the way it was at your last save with everything
+  since gone. Panel colours, Transparent Fill, and the screen name position on
+  the Pixel Map and Show Look tabs were lost the same way.
+  Saving the project or pressing undo writes the whole drawing at once, so
+  either of those healed it by accident - which is why this came and went
+  instead of failing every time. Files you had already saved were never
+  affected; the settings just never reached the drawing in the first place.
+
+- FIX: Duplicating or pasting a screen no longer loses the copy's gradient.
+  Duplicate looked right on screen but never wrote the copy's gradient, panel
+  colours or Transparent Fill into the drawing, so the copy came back plain
+  after a reload. Paste dropped them straight away - a pasted screen has been
+  arriving plain for some time. Copy/Paste and Duplicate now give you the same
+  screen.
+
+- FIX: A gradient stop no longer jumps back on its own.
+  Moving one stop and then moving another straight after could send the first
+  one back where it started, because the app was still finishing the first
+  change. Undo recorded the jumped-back position too, so stepping back walked
+  you through gradients you never chose.
+
+FIXES THAT CHANGE NUMBERS ON DRAWINGS YOU ALREADY HAVE
+
+These were found by going back over the app with fresh eyes. They are not new
+faults - they have been there a while, and a few of them change figures you
+may have already read off a drawing and ordered against, so they are worth a
+minute of your time.
+
+- FIX (IMPORTANT): A wall with a GAP in it exported as one solid rectangle
+  straight over the gap. Two screens with air between them, or one screen
+  split in two by hidden cabinets, traced only one side and shipped it as a
+  plain rectangle - so content was mapped across the hole, both screens landed
+  shifted, and anything in the gap went to the floor. Each separate piece of
+  wall now exports as its own shape, at its own position.
+
+- FIX (IMPORTANT): A blanked cabinet now changes the exported shape on ANY
+  screen. It already did inside a group, but a screen on its own still shipped
+  a full rectangle - so the same wall gave two different files depending on
+  whether anyone had pressed Group Screens.
+
+- FIX: An "&" in a screen or group name produced a file Resolume could not
+  open at all. "Left & Right" is a perfectly normal wall name.
+
+- FIX: Drag-select now lands on the cabinet you pointed at on a ROTATED
+  screen. The highlight was worked out as if the screen were not rotated and
+  then drawn rotated, so it sat a cabinet or more away from the one under your
+  cursor - the more rotation, the further out it was.
+
+- CHANGE (IMPORTANT): Frame rates are now limited to the ones your processor
+  actually publishes a figure for. The list used to offer the same 19 rates to
+  everything, and NovaStar publish nothing at 48, 72, 100, 150, 180, 192 or
+  200 Hz - so the app was estimating between the rates either side and coming
+  out as much as 11% HIGH at 100 Hz. Too high means too few ports.
+  If you open a project set to a rate its processor does not publish, the
+  screen drops to the nearest published rate BELOW it and tells you so. Your
+  port count will change. Brompton is unaffected - it publishes every rate the
+  app offers.
+
+- FIX (IMPORTANT): Project totals no longer blend screens running on
+  different voltages into one figure. A project with a 110 V wall and a 208 V
+  wall took whichever voltage it happened to see first and divided EVERY
+  screen's watts by it, so the amps belonged to neither wall. Each voltage is
+  now reported on its own line. A project can of course hold walls on
+  different supplies - that is normal - but screens grouped into one wall now
+  have to agree on voltage, the same way they agree on processor and bit
+  depth.
+
+- FIX (IMPORTANT): The project circuit total was worked out by dividing total
+  watts by the watts a circuit carries, which ignores how circuits actually
+  pack along rows and columns. It read 2 circuits where the map you drew needs
+  3. It now counts the map. The same readout also ignored hand-drawn power and
+  port maps entirely, showing the automatic figure instead of what you drew.
+
+- FIX: Redo after undoing a Delete Screen did not delete it again.
+
+- FIX: Cabinet borders and label colour each took TWO undos to reverse one
+  click, so the first Ctrl+Z appeared to do nothing.
+
+LOW LATENCY, ON EVERY PROCESSOR
+
+- NEW: Low Latency is now a tickbox on any screen, instead of being buried as
+  a separate "Brompton Tessera (ULL)" entry in the processor list. Tick it and
+  the app applies what your processor actually does:
+  - Brompton: halves the pixels per port, matching Brompton's own published
+    Ultra Low Latency figures. (ULL is an SX40/S8 feature; HDMI in, no SDI.)
+  - Megapixel HELIOS: pixels per port are unchanged - HELIOS low latency costs
+    daisy-chain length, not bandwidth.
+  - NovaStar, legacy and COEX: ports have to run vertically and start at the
+    top of the canvas. A port starting lower down loses capacity in
+    proportion, so you get fewer cabinets on that port and the app tells you
+    why. Confirmed directly with NovaStar, who also confirmed the old
+    512-pixel port width limit is gone on current firmware - the published
+    manuals are out of date and are being revised. You need a receiving card
+    that supports it; MRV328 and MRV336 do not.
+
+- NEW: Ticking Low Latency lists the rules it is applying, under the
+  Pixels/Port readout, for whichever processor that screen is set to. Brompton
+  tells you pixels per port is halved. Megapixel tells you pixels per port are
+  unchanged but the daisy chain is halved. NovaStar lists the vertical and
+  top-of-canvas requirement, what a port starting lower costs you, and which
+  receiving cards cannot do it. NovaStar 5G adds the 128-pixel narrow-port
+  rule. They sit under that readout because Pixels/Port is a whole-screen
+  figure and cannot show you what an individual port costs.
+
+PORT MAPPING
+
+- NEW: Port Mapping now works on NovaStar (Legacy). "Organized" and "Max
+  Capacity" were both greyed out on Legacy screens. That processor reserves a
+  pixel rectangle around each port, and only Organized knew about it; Max
+  Capacity now does the same maths, so both modes work and every port stays
+  inside its limit. This matters most on wide walls: a screen whose full row
+  was too big for one port could not be mapped at all before - it just showed
+  a capacity error - and Max Capacity can now split it into ports that work.
+  The rectangle rule applies only to NovaStar (Legacy). COEX 1G/5G, Brompton,
+  Brompton ULL and Megapixel HELIOS are unchanged.
+
+- FIX: The highlight now moves when you pick a Port Mapping mode. Clicking
+  "Max Capacity" changed the setting, but "Organized" stayed lit, so there was
+  no way to see which mode you were actually using.
+
+- CHANGE: Opening an older project with "Max Capacity" saved on a Legacy
+  screen switches it to "Organized". That is what it was really drawing before
+  - the setting was being ignored - so maps you have already issued keep
+  rendering exactly as they are. Choosing Max Capacity yourself from now on
+  sticks, including through undo.
+
+CAPACITY FIGURES - WORTH RE-CHECKING YOUR PORT COUNTS
+
+- FIX (IMPORTANT): Corrected the NovaStar 5G pixels-per-port figures against
+  NovaStar's published Ethernet Port Load Capacity table. Their calculation
+  multiplies by 24 / 32 / 48 for 8 / 10 / 12-bit; ours used 36 at 12-bit,
+  which overstated 12-bit capacity by about 17% and under-counted the ports a
+  screen needs. 12-bit at 60 Hz drops from 1,728,000 to 1,475,600 per port.
+  8-bit and 10-bit go up (2,592,000 to 2,951,200 at 8-bit/60 Hz). Your 5G
+  screens will show different port counts than before. These are NovaStar's
+  published numbers.
+  Projects saved as "Brompton Tessera (ULL)" open as Brompton with Low Latency
+  ticked. 46 of the 48 old figures come out identical. The other two differ by
+  a single pixel per port, because halving an odd published figure rounds down:
+  12-bit at 144 Hz reads 72,916 where the old table said 72,917, and at 192 Hz
+  54,687 where it said 54,688. One pixel in roughly 73,000 cannot change how
+  many cabinets fit on a port, so no real screen moves - but the two numbers
+  are not identical and it would be wrong to say they were.
+
+- FIX (IMPORTANT): Corrected the Megapixel HELIOS pixels-per-port figures.
+  Ours came from Megapixel's older switch spec sheets and were up to 6% higher
+  than the current official HELIOS User Guide. Too high is the dangerous
+  direction, because it under-counts how many ports a screen needs. 40 of the
+  44 figures were affected, the worst at 60 Hz - the most common show frame
+  rate - where 12-bit 1G read 425,000 pixels per port against an official
+  401,000. Both HELIOS entries now match the published table. Your HELIOS
+  projects may show slightly more ports required than before. That is the
+  correct number.
+
+- NEW: NovaStar 5G narrow ports are now costed properly. NovaStar reserve a
+  band at least 128 pixels wide per Ethernet port, so a port narrower than
+  that wastes the rest of the band and carries less than the headline
+  pixels-per-port figure - a port 120 px wide loses (128 - 120) x its height.
+  NovaStar 5G only. It bites hardest on tall narrow ports, which is exactly
+  the shape low latency encourages, and it can be the difference between a
+  port that works and one that is quietly overloaded.
+
+EXPORT
+
+- FIX (IMPORTANT): The Resolume XML export now follows the real shape of your
+  screen. It worked out where each cabinet sat by multiplying rows and columns
+  by the full cabinet size, so half tiles were ignored completely: a wall with
+  a half-height bottom row exported a shape a whole cabinet too tall, and a
+  half-width edge column one too wide. It now traces the actual cabinets. A
+  plain rectangular wall exports exactly as before; anything else exports a
+  polygon that follows only where cabinets really are. Blanked cabinets are
+  left out too, matching the cabinet, weight and power totals, which have
+  always ignored them.
+
+EVERYTHING ELSE
+
+- FIX: Drag-select on a rotated screen now selects the cabinets under the box,
+  rather than the ones the box would have covered if the screen were not
+  rotated. Pixel Map already worked this way; Data and Power did not.
+
+- FIX: A screen missing its fill colours no longer blanks the whole canvas.
+  One malformed screen used to take the entire drawing down with it instead
+  of just itself.
+
+- FIX: The Data and Power flow-pattern grids highlighted the wrong tile on a
+  fresh project. Data lit "top-right, vertical first" and Power lit nothing at
+  all, when both actually default to "top-left, horizontal first". They now
+  show the pattern really in use.
+
+- FIX: A batch of controls that were showing the wrong state, all from the
+  same cause:
+  - Sliders were drawn as empty bars; they show their coloured fill again.
+  - The colour picker's red/green/blue and hue/saturation sliders were flat
+    grey, so you could not see the colour you were dragging through. Their
+    ramps are back.
+  - The primary screen in a multi-selection had no highlight.
+  - Hidden screens lost their red striped look in the screen list.
+  - Greyed-out buttons looked clickable: the up/down reorder arrows on the
+    selected screen, and the Remove buttons for gradient stops and palette
+    colours. Disabled buttons look disabled everywhere now.
+  - Renaming a screen or a canvas gave no sign you were editing.
+  - An invalid Watts-per-Panel entry showed no warning outline while the field
+    was still focused - exactly when you would be looking at it.
+  - Bold / Italic / Underline stayed blue instead of following your accent
+    colour, and the Pixels/Port and Panels/Port readouts could not show their
+    normal colour at all.
+
+v0.10.8.1 - July 26, 2026
 ----------------------------
-- SCR export: rewrite origin row adjustment without chain reversal. NovaStar shifts
-  origin row data LEFT by 1 column from adjacent row boundaries. Extensions fill gaps.
-  Origin panels inserted at serpentine transition points: horizontal sweeps put all
-  origin panels first; vertical serpentines interleave at top-of-column transitions.
-  Correct target count: adj-1 for non-anchor/visible-anchor, adj-2 for hidden-anchor.
+- FIX: Hiding a cabinet next to a half-tile no longer moves that half-tile
+  later. Blanking a cabinet changes which side its half-tile neighbor
+  attaches to, but that was only recalculated the next time something else
+  happened - so a half-tile could silently jump half a cabinet during an
+  unrelated Undo. The layout is now recalculated the moment you blank a
+  cabinet, and it stays put.
+- FIX: The screen layout is now always rebuilt from the cabinet states when
+  a project is loaded or an undo is applied, instead of trusting the sizes
+  and positions it was handed. Any project that was saved with a mismatch
+  between its half-tile marks and its layout now corrects itself on open.
 
-v0.7.5.38 - April 1, 2026
+v0.10.8 - July 26, 2026
 ----------------------------
-- SCR export: remove origin row chain reversal, extension, and port redistribution.
-  The app already computes correct port assignments and chain ordering — the encoder
-  now writes them directly into the binary without modification. Fixes UPSTAGE ports
-  1-3 data chain corruption caused by unnecessary origin row adjustments.
+- FIX: Undo now works correctly after setting half-tiles. Marking panels as
+  half-width or half-height resizes the whole screen, but that resize is
+  worked out on the server and used to arrive a moment AFTER the undo point
+  was recorded. The saved step therefore held the new half-tile marks on the
+  old full-size layout, so undoing it could leave the screen in a state that
+  never existed - and that broken state was then saved back as if it were
+  correct. The undo point is now recorded only after the resized screen has
+  come back, so undo and redo both restore the screen exactly as it was.
+- FIX: The log viewer's time range now filters correctly, and searches the
+  WHOLE log. Entering a plain date (2026-07-25) was off by the timezone
+  difference and could hide the entire day you asked for; entering a time to
+  the minute (20:14) silently dropped everything after the first second of
+  that minute. Both now cover exactly the period you name, start and end
+  included. The range is also applied to the whole log file instead of only
+  the last few hundred lines that happened to be loaded, so "1d ago" reaches
+  back properly, and the count tells you when there are more matches than
+  are being shown.
+- CHANGE: The log viewer's "Since" and "Until" boxes are now labeled "From"
+  and "To". They also accept "now", "today", and "yesterday", they no longer
+  re-filter on every keystroke while you are still typing, and an entry they
+  can't read now says so plainly instead of quietly showing everything.
 
-v0.7.5.37 - April 1, 2026
+v0.10.7.2 - July 25, 2026
 ----------------------------
-- SCR export: fix origin row chain direction and port redistribution for stairstepped
-  screens. Use leftmost column per port on adjacent row (direction-independent) instead
-  of lowest chain to compute port boundaries. Cap origin row extensions at target visible
-  count to prevent over-extending. Renumber chains after redistribution so origin-row
-  panels sit at the low end of each port's chain. Fixes serpentine data flow direction
-  and port panel counts matching the app's design in NovaLCT/SmartLCT.
+- FIX: Undo behaves correctly after changing colors. Dragging any color
+  control - fill, border, label, data-flow, power, palette, gradient, or
+  canvas background - now records exactly ONE undo step for the whole drag
+  instead of a burst of steps per drag. The burst had been filling up the
+  undo history, so a single Undo appeared to "jump back" several changes at
+  once, and it could push older edits (like moving a panel) out of the undo
+  history entirely - which is why undoing a move sometimes stepped back much
+  further than expected. Moves, color changes, and every other edit now undo
+  one step at a time.
+- FIX: Undo/redo of a size now updates the number you see. Undoing a change
+  to a panel size or the raster width/height reverted the design correctly
+  but left the old number showing in the input box; the field now refreshes
+  to match what was restored.
 
-v0.7.5.36 - April 1, 2026
+v0.10.7.1 - July 25, 2026
 ----------------------------
-- SCR export: add origin row port redistribution for multi-port stairstepped screens.
-  NovaStar convention shifts port boundaries left by 1 column on the origin row relative
-  to adjacent row. Each port's origin range starts at (adjacent_entry_col - 1). Fixes
-  port panel counts and data flow pattern matching the app's design in NovaLCT/SmartLCT.
+- FIX: Exporting from the File menu now shows your canvases. Opening Export
+  through File -> Export PNG or File -> Export PSD came up with an empty
+  canvas list, which blocked the export - even though the toolbar Export
+  button worked fine. Both paths now share one setup, so every way of opening
+  Export fills in the canvas list the same way. (Fixes a regression that had
+  been present since v0.9.0.)
 
-v0.7.5.35 - April 1, 2026
+v0.10.7 - July 25, 2026
 ----------------------------
-- SCR export: fix chain start offset for anchor screens with hidden origin. When the
-  anchor replaces a hidden panel (stairstepped area), chains now correctly start at 0
-  instead of 1. Only screens where the anchor replaces a visible data panel start at 1.
-  Fixes receiving card numbers being off by 1 on all ports for stairstepped screens.
+- FIX: Undo now steps back through EVERY edit, one at a time. Changing a
+  fill color, a border or label color, a data-flow or power setting, the
+  screen rotation, the transparent-fill toggle, port and label templates,
+  processor / bit depth / frame rate, and more did not record an undo step
+  at all - so a single Undo skipped past a whole run of those edits and
+  looked like it "jumped back," wiping several changes at once. Every one of
+  those controls now records exactly one undo step per change, while dragging
+  a color picker still counts as a single step (not one per flicker of the
+  drag). Renaming the project and editing project notes are undoable too.
+- FIX: The Pixel Map Info label stays inside the screen. On a narrow screen
+  the readout (columns/rows, cabinet count, resolution, aspect ratio, weight)
+  ran off both edges as one long line. It now wraps onto as many lines as the
+  screen width allows, stacking up from the bottom, with each piece kept
+  whole. Wide screens still show it on a single line.
+- FIX: Right-clicking a screen no longer throws an error. The v0.10.4
+  right-click "Center on Canvas" work could break the right-click menu on the
+  Pixel Map and Show Look tabs; it works again.
 
-v0.7.5.34 - April 1, 2026
+v0.10.6 - July 24, 2026
 ----------------------------
-- SCR export: fix chain numbering for origin row adjustments. Extension panels now get
-  unique chain values (inserted at the correct position in the sequence) instead of
-  duplicating the adjacent panel's chain. Removal panels now close the chain gap by
-  decrementing all subsequent chains on the affected port. Fixes duplicate receiving
-  card numbers and missing cards in NovaLCT/SmartLCT.
+- FIX: If the launcher window can't start, the app no longer becomes
+  unusable. Previously the failure killed the app mid-startup and left a
+  tray icon behind that wouldn't open a window, wouldn't show a menu, and
+  couldn't even be quit without Task Manager. The app now tells you what
+  happened, opens itself in your browser, and keeps the tray icon working
+  so you can still quit normally.
+- FIX: Startup failures are recorded. The Windows build has no console
+  window, so a crash during startup previously left no trace anywhere -
+  the app just died silently. Any uncaught error (including one in a
+  background thread) is now written to the app log with its full details,
+  reachable from Help -> Show Logs. If the crash happens before the log
+  is ready, it's written to launcher_crash.log next to the program.
+- Startup now records the machine it's running on (app version, OS,
+  and on Windows the .NET Framework version plus the launcher component
+  versions), so "it won't open on my PC" can be answered from the log.
+- Windows: the launcher window needs .NET Framework 4.7.2 or newer. If
+  yours is older or missing, the app now says so directly instead of
+  failing without explanation.
 
-v0.7.5.33 - April 1, 2026
+v0.10.5.1 - July 23, 2026
 ----------------------------
-- SCR export: implement NovaStar origin row convention. Display row 1 (binary rows-1)
-  now has the correct visible panel count matching the adjacent row. For non-anchor
-  screens, the origin at (cols-1, rows-1) is a visible chain=0 duplicate. For anchor
-  screens with stairstepped layouts, the data range is adjusted to prevent the anchor
-  from inflating the visible count. All data chains on anchor screens now start at 1
-  (not 0) on every port, matching native NovaStar convention.
+- FIX: The Show Look raster follows the Pixel Map raster again until you
+  give Show Look a size of its own. Setting the Pixel Map raster to (say)
+  8K and then switching to Show Look left it on the old size, with no
+  indication why. v0.8.10.0 fixed the starting value for a NEW project
+  (it now matches your Preferences raster), but changing the raster
+  afterwards still didn't carry over, because v0.8.5.2 had removed the
+  link in the name of independent layouts.
+  The two are linked per axis while they match, exactly like a screen's
+  Show Look position follows its Pixel Map position until you move it.
+  The moment you type a different width or height into the Show Look
+  toolbar, that axis stops following and stays independent. Editing the
+  Show Look raster never changes the Pixel Map raster.
 
-v0.7.5.32 - April 1, 2026
+v0.10.5 - July 23, 2026
 ----------------------------
-- SCR export: fix anchor chain collision that caused NovaStar to drop 1 panel per screen
-  and shift receiving card numbering. Anchor chain now uses cols*rows (safely above any
-  data chain) instead of 0. Data chains on port 1 start at 1 when anchor is present.
-  This fixes: "first row only 9 panels instead of 10", "receiving card starts at 2",
-  and "2 receiving card 1's" in NovaLCT/SmartLCT.
+- FIX: Undo now steps back one edit at a time. Screen Info changes (columns,
+  rows, cabinet size, checkboxes, dropdowns, colors - anything you type or
+  toggle) were folded together whenever you made them within half a second
+  of each other, so a single Cmd/Ctrl+Z could wipe out several edits at
+  once. Each committed change is now its own undo step.
+- Continuous edits still collapse sensibly: dragging the image scale slider
+  or typing into a text layer stays one undo step, but switching to a
+  different control now closes the previous step instead of merging both.
+- FIX: An edit made right before Undo/Redo (or right before a drag, delete,
+  or duplicate) is now recorded first, so history stays in order and the
+  edit can't be silently dropped or re-applied over the restored state.
+- FIX: Redo no longer loses a layer reorder, a "Reset to Pixel Map Position",
+  or a "Reset Entire Show Look". All three recorded their history entry just
+  before making the change instead of just after, so Undo followed by Redo
+  quietly dropped the change (the same mistake fixed for Add Layer in
+  v0.10.0).
+- FIX: Showing/hiding a layer and locking/unlocking a layer are now undoable
+  steps of their own. They previously left no history entry, so they rode
+  along on whatever you did next and a single Undo reverted both.
+- FIX: "Transparent (no fill)" now applies on the Data and Power views. Like
+  gradients, it was only honored on Pixel Map and Cabinet ID, so a
+  transparent screen still drew a full checkerboard on those two views.
+  Power's circuit color-coding is data rather than decoration, so it still
+  draws on a transparent screen.
 
-v0.7.5.31 - April 1, 2026
+v0.10.4 - July 16, 2026
 ----------------------------
-- SCR export: add anchor panel generation for screens on sending cards other than SC0.
-  Each non-SC0 screen now gets a sender=0 anchor at binary position (cols-1, rows-1)
-  matching the native NovaStar convention. Fixes receiving card numbering starting at 2
-  instead of 1 and chain offset issues in NovaLCT/SmartLCT.
-- Anchor position excluded from port chain assignment to avoid phantom panel records.
+- FEATURE: Center a screen on the canvas. Right-click a screen in Pixel Map
+  or Show Look and choose Center on Canvas X, Center on Canvas Y, or Center
+  on Canvas to snap it to the middle of its canvas's raster on that axis.
+  Works on a multi-selection (each screen centers on its own canvas), skips
+  locked screens, and centers rotated screens by their visible footprint.
+  In Pixel Map, a screen whose Show Look position still matches its Pixel
+  Map position keeps following, same as dragging. The items only appear in
+  Pixel Map and Show Look, the two views where screens can be positioned.
+- Right-clicking a screen that isn't selected now selects it first in those
+  two views, so the menu acts on the screen you pointed at.
 
-v0.7.5.30 - April 1, 2026
+v0.10.3 - July 16, 2026
 ----------------------------
-- SCR export: removed row cascade transformation — cable paths (custom and organized)
-  now pass straight through to encoder without modification
-- SCR encoder: handles NovaStar binary row convention internally (app row 0 maps to
-  binary row N-1 so NovaLCT displays correctly)
-- Fixes: shared-row ports (7/8) no longer broken, Port 9 no longer missing,
-  UPSTAGE cascade issue eliminated, phantom row shift fixed
+- FIX: Screen gradients (and multi-color palette fills) now render on the
+  Data and Power views. Those views drew the plain two-color checkerboard
+  only, so an enabled gradient silently disappeared when switching from
+  Pixel Map to Data or Power. The gradient draws under the borders, flow
+  lines, and labels; the circuit color-coded Power view keeps its flat
+  circuit colors for readability.
 
-v0.7.5.29 - March 31, 2026
+v0.10.2 - July 15, 2026
 ----------------------------
-- FIX: SCR export now respects the user's cable mode (custom or organized) for port grouping.
-  Custom cable paths define which panels go to which port — the app no longer overrides this.
-- NEW: NovaStar row cascade for custom cable mode: the bottom row automatically rotates from
-  the last port to the first port, and all other rows shift by one port. This matches the
-  NovaStar convention (bottom row first in chain) while preserving the user's port groupings.
-  Serpentine direction is corrected for each row based on its new position in the port.
-- Organized mode still uses the unitIndices rotation from v0.7.5.27 with rectangle constraint.
-- Reverts v0.7.5.28's forced organized mode which produced wrong port sizes.
+- FEATURE: Size by Wall Dimensions. A new checkbox in Screen Info lets you
+  enter the wall size you want (in ft, m, or px) and the app works out the
+  number of tiles for you - handy for quoting when you know the wall, not
+  the panel math. Pick a panel preset for the pitch, tick the box, type the
+  target width/height, and columns/rows fill in automatically (rounded to
+  the nearest whole tile - 17 ft on 500 mm tiles gives 10 tiles because
+  16.40 ft is closer than 18.04 ft). A readout shows the tile count and
+  the actual built size in m, ft, and px. Columns/Rows lock while the mode
+  is on; untick to edit them by hand again. The mode and targets are saved
+  per screen.
 
-v0.7.5.28 - March 31, 2026 (REVERTED)
+v0.10.1 - July 15, 2026
 ----------------------------
-- FIX: SCR export now ALWAYS uses organized algorithm with NovaStar rotation for port grouping,
-  regardless of whether the user is in custom cable mode. Custom cable paths are for on-screen
-  display only — the SCR binary automatically follows NovaStar conventions (bottom row first).
-- FIX: SCR export disables rectangle constraint, using pixel-sum capacity instead. This allows
-  the rotated bottom row to share a port with top rows (matching native NovaStar behavior).
-- FIX: For custom-mode screens, SCR export uses the stored lastFlowPattern (the pattern that
-  was active before switching to custom mode) to determine serpentine direction.
-- Supersedes v0.7.5.27 rotation-only fix which only worked for organized-mode screens.
+- FIX: Magnetic snap could land a dragged screen at the wrong position
+  (e.g. X = -40 instead of 0) when a far-away screen's edge happened to
+  line up with the dragged screen's opposite edge. Snapping now picks the
+  NEAREST snap target instead of the last one checked, raster edges win
+  ties, and a screen only snaps to other screens that overlap (or nearly
+  touch) it on the other axis - a screen in a different row/column no
+  longer grabs the drag.
+- TWEAK: Magnetic snap engages from a shorter distance (~14 screen px,
+  down from ~34, matching the canvas snap feel). It still scales with
+  zoom, but is now capped at 60 raster px so a zoomed-out view can't
+  snap a screen from a whole cabinet-width away.
 
-v0.7.5.27 - March 31, 2026
+v0.10.0 - July 13, 2026
 ----------------------------
-- FIX: SCR export 1-row offset — NovaStar convention places the last row first in the chain.
-  Organized mode now rotates unitIndices so the last row/column is processed first during
-  SCR export, matching native NovaStar file behavior across all screens. This fixes the
-  "bottom row at top, shifted 1 panel" bug that persisted through v0.7.5.22–v0.7.5.26.
-- The rotation only applies during SCR export; on-screen Data tab display is unchanged.
+- FEATURE: New launcher window. Opening the app now shows a control window
+  (in the app's studio style) with the server status and address, network
+  interface, port, browser selection, open-on-launch, run-at-login, and
+  start-minimized settings, plus Launch GUI / Hide / Quit. Hide (or closing
+  the window) tucks it away while the server keeps running; the menu-bar
+  icon (macOS) or system tray icon (Windows) brings it back and offers
+  Show Launcher / Open in Browser / Quit, just like before.
+- SECURITY: Remote clients now always save to their own machine. Exports and
+  saves from another device on the network download in that device's browser;
+  the host's native save dialogs and file writes are only reachable from the
+  host itself (remote requests are refused server-side).
+- FIX: Redo now restores an added screen. Previously the history snapshot
+  for "Add Layer" was taken before the add finished, so Undo then Redo
+  silently lost the new screen. (Found by the new automated browser tests.)
+- FIX: The Notes and Help panels (bottom right) remember whether you left
+  them expanded, so a page refresh no longer collapses them.
+- FIX: Dropdowns (Processing, Bit Depth, Frame Rate, and everywhere else)
+  show a chevron again so they read as dropdowns, not text boxes.
+- FIX: Dragging a screen card in the Screens panel shows the red insertion
+  line again (it had been hidden by the v0.9.0 restyle).
+- FIX: On macOS the launcher no longer leaves a dead icon in the Dock; the
+  app lives only in the menu bar, like before.
+- FIX: The canvas retries its initial auto-fit while the window lays out,
+  so a slow first paint can't leave a blank canvas at 0% zoom.
+- INTERNAL: Major code modularization (no behavior change). The backend
+  app.py is split into 10 route blueprints; the frontend app.js is split
+  into ES modules (app-core plus 8 feature modules and shared helpers).
+- FEATURE: Choose how the GUI opens.
+  - You can now pick which browser the GUI opens in (System default, or any
+    installed browser like Chrome, Firefox, Edge, Brave, or Safari) from the
+    tray / menu-bar menu under "Open With".
+  - New "Open Browser on Launch" toggle: opt in to open the GUI automatically
+    at startup. Off by default; use Launch GUI or the menu when you want it.
 
-v0.7.5.26 - March 31, 2026
+v0.9.4 - July 6, 2026
 ----------------------------
-- FIX: Custom cable mode SCR export now uses the actual customPortPaths the user drew instead
-  of recalculating port assignments via calculatePortAssignments(). Previously, flowPattern=custom
-  was parsed as a pattern string (vertical bottom-right serpentine), completely ignoring the
-  user's custom cable drawings.
-- FIX: Debug log labels hidden panels as "Hidden (port 0)" instead of "Port 0" for clarity.
-- Panels not assigned to any custom port are automatically included as hidden in the SCR output.
+- FEATURE: Built-in guided tours.
+  - Quick Start Guide: shows automatically the first time you open the app,
+    with a short spotlight walkthrough of the main areas. Skip at any time,
+    or check "Don't show on startup" to turn off auto-launch. Reopen it from
+    Help -> Quick Start Guide.
+  - Advanced Guide: a full, optional step-by-step walkthrough of the whole
+    app, including the five views, per-panel editing, multi-canvas, data and
+    power planning, snap, and export. Offered at the end of the Quick Start,
+    and available any time from Help -> Advanced Guide.
+- Both guides are fully offline and self-contained (no internet needed).
 
-v0.7.5.25 - March 31, 2026
+v0.9.3 - July 6, 2026
 ----------------------------
-- REVERT: Removed chain reversal from v0.7.5.24 — chain reversal made all ports backwards
-  without fixing the bottom-row-at-top issue. Root cause analysis shows the actual problem is
-  a 1-row offset in staircase panel visibility between the app layout and the native SCR.
+- FEATURE: Rotate a screen 90/180/270 (Screen Info -> Rotation). The screen
+  rotates in place across every view; content that falls outside the raster
+  is clipped, not moved.
+  - Pixel Map / Cabinet ID: cabinets and labels rotate; the corner X,Y
+    readouts stay upright, and Screen Info Offset X/Y shows the rotated
+    position.
+  - Show Look: rotates with the screen.
+  - Data / Power: cabinets, flow arrows, and the screen name rotate; the
+    port/circuit labels stay upright for readability.
+  - Selection, click/drag, panel blank/half/hide, and magnetic snap all
+    follow the rotation. PNG/PSD exports render rotated.
+- Magnetic snap is stronger and stays consistent across zoom levels.
+- Larger app logo in the toolbar.
 
-v0.7.5.24 - March 31, 2026
+v0.9.2 - July 6, 2026
 ----------------------------
-- FIX: SCR encoder now reverses chain indices to match NovaStar convention (chain=MAX at cable
-  entry / S1 indicator, chain=0 at chain end). Fixes "bottom row at top, shifted 1 panel" bug
-  across all screens. Verified against native 2026 EDC.scr reference file.
+- FIX: PSD export now preserves Transparent (no fill) screen interiors as
+  real layer transparency. Exports keep the PSD document RGB, write the
+  rendered alpha channel into each layer's transparency channel, and avoid
+  phantom layer-mask metadata that caused mask warnings in some PSD readers.
 
-v0.7.5.23 - March 30, 2026
+v0.9.1 - July 2, 2026
 ----------------------------
-- FIX: SCR debug log uses ASCII arrow (->) instead of Unicode arrow to fix Windows CI failure
-- FIX: SCR debug log file opened with explicit UTF-8 encoding for cross-platform compatibility
+- FEATURE: Transparent fill. A "Transparent (no fill)" checkbox in the
+  Colors panel renders a screen's cabinets see-through, only the borders
+  and labels draw, no checkerboard/palette/gradient fill. Pairs with the
+  Export dialog's Transparent Background option for overlays. Saved per
+  screen with the project.
 
-v0.7.5.22 - March 28, 2026
+v0.9.0.1 - June 28, 2026
 ----------------------------
-- REVERT: Removed chain reversal from v0.7.5.21 — chain=0 now stays at the cable entry point
-  (first panel in the flow pattern), matching the app's configured routing direction
-- DEBUG: Enhanced scr_debug.log with full chain-to-position mapping per port for direct
-  comparison with NovaStar/SmartLCT display
+- FIX: In the Export dialog, checked checkboxes (canvases, views, options)
+  now fill solid with a checkmark instead of showing only a colored
+  outline. A modal-input style was overriding the checked state.
+- Transparent Background is now checked by default in the Export dialog.
 
-v0.7.5.21 - March 28, 2026
+v0.9.0 - June 28, 2026
 ----------------------------
-- FIX: SCR encoder now reverses chain order for top-starting serpentine patterns (tr-*, tl-*)
-  so chain=0 is at the last panel (physical bottom of routing path), matching NovaStar convention
-- FIX: Chain reversal is skipped for bottom-starting (br-*, bl-*) and custom patterns which
-  already have chain=0 at the bottom (e.g., UPSTAGE custom pattern)
-- DEBUG: scr_debug.log chain=0 positions now reflect actual binary output after reversal
+Redesigned interface, new logo, and several fixes.
 
-v0.7.5.20 - March 28, 2026
+INTERFACE
+- The interface has been redesigned in a desktop, docked-panel style:
+  neutral-gray surfaces, titled panels, a system UI typeface, and a red
+  accent.
+- Selectable accent color in Preferences -> Appearance (red, blue,
+  green, amber, purple, teal); the choice persists across sessions.
+- Distinct desktop-style view tabs, chunky tactile sliders, and
+  segmented toggle controls, with a legibility pass throughout (brighter
+  text, clearer surface separation, readable Preferences cards).
+
+LOGO
+- New logo, used in the toolbar, the browser tab (favicon), the About
+  dialog, the macOS menu bar, the Windows tray, and as the app icon
+  (.app / .exe / installer).
+
+SIDEBARS
+- FEATURE: Resizable side panels, drag the inner edge of either sidebar
+  to widen or narrow it; the width persists per side. Works alongside the
+  existing collapse toggle.
+- Denser Screens/layer cards so more layers fit without scrolling.
+
+COLOR
+- Canvas group headers now take on the canvas's own identity color across
+  the whole header (the small color dot is removed); the active canvas is
+  marked with a white outline.
+- Clicking any color control opens the picker directly, the custom color
+  wheel on Windows, the native OS picker on macOS.
+
+FIXES
+- Power / Data per-canvas Totals now regroup by the show-canvas the
+  moment you switch to the tab. Previously a canvas whose screens live on
+  another canvas's processor could read 0 while one canvas showed the
+  whole project total.
+- The screen name on the Cabinet ID, Data, and Power tabs now defaults to
+  the same size as the Pixel Map label font size (was a hardcoded 30 that
+  ignored the label-font-size preference). Applies to new/refreshed
+  screens; existing saved screens keep their sizes.
+- On Pixel Map, Border, Circle with X, and Border Color moved to the
+  bottom of the Labels section.
+- In a narrow panel, checkboxes no longer shrink away; the Layer Size (ft)
+  "Fractions" toggle wraps to its own line instead.
+
+v0.8.11.1 - June 26, 2026
 ----------------------------
-- DEBUG: scr_debug.log now includes flowPattern, scrPortNumbers, cabinet dimensions, and chain=0 positions per NovaStar port
-- DEBUG: flowPattern is now included in the SCR export payload from JS to server
+Color picker: fix activation over the network.
 
-v0.7.5.19 - March 28, 2026
+- FIX: The custom color picker is now gated on the BROWSER's OS, not the
+  machine running the app. Previously it keyed off the server platform,
+  so a Windows browser connecting over the LAN to a Mac-hosted app got
+  the plain native picker instead of the custom one. Now any non-macOS
+  client (Windows, Linux, ChromeOS) gets the custom picker regardless of
+  what OS is hosting the app; macOS clients keep their native picker.
+
+v0.8.11.0 - June 26, 2026
 ----------------------------
-- DEBUG: SCR export now writes scr_debug.log to app logs/ folder with per-port panel ordering
-- DEBUG: Browser console logs [SCR DEBUG] port assignment summary on each SCR export
-- FIX: scr_debug.log path uses _LRD_LOG_DIR env var so it works in compiled builds
+Color picker: all five tabs complete (Windows color picker).
 
-v0.7.5.18 - March 28, 2026
+- FEATURE: Color Wheel tab. An HSV wheel sets hue (angle) and
+  saturation (radius); a Brightness slider below sets value. Click or
+  drag the wheel to pick, drag the slider to brighten/darken.
+- FEATURE: Color Palettes tab. Pick from the System palette or the 216
+  Web Safe colors as a named list, or save the current color to a
+  persistent Custom palette with the + button.
+- FEATURE: Image Palettes tab. A spectrum image (hue across, white →
+  saturated → black down); click or drag anywhere to sample a color.
+- FEATURE: Pencils tab. A crayon-style grid (48 named
+  colors); click a crayon to use it, its name shows below.
+- All tabs stay in sync with each other and the canvas updates live.
+  (macOS keeps its own native picker; this is the Windows replica.)
+- FIX: On Windows, the Pixel Map color swatches in the sidebar could
+  show the wrong screen's colors (two screens looked "swapped").
+  Selecting a layer now refreshes the visible color swatches to match
+  that layer. macOS was unaffected.
+
+v0.8.10.0 - June 25, 2026
 ----------------------------
-- FIX: SCR encoder multi-screen transition format corrected (json_len + json only, no pw/ph/flag prefix)
-- FIX: SCR encoder footer is now variable-length: 173 + (N-1)*40 bytes for N screens
-- FIX: header[0x0E] now stores footer_size as LE uint16 (was hardcoded 0xAD)
-- FIX: v0a formula corrected to fsize - footer_size - 182
-- FIX: sec2[0xD2] field corrected to v0a - len(transition)
-- FIX: Section marker now computed dynamically (FF 01 01 00 for SC1/SC2 port≤7, else [sc_idx, min_port, 0, 0])
-- Generated multi-screen SCR files now match native NovaStar file size exactly
+Custom color picker for Windows (macOS-style).
 
-v0.7.5.17 - March 28, 2026
+- FEATURE: A replica of the macOS Color picker, shown on Windows in
+  place of the OS color dialog. macOS keeps its own native picker.
+  - Compact swatch popover: vivid row, gray ramp, spectrum matrix.
+  - "Show Colors…" opens the full Colors window with the Sliders tab:
+    Grayscale, RGB (with hex field), CMYK, and HSB slider modes, all
+    live-updating each other and the canvas.
+  - Draggable window, current-color well, screen eyedropper (where the
+    browser supports it), and persistent saved-swatch wells.
+  - The remaining tabs (wheel, palettes, image, pencils) are stubbed
+    and arrive in later updates.
+- FIX: Border width fields now have the same up/down stepper arrows as
+  the Info field under Labels.
+- FIX: A new project's Show Look raster now matches the Preferences
+  raster size (e.g. 4K), instead of defaulting to 1080p.
+- FIX: macOS .dmg install window now displays correctly, the
+  background is sized to the window with a proper Retina (hi-dpi) TIFF,
+  so the "drag to Applications" art is no longer cropped/zoomed.
+- FIX: Network access regression. socket.io is now bundled and served
+  by the app instead of loaded from a CDN, so devices reaching the app
+  over the LAN no longer need internet. Previously, if the client's
+  browser couldn't load the CDN, the whole app failed to initialize
+  (blank, no screens, no interactions). Boot is also now resilient to
+  any socket failure so the project and controls always load.
+
+v0.8.9.0 - June 25, 2026
 ----------------------------
-- FIX: SCR encoder multi-screen hidden panels now use NovaStar placeholder convention
-- Hidden/stair-step panels written as sender=255, port=1, chain=1 (all panels in bounding box present)
-- Section size restored to cols*rows*17 — full bounding box always written
+Project fonts, per-layer border width, and a proper macOS installer.
 
-v0.7.5.16 - March 28, 2026
+- FEATURE: Project font. Choose a font for all on-canvas text
+  (screen names, Show Look labels, totals, etc.) in Preferences.
+  The picker lists the fonts actually installed on your computer
+  (Mac or PC), enumerated by the app, so no fonts need to be
+  bundled and it works in any browser, with a few recommended
+  quick-picks at the top.
+- FEATURE: Adjustable panel border width. Each screen layer now has
+  a border thickness in pixels (1-20), settable per Border type
+  (panel / cabinet / data / power). Travels with duplicate, copy,
+  and paste, and persists across save/load.
+- macOS: ships as a .dmg installer with a "drag to Applications"
+  window. Installing to /Applications is what lets macOS show the
+  Local Network permission prompt, which is required for the app to
+  be reachable over your network.
+- macOS: logs now live in ~/Library/Logs/LED Raster Designer/ and
+  presets in ~/Library/Application Support/LED Raster Designer/,
+  instead of next to the app. The download is now just the app.
+  (Windows logs/presets move to %LOCALAPPDATA%\LED Raster Designer.)
+
+v0.8.8.0 - June 17, 2026
 ----------------------------
-- FIX: SCR encoder multi-screen now excludes hidden panels entirely from the binary
-- Hidden panels are only used for port load calculations, never written as records
-- Section size now calculated from active panel count, not total cols*rows
+Gradients + multi-color cabinet palettes (standard).
 
-v0.7.5.15 - March 28, 2026
+- FEATURE: Gradient overlay on screens (Pixel Map / Show Look /
+  Cabinet ID). Composited on top of the checkerboard test pattern.
+  - Multi-stop editor: click the bar to add a stop, drag markers to
+    move, typeable hex + position per stop.
+  - Linear (typeable angle) and Radial with a movable center
+    (Center X/Y) and adjustable Size.
+  - Spread: Whole screen, or Each panel (gradient repeated on every
+    cabinet). "Alternate panels" mirrors every other COLUMN for a
+    woven wave look.
+  - Typeable Opacity, and the full standard blend-mode set
+    (Normal, Multiply, Screen, Overlay, Darken, Lighten, Color
+    Dodge/Burn, Hard/Soft Light, Difference, Exclusion, Hue,
+    Saturation, Color, Luminosity).
+  - Preset library with live color swatches: 22 built-ins (Spectrum,
+    Fire, Chrome, Copper, Sunset, etc.) plus Save current… for your
+    own; saved presets are per-browser. Built-in presets re-color the
+    current gradient only (they keep your type/radial/opacity/blend);
+    your own saved presets restore their full settings.
+- FEATURE: Multi-color cabinet palette. Pattern modes, Checkerboard
+  (default, unchanged), Diagonal wave, Cycle/sweep, By row, By
+  column, distribute an N-color palette across cabinets. Existing
+  screens stay on the 2-color checkerboard until changed.
+- All new gradient/palette settings persist with the project and the
+  live server round-trip; they bulk-apply across a multi-selection.
+
+v0.8.7.7.4 - June 16, 2026
 ----------------------------
-- FIX: SCR encoder multi-screen hidden panels produced port=255 in binary
-- Hidden panels (port=0 from JS) are now written with Active=0 sentinel, not routed through port counter
-- FIX: Hidden panel chain counter no longer bleeds into non-hidden panel chain ordering
+Data/Power Totals now break down per canvas instead of one ambiguous
+"active canvas" column.
 
-v0.7.5.14 - March 28, 2026
+- FIX: the "This Canvas" totals column keyed off the active canvas,
+  which is ambiguous on Data/Power (a layer has both a processor
+  canvas and a show canvas, and the active-canvas tracker flips
+  between them). Selecting a screen on one canvas could show another
+  canvas's numbers. Replaced it with a per-canvas breakdown.
+- FEATURE: the Totals panel on both Data and Power now lists every
+  visible canvas individually (by name) plus the "All Canvases"
+  grand total. Each canvas's numbers are grouped by its show-canvas,
+  matching where the screens actually render on those tabs. Hidden
+  canvases are excluded; single-canvas projects just show the one
+  "All Canvases" total.
+
+v0.8.7.7.3 - May 31, 2026
 ----------------------------
-- FIX: SCR encoder multi-screen section offset was wrong — sections placed at 0x155 instead of 0x13B+N*4
-- FIX: SCR encoder multi-screen section size formula corrected to 25+panels*17 (was 42+(panels-1)*17-15)
-- FIX: SCR encoder multi-screen pre-record used fixed 29-byte block; now dynamic 3+N*4 bytes
-- FIX: SCR encoder multi-screen section header now matches native 10-byte StandardScreen + Format A marker
-- FIX: SCR encoder section size table now writes u32LE per entry (was u16, corrupting entry 1)
-- FIX: SCR decoder format detection now handles any non-zero marker (not just FF010100)
+Screen-name labels: self-healing offsets + Show Look support.
 
-v0.7.5.13 - March 27, 2026
+- FIX (hidden screens): dragging a screen-name label that sits
+  behind an overlapping layer required hiding that layer first.
+  With the old snap-to-center clamp, dragging past the edge let
+  the *stored* offset balloon far past the panel (e.g. -1200 on
+  an 840px-tall screen) while the label stayed put, a corrupt
+  value that persisted in saved files and made the label feel
+  unmovable on the next drag. The renderer now HEALS the stored
+  offset back to the clamped value every frame (except during the
+  live drag), so runaway/corrupt offsets self-correct on the next
+  render, including right after opening an affected project, and
+  re-dragging always starts from where the label actually sits.
+- FEATURE: the click-to-drag screen-name label (and its edge
+  clamp + size/info bar tracking) now works on Show Look too, so
+  every one of the five tabs behaves the same. Show Look gets its
+  own per-tab label position (screenNameOffsetX/YShowLook),
+  saved with the project.
+- The edge-clamp constraint is now unified across all tabs: the
+  label box is pinned to the layer's edge instead of snapping to
+  center, and the whole label group moves as one unit.
+
+v0.8.7.7.2 - May 31, 2026
 ----------------------------
-- FIX: SCR importer now handles newer NovaStar format variant where header cols/rows are invalid
-- SCR decoder derives grid dimensions from panel pixel positions using GCD method when header is invalid
-- Also supports row-index variant where off+10 holds 0-based row indices instead of pixel positions
-- FIX: JS lint warning for unused variable in port assignment UI
+Dragged screen-name labels keep their size/info bar on Pixel Map.
 
-v0.7.5.12 - March 27, 2026
+- FIX: When a Pixel Map screen-name label was dragged far enough
+  that it crossed the layer's edge, the name snapped all the way
+  back to center while the size / "Columns × Rows • Cabinets…"
+  info bar kept the raw (now huge) offset and got clipped off the
+  panel, so the screen looked like it was "missing info" and the
+  name couldn't be nudged. This bit any frame whose name was
+  dragged up to sit above an overlapping window layer (ON SR
+  Frame, Center Frame, ON SL Frame, etc.).
+- FIX: The label now CLAMPS to the layer's edge instead of
+  snapping to center, so a name dragged upward pins to the top of
+  the panel (visible above an overlapping window) and stays there.
+- FIX: The center/size and bottom info bars now follow the name's
+  actual post-clamp position, so the whole label group always
+  moves as one unit and can never be flung off-bounds on its own.
+
+v0.8.7.7.1 - May 11, 2026
 ----------------------------
-- NEW: Import NovaStar SCR files — load screen layouts directly from .scr configuration files
-- SCR importer parses Format A and Format B sections, reconstructs cabinet grid and panel dimensions
-- Imported screens auto-set to Novastar Legacy processor with SCR export enabled
+Hidden layers are now properly out-of-bounds for editing.
 
-v0.7.5.11 - March 24, 2026
+- FIX: Hiding a layer now immediately removes it from the selection
+  (and demotes it as currentLayer if it was active). Without this,
+  a hidden layer stayed as currentLayer and the user could keep
+  click-dragging its (invisible) screen-name label, scratching the
+  cached _screenNameHitRect against stale geometry and leaving the
+  offset in a borked state when the layer was re-shown. Sidebar
+  property edits could also flow into a hidden layer. After the
+  fix, the moment a layer is hidden it's deselected; the
+  currentLayer is promoted to the next still-visible selected
+  layer, or the first visible layer in the project, or null.
+- FIX: The screen-name mousedown hit-test now also short-circuits
+  for layers with visible === false, so even if the cached rect
+  hangs around briefly it can't fire a drag. (And the cache is
+  cleared on hide.)
+- UX: Hidden layers in the right-sidebar layer list now carry a
+  much louder visual indicator, red diagonal-stripe overlay, a
+  red "HIDDEN" badge in the info line, strikethrough on the layer
+  name, a red-tinted visibility button showing 🚫 instead of 👁,
+  and the name field + reorder arrows are pointer-locked so the
+  row really reads as "off-limits" at a glance.
+
+v0.8.7.7 - May 11, 2026
+----------------------------
+Screen-name labels are now grabbable on every tab.
+
+- FEATURE: Click directly on a screen's name label (the white
+  box) and drag to reposition. Works on Pixel Map, Cabinet ID,
+  Data Flow, and Power, no Shift modifier required. The label
+  rect is hit-tested in workspace coords so it lines up across
+  multi-canvas layouts, Back-perspective canvases, and Show Look
+  offsets. Plain Shift+drag still moves the whole layer on Pixel
+  Map (its primary layer-position gesture), unchanged.
+- The associated label group moves with the screen name as one
+  unit: on Data Flow / Power the "X Mains, Y Backups | Z Ports"
+  or "X Multi, Y Circuits | A1ph / A3ph" center info follows; on
+  Pixel Map the "Columns × Rows • Cabinets • Resolution • Aspect
+  Ratio • Weight" info bar at the bottom shifts by the same
+  offset.
+- Position persists per-tab. Pixel Map gets its own
+  screenNameOffsetXPixelMap / screenNameOffsetYPixelMap fields
+  alongside the existing Cabinet / Data / Power offsets, so each
+  view keeps its own label arrangement.
+
+v0.8.7.6 - May 11, 2026
+----------------------------
+Sidebar refresh after deleting a layer.
+
+- FIX: Deleting a layer left the sidebar's panel-property inputs
+  (cabinet_width, cabinet_height, columns, rows, etc.) showing the
+  DELETED layer's values. The next "Update Properties" round-trip
+  read those stale values out of the inputs and wrote them onto the
+  newly-promoted surviving layer, silently clobbering its real
+  panel dimensions while the on-canvas panels stayed sized
+  correctly (panel geometry is already baked into layer.panels).
+  Repro: add a screen from a small-panel preset (e.g. VN 8.3 with
+  60x120 cabinets), delete the default Brompton screen (192x384
+  cabinets), then edit the surviving screen's column count, its
+  cabinet field silently flipped to 192x384.
+  Fix: deleteCurrentLayer now refreshes the layer-property inputs
+  via loadLayerToInputs() after the post-delete currentLayer
+  reassignment, so the sidebar matches the actual surviving layer.
+
+v0.8.7.5 - May 11, 2026
+----------------------------
+Per-canvas filename override in the export modal.
+
+- FEATURE: Each canvas row in the export dialog now has a "Name"
+  text input next to the perspective dropdowns. Typing a value
+  there overrides the canvas's project name in the exported
+  filename only, the canvas's stored name (sidebar / project
+  file) is untouched, so the override is a per-export
+  customization rather than a permanent rename. Placeholder shows
+  the canvas's current project name so it's clear what's being
+  replaced. Empty input falls back to the project name. Override
+  also forces the canvas segment to appear in single-canvas
+  exports (otherwise typing a name and seeing no change in the
+  filename would be confusing).
+
+v0.8.7.4 - May 11, 2026
+----------------------------
+Export filename naming convention.
+
+- CHANGE: Export filenames now use underscore separators and order
+  segments as project_view_canvas (was project - canvas - view with
+  spaced hyphens). Alphabetical sort in the export folder now groups
+  files by view: all Pixel Maps cluster, then all Data Maps, then
+  all Power Maps, etc., far easier to hand a tech a folder of 20+
+  exports. Internal spaces in user-typed project / canvas / view
+  names are preserved.
+  - Single-canvas:  "MyProject_Pixel Map.psd"
+  - Multi-canvas:   "MyProject_Pixel Map_SR Beach.psd"
+  PDF page labels (used inside the document, not as filenames) are
+  unchanged.
+
+v0.8.7.3 - May 11, 2026
+----------------------------
+Three follow-up fixes after v0.8.7.1 preview testing.
+
+- FIX: Screen-name labels (and every other client-side-only layer
+  field, label sizes, power voltage/amperage, custom port paths,
+  power circuit colors, etc.) reverted to their pre-drag value any
+  time a canvas-level mutation went through the server: perspective
+  toggle, canvas rename, canvas visibility, canvas resize, etc.
+  _applyProjectUpdate was collecting the pre-update client-side
+  props into savedClientProps and then never applying them; the
+  follow-up branch was guarded on a method that doesn't exist
+  (`this.applyClientSideProperties`), so the restore was silently
+  skipped on every multi-layer / loaded project. Net effect: the
+  user dragged the screen-name label, the offset only lived on the
+  in-memory layer object, then the next canvas PUT round-trip
+  replaced the layer with the server's version (which doesn't track
+  screen-name offsets) and the label snapped back. Fix: actually
+  copy savedClientProps onto the fresh layer objects after
+  `this.project = data`. Also includes a per-canvas mirror
+  compensation on the offset so Front<->Back toggling keeps the
+  label visually on the same side of the layer's center.
+- FIX: Custom drag-select on Data Flow / Power tabs showed no
+  panel highlight on multi-canvas projects, on canvases in Back
+  perspective, or on Show Look views. selectPanelsInRect /
+  selectPowerPanelsInRect already mapped the marquee correctly
+  into panel coords, but the render-time overlay drew the
+  highlight fills at workspace (0,0) without the layer's canvas
+  workspace offset, perspective mirror, OR per-layer Show Look
+  offset, AND was clipped to the legacy single-canvas raster
+  rectangle, so the highlight ended up off-screen or clipped away.
+  Both overlays now share a single helper
+  (_withOverlayLayerTransform) that wraps the full per-layer
+  render transform stack from the main render loop.
+- FIX: Loading a project file silently rewrote the active canvas's
+  raster size. The file-load path blindly wrote projectData
+  .raster_width into canvasRenderer.rasterWidth, but that setter
+  routes to either the active canvas's raster_width or
+  show_raster_width depending on the current tab. When the saved
+  file's root-level raster mirror reflected the Show Look raster
+  (because the user last saved on a Show Look tab), this clobbered
+  the canvas's actual pixel raster with the show value. Now
+  skipped entirely for multi-canvas files, the per-canvas raster
+  on each canvas object is the source of truth and is restored
+  intact via syncRasterFromProject().
+
+v0.8.7.1 - May 10, 2026
+----------------------------
+Polish pass on label readability and the port/circuit override editor.
+
+- FIX: BACK VIEW badge sized for any zoom. The fixed-size badge would
+  cover ~25% of a small canvas at zoom-out and felt undersized when
+  zoomed in. Now scales with the canvas's on-screen pixel width
+  (~10%, capped 9-13px font), and is hidden entirely when the canvas
+  is smaller than ~110px on screen so it can't dominate. Label
+  shortened to "BACK" for compactness.
+- FIX: Power circuit + Data port labels overflowing the screen edge
+  now shift their center inward to stay fully visible instead of
+  getting clipped. The user-set label size is rendered as-is (slider
+  works freely up to its 200px max), the circle grows with text width
+  so labels are never clipped by the circle, and the only constraint
+  is the screen's outer edge, when a label would extend past it, the
+  label slides inward so it stays fully on the screen.
+- UI: Port / Circuit override editor uses the full sidebar width.
+  Replaced the wide "Port N" / "Circuit N" text with a compact bold
+  monospace number column, removed list/input padding, and broke the
+  list out of the panel-content padding with negative margins. The
+  primary + backup inputs are now ~80px each (was ~38px), so labels
+  like "SL-B1" fit without truncation.
+
+v0.8.7 - May 5, 2026
+----------------------------
+- FEATURE: PSD export Resolution Scale option (1x / 2x / 4x / 8x).
+  When chosen, the PSD is rendered at scale × native raster resolution.
+  Vector content (panels, labels, arrows, text) renders crisp at the
+  higher size, no upscaling artifacts when zooming in or printing
+  large in standard image editors. Image layers will sample up from their source
+  resolution, so they look softer if the source is lower res.
+  PSD layer metadata (offsets / widths / heights) is scaled to match
+  so layer rectangles still line up with the rendered pixels.
+  Scale option is hidden for PNG / PDF / Resolume XML formats.
+  Auto-clamps per canvas + view to keep PSD dimensions under 16000px
+  (browsers cap 2D canvas dimensions at 16384 in Chrome / 32767 in
+  Firefox, so we use the conservative limit; PSD format itself goes
+  to 30000 but the rendered image has to fit in a browser canvas
+  first). A status message reports the actual scale used if it had
+  to be reduced.
+- FIX: Pillow's default 89-megapixel "decompression bomb" guard was
+  rejecting large PSD scale exports server-side. Disabled for our own
+  trusted renderer input.
+- FIX: Per-canvas Front/Back perspective dropdowns in the Export modal
+  now update the filename preview live (was reading the underlying
+  canvas state, ignoring the user's modal override).
+- FIX: Screen-name labels on Cabinet ID / Data Flow / Power were
+  snapping back to their previous position whenever the user clicked a
+  layer in a different canvas. `setActiveCanvas` was overwriting the
+  whole `this.project` object with the server response (which doesn't
+  carry the client-side-only `screenNameOffset*` per-view fields), so
+  the freshly-dragged label position got wiped every canvas switch.
+  Now syncs only `active_canvas_id` from that response.
+- FIX: Native-save-dialog file write was failing on large PSD blobs
+  (26 MB+) because the client was JSON-encoding the entire base64 data
+  URI and the resulting ~36 MB JSON string allocation either OOM'd or
+  arrived at the server with an empty body (logged as
+  `has_data: false`). Switched to multipart/form-data so the blob
+  streams to the server without the giant string allocation.
+- FIX: PSD export errors now surface the actual server error message
+  (e.g., dimension limit, out-of-memory) instead of a generic
+  "Failed to create PSD".
+
+v0.8.6.3 - May 5, 2026
+----------------------------
+Audit follow-ups for the Show Look canvas-membership refactor. Several
+code paths were still routing through Pixel Map's `canvas_id` even
+when the user was working in Show Look / Data / Power.
+
+- FIX: PSD export. The per-canvas layer-list filter was reading
+  `view.viewMode` (which doesn't exist) instead of `view.view`, so
+  Show Look / Data / Power PSDs always grouped layers by Pixel Map
+  canvas membership. PSD layer offsets in show-view PSDs also used
+  raw processor coords; they now apply the `(showOffset - layer.offset)`
+  shift the renderer applies, so PSD layer rectangles line up with
+  the rendered pixels.
+- FIX: Sidebar ▲▼ arrow enable/disable and within-canvas reorder were
+  grouping by `canvas_id` even on Show Look. After v0.8.6.1 grouped the
+  sidebar by `show_canvas_id`, the arrows were operating on a different
+  group than the user could see. Both now route through the
+  view-effective canvas.
+- FIX: Duplicate Layer (Cmd/Ctrl+J) and Paste Layer (Cmd/Ctrl+V) on
+  screen / image / text layers were dropping `showOffsetX/Y` and
+  `show_canvas_id`, so the new layer snapped back to mirror Pixel Map.
+  Now carries the source's Show Look position (with the same +50px
+  offset applied to processor + show offsets) and Show Look canvas
+  membership.
+- FIX: Clicking a layer now activates its Show Look canvas in show
+  views (instead of always the Pixel Map canvas), and the
+  active-canvas selection prune uses the view-effective canvas. Selecting
+  a Show-Look-reassigned layer no longer flips the active canvas back to
+  its Pixel Map home.
+- FIX: Per-canvas Data Flow / Power totals (sidebar Totals panel) on the
+  Data Flow / Power tabs now count by `show_canvas_id || canvas_id`
+  instead of `canvas_id`, so the per-canvas Watts / Amps / Circuits
+  numbers reflect what's wired in Show Look.
+- FIX: Cross-canvas Shift+Drag in Show Look with a multi-canvas
+  selection (layers from c1, c2, c3 all selected together) was only
+  moving layers that shared the primary's source canvas. Layers from
+  other canvases were silently filtered out. Now ALL unlocked selected
+  layers move to the drop target, and each one gets its own showOffset
+  compensation based on its own source canvas's show_workspace.
+
+v0.8.6.2 - May 5, 2026
+----------------------------
+- FIX: Marquee select on Show Look / Data Flow / Power was hit-testing
+  layers using their Pixel Map canvas position instead of their Show
+  Look canvas position. Result: drawing a selection rect inside one
+  canvas could pick up layers that visually live in different canvases
+  (because their processor coords overlap once you collapse the
+  workspace). The hit-test now routes through `show_canvas_id` and
+  `show_workspace_x/y`, and adds the per-layer `showOffsetX/Y`, so the
+  rect math matches what's drawn on screen.
+- FIX: Same routing applied to per-panel marquee selection on Data
+  Flow custom-flow mode and Power custom-power mode (they use the same
+  workspace-offset helper internally).
+
+v0.8.6.1 - May 5, 2026
+----------------------------
+- FIX: Screens sidebar (right panel) was always grouping layers by
+  Pixel Map canvas membership (`canvas_id`), even on Show Look / Data /
+  Power. So after shift+dragging a layer to a different canvas in
+  Show Look, the canvas correctly redrew under the new canvas's outline
+  but the sidebar still showed it under the old canvas, making it look
+  like the move didn't take. Now the sidebar groups by the layer's
+  view-effective canvas (`show_canvas_id || canvas_id` in Show Look,
+  `canvas_id` in Pixel Map), and re-renders on tab switch so it always
+  matches what's on screen.
+- FIX: Sidebar layer count badge per canvas now reflects the same
+  view-effective grouping, so the count matches the rows shown.
+- FIX: Dropping a layer onto another canvas's group header in the
+  sidebar while on Show Look / Data / Power now sets `show_canvas_id`
+  (the Show Look override) instead of rewriting `canvas_id`. Pixel Map
+  / Cabinet ID drops still rewrite `canvas_id` as before.
+
+v0.8.6 - May 5, 2026
+----------------------------
+- FEATURE: Per-canvas wiring perspective. Front / Back perspective is now
+  truly independent per canvas in Data Flow and Power views, c1 can show
+  Front while c2 shows Back at the same time on screen. Previously the
+  perspective field was per-canvas in data, but the renderer applied a
+  single global mirror to the whole workspace based on the active canvas,
+  so toggling Back on one canvas visually flipped them all (or none).
+- FEATURE: Per-canvas perspective overrides in the Export dialog. Each
+  canvas row in the Canvases section now has Data: Front/Back and
+  Power: Front/Back dropdowns. Set them per canvas before export, the
+  values are applied just for the export pass and then restored.
+  Defaults to whatever the canvas currently shows on screen.
+- CHANGE: BACK VIEW badge anchors to each mirrored canvas's top-right
+  corner instead of the global viewport corner. Mixed-perspective
+  workspaces show one badge per back-view canvas.
+- INTERNAL: Hit-testing (Shift+Drag, marquee, right-click on Data /
+  Power) now picks the mirror axis from the canvas under the cursor
+  instead of the workspace bounding box, so cross-canvas drags land
+  correctly when canvases are in different perspectives.
+
+v0.8.5.4 - May 4, 2026
+----------------------------
+- FIX: Multi-view export (PNG / PSD / PDF) on Show Look / Data / Power
+  was panning the export viewport by canvas.workspace_x/y instead of
+  show_workspace_x/y when those tabs render. Result: every Show Look /
+  Data / Power export came out shifted to the left from where the user
+  positioned the canvas in Show Look. Now the export pan uses the same
+  workspace position the renderer uses on screen for that view.
+
+v0.8.5.3 - May 4, 2026
+----------------------------
+- FIX: Dragging a canvas in Show Look also moved it on Pixel Map.
+  Canvases had a single workspace_x/y field shared across both views.
+  Now canvases have a per-view workspace position: workspace_x/y for
+  Pixel Map / Cabinet ID, and an optional show_workspace_x/y for
+  Show Look / Data / Power (falls back to workspace_x/y when null).
+  Show Look canvas drags only write the show_workspace fields. Pixel
+  Map drags only write workspace.
+- FIX: PUT /api/layer/<id> writable list was missing show_canvas_id,
+  so the per-layer Reset button was setting it to null on the client
+  but the server silently ignored the null and the show-canvas
+  override stayed in place. Reset now actually clears it.
+- IMPROVE: Both Reset buttons (per-layer and project-wide) also clear
+  the new show_workspace_x/y override so canvas positions in Show Look
+  re-pin to their Pixel Map positions.
+- Renderer helpers: new _canvasWorkspace(canvas) returns the right
+  workspace position for the active view; used by canvas hit-tests,
+  edge-drag start, layer workspace offset, layer-canvas zoom, workspace
+  bounding box, and the canvas render loop.
+- FIX: Canvas overlap toast and snap-to-neighbor on Show Look were
+  reading workspace_x/y instead of show_workspace_x/y, which gave false
+  "Canvases overlapping" warnings (especially when snapping) because
+  the bounds reflected the stale pixel-map positions instead of the
+  actual show-look positions.
+
+v0.8.5.2 - May 4, 2026
+----------------------------
+- FIX: Pixel Map and Show Look rasters are now fully independent. The
+  toolbar raster edit had an "auto-link" path: when the two raster sizes
+  matched before the edit, changing the Pixel Map raster also wrote the
+  Show Look raster on the same axis. This contradicted the v0.8.5
+  independence design (Pixel Map = processor layout, Show Look = stage
+  layout). Each toolbar edit now writes ONLY the raster for the view
+  the user is on.
+- IMPROVE: "Reset to Pixel Map Position" button now ALSO re-links the
+  Show Look raster of every canvas touched by the selected layer(s)
+  back to its Pixel Map raster. One click fully restores Show Look to
+  mirror Pixel Map (position + canvas membership + raster size).
+- FEATURE: New "Reset Entire Show Look" button in the Show Look sidebar
+  (under the per-layer Reset). One click resets EVERY screen layer's
+  show position to its Pixel Map position, clears every show_canvas_id
+  override, and re-links every canvas's show raster to its Pixel Map
+  raster across the whole project. Undoable in one Cmd+Z step.
+
+v0.8.5.1 - May 4, 2026
+----------------------------
+- FIX: Cross-canvas Show Look drag correctly compensates the layer's
+  showOffsetX/Y for the canvas swap. showOffsets are stored relative to
+  the layer's canvas's workspace position; without compensation a layer
+  dropped from canvas 2 into canvas 1 in Show Look kept its c2-relative
+  offset, but rendered at (c1.workspace + that_offset), so it visually
+  jumped (often off-screen, with extreme negative offsets like -1220).
+  Now offsets are adjusted by (oldCanvas.workspace - newCanvas.workspace)
+  so the layer stays exactly where the user dropped it.
+
+v0.8.5 - May 4, 2026
+----------------------------
+- FEATURE: Show Look (and Data + Power, which render at the show layout)
+  now has its own independent canvas membership per layer, separate from
+  Pixel Map / Cabinet ID. New `show_canvas_id` field per layer, defaults
+  to null (= mirror canvas_id). Cross-canvas drag in Show Look sets it
+  WITHOUT touching canvas_id, offset_x/y, or panel geometry, so a screen
+  you drag from canvas 2 into canvas 1 in Show Look is in canvas 1 for
+  Show Look / Data / Power but stays in canvas 2 for Pixel Map / Cabinet
+  ID. Cross-canvas drag in Pixel Map keeps the existing behavior of
+  fully reparenting (resets show_canvas_id too).
+- IMPROVE: "Reset to Pixel Map Position" button in the Show Look sidebar
+  now also clears show_canvas_id, so one click fully snaps the layer back
+  to mirror its Pixel Map canvas + position.
+- New endpoint: PUT /api/layer/<id>/show_canvas accepts {show_canvas_id:
+  "..." | null}. Sends a single layer_move_to_show_canvas log event.
+- Renderer: per-canvas layer grouping, layer-canvas workspace offset,
+  hidden-canvas filter, zoom-to-layer, and cross-canvas drop hint all
+  resolve via the new helper `_effectiveLayerCanvasId(layer)` which
+  returns show_canvas_id || canvas_id when in a show-look-like view.
+- PSD export per-canvas filter respects show_canvas_id when exporting
+  Show Look / Data / Power views.
+
+v0.8.4 - May 4, 2026
+----------------------------
+- FIX: Drag-selecting layers with a marquee on Data / Power / Cabinet ID
+  / Show Look would silently drop any layers belonging to the non-active
+  canvas on the first try (the second attempt would catch them). Cause:
+  selectLayersInRect auto-activated the new primary layer's canvas
+  WITHOUT preserveSelection, so the cross-canvas selection it had just
+  built was wiped by the canvas switch. Now passes preserveSelection so
+  the multi-layer marquee works first try across canvas boundaries on
+  every tab.
+
+v0.8.3 - May 4, 2026
+----------------------------
+- IMPROVE: Text label "Show On Tabs" group now includes Show Look. The
+  Show Look tab was missing from this list, so there was no way to hide
+  a text label there. Defaults to on so existing projects don't change.
+- IMPROVE: Moved the "Override content for this tab" checkbox down next
+  to the Show On Tabs group so the per-tab visibility and per-tab content
+  controls live together.
+- IMPROVE: Text label content is now shared across all tabs by default.
+  Type once and the same text shows on Pixel Map, Cabinet ID, Data, and
+  Power. A new "Override content for this tab" checkbox under the Text
+  Content field lets you break out an individual tab onto its own text
+  when needed (mirrors the existing per-tab visibility pattern). The tab
+  indicator now reads "SHARED ACROSS TABS" or "(tab) OVERRIDE" so it's
+  clear which mode you're editing in. Old projects still render: if a
+  pre-v0.8.3 file had content only in the per-tab fields, those values
+  are still picked up.
+- FIX: Shift+drag of a text label only moved the layer on Pixel Map and
+  Show Look. On Cabinet ID / Data / Power the click was hijacked by the
+  screen-name-label drag handler (which is meant for screen layers, not
+  text/image layers). Text and image layers now always move as a whole
+  layer on shift+drag regardless of view mode.
+- FIX: Canvas dashed-outline drag was active on every tab, so a stray
+  click near the edge of a canvas on Cabinet ID / Data / Power could
+  reposition the canvas in the workspace. Canvas drag is now restricted
+  to Pixel Map and Show Look (the two views that actually drive layout).
+
+v0.8.2 - May 4, 2026
+----------------------------
+- FIX: Custom Data Flow + Custom Power buttons (Next/Prev circuit, Clear
+  Circuit, Clear All, jump-to-circuit, panel click, Pattern Apply,
+  keyboard shortcut step) only mutated client-side state and never PUT
+  to the server. The next time something else triggered a real PUT (Mode
+  Toggle, layer reselect, etc.), the server's stale view would either
+  overwrite the client or the client would push a collapsed snapshot of
+  the current circuit/port back, wiping all the other circuits/ports
+  the user had just configured. Every Custom mutation now PUTs after
+  the local change so the server stays authoritative.
+- FIX: Custom mode toggle (Data Flow + Power) was firing twice per
+  click on some platforms (observed: macOS WKWebView, two change events
+  ~370ms apart). Single click ended up flipping state back to where it
+  started. Added a 600ms re-entrancy guard on each toggle so the second
+  spurious change event is dropped.
+
+v0.8.1 - May 4, 2026
+----------------------------
+- FIX: Duplicating a screen layer that contained half-tile panels
+  stripped the half-tile state from the new layer, the duplicate came
+  back with all panels at full size. Client now sends a full per-panel
+  state list (halfTile + hidden + blank) and the server rebuilds the
+  duplicate's panel geometry from those states so column widths and
+  row heights match the source.
+
+v0.8.0 - May 4, 2026
+----------------------------
+MULTI-CANVAS RELEASE. Projects can now contain multiple independent
+canvases (think one screen per processor). Each canvas has its own raster size,
+its own workspace position, its own perspective, and exports as its own
+file (or its own page in PDF / its own Screen in Resolume XML).
+
+Highlights:
+- Multi-canvas project model (format_version: "0.8"). Auto-migrator
+  upgrades v0.7 projects on load and emits a one-time toast asking the
+  user to save in the new format. v0.7 builds opening a v0.8 file get a
+  clean "format newer than supported" error.
+- Canvas list in the right sidebar with per-canvas + Add, color swatch,
+  rename, delete, duplicate, drag-reorder, and visibility toggle.
+- Per-canvas raster (Pixel Map and Show Look). Toolbar Raster: WxH
+  reads/writes the active canvas. Each canvas's layers render relative
+  to its own origin.
+- Per-canvas perspective (Front/Back) for Data Flow + Power. Mirror axis
+  is the workspace bounding box so multi-canvas Back view stays on
+  screen and Fit-to-View works correctly.
+- Drag layers between canvases (workspace + sidebar). Snap to (0,0) on
+  drop. Cmd/Alt+drag to duplicate.
+- Drag canvases by their dashed outline. Magnetic snap to neighbor
+  edges (abut + align). Default gap between auto-placed new canvases is
+  zero (was 50 px).
+- Hidden canvases excluded from sidebar Totals, capacity / power tallies,
+  and exports. Sidebar layer rows dim with the eye toggle remaining
+  bright for re-enable.
+- Per-canvas + project Totals panels in the Data Flow and Power tabs.
+- Text-layer dynamic info gains a Scope dropdown: "This Canvas",
+  "All Canvases", or "Both" for the parent canvas's totals + project
+  totals.
+- Multi-canvas export: PNG (one file per canvas x view), PSD (per
+  canvas+view, layer list filtered to that canvas), PDF (multi-page,
+  one page per canvas x view, headed with the canvas name), and
+  Resolume XML (one <Screen> per canvas, named after the canvas, with
+  its own OutputDeviceVirtual sized to that canvas's raster).
+- New screens added to a canvas inherit hardware settings (processor,
+  voltage, amperage, panel size, panel watts) from the most recently
+  added screen in that same canvas, so each canvas behaves like its own
+  preset bucket.
+- "+ Add Canvas" honors a Default Canvas Size preference.
+
+Bug fixes the multi-canvas work uncovered:
+- Undo now reverts exactly one action. Previously every v0.8 mutation
+  (drag, canvas CRUD, cross-canvas move) called saveState BEFORE the
+  mutation, so one Cmd+Z silently reverted two actions. Every v0.8
+  saveState now runs AFTER the mutation, restoring v0.7 behaviour.
+- 0-byte JSON saves on cloud-synced folders fixed. Skip Chrome's
+  showSaveFilePicker on localhost (Chrome rejects createWritable on
+  Nextcloud / iCloud / Dropbox paths) and route through the native
+  server-side save dialog instead. Same fix applied to multi-file
+  exports.
+- "100%" zoom now means 1 raster pixel = 1 device pixel. Previously
+  100% on Retina rendered at 2x the actual pixel pitch.
+- Settings sidebar now refreshes after a cross-canvas drag's snap so
+  X/Y inputs match the new (0,0) without a deselect/reselect.
+- Custom port / power circuit assignment now rejects panels already
+  wired to a different port or circuit (toast names the conflict).
+- Text layer text now clips to its own box, no more spillover into
+  neighboring canvases.
+- Click-on-overlay (text/image floating on top of a screen) now selects
+  the overlay instead of starting a panel-select on the hidden screen
+  underneath.
+- Em dash characters removed everywhere (UI text, comments, docs).
+
+v0.7.7.4 - May 1, 2026
+----------------------------
+- FIX: Show Look / Data / Power renders dropped pieces of layers whose
+  show offset shifted the layer past where the active raster started in
+  processor coords. Specifically: panels, layer labels, screen names,
+  cabinet ID numbers, data-flow arrows, power-circuit arrows, layer
+  offset labels, and circle-with-X test patterns all clipped against
+  raster bounds in *local* (per-layer translated) space instead of
+  *screen* space, so the right side of show-shifted layers got cut off
+  whenever the raster was narrower than the layer's processor right
+  edge. Symptom: shrink the show raster below a layer's processor
+  width, then grow it back, half the layer's panels and all its
+  labels stayed missing in Show Look / Data / Power even though the
+  layer was visually inside the new raster bounds.
+  Root cause: each renderer had its own
+    ctx.rect(0, 0, rasterWidth, rasterHeight); ctx.clip();
+  inside the per-layer ctx.translate(dx, dy) block. Centralised the
+  pattern into a translate-aware _clipToActiveRaster() helper that
+  compensates for the active per-layer translate so the clip always
+  lands on the screen-space raster boundary.
+- FIX: "CANNOT FIT COMPLETE COLUMN" / capacity-error red overlays in
+  Power and Data Flow rendered at the layer's pixel-map position even
+  when the layer was moved in Show Look. Both overlays now use
+  getLayerBoundsInActiveView so the badge follows the layer's show
+  position.
+
+v0.7.7.3 - May 1, 2026
+----------------------------
+- FIX: Panel catalog refresh failed in the macOS bundled app with
+  "Couldn't reach GitHub". Root cause: Python's stdlib ssl module
+  inside the PyInstaller .app couldn't find the system CA cert
+  store, so every HTTPS handshake to raw.githubusercontent.com
+  failed. We were already bundling certifi for this exact reason
+  but never actually pointing urllib at it. Now the refresh route
+  builds an SSL context with cafile=certifi.where() so verification
+  succeeds in both dev and bundled builds.
+- UX: Refresh button now properly suppresses spam clicks (previously
+  9 stacked fetches were possible while it said "Refreshing…"),
+  has a hard 15s client-side AbortController timeout so a hung
+  request can't pin the UI, and surfaces the underlying server
+  error in the failure toast instead of just "couldn't reach".
+- LOGS: Server now logs panel_catalog_refresh_start/done/error so
+  failures can be diagnosed without guessing whether the request
+  reached Flask.
+- INFRA: Release workflow auto-publishes tagged releases instead of
+  leaving them as drafts (was the reason /releases/latest pointed
+  at v0.7.6.4 even though .7.0/.1/.2 had been built).
+- DELETE: Removed broken v0.7.7.2 release from GitHub Releases
+  (catalog refresh never worked on macOS in that build).
+
+v0.7.7.2 - May 1, 2026
+----------------------------
+- FEATURE: Panel catalog can now be refreshed live from GitHub without
+  reinstalling the app. The Add Screen modal has a "↻ Refresh" button
+  in the Panel Catalog header that pulls the latest panel_catalog.json
+  from the repo. The fetch is proxied through the Flask backend so it
+  works regardless of browser CORS or corporate firewall quirks.
+  A small source tag next to the button shows whether the catalog is
+  "Bundled" (shipping default) or "Updated <date>" (refreshed).
+  On boot, the app does a silent background check against upstream;
+  if a newer catalog exists, the source tag turns into a blue
+  "📦 Update available · click to apply" pill that swaps in the new
+  data with a single click. Refreshed catalog persists in localStorage
+  so it survives reloads, per browser, not per project.
+- FIX: Panel correction / new-panel submissions were silently dropping.
+  The "Submit a correction or add a panel" link opens a pre-filled
+  GitHub new-issue page, but users were closing the tab without
+  clicking the green "Submit new issue" button on GitHub itself,
+  so the submission never reached the repo. Added an explicit confirm
+  dialog before opening the tab and an inline note under the link
+  spelling out the extra step. Also created the missing
+  "spec-correction" and "add-panel" GitHub labels server-side so
+  future submissions are filterable on the issues page.
+
+v0.7.7.1 - May 1, 2026
+----------------------------
+- FEATURE: Favorites for the Add Screen picker. Click the heart icon on
+  any row in the Panel Catalog to add it to the left column alongside
+  your saved presets. Hearted panels stay there forever (per user, not
+  per project) so you don't have to scroll the catalog every time you
+  add the same panel. Drag any row in the left column to reorder,
+  favorites and presets mix freely. Click the filled heart to remove a
+  favorite. Default is always pinned at the top.
+
+v0.7.7.0 - May 1, 2026
+----------------------------
+- FEATURE: Front/Back view perspective toggle for Data Flow and Power
+  tabs (Issue #31). Each tab has its own independent Front/Back toggle
+  in the sidebar. Back view horizontally mirrors the canvas geometry
+  (so wiring matches what you actually see standing behind the wall)
+  while keeping every text label readable. A "BACK VIEW" badge shows
+  in the top-right corner of the canvas whenever Back is active. On
+  export, the filename suffix for that view auto-appends "_back" when
+  in Back perspective so front/back artwork doesn't collide.
+
+v0.7.6.4 - May 1, 2026
+----------------------------
+- FIX: Collapsing a sidebar left a black strip on the canvas where the
+  sidebar used to be. The canvas wrapper grew with the freed space but
+  the canvas element kept its pre-collapse pixel dimensions because
+  setupCanvas() ran during the CSS width transition (before the wrapper
+  reached its final size). Canvas resize now fires at multiple points
+  during and after the transition so the canvas always fills the full
+  available width.
+
+v0.7.6.3 - May 1, 2026
+----------------------------
+- FEATURE: Collapsible side panels. A small chevron tab on the inner
+  edge of each sidebar collapses/expands the panel independently. The
+  toggle anchors to the sidebar's actual edge via ResizeObserver so it
+  stays in place at any window/sidebar size. Collapsed state persists
+  in localStorage per side.
+- FIX: Editing or dragging a layer's Pixel Map offset now mirrors the
+  change to the Show Look offset while the two are still equal
+  (linked). Without this, moving a layer in Pixel Map left Show Look /
+  Data / Power rendering at the old position. Once you set a different
+  Show Look offset, the two stay independent, Pixel Map edits no
+  longer touch Show Look.
+- FIX: Screen name labels and other per-layer labels were rendered
+  off-center in Show Look / Data / Power because the per-layer ctx
+  translate AND the bounds-calculation both added the show-offset,
+  double-shifting label positions. Bounds returned by getLayerBounds
+  are now in raw processor coords; new getLayerBoundsInActiveView
+  helper is used for the few callers that operate outside the
+  per-layer translate (selection bounding box, hit-test, magnetic
+  snap, screen-name drag, zoom-to-fit).
+- FIX: "Reset to Pixel Map Position" appeared to put screens in the
+  wrong spot, same root cause as the label bug above. Now resets
+  cleanly with screens visually matching their pixel-map positions.
+
+v0.7.6.2 - April 30, 2026
+----------------------------
+- FIX: Opening a project file (recent or via the file picker) didn't
+  sync the renderer's pixel/show raster backing fields, so Show Look
+  showed the wrong raster size after a file open even though the
+  project's data was correct. Added a single syncRasterFromProject()
+  helper that all project-load paths now call (initial socket connect,
+  HTTP /api/project, file-picker open, recent files, new project) so
+  Show Look picks up the file's saved show raster, falling back to
+  the pixel raster when the file pre-dates the Show Look feature.
+
+v0.7.6.1 - April 30, 2026
+----------------------------
+- FIX: Show Look raster now tracks the Pixel Map raster by default.
+  Changing the Pixel Map raster size also updates the Show Look raster
+  while they're equal (which is the case for new projects and any
+  project where Show Look hasn't been explicitly resized). Once you
+  set a different raster size in Show Look, the two stay independent.
+
+v0.7.6.0 - April 30, 2026
+----------------------------
+- FEATURE: Show Look tab. New tab between Cabinet ID and Data that lets
+  you rearrange screen layers to match the real-world stage layout
+  without affecting the processor's expected layout.
+    - Pixel Map and Cabinet ID continue to use each layer's processor
+      position (offset_x / offset_y), what the processor sends out.
+    - Show Look has its own per-layer position (showOffsetX / Y), which
+      also drives the Data and Power views so the wiring/power maps
+      match how the show is actually built on stage.
+    - Pixel Map and Show Look each have an independent raster size.
+      The toolbar Raster width/height edits the active view's raster:
+      pixel-map / cabinet-id edits the processor raster, show-look /
+      data / power edits the show raster.
+    - Shift-drag a screen on the canvas in Show Look (or Pixel Map) to
+      reposition it. Pixel Map drag writes to the processor position;
+      Show Look drag writes to the show position. The two can differ.
+    - Sidebar in Show Look exposes Show Offset X / Y inputs and a
+      "Reset to Pixel Map Position" button to re-sync.
+    - Show Look added to the export dialog with its own filename suffix.
+    - Existing projects open with show position = pixel position and
+      show raster = pixel raster, so nothing visually changes until you
+      start moving things in Show Look.
+- FIX: Hidden ("blank") panels in a Pixel Map drag-selection now render
+  a stronger blue tint than visible panels so you can clearly see which
+  blank cells are part of the selection. Without this, the normal
+  35%-alpha overlay was barely visible against the dark background of
+  an empty hidden cell.
+
+v0.7.5.3 - April 30, 2026
+----------------------------
+- FIX: Hidden ("blank") panels could not be selected via drag-select,
+  plain click, or right-click in Pixel Map view, so there was no way to
+  bulk-restore them via the sidebar buttons. Hidden panels can now be
+  selected for bulk Restore. (Alt+Shift+click for half-tile still skips
+  hidden panels, half-tiling a hidden cell would have no visible effect.)
+
+v0.7.5.2 - April 30, 2026
+----------------------------
+- Internal: tests and lint cleanup for the v0.7.5 half-tile rewrite.
+  No user-facing behavior changes.
+    - Tests updated for the per-panel halfTile model: legacy
+      halfFirstColumn / halfLastColumn / halfFirstRow / halfLastRow
+      flags now migrate to per-panel halfTile state on first build,
+      and a corner cell affected by both row+column legacy flags
+      becomes half-height (row flag wins) instead of the old
+      "quarter cabinet" combination.
+    - New tests cover (row, col)-keyed panel state preservation
+      across grid resizes (the v0.7.5.0 fix that stops blanks from
+      scattering when columns/rows change).
+    - Removed dead code surfaced by JS lint: getUnitVisibleRange
+      (replaced by pixel-extent calc in calcBoundingRectLoad),
+      ILLEGAL_FILENAME_CHARS (regex inlined), and a few unused
+      local bindings.
+
+v0.7.5.1 - April 30, 2026
+----------------------------
+- UX: "Set Half-tile (auto)" on a multi-selection now picks one
+  direction (width vs. height) by majority vote across the selected
+  panels, then applies that direction uniformly. Previously each panel
+  resolved its own direction, which could split a selected row into
+  some half-height and some half-width panels when one of them was an
+  interior or corner cell.
+
+v0.7.5.0 - April 30, 2026
+----------------------------
+- FEATURE: Per-panel half-tile editing replaces the four screen-level
+  "Half First/Last Column/Row" checkboxes. Mark any individual panel as
+  half-width or half-height for non-rectangular walls and stepped layouts.
+    - Drag-select panels in Pixel Map view → sidebar shows action
+      buttons: Set Blank, Restore, Set Half-tile (auto), Force
+      Half-Width, Force Half-Height, Restore Full. Selection count
+      badge in the canvas corner.
+    - Right-click a panel (or selection) → context menu with the same
+      actions.
+    - Alt + click toggles blank on a single panel (existing), when a
+      multi-selection is active, applies to the entire selection.
+    - Alt + Shift + click toggles half-tile (auto direction) on a single
+      panel, when a multi-selection is active, applies to the entire
+      selection. Auto direction picks 'height' for top/bottom-edge panels
+      and 'width' for left/right-edge panels.
+    - Plain click on a panel resets selection to that single panel;
+      Cmd/Ctrl + click adds/removes from selection. Esc clears the
+      selection.
+    - Half-tile cabinets render anchored to their visible neighbor so
+      the missing half sits on the wall's outer edge (matching how
+      half cabinets are physically installed at wall edges).
+    - Math: half-tiles count as 0.5 panels for data/port mapping,
+      0.65 panels for power/weight (existing helpers already do this
+      via pixel area + load factor).
+    - Legacy halfFirstColumn / halfLastColumn / halfFirstRow / halfLastRow
+      flags are migrated to per-panel halfTile values on first load,
+      then dropped from the schema. Existing projects keep their look.
+- FIX: NovaStar 1G/Armor port load calculation now uses the actual
+  pixel bounding rect (panel x/y/width/height) instead of the cabinet-
+  cell shortcut. Half-tile cabinets correctly contribute half their
+  full-cell pixel footprint to the port reservation rectangle.
+- FIX: Pre-existing bug, hidden ("blank") panels in the middle of a
+  wall would scatter to other positions when columns or rows were
+  resized. Panel state was preserved by sequential id, so the same id
+  pointed to a different (row, col) cell after a grid resize. State
+  is now keyed by (row, col) so blanks and half-tiles stay anchored
+  to their original positions across resizes (within the new bounds).
+
+v0.7.4.35 - April 29, 2026
+----------------------------
+- FIX: Ports Required count and the port-rename editor showed too few
+  ports when using custom data flow paths, e.g. 8 custom paths drawn
+  but the count stayed at the auto-pattern's 5. The client-computed
+  _portsRequired and _autoPortsRequired fields were being clobbered by
+  the server's stale echo on every PUT round-trip (server's whitelist
+  ignores these underscore-prefixed derived fields, but the response
+  body still carried the old values). Both fields are now preserved
+  client-side across the round-trip, and the toggle handler recomputes
+  the count before sending so the freshly computed value is what gets
+  preserved.
+
+v0.7.4.34 - April 29, 2026
+----------------------------
+- UX: Project name field now shows an inline warning ("Note: / will be
+  replaced with _ in exported filenames.") when it contains characters
+  the OS rejects in filenames (\ / : * ? " < > |). Gives the user a
+  chance to rename before exporting; if they don't, v0.7.4.33's export-
+  time sanitization still produces a valid filename.
+
+v0.7.4.33 - April 29, 2026
+----------------------------
+- FIX: Multi-file PNG/PSD export failed with "Failed to execute
+  'getFileHandle' on 'FileSystemDirectoryHandle': Name is not allowed."
+  when the project name (used as the filename prefix) contained a forward
+  slash, backslash, colon, or other characters the OS rejects in
+  filenames. Common case: project named "Foo/Bar" produced filenames like
+  "Foo/Bar_pixel-map.png", which the File System Access API refuses.
+  Filenames are now sanitized, illegal characters are replaced with "_"
+  before being passed to the picker / directory handle. Single-file
+  exports (PDF, JSON save, etc.) get the same treatment.
+
+v0.7.4.32 - April 29, 2026
+----------------------------
+- FIX: Power circuit label templates other than the default "S1-#" did not
+  auto-increment the soca number after every 6 circuits. With "S1-#" the
+  labels correctly wrapped S1-1..S1-6, S2-1..S2-6, etc., but typing any
+  other starting number ("S2-#", "MULTI3-#", etc.) fell back to a plain
+  "#" → circuit-number substitution, so circuits 7+ rolled past 6 instead
+  of starting a new soca. The auto-increment now works for any template
+  shaped <prefix><number><sep>#, "S2-#" produces S2-1..S2-6, S3-1..S3-6;
+  "MULTI3-#" produces MULTI3-1..MULTI3-6, MULTI4-1..MULTI4-6.
+
+v0.7.4.31 - April 27, 2026
+----------------------------
+- FIX: Deleting a layer and pressing Undo could revert port-label or
+  circuit-label edits made on other screens since the previous undoable
+  action. The inline rename inputs in the Data Flow and Power sidebars
+  saved their edits to state but never pushed an undo snapshot, so Undo
+  jumped past them to an older snapshot and reverted them along with the
+  delete. Each port-label and circuit-label edit now records its own
+  history entry, so Undo only steps back one edit at a time.
+
+v0.7.4.30 - April 28, 2026
+----------------------------
+- FIX: In Data Flow and Power views, clicking a different screen left the
+  port-rename / circuit-rename sidebar empty until you clicked a second
+  time. selectLayer() updated the canvas and the right-hand inputs but
+  never re-populated the left-side label editor; the editor only refreshed
+  the next time something else nudged it. Now it's repainted in lockstep
+  with the layer change.
+
+v0.7.4.29 - April 28, 2026
+----------------------------
+- FIX: Toggling Offset TL/TR/BL/BR (or any other property checkbox) with
+  multiple screens selected was clobbering each layer's "Labels Font Size"
+  and "Info Label Size" to null whenever the selected layers had mixed
+  values for those fields. The shared input shows blank for mixed values,
+  parseInt('') returns NaN, and the NaN guard slipped past the null check
+ , so every selected layer ended up with labelsFontSize=null. Switched
+  both inputs to use the same readNumber() helper the other numeric
+  fields in this code path already use, which correctly returns null for
+  blank/NaN reads and skips the apply.
+- INTERNAL: Bumped GitHub Actions to Node.js 24-compatible majors,
+  upload-artifact v6→v7, download-artifact v6→v8, action-gh-release v2→v3
+  (resolves the deprecation warning surfaced on PR #34).
+
+v0.7.4.28 - April 25, 2026
+----------------------------
+- NEW: "Found bad specs? Submit a correction →" link in the panel
+  catalog. Opens a pre-filled GitHub issue (zero-server) where users
+  can drag a PDF spec sheet or back-of-panel photo into the comment
+  to attach. Issues land at github.com/kman1898/LED-Raster-Designer/issues
+  with the spec-correction label, including the panel reference, the
+  current catalog values, the user's notes, and the app version.
+- DATA: Leyard verified, CLI-1.9, CLI-2.6, CLO-3.9, CLM-6.9, CLA-1.9
+  all match Planar/eanixter PDFs. TVF1.5 watts corrected from 180.4W
+  → 140W (per official Planar TVF data sheet). Duplicate CLA1.5 +
+  CLA1.9 entries deduped (kept hyphenated form to match spec sheets).
+- DATA: Barco verified, X1.9, XT1.5 (renamed from "1.5XT"), X4, NX4
+  cross-checked against barco.com PDFs. X4 watts corrected from 60.5W
+  → 188.9W (factor-of-3 error from the original extraction). NX4
+  watts corrected from 300.3W → 244W.
+- Verified panel count now 92 (was 75).
+
+v0.7.4.27 - April 25, 2026
+----------------------------
+- FIX: ⭐ verified marker now correctly recognizes ROE panels sourced
+  from roevisual.com (brochures + PDFs) and authoritative dealer
+  datasheets (ledwallcentral, xled.pro). Verified panel count jumped
+  from ~28 to 75, primarily 50 ROE models (Carbon, Topaz, Vanish,
+  Black Pearl/Onyx, Ruby, Graphite, etc.) plus existing Absen / INFiLED
+  / UniLumin / Gloshine entries. Entries flagged as "estimated" or
+  "derived" are still excluded.
+
+v0.7.4.26 - April 25, 2026
+----------------------------
+- NEW: Add Screen modal redesigned. Picking a panel from the built-in
+  catalog now happens in the same flow as picking a saved preset, two
+  columns side by side. Search the catalog by name or manufacturer; pick
+  one panel, click Add Screen, and the cabinet/pixel/weight/power values
+  fill in automatically (grid size still comes from Preferences).
+- NEW: ⭐ verified marker. Panels whose specs were cross-checked against
+  the manufacturer's own published spec sheet/PDF show a star. Currently
+  marks ~30 panels across Absen (JP, A3 Pro, A6T, VN), INFiLED (ART,
+  AMT, DB), UniLumin (UGM), and Gloshine. Other catalog entries come from
+  aggregated public specs, accurate but occasionally older than current specs.
+- DATA: Power values for all 2,536 panels re-validated. The original
+  extraction missed a 110V voltage selection for a chunk of
+  the catalog, leaving panels with corrupt watts (e.g. JP8 Pro showed
+  16.75W instead of the real ~480W). Re-ran the entire catalog with 110V properly set, plus
+  manually-applied PDF values for the JP series.
+- DATA: 12 phantom panels removed (Mambo-* entries that don't actually
+  exist in the catalog).
+- INTERNAL: app.py accepts --port N to run alongside other Flask apps.
+
+v0.7.4.25 - April 24, 2026
+----------------------------
+- NEW: Built-in Panel Catalog now covers 2,543 panels across 180
+  manufacturers (up from ~1,400). Every panel in the catalog is
+  represented with width, height, pixel count, weight, and max power.
+
+v0.7.4.24 - April 23, 2026
+----------------------------
+- NEW: Watts-per-Panel field accepts arithmetic expressions (+, -, *, /,
+  parentheses). Type "200+50", "500*2", "1000/3", etc. The field resolves
+  to the computed value on blur and flashes a red outline if the expression
+  is invalid.
+- NEW: Custom data/power flow badges (top-left of canvas) now show panel
+  counts. A white "N on port" / "N on circuit" pill shows how many panels
+  are already committed to the active port/circuit, and a yellow "+M
+  selected" pill appears live while drag-selecting panels so you can see
+  pending vs. locked-in counts at a glance.
+
+v0.7.4.23 - April 22, 2026
+----------------------------
+- FIX: Preset values (bit depth, frame rate, processor type, flow pattern,
+  data-flow colors/label sizes, port templates, screen-name offsets, info-label
+  toggles, etc.) now persist server-side after applying a preset. Root cause:
+  the server's PUT /api/layer/<id> endpoint had an incomplete whitelist that
+  silently dropped these fields, so presets would appear to work until any
+  subsequent server re-fetch (delete layer, project load) reset them.
+- FIX: Preset sync, `addLayer` now pushes the preset-enriched layer to the
+  server immediately after creation, so the server has complete state instead
+  of only the structural fields sent via `/api/layer/add`.
+- FIX: Preset serialization always includes `portMappingMode` and
+  `randomDataColors` defaults so presets saved from older-format layers are
+  still complete.
+- NEW: Save-as-Preset modal shows a list of existing presets; click any to
+  pre-fill the name field. The Save button label switches to "Overwrite"
+  when the typed name matches an existing preset.
+
+v0.7.4.22 - April 22, 2026
+----------------------------
+- NEW: Logs viewer gains Since / Until time filters. Enter a relative time
+  ("10 min ago", "2h ago", "30s ago", "1d ago") or an absolute timestamp
+  ("YYYY-MM-DD HH:MM:SS") to narrow the visible entries; leave both blank
+  to show everything. Invalid input is highlighted; a Clear Filter button
+  wipes both fields.
+
+v0.7.4.21 - April 22, 2026
+----------------------------
+- FIX: Info labels (Data tab's "X Mains, Y Backups | Z Ports" and Power tab's
+  "X Multi, Y Circuits | A 1φ / B 3φ") now update immediately when you change
+  a setting on multiple selected screens. Previously the cached port/circuit
+  counts were only refreshed for the currently selected layer's side panel,
+  so other selected screens kept stale labels until clicked.
+- NEW: Help → Show Logs… Opens an in-app viewer for the application log.
+  Features: adjustable line count (250/500/1000/5000/20000), auto-refresh
+  every 2s, wrap-lines toggle, Copy button, Open Folder (reveals in Finder/
+  Explorer), and Clear Logs (truncates current log, preserves archives).
+
+v0.7.4.20 - April 16, 2026
+----------------------------
+- NEW: Screen Layer Presets. Save the currently selected layer's settings as
+  a reusable preset, then pick from saved presets when adding new screens.
+  Presets are stored server-side in <app>/presets/*.json and shared across
+  clients. Clicking "+ Add Screen" opens a picker showing each preset's
+  dimensions and watts/panel; "💾 Save as Preset" captures ~90 layer
+  properties (colors, data flow, power, labels, etc.), excludes identity,
+  position, panels array, and runtime caches. Duplicate names prompt to
+  overwrite; each preset row has a delete button.
+
+v0.7.4.19 - April 7, 2026
+----------------------------
+- FIX: Backup ports now correctly counted in aggregate info labels (was always
+  showing 0 because port assignments lacked backup type flags).
+- FIX: Port counts now exclude hidden/blank panels and hidden layers.
+
+v0.7.4.18 - April 7, 2026
+----------------------------
+- FIX: Power info label amp calculations now use correct formulas (I = P/V for
+  single-phase, I = P/(V×1.73) for 3-phase) instead of circuit capacity math.
+  Also accounts for panel load factors (half panels).
+- UI: Removed circuits-per-phase suffix from 3-phase info label.
+
+v0.7.4.17 - April 7, 2026
+----------------------------
+- FIX: Power Map color-coded view now shows correct circuit labels matching
+  the normal view. Previously, toggling color view on/off caused labels to
+  change because custom circuit numbering was not preserved in the color-coded
+  rendering path.
+
+v0.7.4.16 - April 7, 2026
+----------------------------
+- FIX: Restore native save/export dialogs for all connections. Removed the
+  local-only restriction that forced LAN/remote clients to browser downloads.
+  Save As and multi-file export now use the native dialog as before.
+
+v0.7.4.15 - April 7, 2026
+----------------------------
+- UI: Right sidebar (Screens panel) now spans full height from toolbar to bottom,
+  eliminating wasted space above the layer list.
+- UI: Layer order buttons compacted to single row with smaller "▲ Up" / "▼ Down"
+  buttons, removing the bordered box and label.
+- FIX: Layer name input now stretches to fill available space up to the visibility
+  button instead of being fixed at 80px width.
+
+v0.7.4.13 - April 6, 2026
+----------------------------
+- FEATURE: HTTPS/SSL support. Self-signed certificate auto-generated on first use.
+  Toggle in both Mac menu bar and Windows/Linux system tray launchers. Enables the
+  browser File System Access API (native Save As dialog) when accessing over LAN.
+- FEATURE: HTTPS toggle added to Windows/Linux system tray launcher (pystray),
+  matching the Mac menu bar launcher. Status display now shows protocol (http/https).
+
+v0.7.4.12 - April 6, 2026
+----------------------------
+- FEATURE: Text/Label layer (#24). New layer type for adding text annotations to the canvas.
+  Movable, resizable, with font controls (bold/italic/underline, alignment, size, colors).
+  Per-tab text content, each tab (Pixel Map, Cabinet ID, Data, Power) has its own text.
+  Per-tab visibility checkboxes. Dynamic info toggles: Raster Size, Project Name, Date,
+  Primary Ports, Backup Ports, Circuits, Single Phase, Three Phase.
+- FEATURE: Project Notes panel in right sidebar (#24). Collapsible, resizable textarea
+  between Screens and Help. Notes saved with the project file. Starts collapsed.
+- FEATURE: Seamless server restart when changing network interface or port in the
+  launcher menu. No app restart required, server hot-restarts and clients auto-reconnect.
+- FIX: Remote/LAN file save. When accessing the app from another computer over the
+  network, Save/Export now downloads files to the client browser instead of opening
+  a file dialog on the server machine. Local access still uses native file dialogs.
+
+v0.7.4.11 - April 1, 2026
+----------------------------
+- CHANGE: Recent Files max limit increased from 10 to 20.
+
+v0.7.4.10 - April 1, 2026
+----------------------------
+- FIX: Recent Files label no longer disappears when files are present.
+  Label text now in a span element preserved across shortcut label rewrites.
+- Removed Clear Recent Files option. Removed unused handler.
+
+v0.7.4.9 - April 1, 2026
+----------------------------
+- FIX: Recent Files submenu no longer destroyed by updateShortcutLabels().
+  Submenu parent items are skipped during label rewrite. Click on submenu parent
+  no longer closes the menu.
+
+v0.7.4.8 - April 1, 2026
+----------------------------
+- FEATURE: Recent Files submenu under File menu. Tracks last 10 opened/saved projects
+  in localStorage. Click to reload any recent project instantly.
+- FEATURE: Transparent Background export option (#25). Checkbox in export modal removes
+  the black background from PNG and PSD exports, rendering with alpha transparency.
+
+v0.7.4.7 - April 1, 2026
+----------------------------
+- REVERT: Removed #20 focus preservation fixes, issue not reproducible on macOS.
+  Will revisit when Windows reproduction steps are available.
+
+v0.7.4.6 - April 1, 2026
+----------------------------
+- FIX: Port label inputs now preserve focus and in-progress edits during UI rebuilds.
+  Added IDs to dynamically created port label inputs so focus restoration works. (#20)
+
+v0.7.4.5 - April 1, 2026
+----------------------------
+- CHANGE: Port cycling shortcut changed from Shift+B/N to Tab/Shift+Tab.
+  Only activates when custom mode is enabled and canvas has focus (not in sidebar fields).
+  Updated Edit menu, context menu, and keyboard shortcuts dialog.
+
+v0.7.4.4 - April 1, 2026
+----------------------------
+- FIX: Sidebar field focus no longer stolen when canvas redraws after property changes.
+  Focus and cursor position are preserved across UI rebuilds. (Fixes #20)
+- FIX: Horizontal trackpad scroll now pans the canvas instead of zooming out.
+  Only vertical scroll triggers zoom. Tiny deltaY values ignored to prevent
+  accidental zoom during horizontal swipes. (Fixes #6)
+
+v0.7.4.3 - April 1, 2026
+----------------------------
+- FIX: Per-tab Screen Name checkboxes are now independent, unchecking on one tab no longer
+  affects other tabs. updateLayerFromInputs() no longer overwrites per-tab label properties.
+- FIX: Second resetApplicationState() now clears lastSelectedLayerId and selectionAnchorLayerId
+  to match the primary reset method, preventing stale selection state after file load.
+- FIX: Sidebar property changes (columns, rows, colors, checkboxes, font sizes, etc.) now
+  create undo history entries. Uses debounced saveState (500ms) to avoid spam from color
+  pickers and spinners. Cabinet ID style/position and screen name toggles save immediately.
+- FIX: Move Layers undo now correctly reverts to pre-move position. saveState fires at
+  drag start (mousedown) instead of drag end (mouseup).
+- FIX: Custom edit mode toggle (data flow and power) now applies to all selected layers
+  when multi-selecting, not just the current layer.
+
+v0.7.4.2 - March 24, 2026
 ----------------------------
 - FIX: Keyboard Shortcuts modal now shows Option/Alt for cross-platform clarity
 - FIX: Alt+drag preventDefault to stop browser native drag behavior
 
 v0.7.4.1 - March 24, 2026
 ----------------------------
-- NEW: Alt+Click+Drag to bulk hide/show panels — paint mode based on first panel state
+- NEW: Alt+Click+Drag to bulk hide/show panels, paint mode based on first panel state
 - NEW: Bulk panel visibility API endpoint for efficient server sync
 - Added to Keyboard Shortcuts modal
 
 v0.7.4 - March 24, 2026
 ----------------------------
-- Version placeholder (superseded by v0.7.5.11)
+- Version placeholder (superseded by v0.7.4.2)
 
 v0.7.3 - March 22, 2026
 ----------------------------
@@ -261,7 +1975,7 @@ v0.6.5.18 - March 21, 2026
 
 v0.6.5.17 - March 21, 2026
 ----------------------------
-- NEW: Resolume Arena Advanced Output XML export — directly generates slice configuration from screen layers
+- NEW: Resolume Arena Advanced Output XML export, directly generates slice configuration from screen layers
 - Each screen layer maps to a Resolume Slice with matching name, position, and pixel dimensions
 - Export available in Export modal under "Resolume XML (Advanced Output)" format
 - View checkboxes hidden when Resolume XML selected (geometry only, no rendered images)
@@ -270,14 +1984,14 @@ v0.6.5.17 - March 21, 2026
 
 v0.6.5.14 - March 21, 2026
 ----------------------------
-- FIX: Layer name editing — double-click to edit name, single-click/drag for reorder
+- FIX: Layer name editing, double-click to edit name, single-click/drag for reorder
 
 v0.6.5.13 - March 18, 2026
 ----------------------------
 - CHANGED: Reverted to separate launcher_mac.py (rumps) and launcher_pc.py (pystray)
-- CHANGED: Removed Tkinter launcher window — caused NSApplication crashes on macOS
-- CHANGED: Removed Start Minimized option — tray/menu bar apps are always minimized
-- CHANGED: Default network interface is localhost (127.0.0.1) — opt-in for network access
+- CHANGED: Removed Tkinter launcher window, caused NSApplication crashes on macOS
+- CHANGED: Removed Start Minimized option, tray/menu bar apps are always minimized
+- CHANGED: Default network interface is localhost (127.0.0.1), opt-in for network access
 - NEW: rumps menu bar with settings: network interface, port, run at login
 - NEW: pystray system tray with same settings on Windows/Linux
 - NEW: Network interface submenu with checkmarks for current selection
@@ -285,7 +1999,7 @@ v0.6.5.13 - March 18, 2026
 - NEW: Run at Login toggle (macOS LaunchAgent / Windows registry)
 - NEW: Comprehensive CI build integrity checks (spec refs, version match, imports, static assets)
 - NEW: 21 launcher settings tests (persistence, network detection, Run at Login)
-- FIX: Slow macOS CI — cached get_network_interfaces() across test class
+- FIX: Slow macOS CI, cached get_network_interfaces() across test class
 - FIX: PyInstaller spec references restored for separate launchers
 - CHANGED: Settings persisted to JSON in platform config directory
 
@@ -296,9 +2010,9 @@ v0.6.5.5 - March 18, 2026
 
 v0.6.5.4 - March 18, 2026
 ----------------------------
-- Add: Keyboard shortcut Ctrl/Cmd+0 for Fit to View (standard image editors standard)
-- Add: Keyboard shortcut Ctrl/Cmd+1 for Actual Size 1:1 (standard image editors standard)
-- Add: Keyboard shortcut Ctrl/Cmd+Shift+' for Toggle Snap (standard image editors standard)
+- Add: Keyboard shortcut Ctrl/Cmd+0 for Fit to View (standard)
+- Add: Keyboard shortcut Ctrl/Cmd+1 for Actual Size 1:1 (standard)
+- Add: Keyboard shortcut Ctrl/Cmd+Shift+' for Toggle Snap (standard)
 - Add: Toggle Snap option in View menu
 - Update: Tooltips and Help > Keyboard Shortcuts modal with new shortcuts
 
@@ -349,18 +2063,18 @@ v0.6.4.7 - March 17, 2026
  BUG FIXES:
  - Fixed color picker crash on Windows (hexToRgbLocal not defined).
  - Fixed clicking on the selection marker ring picking white/black instead of
-   the underlying wheel color — wheel is now redrawn clean before reading.
+   the underlying wheel color, wheel is now redrawn clean before reading.
  - Fixed color picker auto-applying color when opening "Show Colors" modal
-   on Windows — no longer changes the layer color until user picks one.
+   on Windows, no longer changes the layer color until user picks one.
  - Fixed vertical brightness slider not working on Windows/Chrome/Edge by
    using cross-browser vertical slider CSS.
- - Fixed help tooltip panel appearing in wrong position — now correctly
+ - Fixed help tooltip panel appearing in wrong position, now correctly
    sits at the bottom of the right sidebar below the Screens panel.
 
  UI IMPROVEMENTS:
  - Added selection marker ring on the color wheel showing the currently
    picked position. Brightness slider now updates the color at the marker.
- - Added Resolume-style help tooltip panel in the bottom-right corner below
+ - Added help tooltip panel in the bottom-right corner below
    the Screens panel. Hover any control to see contextual help. Closeable
    with X button, re-openable via Help > Show Help Tooltip.
  - Added comprehensive tooltips to all sidebar panels, toolbar buttons,
@@ -368,7 +2082,7 @@ v0.6.4.7 - March 17, 2026
  - Replaced gear icon with a standard Preferences button next to Export.
  - Moved Offset Labels into the Labels panel, removing the separate Offsets
    section for a cleaner sidebar.
- - Color picker is now non-blocking — canvas can be panned and zoomed while
+ - Color picker is now non-blocking, canvas can be panned and zoomed while
    the color picker is open. The color picker is also draggable by its header.
 
 v0.6.4.3 - March 17, 2026
@@ -383,7 +2097,7 @@ v0.6.4.3 - March 17, 2026
 v0.6.4.2 - March 17, 2026
 ----------------------------
  BUG FIXES:
- - Fixed per-tab Screen Name checkbox cross-contamination — unchecking Screen Name
+ - Fixed per-tab Screen Name checkbox cross-contamination, unchecking Screen Name
    on one tab (e.g. Pixel Map) no longer affects other tabs (Cabinet ID, Data Flow,
    Power). Each tab's Screen Name toggle now operates independently.
  - Root cause: loadLayerToInputs() was overwriting the pixel-map checkbox with the
@@ -398,14 +2112,14 @@ v0.6.4.1 - March 17, 2026
 v0.6.4.0 - March 16, 2026
 ----------------------------
  BUG FIXES:
- - Fixed PNG export including selection overlays — layer selection borders, drag
+ - Fixed PNG export including selection overlays, layer selection borders, drag
    highlights, multi-select rectangles, custom path selection overlays, and active
    port/circuit badges are now suppressed during export via the existing exportMode flag.
 
 v0.6.3.3 - March 13, 2026
 ----------------------------
  BUG FIXES:
- - Fixed raster size preferences not applying on startup — socket project_data event
+ - Fixed raster size preferences not applying on startup, socket project_data event
    was overwriting preference-applied raster with server default (1920x1080).
  - Socket reconnect now preserves current raster size instead of resetting to server default.
  - Preference enforcement now syncs raster size to server so subsequent socket events
@@ -426,7 +2140,7 @@ v0.6.3.2 - March 12, 2026
 v0.6.3 - March 11, 2026
 ----------------------------
  NEW FEATURES:
- - Added automatic update checker — app checks GitHub Releases on startup for newer versions.
+ - Added automatic update checker, app checks GitHub Releases on startup for newer versions.
  - Added "Help" menu with "Check for Updates" button for manual update checks.
  - Added dismissable update notification banner with direct download link.
  - Update checker uses secure HTTPS with TLS 1.2+ and certificate pinning (certifi).
@@ -441,7 +2155,7 @@ v0.6.3 - March 11, 2026
  - Added requirements-dev.txt for development dependencies.
 
  BUG FIXES:
- - Fixed float-to-int conversion bug in render_layer_to_image — fractional pixel
+ - Fixed float-to-int conversion bug in render_layer_to_image, fractional pixel
    coordinates now correctly convert to integers before drawing.
  - Removed unused global declarations in save_project and delete_layer.
  - Fixed undo/redo for inline layer rename (double-click rename).
@@ -994,14 +2708,12 @@ DATA FLOW: Selection UX + shift-drag precedence
 - ✅ Selection highlight now darkens panels for visibility
 - ✅ Shift+drag screen-name move supersedes custom selection
 
-
 v0.5.5.21 - February 5, 2026
 ---------------------------
 DATA FLOW: Space+drag pan overrides selection
 
 **Completed:**
 - ✅ Space+click now pans instead of starting selection in custom mode
-
 
 v0.5.5.20 - February 5, 2026
 ---------------------------
@@ -1011,7 +2723,6 @@ DATA FLOW: Custom selection undo support
 - ✅ Custom selection state is now part of undo/redo history
 - ✅ Selection changes are captured on mouse-up
 
-
 v0.5.5.19 - February 5, 2026
 ---------------------------
 DATA FLOW: Selection locks path editing
@@ -1020,7 +2731,6 @@ DATA FLOW: Selection locks path editing
 - ✅ Clicking while selection exists now clears selection instead of adding panels
 - ✅ Custom path clicks are ignored when a selection is active
 
-
 v0.5.5.18 - February 5, 2026
 ---------------------------
 DATA FLOW: Active port badge in canvas corner
@@ -1028,14 +2738,12 @@ DATA FLOW: Active port badge in canvas corner
 **Completed:**
 - ✅ Active port badge now renders in top-left of canvas (screen space)
 
-
 v0.5.5.17 - February 5, 2026
 ---------------------------
 DATA FLOW: Single-panel port label order
 
 **Completed:**
 - ✅ In custom flow, single-panel ports now show Primary label on top
-
 
 v0.5.5.16 - February 5, 2026
 ---------------------------
@@ -1045,14 +2753,12 @@ DATA FLOW: Custom mode shortcuts + port badge position
 - ✅ Shift+N for next port, Shift+B for previous
 - ✅ Active port badge now anchored to top-left of canvas
 
-
 v0.5.5.15 - February 5, 2026
 ---------------------------
 FIX: Custom flow label rendering crash
 
 **Completed:**
 - ✅ Fixed circleRadius scope error in custom flow rendering
-
 
 v0.5.5.14 - February 5, 2026
 ---------------------------
@@ -1063,7 +2769,6 @@ DATA FLOW: Custom mode fixes (labels, selection, persistence)
 - ✅ Drag selection uses panel intersection (not full containment)
 - ✅ Added debug toggle for custom mode console logging
 
-
 v0.5.5.13 - February 5, 2026
 ---------------------------
 DATA FLOW: Custom mode stability + shortcut change
@@ -1071,7 +2776,6 @@ DATA FLOW: Custom mode stability + shortcut change
 **Completed:**
 - ✅ Added Cmd/Ctrl+N for next custom port
 - ✅ Prevented selection from flooding undo history
-
 
 v0.5.5.12 - February 5, 2026
 ---------------------------
@@ -1083,7 +2787,6 @@ DATA FLOW: Custom path UX fixes + undo/redo support
 - ✅ Added large on-screen active port badge in custom mode
 - ✅ Custom path actions now save to undo/redo history
 
-
 v0.5.5.11 - February 5, 2026
 ---------------------------
 DATA FLOW: Custom Path mode (manual + pattern on selection)
@@ -1093,7 +2796,6 @@ DATA FLOW: Custom Path mode (manual + pattern on selection)
 - ✅ Click panels or use arrow keys to build port paths (skips hidden)
 - ✅ Select panels and apply built-in patterns to the selection
 
-
 v0.5.5.10 - February 5, 2026
 ---------------------------
 UI: Processing label and NovaStar legacy naming
@@ -1101,7 +2803,6 @@ UI: Processing label and NovaStar legacy naming
 **Completed:**
 - ✅ Renamed "Processor" label to "Processing"
 - ✅ Renamed first NovaStar option to "NovaStar (Legacy)"
-
 
 v0.5.5.9 - February 5, 2026
 ---------------------------
@@ -1111,7 +2812,6 @@ DATA FLOW: Port label token simplified
 - ✅ Replaced {n} with # for port number templating
 - ✅ Renamed "Bulk Override" UI to "Apply Style"
 
-
 v0.5.5.8 - February 5, 2026
 ---------------------------
 DATA FLOW: Editable port labels (template + per-port overrides)
@@ -1120,14 +2820,12 @@ DATA FLOW: Editable port labels (template + per-port overrides)
 - ✅ Added Port Labels editor in Data Flow panel (template + per-port overrides)
 - ✅ Port label text now supports {n} templating and overrides in render
 
-
 v0.5.5.7 - February 5, 2026
 ---------------------------
 DEFAULTS: NovaStar Armor set as default processor
 
 **Completed:**
 - ✅ Default processor set to NovaStar Armor (legacy 1G)
-
 
 v0.5.5.6 - February 5, 2026
 ---------------------------
@@ -1136,7 +2834,6 @@ CAPACITY: Legacy NovaStar Armor capped at 120 Hz
 **Completed:**
 - ✅ Armor (MSD/MRV) table capped at 120 Hz
 - ✅ Frame-rate dropdown now limits Armor to 120 Hz max
-
 
 v0.5.5.5 - February 5, 2026
 ---------------------------
@@ -1147,7 +2844,6 @@ CAPACITY: Split NovaStar systems (Armor vs COEX 1G)
 - ✅ Renamed NovaStar COEX 1G key to `novastar-coex-1g` and migrated old `novastar-1g`
 - ✅ Updated UI labels and defaults to match the three NovaStar systems
 
-
 v0.5.5.4 - February 5, 2026
 ---------------------------
 CAPACITY: Added NovaStar Armor (Other 1G) receiving cards
@@ -1155,7 +2851,6 @@ CAPACITY: Added NovaStar Armor (Other 1G) receiving cards
 **Completed:**
 - ✅ Added NovaStar Armor (Other 1G) processor option and lookup table
 - ✅ Applied rectangle-constraint rules to Armor (same as NovaStar 1G)
-
 
 v0.5.5.3 - February 5, 2026
 ---------------------------
@@ -1165,7 +2860,6 @@ EXPORT: Crisper pixel-to-pixel output (no UI change)
 - ✅ Export rendering now snaps key draw positions to whole pixels (export mode only)
 - ✅ Data flow line widths snap to whole pixels in export mode for cleaner edges
 - ✅ Label backgrounds and text positions snap during export to reduce soft edges
-
 
 v0.3.9.6 - January 28, 2026
 ---------------------------
@@ -1188,7 +2882,6 @@ DATA FLOW TAB: Complete serpentine arrow rendering
 Row 1: TL-H, TL-V, TR-H, TR-V (top start patterns)
 Row 2: BL-H, BL-V, BR-H, BR-V (bottom start patterns)
 Where: H=horizontal-first serpentine, V=vertical-first serpentine
-
 
 v0.3.9.5 - January 28, 2026
 ---------------------------
@@ -1221,7 +2914,6 @@ CHECKPOINT: Data Flow UI in progress - continue in new thread
 - professional LED software data flow diagrams showing 8 serpentine patterns
 - Each pattern has: Green arrow (start), white curved path, Red arrow (end)
 
-
 v0.3.9.4 - January 28, 2026
 ---------------------------
 SIMPLIFICATION: Just S-shapes in 8 orientations
@@ -1246,7 +2938,6 @@ SIMPLIFICATION: Just S-shapes in 8 orientations
 8. Bottom-right S up
 
 Much simpler and clearer!
-
 
 v0.3.9.3 - January 28, 2026
 ---------------------------
@@ -1273,7 +2964,6 @@ Each pattern now correctly shows:
 - Simple line path
 - Arrow at END (or circle for endpoints)
 
-
 v0.3.9.2 - January 28, 2026
 ---------------------------
 UI: Visual flow pattern diagrams with SVG icons
@@ -1297,7 +2987,6 @@ Row 2:
 8. Vertical B→T Serpentine Alt (columns, starts right)
 
 **Next Step:** Wire up button click handlers and implement rendering logic
-
 
 v0.3.9.1 - January 28, 2026
 ---------------------------
@@ -1324,7 +3013,6 @@ Row 2 (Top-Right start): Horizontal Serpentine, Vertical Serpentine, Horizontal 
 - Backup Color (red R1 label)
 
 **Next Step:** Implement rendering logic for arrows and P1/R1 labels
-
 
 v0.3.9 - January 28, 2026
 -------------------------
@@ -1353,7 +3041,6 @@ FEATURE: Data Flow Tab UI (Part 1 - UI Only)
 **Next Step (v0.3.10):**
 Implement rendering logic for arrows, P1/R1 labels, and flow visualization
 
-
 v0.3.8.4 - January 28, 2026
 ---------------------------
 BUG FIX: Cabinet ID numbers now clipped to raster bounds
@@ -1365,7 +3052,6 @@ Cabinet ID numbers were rendering outside the raster box (the red dashed boundar
 - ✅ Added `ctx.save()` / `ctx.clip()` / `ctx.restore()` to renderCabinetIDNumbers
 - ✅ Numbers now clip to raster bounds, just like other elements (borders, circle with X, etc.)
 - ✅ Consistent with existing rendering behavior
-
 
 v0.3.8.3 - January 28, 2026
 ---------------------------
@@ -1387,7 +3073,6 @@ The `add_layer` endpoint needs to handle two cases:
 
 Now it checks the request data and applies any provided settings.
 
-
 v0.3.8.2 - January 28, 2026
 ---------------------------
 BUG FIX: Duplicate/Paste now preserves Cabinet ID settings
@@ -1400,7 +3085,6 @@ BUG FIX: Duplicate/Paste now preserves Cabinet ID settings
 **What Was Broken:**
 When duplicating or pasting a layer, the Cabinet ID settings would revert to default instead of copying from the source layer.
 
-
 v0.3.8.1 - January 28, 2026
 ---------------------------
 UI POLISH: Shortened labels, Colors panel fixed
@@ -1412,7 +3096,6 @@ UI POLISH: Shortened labels, Colors panel fixed
   - "1,1  1,2  1,3" (was "Row,Col (1,1  1,2  1,3...)")
 - ✅ Fixed Colors panel - now ONLY shows on Pixel Map tab
 - ✅ Cabinet ID, Data Flow, Power tabs have no Colors section
-
 
 v0.3.8 - January 28, 2026
 -------------------------
@@ -1457,7 +3140,6 @@ Transform Mode - Resize screens by dragging corners
 - Optional: Toggle button "Transform" at top toolbar with `T` shortcut
 - Cursor changes per corner (nwse-resize, nesw-resize)
 
-
 v0.3.7 - January 28, 2026
 -------------------------
 UX IMPROVEMENT: Default label settings
@@ -1475,7 +3157,6 @@ Transform Mode - Resize screens by dragging corners
 - Activation: Cmd/Ctrl + Shift + click any corner
 - Optional: Toggle button "Transform" at top toolbar with `T` shortcut
 - Cursor changes per corner (nwse-resize, nesw-resize)
-
 
 v0.3.6 - January 28, 2026
 -------------------------
@@ -1497,7 +3178,6 @@ CLEANUP: Removed all debug logging
 - v0.3.5.4: Selection bounding box during Shift+Drag only
 - v0.3.6: Debug cleanup (this version)
 
-
 v0.3.5.4 - January 28, 2026
 ---------------------------
 UX IMPROVEMENT: Bounding box only during Shift+Drag
@@ -1514,7 +3194,6 @@ UX IMPROVEMENT: Bounding box only during Shift+Drag
 1. Select a layer → no blue box ✅
 2. Hold Shift + Drag layer → blue box appears ✅
 3. Release mouse → blue box disappears ✅
-
 
 v0.3.5.3 - January 28, 2026
 ---------------------------
@@ -1540,26 +3219,23 @@ Used `this.camera.zoom` but this codebase uses `this.zoom` directly!
 4. ✅ Blue box highlights selected layer
 5. ✅ No TypeError on render
 
-
 v0.3.5.2 - January 28, 2026 [BROKEN - zoom reference bug]
 ---------------------------
 Used wrong zoom reference (this.camera.zoom instead of this.zoom).
-
 
 v0.3.5.1 - January 28, 2026 [BROKEN - sed destroyed code]
 ---------------------------
 Render broken by sed command.
 
-
 v0.3.5 - January 28, 2026
 -------------------------
 STANDARD LAYERS & DELETE BEHAVIOR
 
-**Fix 1: Auto-Select Layer After Delete (standard image editors Behavior)**
+**Fix 1: Auto-Select Layer After Delete (standard behavior)**
 When deleting with Delete key:
 - Now selects the layer below the deleted one
 - If deleting the bottom layer, selects the one above
-- Uses same index position logic as standard image editors
+- Uses same index position logic as standard editors
 - No more "nothing selected" after delete!
 
 Code change:
@@ -1571,9 +3247,9 @@ const newIndex = Math.min(currentIndex, this.project.layers.length - 1);
 this.currentLayer = this.project.layers[newIndex];
 ```
 
-**Fix 2: Reverse Layer Order - standard image editors Style** 🎨
+**Fix 2: Reverse Layer Order - standard ordering** 🎨
 - Newest layers now appear at the TOP
-- Just like standard image editors layers panel
+- Just like a standard layers panel
 - Makes more sense visually
 - Backend array order unchanged (for Z-order consistency)
 
@@ -1589,7 +3265,6 @@ reversedLayers.forEach(layer => { /* render */ });
 3. ✅ Delete bottom layer → Top layer auto-selects
 
 **Note:** Screens panel will move to bottom-right in future for preset system!
-
 
 v0.3.4 - January 28, 2026
 -------------------------
@@ -1631,7 +3306,6 @@ The DELETE layer endpoint was returning `{status: "success"}` instead of the ful
 
 This should be THE fix!
 
-
 v0.3.3.1 DEBUG - January 27, 2026
 ----------------------------------
 DEBUG BUILD - Delete Key Issue Investigation
@@ -1669,7 +3343,6 @@ Added extensive console logging to track down the delete key freeze issue:
 3. Press Delete key
 4. Send ALL console output from "=== DELETE CURRENT LAYER ===" onwards
 
-
 v0.3.3 - January 27, 2026
 -------------------------
 REMOVED DELETE CONFIRMATIONS - Undo/Redo Makes Them Unnecessary
@@ -1695,7 +3368,6 @@ Test:
 2. ✅ Press Cmd+Z → Layer restored
 3. ✅ Click trash button → Layer deleted immediately
 4. ✅ Try to delete last layer → Shows alert (still protected)
-
 
 v0.3.2 - January 27, 2026
 -------------------------
@@ -1730,7 +3402,6 @@ Fix: Added `deletionInProgress` flag
 3. ✅ Press Delete, then Enter - layer deletes correctly
 
 Debugging logs still active for troubleshooting!
-
 
 v0.3.1 - January 27, 2026
 -------------------------
@@ -1792,7 +3463,6 @@ Undo: 1 layer [restores initial(1)] ✅
 Redo: 2 layers [restores dup1(2)] ✅
 Redo: 3 layers [restores dup2(3)] ✅
 ```
-
 
 v0.3.0 - January 27, 2026
 -------------------------
@@ -1864,7 +3534,6 @@ Test:
 4. ✅ Redo (Cmd+Shift+Z) - duplicate reappears
 5. ✅ Press Delete, then Enter - layer deleted correctly
 
-
 v0.2.9.1 - January 27, 2026
 ---------------------------
 DEBUG BUILD - Undo/Redo Troubleshooting
@@ -1915,7 +3584,6 @@ Added extensive console logging to diagnose undo/redo issues:
 - Are there any errors in backend sync?
 - How many layers are in the restored state?
 
-
 v0.2.9 - January 27, 2026
 -------------------------
 CRITICAL FIX: Undo/Redo Now Working
@@ -1949,13 +3617,12 @@ Test:
 3. Undo (Cmd+Z) - layer should disappear ✅
 4. Redo (Cmd+Shift+Z) - layer should reappear ✅
 
-
 v0.2.8 - January 27, 2026
 -------------------------
-PHOTOSHOP-STANDARD SHORTCUTS
+KEYBOARD SHORTCUTS
 
 Changes:
-- **Cmd+J / Ctrl+J**: Duplicate layer (standard image editors standard)
+- **Cmd+J / Ctrl+J**: Duplicate layer (standard)
 - **Removed Cmd+D**: Was non-standard, now uses Cmd+J
 - **Removed Cmd+R**: Was non-standard for redo
 
@@ -1992,7 +3659,6 @@ Complete Shortcut List (Windows/Linux):
 
 standard image editors Muscle Memory:
 If you're a standard image editors user, all shortcuts will feel natural!
-
 
 v0.2.7 - January 27, 2026
 -------------------------
@@ -2037,7 +3703,6 @@ Technical:
 - `isTyping` check prevents shortcuts when in text fields
 - `e.preventDefault()` blocks browser defaults
 
-
 v0.2.6 - January 27, 2026
 -------------------------
 UI & NAMING IMPROVEMENTS
@@ -2071,7 +3736,6 @@ Main12 → duplicate → Main13
 Test → copy/paste → Test 1
 ```
 
-
 v0.2.5 - January 27, 2026
 -------------------------
 BUG FIXES
@@ -2099,7 +3763,6 @@ Visual Improvement:
 
 Note:
 - Trash can (🗑) already present in layer list (was never removed)
-
 
 v0.2.4 - January 27, 2026
 -------------------------
@@ -2133,7 +3796,6 @@ Technical:
 - Frontend toggles between decimal (toFixed(1)) and fraction conversion
 - Fraction conversion function handles all common fractions
 
-
 v0.2.3 - January 27, 2026
 -------------------------
 BUG FIXES
@@ -2166,7 +3828,6 @@ Test Case (84px × 84px, 8col × 14row):
 - ✅ Now shows: "W 2' 2.46" X H 3' 10.31""
 - ❌ Was showing: "W 2' 2.-41" X H 3' 10.-69""
 
-
 v0.2.2 - January 27, 2026
 -------------------------
 IMPROVEMENTS
@@ -2190,7 +3851,6 @@ Technical Changes:
 - renderLayerLabels() now uses ctx.save(), ctx.clip(), ctx.restore()
 - Clips to rect(0, 0, rasterWidth, rasterHeight) before rendering
 - Zoom factor reduced from ±10% to ±5%
-
 
 v0.2.1 - January 27, 2026
 -------------------------
@@ -2226,7 +3886,6 @@ Kept as `type="number"` (no math needed):
 Removed:
 - Debug logging from v0.2.0.3
 
-
 v0.2.0.3 - January 27, 2026
 ---------------------------
 DEBUG BUILD
@@ -2257,7 +3916,6 @@ Asterisk key pressed: {
 
 If `defaultPrevented: true`, something else is blocking it!
 
-
 v0.2.0.2 - January 27, 2026
 ---------------------------
 CRITICAL FIX
@@ -2286,7 +3944,6 @@ Behavior Now:
 - **Ctrl/Cmd+Z**: Undo works everywhere (including text fields) ✅
 - **Asterisk (*)**: Works normally in all text inputs ✅
 
-
 v0.2.0.1 - January 27, 2026
 ---------------------------
 CRITICAL FIX
@@ -2305,7 +3962,6 @@ Math Expressions:
 - Multiplication (e.g., "2*3") works correctly
 - Function tested and verified working
 - If you're seeing issues, please provide specific example
-
 
 v0.2.0 - January 27, 2026
 -------------------------
@@ -2362,7 +4018,6 @@ UI Changes:
 - Added tooltips to all layer control buttons
 - Layer control buttons: 👁 (visibility), 📋 (duplicate), 🗑 (delete)
 
-
 v0.1.8 - January 27, 2026
 -------------------------
 FEATURE IMPROVEMENT
@@ -2381,7 +4036,6 @@ Updated TODO List:
 Changes:
 - Updated HTML input max="48" to max="100"
 - TODO.txt reorganized with completed items and QOL section
-
 
 v0.1.7.3 - January 27, 2026
 ---------------------------
@@ -2408,7 +4062,6 @@ Reverted v0.1.7.2 Changes:
 - That was solving the wrong problem
 - Info label now just uses constant 14, ignores slider
 
-
 v0.1.7.2 - January 27, 2026
 ---------------------------
 BUG FIX
@@ -2433,7 +4086,6 @@ Technical:
 - Info font: `const infoFontSize = 14 / this.zoom;`
 - Info line height: `const infoLineHeight = infoFontSize + 4;`
 - Updated all info label rendering to use these constants
-
 
 v0.1.7.1 - January 27, 2026
 ---------------------------
@@ -2471,7 +4123,6 @@ Technical:
 - Split update logic: offset-only vs full regeneration
 - Preserve states using old_panel_states dictionary
 
-
 v0.1.7 - January 27, 2026
 -------------------------
 IMPROVEMENTS & DEBUG
@@ -2496,7 +4147,6 @@ Notes for Future:
 - Top menu bar planned with various functions
 - Ctrl+Shift+Click currently restoring hidden panels - investigating cause
 
-
 v0.1.6 - January 27, 2026
 -------------------------
 NEW FEATURE - Default Layer on Startup
@@ -2517,7 +4167,6 @@ Behavior:
 - First time opening app: Screen1 already present and selected
 - Click "New": Creates new project with Screen1 already present and selected
 - Start editing immediately without clicking "Add Screen"
-
 
 v0.1.5.3 - January 27, 2026
 ---------------------------
@@ -2541,7 +4190,6 @@ What was happening:
 Now fixed:
 - Backend now accepts and saves `show_circle_with_x` in the update
 - Toggle state persists properly
-
 
 v0.1.5.2 - January 27, 2026
 ---------------------------
@@ -2574,7 +4222,6 @@ Debug Notes:
 - Issue was lack of immediate render - now fixed
 - Blank mode completely removed from codebase
 
-
 v0.1.5.1 - January 27, 2026
 ---------------------------
 BUG FIXES & DEBUG
@@ -2603,7 +4250,6 @@ Still investigating:
 - Why Circle/X toggle doesn't hide/show despite correct event listeners
 - Shift+Ctrl behavior (may be browser default on Mac)
 
-
 v0.1.5 - January 27, 2026
 -------------------------
 BUG FIXES
@@ -2628,7 +4274,6 @@ Technical Details:
 - loadLayerToInputs() now handles undefined with ternary operator
 - renderCircleWithX() wraps drawing in save/clip/restore for bounds enforcement
 - Clipping prevents any part of circle or X from appearing outside raster
-
 
 v0.1.4 - January 27, 2026
 -------------------------
@@ -2665,7 +4310,6 @@ Technical:
 - X draws from (offset_x, offset_y) to (offset_x + width, offset_y + height) and opposite corners
 - Default values in create_layer(): `show_panel_borders: True`, `show_circle_with_x: True`
 
-
 v0.1.3 - January 27, 2026
 -------------------------
 CRITICAL FIXES
@@ -2699,7 +4343,6 @@ Technical:
 - All lineWidth values now use absolute numbers (2, 1) instead of divided by zoom
 - This makes borders "painted onto" the content, scaling proportionally like text
 
-
 v0.1.2 - January 27, 2026
 -------------------------
 IMPROVEMENTS & FIXES
@@ -2719,13 +4362,12 @@ Changes:
 - Added /api/project/new endpoint for creating new projects
 - Added createNewProject() method in frontend
 
-
 v0.1.1 - January 27, 2026
 -------------------------
 BUG FIX RELEASE
 
 Fixes:
-- Fixed text scaling to work like professional LED software (professional LED software)
+- Fixed text scaling to work like professional LED software
 - Text now scales proportionally with zoom level (maintains visual relationship to panels)
 - At 100% zoom (1:1), text renders at exact pixel size specified (e.g., 14px)
 - At 200% zoom, text scales to 28px on screen; at 50% zoom, scales to 7px
@@ -2742,7 +4384,6 @@ Technical changes:
 - Moved renderLayerLabels(), renderLayerOffsets(), renderCabinetIDNumbers() before ctx.restore()
 - Changed all text coordinates from screen space (x * zoom + panX) to world space (x)
 - Text now scales with zoom transform matrix automatically
-
 
 v0.1 - January 27, 2026
 -----------------------
@@ -2810,7 +4451,6 @@ Technical:
 - All lineWidth values now use absolute numbers (2, 1) instead of divided by zoom
 - This makes borders "painted onto" the content, scaling proportionally like text
 
-
 v0.1.2 - January 27, 2026
 -------------------------
 IMPROVEMENTS & FIXES
@@ -2830,13 +4470,12 @@ Changes:
 - Added /api/project/new endpoint for creating new projects
 - Added createNewProject() method in frontend
 
-
 v0.1.1 - January 27, 2026
 -------------------------
 BUG FIX RELEASE
 
 Fixes:
-- Fixed text scaling to work like professional LED software (professional LED software)
+- Fixed text scaling to work like professional LED software
 - Text now scales proportionally with zoom level (maintains visual relationship to panels)
 - At 100% zoom (1:1), text renders at exact pixel size specified (e.g., 14px)
 - At 200% zoom, text scales to 28px on screen; at 50% zoom, scales to 7px
@@ -2853,7 +4492,6 @@ Technical changes:
 - Moved renderLayerLabels(), renderLayerOffsets(), renderCabinetIDNumbers() before ctx.restore()
 - Changed all text coordinates from screen space (x * zoom + panX) to world space (x)
 - Text now scales with zoom transform matrix automatically
-
 
 v0.1 - January 27, 2026
 -----------------------

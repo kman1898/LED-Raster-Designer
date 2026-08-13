@@ -44,7 +44,7 @@ jobs:
   build-macos:
     name: Build macOS
     needs: test
-    runs-on: macos-latest
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v6
 
@@ -64,6 +64,26 @@ jobs:
           source .venv/bin/activate
           cd src && python -m PyInstaller led_raster_designer.spec --noconfirm
           cp -R "dist/LED Raster Designer.app" "../LED Raster Designer.app"
+
+      - name: Smoke test frozen app
+        run: |
+          # Launch the actual frozen binary in server-only mode and probe it.
+          # Validates the bundle end-to-end: entry point, blueprints, datas.
+          export LRD_NO_WINDOW=1 LRD_SMOKE_PORT=18750
+          "./LED Raster Designer.app/Contents/MacOS/LED Raster Designer" &
+          APP_PID=$!
+          for i in $(seq 1 30); do
+            sleep 1
+            if curl -sf http://127.0.0.1:18750/api/version > /dev/null; then break; fi
+            if ! kill -0 $APP_PID 2>/dev/null; then
+              echo "frozen app exited early"; exit 1
+            fi
+          done
+          curl -sf http://127.0.0.1:18750/api/version
+          curl -sf -o /dev/null -w "GUI: %{http_code}\n" http://127.0.0.1:18750/
+          curl -sf http://127.0.0.1:18750/api/project > /dev/null && echo "project API: ok"
+          curl -sf http://127.0.0.1:18750/api/panel-catalog/info > /dev/null && echo "catalog API: ok"
+          kill $APP_PID
 
       # ── Code Signing (requires Apple Developer cert in secrets) ──
       - name: Import code signing certificate
@@ -107,20 +127,63 @@ jobs:
             --wait
           xcrun stapler staple "LED Raster Designer.app"
 
-      - name: Create release ZIP
+      - name: Create release DMG
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           if [ -z "$VERSION" ] || [ "$VERSION" = "$GITHUB_REF_NAME" ]; then
             VERSION="${{ github.event.inputs.version }}"
           fi
-          ditto -c -k --keepParent "LED Raster Designer.app" \
-            "led_raster_designer_v${VERSION}_macos.zip"
+          DMG="led_raster_designer_v${VERSION}_macos.dmg"
+          HOMEBREW_NO_REQUIRE_TAP_TRUST=1 brew install create-dmg
+          # The DMG window is 600x400 points. Finder does NOT scale a plain
+          # background image, so it must match the window size (a 1200x800 PNG
+          # would show only its top-left quarter). For Retina crispness we fold
+          # the 600x400 (1x) and 1200x800 (2x) PNGs into a single hi-dpi TIFF
+          # via tiffutil; if that fails we fall back to the 1x PNG, which is
+          # already the correct on-screen size.
+          BG="build/dmg-background.png"
+          if tiffutil -cathidpicheck build/dmg-background.png build/dmg-background@2x.png -out build/dmg-background.tiff; then
+            BG="build/dmg-background.tiff"
+          fi
+          echo "Using DMG background: $BG"
+          # create-dmg can exit non-zero on CI when the Finder AppleScript
+          # styling step is flaky, yet still produce a valid DMG — so we retry
+          # and finally accept any DMG that exists.
+          for attempt in 1 2 3; do
+            rm -f "$DMG"
+            create-dmg \
+              --volname "LED Raster Designer" \
+              --background "$BG" \
+              --window-pos 200 120 \
+              --window-size 600 400 \
+              --icon-size 120 \
+              --icon "LED Raster Designer.app" 150 210 \
+              --app-drop-link 450 210 \
+              --hide-extension "LED Raster Designer.app" \
+              --no-internet-enable \
+              "$DMG" \
+              "LED Raster Designer.app" && break
+            echo "create-dmg attempt $attempt returned non-zero; checking for output..."
+            [ -f "$DMG" ] && { echo "DMG produced despite warning."; break; }
+            sleep 5
+          done
+          test -f "$DMG"
+          # If the app was notarized above, notarize + staple the DMG too so it
+          # passes Gatekeeper on first open. Skipped when no notarize secrets.
+          if [ -n "${{ secrets.MACOS_NOTARIZE_APPLE_ID }}" ]; then
+            xcrun notarytool submit "$DMG" \
+              --apple-id "${{ secrets.MACOS_NOTARIZE_APPLE_ID }}" \
+              --password "${{ secrets.MACOS_NOTARIZE_PASSWORD }}" \
+              --team-id "${{ secrets.MACOS_NOTARIZE_TEAM_ID }}" \
+              --wait || echo "DMG notarization failed (app inside is already notarized)."
+            xcrun stapler staple "$DMG" || echo "DMG staple skipped."
+          fi
 
       - name: Upload macOS artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: macos-build
-          path: led_raster_designer_v*_macos.zip
+          path: led_raster_designer_v*_macos.dmg
 
   # ──────────────────────────────────────────────
   # Windows Build
@@ -150,6 +213,116 @@ jobs:
           python -m PyInstaller led_raster_designer.spec --noconfirm
           Copy-Item -Recurse -Force "dist\LED Raster Designer" "..\LED Raster Designer App"
 
+      - name: Smoke test frozen app
+        run: |
+          # Launch the actual frozen binary in server-only mode and probe it.
+          # Validates the bundle end-to-end: entry point, blueprints, datas.
+          $env:LRD_NO_WINDOW = "1"
+          $env:LRD_SMOKE_PORT = "18750"
+          $proc = Start-Process -FilePath "LED Raster Designer App\LED Raster Designer.exe" -PassThru
+          $ok = $false
+          foreach ($i in 1..30) {
+            Start-Sleep -Seconds 1
+            try {
+              $resp = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:18750/api/version" -TimeoutSec 2
+              if ($resp.StatusCode -eq 200) { $ok = $true; break }
+            } catch { }
+            if ($proc.HasExited) { Write-Error "frozen app exited early"; exit 1 }
+          }
+          if (-not $ok) { Write-Error "server never came up"; Stop-Process -Id $proc.Id -Force; exit 1 }
+          Write-Host "version: $((Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:18750/api/version').Content)"
+          $gui = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:18750/"
+          Write-Host "GUI: $($gui.StatusCode)"
+          Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:18750/api/project" | Out-Null; Write-Host "project API: ok"
+          Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:18750/api/panel-catalog/info" | Out-Null; Write-Host "catalog API: ok"
+          Stop-Process -Id $proc.Id -Force
+
+      # ── The .NET backend, and whether Mark of the Web breaks it ──
+      #
+      # The smoke test above runs with LRD_NO_WINDOW, which returns BEFORE the
+      # native window is built - so a completely broken .NET path shipped green
+      # for the whole life of this workflow. A user hit exactly that: the
+      # window failed, the app fell back to a browser, and diagnosing it cost
+      # two releases of guessing.
+      #
+      # This settles it mechanically. Load the backend clean; tag every file
+      # the way Windows tags a downloaded .zip; load it again; clear the tags;
+      # load once more. If step 2 fails and step 3 passes, Mark of the Web is
+      # PROVEN and so is the fix. If step 2 passes, the theory is dead and we
+      # stop repeating it.
+      - name: .NET backend loads (and survives Mark of the Web)
+        shell: pwsh
+        run: |
+          $exe = "LED Raster Designer App\LED Raster Designer.exe"
+          $env:LRD_SELFTEST = "1"
+
+          # The app is built windowed (console=False), so `& $exe` returns
+          # IMMEDIATELY and never sets $LASTEXITCODE - the first version of
+          # this step raced its own subject and read an empty exit code as a
+          # failure while the app was still starting. Start-Process -Wait
+          # -PassThru is the only reliable way to get an exit code out of a
+          # GUI-subsystem binary.
+          function Invoke-SelfTest {
+            $p = Start-Process -FilePath $exe -Wait -PassThru -NoNewWindow
+            return $p.ExitCode
+          }
+
+          Write-Host "--- 1/3 clean bundle (baseline) ---"
+          $clean = Invoke-SelfTest
+          Write-Host "baseline exit: $clean"
+          if ($clean -ne 0) {
+            Write-Error "The .NET backend does not load even on a CLEAN bundle. That is a packaging fault, not Mark of the Web."
+            exit 1
+          }
+
+          Write-Host "--- 2/3 every file tagged as downloaded-from-internet ---"
+          # Alternate data streams are an NTFS feature. The runner workspace
+          # lives on a temporary disk, so report the filesystem before drawing
+          # any conclusion from a tag that would not not stick.
+          $vol = (Get-Item "LED Raster Designer App").PSDrive.Name
+          $fs = (Get-Volume -DriveLetter $vol -ErrorAction SilentlyContinue).FileSystemType
+          Write-Host "workspace volume ${vol}: filesystem=$fs"
+
+          $target = "LED Raster Designer App\_internal\pythonnet\runtime\Python.Runtime.dll"
+          # Tag the ONE file the theory is about, and let the error SHOW.
+          # Silencing it is how the last two runs produced an unreadable result.
+          try {
+            Set-Content -Path $target -Stream Zone.Identifier -Value "[ZoneTransfer]`nZoneId=3" -ErrorAction Stop
+            Write-Host "tagged $target"
+          } catch {
+            Write-Host "TAGGING FAILED: $($_.Exception.GetType().FullName): $($_.Exception.Message)"
+          }
+
+          $probe = Get-Content -Path $target -Stream Zone.Identifier -ErrorAction SilentlyContinue
+          Write-Host "Python.Runtime.dll zone tag now: $probe"
+          if (-not $probe) {
+            Write-Host "INCONCLUSIVE: this runner cannot carry a Zone.Identifier (filesystem=$fs), so the Mark of the Web theory can be neither proven nor refuted here. Baseline passed, so the bundle itself is sound. Not failing the build over an environment limitation."
+            exit 0
+          }
+
+          # The rest of the bundle, now that tagging is known to work.
+          Get-ChildItem -Recurse -File "LED Raster Designer App" |
+            ForEach-Object {
+              Set-Content -Path $_.FullName -Stream Zone.Identifier `
+                          -Value "[ZoneTransfer]`nZoneId=3" -ErrorAction SilentlyContinue
+            }
+          $tagged = Invoke-SelfTest
+          Write-Host "tagged exit: $tagged"
+
+          Write-Host "--- 3/3 after the app clears the tags itself ---"
+          $env:LRD_SELFTEST_CLEAR = "1"
+          $cleared = Invoke-SelfTest
+          Write-Host "cleared exit: $cleared"
+
+          if ($tagged -ne 0 -and $cleared -eq 0) {
+            Write-Host "PROVEN: Mark of the Web breaks the .NET backend, and clearing it fixes it."
+          } elseif ($tagged -eq 0) {
+            Write-Host "NOTE: a fully tagged bundle still loaded on this runner. Mark of the Web alone does NOT reproduce the reported failure here - do not present it as the diagnosis. The unblock step is harmless and stays, but the real cause is still open."
+          } else {
+            Write-Error "Tagging broke it and clearing did NOT fix it. The unblock fix is insufficient."
+            exit 1
+          }
+
       # ── Code Signing (requires certificate in secrets) ──
       - name: Sign executable
         if: env.WINDOWS_CERTIFICATE != ''
@@ -178,7 +351,7 @@ jobs:
             -DestinationPath "led_raster_designer_v${version}_windows.zip"
 
       - name: Upload Windows artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: windows-build
           path: led_raster_designer_v*_windows.zip
@@ -197,24 +370,47 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
 
       - name: Generate checksums
         run: |
           cd artifacts
-          sha256sum macos-build/*.zip windows-build/*.zip > checksums.txt
+          sha256sum macos-build/*.dmg windows-build/*.zip > checksums.txt
           cat checksums.txt
 
+      # The release body is BUILT from src/VERSION.txt, never hand-maintained.
+      # A checked-in RELEASE_NOTES.md only moved the rot: forget to regenerate
+      # it and the release ships the previous version's text, silently. This
+      # also FAILS THE BUILD if VERSION.txt's top entry is not the tag being
+      # released, which is the mistake worth catching before publish.
+      - name: Build release notes from VERSION.txt
+        run: |
+          python3 scripts/generate_release_notes.py \
+            --tag "${{ github.ref_name }}" \
+            --out RELEASE_NOTES.md
+          echo "──────── release body ────────"
+          cat RELEASE_NOTES.md
+
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           name: "LED Raster Designer ${{ github.ref_name }}"
-          draft: true
-          generate_release_notes: true
+          # Auto-publish on tag push so the README "Download latest" link
+          # and the in-app sidebar link always resolve to the just-built
+          # release. Previously this was draft:true and required manual
+          # publish, which led to releases piling up as drafts and the
+          # /releases/latest page pointing at an old version.
+          draft: false
+          make_latest: true
+          # Was generate_release_notes: true, which builds the body from the
+          # COMMIT LIST and threw away the notes written for users. The body
+          # now comes from RELEASE_NOTES.md, generated above from VERSION.txt.
+          generate_release_notes: false
+          body_path: RELEASE_NOTES.md
           files: |
-            artifacts/macos-build/*.zip
+            artifacts/macos-build/*.dmg
             artifacts/windows-build/*.zip
             artifacts/checksums.txt
 

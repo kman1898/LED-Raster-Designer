@@ -1,0 +1,406 @@
+/* ──────────────────────────────────────────────────────────────────────
+   LED Raster Designer, "Studio" theme
+   Desktop, docked-panel language: beveled neutral-gray surfaces,
+   titled panels, system UI type, a swappable identity accent (default red),
+   chunky tactile controls. Pure cosmetic override layer (loaded last) -
+   remove this <link> (and theme.js) to revert.
+
+   The accent is driven by --ps-accent* variables so it can be re-themed at
+   runtime from Preferences (see theme.js). No webfonts / no CDN, system
+   fonts only, so it holds up offline over the LAN.
+   ────────────────────────────────────────────────────────────────────── */
+:root {
+  --ps-canvas:#1b1b1b;
+  --ps-panel:#2e2e2e;
+  --ps-panel-2:#262626;
+  --ps-tile:#3c3c3c;          /* raised rows/cards, clearly above panel */
+  --ps-tile-hi:#454545;
+  --ps-titlebar:#3d3d3d;
+  --ps-control:#404040;
+  --ps-control-hi:#545454;
+  --ps-inset:#1c1c1c;          /* recessed fields, clearly below panel */
+  --ps-dark:#131313;
+  --ps-text:#f0f0f0;           /* primary, brighter */
+  --ps-dim:#c0c0c0;            /* secondary, much brighter for legibility */
+  --ps-faint:#969696;          /* tertiary, brighter */
+  /* accent (themeable at runtime) */
+  --ps-accent:#e22330;
+  --ps-accent-hi:#ef3340;
+  --ps-accent-deep:#8f1218;
+  --ps-on-accent:#ffffff;
+  --font-ps:'Segoe UI', system-ui, 'Helvetica Neue', Arial, sans-serif;
+}
+
+/* ---- base ---- */
+body, #app {
+  background:var(--ps-panel-2) !important; font-family:var(--font-ps) !important;
+  color:var(--ps-text) !important; font-size:12px;
+}
+
+/* ---- menu bar ---- */
+#menu-bar { background:linear-gradient(#3a3a3a,#323232) !important;
+  border-bottom:2px solid var(--ps-accent) !important; box-shadow:inset 0 1px 0 #484848 !important; }
+.menu-item { color:var(--ps-text) !important; font-family:var(--font-ps) !important; }
+.menu-item:hover, .menu-item.open { background:rgba(255,255,255,0.08) !important; color:#fff !important; }
+.menu-dropdown, .menu-submenu, .context-menu {
+  background:var(--ps-titlebar) !important; border:1px solid var(--ps-dark) !important;
+  box-shadow:0 8px 22px rgba(0,0,0,0.55), inset 0 1px 0 #4a4a4a !important; }
+.menu-option { color:var(--ps-text) !important; }
+.menu-option:hover { background:var(--ps-accent) !important; color:var(--ps-on-accent) !important; }
+.menu-divider { background:var(--ps-dark) !important; }
+
+/* ---- toolbar ---- */
+#toolbar { background:linear-gradient(#333,#2c2c2c) !important; border-bottom:1px solid var(--ps-dark) !important;
+  box-shadow:inset 0 1px 0 #424242 !important; }
+#toolbar h1, #app h1 { font-family:var(--font-ps) !important; font-weight:600 !important;
+  color:var(--ps-text) !important; letter-spacing:0 !important; background:none !important;
+  -webkit-text-fill-color:var(--ps-text) !important; text-shadow:0 1px 0 #000; }
+#toolbar h1 span, #app h1 span { color:var(--ps-faint) !important; -webkit-text-fill-color:var(--ps-faint) !important; }
+
+/* ---- beveled buttons ---- */
+.btn, button.btn { font-family:var(--font-ps) !important; font-weight:400 !important; font-size:12px !important;
+  color:var(--ps-text) !important; background:linear-gradient(#3e3e3e,#343434) !important;
+  border:1px solid var(--ps-dark) !important; border-radius:3px !important;
+  box-shadow:inset 0 1px 0 #515151, 0 1px 1px rgba(0,0,0,0.3) !important; padding:5px 12px !important; }
+.btn:hover { background:linear-gradient(#484848,#3c3c3c) !important; }
+.btn:active { background:linear-gradient(#2c2c2c,#343434) !important; box-shadow:inset 0 1px 3px rgba(0,0,0,0.5) !important; }
+.btn-primary, button.btn-primary, #btn-export {
+  background:linear-gradient(var(--ps-accent-hi),var(--ps-accent)) !important; color:var(--ps-on-accent) !important;
+  border:1px solid var(--ps-accent-deep) !important; font-weight:600 !important;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.22), 0 1px 1px rgba(0,0,0,0.4) !important;
+  text-shadow:0 1px 1px rgba(0,0,0,0.3); }
+.btn-primary:hover, #btn-export:hover { filter:brightness(1.08); }
+/* v0.11.0: the .btn rule above forces colour+background with !important and
+   nothing declared a disabled state, so inert buttons (gradient stop Remove,
+   palette Remove) looked fully live. */
+.btn:disabled, .btn[disabled], button.btn:disabled, button.btn[disabled] {
+  color:var(--ps-faint) !important; background:linear-gradient(#333,#2d2d2d) !important;
+  border-color:#101010 !important; box-shadow:none !important; opacity:0.55 !important;
+  cursor:default !important; }
+.btn:disabled:hover, .btn[disabled]:hover { background:linear-gradient(#333,#2d2d2d) !important; }
+
+/* ---- view tabs ---- */
+#view-tabs { background:var(--ps-panel-2) !important; border-bottom:1px solid var(--ps-dark) !important;
+  padding:5px 8px 0 8px !important; align-items:flex-end !important; }
+.view-tab {
+  color:var(--ps-dim) !important; font-family:var(--font-ps) !important; font-weight:500 !important;
+  background:linear-gradient(#363636,#2c2c2c) !important;
+  border:1px solid var(--ps-dark) !important; border-bottom:none !important;
+  border-radius:6px 6px 0 0 !important; padding:8px 18px !important; margin:0 3px 0 0 !important;
+  box-shadow:inset 0 1px 0 #444 !important; position:relative; }
+.view-tab:hover { color:var(--ps-text) !important; background:linear-gradient(#424242,#373737) !important; }
+.view-tab.active {
+  color:#fff !important; background:var(--ps-panel) !important;
+  border:1px solid var(--ps-dark) !important; border-bottom:none !important;
+  border-top:2px solid var(--ps-accent) !important;
+  box-shadow:0 -2px 6px rgba(0,0,0,0.25) !important; z-index:2; margin-bottom:-1px !important;
+  padding-bottom:9px !important; }
+
+/* ---- docked titled panels ---- */
+#left-sidebar, #right-sidebar { background:var(--ps-panel) !important; border-color:var(--ps-dark) !important; }
+#left-sidebar { border-right:1px solid var(--ps-dark) !important; }
+#right-sidebar { border-left:1px solid var(--ps-dark) !important; }
+.panel { background:var(--ps-panel) !important; border:1px solid var(--ps-dark) !important; border-radius:0 !important; }
+/* the title bar is the wrapper (.panel-header) or a standalone section header */
+.panel-header, .sidebar-section-header,
+#left-sidebar > h2, #left-sidebar > h3, #right-sidebar > h2, #right-sidebar > h3 {
+  background:linear-gradient(#3c3c3c,#343434) !important; border-bottom:1px solid var(--ps-dark) !important;
+  border-left:3px solid var(--ps-accent) !important; box-shadow:inset 0 1px 0 #4a4a4a !important;
+  color:var(--ps-text) !important; font-family:var(--font-ps) !important; font-weight:600 !important;
+  font-size:11px !important; letter-spacing:0.02em !important; text-transform:uppercase; padding:6px 10px !important;
+  position:relative; }
+.panel-header::after, .sidebar-section-header::after,
+#left-sidebar > h2::after, #left-sidebar > h3::after, #right-sidebar > h2::after, #right-sidebar > h3::after {
+  content:'\25BE'; position:absolute; right:9px; top:50%; transform:translateY(-50%);
+  color:var(--ps-faint); font-size:10px; pointer-events:none; }
+/* inner header text (was blue) → white, NO second bar/chevron (prevents doubling) */
+.panel-header h2, .panel-header h3, .sidebar-section-header h2,
+#left-sidebar h2, #left-sidebar h3, #right-sidebar h2, #right-sidebar h3 {
+  color:var(--ps-text) !important; background:none !important; border:none !important;
+  box-shadow:none !important; font-family:var(--font-ps) !important; margin:0 !important; padding:0 !important; }
+.panel-header h2::after, .panel-header h3::after,
+#left-sidebar h2::after, #left-sidebar h3::after, #right-sidebar h2::after, #right-sidebar h3::after { content:none !important; }
+/* selection actions bar: blue → accent */
+#pixel-map-bulk-actions { border-left-color:var(--ps-accent) !important; }
+#pixel-map-bulk-actions, #pixel-map-bulk-actions span, #pixel-map-bulk-actions * { color:var(--ps-text) !important; }
+.info-row > label, .panel-content label, .checkbox-row label {
+  color:var(--ps-dim) !important; text-transform:uppercase; font-size:11px !important; letter-spacing:0.04em; }
+
+/* ---- inset inputs ---- */
+input[type="text"], input[type="number"], select, .info-select,
+.canvas-raster-input, .layer-name-input, .canvas-name-input, .screen-group-name-input, textarea {
+  background:var(--ps-inset) !important; color:var(--ps-text) !important; border:1px solid var(--ps-dark) !important;
+  border-radius:2px !important; box-shadow:inset 0 1px 2px rgba(0,0,0,0.5) !important; font-family:var(--font-ps) !important; }
+input:focus, select:focus, textarea:focus { border-color:var(--ps-accent) !important; outline:none !important;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,0.5), 0 0 0 1px var(--ps-accent) !important; }
+/* v0.11.0: inline rename/invalid cues could never win against the !important
+   field styling above (and `outline:none !important` killed the invalid
+   outline exactly while the field was focused). Carried on classes instead. */
+.layer-name-input.editing, .canvas-name-input:not([readonly]), .screen-group-name-input.editing {
+  background:#0e0e0e !important; border-color:var(--ps-accent) !important;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,0.6), 0 0 0 2px var(--ps-accent) !important; }
+input.invalid, input.invalid:focus {
+  border-color:#c55 !important;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,0.5), 0 0 0 2px #c55 !important; }
+
+/* ---- chunky sliders (fill set by theme.js) ---- */
+/* v0.11.0: the accent fill is written INLINE by theme.js, so the !important
+   flags here (background/height/border-radius) silently ate it and every
+   slider read as an empty track. Nothing in style.css styles range inputs,
+   so plain declarations still win - drop the flags. The colour picker paints
+   its own per-channel gradient tracks and sets its own sizing, so it opts
+   out of this whole block (see color_picker.css .lrd-cw-range). */
+input[type="range"]:not(.lrd-cw-range) { -webkit-appearance:none; appearance:none; height:22px;
+  background:var(--ps-inset); border:1px solid var(--ps-dark); border-radius:4px;
+  box-shadow:inset 0 1px 3px rgba(0,0,0,0.5); }
+input[type="range"]:not(.lrd-cw-range)::-webkit-slider-runnable-track { height:22px; background:transparent; }
+input[type="range"]:not(.lrd-cw-range)::-webkit-slider-thumb { -webkit-appearance:none; width:11px; height:20px; margin-top:0;
+  background:linear-gradient(#f0f0f0,#cdcdcd); border:1px solid #2a2a2a; border-radius:2px; box-shadow:0 1px 2px rgba(0,0,0,0.5); }
+.ps-slider-wrap { position:relative; display:block; }
+.ps-slider-val { position:absolute; right:8px; top:50%; transform:translateY(-50%); background:#f2f2f2; color:#161616;
+  font-size:10px; font-weight:600; padding:1px 7px; border-radius:9px; pointer-events:none; box-shadow:0 1px 2px rgba(0,0,0,0.4); }
+
+/* ---- desktop checkboxes ---- */
+input[type="checkbox"] { -webkit-appearance:none; appearance:none; width:15px !important; height:15px !important;
+  background-color:var(--ps-inset) !important; background-image:none !important; border:1px solid var(--ps-dark) !important; border-radius:2px !important;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,0.5) !important; cursor:pointer; vertical-align:middle;
+  background-repeat:no-repeat !important; background-position:center !important; background-size:11px 11px !important; }
+input[type="checkbox"]:checked { background-color:var(--ps-accent) !important; border-color:var(--ps-accent-deep) !important;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.2 L5 8.6 L9.5 3.4' stroke='white' stroke-width='1.8' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") !important; }
+input[type="radio"] { accent-color:var(--ps-accent) !important; }
+
+/* ---- segmented toggle groups ---- */
+/* v0.11.0: .text-style-btn (Bold/Italic/Underline) joined the group - it was
+   the only toggle left hard-coded blue instead of following the accent. */
+.perspective-btn, .mapping-mode-btn, .flow-pattern-btn, .color-mode-btn,
+.pref-flow-pattern-btn, .power-flow-pattern-btn, .text-style-btn {
+  font-family:var(--font-ps) !important; background:linear-gradient(#3e3e3e,#343434) !important;
+  color:var(--ps-dim) !important; border:1px solid var(--ps-dark) !important; box-shadow:inset 0 1px 0 #4d4d4d !important; }
+.perspective-btn.active, .mapping-mode-btn.active, .color-mode-btn.active,
+.flow-pattern-btn.active, .pref-flow-pattern-btn.active, .power-flow-pattern-btn.active,
+.text-style-btn.active {
+  background:linear-gradient(var(--ps-accent-hi),var(--ps-accent)) !important; color:var(--ps-on-accent) !important;
+  border-color:var(--ps-accent-deep) !important; box-shadow:inset 0 1px 0 rgba(255,255,255,0.2) !important; }
+
+/* ---- screens / layers ---- */
+.canvas-group { background:var(--ps-panel-2) !important; border-color:var(--ps-dark) !important; }
+.layer-item { background:var(--ps-tile) !important; border:1px solid var(--ps-dark) !important;
+  box-shadow:inset 0 1px 0 var(--ps-tile-hi), 0 1px 3px rgba(0,0,0,0.45) !important; border-radius:4px !important; }
+.layer-item:hover { background:var(--ps-tile-hi) !important; }
+/* unselected screen sub-info: legible, not muddy */
+.layer-item .layer-info, .layer-item small, .layer-item [class*="info"],
+.layer-item [class*="size"], .layer-item [class*="meta"] { color:#c8c8c8 !important; }
+.layer-item.active { background:linear-gradient(var(--ps-accent-hi),var(--ps-accent-deep)) !important;
+  border-color:var(--ps-accent-deep) !important; }
+.layer-item.active, .layer-item.active * { color:var(--ps-on-accent) !important; }
+.layer-item.active .layer-info, .layer-item.active small, .layer-item.active .layer-meta,
+.layer-item.active [class*="info"], .layer-item.active [class*="size"] {
+  color:rgba(255,255,255,0.92) !important; text-shadow:0 1px 1px rgba(0,0,0,0.4) !important; }
+/* the canvas group header IS the canvas's identity color (no separate dot) */
+.canvas-group-header {
+  background:linear-gradient(rgba(255,255,255,0.15), rgba(0,0,0,0.18)), var(--canvas-color, var(--ps-accent)) !important;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.22) !important;
+  text-shadow:0 1px 1px rgba(0,0,0,0.45) !important; }
+.canvas-group-header, .canvas-group-header * { color:#fff !important; }
+/* active canvas: subtle white inner outline (since color no longer signals active) */
+.canvas-group.active .canvas-group-header {
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.22), inset 0 0 0 2px rgba(255,255,255,0.5) !important; }
+/* the little color dot is redundant now, the whole header carries the color */
+.canvas-color-swatch { display:none !important; }
+/* v0.11.0: a screen group IS a single layer, so its row gets the layer tile
+   treatment. The heavier left edge is the only cue that it opens up, and the
+   accent selection state matches a selected screen exactly. */
+.screen-group-row { background:var(--ps-tile) !important; border:1px solid var(--ps-dark) !important;
+  border-left:3px solid var(--ps-dim) !important;
+  box-shadow:inset 0 1px 0 var(--ps-tile-hi), 0 1px 3px rgba(0,0,0,0.45) !important; border-radius:4px !important; }
+.screen-group-row:hover { background:var(--ps-tile-hi) !important; }
+.screen-group-row .screen-group-info { color:#c8c8c8 !important; }
+.screen-group.active > .screen-group-row {
+  background:linear-gradient(var(--ps-accent-hi),var(--ps-accent-deep)) !important;
+  border-color:var(--ps-accent-deep) !important; border-left-color:var(--ps-accent-deep) !important; }
+.screen-group.active > .screen-group-row,
+.screen-group.active > .screen-group-row * { color:var(--ps-on-accent) !important; }
+.screen-group.active > .screen-group-row .screen-group-info {
+  color:rgba(255,255,255,0.92) !important; text-shadow:0 1px 1px rgba(0,0,0,0.4) !important; }
+
+/* ---- workspace ---- */
+#canvas-wrapper, #canvas-container { background:var(--ps-canvas) !important; }
+#canvas-controls { background:linear-gradient(#333,#2c2c2c) !important; border-bottom:1px solid var(--ps-dark) !important;
+  box-shadow:inset 0 1px 0 #424242 !important; }
+
+/* ---- status bar (technical readout strip) ---- */
+#status-bar { background:linear-gradient(#333,#2c2c2c) !important; border-top:1px solid var(--ps-dark) !important;
+  box-shadow:inset 0 1px 0 #424242 !important; color:var(--ps-dim) !important; }
+#status-bar * { color:var(--ps-dim) !important; font-family:var(--font-ps) !important; }
+
+/* ════════ MODALS & DIALOGS ════════ */
+.modal, .modal-overlay { background:rgba(0,0,0,0.55) !important; }
+.modal-content, .export-modal, .preferences-modal,
+#export-modal .modal-content, #preferences-modal .modal-content,
+#shortcuts-modal .modal-content, #logs-modal .modal-content,
+#preset-picker-modal .modal-content, #preset-save-modal .modal-content {
+  background:var(--ps-panel) !important; border:1px solid var(--ps-dark) !important; border-radius:4px !important;
+  box-shadow:0 12px 44px rgba(0,0,0,0.6), inset 0 1px 0 #3f3f3f !important; color:var(--ps-text) !important; }
+.modal-header, .modal-title, .modal-content > h2:first-child, .modal-content > h3:first-child {
+  background:linear-gradient(#3c3c3c,#343434) !important; border-bottom:1px solid var(--ps-dark) !important;
+  border-left:3px solid var(--ps-accent) !important; box-shadow:inset 0 1px 0 #4a4a4a !important;
+  color:var(--ps-text) !important; font-weight:600 !important; }
+.modal-close { color:var(--ps-dim) !important; }
+.modal-close:hover { color:#fff !important; }
+.prefs-group, .export-views, .prefs-grid > div, .sub-panel {
+  background:var(--ps-panel-2) !important; border:1px solid var(--ps-dark) !important; border-radius:3px !important; }
+.export-view-row, .prefs-row { border-color:var(--ps-dark) !important; }
+
+/* ════════ CUSTOM COLOR PICKER (Windows) ════════ */
+.lrd-cp-popover, .lrd-cw-window, .color-modal .modal-content, .color-popover {
+  background:var(--ps-panel) !important; border:1px solid var(--ps-dark) !important;
+  box-shadow:0 12px 40px rgba(0,0,0,0.6), inset 0 1px 0 #3f3f3f !important; color:var(--ps-text) !important; }
+.lrd-cw-titlebar, .color-modal .modal-header {
+  background:linear-gradient(#3c3c3c,#343434) !important; border-bottom:1px solid var(--ps-dark) !important;
+  border-left:3px solid var(--ps-accent) !important; color:var(--ps-text) !important; }
+.lrd-cw-tab, .color-mode-btn { color:var(--ps-dim) !important; }
+.lrd-cw-tab.active, .color-mode-btn.active { color:var(--ps-on-accent) !important;
+  background:linear-gradient(var(--ps-accent-hi),var(--ps-accent)) !important; border-color:var(--ps-accent-deep) !important; }
+.lrd-cp-cell.lrd-cp-selected, .lrd-cp-selected { outline:2px solid var(--ps-accent) !important; }
+
+/* ════════ ACCENT PICKER (injected into Preferences by theme.js) ════════ */
+.ps-appearance { margin:10px 0; border:1px solid var(--ps-dark); border-radius:3px; background:var(--ps-panel-2); }
+.ps-appearance-h { background:linear-gradient(#3c3c3c,#343434); border-left:3px solid var(--ps-accent);
+  box-shadow:inset 0 1px 0 #4a4a4a; padding:6px 10px; font-size:11px; font-weight:600; text-transform:uppercase;
+  letter-spacing:0.02em; color:var(--ps-text); }
+.ps-accent-row { display:flex; gap:8px; flex-wrap:wrap; padding:12px 10px; align-items:center; }
+.ps-accent-sw { width:26px; height:26px; border-radius:4px; cursor:pointer; border:1px solid var(--ps-dark);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.25); position:relative; }
+.ps-accent-sw.selected { outline:2px solid #fff; outline-offset:1px; }
+.ps-accent-sw.selected::after { content:'\2713'; position:absolute; inset:0; display:flex; align-items:center;
+  justify-content:center; color:#fff; font-size:13px; text-shadow:0 1px 2px rgba(0,0,0,0.6); }
+.ps-accent-label { font-size:10px; text-transform:uppercase; letter-spacing:0.04em; color:var(--ps-dim); margin-left:4px; }
+
+/* ════════ LEGIBILITY PASS ════════ */
+/* Preferences & modals: bright setting labels, readable helper text, clear fields */
+.modal-content, #preferences-modal, #export-modal { color:var(--ps-text) !important; }
+#preferences-modal label, .prefs-grid label, .prefs-row label, .prefs-group label,
+#export-modal label, .export-view-label {
+  color:var(--ps-text) !important; font-weight:500 !important; text-transform:none !important; font-size:13px !important; letter-spacing:0 !important; }
+/* helper / descriptive sub-text → readable gray, not muddy */
+#preferences-modal small, #preferences-modal p, #preferences-modal .hint, #preferences-modal .desc,
+.modal-content small, .modal-content p, .field-hint, .help-text, .pref-hint {
+  color:var(--ps-dim) !important; }
+/* group/section blocks in prefs: lift off the panel for separation */
+.prefs-grid > div, .prefs-group, .export-views {
+  background:var(--ps-panel-2) !important; border:1px solid var(--ps-dark) !important; border-radius:4px !important; }
+/* fields stay recessed + bright text so they read against the lifted blocks */
+/* text fields / selects in modals get the recessed inset look, but NOT
+   checkboxes/radios, which carry their own checked fill (see checkbox rules) */
+#preferences-modal input:not([type="checkbox"]):not([type="radio"]),
+#preferences-modal select,
+#export-modal input:not([type="checkbox"]):not([type="radio"]),
+#export-modal select {
+  background:var(--ps-inset) !important; color:var(--ps-text) !important; }
+
+/* dim helper lines in the side panels (e.g. "Click & drag the screen name…") */
+#left-sidebar .hint, #left-sidebar small, #left-sidebar .help-text,
+#left-sidebar p, .panel-content .hint, .panel-content small { color:var(--ps-faint) !important; }
+/* v0.11.0: the Low Latency rules list under the Pixels/Port readout is helper
+   text like the notes either side of it, but the rule above only reaches p /
+   small / .hint - a ul and its li are not covered and would otherwise render in
+   the panel's bright body colour, louder than the notes it belongs with. Named
+   here so it stays hint grey, and so it can never be mistaken for a warning. */
+#low-latency-rules, #low-latency-rules li { color:var(--ps-faint) !important; }
+
+/* ---- readout colours ---- */
+/* v0.11.0: replaces the old `[style*="#4A90E2"] { color:… }` attribute hack,
+   which matched any element with the legacy blue anywhere in its inline style
+   and so made the *healthy* value of Pixels/Port, Panels/Port and the export
+   filename preview unrenderable while their error colours still showed.
+   .value-accent is for a readout where colour means HIGHLIGHT (the export
+   filename preview, the only thing in its box). */
+.value-accent { color:var(--ps-accent) !important; }
+/* v0.11.0: .value-normal is for a readout where colour would mean ALARM.
+   Pixels/Port and Panels/Port sit in the same box as #ff0000 (Panels/Port
+   ERROR) and #ff6600 (N/A), and the default accent is red, so an accented
+   healthy value read as a fault. A healthy figure is deliberately
+   unremarkable; colour in that box means something is wrong, and nothing else. */
+.value-normal { color:var(--ps-text) !important; }
+
+/* ════════ NARROW-PANEL CHECKBOX ROWS ════════ */
+/* checkboxes never collapse when a sidebar is narrow (they were shrinking to
+   ~3px and disappearing) */
+.checkbox-row input[type="checkbox"], .info-row input[type="checkbox"] { flex-shrink:0 !important; }
+/* Layer Size (ft) row: tighten the Fractions sub-toggle and let it wrap to a
+   new line instead of squeezing the checkbox out */
+.checkbox-row:has(#show-label-size-ft) { flex-wrap:wrap; row-gap:4px; }
+label:has(#use-fractional-inches) { margin-left:8px !important; flex-shrink:0; }
+
+/* ════════ DENSER LAYER CARDS ════════ */
+.layer-item { padding:7px 9px !important; margin-bottom:5px !important; }
+.layer-item .layer-info { margin-top:3px !important; line-height:1.25 !important; }
+.layer-item .layer-header { gap:6px !important; }
+
+/* ════════ RESIZABLE SIDEBARS ════════ */
+/* width is driven by CSS vars (set/persisted by theme.js); collapse still wins */
+#left-sidebar:not(.collapsed) { width:var(--lrd-left-w, 260px) !important; flex:0 0 auto !important; }
+#right-sidebar:not(.collapsed) { width:var(--lrd-right-w, 260px) !important; }
+#left-sidebar.collapsed, #right-sidebar.collapsed { width:0 !important; min-width:0 !important; }
+/* no width animation while actively dragging */
+#app.lrd-resizing #left-sidebar, #app.lrd-resizing #right-sidebar { transition:none !important; }
+/* drag strip on the inner edge of each sidebar */
+.lrd-resize-handle { position:fixed; width:7px; z-index:45; cursor:col-resize; background:transparent; }
+.lrd-resize-handle:hover, .lrd-resize-handle.lrd-dragging { background:var(--ps-accent); opacity:0.55; }
+/* keep the collapse toggles clickable above the resize strip */
+.sidebar-toggle { z-index:60 !important; }
+
+/* ---- scrollbars ---- */
+::-webkit-scrollbar { width:14px; height:14px; }
+::-webkit-scrollbar-thumb { background:#4a4a4a; border:3px solid var(--ps-panel); border-radius:7px; }
+::-webkit-scrollbar-thumb:hover { background:#565656; }
+::-webkit-scrollbar-track { background:var(--ps-inset); }
+
+/* ---- select dropdown chevron ---- */
+/* The flat input styling suppresses the native dropdown arrow, leaving
+   selects (Processing / Bit Depth / Frame Rate, etc.) looking like plain
+   text boxes. Draw our own chevron so dropdowns read as dropdowns.
+   Placed last so it wins over earlier `background:` shorthand rules. */
+select, .info-select {
+  -webkit-appearance:none !important; appearance:none !important;
+  padding-right:22px !important;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='9' height='6'%3E%3Cpath d='M0 0l4.5 5.5L9 0z' fill='%239a9a9a'/%3E%3C/svg%3E") !important;
+  background-repeat:no-repeat !important;
+  background-position:right 7px center !important;
+}
+
+/* ---- layer drag insertion indicator ---- */
+/* The .layer-item tile rule above sets box-shadow with !important, which
+   silently overrode the old (non-important) drag-over-top/bottom inset
+   shadows from style.css - the insertion line vanished in the reskin.
+   Redeclare them here, in the accent color, keeping the tile's drop shadow. */
+.layer-item.drag-over-top {
+  box-shadow:inset 0 3px 0 0 var(--ps-accent), 0 1px 3px rgba(0,0,0,0.45) !important; }
+.layer-item.drag-over-bottom {
+  box-shadow:inset 0 -3px 0 0 var(--ps-accent), 0 1px 3px rgba(0,0,0,0.45) !important; }
+
+/* ---- layer state cues (primary / hidden / disabled arrows) ---- */
+/* v0.11.0: same bug class as the drag indicator above. The .layer-item tile
+   rule sets background/border/box-shadow with !important and .layer-item.active
+   forces on-accent text on every descendant, so style.css's (non-important)
+   primary ring, hidden-screen stripe and :disabled arrows never reached the
+   screen. Redeclared here, after those rules, with the style.css values. */
+.layer-item.primary {
+  border-color:#00ccff !important;
+  box-shadow:inset 0 0 0 1px rgba(0,204,255,0.35), 0 1px 3px rgba(0,0,0,0.45) !important; }
+.layer-item.hidden {
+  background:
+    repeating-linear-gradient(135deg,
+      rgba(255,80,80,0.06) 0px, rgba(255,80,80,0.06) 6px,
+      transparent 6px, transparent 12px),
+    #141414 !important;
+  border-color:#5a2a2a !important; }
+.layer-item.hidden .layer-info { color:#888 !important; }
+.layer-item.hidden .layer-name-input { color:#888 !important; text-decoration:line-through !important; }
+/* the eye toggle keeps its pale-red "off" glyph even on the selected tile */
+.layer-visibility-btn.is-hidden {
+  background:#5a1f1f !important; border-color:#b04040 !important; color:#ffb0b0 !important; }
+/* a dead reorder arrow must not look live on the selected (accent) tile */
+.layer-btn:disabled, .layer-btn:disabled:hover {
+  color:#5a5a5a !important; opacity:0.45 !important; cursor:default !important; }
+.layer-item.active .layer-btn:disabled { color:rgba(255,255,255,0.55) !important; }

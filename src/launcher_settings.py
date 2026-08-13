@@ -1,17 +1,27 @@
 """
 LED Raster Designer - Launcher Settings
-Handles settings persistence, network interface detection, and Run at Login.
+Handles settings persistence, network interface detection, SSL cert generation,
+and Run at Login.
 """
 import json
 import os
 import sys
 import socket
 import platform
+import subprocess
 
 DEFAULTS = {
     'port': 8050,
     'interface': '127.0.0.1',
     'run_at_login': False,
+    'https_enabled': False,
+    # Open the GUI in a browser automatically when the app launches.
+    'open_browser_on_launch': False,
+    # Which browser to open the GUI in: 'default' = the OS default, or a key
+    # from BROWSER_DEFS below (e.g. 'chrome', 'firefox') when installed.
+    'browser': 'default',
+    # Start the launcher window minimized/hidden (to tray or menu bar).
+    'start_minimized': False,
 }
 
 APP_NAME = 'LED Raster Designer'
@@ -59,6 +69,137 @@ def save_settings(settings):
         pass
 
 
+# ── SSL Certificate Management ──────────────────────────────────────────────
+
+def get_ssl_cert_paths():
+    """Return (cert_path, key_path) in the config directory."""
+    config_dir = get_config_dir()
+    return (
+        os.path.join(config_dir, 'server.crt'),
+        os.path.join(config_dir, 'server.key'),
+    )
+
+
+def ssl_certs_exist():
+    """Check if SSL certificate and key files exist."""
+    cert_path, key_path = get_ssl_cert_paths()
+    return os.path.exists(cert_path) and os.path.exists(key_path)
+
+
+def generate_ssl_certs():
+    """
+    Generate a self-signed SSL certificate and key using openssl.
+    The cert is valid for 10 years and includes SANs for localhost and
+    common LAN IP ranges so browsers accept it for LAN access.
+    Returns (cert_path, key_path) on success, or raises RuntimeError.
+    """
+    cert_path, key_path = get_ssl_cert_paths()
+
+    # Build SAN entries: localhost + all current LAN IPs
+    san_entries = ['DNS:localhost', 'IP:127.0.0.1', 'IP:0.0.0.0']
+    for ip, _label in get_network_interfaces():
+        entry = f'IP:{ip}'
+        if entry not in san_entries:
+            san_entries.append(entry)
+    san_string = ','.join(san_entries)
+
+    # Find openssl binary
+    openssl_bin = _find_openssl()
+    if not openssl_bin:
+        raise RuntimeError(
+            'OpenSSL not found. Install OpenSSL to enable HTTPS.\n'
+            'macOS: Already included with the system.\n'
+            'Windows: Install Git for Windows (includes OpenSSL) or download from slproweb.com'
+        )
+
+    try:
+        result = subprocess.run([
+            openssl_bin, 'req', '-x509', '-newkey', 'rsa:2048',
+            '-keyout', key_path, '-out', cert_path,
+            '-days', '3650', '-nodes',
+            '-subj', '/CN=LED Raster Designer',
+            '-addext', f'subjectAltName={san_string}',
+        ], capture_output=True, text=True, timeout=30)
+
+        if result.returncode != 0:
+            raise RuntimeError(f'OpenSSL failed: {result.stderr.strip()}')
+
+        # Restrict key file permissions (owner-only read/write)
+        try:
+            os.chmod(key_path, 0o600)
+        except OSError:
+            pass  # Windows doesn't support chmod the same way
+
+        return cert_path, key_path
+
+    except FileNotFoundError:
+        raise RuntimeError('OpenSSL binary not found.')
+    except subprocess.TimeoutExpired:
+        raise RuntimeError('OpenSSL timed out generating certificate.')
+
+
+def regenerate_ssl_certs():
+    """Delete existing certs and generate new ones."""
+    cert_path, key_path = get_ssl_cert_paths()
+    for path in (cert_path, key_path):
+        if os.path.exists(path):
+            os.remove(path)
+    return generate_ssl_certs()
+
+
+def get_ssl_context(settings):
+    """
+    Return an ssl_context tuple (cert, key) if HTTPS is enabled and certs exist,
+    otherwise return None. Auto-generates certs on first use.
+    """
+    if not settings.get('https_enabled', False):
+        return None
+
+    if not ssl_certs_exist():
+        try:
+            generate_ssl_certs()
+        except RuntimeError as e:
+            print(f'[HTTPS] Failed to generate SSL certificate: {e}')
+            print('[HTTPS] Falling back to HTTP.')
+            return None
+
+    cert_path, key_path = get_ssl_cert_paths()
+    return (cert_path, key_path)
+
+
+def _find_openssl():
+    """Find the openssl binary on the system."""
+    # Check common locations
+    candidates = ['openssl']
+    if sys.platform == 'win32':
+        # Git for Windows includes openssl
+        git_ssl = os.path.join(
+            os.environ.get('ProgramFiles', 'C:\\Program Files'),
+            'Git', 'usr', 'bin', 'openssl.exe'
+        )
+        candidates.append(git_ssl)
+        git_ssl_x86 = os.path.join(
+            os.environ.get('ProgramFiles(x86)', 'C:\\Program Files (x86)'),
+            'Git', 'usr', 'bin', 'openssl.exe'
+        )
+        candidates.append(git_ssl_x86)
+
+    for candidate in candidates:
+        try:
+            result = subprocess.run(
+                [candidate, 'version'],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0:
+                return candidate
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            continue
+
+    return None
+
+
+# ── Network Interface Detection ─────────────────────────────────────────────
+
 def get_network_interfaces():
     """
     Return a list of (ip, label) tuples for available network interfaces.
@@ -94,6 +235,257 @@ def get_network_interfaces():
 
     return interfaces
 
+
+# ── Browser Selection ───────────────────────────────────────────────────────
+
+# key -> (label, macOS .app name, Windows exe names, Linux binary names)
+BROWSER_DEFS = {
+    'chrome':  ('Google Chrome', 'Google Chrome', ['chrome.exe'],
+                ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser']),
+    'firefox': ('Firefox', 'Firefox', ['firefox.exe'], ['firefox']),
+    'edge':    ('Microsoft Edge', 'Microsoft Edge', ['msedge.exe'], ['microsoft-edge']),
+    'brave':   ('Brave', 'Brave Browser', ['brave.exe'], ['brave-browser', 'brave']),
+    'safari':  ('Safari', 'Safari', [], []),
+}
+
+
+def _win_browser_path(exe_name):
+    """Resolve a browser exe path on Windows via the App Paths registry, then
+    common install locations. Returns a path or None."""
+    try:
+        import winreg
+        for root in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+            try:
+                key = winreg.OpenKey(
+                    root,
+                    rf'SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{exe_name}')
+                val, _ = winreg.QueryValueEx(key, None)
+                winreg.CloseKey(key)
+                if val and os.path.exists(val):
+                    return val
+            except OSError:
+                continue
+    except ImportError:
+        pass
+    # Common install locations as a fallback
+    prog = os.environ.get('ProgramFiles', r'C:\Program Files')
+    prog86 = os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)')
+    local = os.environ.get('LOCALAPPDATA', '')
+    known = {
+        'chrome.exe': [rf'{prog}\Google\Chrome\Application\chrome.exe',
+                       rf'{prog86}\Google\Chrome\Application\chrome.exe'],
+        'firefox.exe': [rf'{prog}\Mozilla Firefox\firefox.exe',
+                        rf'{prog86}\Mozilla Firefox\firefox.exe'],
+        'msedge.exe': [rf'{prog86}\Microsoft\Edge\Application\msedge.exe',
+                       rf'{prog}\Microsoft\Edge\Application\msedge.exe'],
+        'brave.exe': [rf'{prog}\BraveSoftware\Brave-Browser\Application\brave.exe',
+                      rf'{prog86}\BraveSoftware\Brave-Browser\Application\brave.exe',
+                      rf'{local}\BraveSoftware\Brave-Browser\Application\brave.exe'],
+    }
+    for path in known.get(exe_name, []):
+        if path and os.path.exists(path):
+            return path
+    return None
+
+
+def _browser_installed(key):
+    """Return a launch target for a browser key if installed, else None.
+    macOS -> app name for `open -a`; Windows -> exe path; Linux -> binary path."""
+    defn = BROWSER_DEFS.get(key)
+    if not defn:
+        return None
+    _label, mac_app, win_exes, linux_bins = defn
+    if sys.platform == 'darwin':
+        if mac_app and os.path.isdir(f'/Applications/{mac_app}.app'):
+            return mac_app
+        # Safari always present on macOS
+        if key == 'safari':
+            return mac_app
+        return None
+    if sys.platform == 'win32':
+        for exe in win_exes:
+            path = _win_browser_path(exe)
+            if path:
+                return path
+        return None
+    # Linux
+    import shutil
+    for binname in linux_bins:
+        found = shutil.which(binname)
+        if found:
+            return found
+    return None
+
+
+def _extract_exe_from_command(cmd):
+    """Pull the executable path out of a registry shell-open command string.
+    Handles: "C:\\..\\app.exe", "C:\\..\\app.exe" %1, C:\\..\\app.exe,
+    C:\\..\\app.exe %1 (unquoted with arguments)."""
+    cmd = (cmd or '').strip()
+    if not cmd:
+        return ''
+    if cmd.startswith('"'):
+        end = cmd.find('"', 1)
+        return cmd[1:end] if end > 0 else cmd.strip('"')
+    # Unquoted: cut at the end of the .exe token so trailing args don't
+    # break the existence check.
+    low = cmd.lower()
+    idx = low.find('.exe')
+    if idx > 0:
+        return cmd[:idx + 4]
+    return cmd.split()[0] if cmd.split() else ''
+
+
+def _win_registered_browsers():
+    """Enumerate the browsers Windows itself has registered (the same registry
+    Default Apps uses): HKCU/HKLM SOFTWARE\\Clients\\StartMenuInternet. Every
+    installed browser (Edge, Chrome, Firefox, Opera, Brave, ...) lists its
+    display name and its shell open command there — no hardcoded paths.
+
+    Returns [(key, label, exe_path)]; key is the registry subkey name.
+    """
+    results = []
+    seen_exes = set()
+    try:
+        import winreg
+    except ImportError:
+        return results
+    # Never let a surprise registry shape raise out of here: this feeds the
+    # launcher window's get_state, and an exception there left the window
+    # stuck on its demo placeholder data.
+    try:
+        _scan_start_menu_internet(winreg, results, seen_exes)
+    except Exception:
+        pass
+    results.sort(key=lambda r: r[1].lower())
+    return results
+
+
+def _scan_start_menu_internet(winreg, results, seen_exes):
+    for root in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+        try:
+            base = winreg.OpenKey(root, r'SOFTWARE\Clients\StartMenuInternet')
+        except OSError:
+            continue
+        try:
+            i = 0
+            while True:
+                try:
+                    sub = winreg.EnumKey(base, i)
+                except OSError:
+                    break
+                i += 1
+                try:
+                    with winreg.OpenKey(base, sub) as k:
+                        label = winreg.QueryValueEx(k, None)[0] or sub
+                    with winreg.OpenKey(base, sub + r'\shell\open\command') as k:
+                        cmd = winreg.QueryValueEx(k, None)[0] or ''
+                except OSError:
+                    continue
+                except Exception:
+                    continue
+                exe = _extract_exe_from_command(str(cmd))
+                if not exe or not os.path.exists(exe):
+                    continue
+                dedupe = exe.lower()
+                if dedupe in seen_exes:
+                    continue
+                seen_exes.add(dedupe)
+                results.append((sub, str(label), exe))
+        finally:
+            winreg.CloseKey(base)
+
+
+def _mac_registered_browsers():
+    """Enumerate the apps macOS has registered to open https:// URLs (the
+    same LaunchServices data the system default-browser picker uses), via
+    NSWorkspace (macOS 12+). Returns [(key, label, app_path)]; key/label are
+    the app name. Returns [] if unavailable so callers can fall back."""
+    results = []
+    try:
+        import AppKit
+        from Foundation import NSURL
+        ws = AppKit.NSWorkspace.sharedWorkspace()
+        if not hasattr(ws, 'URLsForApplicationsToOpenURL_'):
+            return results
+        urls = ws.URLsForApplicationsToOpenURL_(
+            NSURL.URLWithString_('https://example.com')) or []
+        seen = set()
+        for u in urls:
+            path = u.path()
+            if not path or not path.endswith('.app'):
+                continue
+            # Parallels registers itself and per-VM "shared application" shims
+            # (e.g. the Windows Edge inside a VM) as https handlers; picking
+            # one would boot the VM, not a browser. Skip them.
+            if 'parallels' in path.lower():
+                continue
+            if path.lower() in seen:
+                continue
+            seen.add(path.lower())
+            name = os.path.splitext(os.path.basename(path))[0]
+            results.append((name, name, path))
+    except Exception:
+        return []
+    results.sort(key=lambda r: r[1].lower())
+    return results
+
+
+def get_available_browsers():
+    """Return [(key, label)] of browsers to offer, always starting with the
+    system default. Windows and macOS enumerate the machine's registered
+    browsers (registry / LaunchServices); Linux checks the known table."""
+    out = [('default', 'System default')]
+    if sys.platform == 'win32':
+        for key, label, _exe in _win_registered_browsers():
+            out.append((key, label))
+        return out
+    if sys.platform == 'darwin':
+        registered = _mac_registered_browsers()
+        if registered:
+            out.extend((key, label) for key, label, _path in registered)
+            return out
+    for key, defn in BROWSER_DEFS.items():
+        if _browser_installed(key):
+            out.append((key, defn[0]))
+    return out
+
+
+def _resolve_browser_target(key):
+    """Resolve a saved browser key to a launch target, or None."""
+    if sys.platform == 'win32':
+        for reg_key, _label, exe in _win_registered_browsers():
+            if reg_key == key:
+                return exe
+    if sys.platform == 'darwin':
+        for app_key, _label, app_path in _mac_registered_browsers():
+            if app_key == key:
+                return app_path  # `open -a` accepts a full .app path
+    # Legacy keys from BROWSER_DEFS (older saved settings) on any platform.
+    return _browser_installed(key)
+
+
+def open_url(url, settings=None):
+    """Open the GUI URL in the user's chosen browser, falling back to the
+    system default if the chosen one is unavailable or fails."""
+    settings = settings or {}
+    key = settings.get('browser', 'default')
+    if key and key != 'default':
+        target = _resolve_browser_target(key)
+        if target:
+            try:
+                if sys.platform == 'darwin':
+                    subprocess.Popen(['open', '-a', target, url])
+                else:
+                    subprocess.Popen([target, url])
+                return
+            except (OSError, subprocess.SubprocessError):
+                pass  # fall through to the system default
+    import webbrowser
+    webbrowser.open(url)
+
+
+# ── Run at Login ─────────────────────────────────────────────────────────────
 
 def set_run_at_login(enabled, exe_path=None):
     """Enable or disable Run at Login for the current platform."""

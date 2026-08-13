@@ -1,6 +1,12 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; overflow: hidden; }
-#app { display: flex; flex-direction: column; height: 100vh; }
+#app { display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto auto auto 1fr auto; height: 100vh; }
+#app > #menu-bar { grid-column: 1 / -1; }
+#app > #toolbar { grid-column: 1 / 2; }
+#app > #view-tabs { grid-column: 1 / 2; }
+#app > #main-container { grid-column: 1 / 2; }
+#app > #right-sidebar { grid-column: 2 / 3; grid-row: 2 / 6; }
+#app > #status-bar { grid-column: 1 / 2; }
 #toolbar { background: #2a2a2a; border-bottom: 1px solid #3a3a3a; padding: 10px 20px; display: flex; justify-content: flex-start; align-items: center; gap: 14px; height: 50px; }
 .toolbar-section { display: flex; gap: 10px; align-items: center; }
 .toolbar-actions { flex: 0 0 auto; }
@@ -21,12 +27,58 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 .btn-primary { background: #4A90E2; border-color: #4A90E2; color: white; }
 .btn-primary:hover { background: #357ABD; }
 .full-width { width: 100%; }
-#main-container { display: flex; flex: 1; overflow: hidden; }
-#left-sidebar, #right-sidebar { background: #252525; width: 260px; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; padding: 10px; border-right: 1px solid #3a3a3a; box-sizing: border-box; }
+#main-container { display: flex; flex: 1; overflow: hidden; position: relative; }
+#left-sidebar, #right-sidebar { background: #252525; width: 260px; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; padding: 10px; border-right: 1px solid #3a3a3a; box-sizing: border-box; transition: width 0.18s ease, padding 0.18s ease, border-color 0.18s ease; }
 #right-sidebar { border-right: none; border-left: 1px solid #3a3a3a; display: flex; flex-direction: column; overflow: hidden; padding: 0; }
-#right-sidebar > .panel { margin: 10px 10px 0 10px; flex: 1; overflow-y: auto; min-height: 0; }
+
+/* ── Perspective toggle (Front / Back) ────────────────────────────────── */
+.perspective-btn { background: #2a2a2a; border: 1px solid #3a3a3a; color: #aaa; }
+.perspective-btn:hover { background: #3a3a3a; color: #fff; }
+.perspective-btn.active { background: #4A90E2; border-color: #4A90E2; color: #fff; }
+
+/* ── Collapsible side panels ─────────────────────────────────────────── */
+/* Each toggle button hugs the inner edge of its sidebar. Click to hide
+   the entire panel; click again to bring it back. The two sides are
+   independent and the state persists across reloads (localStorage,
+   see app.js initSidebarToggles). */
+.sidebar-toggle {
+    position: fixed;
+    z-index: 50;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 18px;
+    height: 56px;
+    background: #2a2a2a;
+    border: 1px solid #3a3a3a;
+    color: #aaa;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0;
+    transition: background 0.15s, color 0.15s, left 0.18s ease, right 0.18s ease;
+}
+.sidebar-toggle:hover { background: #3a3a3a; color: #fff; }
+/* The actual left/right pixel positions are set in JS (initSidebarToggles)
+   based on the sidebar's live geometry, this lets the toggle hug the
+   sidebar's inner edge regardless of monitor size, window resize, or any
+   future change to sidebar width. */
+#left-sidebar-toggle { border-left: none; border-radius: 0 4px 4px 0; }
+#right-sidebar-toggle { border-right: none; border-radius: 4px 0 0 4px; }
+/* Collapsed: shrink the sidebar to nothing but keep it in the DOM so
+   layout/interactions stay intact. */
+#left-sidebar.collapsed,
+#right-sidebar.collapsed {
+    width: 0;
+    min-width: 0;
+    padding: 0;
+    border-right: none;
+    border-left: none;
+}
+#right-sidebar > .panel { margin: 0 10px 0 10px; flex: 1; overflow: hidden; min-height: 0; display: flex; flex-direction: column; }
+#right-sidebar > .panel > .panel-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+#right-sidebar > .panel > .panel-content > #layers-list { flex: 1; min-height: 0; overflow-y: auto; }
 .panel { background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 6px; margin-bottom: 10px; }
-.panel-header { padding: 12px; border-bottom: 1px solid #3a3a3a; }
+.panel-header { padding: 12px; border-bottom: 1px solid #3a3a3a; flex-shrink: 0; }
 .panel-header h2 { font-size: 12px; color: #4A90E2; text-transform: uppercase; margin: 0; }
 .panel-content { padding: 12px; box-sizing: border-box; }
 .image-only { display: none; }
@@ -66,11 +118,79 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 .checkbox-row input[type="checkbox"] { margin: 0; }
 .checkbox-row label { color: #e0e0e0; font-size: 12px; margin: 0; text-transform: none; cursor: pointer; }
 
-#layers-list { margin-bottom: 10px; max-height: 400px; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; }
+/* v0.8.7.8: compact number fields (gradient angle/opacity/stop pos), hide the
+   native spinner so 3 digits aren't clipped. */
+#gradient-angle-num, #gradient-opacity-num, #gradient-stop-pos,
+#gradient-rcx-num, #gradient-rcy-num, #gradient-rsize-num {
+    -webkit-appearance: textfield;
+    -moz-appearance: textfield;
+    appearance: textfield;
+    text-align: center;
+}
+#gradient-angle-num::-webkit-inner-spin-button,
+#gradient-angle-num::-webkit-outer-spin-button,
+#gradient-opacity-num::-webkit-inner-spin-button,
+#gradient-opacity-num::-webkit-outer-spin-button,
+#gradient-stop-pos::-webkit-inner-spin-button,
+#gradient-stop-pos::-webkit-outer-spin-button,
+#gradient-rcx-num::-webkit-inner-spin-button,
+#gradient-rcx-num::-webkit-outer-spin-button,
+#gradient-rcy-num::-webkit-inner-spin-button,
+#gradient-rcy-num::-webkit-outer-spin-button,
+#gradient-rsize-num::-webkit-inner-spin-button,
+#gradient-rsize-num::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    appearance: none;
+    display: none;
+    margin: 0;
+}
+#layers-list { margin-bottom: 10px; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; }
 .layer-item { background: #1a1a1a; border: 1px solid #3a3a3a; border-radius: 4px; padding: 10px; margin-bottom: 8px; cursor: pointer; box-sizing: border-box; width: 100%; }
 .layer-item:hover { background: #2a2a2a; }
 .layer-item.active { border-color: #4A90E2; background: #1a2a3a; }
 .layer-item.primary { border-color: #00ccff; box-shadow: inset 0 0 0 1px rgba(0, 204, 255, 0.35); }
+/* v0.8.7.7.1: hidden layers, clearly dimmed + diagonal stripe so the
+   state is unmistakable in the sidebar, and inputs are click-locked. */
+.layer-item.hidden {
+    opacity: 0.55;
+    background:
+        repeating-linear-gradient(
+            135deg,
+            rgba(255, 80, 80, 0.06) 0px,
+            rgba(255, 80, 80, 0.06) 6px,
+            transparent 6px,
+            transparent 12px
+        ),
+        #141414;
+    border-color: #5a2a2a;
+}
+.layer-item.hidden .layer-name-input {
+    text-decoration: line-through;
+    color: #888;
+    pointer-events: none;
+}
+.layer-item.hidden .layer-info { color: #888; }
+.layer-item.hidden .layer-move-up,
+.layer-item.hidden .layer-move-down {
+    opacity: 0.4;
+    pointer-events: none;
+}
+.layer-visibility-btn.is-hidden {
+    background: #5a1f1f;
+    border-color: #b04040 !important;
+    color: #ffb0b0;
+}
+.layer-hidden-badge {
+    display: inline-block;
+    background: #b04040;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 3px;
+    letter-spacing: 0.5px;
+    margin-right: 4px;
+}
 #toggle-lock-selected {
     width: 36px;
     min-width: 36px;
@@ -82,10 +202,8 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     line-height: 1;
     font-size: 20px;
 }
-.layer-order-controls { border: 1px solid #3a3a3a; border-radius: 6px; padding: 10px; margin-bottom: 10px; background: #1a1a1a; }
-.layer-order-label { color: #aaa; font-size: 12px; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.6px; }
-.layer-order-buttons { display: flex; gap: 8px; }
-.layer-order-buttons .btn { flex: 1; }
+.layer-order-controls { display: flex; gap: 8px; margin-bottom: 8px; }
+.layer-order-controls .btn { flex: 1; padding: 4px 8px; font-size: 12px; }
 #port-label-list, #power-label-list, #power-circuit-color-list { scrollbar-gutter: stable; }
 
 .color-swatch {
@@ -311,9 +429,20 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 }
 .layer-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
 .layer-name { font-size: 13px; color: #e0e0e0; font-weight: 600; }
-.layer-controls { display: flex; gap: 5px; }
+.layer-controls { display: flex; gap: 5px; align-items: center; }
 .layer-btn { background: transparent; border: none; color: #888; cursor: pointer; padding: 2px 6px; font-size: 14px; }
 .layer-btn:hover { color: #e0e0e0; }
+.layer-btn:disabled { color: #444; cursor: default; }
+.layer-btn:disabled:hover { color: #444; }
+/* Compact reorder arrows (Slice 2.5). Stacked vertically. */
+.layer-arrows { display: flex; flex-direction: column; gap: 1px; }
+.layer-btn.layer-move-up,
+.layer-btn.layer-move-down {
+    font-size: 9px;
+    padding: 0 4px;
+    line-height: 1;
+    height: 11px;
+}
 .layer-item.drag-over { outline: 2px solid #4A90E2; }
 .layer-item.drag-over { outline: none; }
 .layer-item.drag-over-top { box-shadow: inset 0 2px 0 0 #4A90E2; }
@@ -332,16 +461,82 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 #canvas-wrapper { flex: 1; overflow: hidden; position: relative; background: #0a0a0a; }
 #main-canvas { position: absolute; cursor: default; }
 #status-bar { background: #2a2a2a; border-top: 1px solid #3a3a3a; padding: 6px 20px; display: flex; justify-content: space-between; font-size: 11px; color: #888; height: 28px; }
+/* Project Notes Panel */
+#notes-panel {
+    background: #1e1e1e;
+    border-top: 1px solid #3a3a3a;
+    width: 260px;
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    min-height: 36px;
+    max-height: 50vh;
+    height: 150px;
+    resize: vertical;
+    overflow: hidden;
+}
+#notes-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid #3a3a3a;
+    font-size: 13px;
+    font-weight: 600;
+    color: #ccc;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+#notes-panel-body {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+    overflow: hidden;
+}
+#project-notes {
+    width: 100%;
+    height: 100%;
+    background: #141414;
+    border: none;
+    color: #ccc;
+    padding: 8px 12px;
+    font-size: 12px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    line-height: 1.5;
+    resize: none;
+    outline: none;
+}
+#project-notes::placeholder {
+    color: #555;
+}
+#notes-panel.collapsed {
+    min-height: 36px;
+    max-height: 36px;
+    resize: none;
+}
+#notes-panel.collapsed #notes-panel-body {
+    display: none;
+}
+
 #help-tooltip-panel {
     background: #1e1e1e;
     border-top: 1px solid #3a3a3a;
     width: 260px;
-    min-height: 200px;
-    max-height: 280px;
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
+    /* Expanded state: bounded so it never grows past a reasonable preview
+       size, but the layer-groups list above gets every spare pixel. */
+    min-height: 0;
+    max-height: 200px;
 }
+#help-tooltip-panel.collapsed {
+    /* Collapsed: header only, body hidden. Matches the Notes panel idiom
+       so the user can still see "Help" and re-open it on demand. */
+    min-height: 36px;
+    max-height: 36px;
+}
+#help-tooltip-panel.collapsed #help-tooltip-body { display: none; }
 #help-tooltip-header {
     display: flex;
     justify-content: space-between;
@@ -351,7 +546,10 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     font-size: 13px;
     font-weight: 600;
     color: #ccc;
+    cursor: pointer;
+    flex-shrink: 0;
 }
+#help-tooltip-panel.collapsed #help-tooltip-header { border-bottom: none; }
 #help-tooltip-body {
     padding: 10px 12px;
     font-size: 12px;
@@ -428,6 +626,59 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 
 .context-menu {
     z-index: 3000;
+}
+
+/* Recent Files submenu */
+.menu-has-submenu {
+    position: relative;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.menu-has-submenu::after {
+    content: '\25B6';
+    font-size: 8px;
+    color: #888;
+    margin-right: 4px;
+}
+.menu-submenu {
+    display: none;
+    position: absolute;
+    left: calc(100% + 2px);
+    top: -6px;
+    background: #1f1f1f;
+    border: 1px solid #3a3a3a;
+    box-shadow: 0 6px 16px rgba(0,0,0,0.35);
+    border-radius: 6px;
+    padding: 6px 0;
+    min-width: 280px;
+    z-index: 2001;
+}
+.menu-has-submenu:hover > .menu-submenu {
+    display: block;
+}
+.recent-file-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+}
+.recent-file-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+}
+.recent-file-date {
+    font-size: 11px;
+    color: #666;
+    flex-shrink: 0;
+}
+.recent-files-empty {
+    padding: 6px 14px;
+    font-size: 12px;
+    color: #666;
+    font-style: italic;
 }
 
 .prefs-grid {
@@ -551,31 +802,278 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     box-sizing: border-box;
 }
 
-/* NovaLCT Mapping - Port to Sending Card assignments */
-#scr-port-sc-assignments .scr-port-row {
+/* Text style toggle buttons (Bold/Italic/Underline) */
+.text-style-btn.active {
+    background: #2a6dd4 !important;
+    border-color: #4a8df0 !important;
+    color: #fff !important;
+}
+.text-style-btn:hover {
+    background: #2a2a2a;
+    border-color: #555;
+}
+
+/* ----------------------------------------------------------------------
+ * Multi-canvas (v0.8 Slice 2), sidebar canvas group styling.
+ * Each canvas gets a header (color swatch, name, eye toggle, action menu,
+ * drag handle) and a body with its layers + a per-canvas + Add Screen.
+ * Active canvas is highlighted with a faint colored ring matching the
+ * canvas's color field.
+ * ---------------------------------------------------------------------- */
+.canvas-group {
+    --canvas-color: #4A90E2;
+    background: #161616;
+    border: 1px solid #2c2c2c;
+    border-radius: 6px;
+    margin-bottom: 12px;
+    overflow: hidden;
+    transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.canvas-group.active {
+    border-color: var(--canvas-color);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--canvas-color) 35%, transparent);
+}
+/* v0.8 Slice 9: dim only the layer rows + footer of a hidden canvas
+   group, leaving the header (and especially the eye toggle) crisp so
+   the user can re-enable visibility without hunting through faded UI. */
+.canvas-group.hidden .canvas-group-body,
+.canvas-group.hidden .canvas-group-footer { opacity: 0.45; }
+.canvas-group.dragging { opacity: 0.4; }
+.canvas-group.drag-target {
+    outline: 2px dashed var(--canvas-color);
+    outline-offset: -2px;
+}
+.canvas-group-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px;
+    background: linear-gradient(180deg, #1d1d1d 0%, #181818 100%);
+    border-bottom: 1px solid #262626;
+    cursor: pointer;
+    user-select: none;
+}
+.canvas-drag-handle {
+    color: #666;
+    font-size: 11px;
+    line-height: 1;
+    cursor: grab;
+    padding: 0 2px;
+}
+.canvas-drag-handle:active { cursor: grabbing; }
+.canvas-color-swatch {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.18);
+    flex: 0 0 auto;
+}
+.canvas-name-input {
+    flex: 1;
+    min-width: 0;
+    background: transparent;
+    border: 1px solid transparent;
+    color: #e8e8e8;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 2px 4px;
+    border-radius: 3px;
+}
+.canvas-name-input:not([readonly]) {
+    background: #1a1a1a;
+    border-color: #4A90E2;
+}
+.canvas-vis-btn,
+.canvas-menu-btn {
+    background: transparent;
+    border: none;
+    color: #999;
+    cursor: pointer;
+    padding: 2px 6px;
+    font-size: 13px;
+    line-height: 1;
+    border-radius: 3px;
+}
+.canvas-vis-btn:hover,
+.canvas-menu-btn:hover { background: #2a2a2a; color: #fff; }
+.canvas-group-body { padding: 8px 8px 0; }
+.canvas-group-body:empty { padding: 0; }
+.canvas-group-body .layer-item {
+    border-left: 3px solid var(--canvas-color);
+}
+.canvas-group-footer {
+    padding: 4px 8px 8px;
+}
+.canvas-group-footer .canvas-add-btn {
+    width: 100%;
+    font-size: 12px;
+    padding: 6px 8px;
+}
+
+/* ----------------------------------------------------------------------
+ * Screen groups (v0.11.0), the sidebar row.
+ * A group IS A SINGLE LAYER - one wall built from more than one cabinet size.
+ * So it gets ONE row that reads exactly like a screen row (same .layer-header
+ * / .layer-info structure, same controls), with a disclosure arrow that opens
+ * the members underneath. Collapsed is the default: the members are how the
+ * wall was built, not what the user is managing.
+ * ---------------------------------------------------------------------- */
+.screen-group { margin-bottom: 8px; }
+/* The group's own row. Same tile treatment as .layer-item so the list reads as
+   one kind of thing, with a heavier left edge as the only "this is a group" cue. */
+.screen-group-row {
+    background: #1a1a1a;
+    border: 1px solid #3a3a3a;
+    border-left: 3px solid #6a6a6a;
+    border-radius: 4px;
+    padding: 10px;
+    cursor: pointer;
+    box-sizing: border-box;
+    width: 100%;
+}
+.screen-group-row:hover { background: #2a2a2a; }
+.screen-group.active > .screen-group-row { border-color: #4A90E2; background: #1a2a3a; }
+.screen-group.hidden > .screen-group-row { opacity: 0.55; }
+.screen-group-title {
     display: flex;
     align-items: center;
     gap: 4px;
-    margin-bottom: 3px;
-    font-size: 11px;
-}
-#scr-port-sc-assignments .scr-port-row input[type="checkbox"] {
-    margin: 0;
-    flex-shrink: 0;
-}
-#scr-port-sc-assignments .scr-port-row label {
-    color: #888;
-    min-width: 24px;
-    font-weight: 600;
-    font-size: 11px;
-}
-#scr-port-sc-assignments .scr-port-row select {
     flex: 1;
     min-width: 0;
-    padding: 3px 2px;
-    background: #252525;
-    border: 1px solid #444;
-    color: #fff;
-    border-radius: 4px;
-    font-size: 10px;
 }
+.screen-group-toggle {
+    background: transparent;
+    border: none;
+    color: #999;
+    cursor: pointer;
+    font-size: 10px;
+    line-height: 1;
+    padding: 2px 3px;
+    flex: 0 0 auto;
+}
+.screen-group-toggle:hover { color: #fff; }
+.screen-group-name-input {
+    flex: 1;
+    /* Not 0: the group row carries one more control than a screen row (the ⋮),
+       and at the sidebar's 260px an unbounded shrink squeezed the name down to
+       four characters. */
+    min-width: 60px;
+    background: transparent;
+    border: 1px solid transparent;
+    color: #e0e0e0;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 2px 4px;
+    border-radius: 3px;
+}
+.screen-group-lock-badge { margin-left: 6px; color: #bbb; }
+/* Same compact treatment the per-layer reorder arrows get, so the group row is
+   the same height as a screen row. */
+.screen-group-row .layer-btn { padding: 2px 3px; }
+.layer-btn.screen-group-move-up,
+.layer-btn.screen-group-move-down {
+    font-size: 9px;
+    padding: 0 4px;
+    line-height: 1;
+    height: 11px;
+}
+.screen-group-menu-btn { font-size: 13px; line-height: 1; }
+/* Members: secondary, indented, and marked as belonging to the row above. */
+.screen-group-body { padding: 6px 0 0 16px; }
+.screen-group.collapsed > .screen-group-body { display: none; }
+.screen-group-body .layer-item { position: relative; }
+.screen-group-body .layer-item::before {
+    content: "└";
+    position: absolute;
+    left: -12px;
+    top: 9px;
+    color: #666;
+    font-size: 11px;
+    line-height: 1;
+}
+.screen-group-menu-popup button:disabled {
+    color: #666;
+    cursor: default;
+}
+.screen-group-menu-popup button:disabled:hover { background: transparent; }
+/* Dialog rows reuse the Screen Info .info-row layout; only the spacing of a
+   stacked label + select inside a modal differs. */
+.group-settings-row { margin-bottom: 8px; }
+.group-settings-select { width: 100%; }
+.group-settings-match { margin-bottom: 3px; }
+
+/* Action menu popup (Rename / Duplicate / Change Color / Delete). */
+.canvas-menu-popup {
+    background: #1f1f1f;
+    border: 1px solid #3a3a3a;
+    border-radius: 5px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.45);
+    min-width: 160px;
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+}
+.canvas-menu-popup button {
+    background: transparent;
+    border: none;
+    color: #e0e0e0;
+    text-align: left;
+    padding: 7px 10px;
+    font-size: 12.5px;
+    border-radius: 3px;
+    cursor: pointer;
+}
+.canvas-menu-popup button:hover { background: #2c2c2c; }
+.canvas-menu-popup button.danger { color: #e57373; }
+.canvas-menu-popup button.danger:hover { background: #3a1f1f; color: #ffb4b4; }
+
+/* Color picker popup (palette swatches + hex). */
+.canvas-color-popup {
+    background: #1f1f1f;
+    border: 1px solid #3a3a3a;
+    border-radius: 5px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.45);
+    padding: 10px;
+    min-width: 200px;
+}
+.canvas-color-swatches {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+    margin-bottom: 8px;
+}
+.canvas-color-swatches .color-swatch {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 2px solid #2c2c2c;
+    cursor: pointer;
+    padding: 0;
+}
+.canvas-color-swatches .color-swatch:hover { border-color: #fff; }
+.canvas-color-hex-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.canvas-color-hex-row label { color: #aaa; font-size: 11px; }
+.canvas-color-hex-row input {
+    flex: 1;
+    background: #111;
+    border: 1px solid #333;
+    color: #e0e0e0;
+    border-radius: 3px;
+    padding: 4px 6px;
+    font-size: 12px;
+    font-family: monospace;
+}
+.canvas-color-hex-row .canvas-color-apply {
+    background: #2d4a7a;
+    border: none;
+    color: #fff;
+    padding: 4px 10px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 12px;
+}
+.canvas-color-hex-row .canvas-color-apply:hover { background: #3a5d96; }

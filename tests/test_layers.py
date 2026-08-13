@@ -117,8 +117,16 @@ def test_delete_layer(client_with_layer):
 
 
 def test_half_panel_dimensions(client):
-    """Half-first/last column/row creates panels with half dimensions."""
-    # Add a layer first, then update it to enable halving
+    """Legacy halfFirstColumn / halfLastRow flags migrate to per-panel
+    halfTile state, producing the same visual result.
+
+    Note: under the new per-panel model, a corner panel can only be half
+    in one dimension at a time (height OR width, not both). The migration
+    gives row-based half flags precedence, so a corner cell affected by
+    both halfFirstColumn and halfLastRow becomes half-HEIGHT (the row flag
+    wins). Non-overlapping cells get exactly the dimension they were
+    flagged for.
+    """
     resp = client.post('/api/layer/add', json={
         'name': 'HalfTest',
         'columns': 3,
@@ -129,7 +137,6 @@ def test_half_panel_dimensions(client):
     assert resp.status_code == 200
     layer_id = resp.get_json()['id']
 
-    # Update with half-panel flags (triggers panel regeneration)
     resp = client.put(f'/api/layer/{layer_id}', json={
         'halfFirstColumn': True,
         'halfLastRow': True,
@@ -138,12 +145,13 @@ def test_half_panel_dimensions(client):
     layer = resp.get_json()
     panels = layer['panels']
 
-    # First column panels should have width 50
-    first_col_panels = [p for p in panels if p['col'] == 0]
-    for p in first_col_panels:
+    # First column panels (excluding the corner that the row flag claims)
+    # should have width 50.
+    first_col_non_overlap = [p for p in panels if p['col'] == 0 and p['row'] != 1]
+    for p in first_col_non_overlap:
         assert p['width'] == 50
 
-    # Last row panels should have height 50
+    # Last row panels should all have height 50.
     last_row_panels = [p for p in panels if p['row'] == 1]
     for p in last_row_panels:
         assert p['height'] == 50
@@ -252,3 +260,78 @@ def test_duplicate_layer_preserves_data_label_properties(client):
     assert layer['customPortPaths'] == {'1': [{'row': 0, 'col': 0}, {'row': 0, 'col': 1}]}
     assert layer['customPortIndex'] == 2
     assert layer['randomDataColors'] is True
+
+
+# ── Per-layer Low Latency (v0.11.0) ──────────────────────────────────────
+# lowLatency changes how many pixels a data port can carry, so a value that
+# silently fails to persist would hand the user a port count that does not
+# match what they configured.
+
+
+def test_new_layer_defaults_low_latency_off(client):
+    """create_layer seeds lowLatency=False, mirroring bitDepth/frameRate."""
+    resp = client.post('/api/layer/add', json={'name': 'LLDefault'})
+    assert resp.status_code == 200
+    assert resp.get_json()['lowLatency'] is False
+
+
+def test_update_layer_low_latency_round_trips(client_with_layer):
+    """PUT /api/layer/<id> must accept lowLatency.
+
+    It is not in the whitelist by default, and an unlisted key is dropped
+    without an error, so this is the only thing standing between the toggle
+    and a silent no-op.
+    """
+    project = client_with_layer.get('/api/project').get_json()
+    layer_id = project['layers'][0]['id']
+
+    resp = client_with_layer.put(f'/api/layer/{layer_id}', json={
+        'processorType': 'brompton',
+        'lowLatency': True,
+    })
+    assert resp.status_code == 200
+    assert resp.get_json()['lowLatency'] is True
+
+    # Persisted, not just echoed.
+    stored = client_with_layer.get('/api/project').get_json()['layers'][0]
+    assert stored['lowLatency'] is True
+    assert stored['processorType'] == 'brompton'
+
+    # ...and it can be turned back off.
+    resp = client_with_layer.put(f'/api/layer/{layer_id}', json={'lowLatency': False})
+    assert resp.get_json()['lowLatency'] is False
+
+
+def test_seed_data_with_canvas_defaults_inherits_low_latency(client):
+    """A new screen on a canvas inherits lowLatency from its newest sibling,
+    exactly as it inherits processorType/bitDepth/frameRate."""
+    import app as app_module
+
+    donor = client.post('/api/layer/add', json={'name': 'LLDonor'}).get_json()
+    client.put(f"/api/layer/{donor['id']}", json={
+        'processorType': 'brompton', 'lowLatency': True})
+
+    data = {'canvas_id': donor.get('canvas_id')}
+    app_module._seed_data_with_canvas_defaults(data)
+    assert data['processorType'] == 'brompton'
+    assert data['lowLatency'] is True
+
+    # A caller that states its own value keeps it.
+    explicit = {'canvas_id': donor.get('canvas_id'), 'lowLatency': False}
+    app_module._seed_data_with_canvas_defaults(explicit)
+    assert explicit['lowLatency'] is False
+
+
+def test_restore_project_preserves_low_latency(client):
+    """PUT /api/project (undo/redo + file load) keeps the flag on each layer."""
+    layer = client.post('/api/layer/add', json={'name': 'LLRestore'}).get_json()
+    project = client.get('/api/project').get_json()
+    for lyr in project['layers']:
+        lyr['processorType'] = 'brompton'
+        lyr['lowLatency'] = True
+
+    resp = client.put('/api/project', json=project)
+    assert resp.status_code == 200
+    restored = resp.get_json()
+    assert [l['lowLatency'] for l in restored['layers']] == [True] * len(restored['layers'])
+    assert any(l['id'] == layer['id'] for l in restored['layers'])

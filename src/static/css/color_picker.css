@@ -1,0 +1,432 @@
+/* ──────────────────────────────────────────────────────────────────────
+   LRD custom color picker, a faithful replica of the macOS Color popover.
+   Shown on Windows (where the native picker differs); macOS keeps its own.
+   Phase 1: the compact swatch popover + "Show Colors…".
+   ────────────────────────────────────────────────────────────────────── */
+
+.lrd-cp-popover {
+    position: fixed;
+    z-index: 100000;
+    box-sizing: border-box;
+    width: 234px;
+    padding: 10px 12px 12px;
+    background: #2b2b2e;
+    border: 1px solid #000;
+    border-radius: 12px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55),
+                0 0 0 0.5px rgba(255, 255, 255, 0.08) inset;
+    font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.lrd-cp-popover[hidden] { display: none; }
+
+/* Rows of fixed swatches (vivid colors, then grays) */
+.lrd-cp-row {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 3px;
+    margin-bottom: 5px;
+}
+
+.lrd-cp-cell {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    border-radius: 2px;
+    box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.5) inset,
+                0 0 0 0.5px rgba(255, 255, 255, 0.06);
+    cursor: pointer;
+}
+
+.lrd-cp-cell:hover {
+    box-shadow: 0 0 0 1.5px #fff, 0 0 0 2.5px rgba(0, 0, 0, 0.4);
+    z-index: 1;
+}
+
+.lrd-cp-cell.lrd-cp-selected {
+    box-shadow: 0 0 0 2px #2b2b2e, 0 0 0 3.5px #2f80ff;
+    z-index: 2;
+}
+
+/* The "no color" diagonal slash on the first grey-row cell */
+.lrd-cp-cell.lrd-cp-none {
+    background: #fff;
+}
+.lrd-cp-cell.lrd-cp-none::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to top right,
+        transparent calc(50% - 0.7px), #e0322a calc(50% - 0.7px),
+        #e0322a calc(50% + 0.7px), transparent calc(50% + 0.7px));
+}
+
+/* Thin divider between the gray row and the big spectrum grid */
+.lrd-cp-divider {
+    height: 1px;
+    margin: 2px 0 7px;
+    background: rgba(255, 255, 255, 0.08);
+}
+
+/* The large spectrum matrix */
+.lrd-cp-grid {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 0;
+    margin-bottom: 12px;
+    border-radius: 4px;
+    overflow: hidden;
+    box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.5);
+}
+
+.lrd-cp-grid .lrd-cp-gcell {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    cursor: pointer;
+}
+.lrd-cp-grid .lrd-cp-gcell:hover {
+    box-shadow: 0 0 0 1.5px #fff inset, 0 0 0 2.5px rgba(0, 0, 0, 0.5) inset;
+    position: relative;
+    z-index: 1;
+}
+
+/* "Show Colors…" button, matches the rounded macOS push button */
+.lrd-cp-show {
+    display: block;
+    width: 100%;
+    padding: 5px 0 6px;
+    background: linear-gradient(#5a5a5e, #4a4a4e);
+    color: #fff;
+    font-size: 13px;
+    border: 0.5px solid #1c1c1e;
+    border-radius: 7px;
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.12) inset,
+                0 1px 2px rgba(0, 0, 0, 0.4);
+    cursor: pointer;
+}
+.lrd-cp-show:hover { background: linear-gradient(#646468, #545458); }
+.lrd-cp-show:active { background: linear-gradient(#454549, #3c3c40); }
+
+/* Inline hex-entry fallback revealed by "Show Colors…" until the full
+   tabbed Colors window lands. */
+.lrd-cp-hexrow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+.lrd-cp-hexrow[hidden] { display: none; }
+.lrd-cp-hex-preview {
+    width: 34px;
+    height: 24px;
+    border-radius: 4px;
+    box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.08);
+    flex: 0 0 auto;
+}
+.lrd-cp-hex-input {
+    flex: 1;
+    min-width: 0;
+    box-sizing: border-box;
+    padding: 4px 7px;
+    background: #1c1c1e;
+    color: #fff;
+    border: 0.5px solid #000;
+    border-radius: 5px;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px;
+    text-transform: uppercase;
+}
+.lrd-cp-hex-input:focus { outline: 1.5px solid #2f80ff; outline-offset: -0.5px; }
+
+/* ──────────────────────────────────────────────────────────────────────
+   The full Colors window (opened by "Show Colors…"), replica of the
+   macOS NSColorPanel. Phase 2: window chrome + the Sliders tab.
+   ────────────────────────────────────────────────────────────────────── */
+.lrd-cw-window {
+    position: fixed;
+    z-index: 100001;
+    box-sizing: border-box;
+    width: 252px;
+    background: #323234;
+    border: 0.5px solid #000;
+    border-radius: 10px;
+    box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6),
+                0 0 0 0.5px rgba(255, 255, 255, 0.07) inset;
+    font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+    color: #e8e8ea;
+    user-select: none;
+    -webkit-user-select: none;
+    overflow: hidden;
+}
+.lrd-cw-window[hidden] { display: none; }
+
+/* Title bar with traffic-light buttons */
+.lrd-cw-titlebar {
+    position: relative;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: grab;
+    background: linear-gradient(#3a3a3c, #333335);
+    border-bottom: 0.5px solid #000;
+}
+.lrd-cw-titlebar:active { cursor: grabbing; }
+.lrd-cw-title { font-size: 13px; font-weight: 500; color: #c9c9cc; }
+.lrd-cw-lights { position: absolute; left: 9px; top: 9px; display: flex; gap: 8px; }
+.lrd-cw-light {
+    width: 12px; height: 12px; border-radius: 50%;
+    box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.35) inset;
+}
+.lrd-cw-light.red { background: #ff5f57; }
+.lrd-cw-light.yellow { background: #febc2e; }
+.lrd-cw-light.green { background: #28c840; }
+.lrd-cw-light.red { cursor: pointer; }
+.lrd-cw-light.red::after {
+    content: "✕"; display: block; text-align: center; color: rgba(0,0,0,0.5);
+    font-size: 9px; line-height: 12px; opacity: 0;
+}
+.lrd-cw-lights:hover .lrd-cw-light.red::after { opacity: 1; }
+
+/* Tab/toolbar row of 5 mode icons */
+.lrd-cw-tabs {
+    display: flex;
+    justify-content: center;
+    gap: 14px;
+    padding: 9px 0 8px;
+    background: #2c2c2e;
+    border-bottom: 0.5px solid #000;
+}
+.lrd-cw-tab {
+    width: 34px; height: 26px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 6px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    opacity: 0.7;
+}
+.lrd-cw-tab:hover { background: rgba(255, 255, 255, 0.08); opacity: 1; }
+.lrd-cw-tab.active { background: rgba(255, 255, 255, 0.14); opacity: 1; }
+.lrd-cw-tab svg { width: 22px; height: 22px; display: block; }
+
+/* Body / content area */
+.lrd-cw-body { padding: 12px 14px 6px; }
+
+/* Mode dropdown row */
+.lrd-cw-moderow { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+.lrd-cw-mode {
+    flex: 1;
+    box-sizing: border-box;
+    padding: 4px 8px;
+    background: #48484a;
+    color: #fff;
+    border: 0.5px solid #000;
+    border-radius: 6px;
+    font-size: 13px;
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.08) inset;
+}
+.lrd-cw-opts {
+    width: 26px; height: 26px;
+    border-radius: 6px;
+    background: #48484a;
+    border: 0.5px solid #000;
+    color: #ddd; font-size: 14px; line-height: 1; cursor: pointer;
+}
+
+/* A single slider row: label / track / numeric field */
+.lrd-cw-slider { margin-bottom: 12px; }
+.lrd-cw-slabel { font-size: 12px; color: #b9b9bd; margin-bottom: 4px; }
+.lrd-cw-srow { display: flex; align-items: center; gap: 9px; }
+.lrd-cw-range {
+    -webkit-appearance: none; appearance: none;
+    flex: 1; min-width: 0;
+    height: 12px;
+    border-radius: 6px;
+    box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05);
+    outline: none;
+    cursor: pointer;
+    /* background gradient is set inline per channel */
+}
+.lrd-cw-range::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 11px; height: 18px;
+    border-radius: 3px;
+    background: linear-gradient(#fdfdfd, #e6e6e8);
+    box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.65), 0 1px 2px rgba(0, 0, 0, 0.5);
+    cursor: pointer;
+}
+.lrd-cw-range::-moz-range-thumb {
+    width: 11px; height: 18px; border: none; border-radius: 3px;
+    background: #f0f0f2; box-shadow: 0 0 0 0.5px rgba(0,0,0,0.65), 0 1px 2px rgba(0,0,0,0.5);
+}
+.lrd-cw-num {
+    width: 44px; box-sizing: border-box;
+    padding: 3px 5px;
+    background: #1c1c1e; color: #fff;
+    border: 0.5px solid #000; border-radius: 5px;
+    font-size: 12px; text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+.lrd-cw-num:focus { outline: 1.5px solid #2f80ff; outline-offset: -0.5px; }
+.lrd-cw-num::-webkit-inner-spin-button,
+.lrd-cw-num::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+/* Grayscale quick swatches */
+.lrd-cw-grays { display: flex; gap: 8px; margin-top: 2px; }
+.lrd-cw-grays .lrd-cw-gray {
+    width: 30px; height: 26px; border-radius: 4px; cursor: pointer;
+    box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+.lrd-cw-grays .lrd-cw-gray:hover { box-shadow: 0 0 0 2px #2f80ff; }
+
+/* Hex row (RGB mode) */
+.lrd-cw-hexrow { display: flex; align-items: center; gap: 8px; margin: 4px 0 6px; }
+.lrd-cw-hexlabel { font-size: 12px; color: #b9b9bd; }
+.lrd-cw-hexfield {
+    flex: 1; box-sizing: border-box;
+    padding: 4px 7px;
+    background: #1c1c1e; color: #fff;
+    border: 0.5px solid #000; border-radius: 5px;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px; text-transform: uppercase;
+}
+.lrd-cw-hexfield:focus { outline: 1.5px solid #2f80ff; outline-offset: -0.5px; }
+
+/* Placeholder for not-yet-built tabs */
+.lrd-cw-placeholder {
+    padding: 36px 10px; text-align: center;
+    color: #8a8a8e; font-size: 12px; line-height: 1.5;
+}
+
+/* Bottom: current-color well, eyedropper, saved swatches */
+.lrd-cw-footer {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 10px 14px 14px;
+}
+.lrd-cw-well {
+    width: 44px; height: 44px; flex: 0 0 auto;
+    border-radius: 5px;
+    box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+.lrd-cw-dropper {
+    width: 24px; height: 24px; flex: 0 0 auto;
+    margin-top: 10px;
+    background: transparent; border: none; cursor: pointer;
+    color: #c9c9cc; opacity: 0.85;
+}
+.lrd-cw-dropper:hover { opacity: 1; }
+.lrd-cw-dropper[hidden] { display: none; }
+.lrd-cw-dropper svg { width: 20px; height: 20px; }
+.lrd-cw-swatches {
+    flex: 1; min-width: 0;
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 4px;
+}
+.lrd-cw-swatch {
+    width: 100%; aspect-ratio: 1 / 1;
+    border-radius: 3px;
+    background: #2a2a2c;
+    box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.5) inset;
+    cursor: pointer;
+}
+.lrd-cw-swatch.filled { box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.6); }
+.lrd-cw-swatch:hover { box-shadow: 0 0 0 1.5px #2f80ff; }
+
+/* Color Wheel tab */
+.lrd-cw-wheelwrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    padding: 4px 0 2px;
+}
+.lrd-cw-wheel {
+    position: relative;
+    border-radius: 50%;
+    box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.6), 0 1px 4px rgba(0, 0, 0, 0.45);
+    cursor: crosshair;
+}
+.lrd-cw-wheel-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+}
+.lrd-cw-wheel-darken {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: #000;
+    pointer-events: none;
+}
+.lrd-cw-wheel-marker {
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 2px solid #fff;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), 0 0 3px rgba(0, 0, 0, 0.6);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+}
+.lrd-cw-wheelwrap .lrd-cw-slider { width: 100%; margin-bottom: 0; }
+
+/* Color Palettes tab */
+.lrd-cw-palettelist {
+    max-height: 240px;
+    overflow-y: auto;
+    border: 0.5px solid #000;
+    border-radius: 6px;
+    background: #1c1c1e;
+}
+.lrd-cw-paletterow {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 4px 8px;
+    cursor: pointer;
+    border-bottom: 0.5px solid rgba(255, 255, 255, 0.04);
+}
+.lrd-cw-paletterow:hover { background: #2f6fed; }
+.lrd-cw-paletteswatch {
+    width: 18px; height: 18px; flex: 0 0 auto;
+    border-radius: 3px;
+    box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+.lrd-cw-palettename { font-size: 12px; color: #e8e8ea; }
+
+/* Image Palettes tab */
+.lrd-cw-spectrum {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 6px;
+    box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.6);
+    cursor: crosshair;
+}
+
+/* Pencils tab */
+.lrd-cw-pencils {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 3px;
+}
+.lrd-cw-pencil {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.45) inset, 0 0 0 0.5px rgba(255, 255, 255, 0.05);
+}
+.lrd-cw-pencil:hover { box-shadow: 0 0 0 2px #fff, 0 0 0 3px rgba(0, 0, 0, 0.4); }
+.lrd-cw-pencilname {
+    margin-top: 10px;
+    text-align: center;
+    font-size: 12px;
+    color: #c9c9cc;
+    min-height: 16px;
+}

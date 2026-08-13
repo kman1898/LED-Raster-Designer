@@ -2,23 +2,24 @@
 # LED Raster Designer - PyInstaller spec file
 # Build with: python3 -m PyInstaller led_raster_designer.spec
 #
-# macOS:   produces LED Raster Designer.app with menu bar icon
-# Windows: produces LED Raster Designer.exe with system tray
+# macOS:   produces LED Raster Designer.app opening the launcher window
+# Windows: produces LED Raster Designer.exe opening the launcher window
 
 import os
 import sys
 
 import certifi
+from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 
 block_cipher = None
 BASE_DIR = os.path.abspath('.')
 IS_MAC = sys.platform == 'darwin'
 
-# macOS uses rumps menu bar launcher; Windows uses pystray system tray; Linux uses app.py directly
-if IS_MAC:
-    entry_script = 'launcher_mac.py'
-elif sys.platform == 'win32':
-    entry_script = 'launcher_pc.py'
+# macOS/Windows launch the branded splash/control window (pywebview); the old
+# tray (launcher_pc.py) and menu-bar (launcher_mac.py) launchers remain in the
+# repo as fallbacks. Linux uses app.py directly.
+if IS_MAC or sys.platform == 'win32':
+    entry_script = 'launcher_window.py'
 else:
     entry_script = 'app.py'
 
@@ -30,8 +31,9 @@ a = Analysis(
         ('templates', 'templates'),
         ('static', 'static'),
         ('VERSION.txt', '.'),
+        ('launcher_window.html', '.'),  # splash/control window UI
         (certifi.where(), 'certifi'),
-    ],
+    ] + collect_data_files('webview'),  # pywebview bridge/runtime data files
     hiddenimports=[
         'flask',
         'flask_socketio',
@@ -47,8 +49,14 @@ a = Analysis(
         'reportlab.lib.pagesizes',
         'reportlab.pdfgen',
         'reportlab.pdfgen.canvas',
-    ] + (['rumps'] if IS_MAC else [])
-      + (['pystray', 'pystray._win32'] if sys.platform == 'win32' else []),
+    # Bundle the COMPLETE pywebview package (all submodules + data files):
+    # its JS bridge lives in submodules PyInstaller doesn't auto-detect, and
+    # a frozen Windows build rendered the window fine but window.pywebview
+    # never appeared - the whole js_api was dead.
+    ] + collect_submodules('webview')
+      + (['launcher_mac', 'AppKit', 'objc', 'PyObjCTools.AppHelper'] if IS_MAC else [])
+      + (['launcher_pc', 'pystray', 'pystray._win32']
+         if sys.platform == 'win32' else []),
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -72,7 +80,7 @@ exe = EXE(
     strip=False,
     upx=True,
     console=not (IS_MAC or sys.platform == 'win32'),  # No console on macOS/Windows (tray handles it)
-    icon=None,
+    icon=('icon.ico' if sys.platform == 'win32' else None),  # Windows .exe icon
 )
 
 coll = COLLECT(
@@ -91,14 +99,18 @@ if IS_MAC:
     app = BUNDLE(
         coll,
         name='LED Raster Designer.app',
-        icon=None,
+        icon='icon.icns',
         bundle_identifier='com.ledrasterdesigner.app',
         info_plist={
             'CFBundleName': 'LED Raster Designer',
             'CFBundleDisplayName': 'LED Raster Designer',
-            'CFBundleShortVersionString': '0.7.5.43',
-            'CFBundleVersion': '0.7.5.43',
+            'CFBundleShortVersionString': '0.11.2',
+            'CFBundleVersion': '0.11.2',
             'NSHighResolutionCapable': True,
-            'LSUIElement': True,  # Menu bar only — no Dock icon
+            # Menu-bar app, no Dock icon (same as the pre-window launcher):
+            # the launcher window hides to the menu-bar status item, which is
+            # also how the window comes back. If the frozen window has focus
+            # problems as an agent app, flip this to False (Dock icon).
+            'LSUIElement': True,
         },
     )

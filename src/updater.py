@@ -146,10 +146,10 @@ def check_for_update(force=False):
 
     except HTTPError as e:
         if e.code == 404:
-            # No published releases yet — not an error, just nothing to update to
+            # No published releases yet, not an error, just nothing to update to
             logger.debug("No published releases found (404)")
         elif e.code == 403:
-            result["error"] = "Rate limited — try again later"
+            result["error"] = "Rate limited, try again later"
             logger.warning("Update check HTTP error: %s", e)
         else:
             result["error"] = f"GitHub API error: {e.code}"

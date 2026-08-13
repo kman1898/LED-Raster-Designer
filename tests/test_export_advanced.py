@@ -2,6 +2,7 @@
 
 import io
 import json
+import sys
 import zipfile
 import base64
 import pytest
@@ -13,6 +14,25 @@ try:
     HAS_PYTOSHOP = True
 except ImportError:
     HAS_PYTOSHOP = False
+
+
+@pytest.fixture
+def no_pytoshop(monkeypatch):
+    """Simulate pytoshop not being installed, on any machine.
+
+    The PSD routes do `import pytoshop` inside a try/except and return a 500
+    telling the user to install it, so the missing-library path is real
+    behaviour that ships. It used to be untestable wherever pytoshop WAS
+    installed, and those tests just skipped - which meant the error path was
+    never exercised on the machines that actually run CI.
+
+    A None entry in sys.modules makes `import x` raise ImportError, which is
+    precisely what an uninstalled package produces. The submodules are stubbed
+    too because the routes also do `from pytoshop import layers/enums`.
+    """
+    for name in ('pytoshop', 'pytoshop.layers', 'pytoshop.enums'):
+        monkeypatch.setitem(sys.modules, name, None)
+    yield
 
 
 def _make_test_image_data(width=100, height=100, color=(255, 0, 0, 255)):
@@ -53,10 +73,8 @@ def test_export_psd_from_image(client_with_layer):
     assert resp.data[:4] == b'8BPS'
 
 
-def test_export_psd_from_image_without_pytoshop(client_with_layer):
+def test_export_psd_from_image_without_pytoshop(client_with_layer, no_pytoshop):
     """PSD-from-image returns 500 with error message when pytoshop missing."""
-    if HAS_PYTOSHOP:
-        pytest.skip("pytoshop is installed; testing missing-library path not possible")
     img_data = _make_test_image_data(200, 200)
     resp = client_with_layer.post('/api/export/psd-from-image', json={
         'project_name': 'Test',
@@ -142,10 +160,8 @@ def test_export_psd_zip_from_images(client_with_layer):
         assert psd_data[:4] == b'8BPS'
 
 
-def test_export_psd_zip_without_pytoshop(client_with_layer):
+def test_export_psd_zip_without_pytoshop(client_with_layer, no_pytoshop):
     """PSD-ZIP returns 500 with error when pytoshop missing."""
-    if HAS_PYTOSHOP:
-        pytest.skip("pytoshop is installed")
     img_data = _make_test_image_data(100, 100)
     resp = client_with_layer.post('/api/export/psd-zip-from-images', json={
         'project_name': 'Test',
@@ -155,7 +171,8 @@ def test_export_psd_zip_without_pytoshop(client_with_layer):
         'layers': [],
     })
     assert resp.status_code == 500
-    assert 'error' in resp.get_json()
+    # Name the library explicitly so this cannot pass on an unrelated 500.
+    assert 'pytoshop' in resp.get_json()['error'].lower()
 
 
 # ── Export with empty project ───────────────────────────────────────
@@ -192,17 +209,16 @@ def test_export_unified_psd_single_view(client_with_layer):
     assert resp.data[:4] in (b'8BPS', b'PK\x03\x04')
 
 
-def test_export_unified_psd_without_pytoshop(client_with_layer):
+def test_export_unified_psd_without_pytoshop(client_with_layer, no_pytoshop):
     """Unified PSD export returns 500 when pytoshop missing."""
-    if HAS_PYTOSHOP:
-        pytest.skip("pytoshop is installed")
     resp = client_with_layer.post('/api/export', json={
         'format': 'psd',
         'views': ['pixel-map'],
         'project_name': 'Test',
     })
     assert resp.status_code == 500
-    assert 'error' in resp.get_json()
+    # Name the library explicitly so this cannot pass on an unrelated 500.
+    assert 'pytoshop' in resp.get_json()['error'].lower()
 
 
 def test_export_unified_multi_pdf(client_with_layer):

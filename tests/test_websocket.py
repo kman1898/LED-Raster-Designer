@@ -1,4 +1,4 @@
-"""Tests for WebSocket events — connect, disconnect, and broadcasts."""
+"""Tests for WebSocket events, connect, disconnect, and broadcasts."""
 
 import sys
 import os

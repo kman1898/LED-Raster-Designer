@@ -7,7 +7,8 @@ import base64
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from app import decode_base64_image, decode_base64_bytes
+from app import decode_base64_image
+from routes_dialog import decode_base64_bytes
 
 
 # ── 404 errors on nonexistent resources ─────────────────────────────

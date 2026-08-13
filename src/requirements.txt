@@ -1,9 +1,22 @@
 Flask>=3.0.0
-flask-socketio>=5.3.5
-python-socketio>=5.10.0
+# 5.6.0+ required: older Flask-SocketIO (e.g. 5.3.5) ships a test client that
+# fails to capture server-emitted events, breaking the websocket test suite.
+flask-socketio>=5.6.0
+python-socketio>=5.16.0
 Pillow>=10.1.0
 numpy>=1.24.0
 pytoshop>=1.2.0
 reportlab>=4.0.0
 certifi>=2024.2.2
 pystray>=0.19.0
+# Launcher splash/control window (native OS webview)
+# PINNED. The .NET stack under pywebview is what puts the native window on
+# screen, and it was arriving transitively and unpinned: clr_loader 0.3.0
+# REWROTE the netfx assembly-resolution path in March 2026 and the app
+# adopted it silently. A build that works and a build that falls back to
+# the browser should differ because we changed something, not because a
+# transitive dependency moved. Audited as the exact versions in the
+# v0.10.8.1 and v0.11.0 builds.
+pywebview==6.2.1
+pythonnet==3.1.0
+clr_loader==0.3.1

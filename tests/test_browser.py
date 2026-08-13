@@ -15,76 +15,38 @@ The --browser flag selects which engine to test.
 
 import sys
 import os
-import time
-import threading
 import pytest
 
 # Add src/ to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-# Try importing playwright — skip all tests if not installed
+# Try importing playwright, skip all tests if not installed
 pw = pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
 
-@pytest.fixture(scope="session")
-def browser_name(request):
-    return request.config.getoption("--browser", default="chromium")
-
+# Shared session fixtures (one Playwright driver + one live server) live in
+# conftest.py: browser_name, e2e_server, pw_browser.
 
 @pytest.fixture(scope="session")
-def server():
-    """Start the Flask app on a background thread."""
-    import app as app_module
-    from app import app, socketio
+def server(e2e_server):
+    return e2e_server
 
-    # Reset to clean state
-    app_module.current_project = {
-        'name': 'Untitled Project',
-        'raster_width': 1920,
-        'raster_height': 1080,
-        'layers': [],
-        'is_pristine': True,
-    }
-    app_module.next_layer_id = 1
 
-    # Add a default layer so the UI has something to work with
-    app.config['TESTING'] = True
-    with app.test_client() as c:
-        c.post('/api/layer/add', json={
-            'name': 'Screen1',
-            'columns': 4,
-            'rows': 3,
-            'cabinet_width': 128,
-            'cabinet_height': 128,
-        })
-
-    port = 15789  # Unlikely to collide
-    thread = threading.Thread(
-        target=lambda: socketio.run(app, host='127.0.0.1', port=port,
-                                     allow_unsafe_werkzeug=True, log_output=False),
-        daemon=True,
+@pytest.fixture(scope="session")
+def page(server, pw_browser):
+    """Launch a browser context and navigate to the app."""
+    context = pw_browser.new_context()
+    # Keep the first-run Quick Start tour from auto-showing; its click-catch
+    # overlay would otherwise intercept pointer events during the tests.
+    context.add_init_script(
+        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}"
     )
-    thread.start()
-    time.sleep(1)  # Give server time to bind
-
-    yield f'http://127.0.0.1:{port}'
-
-
-@pytest.fixture(scope="session")
-def page(server, browser_name):
-    """Launch browser and navigate to the app."""
-    from playwright.sync_api import sync_playwright
-
-    with sync_playwright() as p:
-        launcher = getattr(p, browser_name)
-        browser = launcher.launch(headless=True)
-        context = browser.new_context()
-        pg = context.new_page()
-        pg.goto(server, wait_until='domcontentloaded')
-        # Give SocketIO time to connect and initialize app
-        pg.wait_for_timeout(2000)
-        yield pg
-        browser.close()
+    pg = context.new_page()
+    pg.goto(server, wait_until='domcontentloaded')
+    # Give SocketIO time to connect and initialize app
+    pg.wait_for_timeout(2000)
+    yield pg
+    context.close()
 
 
 # ── Page load tests ──────────────────────────────────────────────────────
@@ -186,7 +148,7 @@ def test_arrow_color_hex_input(page):
 
 
 def test_canvas_has_content(page):
-    """Canvas is not blank — at least some pixels are non-white."""
+    """Canvas is not blank, at least some pixels are non-white."""
     canvas = page.locator('canvas#main-canvas')
     if canvas.count() == 0:
         pytest.skip("No canvas found")
@@ -208,7 +170,7 @@ def test_canvas_has_content(page):
     }''')
     assert result is not None, "Could not read canvas pixel"
     # Canvas should have some content (alpha > 0 somewhere)
-    # We just verify we can read pixels — the rendering itself is visual
+    # We just verify we can read pixels, the rendering itself is visual
 
 
 # ── View tab tests ───────────────────────────────────────────────────────

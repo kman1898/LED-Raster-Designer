@@ -2,10 +2,20 @@ name: CI
 
 on:
   push:
-    branches: [main, dev/draft, feature/**]
+    branches: [main, dev/draft, dev/redesign]
     tags-ignore: ['**']
   pull_request:
     branches: [main]
+
+# Dedupe runs. When a push to dev/draft triggers CI and that same commit
+# is also the head of an open PR, GitHub fires both events and every job
+# runs twice. The concurrency group is keyed on the workflow + ref so a
+# second event for the same commit cancels the first run instead of
+# stacking up. Pushes to main (where the SHA is the merge commit) get
+# their own group, so release-tag CI is unaffected.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -31,7 +41,14 @@ jobs:
       - name: Check version consistency
         run: |
           source .venv/bin/activate
-          python -m pytest tests/test_version.py -v --tb=short -k "version_sources_match or version_txt_is_four_part or updater_reads_correct or api_version_matches"
+          # NOTE: a -k clause that matches nothing is NOT an error in pytest -
+          # it just silently selects fewer tests. "version_txt_is_four_part"
+          # named a test that has never existed (the real one is
+          # test_version_txt_is_valid), so the version-shape check was dead
+          # here for as long as this line has been in the file. Any clause
+          # edited below must still name a real test; tests/test_version.py
+          # asserts exactly that, so this cannot rot again unnoticed.
+          python -m pytest tests/test_version.py -v --tb=short -k "version_sources_match or version_txt_is_valid or updater_reads_correct or api_version_matches"
 
   lint:
     name: Lint
@@ -63,7 +80,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-15, windows-latest]
     steps:
       - uses: actions/checkout@v6
 
@@ -123,19 +140,34 @@ jobs:
       - name: Install Chromium browser
         run: |
           source .venv/bin/activate
-          playwright install chromium
-        timeout-minutes: 3
+          for i in 1 2 3; do
+            echo "::group::playwright install chromium (attempt $i)"
+            playwright install chromium && { echo "::endgroup::"; exit 0; }
+            echo "::endgroup::"
+            echo "attempt $i failed, retrying in 15s..."; sleep 15
+          done
+          echo "playwright install chromium failed after 3 attempts"; exit 1
+        timeout-minutes: 8
 
       - name: Install Chromium system deps
         run: |
           source .venv/bin/activate
-          playwright install-deps chromium
-        timeout-minutes: 3
+          # apt-based system-dep install is the historically flaky step (mirror
+          # slowness was tripping the old 3-min cap mid-install). Retry a few
+          # times under a more generous overall timeout.
+          for i in 1 2 3; do
+            echo "::group::playwright install-deps chromium (attempt $i)"
+            playwright install-deps chromium && { echo "::endgroup::"; exit 0; }
+            echo "::endgroup::"
+            echo "attempt $i failed, retrying in 20s..."; sleep 20
+          done
+          echo "playwright install-deps chromium failed after 3 attempts"; exit 1
+        timeout-minutes: 12
 
       - name: Run browser tests
         run: |
           source .venv/bin/activate
-          python -m pytest tests/test_browser.py -v --tb=short --browser chromium
+          python -m pytest tests/test_browser.py tests/test_browser_flows.py -v --tb=short --browser chromium
 
   build-check:
     name: Build Integrity
@@ -265,8 +297,13 @@ jobs:
 
       - name: Lint JavaScript
         run: |
-          npx eslint src/static/js/*.js --no-eslintrc \
+          # sourceType:module — the app JS is ES modules (main.js + app-*.js);
+          # the remaining classic scripts parse fine as modules too. The
+          # vendored socket.io.min.js is excluded (minified third-party code);
+          # pass the directory, not a glob, so the exclusion doesn't warn.
+          npx eslint src/static/js/ --no-eslintrc \
             --rule '{"no-undef": "off", "no-unused-vars": "warn"}' \
             --env browser,es2021 \
-            --parser-options ecmaVersion:2022 \
+            --parser-options ecmaVersion:2022,sourceType:module \
+            --ignore-pattern 'socket.io.min.js' \
             || true  # Advisory only for now

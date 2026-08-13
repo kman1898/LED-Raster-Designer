@@ -1,4 +1,12 @@
-"""Tests for native dialog API endpoints with mocked OS interactions."""
+"""Tests for native dialog API endpoints with mocked OS interactions.
+
+v0.11.0: the dialog helpers now return (path, status) rather than a bare path.
+status is 'ok', 'cancelled' (the user dismissed the dialog) or 'unavailable'
+(it could not be opened at all). Conflating the last two is what made a failed
+Windows folder chooser - and a deliberate Cancel - both dump the export into
+the browser's downloads folder. See tests/test_native_dialog.py for the
+helper-level contract; this file covers the routes.
+"""
 
 import os
 import base64
@@ -10,7 +18,8 @@ from unittest.mock import patch
 
 def test_save_file_dialog_returns_path(client):
     """Native save dialog returns selected file path."""
-    with patch('app._native_choose_save_file', return_value='/tmp/test_output.png'):
+    with patch('routes_dialog._native_choose_save_file',
+               return_value=('/tmp/test_output.png', 'ok')):
         resp = client.post('/api/native-dialog/save-file', json={
             'suggested_name': 'export.png',
         })
@@ -22,7 +31,7 @@ def test_save_file_dialog_returns_path(client):
 
 def test_save_file_dialog_cancelled(client):
     """Native save dialog returns cancelled when user cancels."""
-    with patch('app._native_choose_save_file', return_value=None):
+    with patch('routes_dialog._native_choose_save_file', return_value=(None, 'cancelled')):
         resp = client.post('/api/native-dialog/save-file', json={
             'suggested_name': 'export.png',
         })
@@ -34,7 +43,8 @@ def test_save_file_dialog_cancelled(client):
 
 def test_save_file_dialog_default_name(client):
     """Save dialog uses default name when none provided."""
-    with patch('app._native_choose_save_file', return_value='/tmp/output.bin') as mock:
+    with patch('routes_dialog._native_choose_save_file',
+               return_value=('/tmp/output.bin', 'ok')) as mock:
         resp = client.post('/api/native-dialog/save-file', json={})
     assert resp.status_code == 200
     mock.assert_called_once_with('output.bin')
@@ -42,7 +52,7 @@ def test_save_file_dialog_default_name(client):
 
 def test_save_file_dialog_error(client):
     """Save dialog returns 500 on OS error."""
-    with patch('app._native_choose_save_file', side_effect=OSError('Dialog failed')):
+    with patch('routes_dialog._native_choose_save_file', side_effect=OSError('Dialog failed')):
         resp = client.post('/api/native-dialog/save-file', json={
             'suggested_name': 'test.png',
         })
@@ -56,7 +66,8 @@ def test_save_file_dialog_error(client):
 
 def test_select_directory_returns_path(client):
     """Directory picker returns selected path."""
-    with patch('app._native_choose_directory', return_value='/home/user/exports'):
+    with patch('routes_dialog._native_choose_directory',
+               return_value=('/home/user/exports', 'ok')):
         resp = client.post('/api/native-dialog/select-directory')
     assert resp.status_code == 200
     data = resp.get_json()
@@ -66,7 +77,7 @@ def test_select_directory_returns_path(client):
 
 def test_select_directory_cancelled(client):
     """Directory picker returns cancelled when user cancels."""
-    with patch('app._native_choose_directory', return_value=None):
+    with patch('routes_dialog._native_choose_directory', return_value=(None, 'cancelled')):
         resp = client.post('/api/native-dialog/select-directory')
     assert resp.status_code == 200
     data = resp.get_json()
@@ -74,9 +85,25 @@ def test_select_directory_cancelled(client):
     assert data['cancelled'] is True
 
 
+def test_select_directory_unavailable_is_not_reported_as_a_cancel(client):
+    """A dialog that could not open must NOT read as the user cancelling.
+
+    The client aborts on a cancel and falls back to a browser download on
+    unavailable. Swap them and either the export is lost, or Cancel saves the
+    files anyway - which is the bug this release fixes.
+    """
+    with patch('routes_dialog._native_choose_directory', return_value=(None, 'unavailable')):
+        resp = client.post('/api/native-dialog/select-directory')
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data['ok'] is False
+    assert data['cancelled'] is False
+    assert data['unavailable'] is True
+
+
 def test_select_directory_error(client):
     """Directory picker returns 500 on OS error."""
-    with patch('app._native_choose_directory', side_effect=OSError('No display')):
+    with patch('routes_dialog._native_choose_directory', side_effect=OSError('No display')):
         resp = client.post('/api/native-dialog/select-directory')
     assert resp.status_code == 500
     assert resp.get_json()['ok'] is False
@@ -196,3 +223,36 @@ def test_write_multiple_path_traversal_safety(client):
         # Should write as 'passwd' in the target dir, not escape
         assert os.path.exists(os.path.join(tmpdir, 'passwd'))
         assert not os.path.exists('/etc/passwd_test')
+
+
+# ── Loopback-only enforcement ────────────────────────────────────────────
+# The native-dialog endpoints open dialogs on / write files to the HOST
+# machine; a remote LAN client must get a 403 (its saves belong on the
+# remote machine via browser download).
+
+def test_native_dialogs_reject_remote_clients(client, monkeypatch):
+    import routes_dialog as _rd
+    # Pin the trusted set so this cannot depend on the developer's LAN.
+    monkeypatch.setattr(_rd, '_own_addresses', lambda: {'127.0.0.1', '::1'})
+    for path in ('/api/native-dialog/save-file',
+                 '/api/native-dialog/select-directory',
+                 '/api/native-dialog/write-file',
+                 '/api/native-dialog/write-multiple'):
+        resp = client.post(path, json={},
+                           environ_overrides={'REMOTE_ADDR': '192.168.1.50'})
+        assert resp.status_code == 403, f'{path} not blocked for remote client'
+        assert resp.get_json()['ok'] is False
+
+
+def test_native_dialogs_allow_loopback(client):
+    # Loopback still reaches the handlers (400 = handler ran and validated
+    # the empty payload, NOT a 403 rejection).
+    resp = client.post('/api/native-dialog/write-file', json={},
+                       environ_overrides={'REMOTE_ADDR': '127.0.0.1'})
+    assert resp.status_code == 400
+
+
+def test_logs_reveal_rejects_remote_clients(client):
+    resp = client.post('/api/logs/reveal',
+                       environ_overrides={'REMOTE_ADDR': '10.0.0.9'})
+    assert resp.status_code == 403

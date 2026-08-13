@@ -495,94 +495,14 @@ def generate_scr_files(project_name, layers):
     Returns:
         list of (filename, bytes) tuples
     """
-    import os as _os
-    _log_dir = _os.environ.get('_LRD_LOG_DIR', _os.path.dirname(_os.path.abspath(__file__)))
-    _os.makedirs(_log_dir, exist_ok=True)
-    _debug_path = _os.path.join(_log_dir, 'scr_debug.log')
-    with open(_debug_path, 'w', encoding='utf-8') as _dbf:
-        for lyr in layers:
-            _dbf.write(f"=== Layer: {lyr.get('name')} ({lyr.get('columns')}x{lyr.get('rows')}) ===\n")
-            _dbf.write(f"  flowPattern={lyr.get('flowPattern', '(not sent)')}\n")
-            _dbf.write(f"  scrScreenX={lyr.get('scrScreenX')} scrScreenY={lyr.get('scrScreenY')}\n")
-            _dbf.write(f"  scrPortNumbers={lyr.get('scrPortNumbers', {})}\n")
-            _dbf.write(f"  scrPortSendingCards={lyr.get('scrPortSendingCards', {})}\n")
-            _dbf.write(f"  cabinet_width={lyr.get('cabinet_width')} cabinet_height={lyr.get('cabinet_height')}\n")
-            pa_list = lyr.get('portAssignments', [])
-            _dbf.write(f"  total portAssignments: {len(pa_list)}\n")
-            # Group by port
-            _ports = {}
-            for _pa in pa_list:
-                _k = _pa.get('port', 0)
-                _ports.setdefault(_k, []).append(_pa)
-            for _pk in sorted(_ports.keys()):
-                _plist = _ports[_pk]
-                _visible = [p for p in _plist if not p.get('hidden', False)]
-                _first3 = [(p['col'], p['row'], p.get('hidden', False)) for p in _plist[:3]]
-                _last3  = [(p['col'], p['row'], p.get('hidden', False)) for p in _plist[-3:]]
-                _label = f"Port {_pk}" if _pk != 0 else "Hidden (port 0)"
-                _dbf.write(f"  {_label} ({len(_plist)} panels, {len(_visible)} visible): "
-                           f"first={_first3}  last={_last3}\n")
-        _dbf.write("\n")
-        # Log chain=0 positions and full chain sequences for binary verification
-        _dbf.write("=== Chain assignments (what goes into SCR binary) ===\n")
-        for lyr in layers:
-            _fp = lyr.get('flowPattern', 'tl-h')
-            _dbf.write(f"  Layer: {lyr.get('name')} (flowPattern={_fp})\n")
-            _port_num_map = lyr.get('scrPortNumbers', {})
-            _port_sc_map = lyr.get('scrPortSendingCards', {})
-            # Collect ALL visible panels per port in portAssignment order
-            _port_panels = {}  # nova_port -> [list of (col,row) in order]
-            for _pa in lyr.get('portAssignments', []):
-                _app_port = _pa.get('port', 1)
-                if _pa.get('hidden', False) or _app_port == 0:
-                    continue
-                _nova_port = _port_num_map.get(str(_app_port), _app_port)
-                _port_panels.setdefault(_nova_port, []).append((_pa['col'], _pa['row']))
-            for _np in sorted(_port_panels.keys()):
-                _panels = _port_panels[_np]
-                _N = len(_panels)
-                _sc = _port_sc_map.get(str(_np), 1)
-                _c0, _r0 = _panels[0]
-                _cN, _rN = _panels[-1]
-                _dbf.write(f"    NovaStar port {_np} (0-based: {_np-1}, SC{_sc}): "
-                           f"{_N} panels, "
-                           f"chain=0 at col={_c0},row={_r0} (cable entry) -> "
-                           f"chain={_N-1} at col={_cN},row={_rN} (chain end)\n")
-                # Show first and last 5 chain assignments
-                if _N <= 10:
-                    for _ci, (_c, _r) in enumerate(_panels):
-                        _dbf.write(f"      chain={_ci}: col={_c}, row={_r}\n")
-                else:
-                    for _ci in range(5):
-                        _c, _r = _panels[_ci]
-                        _dbf.write(f"      chain={_ci}: col={_c}, row={_r}\n")
-                    _dbf.write(f"      ... ({_N - 10} more) ...\n")
-                    for _ci in range(_N-5, _N):
-                        _c, _r = _panels[_ci]
-                        _dbf.write(f"      chain={_ci}: col={_c}, row={_r}\n")
-        _dbf.write("\n")
-        # Log origin/anchor panel info
-        _dbf.write("=== Origin/Anchor info ===\n")
-        for lyr in layers:
-            _sc_map = lyr.get('scrPortSendingCards', {})
-            _sc_nums = set(_sc_map.values()) or {1}
-            _cols = lyr.get('columns', 0)
-            _rows = lyr.get('rows', 0)
-            for _sc in sorted(_sc_nums):
-                _sc_idx = _sc - 1
-                _origin_app = (_cols - 1, 0)  # app coords
-                _origin_bin = (_cols - 1, _rows - 1)  # binary coords
-                if _sc_idx > 0:
-                    _anch_chain = _cols * _rows
-                    _dbf.write(f"  Layer '{lyr.get('name')}' SC{_sc} (sc_idx={_sc_idx}): "
-                               f"ANCHOR at app({_origin_app[0]},{_origin_app[1]}) "
-                               f"binary({_origin_bin[0]},{_origin_bin[1]}) "
-                               f"sender=0 port=0 chain={_anch_chain}\n")
-                else:
-                    _dbf.write(f"  Layer '{lyr.get('name')}' SC{_sc} (sc_idx={_sc_idx}): "
-                               f"ORIGIN DUPLICATE at app({_origin_app[0]},{_origin_app[1]}) "
-                               f"binary({_origin_bin[0]},{_origin_bin[1]}) chain=0\n")
-        _dbf.write("\n")
+    # NOTE: this function still assumes one SCR section per screen LAYER.
+    # That is wrong - a NovaLCT screen corresponds to a CANVAS in this app -
+    # and it is rewritten when SCR export is wired back into the UI. See
+    # the file layer (build_multi_screen_scr) for the part that is correct.
+    #
+    # An unconditional debug dump lived here, writing scr_debug.log into the
+    # application directory on every export. Removed: a shipped app must not
+    # write logs next to its own binary, and nothing read the file.
 
     # Group layers by sending card
     sc_groups = {}  # sending_card_num -> list of screen dicts
