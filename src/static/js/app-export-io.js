@@ -625,7 +625,15 @@ class _ExportIo {
         // Hide view checkboxes for Resolume XML (geometry only, no rendered views)
         const viewSection = document.getElementById('export-views-section');
         if (viewSection) {
-            viewSection.style.display = format === 'resolume-xml' ? 'none' : '';
+            const geometryOnly = (format === 'resolume-xml' || format === 'novastar-scr');
+            viewSection.style.display = geometryOnly ? 'none' : '';
+        }
+
+        if (format === 'novastar-scr') {
+            preview.classList.add('value-accent');
+            preview.style.color = '';
+            preview.textContent = `${projectName}.scr`;
+            return;
         }
 
         if (format === 'resolume-xml') {
@@ -828,6 +836,35 @@ class _ExportIo {
         const blob = await response.blob();
         await this.saveBlobWithPicker(blob, `${projectName}.xml`, 'application/xml');
         sendClientLog('export_resolume_complete', { projectName, rasterW, rasterH });
+    }
+
+    // Export the sending card map as a NovaStar .scr.
+    //
+    // The server holds the project, so nothing is posted but the name: sending
+    // it from here would just be a second copy that could disagree. Warnings
+    // come back in a header because the exporter knows where it approximates,
+    // and silently writing a file that is subtly wrong for a wall is worse
+    // than saying so.
+    async exportNovastarScr(projectName) {
+        const response = await fetch('/api/export/scr', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ project_name: projectName })
+        });
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.error || 'SCR export failed');
+        }
+        const sections = response.headers.get('X-Scr-Sections');
+        let warnings = [];
+        try { warnings = JSON.parse(response.headers.get('X-Scr-Warnings') || '[]'); } catch (e) { }
+        const blob = await response.blob();
+        await this.saveBlobWithPicker(blob, `${projectName}.scr`, 'application/octet-stream');
+        sendClientLog('export_scr_complete', { projectName, sections, warnings: warnings.length });
+        if (warnings.length) {
+            alert('SCR exported (' + sections + ' sending card' + (sections === '1' ? '' : 's') +
+                  '), with things to check in NovaLCT:\n\n- ' + warnings.join('\n\n- '));
+        }
     }
 
     /**
@@ -2317,6 +2354,70 @@ class _ExportIo {
         });
     }
 
+    // Move the selected layers to another canvas from the right-click menu.
+    //
+    // The canvas list is built when the menu opens rather than declared in the
+    // template: canvases are added, renamed and deleted at runtime, so a static
+    // list would go stale. Follows the same popup shape as the per-canvas
+    // "+ Add" chooser so the two feel like the same control.
+    //
+    // Layers keep their position when they move (routes_layers.move_layer_to_
+    // canvas) - canvases share a coordinate space, so a screen lands where it
+    // already was rather than jumping to the corner.
+    openMoveToCanvasMenu() {
+        const layers = this.getSelectedLayers().filter(l => !l.locked);
+        if (layers.length === 0) return;
+        const canvases = (this.project && this.project.canvases) || [];
+        // Where the selection already lives. With a mixed selection every
+        // canvas is a real destination for something, so nothing is excluded.
+        const originIds = new Set(layers.map(l => l.canvas_id));
+        const targets = canvases.filter(c => !(originIds.size === 1 && originIds.has(c.id)));
+        if (targets.length === 0) return;
+
+        document.querySelectorAll('.canvas-add-popup, .canvas-menu-popup, .canvas-color-popup').forEach(el => el.remove());
+        const menu = document.createElement('div');
+        menu.className = 'canvas-menu-popup canvas-add-popup';
+        menu.innerHTML = targets
+            .map(c => `<button data-canvas-id="${c.id}">${c.name}</button>`)
+            .join('');
+        document.body.appendChild(menu);
+
+        const cm = document.getElementById('context-menu');
+        const r = cm ? cm.getBoundingClientRect() : { left: 100, top: 100, width: 0 };
+        menu.style.position = 'fixed';
+        menu.style.left = `${Math.min(r.left + Math.max(r.width, 40), window.innerWidth - 180)}px`;
+        menu.style.top = `${Math.max(8, Math.min(r.top, window.innerHeight - 40 - targets.length * 28))}px`;
+        menu.style.zIndex = '12000';
+
+        const close = () => {
+            menu.remove();
+            document.removeEventListener('mousedown', onOutside, true);
+            document.removeEventListener('keydown', onKey, true);
+        };
+        const onOutside = (e) => { if (!menu.contains(e.target)) close(); };
+        const onKey = (e) => { if (e.key === 'Escape') close(); };
+        setTimeout(() => {
+            document.addEventListener('mousedown', onOutside, true);
+            document.addEventListener('keydown', onKey, true);
+        }, 0);
+
+        menu.querySelectorAll('button').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const canvasId = btn.dataset.canvasId;
+                close();
+                // Sequential, not Promise.all: each move PUTs and the server
+                // answers with the whole project, so overlapping calls would
+                // race and the last response would undo the others.
+                for (const layer of layers) {
+                    if (layer.canvas_id === canvasId) continue;
+                    await this.moveLayerToCanvas(layer.id, canvasId, 'move');
+                }
+                sendClientLog('move_to_canvas', { count: layers.length, canvasId });
+            });
+        });
+    }
+
     handleMenuAction(action) {
         switch (action) {
             case 'new':
@@ -2375,6 +2476,9 @@ class _ExportIo {
                 break;
             case 'center-both':
                 this.centerLayersOnCanvas('both');
+                break;
+            case 'move-to-canvas':
+                this.openMoveToCanvasMenu();
                 break;
             case 'next-port':
                 this.stepCustomPort(1);

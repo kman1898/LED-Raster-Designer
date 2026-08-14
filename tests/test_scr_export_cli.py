@@ -1,4 +1,4 @@
-"""The canvas -> section mapping in tools/scr_export.py.
+"""The canvas -> section mapping in src/scr_project.py.
 
 Why this exists
 ---------------
@@ -16,6 +16,7 @@ user's show files: those are production drawings, they are not in the repo, and
 a test that needs them is a test that silently stops running.
 """
 
+import collections
 import os
 import sys
 
@@ -26,7 +27,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'tools'))
 
 from scr_decoder import decode_scr  # noqa: E402
 from scr_encoder import build_multi_screen_scr  # noqa: E402
-from scr_export import Warnings, build_sections, verify  # noqa: E402
+from scr_project import Warnings, build_sections, verify  # noqa: E402
 
 
 # ── building projects ────────────────────────────────────────────────────
@@ -348,16 +349,116 @@ def test_each_section_is_written_on_its_own_sending_card():
             'section %d carries sending cards %s' % (expected, senders))
 
 
+# ── the origin row ───────────────────────────────────────────────────────
+#
+# The format reserves the last cell of the top row for the section terminator.
+# NovaStar frees it by sliding that whole row one cell LEFT and keeping the
+# routing of the cabinet that falls off the left end in the section marker.
+# These pin the rule in both directions, because the visible symptom flips
+# sign with the direction of the row's run and a blanket offset fixes one wall
+# while breaking the next.
+
+def _flow(pattern, cols, rows):
+    return _sections(_project(
+        [_canvas('c1', 'One')],
+        [_layer('l1', 'c1', cols, rows, flowPattern=pattern)]))[0]
+
+
+def _routing(section, col, row):
+    cell = _cell(section, col, row)
+    return (cell['port_num'], cell['chain_order'])
+
+
+def test_a_left_to_right_top_row_slides_one_cell_left():
+    """tl-h walks the top row 0,1,2,3. The slide drops link 0 off the left end,
+    so the row is written 1,2,3 and the last cell is left for the terminator."""
+    section = _flow('tl-h', 4, 3)
+
+    assert [_routing(section, col, 0) for col in range(3)] == [(1, 1), (1, 2), (1, 3)]
+    assert _cell(section, 3, 0)['hidden']
+    # No other row moves.
+    assert [_routing(section, col, 1) for col in range(4)] == [
+        (1, 7), (1, 6), (1, 5), (1, 4)]
+
+
+def test_a_right_to_left_top_row_slides_the_same_way():
+    """tr-h walks the same row 3,2,1,0. The slide is still one cell left, so it
+    is the run's TAIL that falls off and the row is written 2,1,0 - the same
+    correction going the other way round."""
+    section = _flow('tr-h', 4, 3)
+
+    assert [_routing(section, col, 0) for col in range(3)] == [(1, 2), (1, 1), (1, 0)]
+    assert _cell(section, 3, 0)['hidden']
+    assert [_routing(section, col, 1) for col in range(4)] == [
+        (1, 4), (1, 5), (1, 6), (1, 7)]
+
+
+def test_the_marker_carries_the_routing_of_the_cabinet_pushed_off():
+    """Section bytes 10-13 are Sender(1) Port(1) ConnectIndex(2 LE) - the tail
+    of the 17-byte record the displaced cabinet no longer has a cell for. It is
+    the only record of it left in the file."""
+    assert _flow('tl-h', 4, 3)['marker'] == (0, 0, 0, 0)     # port 1, link 0
+    assert _flow('tr-h', 4, 3)['marker'] == (0, 0, 3, 0)     # port 1, link 3
+    assert _flow('tr-h', 5, 2)['marker'] == (0, 0, 4, 0)     # port 1, link 4
+
+
+def test_a_second_canvas_marks_its_own_sending_card():
+    sections = _sections(_project(
+        [_canvas('c1', 'One'), _canvas('c2', 'Two')],
+        [_layer('l1', 'c1', 4, 3), _layer('l2', 'c2', 4, 3)]))
+
+    assert [s['marker'][0] for s in sections] == [0, 1]
+
+
+def test_an_empty_top_left_cell_marks_the_placeholder_routing():
+    """Nothing to displace, so the marker carries NovaStar's placeholder
+    routing - sender 255, port 1, link 1 - the same ff 01 01 00 two of the
+    reference sections carry."""
+    section = _sections(_project(
+        [_canvas('c1', 'One')],
+        [_layer('l1', 'c1', 4, 3, hidden={(0, 0)})]))[0]
+
+    assert section['marker'] == (0xFF, 0x01, 0x01, 0x00)
+
+
+def _chains_by_port(screen):
+    """Every non-placeholder record, terminator included - NovaLCT reads that
+    one as a cabinet like any other."""
+    by_port = collections.defaultdict(list)
+    for panel in screen['panels']:
+        if panel['sender'] == 255:
+            continue
+        by_port[panel['port']].append(panel['chain_order'])
+    return by_port
+
+
+def test_a_run_starting_at_link_zero_leaves_every_chain_whole():
+    """The terminator is written as sender 0, port 0, link 0. When the top row
+    starts its run at link 0 the slide displaces exactly that cabinet, so the
+    terminator lands in the hole it left: no port has a gap and nothing is
+    doubled."""
+    screen = decode_scr(build_multi_screen_scr([_flow('tl-h', 4, 3)]))['screens'][0]
+
+    for port, links in _chains_by_port(screen).items():
+        assert sorted(links) == list(range(len(links))), 'port %d: %s' % (port, links)
+
+
+def test_any_other_run_leaves_one_gap_and_doubles_link_zero():
+    """The other direction displaces something that is not link 0, so link 0 is
+    still occupied when the terminator claims it and the displaced link is left
+    as a hole. Both marks are NovaStar's own - every section in the reference
+    corpus is short exactly the link its marker names."""
+    section = _flow('tr-h', 4, 3)
+    screen = decode_scr(build_multi_screen_scr([section]))['screens'][0]
+    displaced_port, displaced_link = section['marker'][1], section['marker'][2]
+
+    by_port = _chains_by_port(screen)
+    assert list(by_port) == [displaced_port]
+    links = sorted(by_port[displaced_port])
+    assert links == [0] + [n for n in range(4 * 3) if n != displaced_link]
+
+
 # ── warnings ─────────────────────────────────────────────────────────────
-
-def test_a_cabinet_on_the_reserved_cell_is_reported():
-    """The top-right cell is the section terminator, so a cabinet there loses
-    its routing. That has to be said out loud rather than quietly dropped."""
-    warnings = Warnings()
-    build_sections(_project([_canvas('c1', 'One')], [_layer('l1', 'c1', 3, 3)]), warnings)
-
-    assert any('terminator' in w or 'top-right' in w for w in warnings.items)
-
 
 def test_an_unpublished_frame_rate_warns_instead_of_inventing_a_map():
     """novastar-armor publishes nothing past 120 Hz. The app draws ERROR rather

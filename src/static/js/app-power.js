@@ -39,6 +39,15 @@ class _Power {
         menu.querySelectorAll('.group-any-only').forEach(el => {
             el.style.display = (canGroup || inGroup) ? '' : 'none';
         });
+        // Move to Canvas needs a layer to move and somewhere to move it to.
+        // Offering it with one canvas would open a picker with nothing in it.
+        const canvases = (this.project && this.project.canvases) || [];
+        const canMove = canvases.length > 1
+            && this.getSelectedLayers().some(l => !l.locked);
+        menu.querySelectorAll('.move-canvas-only').forEach(el => {
+            el.style.display = canMove ? '' : 'none';
+        });
+
         menu.style.visibility = 'hidden';
         menu.style.display = 'block';
         const menuRect = menu.getBoundingClientRect();

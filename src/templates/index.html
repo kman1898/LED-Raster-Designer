@@ -92,6 +92,10 @@
             <div class="menu-option group-create-only" data-action="group-screens" data-label="Group Screens"></div>
             <div class="menu-option group-member-only" data-action="ungroup-screens" data-label="Ungroup Screens"></div>
             <div class="menu-option group-member-only" data-action="remove-from-group" data-label="Remove From Group"></div>
+            <!-- Move to canvas. Hidden unless a layer is selected and there is
+                 somewhere else to move it to. -->
+            <div class="menu-divider move-canvas-only"></div>
+            <div class="menu-option move-canvas-only" data-action="move-to-canvas" data-label="Move to Canvas…"></div>
             <div class="menu-divider movable-view-only"></div>
             <div class="menu-option movable-view-only" data-action="center-x" data-label="Center on Canvas X"></div>
             <div class="menu-option movable-view-only" data-action="center-y" data-label="Center on Canvas Y"></div>
@@ -1693,6 +1697,7 @@
                     <option value="psd">PSD (Layered standard editors - screens as layers)</option>
                     <option value="pdf">PDF (All views combined)</option>
                     <option value="resolume-xml">Resolume XML (Advanced Output)</option>
+                    <option value="novastar-scr">NovaStar SCR (screen connection)</option>
                 </select>
             </div>
 

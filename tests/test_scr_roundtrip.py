@@ -181,3 +181,55 @@ def test_reencode_reproduces_the_original(path):
         f'{path.name}: {len(diffs)} bytes differ, and these are in fields that '
         f'should round-trip exactly: {unexpected}. '
         f'(Tolerated, still unexplained: {dict(kinds)})')
+
+
+@pytest.mark.skipif(not _files, reason='set LRD_SCR_CORPUS to a directory of .scr files')
+@pytest.mark.parametrize('path', _files, ids=lambda p: p.stem)
+def test_the_marker_names_the_cabinet_the_top_row_slid_past(path):
+    """Section bytes 10-13 are not a format flag. They are Sender(1) Port(1)
+    ConnectIndex(2 LE) - the record tail of the cabinet the format has no cell
+    for, because the top row is written one place to the LEFT to free its last
+    cell for the terminator.
+
+    The check is that the marker and the records agree: the link the marker
+    names is the one link that port's chain does not carry, and every other
+    chain is whole. That is what makes the marker readable at all, and it is
+    what tells the exporter which way the top row moved. A marker of
+    FF 01 01 00 is the placeholder routing, meaning the displaced cell held no
+    cabinet - so nothing is missing anywhere.
+    """
+    import collections
+    data = path.read_bytes()
+    decoded = decode_scr(data)
+
+    for sc, sec in zip(decoded['screens'], _sections(data)):
+        where = '%s section %d' % (path.name, sc['screen_idx'])
+        terminator = (sc['cols'] - 1, sc['rows'] - 1)
+        links = collections.defaultdict(list)
+        for p in sc['panels']:
+            if p['sender'] == 255 or (p['col'], p['row']) == terminator:
+                continue
+            links[p['port']].append(p['chain_order'])
+
+        marker = sec['marker']
+        if marker[0] == 0xFF:
+            assert bytes(marker) == b'\xff\x01\x01\x00', where
+            for port, got in links.items():
+                assert sorted(got) == list(range(len(got))), (
+                    '%s: port %d has no cabinet displaced, so its chain should be '
+                    'whole: %s' % (where, port, sorted(got)))
+            continue
+
+        port = marker[1]
+        link = struct.unpack_from('<H', bytes(marker), 2)[0]
+        assert port in links, '%s: marker names port %d, which has no cabinets' % (
+            where, port)
+        assert sorted(links[port] + [link]) == list(range(len(links[port]) + 1)), (
+            '%s: marker names port %d link %d, which should be the one link that '
+            'port is short of: %s' % (where, port, link, sorted(links[port])))
+        for other, got in links.items():
+            if other == port:
+                continue
+            assert sorted(got) == list(range(len(got))), (
+                '%s: only the displaced port may be short a link; port %d has %s'
+                % (where, other, sorted(got)))

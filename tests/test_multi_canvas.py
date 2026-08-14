@@ -286,8 +286,14 @@ def test_set_active_canvas(client):
     assert proj['active_canvas_id'] == 'c1'
 
 
-def test_move_layer_to_canvas_resets_offsets(client_with_layer):
-    """Moving a layer to another canvas resets its offsets to 0,0."""
+def test_move_layer_to_canvas_keeps_offsets(client_with_layer):
+    """Moving a layer to another canvas KEEPS its position.
+
+    This asserted a reset to 0,0 (design Section 5.7) until Matt asked for the
+    opposite: canvases share a coordinate space, so a screen that moves should
+    land where it already was instead of jumping to the corner and needing to
+    be dragged back by eye. See tests/test_canvas_move_keeps_position.py.
+    """
     proj = client_with_layer.get('/api/project').get_json()
     layer_id = proj['layers'][0]['id']
     # Set a non-zero offset so we can verify the reset.
@@ -304,12 +310,12 @@ def test_move_layer_to_canvas_resets_offsets(client_with_layer):
     proj = resp.get_json()
     moved = next(l for l in proj['layers'] if l['id'] == layer_id)
     assert moved['canvas_id'] == 'c2'
-    assert moved['offset_x'] == 0 and moved['offset_y'] == 0
-    assert moved['showOffsetX'] == 0 and moved['showOffsetY'] == 0
+    assert moved['offset_x'] == 500 and moved['offset_y'] == 300
+    assert moved['showOffsetX'] == 500 and moved['showOffsetY'] == 300
 
 
 def test_duplicate_layer_to_canvas(client_with_layer):
-    """Duplicate mode creates a copy with a new id at 0,0 in the target canvas."""
+    """Duplicate mode creates a copy with a new id, keeping the source position."""
     proj = client_with_layer.get('/api/project').get_json()
     src_layer_id = proj['layers'][0]['id']
     src_name = proj['layers'][0]['name']
@@ -329,7 +335,7 @@ def test_duplicate_layer_to_canvas(client_with_layer):
     assert clone['offset_x'] == 0 and clone['offset_y'] == 0
 
 
-def test_duplicate_layer_to_canvas_resets_clone_offsets(client_with_layer):
+def test_duplicate_layer_to_canvas_keeps_clone_offsets(client_with_layer):
     """Slice 7: duplicate-to-canvas drops the clone at 0,0 even when the
     source has non-zero offsets. The cross-canvas drag relies on this
     server-side guarantee so the clone always lands at the new canvas's
@@ -350,8 +356,9 @@ def test_duplicate_layer_to_canvas_resets_clone_offsets(client_with_layer):
     proj = resp.get_json()
     clone = next(l for l in proj['layers'] if l['id'] != src_id)
     assert clone['canvas_id'] == 'c2'
-    assert clone['offset_x'] == 0 and clone['offset_y'] == 0
-    assert clone['showOffsetX'] == 0 and clone['showOffsetY'] == 0
+    # Keeps the source position - same reason as the move case above.
+    assert clone['offset_x'] == 777 and clone['offset_y'] == 555
+    assert clone['showOffsetX'] == 999 and clone['showOffsetY'] == 111
     # Source untouched
     src = next(l for l in proj['layers'] if l['id'] == src_id)
     assert src['offset_x'] == 777 and src['offset_y'] == 555
