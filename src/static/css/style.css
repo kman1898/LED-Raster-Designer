@@ -67,13 +67,43 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 /* Collapsed: shrink the sidebar to nothing but keep it in the DOM so
    layout/interactions stay intact. */
 #left-sidebar.collapsed,
-#right-sidebar.collapsed {
+#right-sidebar.collapsed,
+#data-sidebar.collapsed {
     width: 0;
     min-width: 0;
     padding: 0;
     border-right: none;
     border-left: none;
 }
+
+/* ── Signal panel, Data view only ────────────────────────────────────── */
+/* A third docked panel between the left sidebar and the canvas, holding
+   everything about signal (port labelling now, processor/chassis next).
+   It carries the left sidebar's geometry deliberately, so the two read as
+   one column of panels rather than a panel and an add-on. */
+#data-sidebar {
+    background: #252525;
+    width: 260px;
+    flex: 0 0 auto;
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-gutter: stable;
+    padding: 10px;
+    border-right: 1px solid #3a3a3a;
+    box-sizing: border-box;
+    transition: width 0.18s ease, padding 0.18s ease, border-color 0.18s ease;
+}
+/* Outside Data view the panel is removed from layout entirely rather than
+   collapsed to zero width: collapsed still occupies a flex slot and still
+   renders its border, and the bar for this feature is that anyone who never
+   opens Data view sees no change at all. The toggle goes with it - a button
+   for a panel that isn't there is worse than no button. */
+#data-sidebar.view-hidden,
+#data-sidebar-toggle.view-hidden { display: none; }
+/* Both toggles hug the same vertical edge once this panel is collapsed flush
+   against the left sidebar, so this one sits below the midline; otherwise
+   they land on top of each other and only one is clickable. */
+#data-sidebar-toggle { border-left: none; border-radius: 0 4px 4px 0; top: calc(50% + 70px); }
 #right-sidebar > .panel { margin: 0 10px 0 10px; flex: 1; overflow: hidden; min-height: 0; display: flex; flex-direction: column; }
 #right-sidebar > .panel > .panel-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 #right-sidebar > .panel > .panel-content > #layers-list { flex: 1; min-height: 0; overflow-y: auto; }

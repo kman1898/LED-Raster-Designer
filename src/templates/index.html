@@ -499,7 +499,7 @@
 
                 <!-- Data Controls -->
                 <div class="panel tab-panel screen-only" data-tab="data-flow" style="display: none;">
-                    <div class="panel-header" data-tooltip="Data Settings, Configure data port mapping, flow patterns, port labels, and visual styling for the data flow overlay.">
+                    <div class="panel-header" data-tooltip="Data Settings, Configure data port mapping, flow patterns, and visual styling for the data flow overlay. Port labels live in the Signal panel.">
                         <h2>Data Settings</h2>
                     </div>
                     <div class="panel-content">
@@ -760,40 +760,13 @@
                             </div>
                         </div>
 
-                        <div class="info-row" style="margin-top: 15px;" data-tooltip="Port Labels, Customize the text labels shown on primary and return data ports using templates with # as the port number.">
-                            <label style="font-weight: 600; margin-bottom: 8px; display: block;">Port Labels</label>
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px;">
-                                <div>
-                                    <label style="font-size: 11px; color: #888;">Primary Template</label>
-                                    <input type="text" id="port-label-template-primary" value="P#" style="width: 100%; padding: 6px; background: #111; border: 1px solid #333; color: #fff; border-radius: 4px; font-family: monospace;">
-                                </div>
-                                <div>
-                                    <label style="font-size: 11px; color: #888;">Return Template</label>
-                                    <input type="text" id="port-label-template-return" value="R#" style="width: 100%; padding: 6px; background: #111; border: 1px solid #333; color: #fff; border-radius: 4px; font-family: monospace;">
-                                </div>
-                            </div>
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; align-items: end; margin-bottom: 6px;">
-                                <div>
-                                    <label style="font-size: 11px; color: #888;">Apply Style (Primary)</label>
-                                    <input type="text" id="port-label-bulk-primary" placeholder="#A" style="width: 100%; padding: 6px; background: #111; border: 1px solid #333; color: #fff; border-radius: 4px; font-family: monospace;">
-                                </div>
-                                <div>
-                                    <label style="font-size: 11px; color: #888;">Apply Style (Return)</label>
-                                    <input type="text" id="port-label-bulk-return" placeholder="#B" style="width: 100%; padding: 6px; background: #111; border: 1px solid #333; color: #fff; border-radius: 4px; font-family: monospace;">
-                                </div>
-                            </div>
-                            <div style="display: flex; gap: 6px; margin-bottom: 8px;">
-                                <button id="port-label-apply-selected" class="btn" style="flex: 1; padding: 6px 10px;">Apply</button>
-                                <button id="port-label-clear-selected" class="btn" style="flex: 1; padding: 6px 10px; background: #333;">Clear</button>
-                            </div>
-                            <div style="display: flex; gap: 6px; margin-bottom: 8px;">
-                                <button id="port-label-select-all" class="btn" style="flex: 1; padding: 6px 10px; background: #222;">Select All</button>
-                                <button id="port-label-deselect-all" class="btn" style="flex: 1; padding: 6px 10px; background: #222;">Deselect All</button>
-                            </div>
-                            <div id="port-label-list" style="display: grid; gap: 6px; max-height: 160px; overflow: auto; padding: 6px; background: #111; border: 1px solid #333; border-radius: 4px;"></div>
-                            <p style="font-size: 11px; color: #888; margin: 6px 0 0;">Use # for port number. Overrides apply per port.</p>
-                        </div>
-                        
+                        <!-- Port Labels moved to the Signal panel (#data-sidebar,
+                             below the canvas markup). It is the one thing in
+                             Data Settings that is about naming the signal
+                             rather than styling the overlay, and the left
+                             sidebar had no room left for the processor work
+                             that joins it there. -->
+
                         <div class="info-row" data-tooltip="Line Color, Color of the data flow connection lines drawn between cabinets.">
                             <label>Line Color</label>
                             <div style="display: flex; gap: 5px; align-items: center;">
@@ -1536,6 +1509,56 @@
                                     <input type="checkbox" id="text-layer-show-power" checked> Power
                                 </label>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Signal panel. Everything about how signal reaches the cabinets
+                 lives here: the port labelling below, and the processor /
+                 chassis work that follows. It exists only in Data view - the
+                 markup ships carrying .view-hidden so the other four views are
+                 untouched from the very first paint, with no flash of a panel
+                 they never show. Collapse is the same mechanism as the other
+                 two sidebars (app-core.js initSidebarToggles). -->
+            <button id="data-sidebar-toggle" class="sidebar-toggle view-hidden" data-side="data" title="Collapse signal panel" aria-label="Toggle signal panel">‹</button>
+            <div id="data-sidebar" class="view-hidden">
+                <div class="panel tab-panel screen-only" data-tab="data-flow" style="display: none;">
+                    <div class="panel-header" data-tooltip="Port Labels, Customize the text labels shown on primary and return data ports using templates with # as the port number.">
+                        <h2>Port Labels</h2>
+                    </div>
+                    <div class="panel-content">
+                        <div class="info-row">
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px;">
+                                <div>
+                                    <label style="font-size: 11px; color: #888;">Primary Template</label>
+                                    <input type="text" id="port-label-template-primary" value="P#" style="width: 100%; padding: 6px; background: #111; border: 1px solid #333; color: #fff; border-radius: 4px; font-family: monospace;">
+                                </div>
+                                <div>
+                                    <label style="font-size: 11px; color: #888;">Return Template</label>
+                                    <input type="text" id="port-label-template-return" value="R#" style="width: 100%; padding: 6px; background: #111; border: 1px solid #333; color: #fff; border-radius: 4px; font-family: monospace;">
+                                </div>
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; align-items: end; margin-bottom: 6px;">
+                                <div>
+                                    <label style="font-size: 11px; color: #888;">Apply Style (Primary)</label>
+                                    <input type="text" id="port-label-bulk-primary" placeholder="#A" style="width: 100%; padding: 6px; background: #111; border: 1px solid #333; color: #fff; border-radius: 4px; font-family: monospace;">
+                                </div>
+                                <div>
+                                    <label style="font-size: 11px; color: #888;">Apply Style (Return)</label>
+                                    <input type="text" id="port-label-bulk-return" placeholder="#B" style="width: 100%; padding: 6px; background: #111; border: 1px solid #333; color: #fff; border-radius: 4px; font-family: monospace;">
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 6px; margin-bottom: 8px;">
+                                <button id="port-label-apply-selected" class="btn" style="flex: 1; padding: 6px 10px;">Apply</button>
+                                <button id="port-label-clear-selected" class="btn" style="flex: 1; padding: 6px 10px; background: #333;">Clear</button>
+                            </div>
+                            <div style="display: flex; gap: 6px; margin-bottom: 8px;">
+                                <button id="port-label-select-all" class="btn" style="flex: 1; padding: 6px 10px; background: #222;">Select All</button>
+                                <button id="port-label-deselect-all" class="btn" style="flex: 1; padding: 6px 10px; background: #222;">Deselect All</button>
+                            </div>
+                            <div id="port-label-list" style="display: grid; gap: 6px; max-height: 160px; overflow: auto; padding: 6px; background: #111; border: 1px solid #333; border-radius: 4px;"></div>
+                            <p style="font-size: 11px; color: #888; margin: 6px 0 0;">Use # for port number. Overrides apply per port.</p>
                         </div>
                     </div>
                 </div>
