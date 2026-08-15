@@ -507,6 +507,111 @@ def test_nothing_is_stranded_across_a_view_switch(page):
     set_collapsed(page, 'left', False)
 
 
+# ── the contents fit the panel at the minimum ─────────────────────────────
+#
+# The clamp is shared by every panel, so a row that only fits at 260 is the
+# row's bug and not the clamp's. The distro rows are the dense ones: rating,
+# unit, voltage and phase, then a phasing select and a per-leg summary, all in
+# a column ~119px wide once the sidebar's padding, its stable scrollbar gutter
+# and the panel's own padding come off 180. They were laid out as flex rows
+# with no flex-wrap, so at the minimum they overflowed and the sidebar's
+# overflow-x:hidden simply cut them off - the phase select sliced in half and
+# + Add pushed off the edge entirely.
+
+DISTRO_SEED_JS = """() => {
+    const app = window.app;
+    // Answer the id only if this test made it, so the cleanup cannot delete a
+    // distro the shared project already had.
+    const added = app.getDistros().length ? null : app.addDistro().id;
+    app.refreshDistroPanel();
+    return { added: added, distros: app.getDistros().length };
+}"""
+
+DISTRO_CLEANUP_JS = """(id) => {
+    if (!id) return;
+    window.app.removeDistro(id);
+    window.app.refreshDistroPanel();
+}"""
+
+# Measured against the HOST's content box, not the sidebar's: the sidebar's own
+# padding would hide the first 10px of any overhang.
+OVERFLOW_JS = """() => {
+    const host = document.getElementById('power-distros');
+    const box = host.getBoundingClientRect();
+    const strays = [];
+    host.querySelectorAll('*').forEach(el => {
+        const r = el.getBoundingClientRect();
+        if (r.width === 0 && r.height === 0) return;
+        if (r.right > box.right + 0.5 || r.left < box.left - 0.5) {
+            strays.push({
+                tag: el.tagName,
+                key: el.getAttribute('data-lrd-field') || el.className || null,
+                over: Math.round(Math.max(r.right - box.right,
+                                          box.left - r.left)),
+            });
+        }
+    });
+    // The centre line, not the top edge: a number input and a select are not
+    // the same height, and align-items:center leaves their top edges several
+    // px apart on the very same row.
+    const mid = (cls) => {
+        const el = host.querySelector('.' + cls);
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return Math.round(r.top + r.height / 2);
+    };
+    return { hostW: Math.round(box.width), scrollW: host.scrollWidth,
+             clientW: host.clientWidth, strays: strays,
+             rating: mid('distro-rating'), voltage: mid('distro-voltage'),
+             phase: mid('distro-phase') };
+}"""
+
+
+@pytest.mark.parametrize('w', [MIN_W, DEFAULT_W])
+def test_the_distro_rows_fit_inside_the_power_panel(page, w):
+    reset_widths(page, 'power')
+    seeded = page.evaluate(DISTRO_SEED_JS)
+    try:
+        assert seeded['distros'] > 0, f"no distro row to measure: {seeded}"
+        if w != DEFAULT_W:
+            assert drag(page, 'power', w - DEFAULT_W) == w
+        page.wait_for_timeout(300)
+        m = page.evaluate(OVERFLOW_JS)
+        assert not m['strays'], (
+            f"distro controls hang outside the panel at {w}px, where the "
+            f"sidebar's overflow-x:hidden clips them: {m['strays']} "
+            f"(over is px past the host's edge; host is {m['hostW']}px)")
+        assert m['scrollW'] <= m['clientW'], (
+            f"the distro list scrolls sideways at {w}px: content {m['scrollW']}px "
+            f"in a {m['clientW']}px column")
+    finally:
+        page.evaluate(DISTRO_CLEANUP_JS, seeded['added'])
+
+
+def test_the_rating_row_is_one_line_at_the_default_and_wraps_at_the_minimum(page):
+    """The wrap has to be a wrap, not a permanent restack: at the 260px default
+    rating, voltage and phase still read as one line, and only the drag to the
+    clamp breaks them apart."""
+    reset_widths(page, 'power')
+    seeded = page.evaluate(DISTRO_SEED_JS)
+    try:
+        wide = page.evaluate(OVERFLOW_JS)
+        assert wide['rating'] == wide['voltage'] == wide['phase'], (
+            f"the rating row is no longer one line at the {DEFAULT_W}px "
+            f"default: {wide}")
+        assert drag(page, 'power', MIN_W - DEFAULT_W) == MIN_W
+        page.wait_for_timeout(300)
+        narrow = page.evaluate(OVERFLOW_JS)
+        assert narrow['voltage'] > narrow['rating'] + 6, (
+            f"the rating row did not wrap at {MIN_W}px, so the fit assertions "
+            f"prove nothing: {narrow}")
+        assert narrow['voltage'] == narrow['phase'], (
+            f"voltage and phase parted company - they travel as one group so "
+            f"they drop to the next line together: {narrow}")
+    finally:
+        page.evaluate(DISTRO_CLEANUP_JS, seeded['added'])
+
+
 @pytest.mark.parametrize('key', sorted(VIEW_OF))
 def test_a_collapsed_middle_panel_stays_collapsed_across_a_view_switch(page, key):
     """Collapsing a panel and then leaving its view must not silently

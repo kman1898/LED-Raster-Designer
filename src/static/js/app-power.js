@@ -1051,14 +1051,19 @@ class _Power {
     powerPhasingSchemes() {
         return [
             { id: 'rotating-ln', name: '120V — rotating (X Y Z X Y Z)', lineToLine: false,
+              pattern: 'X Y Z X Y Z',
               note: '1>X 2>Y 3>Z 4>X 5>Y 6>Z — one published house distro sheet; no practitioner source corroborates it, so confirm before relying on it' },
             { id: 'paired-ln', name: '120V — paired (X X Y Y Z Z)', lineToLine: false,
+              pattern: 'X X Y Y Z Z',
               note: '1,2>X  3,4>Y  5,6>Z — the arrangement practitioners most often describe' },
             { id: 'paired-ll', name: '208V — paired, XY ZX YZ', lineToLine: true,
+              pattern: 'XY ZX YZ',
               note: '1,2>XY  3,4>ZX  5,6>YZ — two independent house pinouts publish this' },
             { id: 'paired-ll-alt', name: '208V — paired, XY YZ ZX', lineToLine: true,
+              pattern: 'XY YZ ZX',
               note: '1,2>XY  3,4>YZ  5,6>ZX — same grouping, other pair order (Strand LightRack)' },
             { id: 'rotating-ll', name: '208V — rotating (XY XZ YZ)', lineToLine: true,
+              pattern: 'XY XZ YZ',
               note: '1,4>XY  2,5>XZ  3,6>YZ — spreads a partly-filled multi better' }
         ];
     }
@@ -1072,6 +1077,53 @@ class _Power {
         if (explicit) return explicit;
         const ll = distro && circuitVoltage > 0 && Math.abs(circuitVoltage - distro.voltage) < 1;
         return schemes.find(s => s.id === (ll ? 'paired-ll' : 'rotating-ln'));
+    }
+
+    // The circuit voltage this distro actually sees: whatever the screens
+    // feeding it run at, walked in the SAME order getDistroLoads walks them so
+    // the select and the leg maths can never name two different schemes.
+    //
+    // A distro with nothing assigned yet has no evidence to read, so it is
+    // taken at its word - a service whose circuits sit at the service voltage,
+    // which is what choosing 208V means. It is a default like any other here
+    // and the moment a multi lands on the distro the real circuit voltage
+    // replaces it.
+    distroCircuitVoltage(distro) {
+        if (!distro || !this.project) return 0;
+        let seen = null;
+        for (const layer of this.project.layers || []) {
+            if ((layer.type || 'screen') !== 'screen') continue;
+            const assign = layer.powerSocaDistro || {};
+            const plan = this.getSocaPlan(layer);
+            if (!plan.some(s => assign[s.soca] === distro.id)) continue;
+            seen = parseFloat(layer.powerVoltage) || 0;
+        }
+        return seen === null ? (Number(distro.voltage) || 0) : seen;
+    }
+
+    // What the phasing control has to say out loud: the scheme in force, and
+    // whether it is DERIVED from the voltage or was picked by hand.
+    //
+    // Two distros can run the same scheme, one because somebody read the box
+    // and one because nobody has - and only the first survives a voltage
+    // change. Without this distinction on screen "a manual choice overrides
+    // the default" is a rule the user cannot see operating.
+    distroPhasingState(distro) {
+        const schemes = this.powerPhasingSchemes();
+        const chosen = distro && distro.phasing
+            && schemes.find(s => s.id === distro.phasing);
+        const circuitV = this.distroCircuitVoltage(distro);
+        // Ask for the derived answer explicitly rather than reading it off
+        // powerPhasingFor(distro, ...), which would hand back the explicit
+        // choice and hide what the voltage would have chosen.
+        const derived = this.powerPhasingFor(
+            { voltage: distro && distro.voltage, phasing: null }, circuitV);
+        return {
+            explicit: !!chosen,
+            derived,
+            circuitVoltage: circuitV,
+            scheme: chosen || derived
+        };
     }
 
     // Order a leg pair cyclically (X>Y>Z>X). The first leg of the cyclic pair
@@ -1337,43 +1389,80 @@ class _Power {
         const esc = (s) => this._esc ? this._esc(s) : s;
         const loads = this.getDistroLoads();
         host.innerHTML = `
-            <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
-                <label style="font-weight:600;" data-tooltip="Power distros, Project-level power sources. Assign each multi to one and the load rolls up here across every screen.">Power Distros</label>
-                <span style="flex:1;"></span>
-                <button id="power-distro-balance" data-lrd-field="power-distro-balance" class="btn btn-secondary" style="padding:2px 10px;" data-tooltip="Balance legs, Searches which set of six breakers each partly-filled multi should land on. A full multi balances itself, so only short ones move. Nothing changes until you accept it.">Balance</button>
-                <button id="power-distro-add" data-lrd-field="power-distro-add" class="btn btn-secondary" style="padding:2px 10px;">+ Add</button>
+            <!-- Wraps: the Power panel drags down to 180px, and the heading
+                 with both buttons has never fitted one line at any width the
+                 panel offers - the sidebar's overflow-x:hidden was simply
+                 cutting + Add off, and squeezing its label onto two lines at
+                 the 260px default. The buttons travel as one group so they
+                 drop below the heading together and stay right-aligned, and
+                 the group wraps in turn once even it runs out of room. The
+                 heading takes the slack instead of a spacer span, so a wrapped
+                 line has nothing stretched across it. -->
+            <div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:6px;">
+                <label style="font-weight:600; flex:1 1 auto;" data-tooltip="Power distros, Project-level power sources. Assign each multi to one and the load rolls up here across every screen.">Power Distros</label>
+                <div style="display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; margin-left:auto;">
+                    <button id="power-distro-balance" data-lrd-field="power-distro-balance" class="btn btn-secondary" style="padding:2px 10px; white-space:nowrap;" data-tooltip="Balance legs, Searches which set of six breakers each partly-filled multi should land on. A full multi balances itself, so only short ones move. Nothing changes until you accept it.">Balance</button>
+                    <button id="power-distro-add" data-lrd-field="power-distro-add" class="btn btn-secondary" style="padding:2px 10px; white-space:nowrap;">+ Add</button>
+                </div>
             </div>
             ${loads.length ? loads.map(d => {
                 const pct = Math.min(100, Math.round(d.pct));
                 const feeds = d.socas.length
                     ? d.socas.map(s => `${esc(s.name)} (${esc(s.layer)})`).join(', ')
                     : 'nothing assigned';
+                // Read off the distro itself, not the rollup: the rollup only
+                // learns a scheme from a multi that landed on it, so an empty
+                // distro used to fall through to whichever option happened to
+                // be first in the list.
+                const raw = d.id ? this.getDistros().find(x => x.id === d.id) : null;
+                const ph = raw && raw.phase === 3 ? this.distroPhasingState(raw) : null;
                 return `<div class="power-distro-row" data-id="${d.id || ''}" style="margin-bottom:12px;">
                     ${d.id ? `
                     <div style="display:flex; gap:5px; align-items:center; margin-bottom:4px;">
                         <input type="text" class="distro-name" data-lrd-field="distro-name-${d.id}" value="${esc(d.name).replace(/"/g, '&quot;')}" style="flex:1; min-width:60px;" data-tooltip="Name this power source.">
                         <button class="btn btn-secondary distro-del" data-lrd-field="distro-del-${d.id}" style="padding:1px 7px; flex:none;">✕</button>
                     </div>
-                    <div style="display:flex; gap:5px; align-items:center; margin-bottom:4px;">
+                    <!-- Same wrap, same reason as the heading above. Voltage
+                         and phase travel as one group so they drop to the
+                         second line together rather than one at a time, and
+                         the group's flex-basis is short enough that the whole
+                         row still fits on one line at the 260px default. -->
+                    <div style="display:flex; flex-wrap:wrap; gap:5px; align-items:center; margin-bottom:4px;">
                         <input type="number" class="distro-rating" data-lrd-field="distro-rating-${d.id}" value="${d.ratingA}" min="1" style="width:56px;" data-tooltip="Rating, Service rating in amps.">
                         <span style="font-size:10px; color:#777;">A</span>
-                        <select class="distro-voltage info-select" data-lrd-field="distro-voltage-${d.id}" style="width:70px;">
-                            ${[110, 120, 208, 220, 230, 240, 400, 415].map(v => `<option value="${v}" ${d.voltage === v ? 'selected' : ''}>${v}V</option>`).join('')}
-                        </select>
-                        <select class="distro-phase info-select" data-lrd-field="distro-phase-${d.id}" style="width:56px;">
-                            <option value="1" ${d.phase === 1 ? 'selected' : ''}>1φ</option>
-                            <option value="3" ${d.phase === 3 ? 'selected' : ''}>3φ</option>
-                        </select>
+                        <div style="display:flex; gap:5px; align-items:center; flex:1 1 110px; min-width:0;">
+                            <select class="distro-voltage info-select" data-lrd-field="distro-voltage-${d.id}" style="width:70px; min-width:0;">
+                                ${[110, 120, 208, 220, 230, 240, 400, 415].map(v => `<option value="${v}" ${d.voltage === v ? 'selected' : ''}>${v}V</option>`).join('')}
+                            </select>
+                            <select class="distro-phase info-select" data-lrd-field="distro-phase-${d.id}" style="width:56px; min-width:0;">
+                                <option value="1" ${d.phase === 1 ? 'selected' : ''}>1φ</option>
+                                <option value="3" ${d.phase === 3 ? 'selected' : ''}>3φ</option>
+                            </select>
+                        </div>
                     </div>
                     <div style="display:flex; gap:5px; align-items:center; margin-bottom:4px;">
                         <input type="text" class="distro-location" data-lrd-field="distro-location-${d.id}" value="${esc(d.location || '').replace(/"/g, '&quot;')}" placeholder="beach / location" style="flex:1; min-width:60px;" data-tooltip="Location, Where this distro physically sits - the beach, stage left world, FOH. Prints on every power label that names it, so a runner can find the other end.">
                     </div>
-                    ${d.phase === 3 ? `<div class="info-row" style="align-items:center; margin-bottom:4px;" data-tooltip="Phasing, How a multi's 6 circuits land on the phase legs. A property of the distro's bus and breaker arrangement - read it off the distro. Not the same as the connector's E1.80 pinout type.">
+                    ${d.phase === 3 && ph ? `<div class="info-row" style="margin-bottom:4px;" data-tooltip="Phasing, How a multi's 6 circuits land on the phase legs. A property of the distro's bus and breaker arrangement - read it off the distro. Not the same as the connector's E1.80 pinout type.">
                         <label style="font-weight:400; font-size:10px;">Phasing</label>
-                        <select class="distro-phasing info-select" data-lrd-field="distro-phasing-${d.id}" style="width:auto; flex:1; min-width:0;">
-                            ${this.powerPhasingSchemes().map(sc => `<option value="${sc.id}" ${(d.legs && d.legs.schemeId) === sc.id ? 'selected' : ''}>${sc.name}</option>`).join('')}
-                        </select>
-                        <button class="distro-phasing-help" data-lrd-field="distro-phasing-help-${d.id}" title="What do these mean?">?</button>
+                        <!-- The select and its help button share a line of
+                             their own beneath the caption: the row was written
+                             as a flex row but never given display:flex, so the
+                             select sized itself to its longest option and hung
+                             off the panel at every width below its own. -->
+                        <div style="display:flex; align-items:center; gap:6px;">
+                            <select class="distro-phasing info-select" data-lrd-field="distro-phasing-${d.id}" style="flex:1 1 0; min-width:0;">
+                                <!-- Deriving is a state, not the absence of
+                                     one: an empty value clears distro.phasing
+                                     and hands the choice back to the voltage.
+                                     Named by legs rather than by volts -
+                                     line-to-neutral is 120V on a 208V service
+                                     and 230V on a 400V one. -->
+                                <option value="" ${ph.explicit ? '' : 'selected'}>Match voltage — ${ph.derived.lineToLine ? 'line-to-line' : 'line-to-neutral'} (${ph.derived.pattern})</option>
+                                ${this.powerPhasingSchemes().map(sc => `<option value="${sc.id}" ${ph.explicit && ph.scheme.id === sc.id ? 'selected' : ''}>${sc.name}</option>`).join('')}
+                            </select>
+                            <button class="distro-phasing-help" data-lrd-field="distro-phasing-help-${d.id}" title="What do these mean?">?</button>
+                        </div>
                     </div>` : ''}` : `<div style="font-size:12px; font-weight:600; color:#d8a13c; margin-bottom:3px;">${esc(d.name)}</div>`}
                     <div class="rack-bar"><div class="rack-bar-fill${d.over ? ' over' : ''}" style="width:${pct}%"></div></div>
                     <div style="font-size:10px; color:${d.over ? '#e05050' : d.id ? '#8fa0b2' : '#d8a13c'}; margin-top:2px;">
@@ -1382,7 +1471,11 @@ class _Power {
                             : `${Math.round(d.watts).toLocaleString()} W with no distro — assign to see amps`}
                     </div>
                     ${d.legs ? `<div style="margin-top:4px;">
-                        <div style="display:flex; gap:4px; align-items:center; font-size:10px; color:${d.imbalancePct > 20 ? '#e05050' : d.imbalancePct > 10 ? '#d8a13c' : '#8fa0b2'};"
+                        <!-- Wraps for the same reason the rows above do: at
+                             180px the imbalance figure is the one that no
+                             longer fits, and it drops below the three legs
+                             rather than off the panel. -->
+                        <div style="display:flex; flex-wrap:wrap; gap:4px; align-items:center; font-size:10px; color:${d.imbalancePct > 20 ? '#e05050' : d.imbalancePct > 10 ? '#d8a13c' : '#8fa0b2'};"
                              data-tooltip="Leg loading, Per-leg current is a phasor sum - line-to-line circuits sit 30 degrees off each leg's line-to-neutral reference, so they are not simply added. Imbalance is NEMA-style: max deviation from the average.">
                             <span style="letter-spacing:0.5px;">LEGS</span>
                             ${['X', 'Y', 'Z'].map(k => `<span style="flex:1; text-align:center;">${k} ${d.legs[k].amps.toFixed(0)}A</span>`).join('')}

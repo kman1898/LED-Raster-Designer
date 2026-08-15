@@ -588,3 +588,193 @@ def test_wall_order_wins_brute_force_and_apply_stores_sorted(page):
     assert out['stored'] == [1, 2, 3, 5, 6], 'applied moves store the sorted set'
     assert out['labels'] == ['S1-1', 'S1-2', 'S1-3', 'S1-5', 'S1-6']
     assert out['labels'] == sorted(out['labels'])
+
+
+# ── which phasing scheme a distro runs on, and where it came from ─────────
+#
+# Reported as "if i select 208 then the phasing should default to 208", and
+# settled as "a change manually should override the default".
+#
+# powerPhasingFor already derived the line-to-line scheme when the circuit
+# voltage matched the service voltage, and getDistroLoads already ran the leg
+# maths on it - the rollup was right the whole time. What was wrong was the
+# SELECT: it marked its options from the rollup's schemeId, which is only set
+# once a multi has landed on the distro, so a distro with nothing assigned
+# marked nothing and the browser fell back to whichever option was first in
+# the list. A fresh 208V distro therefore read as a line-to-neutral scheme.
+#
+# And the select had no way to SAY "deriving": a scheme picked by hand looked
+# identical to one the voltage chose, though only the first survives a voltage
+# change. It now carries a Match-voltage entry that clears distro.phasing,
+# which is both the state and the way back to it.
+
+PHASING_STATE_JS = """(opts) => {
+    const ph = window.__ph;
+    const d = Object.assign(ph.distro(), opts.distro || {});
+    const layers = opts.unassigned ? [] : [ph.unequal({ powerVoltage: opts.circuitV })];
+    return ph.withProject({ layers: layers, distros: [d] }, () => {
+        const st = window.app.distroPhasingState(d);
+        const roll = window.app.getDistroLoads().find(b => b.id === d.id);
+        return { scheme: st.scheme.id, derived: st.derived.id,
+                 explicit: st.explicit, circuitVoltage: st.circuitVoltage,
+                 rollup: roll && roll.legs ? roll.legs.schemeId : null };
+    });
+}"""
+
+
+def test_a_deriving_distro_follows_the_circuit_voltage(page):
+    """208V circuits on a 208V service are line-to-line; the same service
+    feeding 120V circuits is line-to-neutral. The rollup and the state the
+    panel reads have to agree - they are the same derivation."""
+    ll = page.evaluate(PHASING_STATE_JS, {'circuitV': 208})
+    assert ll['scheme'] == 'paired-ll', f"208V circuits did not land line-to-line: {ll}"
+    assert ll['rollup'] == 'paired-ll', f"the leg maths disagrees with the panel: {ll}"
+    assert not ll['explicit'], f"nobody picked this scheme, so it is derived: {ll}"
+
+    ln = page.evaluate(PHASING_STATE_JS, {'circuitV': 120})
+    assert ln['scheme'] == 'rotating-ln', f"120V circuits did not land line-to-neutral: {ln}"
+    assert ln['rollup'] == 'rotating-ln', f"the leg maths disagrees with the panel: {ln}"
+
+
+def test_a_distro_with_nothing_assigned_still_reports_a_scheme(page):
+    """The reported defect. With no multi on it there is no rollup to read a
+    scheme off, and the panel used to fall through to the first option in the
+    list - so a 208V distro read as a line-to-neutral scheme until something
+    was assigned to it."""
+    out = page.evaluate(PHASING_STATE_JS, {'unassigned': True})
+    assert out['circuitVoltage'] == 208, (
+        f"an unassigned distro has no circuits to read, so it is taken at its "
+        f"own voltage: {out}")
+    assert out['scheme'] == 'paired-ll', (
+        f"a 208V distro with nothing on it did not report the 208V scheme: {out}")
+    assert not out['explicit'], out
+
+
+def test_an_explicit_scheme_survives_a_voltage_change(page):
+    """Somebody read the box. A later voltage change moves the DEFAULT and
+    must not overwrite a choice - that choice is paperwork about how a real
+    distro is wired, and 208V is predominantly but not always paired XY ZX
+    YZ."""
+    for circuit_v in (120, 208):
+        out = page.evaluate(PHASING_STATE_JS, {
+            'circuitV': circuit_v, 'distro': {'phasing': 'paired-ll-alt'}})
+        assert out['scheme'] == 'paired-ll-alt', (
+            f"an explicit scheme was overwritten at {circuit_v}V circuits: {out}")
+        assert out['explicit'], out
+        assert out['rollup'] == 'paired-ll-alt', (
+            f"the leg maths ignored the explicit scheme at {circuit_v}V: {out}")
+    # and the derivation is still there underneath, which is what the panel
+    # shows on the entry that hands the choice back to the voltage
+    assert page.evaluate(PHASING_STATE_JS, {
+        'circuitV': 208, 'distro': {'phasing': 'paired-ll-alt'}})['derived'] == 'paired-ll'
+
+
+PHASING_SELECT_JS = """(opts) => {
+    const ph = window.__ph;
+    const d = Object.assign(ph.distro(), opts.distro || {});
+    const out = ph.withProject(
+        { layers: [ph.unequal({ powerVoltage: opts.circuitV })], distros: [d] },
+        () => {
+            window.app.refreshDistroPanel();
+            const sel = document.querySelector('#power-distros .distro-phasing');
+            if (!sel) return null;
+            return { value: sel.value,
+                     text: sel.options[sel.selectedIndex].text,
+                     firstValue: sel.options[0].value,
+                     firstText: sel.options[0].text,
+                     options: sel.options.length };
+        });
+    window.app.refreshDistroPanel();   // put the real project's rows back
+    return out;
+}"""
+
+
+def test_the_phasing_select_says_whether_it_is_deriving(page):
+    """Two distros can run the same scheme, one because somebody read the box
+    and one because nobody has - and only the second follows a voltage change.
+    The select has to be able to tell them apart, and to offer the way back."""
+    ll = page.evaluate(PHASING_SELECT_JS, {'circuitV': 208})
+    assert ll, "the distro row built no phasing select"
+    assert ll['value'] == '', f"a derived scheme is not shown as derived: {ll}"
+    assert 'line-to-line' in ll['text'], (
+        f"the derived entry does not name what it resolves to: {ll}")
+    assert 'XY ZX YZ' in ll['text'], (
+        f"the derived entry does not name the pattern it resolves to: {ll}")
+
+    ln = page.evaluate(PHASING_SELECT_JS, {'circuitV': 120})
+    assert ln['value'] == '', f"a derived scheme is not shown as derived: {ln}"
+    assert 'line-to-neutral' in ln['text'], (
+        f"the derived entry did not follow the circuit voltage: {ln}")
+
+    picked = page.evaluate(PHASING_SELECT_JS, {
+        'circuitV': 208, 'distro': {'phasing': 'paired-ll-alt'}})
+    assert picked['value'] == 'paired-ll-alt', (
+        f"an explicitly picked scheme is not the one shown: {picked}")
+    assert picked['firstValue'] == '', (
+        f"there is no way back to deriving once a scheme is picked - choosing "
+        f"one would be a one-way door: {picked}")
+    assert picked['options'] == ll['options'], (
+        f"the option list changed shape between the two states: {picked}")
+
+
+def test_choosing_a_scheme_and_choosing_the_voltage_again_round_trips(page):
+    """The whole workflow through the real panel: a 208V distro fed by 208V
+    circuits derives the 208V scheme, an explicit pick sticks across a voltage
+    change, and the Match-voltage entry hands the choice back."""
+    page.locator('[data-mode="power"]').click()
+    page.wait_for_timeout(400)
+    seeded = page.evaluate("""() => {
+        const app = window.app;
+        const set = (id, v) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.value = v;
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+        };
+        set('power-voltage-select', '208');
+        set('power-panel-watts', '400');
+        const d = app.getDistros().length ? app.getDistros()[0] : app.addDistro();
+        const l = app.currentLayer;
+        app.getSocaPlan(l).forEach(s => app.setSocaDistro(l, s.soca, d.id));
+        app.updateDistro(d.id, { voltage: 208, phase: 3, phasing: '' });
+        app.refreshDistroPanel();
+        return d.id;
+    }""")
+    page.wait_for_timeout(600)
+    read = """() => {
+        const sel = document.querySelector('#power-distros .distro-phasing');
+        const d = window.app.getDistros()[0];
+        return { value: sel.value, text: sel.options[sel.selectedIndex].text,
+                 stored: d.phasing === undefined ? '(undefined)' : d.phasing };
+    }"""
+    try:
+        derived = page.evaluate(read)
+        assert derived['value'] == '' and 'line-to-line' in derived['text'], (
+            f"208V circuits on a 208V distro did not derive the 208V scheme "
+            f"through the real panel: {derived}")
+        assert derived['stored'] in (None, '(undefined)'), (
+            f"the panel stamped an explicit scheme just by rendering, which "
+            f"would stop the derivation ever firing again: {derived}")
+
+        page.select_option('#power-distros .distro-phasing', 'rotating-ll')
+        page.wait_for_timeout(600)
+        page.evaluate("""() => {
+            window.app.updateDistro(window.app.getDistros()[0].id, { voltage: 240 });
+            window.app.refreshDistroPanel();
+        }""")
+        page.wait_for_timeout(400)
+        kept = page.evaluate(read)
+        assert kept['value'] == 'rotating-ll' and kept['stored'] == 'rotating-ll', (
+            f"changing the voltage overwrote a scheme somebody chose: {kept}")
+
+        page.select_option('#power-distros .distro-phasing', '')
+        page.wait_for_timeout(600)
+        back = page.evaluate(read)
+        assert back['value'] == '' and back['stored'] is None, (
+            f"the Match-voltage entry did not hand the choice back to the "
+            f"voltage: {back}")
+    finally:
+        page.evaluate("""(id) => {
+            window.app.removeDistro(id);
+            window.app.refreshDistroPanel();
+        }""", seeded)
