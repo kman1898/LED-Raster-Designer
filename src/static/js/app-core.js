@@ -74,6 +74,16 @@ export class LEDRasterApp {
             }
             this.loadProject();
             this.setupEventListeners();
+            // The Processors panel is project state, not layer state, so it
+            // loads its own catalog and its own tree rather than waiting on a
+            // selection. A project with no processors leaves it empty and
+            // touches nothing else.
+            if (typeof this.initProcessorPanel === 'function') {
+                try { this.initProcessorPanel(); } catch (_) {}
+            }
+            if (typeof this.initPortAssignmentPanel === 'function') {
+                try { this.initPortAssignmentPanel(); } catch (_) {}
+            }
             sendClientLog('app_init', { ua: navigator.userAgent });
             // Background-check upstream panel catalog after the rest of boot
             // settles so we don't slow first paint. Failure is silent.
@@ -1438,6 +1448,30 @@ export class LEDRasterApp {
         // the visible screen layers, plus a handful of textContent writes.
         if (typeof this.refreshTotalsSidebar === 'function') {
             try { this.refreshTotalsSidebar(); } catch (_) {}
+        }
+
+        // The processor tree can change under the panel without the panel
+        // asking - undo/redo and a file load both replace the whole project -
+        // so re-resolve, but only when it actually differs from what was last
+        // drawn. Comparing a small blob beats a fetch on every UI update, and
+        // a project with no processors compares equal on the first line and
+        // never touches the network at all.
+        if (typeof this.refreshProcessors === 'function' && this.project) {
+            const raw = JSON.stringify(this.project.processors || []);
+            if (raw !== this._processorsRaw) this.refreshProcessors();
+        }
+
+        // Port assignment follows both sides: the cards it allocates onto and
+        // the screens it allocates for. Guarded on there being a processor at
+        // all, because working out what to compare means asking every screen
+        // how many ports it needs, and getLayerPortsRequired walks the wall to
+        // answer. A project with no processors has nothing to assign to, so it
+        // never pays for the walk - which is also what keeps it behaving
+        // exactly as it did before this panel existed.
+        if (typeof this.refreshPortAssignment === 'function' && this.project
+                && (this.project.processors || []).length) {
+            const raw = this._assignmentKey();
+            if (raw !== this._assignmentKeyRaw) this.refreshPortAssignment();
         }
 
         if (window.canvasRenderer) {

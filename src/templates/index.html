@@ -1523,6 +1523,61 @@
                  two sidebars (app-core.js initSidebarToggles). -->
             <button id="data-sidebar-toggle" class="sidebar-toggle view-hidden" data-side="data" title="Collapse signal panel" aria-label="Toggle signal panel">‹</button>
             <div id="data-sidebar" class="view-hidden">
+                <!-- Processors. The tree is chassis -> slot -> card -> CVT ->
+                     ports, and every level of it is load-bearing: the CARD
+                     decides the port count, so an H9 of 20xRJ45 cards and an
+                     H9 of 4xfiber cards are different machines, and a fiber
+                     card's ports physically arrive at a CVT box, which is
+                     what a tech stands in front of on site.
+
+                     Everything inside is built by app-processors.js rather
+                     than declared here. The rows are per-processor and there
+                     is no fixed number of them, and the fields are project
+                     state rather than layer state - the field sweep in
+                     tests/test_all_fields_sweep.py drives every declared
+                     control in a tab-panel straight at the selected layer,
+                     which none of these belong to. -->
+                <div class="panel tab-panel" data-tab="data-flow" style="display: none;">
+                    <div class="panel-header" data-tooltip="Processors, Define the processors driving this project: the cards in a chassis's slots, any CVT breakout boxes downstream of them, and the port labels their names generate.">
+                        <h2>Processors</h2>
+                    </div>
+                    <div class="panel-content">
+                        <div class="info-row">
+                            <div id="processor-list" style="display: grid; gap: 10px;"></div>
+                            <div id="processor-add-row" style="display: flex; gap: 6px; margin-top: 8px;"></div>
+                            <p id="processor-empty-note" style="font-size: 11px; color: #888; margin: 6px 0 0;">A card's ports take the nearest name above them. Name a card SR and its ports read SR-1, SR-2.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Port Assignment: which sending-card port each screen's
+                     ports sit on. Numbering is automatic and packs densely in
+                     screen order, but nothing here ever rearranges itself -
+                     looms are made up and labelled off the drawing days before
+                     anything is hung, so a clash, an overflow or a wall bigger
+                     than its card is REPORTED with an offer attached and the
+                     numbering only changes when somebody takes it.
+
+                     Built by app-port-assignment.js rather than declared here,
+                     for the same reason as the Processors panel above: the
+                     rows are per-screen with no fixed number of them, and the
+                     controls are project state rather than layer state, which
+                     is what tests/test_all_fields_sweep.py drives every
+                     declared control in a tab-panel at. -->
+                <div class="panel tab-panel" data-tab="data-flow" style="display: none;">
+                    <div class="panel-header" data-tooltip="Port Assignment, Assign each screen's ports to a sending card. Numbering is automatic; pin any port to hold it, and clashes or overflow are reported with a move you can take.">
+                        <h2>Port Assignment</h2>
+                    </div>
+                    <div class="panel-content">
+                        <div class="info-row">
+                            <div id="port-assignment-issues" style="display: grid; gap: 6px;"></div>
+                            <div id="port-assignment-list" style="display: grid; gap: 8px; margin-top: 8px;"></div>
+                            <div id="port-assignment-foot" style="margin-top: 8px;"></div>
+                            <p id="port-assignment-empty-note" style="font-size: 11px; color: #888; margin: 6px 0 0;">Add a processor above and each screen's ports are numbered onto its cards automatically.</p>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="panel tab-panel screen-only" data-tab="data-flow" style="display: none;">
                     <div class="panel-header" data-tooltip="Port Labels, Customize the text labels shown on primary and return data ports using templates with # as the port number.">
                         <h2>Port Labels</h2>
