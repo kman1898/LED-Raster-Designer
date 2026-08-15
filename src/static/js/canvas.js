@@ -4819,24 +4819,39 @@ class CanvasRenderer {
     // v0.11.0: how full one port is, as a percentage of ITS capacity. Returns
     // null when there is no capacity figure to measure against (unknown
     // processor, image layer), so callers draw nothing rather than "NaN%".
-    // "100%" means the port is at or past its limit and nothing else: a port
-    // that still fits is held at 99% however close it runs (a 99.86% port
-    // rounding up to a red 100% would report a legal map as a fault), and the
-    // state comes off the same test, so the colour and the digits always
-    // agree - 90%+ warns, at/over capacity is over.
+    //
+    // 100% IS A GOOD PORT. A port filled exactly to capacity is legal and
+    // reads 100 in the ordinary colour; only one that exceeds capacity is a
+    // fault. This used to treat load == capacity as over, which drew a red
+    // badge on a port that fits.
+    //
+    // The digits and the colour still always agree, which is the property
+    // worth keeping: a port that fits can never print more than 100, and one
+    // that does not can never print less than 101. Without those clamps a
+    // 100.4% port would round to a passing-looking "100" while glowing red,
+    // and a 99.6% port would print 100 with no way to tell it apart from a
+    // port that is genuinely full.
     getPortLoadStats(layer, portPanels) {
         const capacity = this.getPortCapacityForPanels(layer, portPanels);
         if (!(capacity > 0)) return null;
         const load = this.getPortPixelLoad(layer, portPanels);
         const percent = (load / capacity) * 100;
-        const over = load >= capacity;
-        const shown = over ? Math.round(percent) : Math.min(99, Math.round(percent));
+        const over = load > capacity;
+        const shown = over
+            ? Math.max(101, Math.round(percent))
+            : Math.min(100, Math.round(percent));
         return {
             load,
             capacity,
             percent,
             shown,
-            state: over ? 'over' : (shown >= 90 ? 'warn' : 'ok')
+            // Binary: a port either fits or it does not. There used to be an
+            // amber 90%+ "warn" band, which made sense while 100% was a fault
+            // and you wanted warning before it. Now that a port filled exactly
+            // to capacity is legal, amber marked good ports as suspect - and a
+            // drawing where every healthy port is plain means any colour on it
+            // is a real problem.
+            state: over ? 'over' : 'ok'
         };
     }
 
@@ -4880,8 +4895,6 @@ class CanvasRenderer {
 
         if (stats.state === 'over') {
             this.ctx.fillStyle = '#ff0000';
-        } else if (stats.state === 'warn') {
-            this.ctx.fillStyle = '#ff6600';
         } else {
             this.ctx.fillStyle = layer.labelsColor || '#ffffff';
         }

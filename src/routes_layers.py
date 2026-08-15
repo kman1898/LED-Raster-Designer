@@ -487,10 +487,17 @@ def _detach_from_cross_canvas_group(layer, target_canvas_id):
 def move_layer_to_canvas(layer_id):
     """Move or duplicate a layer onto a different canvas.
 
-    Body: ``{canvas_id: "...", mode: "move" | "duplicate"}``. For "move",
-    the layer's ``canvas_id`` is updated and offset_x/y + showOffsetX/Y are
-    reset to 0,0 (per design Section 5.7). For "duplicate", a clone with a
-    fresh layer id is appended at 0,0 in the target canvas.
+    Body: ``{canvas_id: "...", mode: "move" | "duplicate"}``.
+
+    The layer KEEPS its position. Both branches used to slam offset_x/y and
+    showOffsetX/Y to 0,0 (design Section 5.7), so a screen sitting where it
+    belonged on one canvas jumped to the top-left corner the moment it moved,
+    and had to be dragged back by eye. Canvases share a coordinate space, so
+    the same x/y means the same place.
+
+    The panel rebuild below still runs - _build_panels reads the layer's
+    offset, so it re-anchors panels to wherever the layer actually is rather
+    than to the origin.
     """
     data = request.json or {}
     target_id = data.get('canvas_id')
@@ -509,16 +516,9 @@ def move_layer_to_canvas(layer_id):
         # source's group_id while the group's layer_ids knows nothing about
         # it. Duplicating a screen makes a new screen, not a new group member.
         clone['group_id'] = None
-        clone['offset_x'] = 0
-        clone['offset_y'] = 0
-        clone['showOffsetX'] = 0
-        clone['showOffsetY'] = 0
-        # Re-anchor panel coordinates to the clone's new (0, 0) origin in
-        # the target canvas. Without this rebuild, panel.x / panel.y stay
-        # at their pre-drag absolute positions and the layer renders far
-        # off in the new canvas instead of snapping to the top-left.
-        # _rebuild_layer_geometry_from_panel_states preserves per-panel
-        # hidden / blank / halfTile state.
+        # Position is carried over deliberately - see the docstring. The
+        # rebuild keeps panel x/y consistent with that position and preserves
+        # per-panel hidden / blank / halfTile state.
         _rebuild_layer_geometry_from_panel_states(clone)
         app.current_project['layers'].append(clone)
         log_event('layer_duplicate_to_canvas', {
@@ -527,11 +527,8 @@ def move_layer_to_canvas(layer_id):
         })
     else:
         layer['canvas_id'] = target_id
-        layer['offset_x'] = 0
-        layer['offset_y'] = 0
-        layer['showOffsetX'] = 0
-        layer['showOffsetY'] = 0
-        # Same panel re-anchor as the duplicate branch above.
+        # Same as the duplicate branch: keep the position, rebuild the panels
+        # against it.
         _rebuild_layer_geometry_from_panel_states(layer)
         # v0.11.0: a group is one physical wall driven by one canvas. Moving
         # a member to a different canvas takes it out of that wall - the route

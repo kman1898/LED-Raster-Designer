@@ -3011,14 +3011,22 @@ def js_round(value):
 def expected_load_label(load, capacity):
     """The percentage the badge must print, and the state that colours it.
 
-    "100%" is reserved for a port that is genuinely at or past its limit --
-    a port still inside capacity is held at 99% however close it runs, so a
-    legal map never prints the over-capacity figure."""
+    100% IS A GOOD PORT: filled exactly to capacity is legal, so a port
+    carrying 659,722 of 659,722 pixels reads 100 in the ordinary colour.
+    Only exceeding capacity is a fault. This previously treated
+    load == capacity as over and drew a red badge on a port that fits.
+
+    The clamps keep the digits and the colour agreeing: a port that fits can
+    never print above 100, and one that does not can never print below 101.
+    Without them a 100.4% port would round to a passing-looking "100" while
+    glowing red.
+
+    There is no amber band. It existed to warn before an at-capacity fault;
+    with 100% legal it only marked good ports as suspect."""
     percent = load / capacity * 100
-    if load >= capacity:
-        return js_round(percent), 'over'
-    shown = min(99, js_round(percent))
-    return shown, ('warn' if shown >= 90 else 'ok')
+    if load > capacity:
+        return max(101, js_round(percent)), 'over'
+    return min(100, js_round(percent)), 'ok'
 
 
 def test_port_load_percent_matches_the_emitted_map(page):
@@ -3044,8 +3052,9 @@ def test_port_load_percent_matches_the_emitted_map(page):
         # The colour state follows the number the user reads, so the two can
         # never disagree: 90%+ warns, at/over capacity is over.
         assert stats['state'] == expected_state, p
-        # A port the map itself emitted fits, so it must never read 100%.
-        assert stats['shown'] < 100, (
+        # A port the map itself emitted fits, so it must never read OVER 100%.
+        # 100 exactly is allowed and means full-but-legal.
+        assert stats['shown'] <= 100, (
             f"port {p['port']} fits but reads {stats['shown']}%")
 
 

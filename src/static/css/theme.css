@@ -97,9 +97,13 @@ body, #app {
   padding-bottom:9px !important; }
 
 /* ---- docked titled panels ---- */
-#left-sidebar, #right-sidebar { background:var(--ps-panel) !important; border-color:var(--ps-dark) !important; }
-#left-sidebar { border-right:1px solid var(--ps-dark) !important; }
+#left-sidebar, #right-sidebar, #data-sidebar { background:var(--ps-panel) !important; border-color:var(--ps-dark) !important; }
+#left-sidebar, #data-sidebar { border-right:1px solid var(--ps-dark) !important; }
 #right-sidebar { border-left:1px solid var(--ps-dark) !important; }
+/* the Signal panel docks alongside the left sidebar, so its helper text has to
+   go the same grey - the dim-helper rule further down names #left-sidebar by
+   id, so it does not reach here */
+#data-sidebar .hint, #data-sidebar small, #data-sidebar p { color:var(--ps-faint) !important; }
 .panel { background:var(--ps-panel) !important; border:1px solid var(--ps-dark) !important; border-radius:0 !important; }
 /* the title bar is the wrapper (.panel-header) or a standalone section header */
 .panel-header, .sidebar-section-header,
@@ -341,9 +345,15 @@ label:has(#use-fractional-inches) { margin-left:8px !important; flex-shrink:0; }
 /* width is driven by CSS vars (set/persisted by theme.js); collapse still wins */
 #left-sidebar:not(.collapsed) { width:var(--lrd-left-w, 260px) !important; flex:0 0 auto !important; }
 #right-sidebar:not(.collapsed) { width:var(--lrd-right-w, 260px) !important; }
-#left-sidebar.collapsed, #right-sidebar.collapsed { width:0 !important; min-width:0 !important; }
-/* no width animation while actively dragging */
-#app.lrd-resizing #left-sidebar, #app.lrd-resizing #right-sidebar { transition:none !important; }
+/* the Signal panel already carries flex:0 0 auto from style.css, and this
+   selector outranks style.css's plain #data-sidebar, so no !important needed */
+#data-sidebar:not(.collapsed) { width:var(--lrd-data-w, 260px); }
+#left-sidebar.collapsed, #right-sidebar.collapsed, #data-sidebar.collapsed { width:0 !important; min-width:0 !important; }
+/* no width animation while actively dragging - every resizable panel has one,
+   and a panel that keeps it rubber-bands behind the pointer */
+#app.lrd-resizing #left-sidebar,
+#app.lrd-resizing #data-sidebar,
+#app.lrd-resizing #right-sidebar { transition:none !important; }
 /* drag strip on the inner edge of each sidebar */
 .lrd-resize-handle { position:fixed; width:7px; z-index:45; cursor:col-resize; background:transparent; }
 .lrd-resize-handle:hover, .lrd-resize-handle.lrd-dragging { background:var(--ps-accent); opacity:0.55; }

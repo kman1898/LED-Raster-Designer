@@ -118,50 +118,86 @@
 })();
 
 /* ──────────────────────────────────────────────────────────────────────
-   Resizable sidebars, drag the inner edge of either sidebar to widen or
-   narrow it. Width persists per side in localStorage and is clamped so it
+   Resizable sidebars, drag the inner edge of a docked panel to widen or
+   narrow it. Width persists per panel in localStorage and is clamped so it
    can't swallow the canvas. Coexists with the existing collapse toggle.
    ────────────────────────────────────────────────────────────────────── */
 (function () {
   'use strict';
-  var MIN = 180, MAX = 560, KEY = { left: 'lrd_left_w', right: 'lrd_right_w' };
+  var MIN = 180, MAX = 560;
+
+  /* One row per resizable panel, deliberately the same shape as the collapse
+     table in app-core.js initSidebarToggles: a reader who understands one
+     understands the other, and a fourth panel is a row here rather than an
+     edit to every function below.
+
+     `dragEdge` is which edge of the PANEL its drag strip lives on - the inner
+     one, facing the canvas. Deliberately not called `edge`: the collapse table
+     uses that name for the side of the APP a panel docks to, and for the
+     Signal panel the two differ. It is a third, middle column that docks left,
+     so it collapses leftward but is dragged from its right-hand edge, exactly
+     like the left sidebar - while its storage key and CSS var stay its own. */
+  var PANELS = [
+    { key: 'left',  sidebarId: 'left-sidebar',  toggleId: 'left-sidebar-toggle',  storageKey: 'lrd_left_w',  cssVar: '--lrd-left-w',  dragEdge: 'right' },
+    { key: 'data',  sidebarId: 'data-sidebar',  toggleId: 'data-sidebar-toggle',  storageKey: 'lrd_data_w',  cssVar: '--lrd-data-w',  dragEdge: 'right' },
+    { key: 'right', sidebarId: 'right-sidebar', toggleId: 'right-sidebar-toggle', storageKey: 'lrd_right_w', cssVar: '--lrd-right-w', dragEdge: 'left'  }
+  ];
+
   function clamp(w) { return Math.max(MIN, Math.min(MAX, Math.round(w))); }
-  function sb(side) { return document.getElementById(side === 'left' ? 'left-sidebar' : 'right-sidebar'); }
-  function cssVar(side) { return side === 'left' ? '--lrd-left-w' : '--lrd-right-w'; }
-  function setW(side, w) { document.documentElement.style.setProperty(cssVar(side), clamp(w) + 'px'); }
+  function sb(p) { return document.getElementById(p.sidebarId); }
+  function setW(p, w) { document.documentElement.style.setProperty(p.cssVar, clamp(w) + 'px'); }
   function applySaved() {
-    ['left', 'right'].forEach(function (side) {
-      try { var v = parseInt(localStorage.getItem(KEY[side]), 10); if (v) setW(side, v); } catch (e) { /* ignore */ }
+    PANELS.forEach(function (p) {
+      try { var v = parseInt(localStorage.getItem(p.storageKey), 10); if (v) setW(p, v); } catch (e) { /* ignore */ }
     });
   }
 
+  /* Changing a panel's width changes the width the canvas has to fill, and the
+     canvas keeps its old pixel size until something re-measures it. app-core.js
+     already owns that job for collapse and for view switching, so the drag path
+     calls the same two entry points instead of growing a second mechanism. */
+  function remeasure() { if (window.app && window.app.remeasureCanvas) window.app.remeasureCanvas(); }
+  function settle() { if (window.app && window.app.settleLayout) window.app.settleLayout(); }
+
   var handles = {}, raf;
   function reposition() {
-    ['left', 'right'].forEach(function (side) {
-      var h = handles[side], s = sb(side); if (!h || !s) return;
+    PANELS.forEach(function (p) {
+      var h = handles[p.key], s = sb(p); if (!h || !s) return;
+      /* offsetWidth 0 covers both a collapsed panel and one that has left
+         layout altogether - the Signal panel is display:none outside Data
+         view, and a fixed strip left floating over the canvas there would be
+         a live bug, not a cosmetic one. */
       if (s.classList.contains('collapsed') || s.offsetWidth <= 1) { h.style.display = 'none'; return; }
       var r = s.getBoundingClientRect();
       h.style.display = 'block';
       h.style.top = r.top + 'px';
       h.style.height = r.height + 'px';
-      h.style.left = (side === 'left' ? r.right - 3 : r.left - 4) + 'px';
+      h.style.left = (p.dragEdge === 'right' ? r.right - 3 : r.left - 4) + 'px';
     });
   }
   function repaint() { if (raf) cancelAnimationFrame(raf); raf = requestAnimationFrame(reposition); }
 
-  function startDrag(side, h) {
+  function startDrag(p, h) {
     return function (e) {
       e.preventDefault();
-      var s = sb(side); if (!s) return;
+      var s = sb(p); if (!s) return;
       var app = document.getElementById('app');
       if (app) app.classList.add('lrd-resizing');
       h.classList.add('lrd-dragging');
       document.body.style.cursor = 'col-resize';
       document.body.style.userSelect = 'none';
       function move(ev) {
+        /* The panel's outer edge is the one that doesn't move while dragging,
+           so measure from it: the pointer sets the distance to the edge being
+           dragged. */
         var r = s.getBoundingClientRect();
-        var w = side === 'left' ? (ev.clientX - r.left) : (window.innerWidth - ev.clientX);
-        setW(side, w); repaint();
+        var w = p.dragEdge === 'right' ? (ev.clientX - r.left) : (r.right - ev.clientX);
+        setW(p, w);
+        /* .lrd-resizing suppresses the width transition, so the new width is
+           already in layout on this frame and the canvas can be re-measured
+           immediately rather than lagging a drag by a whole animation. */
+        remeasure();
+        repaint();
       }
       function up() {
         document.removeEventListener('mousemove', move);
@@ -170,8 +206,9 @@
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
         if (app) app.classList.remove('lrd-resizing');
-        var cur = parseInt(getComputedStyle(document.documentElement).getPropertyValue(cssVar(side)), 10) || 260;
-        try { localStorage.setItem(KEY[side], clamp(cur)); } catch (e) { /* ignore */ }
+        var cur = parseInt(getComputedStyle(document.documentElement).getPropertyValue(p.cssVar), 10) || 260;
+        try { localStorage.setItem(p.storageKey, clamp(cur)); } catch (e) { /* ignore */ }
+        settle();
       }
       document.addEventListener('mousemove', move);
       document.addEventListener('mouseup', up);
@@ -179,25 +216,28 @@
   }
 
   function init() {
-    if (!sb('left') && !sb('right')) return;
+    if (!PANELS.some(sb)) return;
     applySaved();
-    ['left', 'right'].forEach(function (side) {
+    PANELS.forEach(function (p) {
+      var s = sb(p);
+      if (!s) return;
       var h = document.createElement('div');
       h.className = 'lrd-resize-handle';
+      h.dataset.lrdResize = p.key;
       h.title = 'Drag to resize panel';
-      h.addEventListener('mousedown', startDrag(side, h));
+      h.addEventListener('mousedown', startDrag(p, h));
       document.body.appendChild(h);
-      handles[side] = h;
-      var s = sb(side);
-      if (s) { try { new MutationObserver(repaint).observe(s, { attributes: true, attributeFilter: ['class', 'style'] }); } catch (e) { /* ignore */ } }
+      handles[p.key] = h;
+      /* Collapse toggles `class`, and leaving Data view toggles it too
+         (.view-hidden), so one observer covers both ways a panel can stop
+         being draggable. */
+      try { new MutationObserver(repaint).observe(s, { attributes: true, attributeFilter: ['class', 'style'] }); } catch (e) { /* ignore */ }
+      var b = document.getElementById(p.toggleId);
+      if (b) b.addEventListener('click', function () { setTimeout(reposition, 220); });
     });
     reposition();
     window.addEventListener('resize', repaint);
     window.addEventListener('scroll', repaint, true);
-    ['left-sidebar-toggle', 'right-sidebar-toggle'].forEach(function (id) {
-      var b = document.getElementById(id);
-      if (b) b.addEventListener('click', function () { setTimeout(reposition, 220); });
-    });
     setInterval(reposition, 1200);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

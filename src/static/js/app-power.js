@@ -51,6 +51,15 @@ class _Power {
         menu.querySelectorAll('.group-any-only').forEach(el => {
             el.style.display = (canGroup || inGroup) ? '' : 'none';
         });
+        // Move to Canvas needs a layer to move and somewhere to move it to.
+        // Offering it with one canvas would open a picker with nothing in it.
+        const canvases = (this.project && this.project.canvases) || [];
+        const canMove = canvases.length > 1
+            && this.getSelectedLayers().some(l => !l.locked);
+        menu.querySelectorAll('.move-canvas-only').forEach(el => {
+            el.style.display = canMove ? '' : 'none';
+        });
+
         menu.style.visibility = 'hidden';
         menu.style.display = 'block';
         const menuRect = menu.getBoundingClientRect();
@@ -1903,7 +1912,54 @@ class _Power {
         return { circuits, error: null };
     }
 
+    // The label this port takes off the processor, or null when it takes none
+    // - which is every port of every project that defines no processor.
+    //
+    // Split out from getPortLabelText only so the label editor can ask the
+    // same question without re-deriving it: it needs to know not just what the
+    // label is but where it came from, because a box the user can type in that
+    // no longer changes the drawing is a trap.
+    getProcessorPortLabel(layer, portNum) {
+        const onProcessor = this._processorPortLabels
+            && this._processorPortLabels[String(layer && layer.id)];
+        return (onProcessor && onProcessor[portNum]) || null;
+    }
+
+    // The one place a port's label is decided. The canvas, both label editors
+    // and every export come through here, so a rule added here reaches all of
+    // them at once - and a second path added anywhere else would print one
+    // thing on screen and another on the PDF.
     getPortLabelText(layer, portNum, type) {
+        // THE PROCESSOR NAMES ITS OWN PORTS, AND IT WINS OUTRIGHT.
+        //
+        // A port that is assigned to a sending-card port takes that port's
+        // label - the name on the card or the box a tech is standing in front
+        // of - and no per-layer override applies to it. That is the point of
+        // the Processors panel: the wall labels itself off the machine driving
+        // it instead of off a template typed into every screen. The way to
+        // change an assigned port's label is to rename the port, or the card,
+        // in the Processors panel; both ends of the run take that name.
+        //
+        // BOTH ENDS, NOT THE SAME TEXT. A redundant loop leaves the socket and
+        // comes back to it, so the two ends print at opposite corners of the
+        // wall and the drawing is the only thing saying which is which. Two
+        // labels reading SR-1 make a backup run impossible to trace, which is
+        // the one job the return label has. It is the primary with an R after
+        // it - SR-1 out, SR-1R back - so the socket is still named once and the
+        // return is still the return, which is what P1 / R1 said before a
+        // processor was naming anything.
+        //
+        // _processorPortLabels is a flat layerId -> portNum -> label lookup,
+        // rebuilt only when the assignment changes (see _indexAssignmentLabels
+        // in app-port-assignment.js). This runs for every port of every screen
+        // on every frame, so it must never resolve anything itself.
+        const assigned = this.getProcessorPortLabel(layer, portNum);
+        if (assigned) return type === 'return' ? `${assigned}R` : assigned;
+
+        // No processor in the project, or a port that is not on one: exactly
+        // what every project did before processors existed, override included.
+        // This is the fallback that keeps drawings already issued printing the
+        // labels they were issued with.
         const template = type === 'return' ? (layer.portLabelTemplateReturn || 'R#') : (layer.portLabelTemplatePrimary || 'P#');
         const overrides = type === 'return' ? (layer.portLabelOverridesReturn || {}) : (layer.portLabelOverridesPrimary || {});
         if (overrides && overrides[portNum]) return overrides[portNum];
@@ -2182,11 +2238,30 @@ class _Power {
             numLabel.style.fontFamily = 'monospace';
             numLabel.textContent = String(portNum);
 
+            // An assigned port takes its name off the processor and nothing
+            // typed here reaches it. Say so on the row rather than leaving two
+            // boxes that accept text and change nothing on the drawing - the
+            // place to rename an assigned port is its row in the Processors
+            // panel. The boxes stay editable because what is in them is still
+            // the fallback the moment the processor stops naming the port.
+            const fromProcessor = this.getProcessorPortLabel(this.currentLayer, portNum);
+            const ownedNote = fromProcessor
+                ? `Port ${portNum} is on the processor, which names it `
+                  + `${fromProcessor} and its return ${fromProcessor}R. Rename `
+                  + `it in the Processors panel. What you type here is kept, `
+                  + `and draws again only if this port stops being assigned.`
+                : '';
+            if (fromProcessor) {
+                numLabel.style.color = '#c8a04a';
+                numLabel.title = ownedNote;
+            }
+
             const primaryInput = document.createElement('input');
             primaryInput.type = 'text';
             // Stable identity across rebuilds, so focus + caret can be
             // restored into the same field after list.innerHTML = ''.
             primaryInput.dataset.lrdField = `port-primary-${portNum}`;
+            if (ownedNote) primaryInput.title = ownedNote;
             primaryInput.value = (this.currentLayer.portLabelOverridesPrimary && this.currentLayer.portLabelOverridesPrimary[portNum]) || '';
             primaryInput.placeholder = this.getPortLabelText(this.currentLayer, portNum, 'primary');
             primaryInput.style.padding = '3px 4px';
@@ -2221,6 +2296,7 @@ class _Power {
             const returnInput = document.createElement('input');
             returnInput.type = 'text';
             returnInput.dataset.lrdField = `port-return-${portNum}`;
+            if (ownedNote) returnInput.title = ownedNote;
             returnInput.value = (this.currentLayer.portLabelOverridesReturn && this.currentLayer.portLabelOverridesReturn[portNum]) || '';
             returnInput.placeholder = this.getPortLabelText(this.currentLayer, portNum, 'return');
             returnInput.style.padding = '3px 4px';

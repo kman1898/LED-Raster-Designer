@@ -57,6 +57,10 @@ export class LEDRasterApp {
         // Restore collapsed sidebar state before anything paints so there's
         // no flash of the open panel.
         this.initSidebarToggles();
+        // The Signal panel's markup ships hidden, which is right for the
+        // pixel-map view the app opens on. Reconcile anyway so the panel can
+        // never be left behind if the renderer ever boots on another view.
+        this.updateDataSidebarVisibility(window.canvasRenderer.viewMode);
 
         // Check server session FIRST - if server restarted, clear localStorage
         this.checkServerSession().then(() => {
@@ -70,6 +74,16 @@ export class LEDRasterApp {
             }
             this.loadProject();
             this.setupEventListeners();
+            // The Processors panel is project state, not layer state, so it
+            // loads its own catalog and its own tree rather than waiting on a
+            // selection. A project with no processors leaves it empty and
+            // touches nothing else.
+            if (typeof this.initProcessorPanel === 'function') {
+                try { this.initProcessorPanel(); } catch (_) {}
+            }
+            if (typeof this.initPortAssignmentPanel === 'function') {
+                try { this.initPortAssignmentPanel(); } catch (_) {}
+            }
             sendClientLog('app_init', { ua: navigator.userAgent });
             // Background-check upstream panel catalog after the rest of boot
             // settles so we don't slow first paint. Failure is silent.
@@ -78,28 +92,37 @@ export class LEDRasterApp {
     }
 
     /**
-     * Wire the left/right sidebar collapse toggles. Each side is independent
-     * and the collapsed state persists in localStorage so the panel stays
+     * Wire the sidebar collapse toggles. Each panel is independent and its
+     * collapsed state persists in localStorage so the panel stays
      * the way the user left it across reloads. The toggle button is
      * positioned dynamically against the sidebar's actual geometry (via
      * getBoundingClientRect), so it always sits flush with the sidebar's
      * inner edge regardless of monitor size, sidebar width, or window
      * resize. ResizeObserver keeps it pinned in place if the sidebar's
      * dimensions ever change at runtime.
+     *
+     * `edge` is which side of the app the panel docks to, and it is NOT the
+     * same thing as `key`: the Signal panel is a third, middle column that
+     * docks left like the left sidebar, so its toggle hugs its right-hand
+     * edge the same way, but its storage key has to stay its own.
      */
     initSidebarToggles() {
         const sides = [
-            { key: 'left', sidebarId: 'left-sidebar', toggleId: 'left-sidebar-toggle', expandSym: '›', collapseSym: '‹' },
-            { key: 'right', sidebarId: 'right-sidebar', toggleId: 'right-sidebar-toggle', expandSym: '‹', collapseSym: '›' },
+            { key: 'left', edge: 'left', label: 'left', sidebarId: 'left-sidebar', toggleId: 'left-sidebar-toggle', expandSym: '›', collapseSym: '‹' },
+            { key: 'data', edge: 'left', label: 'signal', sidebarId: 'data-sidebar', toggleId: 'data-sidebar-toggle', expandSym: '›', collapseSym: '‹' },
+            { key: 'right', edge: 'right', label: 'right', sidebarId: 'right-sidebar', toggleId: 'right-sidebar-toggle', expandSym: '‹', collapseSym: '›' },
         ];
-        sides.forEach(({ key, sidebarId, toggleId, expandSym, collapseSym }) => {
+        // Kept so a panel entering or leaving layout (see
+        // updateDataSidebarVisibility) can re-pin every toggle at once.
+        this._sidebarPositioners = [];
+        sides.forEach(({ key, edge, label, sidebarId, toggleId, expandSym, collapseSym }) => {
             const sidebar = document.getElementById(sidebarId);
             const btn = document.getElementById(toggleId);
             if (!sidebar || !btn) return;
             const storageKey = `ledRasterSidebarCollapsed_${key}`;
             const positionToggle = () => {
                 const rect = sidebar.getBoundingClientRect();
-                if (key === 'left') {
+                if (edge === 'left') {
                     btn.style.left = `${Math.round(rect.right)}px`;
                     btn.style.right = '';
                 } else {
@@ -107,27 +130,14 @@ export class LEDRasterApp {
                     btn.style.left = '';
                 }
             };
-            const resizeCanvas = () => {
-                if (!window.canvasRenderer) return;
-                if (window.canvasRenderer.setupCanvas) window.canvasRenderer.setupCanvas();
-                window.canvasRenderer.render();
-            };
             const apply = (collapsed) => {
                 sidebar.classList.toggle('collapsed', collapsed);
                 document.body.classList.toggle(`${key}-sidebar-collapsed`, collapsed);
                 btn.textContent = collapsed ? expandSym : collapseSym;
                 btn.title = collapsed
-                    ? `Expand ${key} panel`
-                    : `Collapse ${key} panel`;
-                // The CSS width transition runs ~180ms. Reposition the
-                // toggle and resize the canvas at multiple points during /
-                // after the animation so the canvas always fills the
-                // available wrapper width, otherwise the canvas keeps its
-                // pre-collapse pixel dimensions and the user sees a black
-                // strip on the side where the sidebar used to be.
-                requestAnimationFrame(() => { positionToggle(); resizeCanvas(); });
-                setTimeout(() => { positionToggle(); resizeCanvas(); }, 60);
-                setTimeout(() => { positionToggle(); resizeCanvas(); }, 220);
+                    ? `Expand ${label} panel`
+                    : `Collapse ${label} panel`;
+                this.settleLayout();
             };
             const saved = localStorage.getItem(storageKey) === '1';
             apply(saved);
@@ -145,9 +155,71 @@ export class LEDRasterApp {
                 new ResizeObserver(positionToggle).observe(sidebar);
             }
             window.addEventListener('resize', positionToggle);
+            this._sidebarPositioners.push(positionToggle);
         });
     }
-    
+
+    /**
+     * Re-pin every sidebar toggle and re-size the canvas backing store to the
+     * wrapper it now has.
+     *
+     * The canvas is sized in setupCanvas() from wrapper.clientWidth/Height,
+     * and its only automatic trigger is the window resize listener - so a
+     * panel that changed width without the window changing leaves the canvas
+     * painting at its old pixel size, with a black strip where the panel used
+     * to be. Cheap enough to call on every frame of a drag.
+     */
+    remeasureCanvas() {
+        (this._sidebarPositioners || []).forEach(fn => {
+            try { fn(); } catch (_) { /* a panel may not be in the DOM */ }
+        });
+        const renderer = window.canvasRenderer;
+        if (!renderer) return;
+        // setupCanvas() renders as its last step, so this is one paint.
+        if (renderer.setupCanvas) renderer.setupCanvas();
+        else if (renderer.render) renderer.render();
+    }
+
+    /**
+     * One layout change, three re-measures. The panels' width transition runs
+     * ~180ms, so measuring once measures the wrong frame - the canvas would
+     * settle at whatever width it happened to have mid-animation.
+     *
+     * Collapse, view switching (updateDataSidebarVisibility) and the end of a
+     * drag-resize (theme.js, through window.app) all land here, so there is
+     * one mechanism for this rather than one per caller. A live drag suppresses
+     * the transition and calls remeasureCanvas() directly instead.
+     */
+    settleLayout() {
+        const settle = () => this.remeasureCanvas();
+        requestAnimationFrame(settle);
+        setTimeout(settle, 60);
+        setTimeout(settle, 220);
+    }
+
+    /**
+     * The Signal panel belongs to Data view and nowhere else. Port labelling -
+     * and the processor work that joins it - describes how signal reaches the
+     * cabinets, which is meaningless in Pixel Map, Cabinet ID, Show Look and
+     * Power, so the panel and its toggle leave layout completely in those
+     * views (.view-hidden is display:none, not a collapse). That is the whole
+     * reason a user who never opens Data view sees nothing new.
+     *
+     * Its collapsed state is untouched here: collapsing the panel and then
+     * leaving Data view must not silently re-expand it on the way back.
+     */
+    updateDataSidebarVisibility(mode) {
+        const sidebar = document.getElementById('data-sidebar');
+        if (!sidebar) return;
+        const btn = document.getElementById('data-sidebar-toggle');
+        const visible = mode === 'data-flow';
+        sidebar.classList.toggle('view-hidden', !visible);
+        if (btn) btn.classList.toggle('view-hidden', !visible);
+        // A whole flex column appearing or disappearing changes the width the
+        // canvas has to fill, and moves every toggle.
+        this.settleLayout();
+    }
+
     // Check if server has restarted - if so, clear localStorage
     // Also fetch server-side preferences so all clients share the same config
     async checkServerSession() {
@@ -1403,6 +1475,30 @@ export class LEDRasterApp {
             try { this.refreshTotalsSidebar(); } catch (_) {}
         }
 
+        // The processor tree can change under the panel without the panel
+        // asking - undo/redo and a file load both replace the whole project -
+        // so re-resolve, but only when it actually differs from what was last
+        // drawn. Comparing a small blob beats a fetch on every UI update, and
+        // a project with no processors compares equal on the first line and
+        // never touches the network at all.
+        if (typeof this.refreshProcessors === 'function' && this.project) {
+            const raw = JSON.stringify(this.project.processors || []);
+            if (raw !== this._processorsRaw) this.refreshProcessors();
+        }
+
+        // Port assignment follows both sides: the cards it allocates onto and
+        // the screens it allocates for. Guarded on there being a processor at
+        // all, because working out what to compare means asking every screen
+        // how many ports it needs, and getLayerPortsRequired walks the wall to
+        // answer. A project with no processors has nothing to assign to, so it
+        // never pays for the walk - which is also what keeps it behaving
+        // exactly as it did before this panel existed.
+        if (typeof this.refreshPortAssignment === 'function' && this.project
+                && (this.project.processors || []).length) {
+            const raw = this._assignmentKey();
+            if (raw !== this._assignmentKeyRaw) this.refreshPortAssignment();
+        }
+
         if (window.canvasRenderer) {
             if (window.canvasRenderer.viewMode === 'data-flow' && this.currentLayer) {
                 this.updatePortCapacityDisplay();
@@ -1736,6 +1832,9 @@ export class LEDRasterApp {
                 });
                 
                 window.canvasRenderer.setViewMode(mode);
+                // The Signal panel is Data-view-only, so it joins or leaves
+                // layout with the tab, not with the selection.
+                this.updateDataSidebarVisibility(mode);
                 // v0.8.6.1: re-render the Screens sidebar so groups reflect
                 // the view-effective canvas (Show Look groups by
                 // show_canvas_id; Pixel Map groups by canvas_id).
@@ -3614,6 +3713,24 @@ export class LEDRasterApp {
                     console.error('Resolume export error:', error);
                     document.getElementById('status-message').textContent = 'Export failed!';
                     sendClientLog('export_failed', { message: error.message, format: 'resolume-xml' });
+                }
+                return;
+            }
+
+            // NovaStar SCR, no views needed either - this is the sending
+            // card map, not a rendered drawing.
+            if (format === 'novastar-scr') {
+                document.getElementById('export-modal').style.display = 'none';
+                document.getElementById('status-message').textContent = 'Exporting NovaStar SCR...';
+                try {
+                    await this.exportNovastarScr(projectName);
+                    document.getElementById('status-message').textContent = 'Export complete!';
+                    setTimeout(() => { document.getElementById('status-message').textContent = 'Ready'; }, 3000);
+                } catch (error) {
+                    console.error('SCR export error:', error);
+                    document.getElementById('status-message').textContent = 'Export failed!';
+                    alert('SCR export failed: ' + error.message);
+                    sendClientLog('export_failed', { message: error.message, format: 'novastar-scr' });
                 }
                 return;
             }

@@ -1,0 +1,560 @@
+{
+  "version": 1,
+  "source": "docs/processor-port-table.md",
+  "sourceNote": "Every count here is transcribed from a cited row of that table. Nothing is inferred from a sibling model: two cards with four fiber connectors are 32 and 40 respectively because the line rate differs, so a connector count tells you nothing. A device the table could not settle carries unknown:true and no number - a wrong ceiling silently caps a wall, so unknowns stay unknown.",
+  "labels": {
+    "defaultTemplate": "{name}-#",
+    "note": "# is the port number within the nearest named device; {name} is that device's name. A port's label comes from the nearest named device upstream of it - CVT, then card, then processor. With nothing named upstream there is no processor-derived label at all, and the per-screen portLabelTemplatePrimary / portLabelTemplateReturn keep labelling exactly as they always did."
+  },
+  "devices": [
+    {
+      "id": "novastar-mx40-pro",
+      "vendor": "NovaStar",
+      "name": "MX40 Pro",
+      "kind": "processor",
+      "form": "all-in-one",
+      "family": "novastar-mx",
+      "trunks": 4,
+      "portsPerTrunk": 10,
+      "ports": {
+        "defaultMode": "40-port",
+        "modes": [
+          {"id": "40-port", "label": "40-port mode", "count": 40},
+          {"id": "20-port", "label": "20-port mode", "count": 20}
+        ]
+      },
+      "note": "40 via the 4x 10G optical outs. In 20-port mode OPT 3/4 are copies of OPT 1/2; in 40-port mode they carry ports 21-40. The summary spec sheet leads with 20, which is why two research passes both came back 20."
+    },
+    {
+      "id": "novastar-mx30",
+      "vendor": "NovaStar",
+      "name": "MX30",
+      "kind": "processor",
+      "form": "all-in-one",
+      "family": "novastar-mx",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 10}]},
+      "note": "Fiber is copy only."
+    },
+    {
+      "id": "novastar-mx20",
+      "vendor": "NovaStar",
+      "name": "MX20",
+      "kind": "processor",
+      "form": "all-in-one",
+      "family": "novastar-mx",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 6}]}
+    },
+    {
+      "id": "novastar-ku20",
+      "vendor": "NovaStar",
+      "name": "KU20",
+      "kind": "processor",
+      "form": "all-in-one",
+      "family": "novastar-mx",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 6}]}
+    },
+    {
+      "id": "novastar-cx40-pro",
+      "vendor": "NovaStar",
+      "name": "CX40 Pro",
+      "kind": "processor",
+      "form": "all-in-one",
+      "family": "novastar-cx",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 6}]},
+      "note": "5GBASE-T."
+    },
+    {
+      "id": "novastar-cx80-pro",
+      "vendor": "NovaStar",
+      "name": "CX80 Pro",
+      "kind": "processor",
+      "form": "all-in-one",
+      "family": "novastar-cx",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16}]},
+      "note": "5GBASE-T."
+    },
+    {
+      "id": "novastar-vx400",
+      "vendor": "NovaStar",
+      "name": "VX400 / VX400 Pro",
+      "kind": "processor",
+      "form": "all-in-one",
+      "family": "novastar-vx",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 4}]},
+      "note": "Confirmed against the hardware. One dealer page claiming 6 is wrong."
+    },
+    {
+      "id": "novastar-vx600",
+      "vendor": "NovaStar",
+      "name": "VX600",
+      "kind": "processor",
+      "form": "all-in-one",
+      "family": "novastar-vx",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 6}]}
+    },
+    {
+      "id": "novastar-vx1000",
+      "vendor": "NovaStar",
+      "name": "VX1000 / VX1000 Pro",
+      "kind": "processor",
+      "form": "all-in-one",
+      "family": "novastar-vx",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 10}]}
+    },
+    {
+      "id": "novastar-vx2000-pro",
+      "vendor": "NovaStar",
+      "name": "VX2000 Pro",
+      "kind": "processor",
+      "form": "all-in-one",
+      "family": "novastar-vx",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 20}]}
+    },
+    {
+      "id": "novastar-vx16s",
+      "vendor": "NovaStar",
+      "name": "VX16s",
+      "kind": "processor",
+      "form": "all-in-one",
+      "family": "novastar-vx",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16}]}
+    },
+    {
+      "id": "novastar-vx6s",
+      "vendor": "NovaStar",
+      "name": "VX6s",
+      "kind": "processor",
+      "form": "legacy",
+      "family": "novastar-vx",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 6}]}
+    },
+    {
+      "id": "novastar-vx4s",
+      "vendor": "NovaStar",
+      "name": "VX4S",
+      "kind": "processor",
+      "form": "legacy",
+      "family": "novastar-vx",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 4}]}
+    },
+    {
+      "id": "novastar-mctrl4k",
+      "vendor": "NovaStar",
+      "name": "MCTRL4K",
+      "kind": "processor",
+      "form": "sender",
+      "family": "novastar-mctrl",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16}]},
+      "note": "OPT3/4 duplicate."
+    },
+    {
+      "id": "novastar-mctrl660-pro",
+      "vendor": "NovaStar",
+      "name": "MCTRL660 Pro",
+      "kind": "processor",
+      "form": "sender",
+      "family": "novastar-mctrl",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 6}]}
+    },
+    {
+      "id": "novastar-mctrl660",
+      "vendor": "NovaStar",
+      "name": "MCTRL660",
+      "kind": "processor",
+      "form": "sender",
+      "family": "novastar-mctrl",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 4}]}
+    },
+
+    {
+      "id": "novastar-h2",
+      "vendor": "NovaStar",
+      "name": "H2",
+      "kind": "processor",
+      "form": "chassis",
+      "accepts": ["novastar-h"],
+      "slots": {"count": 2},
+      "note": "Documented as max OUTPUT CARDS, not physical slots - no NovaStar document states a slot count for any chassis."
+    },
+    {
+      "id": "novastar-h5",
+      "vendor": "NovaStar",
+      "name": "H5",
+      "kind": "processor",
+      "form": "chassis",
+      "accepts": ["novastar-h"],
+      "slots": {"count": 3}
+    },
+    {
+      "id": "novastar-h9",
+      "vendor": "NovaStar",
+      "name": "H9",
+      "kind": "processor",
+      "form": "chassis",
+      "accepts": ["novastar-h"],
+      "slots": {"count": 5}
+    },
+    {
+      "id": "novastar-h9-enhanced",
+      "vendor": "NovaStar",
+      "name": "H9 Enhanced",
+      "kind": "processor",
+      "form": "chassis",
+      "accepts": ["novastar-h"],
+      "slots": {"count": 10, "countByConnector": {"fiber": 10, "rj45": 5}},
+      "note": "10 for fiber/video cards, 5 for RJ45 sending cards - the sole card-type-dependent limit in the H series, so the chassis offers ten places and the limit drops to five as soon as an RJ45 card is in one. The 'two slots' explanation for it is unconfirmed."
+    },
+    {
+      "id": "novastar-h15",
+      "vendor": "NovaStar",
+      "name": "H15",
+      "kind": "processor",
+      "form": "chassis",
+      "accepts": ["novastar-h"],
+      "slots": {"count": 10}
+    },
+    {
+      "id": "novastar-h15-enhanced",
+      "vendor": "NovaStar",
+      "name": "H15 Enhanced",
+      "kind": "processor",
+      "form": "chassis",
+      "accepts": ["novastar-h"],
+      "slots": {"count": 16}
+    },
+    {
+      "id": "novastar-h20",
+      "vendor": "NovaStar",
+      "name": "H20",
+      "kind": "processor",
+      "form": "chassis",
+      "accepts": ["novastar-h"],
+      "slots": {"count": 20},
+      "note": "20U. No Enhanced variant exists."
+    },
+    {
+      "id": "novastar-mx2000-pro",
+      "vendor": "NovaStar",
+      "name": "MX2000 Pro",
+      "kind": "processor",
+      "form": "chassis",
+      "accepts": ["novastar-mx"],
+      "slots": {"count": 2}
+    },
+    {
+      "id": "novastar-mx6000-pro",
+      "vendor": "NovaStar",
+      "name": "MX6000 Pro",
+      "kind": "processor",
+      "form": "chassis",
+      "accepts": ["novastar-mx"],
+      "slots": {"count": 8}
+    },
+
+    {
+      "id": "novastar-card-h-20xrj45",
+      "vendor": "NovaStar",
+      "name": "H_20xRJ45",
+      "kind": "card",
+      "family": "novastar-h",
+      "connector": "rj45",
+      "trunks": 0,
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 20}]},
+      "note": "Occupies 2 chassis slots, but the documented chassis limits are card counts and are NOT halved for it - an H15 still takes 10. Copper only: no OPT, so no CVT can hang off it at all."
+    },
+    {
+      "id": "novastar-card-h-16xrj45-2xfiber",
+      "vendor": "NovaStar",
+      "name": "H_16xRJ45+2xfiber",
+      "kind": "card",
+      "family": "novastar-h",
+      "connector": "rj45",
+      "trunks": 2,
+      "portsPerTrunk": 8,
+      "trunkDelivery": "copy",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16}]},
+      "note": "The OPT ports copy Ethernet 1-8 / 9-16, so they add no ports - a CVT on OPT 1 is another place to plug into ports 1-8, not eight more ports. Both deliveries are real and both get used: patch the copper on the card, or take the same ports out at a box across the room. Counted as an RJ45 sending card against the H9 Enhanced limit; no document says which side of that split a mixed card falls on."
+    },
+    {
+      "id": "novastar-card-h-4xfiber",
+      "vendor": "NovaStar",
+      "name": "H_4xfiber",
+      "kind": "card",
+      "family": "novastar-h",
+      "connector": "fiber",
+      "trunks": 4,
+      "portsPerTrunk": 8,
+      "ports": {
+        "defaultMode": "independent",
+        "modes": [
+          {"id": "independent", "label": "Independent", "count": 32},
+          {"id": "copy-backup", "label": "Copy / Backup", "count": 16}
+        ]
+      },
+      "note": "4x 10G OPT at 8B/10B, one OPT = 8 Ethernet ports. Max 20,800,000 px. Cannot share a screen with RJ45 cards. Needs NovaLCT 5.4.8."
+    },
+    {
+      "id": "novastar-card-h-4xfiber-enhanced",
+      "vendor": "NovaStar",
+      "name": "H_4xfiber (enhanced)",
+      "kind": "card",
+      "family": "novastar-h",
+      "connector": "fiber",
+      "trunks": 4,
+      "portsPerTrunk": 10,
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 40}]},
+      "note": "EIGHT 10G connectors but still four primaries - OPT 5-8 back up OPT 1-4 - and one OPT = 10 Ethernet ports. 4 x 10 = 40. Counting connectors gets this wrong in both directions: not 8, not 80. Max 26,000,000 px. Needs NovaLCT 5.8.0 or above."
+    },
+    {
+      "id": "novastar-card-mx-4x10g",
+      "vendor": "NovaStar",
+      "name": "MX_4x10G fiber",
+      "kind": "card",
+      "family": "novastar-mx",
+      "connector": "fiber",
+      "trunks": 4,
+      "portsPerTrunk": 10,
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 40}]},
+      "note": "64B/66B, 10 ports per fiber."
+    },
+    {
+      "id": "novastar-card-mx-1x40g",
+      "vendor": "NovaStar",
+      "name": "MX_1x40G / CX_1x40G fiber",
+      "kind": "card",
+      "family": "novastar-mx",
+      "connector": "fiber",
+      "trunks": 1,
+      "portsPerTrunk": 8,
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 8}]},
+      "note": "The 40G card gives 8, not 40 - the fiber-to-logical ratio follows the line rate, never the connector."
+    },
+
+    {
+      "id": "novastar-cvt4k-s",
+      "vendor": "NovaStar",
+      "name": "CVT4K-S",
+      "kind": "cvt",
+      "family": "novastar",
+      "trunksIn": 2,
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16}]},
+      "capAtTrunk": true,
+      "note": "16x Neutrik etherCON out on 2 OPT in. Its four LC connectors are TWO optical ports - LC is duplex - and counting them as four would double the box. Two OPTs at 8 per trunk is exactly its 16, so behind an H_4xfiber it delivers the lot; one box also takes both OPTs of an H_16xRJ45+2xfiber and delivers all 16 there, where CVT10s need two boxes."
+    },
+
+    {
+      "id": "novastar-cvt10",
+      "vendor": "NovaStar",
+      "name": "CVT10",
+      "kind": "cvt",
+      "family": "novastar",
+      "trunksIn": 1,
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 10}]},
+      "capAtTrunk": true,
+      "note": "10 ports on a 10.3125 Gbps 64B/66B trunk, 8 on an 8B/10B one - the box fans out whatever the trunk carries, so its real count is capped by the card's ports per fiber."
+    },
+
+    {
+      "id": "novastar-cvt10-pro",
+      "vendor": "NovaStar",
+      "name": "CVT10 Pro",
+      "kind": "cvt",
+      "family": "novastar",
+      "trunksIn": 1,
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 10}]},
+      "capAtTrunk": true,
+      "note": "Same figures as the CVT10: 1 OPT in, 10 ports on a 10.3125 Gbps 64B/66B trunk and only the first 8 from a 10G 8B/10B source."
+    },
+
+    {
+      "id": "novastar-cvt8-5g",
+      "vendor": "NovaStar",
+      "name": "CVT8-5G",
+      "kind": "cvt",
+      "family": "novastar",
+      "trunksIn": 1,
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 8}]},
+      "capAtTrunk": true,
+      "note": "8x 5GBASE-T out on 1x 40G in. The 5G rate is what a port carries, not how many there are."
+    },
+
+    {
+      "id": "brompton-sx40",
+      "vendor": "Brompton",
+      "name": "Tessera SX40",
+      "kind": "processor",
+      "form": "all-in-one",
+      "family": "brompton",
+      "trunks": 4,
+      "portsPerTrunk": 10,
+      "requiresDistribution": true,
+      "redundancy": {"supported": true, "halvesPorts": true},
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 40}]},
+      "note": "8 physical 10G connectors = 4 logical trunks, each auto-switching between the copper and fibre of a pair. It has NO 1G fixture ports of its own; fixtures hang off XD boxes, 10 per trunk. Redundancy is opt-in per pair and halves the usable count to 20; a backup port is never a hidden extra port."
+    },
+    {
+      "id": "brompton-s8",
+      "vendor": "Brompton",
+      "name": "Tessera S8",
+      "kind": "processor",
+      "form": "all-in-one",
+      "family": "brompton",
+      "redundancy": {"supported": true, "halvesPorts": true},
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 8}]}
+    },
+    {
+      "id": "brompton-s4",
+      "vendor": "Brompton",
+      "name": "Tessera S4",
+      "kind": "processor",
+      "form": "all-in-one",
+      "family": "brompton",
+      "redundancy": {"supported": true, "halvesPorts": true},
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 4}]}
+    },
+    {
+      "id": "brompton-m2",
+      "vendor": "Brompton",
+      "name": "Tessera M2",
+      "kind": "processor",
+      "form": "all-in-one",
+      "family": "brompton",
+      "redundancy": {"supported": true, "halvesPorts": true},
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 4}]}
+    },
+    {
+      "id": "brompton-t1",
+      "vendor": "Brompton",
+      "name": "Tessera T1",
+      "kind": "processor",
+      "form": "all-in-one",
+      "family": "brompton",
+      "redundancy": {"supported": false},
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 1}]},
+      "note": "Single output, so it cannot do closed-loop redundancy at all."
+    },
+    {
+      "id": "brompton-sq200",
+      "vendor": "Brompton",
+      "name": "Tessera SQ200",
+      "kind": "processor",
+      "form": "all-in-one",
+      "family": "brompton",
+      "ports": {
+        "defaultMode": "default",
+        "modes": [{"id": "default", "label": "", "count": null}],
+        "unknown": true,
+        "unknownReason": "Only \"2x 100G QSFP28\" is published, and the device is absent from Brompton's own capacity tool. No port count was found, and one must not be inferred from another Tessera."
+      }
+    },
+    {
+      "id": "brompton-xd",
+      "vendor": "Brompton",
+      "name": "Tessera XD",
+      "kind": "cvt",
+      "family": "brompton",
+      "capAtTrunk": true,
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 10}]},
+      "note": "10G in, 10x 1G out."
+    },
+    {
+      "id": "brompton-xd-s",
+      "vendor": "Brompton",
+      "name": "Tessera XD-S",
+      "kind": "cvt",
+      "family": "brompton",
+      "capAtTrunk": true,
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 12}]},
+      "note": "12 on the box, but both datasheets say only the first 10 work behind an SX40 - which is what the trunk cap produces. The XD-S product page contradicts them and claims 12 unqualified."
+    },
+    {
+      "id": "brompton-xd-t",
+      "vendor": "Brompton",
+      "name": "Tessera XD-T",
+      "kind": "cvt",
+      "family": "brompton",
+      "capAtTrunk": true,
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 12}]},
+      "note": "Same as the XD-S: 12 on the box, first 10 only behind an SX40."
+    },
+    {
+      "id": "brompton-qd-s",
+      "vendor": "Brompton",
+      "name": "Tessera QD-S",
+      "kind": "cvt",
+      "family": "brompton",
+      "capAtTrunk": false,
+      "portRate": "10G",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 12}]},
+      "note": "100G in, 12x 10G out. Those twelve are 10G trunks, not 1G fixture ports."
+    },
+
+    {
+      "id": "megapixel-helios-8k",
+      "vendor": "Megapixel",
+      "name": "HELIOS Standard 8K / 8K Extreme",
+      "kind": "processor",
+      "form": "all-in-one",
+      "family": "megapixel",
+      "trunks": 8,
+      "portsPerTrunk": 12,
+      "requiresDistribution": true,
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 8}]},
+      "note": "8x 10Gb fiber SFP+, each feeding an RS12 that fans out to 12 copper ports. The 100G QSFP is an INPUT; there is no 100G output anywhere in the line. The 8 is trunks, where the SX40's 40 is fixture ports - the source table counts the two vendors at different tiers and does not reconcile them."
+    },
+    {
+      "id": "megapixel-helios-4k",
+      "vendor": "Megapixel",
+      "name": "HELIOS Standard 4K",
+      "kind": "processor",
+      "form": "all-in-one",
+      "family": "megapixel",
+      "requiresDistribution": true,
+      "ports": {
+        "defaultMode": null,
+        "conflict": true,
+        "conflictReason": "The 2025/2026 documents say 2 and the 2023 spec sheet says 3. The source table records the conflict and does not adjudicate it, so neither number is the default - pick the one matching the document you are working from.",
+        "modes": [
+          {"id": "docs-2025", "label": "2025/2026 documents", "count": 2},
+          {"id": "sheet-2023", "label": "2023 spec sheet", "count": 3}
+        ]
+      }
+    },
+    {
+      "id": "megapixel-helios-jr",
+      "vendor": "Megapixel",
+      "name": "HELIOS Jr",
+      "kind": "processor",
+      "form": "all-in-one",
+      "family": "megapixel",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 8}]},
+      "note": "8x 1G copper SFP straight to tiles, with no switch layer at all. Not the same thing as \"HELIOS (1G)\", which is a switch port RATE behind a HELIOS Standard."
+    },
+    {
+      "id": "megapixel-rs12",
+      "vendor": "Megapixel",
+      "name": "RS12 / MSM4214X",
+      "kind": "cvt",
+      "family": "megapixel",
+      "capAtTrunk": false,
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 12}]},
+      "note": "12x 1/2.5Gb etherCON out; fiber ports 13/14 come IN from the HELIOS. Port 13 feeds outputs 1-6 and port 14 feeds 7-12; they are not interchangeable. 1G vs 2.5G is a per-port rate set by the tile, not a different port count. Its spare SFP slot cannot add a port."
+    },
+    {
+      "id": "megapixel-gsm4210p",
+      "vendor": "Megapixel",
+      "name": "GSM4210P (legacy)",
+      "kind": "cvt",
+      "family": "megapixel",
+      "capAtTrunk": false,
+      "ports": {
+        "defaultMode": "base",
+        "modes": [
+          {"id": "base", "label": "Copper only", "count": 8},
+          {"id": "copper-sfp", "label": "With a copper SFP", "count": 9}
+        ]
+      },
+      "note": "The only device in the table where a spare SFP slot ADDS a real port. The MSM4214X explicitly cannot."
+    }
+  ]
+}
