@@ -662,6 +662,93 @@ def test_the_splitter_rows_fit_inside_the_power_panel(page, w, enabled):
         page.evaluate(SPLITTER_CLEANUP_JS)
 
 
+# The soca rows carry three fields of their own now - a name, a distro and a
+# home-run length - and the circuit label editor came into this panel with
+# them. Both have to fit the same 180px column the distro rows were taught to.
+
+NAMING_SEED_JS = """() => {
+    const app = window.app;
+    const l = app.currentLayer;
+    if (!l) return null;
+    // In-memory only, like the splitter seed: the stamp the editor sizes
+    // itself from is a client-side figure, so nothing here is written to the
+    // server and the shared project is handed back untouched.
+    if (window.__nmSaved === undefined) {
+        window.__nmSaved = l._powerCircuitsRequired;
+    }
+    l._powerCircuitsRequired = app.screenCircuitCount(l);
+    const added = app.getDistros().length ? null : app.addDistro().id;
+    app.refreshSocaRuns();
+    app.refreshDistroPanel();
+    app.updatePowerLabelEditor();
+    return {
+        added: added,
+        socaRows: document.querySelectorAll('#power-soca-runs .power-soca-row').length,
+        labelRows: document.querySelectorAll('#power-label-list > div').length,
+    };
+}"""
+
+NAMING_CLEANUP_JS = """(id) => {
+    const app = window.app;
+    const l = app.currentLayer;
+    if (l && window.__nmSaved !== undefined) {
+        l._powerCircuitsRequired = window.__nmSaved;
+    }
+    delete window.__nmSaved;
+    if (id) app.removeDistro(id);
+    app.refreshSocaRuns();
+    app.refreshDistroPanel();
+    app.updatePowerLabelEditor();
+}"""
+
+# Same measurement as the distro rows above, against any host in the panel.
+HOST_OVERFLOW_JS = """(hostId) => {
+    const host = document.getElementById(hostId);
+    if (!host) return null;
+    const box = host.getBoundingClientRect();
+    const strays = [];
+    host.querySelectorAll('*').forEach(el => {
+        const r = el.getBoundingClientRect();
+        if (r.width === 0 && r.height === 0) return;
+        if (r.right > box.right + 0.5 || r.left < box.left - 0.5) {
+            strays.push({ tag: el.tagName,
+                          key: el.getAttribute('data-lrd-field') || el.className || null,
+                          over: Math.round(Math.max(r.right - box.right,
+                                                    box.left - r.left)) });
+        }
+    });
+    return { hostW: Math.round(box.width), scrollW: host.scrollWidth,
+             clientW: host.clientWidth, strays: strays };
+}"""
+
+
+@pytest.mark.parametrize('w', [MIN_W, DEFAULT_W])
+@pytest.mark.parametrize('host', ['power-soca-runs', 'power-label-list'])
+def test_the_naming_rows_fit_inside_the_power_panel(page, host, w):
+    reset_widths(page, 'power')
+    seeded = page.evaluate(NAMING_SEED_JS)
+    try:
+        assert seeded, "no current layer to build a soca plan from"
+        assert seeded['socaRows'] > 0, (
+            f"the soca panel built no multi rows to measure: {seeded}")
+        assert seeded['labelRows'] > 0, (
+            f"the circuit label editor built no rows to measure: {seeded}")
+        if w != DEFAULT_W:
+            assert drag(page, 'power', w - DEFAULT_W) == w
+        page.wait_for_timeout(300)
+        m = page.evaluate(HOST_OVERFLOW_JS, host)
+        assert m, f"#{host} is not in the document"
+        assert not m['strays'], (
+            f"#{host} controls hang outside their host at {w}px, where the "
+            f"sidebar's overflow-x:hidden clips them: {m['strays']} "
+            f"(host is {m['hostW']}px)")
+        assert m['scrollW'] <= m['clientW'], (
+            f"#{host} scrolls sideways at {w}px: content {m['scrollW']}px in "
+            f"a {m['clientW']}px column")
+    finally:
+        page.evaluate(NAMING_CLEANUP_JS, seeded and seeded['added'])
+
+
 def test_the_rating_row_is_one_line_at_the_default_and_wraps_at_the_minimum(page):
     """The wrap has to be a wrap, not a permanent restack: at the 260px default
     rating, voltage and phase still read as one line, and only the drag to the

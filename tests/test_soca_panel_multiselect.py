@@ -161,6 +161,35 @@ def test_breakout_select_applies_to_every_selected_screen(page):
         f"breakout never persisted for both screens: {served}")
 
 
+def test_a_multi_name_stays_with_its_own_multi(page):
+    """A NAME is per-multi, so it is on the other side of the doctrine from
+    the brackets toggle and the breakout select: naming the shown screen's
+    multi must not name the other selected screen's multi, which is a
+    different multi on a different wall."""
+    typed = page.evaluate("""() => {
+        const inp = document.querySelector('[data-lrd-field="power-soca-name-1"]');
+        if (!inp) return null;
+        inp.value = 'HOUSE';
+        inp.dispatchEvent(new Event('change', { bubbles: true }));
+        return 'HOUSE';
+    }""")
+    assert typed, "the soca panel built no multi name field"
+    page.wait_for_timeout(300)
+    state = page.evaluate("""() => {
+        const byName = (n) => window.app.project.layers.find(l => l.name === n);
+        const pick = (l) => (l && l.powerSocaNames) || {};
+        return { a: pick(byName('SelA')), b: pick(byName('SelB')),
+                 solo: pick(byName('Solo')),
+                 label: window.app.getPowerCircuitLabel(byName('SelA'), 1) };
+    }""")
+    assert state['a'].get('1') == 'HOUSE', "the shown screen's multi was not named"
+    assert state['b'] == {}, (
+        f"the name swept onto the other selected screen's multi: {state}")
+    assert state['solo'] == {}, f"an unselected screen was named: {state}"
+    assert state['label'] == 'HOUSE-1', (
+        f"the circuit did not take its multi's name: {state['label']}")
+
+
 def test_single_select_still_edits_only_the_shown_screen(page):
     page.evaluate("""() => {
         const app = window.app;

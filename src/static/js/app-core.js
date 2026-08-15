@@ -916,6 +916,12 @@ export class LEDRasterApp {
             if (layer.powerLabelTextColor === undefined) layer.powerLabelTextColor = '#000000';
             if (layer.powerLabelTemplate === undefined) layer.powerLabelTemplate = 'S1-#';
             if (layer.powerLabelOverrides === undefined) layer.powerLabelOverrides = {};
+            if (layer.powerSocaNames === undefined) layer.powerSocaNames = {};
+            // Reads the template it just defaulted above, so it has to run
+            // after it: the shift it applies is the template's own start
+            // digit. Stamps the layer, so it is a no-op on every load after
+            // the first (see migrateSocaKeying).
+            this.migrateSocaKeying(layer);
                 if (layer.powerCustomPaths === undefined) layer.powerCustomPaths = {};
             if (layer.powerCustomIndex === undefined) layer.powerCustomIndex = 1;
             // Power splitters (circuit sharing): off by default, 3fer max
@@ -3213,9 +3219,13 @@ export class LEDRasterApp {
                     layer.powerLabelTemplate = powerLabelTemplateInput.value || 'S1-#';
                 });
                 this.saveClientSideProperties();
-                this.updatePowerLabelEditor();
+                // The template is the bottom rung of the naming ladder, so it
+                // renames every multi still on it - and the multis are what
+                // name the circuits. Restating drops the prepared index first;
+                // rendering the wall off a stale one is how this last showed
+                // up as labels that were a frame behind.
+                this._restateNaming();
                 this.updateLayers(this.getSelectedLayers(), true, 'Change Power Label Template');
-                window.canvasRenderer.render();
             });
         }
 

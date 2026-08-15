@@ -169,7 +169,11 @@ window.__ph = {
         }, extra || {}));
     },
     distro() {
-        return { id: 'd1', name: 'D1', ratingA: 400, voltage: 208, phase: 3 };
+        // Named 'D', not 'D1': a multi takes its name from its distro plus
+        // its number under that distro, so the one multi on this distro is
+        // D1 and its circuits read D1-1, D1-2, ... A distro called 'D1'
+        // would name its first multi 'D11', which is correct and unreadable.
+        return { id: 'd1', name: 'D', ratingA: 400, voltage: 208, phase: 3 };
     },
     withProject(project, fn) {
         const saved = window.app.project;
@@ -178,8 +182,30 @@ window.__ph = {
         try { return fn(); } finally { window.app.project = saved; }
     },
     labelsOf(S) {
+        // The naming index is prepared once per render burst and dropped on
+        // the next microtask. A test that edits a name and reads it back
+        // inside ONE evaluate never reaches that microtask, so it would read
+        // the index built before its own edit.
+        window.app._circuitTailCache = null;
         return window.app.screenCircuits(S).map(c =>
             window.app.getPowerCircuitLabel(S, c.num));
+    },
+    planOf(S) {
+        window.app._circuitTailCache = null;
+        return window.app.getSocaPlan(S).map(s => ({
+            soca: s.soca, number: s.number, name: s.name,
+            length: s.length, legs: s.legs.map(l => l.leg),
+        }));
+    },
+    // 100V x 5A / 100W = 5-tile capacity, tl-v organized: one circuit per
+    // 5-tall column, so `columns` IS the circuit count. Eight columns is two
+    // multis - six circuits on the first, two on the second.
+    col5(id, name, columns, extra) {
+        return this.screen(Object.assign({ id, name, columns, rows: 5 },
+                                         extra || {}));
+    },
+    box(id, name) {
+        return { id, name, ratingA: 400, voltage: 208, phase: 3 };
     },
 };
 """
@@ -202,11 +228,19 @@ def test_balanced_positions_produce_ascending_true_tail_labels(page):
     assert len(set(out)) == 5, 'no duplicate labels after balancing'
 
 
-def test_unbalanced_screen_labels_are_byte_identical_to_today(page):
-    """No phase positions stored: the auto labels keep the sequential
-    arithmetic - including the custom-drawn merge shape with GAPS in the
-    numbering (1,3,5,7,9), where the drawn number is user intent and today's
-    labels wrap the raw number (S2-1 for circuit 7)."""
+def test_unbalanced_screen_labels_name_the_multi_they_are_on(page):
+    """An unbalanced multi still reads 1..N down the wall.
+
+    The gapped case is the one that MOVED, deliberately. Nine drawn paths
+    merged into five circuits numbered 1, 3, 5, 7, 9 are five circuits on
+    ONE multi - the soca panel has always said so - but the label used to be
+    arithmetic on the raw drawn number, which wrapped circuit 7 onto a
+    second multi and printed S2-1. There is no second multi. Now that a
+    multi's number comes from its distro rather than from the screen's own
+    template, that arithmetic cannot survive at all: 'S2' would name a multi
+    that does not exist and could collide with a real S2 on another screen.
+    So a circuit is named by the multi it is on and the tail it lands on,
+    and the five read S1-1..S1-5."""
     out = page.evaluate("""() => {
         const ph = window.__ph;
         const plain = ph.five();
@@ -214,11 +248,14 @@ def test_unbalanced_screen_labels_are_byte_identical_to_today(page):
         return {
             plain: ph.withProject({ layers: [plain] }, () => ph.labelsOf(plain)),
             gapped: ph.withProject({ layers: [gapped] }, () => ph.labelsOf(gapped)),
+            socas: ph.withProject({ layers: [gapped] }, () =>
+                window.app.getSocaPlan(gapped).map(s => s.name)),
         };
     }""")
     assert out['plain'] == ['S1-1', 'S1-2', 'S1-3', 'S1-4', 'S1-5']
-    assert out['gapped'] == ['S1-1', 'S1-3', 'S1-5', 'S2-1', 'S2-3'], \
-        'unbalanced custom numbering must not move'
+    assert out['socas'] == ['S1'], 'the five merged circuits are ONE multi'
+    assert out['gapped'] == ['S1-1', 'S1-2', 'S1-3', 'S1-4', 'S1-5'], \
+        'the labels name the multi the soca panel says they are on'
 
 
 def test_explicit_override_survives_balancing_verbatim(page):
@@ -437,7 +474,7 @@ SHOW_PANELS_JS = """(store) => {
             return {
                 authority: ph.labelsOf(S),
                 tails: app.getSocaPlan(S).flatMap(s => s.legs.map(l => l.leg)),
-                socaRows: [...document.querySelectorAll('#power-soca-runs .info-row label')]
+                socaRows: [...document.querySelectorAll('#power-soca-runs label')]
                     .map(txt).filter(t => t && / legs? /.test(t)),
                 splitterRows: [...document.querySelectorAll(
                         '#power-splitters .splitter-circuit-row label')]
@@ -538,17 +575,20 @@ def test_balance_dialog_names_circuits_by_their_labels(page):
             }
         });
     }""")
-    assert out['moveLabels'] == [['S1-1', 'S1-2', 'S1-3', 'S1-4', 'S1-5']], \
+    # This multi is on the distro named 'D', so it is D1 and its circuits
+    # read D1-1..D1-6 - the distro naming its own load, the way a card names
+    # its own ports on the Data tab.
+    assert out['moveLabels'] == [['D1-1', 'D1-2', 'D1-3', 'D1-4', 'D1-5']], \
         "moves carry the circuits' pre-move authority labels"
     # natural [1..5] -> best [1,2,3,5,6]: circuits 4 and 5 move, and the
-    # dialog names them S1-4 and S1-5 - their labels on the canvas today
-    assert 'S1-4 (' in out['body'] and 'S1-5 (' in out['body']
+    # dialog names them D1-4 and D1-5 - their labels on the canvas today
+    assert 'D1-4 (' in out['body'] and 'D1-5 (' in out['body']
     assert 'tail 4 \u2192' in out['body']
     assert not out['ordinal'], 'no "circuit N" ordinals anywhere in the dialog'
     assert out['modalGone']
-    assert out['splitterAfter'] == ['S1-1', 'S1-2', 'S1-3', 'S1-5', 'S1-6'], \
+    assert out['splitterAfter'] == ['D1-1', 'D1-2', 'D1-3', 'D1-5', 'D1-6'], \
         'Apply repaints the splitter rows with the new tails, no round-trip'
-    assert out['editorAfter'] == ['S1-1', 'S1-2', 'S1-3', 'S1-5', 'S1-6'], \
+    assert out['editorAfter'] == ['D1-1', 'D1-2', 'D1-3', 'D1-5', 'D1-6'], \
         'Apply repaints the label editor with the new tails, no round-trip'
 
 
@@ -586,7 +626,8 @@ def test_wall_order_wins_brute_force_and_apply_stores_sorted(page):
     assert abs(out['after'] - out['bruteBest']) < 0.1, \
         'the balancer finds the best subset achievable WITHOUT permuting'
     assert out['stored'] == [1, 2, 3, 5, 6], 'applied moves store the sorted set'
-    assert out['labels'] == ['S1-1', 'S1-2', 'S1-3', 'S1-5', 'S1-6']
+    # On the distro named 'D', so the multi is D1 (see ph.distro).
+    assert out['labels'] == ['D1-1', 'D1-2', 'D1-3', 'D1-5', 'D1-6']
     assert out['labels'] == sorted(out['labels'])
 
 
@@ -954,3 +995,337 @@ def test_the_resolved_volts_follow_the_distro_not_the_scheme(page):
     for name in eu['groups'][1]['options']:
         assert '400' not in name and '231' not in name, (
             f"a service voltage leaked into a scheme name: {name}")
+
+
+# ── the distro names the power, the way the processor names the ports ─────
+#
+# The three changes that are one feature (v0.12.x):
+#
+#   * A multi's NUMBER runs per distro, over the whole show, in layer-list
+#     order bottom up - the same order the Data tab hands out card ports.
+#     Numbering per screen was what let two screens both own an S1.
+#   * A multi's NAME comes down a ladder, top wins: an explicit circuit
+#     override, then a name typed onto the multi, then the distro's name plus
+#     the multi's number under it (SL1, SL2), then the screen's template.
+#   * A multi's IDENTITY is (layer, socaIndex) and nothing else. Everything
+#     per-multi - length, tail positions, breaker offset, distro assignment,
+#     name - is keyed by that index, because the number is now a thing that
+#     CHANGES when a multi is assigned.
+
+
+def test_multis_number_per_distro_in_layer_order_bottom_up(page):
+    """Two screens, two distros. Numbering restarts per DISTRO, not per
+    screen, and walks project layer order - which is the layer list read
+    bottom up, and the same order the Data tab allocates card ports in.
+
+    Reversing the layer order reverses the numbers, which is the proof that
+    the order is the one being claimed and not an accident of the screens'
+    ids or names."""
+    out = page.evaluate("""() => {
+        const ph = window.__ph;
+        // A: one multi (3 circuits). B: two multis (8 circuits).
+        const mk = () => ({
+            A: ph.col5(11, 'A', 3, { powerSocaDistro: { 1: 'dl' } }),
+            B: ph.col5(12, 'B', 8, { powerSocaDistro: { 1: 'dl', 2: 'dr' } }),
+        });
+        const distros = [ph.box('dl', 'SL'), ph.box('dr', 'SR')];
+        const read = (layers) => ph.withProject({ layers, distros }, () =>
+            layers.map(L => ph.planOf(L).map(s => s.name)));
+        const up = mk(), down = mk();
+        return {
+            up: read([up.A, up.B]),
+            down: read([down.B, down.A]),
+        };
+    }""")
+    assert out['up'] == [['SL1'], ['SL2', 'SR1']], (
+        "A is first in layer order so it takes SL1; B's first multi is the "
+        f"second on SL and its second multi opens SR: {out['up']}")
+    assert out['down'] == [['SL1', 'SR1'], ['SL2']], (
+        f"reversing the layer order did not reverse the numbering: {out['down']}")
+
+
+def test_unassigned_multis_are_numbered_too(page):
+    """Nothing goes blank waiting for a distro: multis on no distro number
+    themselves in their own bucket, over the whole show, in the same order -
+    so two screens with no distros anywhere read S1 and S2, never S1 and
+    S1."""
+    out = page.evaluate("""() => {
+        const ph = window.__ph;
+        const A = ph.col5(13, 'A', 3);
+        const B = ph.col5(14, 'B', 3);
+        return ph.withProject({ layers: [A, B] }, () => ({
+            names: [ph.planOf(A), ph.planOf(B)].map(p => p.map(s => s.name)),
+            labels: [ph.labelsOf(A), ph.labelsOf(B)],
+        }));
+    }""")
+    assert out['names'] == [['S1'], ['S2']], (
+        f"two screens both restarted at S1: {out['names']}")
+    assert out['labels'] == [['S1-1', 'S1-2', 'S1-3'],
+                             ['S2-1', 'S2-2', 'S2-3']]
+
+
+def test_a_multi_keeps_its_length_tails_and_distro_when_its_number_changes(page):
+    """The crux. B's multi is the second in the unassigned bucket (S2) and
+    carries a home run, a balanced tail set and a hand name. Assigning A's
+    multi to a distro takes A out of that bucket and renumbers B's multi to
+    1 - and B's multi must come through with everything it owns, because it
+    was never identified by its number in the first place."""
+    out = page.evaluate("""() => {
+        const ph = window.__ph;
+        const A = ph.col5(15, 'A', 3);
+        const B = ph.col5(16, 'B', 5, {
+            powerSocaLengths: { 1: '100ft' },
+            powerSocaPhasePos: { 1: [1, 2, 3, 5, 6] },
+            powerSocaDistro: { 1: 'dr' },
+        });
+        const distros = [ph.box('dl', 'SL'), ph.box('dr', 'SR')];
+        return ph.withProject({ layers: [A, B], distros }, () => {
+            const before = ph.planOf(B)[0];
+            // A lands on SR too, ahead of B in layer order, so B's multi
+            // stops being SR1 and becomes SR2.
+            window.app.setSocaDistro(A, 1, 'dr');
+            const after = ph.planOf(B)[0];
+            return { before, after, labels: ph.labelsOf(B) };
+        });
+    }""")
+    assert out['before']['name'] == 'SR1'
+    assert out['after']['name'] == 'SR2', (
+        f"B's multi did not renumber when A joined its distro: {out['after']}")
+    assert out['after']['length'] == '100ft', 'the home run was orphaned'
+    assert out['after']['legs'] == [1, 2, 3, 5, 6], 'the tail set was orphaned'
+    assert out['after']['soca'] == out['before']['soca'] == 1, (
+        'the stable index must not move when the number does')
+    assert out['labels'] == ['SR2-1', 'SR2-2', 'SR2-3', 'SR2-5', 'SR2-6']
+
+
+def test_an_old_keyed_project_migrates_losslessly(page):
+    """A project saved when the per-multi stores were keyed by the number the
+    screen's own template produced. On `S3-#` that screen's two multis were
+    stored under 3 and 4; they are now 1 and 2, and everything under the old
+    keys has to arrive under the new ones.
+
+    Run twice on purpose: the stamp is the only thing stopping a second pass
+    walking an S3-# screen's keys down past 1 and deleting them."""
+    out = page.evaluate("""() => {
+        const ph = window.__ph;
+        const S = ph.col5(17, 'Old', 8, {
+            powerLabelTemplate: 'S3-#',
+            powerSocaLengths: { 3: '100ft', 4: '25ft' },
+            powerSocaDistro: { 3: 'dl' },
+            powerSocaPhasePos: { 4: [2, 5] },
+            powerSocaPhaseOffset: { 3: 1 },
+            powerSocaNames: { 4: 'HOUSE' },
+        });
+        const distros = [ph.box('dl', 'SL')];
+        const snap = () => JSON.parse(JSON.stringify({
+            lengths: S.powerSocaLengths, distro: S.powerSocaDistro,
+            pos: S.powerSocaPhasePos, offset: S.powerSocaPhaseOffset,
+            names: S.powerSocaNames, stamp: S.powerSocaKeying,
+        }));
+        const first = window.app.migrateSocaKeying(S);
+        const once = snap();
+        const second = window.app.migrateSocaKeying(S);
+        return ph.withProject({ layers: [S], distros }, () => ({
+            first, second, once, twice: snap(),
+            plan: ph.planOf(S),
+        }));
+    }""")
+    assert out['first'] is True and out['second'] is False, (
+        'the rekey must run once and then never again')
+    assert out['once'] == {
+        'lengths': {'1': '100ft', '2': '25ft'},
+        'distro': {'1': 'dl'},
+        'pos': {'2': [2, 5]},
+        'offset': {'1': 1},
+        'names': {'2': 'HOUSE'},
+        'stamp': 'index',
+    }, f"the rekey lost or moved something: {out['once']}"
+    assert out['twice'] == out['once'], 'the second pass moved the keys again'
+    # and it is lossless where it counts - through the plan, not just the raw
+    # dicts: multi 1 keeps its home run and lands on SL, multi 2 keeps the
+    # name typed onto it and the tails it was balanced onto.
+    assert [s['name'] for s in out['plan']] == ['SL1', 'HOUSE']
+    assert [s['length'] for s in out['plan']] == ['100ft', '25ft']
+    assert out['plan'][1]['legs'] == [2, 5]
+
+
+def test_the_four_naming_levels_each_win_in_turn(page):
+    """The ladder, from the bottom up. One multi, one circuit read four
+    times, each rung added on top of the last and each one taking over."""
+    out = page.evaluate("""() => {
+        const ph = window.__ph;
+        const S = ph.col5(18, 'Ladder', 3);
+        const distros = [ph.box('dl', 'SL')];
+        return ph.withProject({ layers: [S], distros }, () => {
+            const seen = {};
+            seen.template = ph.labelsOf(S);
+            S.powerSocaDistro = { 1: 'dl' };
+            seen.distro = ph.labelsOf(S);
+            S.powerSocaNames = { 1: 'HOUSE' };
+            seen.hand = ph.labelsOf(S);
+            S.powerLabelOverrides = { 2: 'FOH RIG B' };
+            seen.override = ph.labelsOf(S);
+            return seen;
+        });
+    }""")
+    assert out['template'] == ['S1-1', 'S1-2', 'S1-3'], \
+        'no distro, no name: the screen template'
+    assert out['distro'] == ['SL1-1', 'SL1-2', 'SL1-3'], \
+        'the distro names its own load'
+    assert out['hand'] == ['HOUSE-1', 'HOUSE-2', 'HOUSE-3'], \
+        'a name typed onto the multi beats the distro'
+    assert out['override'] == ['HOUSE-1', 'FOH RIG B', 'HOUSE-3'], \
+        "the user's own text beats everything"
+
+
+def test_renaming_a_distro_follows_the_multis_that_have_no_name_of_their_own(page):
+    """Rename the box and every multi still following it is renamed. A multi
+    somebody named by hand has stopped following and does not move."""
+    out = page.evaluate("""() => {
+        const ph = window.__ph;
+        const A = ph.col5(19, 'A', 3, { powerSocaDistro: { 1: 'dl' } });
+        const B = ph.col5(20, 'B', 3, { powerSocaDistro: { 1: 'dl' },
+                                        powerSocaNames: { 1: 'HOUSE' } });
+        const distros = [ph.box('dl', 'SL')];
+        return ph.withProject({ layers: [A, B], distros }, () => {
+            const before = [ph.labelsOf(A)[0], ph.labelsOf(B)[0]];
+            window.app.updateDistro('dl', { name: 'STAGE' });
+            return { before, after: [ph.labelsOf(A)[0], ph.labelsOf(B)[0]] };
+        });
+    }""")
+    assert out['before'] == ['SL1-1', 'HOUSE-1']
+    assert out['after'] == ['STAGE1-1', 'HOUSE-1'], (
+        f"renaming the distro did not reach the multi following it, or "
+        f"reached the one that had stopped following: {out['after']}")
+
+
+def test_explicit_overrides_are_byte_identical_through_every_rename(page):
+    """A label the user typed is the user's text. Assigning the multi to a
+    distro, renaming the distro and naming the multi by hand all rename the
+    AUTO labels around it and never touch it."""
+    out = page.evaluate("""() => {
+        const ph = window.__ph;
+        const S = ph.col5(21, 'Fixed', 3, {
+            powerLabelOverrides: { 1: 'FOH A', 2: 'FOH B', 3: 'DIMMER 12' },
+        });
+        const distros = [ph.box('dl', 'SL')];
+        return ph.withProject({ layers: [S], distros }, () => {
+            const steps = [ph.labelsOf(S)];
+            S.powerSocaDistro = { 1: 'dl' };
+            steps.push(ph.labelsOf(S));
+            window.app.updateDistro('dl', { name: 'STAGE LEFT' });
+            steps.push(ph.labelsOf(S));
+            S.powerSocaNames = { 1: 'HOUSE' };
+            steps.push(ph.labelsOf(S));
+            return steps;
+        });
+    }""")
+    fixed = ['FOH A', 'FOH B', 'DIMMER 12']
+    assert out == [fixed, fixed, fixed, fixed], (
+        f"an override moved when something upstream was renamed: {out}")
+
+
+def test_a_balanced_multi_under_a_named_distro_reads_true_tails(page):
+    """The two rules meet. A five-circuit multi balanced onto tails
+    {1,2,3,5,6}, on a distro named SL: the wall reads SL1-2, SL1-3, SL1-5 in
+    the middle - the TRUE physical tails - and never a renumbered 1, 2, 3."""
+    out = page.evaluate("""() => {
+        const ph = window.__ph;
+        const S = ph.col5(22, 'Bal', 5, {
+            powerSocaDistro: { 1: 'dl' },
+            powerSocaPhasePos: { 1: STORED_HERE },
+        });
+        const distros = [ph.box('dl', 'SL')];
+        return ph.withProject({ layers: [S], distros }, () => ({
+            labels: ph.labelsOf(S),
+            tails: ph.planOf(S)[0].legs,
+        }));
+    }""".replace('STORED_HERE', str(STORED)))
+    assert out['tails'] == DISPLAYED
+    assert out['labels'] == ['SL1-1', 'SL1-2', 'SL1-3', 'SL1-5', 'SL1-6'], (
+        f"the distro name and the true tails did not survive together: "
+        f"{out['labels']}")
+    assert out['labels'][1:4] == ['SL1-2', 'SL1-3', 'SL1-5'], \
+        'the middle three name their tails, not a renumbered 1, 2, 3'
+
+
+def test_the_wall_the_sidebar_and_the_plan_all_read_the_same_names(page):
+    """One authority, four surfaces. A wall on two distros named SL and SR:
+    the canvas bubbles, the label editor's placeholders, the splitter rows
+    and the soca plan's leg labels all print exactly the same strings."""
+    out = page.evaluate("""() => {
+        const ph = window.__ph;
+        const app = window.app, cr = window.canvasRenderer;
+        const texts = [];
+        const orig = CanvasRenderingContext2D.prototype.fillText;
+        const savedLayer = app.currentLayer;
+        try {
+            CanvasRenderingContext2D.prototype.fillText = function (t, ...a) {
+                texts.push(String(t));
+                return orig.call(this, t, ...a);
+            };
+            const S = ph.col5(23, 'Wall', 8, {
+                powerSocaDistro: { 1: 'dl', 2: 'dr' },
+                powerSplitters: { enabled: true, maxWays: 2,
+                                  manual: { merge: [], split: [] } },
+            });
+            const distros = [ph.box('dl', 'SL'), ph.box('dr', 'SR')];
+            return ph.withProject({ layers: [S], distros }, () => {
+                app.currentLayer = S;
+                S._powerCircuitsRequired = app.screenCircuitCount(S);
+                app.refreshSplitterPanel();
+                app.updatePowerLabelEditor();
+                cr.renderPowerArrows(S);
+                const txt = e => e.textContent.replace(/\\s+/g, ' ').trim();
+                return {
+                    authority: ph.labelsOf(S),
+                    planLegs: app.getSocaPlan(S).flatMap(
+                        s => s.legs.map(l => l.label)),
+                    canvas: texts.splice(0),
+                    editor: [...document.querySelectorAll(
+                        '#power-label-list input[type=text]')]
+                        .map(i => i.placeholder),
+                    splitterRows: [...document.querySelectorAll(
+                            '#power-splitters .splitter-circuit-row label')]
+                        .map(l => txt(l).split(' \\u00b7 ')[0]),
+                    socaRows: [...document.querySelectorAll(
+                            '#power-soca-runs label')]
+                        .map(txt).filter(t => t && / legs? /.test(t)),
+                };
+            });
+        } finally {
+            CanvasRenderingContext2D.prototype.fillText = orig;
+            app.currentLayer = savedLayer;
+        }
+    }""")
+    expected = ['SL1-1', 'SL1-2', 'SL1-3', 'SL1-4', 'SL1-5', 'SL1-6',
+                'SR1-1', 'SR1-2']
+    assert out['authority'] == expected, (
+        f"two multis on two named distros: {out['authority']}")
+    assert out['planLegs'] == expected, 'the soca plan disagrees with the wall'
+    assert [t for t in out['canvas'] if t in expected] == expected, (
+        f"the canvas bubbles do not read the authority: {out['canvas']}")
+    assert out['editor'] == expected, 'the label editor disagrees with the wall'
+    assert out['splitterRows'] == expected, \
+        'the splitter rows disagree with the wall'
+
+
+def test_a_multi_that_moves_distro_takes_the_new_distros_name(page):
+    """The assignment select is a naming control as much as a load one: move
+    the multi and its circuits are renamed by the box they now hang off."""
+    out = page.evaluate("""() => {
+        const ph = window.__ph;
+        const S = ph.col5(24, 'Move', 3, { powerSocaDistro: { 1: 'dl' } });
+        const distros = [ph.box('dl', 'SL'), ph.box('dr', 'SR')];
+        return ph.withProject({ layers: [S], distros }, () => {
+            const saved = window.app.updateLayers;
+            window.app.updateLayers = () => {};
+            try {
+                const before = ph.labelsOf(S);
+                window.app.setSocaDistro(S, 1, 'dr');
+                return { before, after: ph.labelsOf(S) };
+            } finally { window.app.updateLayers = saved; }
+        });
+    }""")
+    assert out['before'] == ['SL1-1', 'SL1-2', 'SL1-3']
+    assert out['after'] == ['SR1-1', 'SR1-2', 'SR1-3']

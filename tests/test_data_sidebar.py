@@ -348,10 +348,23 @@ PORT_LABEL_IDS = [
     'port-label-list',
 ]
 
-# The three hosts app-power.js builds into. They were MOVED, not copied: a
-# second element with one of these ids would split document.getElementById
-# from the focus-restore lookup and break editing without failing anything.
-POWER_HOST_IDS = ['power-soca-runs', 'power-splitters', 'power-distros']
+# The three hosts app-power.js builds into, plus the circuit label editor
+# that joined them: naming a circuit now starts at the distro and runs down
+# through the multi, so the whole chain reads in one panel.
+#
+# They were MOVED, not copied: a second element with one of these ids would
+# split document.getElementById from the focus-restore lookup and break
+# editing without failing anything. Two circuit-label editors bound to one set
+# of data-lrd-field keys is the sharper version of the same bug - they would
+# fight over the focus restore, and you would type into one while the other
+# held the state.
+POWER_HOST_IDS = [
+    'power-soca-runs', 'power-splitters', 'power-distros',
+    'power-label-template', 'power-label-bulk',
+    'power-label-apply-selected', 'power-label-clear-selected',
+    'power-label-select-all', 'power-label-deselect-all',
+    'power-label-list',
+]
 
 MOVED = ([('data', element_id) for element_id in PORT_LABEL_IDS]
          + [('power', element_id) for element_id in POWER_HOST_IDS])
@@ -398,22 +411,38 @@ def test_the_power_hosts_build_their_rows_inside_the_power_panel(page):
         """() => {
             const inside = (host) => document.querySelectorAll(
                 '#power-sidebar #' + host + ' *').length;
+            window.app.updatePowerLabelEditor();
             return {
                 soca: inside('power-soca-runs'),
                 splitters: inside('power-splitters'),
                 distros: inside('power-distros'),
+                labels: inside('power-label-list'),
                 fields: [...document.querySelectorAll(
                     '#power-sidebar [data-lrd-field]')].map(
+                        el => el.dataset.lrdField),
+                leftFields: [...document.querySelectorAll(
+                    '#left-sidebar [data-lrd-field]')].map(
                         el => el.dataset.lrdField),
             };
         }""")
     assert built['soca'] > 0, f"the soca host built nothing: {built}"
     assert built['splitters'] > 0, f"the splitter host built nothing: {built}"
     assert built['distros'] > 0, f"the distro host built nothing: {built}"
+    assert built['labels'] > 0, f"the circuit label editor built nothing: {built}"
     assert 'power-distro-add' in built['fields'], (
         f"the distro controls are not in the Power panel: {built['fields']}")
     assert any(f.startswith('power-soca-length-') for f in built['fields']), (
         f"no soca length field in the Power panel: {built['fields']}")
+    assert any(f.startswith('power-soca-name-') for f in built['fields']), (
+        f"no multi name field in the Power panel: {built['fields']}")
+    assert any(f.startswith('power-label-') for f in built['fields']), (
+        f"no circuit label field in the Power panel: {built['fields']}")
+    # The rows too, not just the markup they build into: a copy of the editor
+    # left behind in the left sidebar would answer to the same
+    # data-lrd-field keys and fight this one for the focus restore.
+    assert not [f for f in built['leftFields'] if f.startswith('power-label-')], (
+        f"a circuit label editor is still building in the left sidebar: "
+        f"{built['leftFields']}")
 
 
 # ── the distro list is project-level and blanks itself for nothing ────────

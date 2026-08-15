@@ -1115,31 +1115,17 @@
                             </div>
                         </div>
 
-                        <div style="margin-bottom: 12px;">
-                            <label style="font-weight: 600; margin-bottom: 8px; display: block;">Circuit Labels</label>
-                            <div style="display: grid; grid-template-columns: 1fr; gap: 6px; margin-bottom: 8px;">
-                                <div>
-                                    <label style="font-size: 11px; color: #888;">Template</label>
-                                    <input type="text" id="power-label-template" value="S1-#" style="width: 100%; padding: 6px; background: #111; border: 1px solid #333; color: #fff; border-radius: 4px; font-family: monospace;">
-                                </div>
-                            </div>
-                            <div style="display: grid; grid-template-columns: 1fr; gap: 6px; align-items: end; margin-bottom: 6px;">
-                                <div>
-                                    <label style="font-size: 11px; color: #888;">Apply Style</label>
-                                    <input type="text" id="power-label-bulk" placeholder="S1-#" style="width: 100%; padding: 6px; background: #111; border: 1px solid #333; color: #fff; border-radius: 4px; font-family: monospace;">
-                                </div>
-                            </div>
-                            <div style="display: flex; gap: 6px; margin-bottom: 8px;">
-                                <button id="power-label-apply-selected" class="btn" style="flex: 1; padding: 6px 10px;">Apply</button>
-                                <button id="power-label-clear-selected" class="btn" style="flex: 1; padding: 6px 10px; background: #333;">Clear</button>
-                            </div>
-                            <div style="display: flex; gap: 6px; margin-bottom: 8px;">
-                                <button id="power-label-select-all" class="btn" style="flex: 1; padding: 6px 10px; background: #222;">Select All</button>
-                                <button id="power-label-deselect-all" class="btn" style="flex: 1; padding: 6px 10px; background: #222;">Deselect All</button>
-                            </div>
-                            <div id="power-label-list" style="display: grid; gap: 6px; max-height: 160px; overflow: auto; padding: 6px; background: #111; border: 1px solid #333; border-radius: 4px;"></div>
-                            <p style="font-size: 11px; color: #888; margin: 6px 0 0;">Use # for circuit number. Overrides apply per circuit.</p>
-                        </div>
+                        <!-- The Circuit Labels block used to sit here. It moved
+                             into the Power panel (#power-sidebar below) to join
+                             the two things that now NAME a circuit - the distro
+                             and the multi - so the naming chain reads in one
+                             place. Nothing was copied: two editors bound to one
+                             set of data-lrd-field keys would fight over the
+                             focus restore, and you would type into one while
+                             the other held the state. What stayed here is the
+                             per-screen electrical setup - voltage, amperage,
+                             watts per panel, flow pattern, circuit colours -
+                             which names nothing. -->
 
                         <hr style="border: none; border-top: 1px solid #3a3a3a; margin: 12px 0;">
 
@@ -1660,6 +1646,38 @@
                         <div id="power-soca-runs" style="margin-bottom: 12px;"></div>
                         <div id="power-splitters" style="margin-bottom: 12px;"></div>
                         <div id="power-distros" style="margin-bottom: 12px;"></div>
+
+                        <!-- Circuit Labels, moved whole out of the left
+                             sidebar. It reads LAST because it is the result of
+                             the two blocks above it: a multi takes its name
+                             from its distro, and a circuit takes its name from
+                             its multi. Only the naming came - the electrical
+                             setup stayed in the left sidebar. -->
+                        <div style="margin-bottom: 12px;">
+                            <label style="font-weight: 600; margin-bottom: 8px; display: block;" data-tooltip="Circuit labels, What each circuit is called. A label typed here is the user's text and never changes. Left blank, a circuit is named by its multi — which is named by its distro, or by the template below.">Circuit Labels</label>
+                            <div style="display: grid; grid-template-columns: 1fr; gap: 6px; margin-bottom: 8px;">
+                                <div>
+                                    <label style="font-size: 11px; color: #888;">Template</label>
+                                    <input type="text" id="power-label-template" value="S1-#" style="width: 100%; padding: 6px; background: #111; border: 1px solid #333; color: #fff; border-radius: 4px; font-family: monospace;">
+                                </div>
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr; gap: 6px; align-items: end; margin-bottom: 6px;">
+                                <div>
+                                    <label style="font-size: 11px; color: #888;">Apply Style</label>
+                                    <input type="text" id="power-label-bulk" placeholder="S1-#" style="width: 100%; padding: 6px; background: #111; border: 1px solid #333; color: #fff; border-radius: 4px; font-family: monospace;">
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 6px; margin-bottom: 8px;">
+                                <button id="power-label-apply-selected" class="btn" style="flex: 1; padding: 6px 10px;">Apply</button>
+                                <button id="power-label-clear-selected" class="btn" style="flex: 1; padding: 6px 10px; background: #333;">Clear</button>
+                            </div>
+                            <div style="display: flex; gap: 6px; margin-bottom: 8px;">
+                                <button id="power-label-select-all" class="btn" style="flex: 1; padding: 6px 10px; background: #222;">Select All</button>
+                                <button id="power-label-deselect-all" class="btn" style="flex: 1; padding: 6px 10px; background: #222;">Deselect All</button>
+                            </div>
+                            <div id="power-label-list" style="display: grid; gap: 6px; max-height: 160px; overflow: auto; padding: 6px; background: #111; border: 1px solid #333; border-radius: 4px;"></div>
+                            <p style="font-size: 11px; color: #888; margin: 6px 0 0;">Use # for circuit number. Overrides apply per circuit.</p>
+                        </div>
                     </div>
                 </div>
             </div>

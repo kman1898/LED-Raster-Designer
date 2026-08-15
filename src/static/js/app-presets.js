@@ -1561,6 +1561,10 @@ class _Presets {
         layer.powerLabelTextColor = '#000000';
         layer.powerLabelTemplate = 'S1-#';
         layer.powerLabelOverrides = {};
+        layer.powerSocaNames = {};
+        // Born keyed by the multi's stable index, so the one-time rekey never
+        // runs over a screen that was already built the new way.
+        layer.powerSocaKeying = 'index';
         layer.powerCustomPaths = {};   // same reason as customPortPaths above
         layer.powerCustomIndex = 1;
         layer.border_color_pixel = layer.border_color || prefs.borderColor;

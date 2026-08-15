@@ -1188,6 +1188,8 @@ class _ScreenInfo {
                     powerSocaPhaseOffset: this.currentLayer.powerSocaPhaseOffset,
                     powerSocaPhasePos: this.currentLayer.powerSocaPhasePos,
                     powerSocaDistro: this.currentLayer.powerSocaDistro,
+                    powerSocaNames: this.currentLayer.powerSocaNames,
+                    powerSocaKeying: this.currentLayer.powerSocaKeying,
                     powerBreakoutType: this.currentLayer.powerBreakoutType,
                     showSocaBrackets: this.currentLayer.showSocaBrackets,
                     powerSplitters: this.currentLayer.powerSplitters,
@@ -1334,7 +1336,11 @@ class _ScreenInfo {
                 // or the power map loses its home runs.
                 'powerSocaLengths', 'powerSocaPhaseOffset',
                 'powerSocaPhasePos', 'powerSocaDistro', 'powerBreakoutType',
-                'showSocaBrackets', 'powerSplitters'
+                'showSocaBrackets', 'powerSplitters',
+                // The names typed onto multis, and the stamp saying the
+                // stores above are keyed by the multi's stable index. Drop
+                // the stamp here and the rekey runs a second time on reload.
+                'powerSocaNames', 'powerSocaKeying'
             ];
 
             return fetch(`/api/layer/${layer.id}`, {

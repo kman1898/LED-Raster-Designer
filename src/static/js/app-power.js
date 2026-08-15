@@ -533,12 +533,15 @@ class _Power {
         if (!circuits.length) return [];
         const panelWatts = parseFloat(layer.panelWatts) || 0;
         const voltage = parseFloat(layer.powerVoltage) || 0;
-        const m = String(layer.powerLabelTemplate || 'S1-#').match(/^(.*?)(\d+)([^#\d]*)#(.*)$/);
-        const startMulti = m ? parseInt(m[2], 10) || 1 : 1;
-        const prefix = m ? (m[1] || 'S') : 'S';
+        // `soca` is the multi's STABLE INDEX within this screen, which is what
+        // the per-multi stores are keyed by; `number` and `name` come off the
+        // show-wide naming index, where numbering runs per distro. The two
+        // were the same thing while a multi's number came from the screen's
+        // own template - see _powerNaming for why they cannot be.
+        const nm = this._powerNaming(layer);
         const socas = new Map();
         circuits.forEach((c, ci) => {
-            const n = startMulti + Math.floor(ci / 6);
+            const n = Math.floor(ci / 6) + 1;
             const leg = (ci % 6) + 1;
             // A cross-member circuit carries cabinets from a PEER layer, and
             // those cabinets draw the peer's wattage, not the owner's -
@@ -554,7 +557,14 @@ class _Power {
                     ? (parseFloat(src.panelWatts) || 0) : panelWatts;
                 return s + w * this.getPanelLoadFactor(src || layer, p);
             }, 0);
-            const s = socas.get(n) || { soca: n, name: prefix + n, legs: [], watts: 0, x1: Infinity, x2: -Infinity };
+            const info = nm.socas.get(n);
+            const s = socas.get(n) || {
+                soca: n,
+                number: info ? info.number : n,
+                name: (info && info.name) || `${nm.tpl.prefix || 'S'}${n}`,
+                distroId: (info && info.distroId) || null,
+                legs: [], watts: 0, x1: Infinity, x2: -Infinity
+            };
             // per-leg x extent so the power map can tick each leg to the
             // columns it feeds (Binder convention)
             let lx1 = Infinity, lx2 = -Infinity;
@@ -664,6 +674,9 @@ class _Power {
             phase: Number(opts.phase) === 1 ? 1 : 3
         };
         list.push(d);
+        // Adding a distro adds a bucket the numbering runs over, and its name
+        // is what the multis landing on it will be called.
+        this._circuitTailCache = null;
         this._persistDistros();
         return d;
     }
@@ -679,6 +692,10 @@ class _Power {
         // Where the box physically sits - the dimmer beach, stage left
         // world. Prints on every power label that names this distro.
         if (patch.location !== undefined) d.location = String(patch.location).trim() || null;
+        // The NAME is a label input: every multi following this distro is
+        // renamed by it, and so is every circuit hanging off those multis.
+        // (Location is not - it is descriptive and names nothing.)
+        this._circuitTailCache = null;
         this._persistDistros();
         return d;
     }
@@ -698,14 +715,39 @@ class _Power {
             if (changed) touched.push(layer);
         }
         if (touched.length) this.updateLayers(touched);
+        // The orphaned multis fall back into the unassigned bucket, which
+        // renumbers it and everything after it.
+        this._circuitTailCache = null;
         this._persistDistros();
         return true;
     }
 
-    setSocaDistro(layer, socaNum, distroId) {
+    // `socaIndex` is the multi's stable index within its screen, never its
+    // displayed number - the number is what this call CHANGES, since it comes
+    // out of the distro's own sequence.
+    setSocaDistro(layer, socaIndex, distroId) {
         if (!layer) return;
         const map = layer.powerSocaDistro || (layer.powerSocaDistro = {});
-        if (distroId) map[socaNum] = distroId; else delete map[socaNum];
+        if (distroId) map[socaIndex] = distroId; else delete map[socaIndex];
+        // Assignment renumbers both buckets it touches, so every label on the
+        // show can move. Stale labels for a frame is a bug this has already
+        // been bitten by once.
+        this._circuitTailCache = null;
+        this.updateLayers([layer]);
+    }
+
+    // A multi named by hand. Per-MULTI, so unlike the bracket toggle and the
+    // breakout type it never sweeps the selection (_socaPanelTargets): a name
+    // belongs to one multi on one screen. Blank hands it back to the distro.
+    setSocaName(layer, socaIndex, name) {
+        if (!layer) return;
+        // Always leave an object behind, never delete the property: an absent
+        // key is simply missing from the update payload and the server keeps
+        // whatever it had, so "clear this" would silently not clear.
+        const store = layer.powerSocaNames || (layer.powerSocaNames = {});
+        const v = String(name || '').trim();
+        if (v) store[socaIndex] = v; else delete store[socaIndex];
+        this._circuitTailCache = null;
         this.updateLayers([layer]);
     }
 
@@ -1403,11 +1445,13 @@ class _Power {
         return out;
     }
 
-    setSocaLength(layer, socaNum, length) {
+    // Keyed by the multi's stable index, like every other per-multi store, so
+    // a home run stays with its multi when the distro renumbers it.
+    setSocaLength(layer, socaIndex, length) {
         if (!layer) return;
         const store = layer.powerSocaLengths || (layer.powerSocaLengths = {});
         const v = String(length || '').trim();
-        if (v) store[socaNum] = v; else delete store[socaNum];
+        if (v) store[socaIndex] = v; else delete store[socaIndex];
         this.updateLayers([layer]);
     }
 
@@ -1552,20 +1596,18 @@ class _Power {
         const add = host.querySelector('#power-distro-add');
         if (add) add.addEventListener('click', () => {
             this.addDistro();
-            this.refreshDistroPanel();
-            this.refreshSocaRuns();
+            this._restateNaming();
         });
         const bal = host.querySelector('#power-distro-balance');
         if (bal) bal.addEventListener('click', () => this.showBalanceDialog());
         host.querySelectorAll('.power-distro-row').forEach(row => {
             const id = row.dataset.id;
             if (!id) return;
-            // The restate is deferred, not inline: patch() fires from the
-            // rows' own change handlers, mid-Tab, and an inline wipe would
-            // destroy the field Tab is moving into (see _rebuildAfterGesture).
+            // patch() fires from the rows' own change handlers, mid-Tab.
+            // _restateNaming defers the panel wipes for exactly that reason.
             const patch = (p) => {
                 this.updateDistro(id, p);
-                this._rebuildAfterGesture(() => { this.refreshDistroPanel(); this.refreshSocaRuns(); });
+                this._restateNaming();
             };
             const nameEl = row.querySelector('.distro-name');
             if (nameEl) nameEl.addEventListener('change', () => patch({ name: nameEl.value }));
@@ -1584,9 +1626,31 @@ class _Power {
             const del = row.querySelector('.distro-del');
             if (del) del.addEventListener('click', () => {
                 this.removeDistro(id);
-                this.refreshDistroPanel();
-                this.refreshSocaRuns();
+                this._restateNaming();
             });
+        });
+    }
+
+    // Every surface a name reaches, restated together.
+    //
+    // Renaming a distro or a multi, or landing a multi on a distro, renumbers
+    // or renames circuits across the WHOLE show. Redrawing the panel that was
+    // clicked and leaving the wall behind would put two different answers on
+    // screen at once, so the prepared index is dropped and everything that
+    // reads it is rebuilt from one place.
+    //
+    // The wall redraws immediately; the PANELS wait a macrotask. Every caller
+    // here fires from a field's own `change` handler, which runs mid-Tab, and
+    // a synchronous wipe destroys the field the gesture is landing in - see
+    // _rebuildAfterGesture.
+    _restateNaming() {
+        this._circuitTailCache = null;
+        if (window.canvasRenderer) window.canvasRenderer.render();
+        this._rebuildAfterGesture(() => {
+            this.refreshSocaRuns();
+            this.refreshSplitterPanel();
+            this.refreshDistroPanel();
+            this.updatePowerLabelEditor && this.updatePowerLabelEditor();
         });
     }
 
@@ -1605,22 +1669,34 @@ class _Power {
         const breakout = this.getPowerBreakout(layer);
         host.innerHTML = `
             <label style="font-weight: 600; margin-bottom: 6px; display: block;" data-tooltip="Soca / multi home runs, Each Soca (multi) feeds up to 6 circuits. Set the home-run cable length per multi - it flows into the gear checklist and report.">Soca / Multi Home Runs</label>
-            <div class="info-row" style="align-items:center;" data-tooltip="Breakout, How the multi terminates: True1 or powerCON breakouts feed panels directly (the 6-channel default), Edison is the 110V option, L6-20 adds L6-20-to-panel tails per circuit. Drives the gear checklist.">
+            <!-- Wraps for the same reason the distro rows do: a fixed 150px
+                 select does not fit the ~119px column the panel offers at its
+                 180px minimum, and the sidebar's overflow-x:hidden was simply
+                 cutting the option text off. -->
+            <div class="info-row" style="display:flex; flex-wrap:wrap; align-items:center; gap:5px;" data-tooltip="Breakout, How the multi terminates: True1 or powerCON breakouts feed panels directly (the 6-channel default), Edison is the 110V option, L6-20 adds L6-20-to-panel tails per circuit. Drives the gear checklist.">
                 <label style="font-weight:400;">Breakout</label>
-                <select id="power-breakout-type" data-lrd-field="power-breakout-type" class="info-select" style="width: 150px;">
+                <select id="power-breakout-type" data-lrd-field="power-breakout-type" class="info-select" style="flex:1 1 110px; min-width:0; max-width:150px;">
                     ${this.getPowerBreakoutTypes().map(t => `<option value="${t.id}" ${breakout.id === t.id ? 'selected' : ''}>${t.name}</option>`).join('')}
                 </select>
             </div>
             ${plan.map(s => {
                 const assigned = (layer.powerSocaDistro || {})[s.soca] || '';
+                const esc = (t) => this._esc ? this._esc(t) : t;
+                const hand = ((layer.powerSocaNames || {})[s.soca] || '');
+                // Three fields on one line has never fitted the 180px clamp,
+                // so the heading takes its own line and the fields wrap under
+                // it - the same treatment the distro rows got.
                 return `
-                <div class="info-row" style="align-items:center;">
-                    <label style="font-weight:400;">${this._esc ? this._esc(s.name) : s.name} · ${s.legs.length} leg${s.legs.length === 1 ? '' : 's'} · ${s.amps.toFixed(1)} A</label>
-                    <select class="power-soca-distro info-select" data-soca="${s.soca}" data-lrd-field="power-soca-distro-${s.soca}" style="width:96px;" data-tooltip="Distro, Which power source this multi lands on. Load rolls up per distro across every screen.">
-                        <option value="">— distro —</option>
-                        ${this.getDistros().map(d => `<option value="${d.id}" ${assigned === d.id ? 'selected' : ''}>${this._esc ? this._esc(d.name) : d.name}</option>`).join('')}
-                    </select>
-                    <input type="text" class="power-soca-length" data-soca="${s.soca}" data-lrd-field="power-soca-length-${s.soca}" value="${(s.length || '').replace(/"/g, '&quot;')}" placeholder="e.g. 100ft" style="width: 74px;">
+                <div class="power-soca-row" style="margin-bottom:8px;">
+                    <label style="font-weight:400; display:block; margin-bottom:3px;">${esc(s.name)} · ${s.legs.length} leg${s.legs.length === 1 ? '' : 's'} · ${s.amps.toFixed(1)} A</label>
+                    <div style="display:flex; flex-wrap:wrap; gap:5px; align-items:center;">
+                        <input type="text" class="power-soca-name" data-soca="${s.soca}" data-lrd-field="power-soca-name-${s.soca}" value="${esc(hand).replace(/"/g, '&quot;')}" placeholder="${esc(s.name).replace(/"/g, '&quot;')}" style="flex:1 1 70px; min-width:0;" data-tooltip="Multi name, Name this multi by hand. Leave it blank and it follows its distro — multis on a distro named SL are SL1, SL2 — so renaming the distro renames them all. A name typed here stops following.">
+                        <select class="power-soca-distro info-select" data-soca="${s.soca}" data-lrd-field="power-soca-distro-${s.soca}" style="flex:1 1 90px; min-width:0;" data-tooltip="Distro, Which power source this multi lands on. Load rolls up per distro across every screen, and the multi takes its number from that distro.">
+                            <option value="">— distro —</option>
+                            ${this.getDistros().map(d => `<option value="${d.id}" ${assigned === d.id ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}
+                        </select>
+                        <input type="text" class="power-soca-length" data-soca="${s.soca}" data-lrd-field="power-soca-length-${s.soca}" value="${(s.length || '').replace(/"/g, '&quot;')}" placeholder="e.g. 100ft" style="flex:1 1 70px; min-width:0;">
+                    </div>
                 </div>`; }).join('')}
             <div class="info-row checkbox-row" data-tooltip="Soca Brackets, Draw a bracket over each multi's span on the power map with its name and home-run length.">
                 <input type="checkbox" id="show-soca-brackets" data-lrd-field="show-soca-brackets" ${layer.showSocaBrackets !== false ? 'checked' : ''}>
@@ -1631,15 +1707,21 @@ class _Power {
                 this.setSocaLength(layer, Number(inp.dataset.soca), inp.value);
             });
         });
+        host.querySelectorAll('.power-soca-name').forEach(inp => {
+            inp.addEventListener('change', () => {
+                this.setSocaName(layer, Number(inp.dataset.soca), inp.value);
+                this._restateNaming();
+            });
+        });
         host.querySelectorAll('.power-soca-distro').forEach(sel => {
             sel.addEventListener('change', () => {
                 this.setSocaDistro(layer, Number(sel.dataset.soca), sel.value || null);
                 // The distro panel is still the next host after this one -
                 // soca, splitters, distros kept their order when they moved
                 // into the Power panel - so tabbing on from a soca row walks
-                // into the very thing this would wipe. Defer past the gesture
-                // (see _rebuildAfterGesture).
-                this._rebuildAfterGesture(() => this.refreshDistroPanel());
+                // into the very thing this would wipe. _restateNaming defers
+                // past the gesture for it.
+                this._restateNaming();
             });
         });
         const sel = host.querySelector('#power-breakout-type');
@@ -2144,78 +2226,207 @@ class _Power {
         return template.replace('#', portNum);
     }
 
+    // The template broken into the parts a label is built from:
+    // <prefix><number><separator>#<suffix>, e.g. S1-#, S2-#, MULTI3-#.
+    // `ok` is false for a template with no multi number in it at all (C#),
+    // which has no multi concept to name and falls back to the raw replace.
+    _powerTemplateParts(layer) {
+        const raw = String((layer && layer.powerLabelTemplate) || 'S1-#');
+        const m = raw.match(/^(.*?)(\d+)([^#\d]*)#(.*)$/);
+        if (!m) return { ok: false, raw, prefix: '', start: 1, sep: '-', suffix: '' };
+        return {
+            ok: true, raw,
+            prefix: m[1], start: parseInt(m[2], 10) || 1,
+            sep: m[3], suffix: m[4],
+        };
+    }
+
+    // Old projects keyed the per-multi stores - lengths, tail positions,
+    // breaker offsets, distro assignments - by the number the SCREEN's own
+    // template produced, so `S3-#` stored its multis under 3, 4, 5. That was
+    // only safe while the number WAS the identity. It is not any more: a
+    // multi's number now comes from the distro it lands on, so keying by it
+    // would orphan a multi's length and its tails the moment it was assigned.
+    //
+    // The stable identity is (layer, socaIndex) - the 1-based ordinal of the
+    // multi inside its own screen's circuit plan - exactly as a port is
+    // identified by (layerId, index) on the Data tab. The shift back to it is
+    // the template's own start digit minus one, which is zero for every
+    // project on the default `S1-#`.
+    _socaKeyShift(layer) {
+        return Math.max(0, this._powerTemplateParts(layer).start - 1);
+    }
+
+    // Rekey one layer's per-multi stores onto the stable index, once.
+    //
+    // The stamp is what makes it once: it rides on the layer through every
+    // save path, so a project that has already been rekeyed is never shifted a
+    // second time - which on an `S3-#` screen would walk its keys down past 1
+    // and delete them.
+    migrateSocaKeying(layer) {
+        if (!layer || layer.powerSocaKeying === 'index') return false;
+        layer.powerSocaKeying = 'index';
+        const shift = this._socaKeyShift(layer);
+        if (!shift) return false;
+        let changed = false;
+        for (const field of ['powerSocaDistro', 'powerSocaLengths',
+                             'powerSocaPhasePos', 'powerSocaPhaseOffset',
+                             'powerSocaNames']) {
+            const map = layer[field];
+            if (!map || typeof map !== 'object') continue;
+            const next = {};
+            for (const key of Object.keys(map)) {
+                const n = parseInt(key, 10);
+                // Not a multi number, so not ours to move. Carried across
+                // rather than dropped: this pass rewrites the store, and
+                // anything it did not understand still has to survive it.
+                if (!Number.isFinite(n)) { next[key] = map[key]; continue; }
+                const idx = n - shift;
+                if (idx >= 1) next[idx] = map[key];
+            }
+            layer[field] = next;
+            changed = true;
+        }
+        return changed;
+    }
+
+    // What a multi is CALLED, and which physical tail of its 6-way fan each
+    // circuit lands on - for the whole show, prepared once.
+    //
+    // It is show-wide because a multi's number is: numbering runs per distro,
+    // over every screen, in layer-list order BOTTOM UP - which is project
+    // layer order, the same order the Data tab hands out card ports
+    // (_assignmentScreens: "project layer order, untouched"). Numbering per
+    // screen is what let two screens both own an S1.
+    //
+    // THE NAME LADDER, top wins, mirroring manual -> CVT -> card -> processor
+    // on the Data tab:
+    //   1. an explicit powerLabelOverrides entry - handled by the label
+    //      authority itself, because that names one CIRCUIT, not a multi
+    //   2. the multi's own name, if somebody typed one
+    //   3. the distro's name plus the multi's number under it: two multis on
+    //      a distro named SL are SL1 and SL2, so their circuits read SL1-1..6
+    //   4. the screen's powerLabelTemplate prefix plus the number - the
+    //      fallback for a multi on no distro
+    //
+    // Cached by layer object for the current render burst and dropped on the
+    // next microtask: getPowerCircuitLabel runs for every circuit of every
+    // screen on every frame, so it must never walk the show itself.
+    _powerNaming(layer) {
+        if (!this._circuitTailCache) {
+            this._circuitTailCache = new Map();
+            Promise.resolve().then(() => { this._circuitTailCache = null; });
+        }
+        let entry = this._circuitTailCache.get(layer);
+        if (entry) return entry;
+        // A miss rebuilds the WHOLE show, not this layer: one screen's numbers
+        // depend on every screen before it, so there is no such thing as
+        // naming one of them on its own.
+        const seq = new Map();          // distro id ('' = unassigned) -> issued
+        for (const l of ((this.project && this.project.layers) || [])) {
+            if ((l.type || 'screen') !== 'screen') continue;
+            this._circuitTailCache.set(l, this._namingFor(l, seq));
+        }
+        entry = this._circuitTailCache.get(layer);
+        if (!entry) {
+            // A screen no project holds - a preset preview, a paste in
+            // flight. Number it on its own rather than leave it nameless.
+            entry = this._namingFor(layer, new Map());
+            this._circuitTailCache.set(layer, entry);
+        }
+        return entry;
+    }
+
+    // One screen's share of the naming index, taking its numbers from the
+    // running per-distro sequence the caller carries across screens.
+    _namingFor(layer, seq) {
+        const tpl = this._powerTemplateParts(layer);
+        const socas = new Map();        // socaIndex -> {number, name, ...}
+        const slots = new Map();        // circuit num -> {multi, tail, moved}
+        if (!layer || typeof this.screenCircuits !== 'function') {
+            return { socas, slots, tpl };
+        }
+        const circuits = this.screenCircuits(layer) || [];
+        const assign = layer.powerSocaDistro || {};
+        const named = layer.powerSocaNames || {};
+        const distros = this.getDistros();
+        const perSoca = new Map();      // socaIndex -> [circuit num], plan order
+        circuits.forEach((c, ci) => {
+            const idx = Math.floor(ci / 6) + 1;
+            const arr = perSoca.get(idx) || [];
+            arr.push(c.num);
+            perSoca.set(idx, arr);
+        });
+        for (const [idx, nums] of perSoca) {
+            const distroId = assign[idx] || null;
+            // An unassigned multi still gets a number, out of its own bucket -
+            // the same one getDistroLoads books its watts to - so nothing on
+            // the drawing goes blank waiting for a distro.
+            const bucket = distroId || '';
+            const number = (seq.get(bucket) || 0) + 1;
+            seq.set(bucket, number);
+            const distro = distroId ? distros.find(d => d.id === distroId) : null;
+            const hand = String(named[idx] || '').trim();
+            const name = hand
+                || (distro && String(distro.name || '').trim()
+                    ? `${String(distro.name).trim()}${number}` : '')
+                || (tpl.ok ? `${tpl.prefix}${number}` : '');
+            const pos = this.socaCircuitPositions(layer, idx, nums.length);
+            const moved = !pos.every((p, i) => p === i + 1);
+            socas.set(idx, {
+                index: idx, number, name, distroId, hand: !!hand,
+                circuits: nums.slice(), positions: pos, moved,
+            });
+            nums.forEach((num, i) => slots.set(num, {
+                multi: idx, number, name, tail: pos[i], moved,
+            }));
+        }
+        return { socas, slots, tpl };
+    }
+
     // Which multi and which PHYSICAL TAIL of its 6-way fan a circuit lands
     // on, resolved through the soca plan (screenCircuits order) and the
     // per-circuit fan positions (phase balancing / breaker offset).
     //
     // `moved` is per-soca: true only when that soca's circuits sit on
-    // non-natural positions. The label authority below uses the slot ONLY
-    // then, so screens nobody balanced keep their labels byte-identical -
-    // including custom-drawn screens with gaps in the numbering, where the
-    // drawn number is user intent.
-    //
-    // Cached for the current render burst: one screenCircuits walk per layer,
-    // cleared on the next microtask, so a canvas full of labels does not
-    // rebuild the plan per bubble.
+    // non-natural positions. The label editor's number column uses it to show
+    // the true tail instead of the row's own ordinal.
     _circuitTailSlot(layer, circuitNum) {
-        if (!layer || typeof this.screenCircuits !== 'function') return null;
-        if (!this._circuitTailCache) {
-            this._circuitTailCache = new Map();
-            Promise.resolve().then(() => { this._circuitTailCache = null; });
-        }
-        let slots = this._circuitTailCache.get(layer);
-        if (!slots) {
-            slots = new Map();
-            const tm = String(layer.powerLabelTemplate || 'S1-#')
-                .match(/^(.*?)(\d+)([^#\d]*)#(.*)$/);
-            const startMulti = tm ? parseInt(tm[2], 10) || 1 : 1;
-            const circuits = this.screenCircuits(layer) || [];
-            const perSoca = new Map();   // soca -> [circuit num] in plan order
-            circuits.forEach((c, ci) => {
-                const soca = startMulti + Math.floor(ci / 6);
-                const arr = perSoca.get(soca) || [];
-                arr.push(c.num);
-                perSoca.set(soca, arr);
-            });
-            for (const [soca, nums] of perSoca) {
-                const pos = this.socaCircuitPositions(layer, soca, nums.length);
-                const moved = !pos.every((p, i) => p === i + 1);
-                nums.forEach((num, i) =>
-                    slots.set(num, { multi: soca, tail: pos[i], moved }));
-            }
-            this._circuitTailCache.set(layer, slots);
-        }
-        return slots.get(parseInt(circuitNum, 10)) || null;
+        if (!layer) return null;
+        return this._powerNaming(layer).slots.get(parseInt(circuitNum, 10)) || null;
     }
 
+    // THE ONE PLACE A CIRCUIT'S LABEL IS DECIDED. The canvas bubbles, the soca
+    // panel, the splitter rows, the distro feeds list, the label editor and
+    // every export come through here, so a rule added here reaches all of them
+    // at once - and a second path anywhere else would print one thing on
+    // screen and another on the PDF.
     getPowerCircuitLabel(layer, circuitNum) {
-        const template = layer.powerLabelTemplate || 'S1-#';
         const overrides = layer.powerLabelOverrides || {};
+        // THE USER'S TEXT, AND IT WINS OUTRIGHT. Nothing below ever rewrites
+        // a label somebody typed - drawings already issued keep printing what
+        // they were issued with.
         if (overrides && overrides[circuitNum]) return overrides[circuitNum];
-        // A multi/soca has 6 ports, so labels wrap every 6 circuits and the
-        // soca number in the template increments. Works for any template
-        // shaped like <prefix><number><separator>#, e.g. S1-#, S2-#, MULTI3-#.
-        const m = String(template).match(/^(.*?)(\d+)([^#\d]*)#(.*)$/);
-        if (m) {
-            const prefix = m[1];
-            const startMulti = parseInt(m[2], 10) || 1;
-            const sep = m[3];
-            const suffix = m[4];
-            const n = Math.max(1, parseInt(circuitNum, 10) || 1);
-            // v0.12.0: once phase balancing (or a breaker offset) lands this
-            // soca's circuits on other tails of the fan, the AUTO label names
-            // the TRUE PHYSICAL TAIL - S1-6 for tail 6, gaps allowed. The
-            // tail range is the soca HARDWARE's 6 legs, never the used-leg
-            // count. Explicit overrides above stay the user's text verbatim;
-            // screens on natural positions keep the arithmetic below
-            // byte-identical (the drawn number is user intent).
-            const slot = this._circuitTailSlot(layer, n);
-            if (slot && slot.moved) return `${prefix}${slot.multi}${sep}${slot.tail}${suffix}`;
-            const multi = startMulti + Math.floor((n - 1) / 6);
-            const circuitInMulti = ((n - 1) % 6) + 1;
-            return `${prefix}${multi}${sep}${circuitInMulti}${suffix}`;
+        const nm = this._powerNaming(layer);
+        const tpl = nm.tpl;
+        const slot = nm.slots.get(parseInt(circuitNum, 10));
+        // The multi's name, then the tail it lands on. The tail is the TRUE
+        // PHYSICAL TAIL of the 6-way fan: identical to the sequence position
+        // until phase balancing or a breaker offset moves the multi's circuits
+        // onto other tails, at which point the wall reads S1-1, S1-2, S1-3,
+        // S1-5, S1-6 - the occupied tails ascending in wall order, gaps where
+        // a tail is skipped.
+        if (slot && slot.name) {
+            return `${slot.name}${tpl.sep}${slot.tail}${tpl.suffix}`;
         }
-        return template.replace('#', circuitNum);
+        // A circuit the plan does not hold - an editor row past the drawn
+        // circuits - or a template with no multi number to name. Both keep the
+        // arithmetic they have always had.
+        if (!tpl.ok) return tpl.raw.replace('#', circuitNum);
+        const n = Math.max(1, parseInt(circuitNum, 10) || 1);
+        const multi = tpl.start + Math.floor((n - 1) / 6);
+        const circuitInMulti = ((n - 1) % 6) + 1;
+        return `${tpl.prefix}${multi}${tpl.sep}${circuitInMulti}${tpl.suffix}`;
     }
 
     getDefaultPowerCircuitColors() {
