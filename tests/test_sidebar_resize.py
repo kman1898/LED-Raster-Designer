@@ -48,6 +48,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _restore_server_project(server_project_guard):
+    """Leave the shared server project exactly as this module found it -
+    the distro seeds persist server-side and their cleanup POST can be
+    aborted by the next test's reload (see conftest.server_project_guard)."""
+
+
 # theme.js clamps every panel to this range. Mirrored here deliberately: the
 # numbers are the contract, and a silent change to either end is exactly the
 # regression worth catching.

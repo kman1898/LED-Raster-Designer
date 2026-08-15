@@ -32,6 +32,14 @@ import pytest
 import app as app_module
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _restore_server_project(flask_project_guard):
+    """Leave the shared project globals exactly as this module found them -
+    the `client` fixture rebuilds them per test, so whatever this module's
+    LAST test built is what the live e2e server would serve for the rest of
+    the session (see conftest.flask_project_guard)."""
+
+
 # ── helpers ───────────────────────────────────────────────────────────────
 
 def _add_screen(client, name='S1', columns=4, rows=3, cw=128, ch=128, **extra):

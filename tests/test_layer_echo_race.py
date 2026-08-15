@@ -34,6 +34,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
+
+@pytest.fixture(scope="module", autouse=True)
+def _restore_server_project(server_project_guard):
+    """Leave the shared server project exactly as this module found it
+    (see conftest.server_project_guard)."""
+
 STOPS_FIRST = [{'pos': 0, 'color': '#111111'}, {'pos': 1, 'color': '#222222'}]
 STOPS_SECOND = [{'pos': 0, 'color': '#aabbcc'}, {'pos': 1, 'color': '#ddeeff'}]
 

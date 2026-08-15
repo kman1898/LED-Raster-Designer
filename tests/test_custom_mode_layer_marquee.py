@@ -45,6 +45,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _restore_server_project(server_project_guard):
+    """Leave the shared server project exactly as this module found it
+    (see conftest.server_project_guard)."""
+
+
 @pytest.fixture(scope="module")
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context()

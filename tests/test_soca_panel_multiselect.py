@@ -29,6 +29,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _restore_server_project(server_project_guard):
+    """Leave the shared server project exactly as this module found it -
+    the page fixture below replaces every server layer with SelA/SelB/Solo
+    (see conftest.server_project_guard)."""
+
+
 # Three 4x4 screens of the default 200W cabinet on the default 15A/110V
 # circuit - small enough that each renders a soca plan (and therefore the
 # brackets checkbox). SelA is shown in the panel, SelB rides in the

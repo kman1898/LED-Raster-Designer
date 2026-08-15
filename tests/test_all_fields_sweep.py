@@ -50,6 +50,15 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
+
+@pytest.fixture(scope="module", autouse=True)
+def _restore_server_project(flask_project_guard):
+    """Leave the shared project globals exactly as this module found them.
+    The flask variant on purpose: this module runs its OWN e2e server on
+    another port (below), so conftest's server_project_guard would spin up -
+    and snapshot after - the wrong server. autouse puts the snapshot before
+    this module's server fixture resets the globals."""
+
 TEMPLATE = os.path.join(os.path.dirname(__file__), '..', 'src', 'templates',
                         'index.html')
 

@@ -18,6 +18,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 pw = pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
+
+@pytest.fixture(scope="module", autouse=True)
+def _restore_server_project(server_project_guard):
+    """Leave the shared server project exactly as this module found it.
+    Without this the module ends with group gReal + group_id on two layers,
+    an extra canvas and lowLatency residue on the shared server
+    (see conftest.server_project_guard)."""
+
 SRC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 

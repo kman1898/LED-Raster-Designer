@@ -24,6 +24,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 pw = pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _restore_server_project(server_project_guard):
+    """Leave the shared server project exactly as this module found it -
+    the colour-picker tests persist colours onto the live first layer
+    (see conftest.server_project_guard)."""
+
+
 # Shared session fixtures (one Playwright driver + one live server) live in
 # conftest.py: browser_name, e2e_server, pw_browser.
 

@@ -90,6 +90,63 @@ def e2e_server():
     yield f'http://127.0.0.1:{port}'
 
 
+# ── Inter-suite isolation guards ──────────────────────────────────────────
+# The e2e server is ONE in-process Flask app shared by every browser suite in
+# the session, and the Flask `client` fixture rebuilds the same module-global
+# project. A module that mutates the served project (groups, layers, distros,
+# per-layer fields) and does not put it back poisons every module after it:
+# test_screen_group_totals' regression guard reads the live project and trips
+# on a leftover group_id, and an emptied layer list kills it outright.
+#
+# A module that touches shared state opts in with a module-scoped autouse
+# alias (autouse guarantees the guard is set up before the module's `page`
+# fixture, so its restore runs AFTER context.close() — no in-flight browser
+# write outlives it):
+#
+#     @pytest.fixture(scope="module", autouse=True)
+#     def _guard(server_project_guard):
+#         """Leave the shared server project the way this module found it."""
+#
+# Browser modules use server_project_guard (depends on e2e_server, so the
+# snapshot is taken after the server seeds Screen1). Flask-client-only
+# modules use flask_project_guard, which does not force the live server up.
+# Same idea as test_authority_reconciliation's _restore_server_project, and
+# stronger than an in-page restore PUT (test_power_undo_coverage), which can
+# run before the page's last fire-and-forget write lands.
+
+def _snapshot_project():
+    import copy
+    return copy.deepcopy(app_module.current_project), app_module.next_layer_id
+
+
+def _restore_project(snapshot):
+    app_module.current_project, app_module.next_layer_id = snapshot
+
+
+@pytest.fixture(scope="module")
+def server_project_guard(e2e_server):
+    """Snapshot the live server's project at module start, restore at end."""
+    import time
+    snapshot = _snapshot_project()
+    yield
+    # A page's updateLayers / undo / _persistDistros writes are fire-and-
+    # forget; one can still be in the server's hands right after
+    # context.close(). Let stragglers land, then overwrite them.
+    time.sleep(0.5)
+    _restore_project(snapshot)
+
+
+@pytest.fixture(scope="module")
+def flask_project_guard():
+    """server_project_guard for modules that never open a page. Safe without
+    the e2e_server dependency: if the live server already exists its seeded
+    state is what gets snapshotted, and if it does not, creating it later
+    re-seeds the project anyway."""
+    snapshot = _snapshot_project()
+    yield
+    _restore_project(snapshot)
+
+
 @pytest.fixture(scope="session")
 def pw_browser(browser_name):
     """One Playwright driver + browser for the whole session."""

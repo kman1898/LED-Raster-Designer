@@ -43,7 +43,28 @@ def page(e2e_server, pw_browser):
     pg.goto(e2e_server, wait_until='domcontentloaded')
     pg.wait_for_timeout(2000)  # socket connect + app init
     pg.evaluate(HELPERS_JS)
-    return pg
+    # The regression guard at the bottom reads the app's OWN live layer, so a
+    # neighbour suite that left its state on the shared server must fail HERE,
+    # named, not as a TypeError halfway through a 45-line evaluate.
+    inherited = pg.evaluate("""() => {
+        const layers = window.app.project.layers || [];
+        const screens = layers.filter(l => (l.type || 'screen') === 'screen');
+        return {
+            screens: screens.length,
+            grouped: screens.filter(l => !!l.group_id).map(l => l.name),
+            groups: (window.app.project.groups || []).length,
+        };
+    }""")
+    assert inherited['screens'] > 0, (
+        'inherited a server project with NO screen layer - a previous suite '
+        'mutated the shared e2e server without restoring it (see '
+        'conftest.server_project_guard): %r' % (inherited,))
+    assert not inherited['grouped'] and not inherited['groups'], (
+        'inherited group state on the shared e2e server - a previous suite '
+        'grouped layers without restoring (see '
+        'conftest.server_project_guard): %r' % (inherited,))
+    yield pg
+    context.close()
 
 
 # A layer builder and a project swapper, installed on the page once. `screen`

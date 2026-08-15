@@ -41,6 +41,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _restore_server_project(server_project_guard):
+    """Leave the shared server project exactly as this module found it
+    (see conftest.server_project_guard)."""
+
+
 # One row per view-scoped middle panel - the same table the app itself is
 # driven from, so a third panel is a row here rather than a copy of the file.
 MIDDLE = {

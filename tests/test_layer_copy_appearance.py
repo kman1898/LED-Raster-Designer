@@ -28,6 +28,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
+
+@pytest.fixture(scope="module", autouse=True)
+def _restore_server_project(server_project_guard):
+    """Leave the shared server project exactly as this module found it -
+    this module adds duplicate/paste layers and dresses a live layer, and
+    nothing else removes them (see conftest.server_project_guard)."""
+
 STOPS = [{'pos': 0, 'color': '#ff0040'},
          {'pos': 0.5, 'color': '#ffee00'},
          {'pos': 1, 'color': '#0099ff'}]
