@@ -130,11 +130,6 @@ export class LEDRasterApp {
                     btn.style.left = '';
                 }
             };
-            const resizeCanvas = () => {
-                if (!window.canvasRenderer) return;
-                if (window.canvasRenderer.setupCanvas) window.canvasRenderer.setupCanvas();
-                window.canvasRenderer.render();
-            };
             const apply = (collapsed) => {
                 sidebar.classList.toggle('collapsed', collapsed);
                 document.body.classList.toggle(`${key}-sidebar-collapsed`, collapsed);
@@ -142,15 +137,7 @@ export class LEDRasterApp {
                 btn.title = collapsed
                     ? `Expand ${label} panel`
                     : `Collapse ${label} panel`;
-                // The CSS width transition runs ~180ms. Reposition the
-                // toggle and resize the canvas at multiple points during /
-                // after the animation so the canvas always fills the
-                // available wrapper width, otherwise the canvas keeps its
-                // pre-collapse pixel dimensions and the user sees a black
-                // strip on the side where the sidebar used to be.
-                requestAnimationFrame(() => { positionToggle(); resizeCanvas(); });
-                setTimeout(() => { positionToggle(); resizeCanvas(); }, 60);
-                setTimeout(() => { positionToggle(); resizeCanvas(); }, 220);
+                this.settleLayout();
             };
             const saved = localStorage.getItem(storageKey) === '1';
             apply(saved);
@@ -173,6 +160,44 @@ export class LEDRasterApp {
     }
 
     /**
+     * Re-pin every sidebar toggle and re-size the canvas backing store to the
+     * wrapper it now has.
+     *
+     * The canvas is sized in setupCanvas() from wrapper.clientWidth/Height,
+     * and its only automatic trigger is the window resize listener - so a
+     * panel that changed width without the window changing leaves the canvas
+     * painting at its old pixel size, with a black strip where the panel used
+     * to be. Cheap enough to call on every frame of a drag.
+     */
+    remeasureCanvas() {
+        (this._sidebarPositioners || []).forEach(fn => {
+            try { fn(); } catch (_) { /* a panel may not be in the DOM */ }
+        });
+        const renderer = window.canvasRenderer;
+        if (!renderer) return;
+        // setupCanvas() renders as its last step, so this is one paint.
+        if (renderer.setupCanvas) renderer.setupCanvas();
+        else if (renderer.render) renderer.render();
+    }
+
+    /**
+     * One layout change, three re-measures. The panels' width transition runs
+     * ~180ms, so measuring once measures the wrong frame - the canvas would
+     * settle at whatever width it happened to have mid-animation.
+     *
+     * Collapse, view switching (updateDataSidebarVisibility) and the end of a
+     * drag-resize (theme.js, through window.app) all land here, so there is
+     * one mechanism for this rather than one per caller. A live drag suppresses
+     * the transition and calls remeasureCanvas() directly instead.
+     */
+    settleLayout() {
+        const settle = () => this.remeasureCanvas();
+        requestAnimationFrame(settle);
+        setTimeout(settle, 60);
+        setTimeout(settle, 220);
+    }
+
+    /**
      * The Signal panel belongs to Data view and nowhere else. Port labelling -
      * and the processor work that joins it - describes how signal reaches the
      * cabinets, which is meaningless in Pixel Map, Cabinet ID, Show Look and
@@ -191,20 +216,8 @@ export class LEDRasterApp {
         sidebar.classList.toggle('view-hidden', !visible);
         if (btn) btn.classList.toggle('view-hidden', !visible);
         // A whole flex column appearing or disappearing changes the width the
-        // canvas has to fill. Same staged re-measure the collapse path uses:
-        // without it the canvas keeps its previous pixel dimensions and paints
-        // a black strip where the panel used to be.
-        const settle = () => {
-            (this._sidebarPositioners || []).forEach(fn => {
-                try { fn(); } catch (_) { /* a panel may not be in the DOM */ }
-            });
-            if (!window.canvasRenderer) return;
-            if (window.canvasRenderer.setupCanvas) window.canvasRenderer.setupCanvas();
-            window.canvasRenderer.render();
-        };
-        requestAnimationFrame(settle);
-        setTimeout(settle, 60);
-        setTimeout(settle, 220);
+        // canvas has to fill, and moves every toggle.
+        this.settleLayout();
     }
 
     // Check if server has restarted - if so, clear localStorage
