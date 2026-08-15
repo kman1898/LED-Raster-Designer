@@ -210,7 +210,19 @@ class _ScreenInfo {
             const customCircuits = Object.keys(paths)
                 .map(c => parseInt(c, 10))
                 .filter(c => (paths[c] || []).length > 0);
-            if (customCircuits.length > 0) return Math.max(...customCircuits);
+            if (customCircuits.length > 0) {
+                // Splitter merges collapse drawn circuits into shared ones:
+                // each merge group of the drawn set is ONE circuit, so the
+                // highest-number convention gives back (group size - 1) per
+                // group. Routed through the same validated-read helper the
+                // engine and screenCircuits use; with no merges this is
+                // exactly the old Math.max figure.
+                const max = Math.max(...customCircuits);
+                const groups = (typeof this.appliedSplitterGroups === 'function')
+                    ? this.appliedSplitterGroups(layer, customCircuits).merge : [];
+                const reduction = groups.reduce((t, g) => t + (g.length - 1), 0);
+                return Math.max(1, max - reduction);
+            }
             // Same rule as the ports twin above, and the same reasoning for
             // partial coverage: only a member whose every cabinet is on a
             // peer's circuit contributes nothing. One cabinet picked up by the
@@ -1172,6 +1184,13 @@ class _ScreenInfo {
                     powerLabelTextColor: this.currentLayer.powerLabelTextColor,
                     powerLabelTemplate: this.currentLayer.powerLabelTemplate,
                     powerLabelOverrides: this.currentLayer.powerLabelOverrides,
+                    powerSocaLengths: this.currentLayer.powerSocaLengths,
+                    powerSocaPhaseOffset: this.currentLayer.powerSocaPhaseOffset,
+                    powerSocaPhasePos: this.currentLayer.powerSocaPhasePos,
+                    powerSocaDistro: this.currentLayer.powerSocaDistro,
+                    powerBreakoutType: this.currentLayer.powerBreakoutType,
+                    showSocaBrackets: this.currentLayer.showSocaBrackets,
+                    powerSplitters: this.currentLayer.powerSplitters,
                     powerCustomPaths: this.currentLayer.powerCustomPaths,
                     powerCustomIndex: this.currentLayer.powerCustomIndex,
                     border_color_pixel: this.currentLayer.border_color_pixel,
@@ -1310,7 +1329,13 @@ class _ScreenInfo {
                 'imageShadowEnabled', 'imageShadowColor',
                 'imageShadowOpacity', 'imageShadowAngle',
                 'imageShadowDistance', 'imageShadowSpread',
-                'imageShadowSize'
+                'imageShadowSize',
+                // Production suite: the rack allocation and soca plan must
+                // survive the round-trip or stats lose the screen<->instance
+                // link and the power map loses its home runs.
+                'rackAllocation', 'powerSocaLengths', 'powerSocaPhaseOffset',
+                'powerSocaPhasePos', 'powerSocaDistro', 'powerBreakoutType',
+                'showSocaBrackets', 'powerSplitters'
             ];
 
             return fetch(`/api/layer/${layer.id}`, {

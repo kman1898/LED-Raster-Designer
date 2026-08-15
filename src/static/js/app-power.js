@@ -5,6 +5,18 @@ import { sendClientLog } from './helpers.js';
 
 class _Power {
 
+    // The soca / splitter / distro panels build their markup as strings and
+    // drop it in with innerHTML, interpolating user text - screen names,
+    // soca names, distro names. Every one of those sites calls _esc. It has
+    // to exist: without it a screen named "Main & FOH" renders wrong, and a
+    // name containing a tag injects live DOM into the sidebar.
+    // _escapeAttr (app-canvas-ui.js) is this app's one escaping helper;
+    // _esc is the name the panel builders ask for, so point it there rather
+    // than growing a second, drifting implementation.
+    _esc(s) {
+        return this._escapeAttr(s);
+    }
+
     showContextMenu(x, y) {
         const menu = document.getElementById('context-menu');
         if (!menu) return;
@@ -350,14 +362,1426 @@ class _Power {
         if (wattsEl) wattsEl.textContent = wattsPerCircuit > 0 ? wattsPerCircuit.toLocaleString() : '0';
         if (panelsEl) panelsEl.textContent = panelsPerCircuit > 0 ? panelsPerCircuit.toLocaleString() : '0';
         const powerAssignments = this.calculatePowerAssignments(layer);
-        const circuitsRequired = powerAssignments.circuits.length;
-        layer._powerError = powerAssignments.error;
+        // count via the shared authority so a custom-routed screen reports the
+        // circuits actually drawn, not what auto routing would have produced
+        const circuitsRequired = this.screenCircuitCount(layer);
+        // custom routing supersedes the auto assignment, so don't carry its
+        // error forward (the canvas already clears it for custom patterns)
+        layer._powerError = this.usesCustomCircuits(layer) ? null : powerAssignments.error;
         layer._powerCircuits = powerAssignments.circuits;
 
         if (circuitsEl) circuitsEl.textContent = circuitsRequired > 0 ? circuitsRequired.toLocaleString() : '0';
         layer._powerCircuitsRequired = circuitsRequired;
         if (amps1El) amps1El.textContent = totalAmps1 ? totalAmps1.toFixed(2) + ' A' : '0';
         if (amps3El) amps3El.textContent = totalAmps3 ? totalAmps3.toFixed(2) + ' A' : '0';
+        // Deferred, not called inline: this runs synchronously inside the
+        // change handlers of the static Power fields (panel watts, voltage,
+        // amperage), and the next tab stop after Watts per Panel lives inside
+        // the soca-runs host. Wiping that host mid-gesture destroys the field
+        // Tab is about to land in - see _rebuildAfterGesture.
+        this._rebuildAfterGesture(() => {
+            this.refreshSocaRuns();
+            this.refreshSplitterPanel();
+            this.refreshDistroPanel();
+        });
+    }
+
+    // ---- Soca plan (Phase B) -------------------------------------------------
+
+    // True when the screen's circuits come from paths the user drew rather
+    // than from auto routing - i.e. when the auto assignment (and any error
+    // it reports) has been superseded.
+    usesCustomCircuits(layer) {
+        if (!layer || !this.isCustomPower(layer) || !layer.powerCustomPaths) return false;
+        return Object.keys(layer.powerCustomPaths)
+            .some(n => (layer.powerCustomPaths[n] || []).length > 0);
+    }
+
+    // The one authority for "what circuits does this screen have": drawn
+    // custom paths when the screen routes custom, else the auto assignment.
+    // Everything that counts, labels or orders circuits reads this - the
+    // report used to count calculatePowerAssignments() directly, which
+    // ignored custom routing and disagreed with the soca plan beside it.
+    screenCircuits(layer) {
+        if (!layer) return [];
+        if (this.isCustomPower(layer) && layer.powerCustomPaths) {
+            const drawn = Object.keys(layer.powerCustomPaths)
+                .map(n => parseInt(n, 10))
+                .filter(n => Number.isFinite(n) && (layer.powerCustomPaths[n] || []).length > 0)
+                .sort((a, b) => a - b)
+                .map(n => {
+                    // Resolve every step through the cross-member seam. The
+                    // old getPanelByRowCol(layer, ...) landed a step that
+                    // names a PEER ({row, col, layerId}) on the OWNER's
+                    // cabinet at that address - a different physical cabinet,
+                    // or null - silently corrupting soca leg watts, distro
+                    // roll-ups, breaker labels and the label PDFs built from
+                    // them. A panel resolved from a peer carries real
+                    // x/y/width/height, so everything downstream keeps
+                    // working; `layers` rides alongside, index-aligned with
+                    // `panels`, so getSocaPlan can charge each cabinet at its
+                    // OWN member's wattage. Same-layer steps resolve exactly
+                    // as before (getResolvedPathPanels drops hidden panels
+                    // the way the old .filter(p => p && !p.hidden) did).
+                    const resolved = this.getResolvedPathPanels(
+                        layer, layer.powerCustomPaths[n] || []);
+                    return {
+                        num: n,
+                        panels: resolved.map(r => r.panel),
+                        layers: resolved.map(r => r.layer),
+                    };
+                });
+            // set to custom but nothing routed yet: fall back to the auto
+            // requirement the way the ports side does, so an unrouted screen
+            // still shows the distro it needs instead of reporting zero -
+            // UNLESS every feedable cabinet here is already on a peer's
+            // crossing circuit. That is the only honest empty plan: the
+            // member's power arrives on the owner's circuits (where the
+            // resolved entries above count these cabinets), so an auto
+            // fallback would fabricate a plan for cables that do not exist
+            // and double-count the load in every distro roll-up. Mirrors
+            // getLayerCircuitsRequired's only-honest-zero rule.
+            // (Evaluated BEFORE splitter merge grouping: whether a member is
+            // peer-served is a fact about the drawn paths, not the merges.)
+            if (drawn.length) return this._applySplitterMerges(layer, drawn);
+            if (typeof this._layerFullyServedByPeerPath === 'function'
+                && this._layerFullyServedByPeerPath(layer, 'powerCustomPaths')) {
+                return [];
+            }
+        }
+        const res = this.calculatePowerAssignments(layer);
+        return (res.circuits || []).map((panels, i) => {
+            const c = { num: i + 1, panels };
+            // Splitter packing (organized + enabled): the engine hands back
+            // per-branch panel counts index-aligned with `circuits`. Carry
+            // them as per-branch panel arrays so the renderers can break the
+            // daisy at run boundaries; `panels` stays the concatenation, so
+            // every index-aligned consumer is untouched.
+            if (res.runs && res.runs[i]) {
+                let off = 0;
+                c.branches = res.runs[i].map(n => panels.slice(off, off += n));
+                c.runIds = res.runIds ? res.runIds[i] : null;
+            }
+            return c;
+        });
+    }
+
+    // Manual splitter merges over DRAWN custom circuits: each merge group
+    // collapses into ONE circuit numbered and labelled by its first member
+    // (traversal order = ascending drawn number), with the member paths kept
+    // as `branches`. Custom paths are NEVER auto-packed - the numbering is
+    // user intent - so manual merge is the only lever here. No merges = the
+    // exact input array, byte-identical to the pre-splitter path.
+    _applySplitterMerges(layer, drawn) {
+        const groups = this.appliedSplitterGroups(
+            layer, drawn.map(c => c.num)).merge;
+        if (!groups.length) return drawn;
+        const byNum = new Map(drawn.map(c => [c.num, c]));
+        const inGroup = new Map();
+        groups.forEach(g => g.forEach(n => inGroup.set(n, g)));
+        const out = [];
+        const done = new Set();
+        for (const c of drawn) {
+            if (done.has(c.num)) continue;
+            const g = inGroup.get(c.num);
+            if (!g) { out.push(c); continue; }
+            const members = g.filter(n => byNum.has(n)).map(n => byNum.get(n));
+            members.forEach(m => done.add(m.num));
+            out.push({
+                num: members[0].num,
+                panels: members.flatMap(m => m.panels),
+                layers: members.flatMap(m => m.layers || m.panels.map(() => layer)),
+                branches: members.map(m => m.panels),
+                runIds: members.map(m => m.num),
+            });
+        }
+        return out;
+    }
+
+    // The COUNT comes from the group-aware authority (app-screen-info.js) so
+    // it agrees with the sidebar and the group roll-up: a peer-served member
+    // reports 0, and drawn custom circuits report the highest circuit number
+    // drawn - the same convention the ports side uses. screenCircuits above
+    // keeps the [{num, panels}] plan shape for the soca planner, which
+    // legitimately operates on the drawn paths. autoCircuits is recomputed
+    // here rather than read from the cached _powerCircuitsRequired, which is
+    // only refreshed for the currently-selected layer.
+    screenCircuitCount(layer) {
+        if (!layer) return 0;
+        const auto = (this.calculatePowerAssignments(layer).circuits || []).length;
+        return this.getLayerCircuitsRequired(layer, auto) || 0;
+    }
+
+    getSocaPlan(layer) {
+        if (!layer) return [];
+        const circuits = this.screenCircuits(layer);   // [{num, panels}] in circuit order
+        if (!circuits.length) return [];
+        const panelWatts = parseFloat(layer.panelWatts) || 0;
+        const voltage = parseFloat(layer.powerVoltage) || 0;
+        const m = String(layer.powerLabelTemplate || 'S1-#').match(/^(.*?)(\d+)([^#\d]*)#(.*)$/);
+        const startMulti = m ? parseInt(m[2], 10) || 1 : 1;
+        const prefix = m ? (m[1] || 'S') : 'S';
+        const socas = new Map();
+        circuits.forEach((c, ci) => {
+            const n = startMulti + Math.floor(ci / 6);
+            const leg = (ci % 6) + 1;
+            // A cross-member circuit carries cabinets from a PEER layer, and
+            // those cabinets draw the peer's wattage, not the owner's -
+            // screenCircuits hands back `layers` index-aligned with `panels`
+            // for exactly this. Same-layer panels (and every auto plan, which
+            // carries no `layers`) keep the owner's figure, byte-identical to
+            // before. Voltage stays the OWNER's: the circuit is the owner's
+            // cable on the owner's distro, whatever it feeds.
+            const srcLayers = c.layers || [];
+            const watts = c.panels.reduce((s, p, pi) => {
+                const src = srcLayers[pi];
+                const w = (src && src !== layer)
+                    ? (parseFloat(src.panelWatts) || 0) : panelWatts;
+                return s + w * this.getPanelLoadFactor(src || layer, p);
+            }, 0);
+            const s = socas.get(n) || { soca: n, name: prefix + n, legs: [], watts: 0, x1: Infinity, x2: -Infinity };
+            // per-leg x extent so the power map can tick each leg to the
+            // columns it feeds (Binder convention)
+            let lx1 = Infinity, lx2 = -Infinity;
+            c.panels.forEach(p => {
+                const px = Number(p.x) || 0;
+                lx1 = Math.min(lx1, px);
+                lx2 = Math.max(lx2, px + (Number(p.width) || 0));
+            });
+            s.legs.push({
+                leg, circuit: c.num,
+                label: this.getPowerCircuitLabel(layer, c.num),
+                tiles: c.panels.length, watts,
+                amps: voltage ? watts / voltage : 0,
+                x1: Number.isFinite(lx1) ? lx1 : null,
+                x2: Number.isFinite(lx2) ? lx2 : null
+            });
+            s.watts += watts;
+            c.panels.forEach(p => {
+                const px = Number(p.x) || 0;
+                s.x1 = Math.min(s.x1, px);
+                s.x2 = Math.max(s.x2, px + (Number(p.width) || 0));
+            });
+            socas.set(n, s);
+        });
+        const plans = [...socas.values()];
+        // v0.12.0: `leg` reports the PHYSICAL TAIL of the 6-way fan each
+        // circuit lands on - identical to the sequence index until phase
+        // balancing or a breaker offset moves the soca's circuits to other
+        // tails, at which point the report table, breaker stickers,
+        // schematic feed bubbles and bracket ticks all follow the true
+        // tails. Order stays circuit order and the tails come back
+        // ASCENDING (wall-order rule via socaCircuitPositions), so the wall
+        // always reads in order with gaps where a tail is skipped;
+        // amps/watts are untouched - balancing only renumbers.
+        plans.forEach(s => {
+            const pos = this.socaCircuitPositions(layer, s.soca, s.legs.length);
+            s.legs.forEach((l, i) => { l.leg = pos[i]; });
+        });
+        return plans.map(s => ({
+            ...s,
+            amps: voltage ? s.watts / voltage : 0,
+            length: (layer.powerSocaLengths || {})[s.soca] || null
+        }));
+    }
+
+    // Breakout chain from the Soca/multi to the panels. Socas break out to
+    // True1 or powerCON by default (panels take those directly - that's why
+    // a multi is 6 channels); Edison is the 110V alternative, and L6-20
+    // breakouts add L6-20 -> panel tails per circuit.
+    // `connector` is the bare connector name for labeling - the sticker goes
+    // on the tail, and the tail is a True1, not a "Soca → True1".
+    getPowerBreakoutTypes() {
+        return [
+            { id: 'soca-true1', name: 'Multi → True1', connector: 'True1', breakoutItem: 'Multi breakouts → True1' },
+            { id: 'soca-powercon', name: 'Multi → powerCON', connector: 'powerCON', breakoutItem: 'Multi breakouts → powerCON' },
+            { id: 'soca-edison', name: 'Multi → Edison (110V)', connector: 'Edison', breakoutItem: 'Multi breakouts → Edison', tailItem: 'Edison → panel tails' },
+            { id: 'soca-l620', name: 'Multi → L6-20', connector: 'L6-20', breakoutItem: 'Multi breakouts → L6-20', tailItem: 'L6-20 → panel tails' }
+        ];
+    }
+
+    getPowerBreakout(layer) {
+        const types = this.getPowerBreakoutTypes();
+        return types.find(t => t.id === (layer && layer.powerBreakoutType)) || types[0];
+    }
+
+    setPowerBreakout(layer, id) {
+        if (!layer) return;
+        layer.powerBreakoutType = id;
+        this.updateLayers([layer]);
+    }
+
+    // ---- distros / circuit groups -------------------------------------------
+
+    // A distro is a project-level power source with its own rating, voltage
+    // and phase. Socas (multis) are assigned to one, so load rolls up
+    // circuits -> soca -> distro across every screen it feeds. Load is summed
+    // as WATTS (the invariant) and only converted to amps at the distro's own
+    // voltage/phase - 3-phase per I = P / (V x 1.73).
+    getDistros() {
+        if (!this.project) return [];
+        if (!this.project.distros) this.project.distros = [];
+        return this.project.distros;
+    }
+
+    // Serialized: two rapid fire-and-forget project POSTs can complete out of
+    // order, and the server merges whatever lands last - so an older payload
+    // could drop a just-added distro. Chain them instead (same reason the
+    // rack allocation pushes are queued).
+    _persistDistros() {
+        const send = () => fetch('/api/project', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ distros: this.getDistros() })
+        }).catch(() => {});
+        this._distroPushQueue = (this._distroPushQueue || Promise.resolve()).then(send);
+        return this._distroPushQueue;
+    }
+
+    addDistro(opts = {}) {
+        const list = this.getDistros();
+        const n = list.reduce((m, d) => Math.max(m, Number(String(d.id).replace('d', '')) || 0), 0) + 1;
+        const d = {
+            id: 'd' + n,
+            name: opts.name || `DISTRO ${n}`,
+            ratingA: Number(opts.ratingA) || 400,
+            voltage: Number(opts.voltage) || 208,
+            phase: Number(opts.phase) === 1 ? 1 : 3
+        };
+        list.push(d);
+        this._persistDistros();
+        return d;
+    }
+
+    updateDistro(id, patch = {}) {
+        const d = this.getDistros().find(x => x.id === id);
+        if (!d) return null;
+        if (patch.name !== undefined) d.name = String(patch.name).trim() || d.name;
+        if (patch.ratingA !== undefined) d.ratingA = Number(patch.ratingA) || d.ratingA;
+        if (patch.voltage !== undefined) d.voltage = Number(patch.voltage) || d.voltage;
+        if (patch.phase !== undefined) d.phase = Number(patch.phase) === 1 ? 1 : 3;
+        if (patch.phasing !== undefined) d.phasing = patch.phasing || null;
+        // Where the box physically sits - the dimmer beach, stage left
+        // world. Prints on every power label that names this distro.
+        if (patch.location !== undefined) d.location = String(patch.location).trim() || null;
+        this._persistDistros();
+        return d;
+    }
+
+    removeDistro(id) {
+        const list = this.getDistros();
+        const i = list.findIndex(x => x.id === id);
+        if (i === -1) return false;
+        list.splice(i, 1);
+        // orphaned soca assignments fall back to unassigned
+        const touched = [];
+        for (const layer of this.project.layers || []) {
+            const map = layer.powerSocaDistro;
+            if (!map) continue;
+            let changed = false;
+            for (const k of Object.keys(map)) if (map[k] === id) { delete map[k]; changed = true; }
+            if (changed) touched.push(layer);
+        }
+        if (touched.length) this.updateLayers(touched);
+        this._persistDistros();
+        return true;
+    }
+
+    setSocaDistro(layer, socaNum, distroId) {
+        if (!layer) return;
+        const map = layer.powerSocaDistro || (layer.powerSocaDistro = {});
+        if (distroId) map[socaNum] = distroId; else delete map[socaNum];
+        this.updateLayers([layer]);
+    }
+
+    // Every PARTLY-FILLED multi in the show that lands on a 3-phase distro,
+    // with the tail set it currently occupies. The unit of balancing is the
+    // multi, so this is what the balancer searches over. Full multis are
+    // excluded: under the wall-order rule the only lever is WHICH tails a
+    // multi uses, and a 6-circuit multi uses all six - there is nothing to
+    // choose.
+    _balanceTargets() {
+        const out = [];
+        const distros = this.getDistros();
+        for (const layer of (this.project.layers || [])) {
+            if ((layer.type || 'screen') !== 'screen') continue;
+            const assign = layer.powerSocaDistro || {};
+            const circuitV = parseFloat(layer.powerVoltage) || 0;
+            for (const s of this.getSocaPlan(layer)) {
+                const d = distros.find(x => x.id === assign[s.soca]);
+                if (!d || d.phase !== 3) continue;
+                if (s.legs.length >= 6) continue;
+                out.push({
+                    layer, soca: s.soca, name: s.name, distroId: d.id,
+                    legs: s.legs.length,
+                    positions: this.socaCircuitPositions(layer, s.soca, s.legs.length),
+                    amps: s.legs.map(l => l.amps),
+                    // The circuits' CURRENT labels through the one authority,
+                    // captured before the search mutates the store - the
+                    // balance dialog names each moved circuit by the bubble
+                    // on the canvas, never by a re-derived ordinal.
+                    labels: s.legs.map(l => l.label),
+                    scheme: this.powerPhasingFor(d, circuitV).id
+                });
+            }
+        }
+        return out;
+    }
+
+    // Worst imbalance across every 3-phase distro, which is what we minimise.
+    _worstImbalance() {
+        return this.getDistroLoads()
+            .filter(b => b.id && b.legs)
+            .reduce((m, b) => Math.max(m, b.imbalancePct), 0);
+    }
+
+    // Search WHICH tails of the fan each partly-filled multi uses.
+    //
+    // Wall-order rule: circuits always map to the chosen tails ascending in
+    // wall order, so the search space is tail SUBSETS (C(6,L) per multi -
+    // at most 20), never permutations. They still multiply across multis, so
+    // this is greedy local search: repeatedly try every single-tail change
+    // (swap one used tail for a free one, re-sort), keep improvements, stop
+    // when nothing helps. Deterministic. Where circuit loads are equal this
+    // finds exactly what the old permutation search found - the phase math
+    // only sees the subset; where they differ, wall order deliberately wins
+    // over the last few percent of imbalance.
+    //
+    // Nothing is persisted; the project is restored before returning.
+    suggestPhaseBalance() {
+        const targets = this._balanceTargets();
+        const before = this._worstImbalance();
+        if (!targets.length) return { before, after: before, targets: [], moves: [], searched: 0 };
+
+        const original = targets.map(t => t.positions.slice());
+        const current = targets.map(t => t.positions.slice());
+        const write = () => targets.forEach((t, i) => {
+            const store = t.layer.powerSocaPhasePos || (t.layer.powerSocaPhasePos = {});
+            store[t.soca] = current[i].slice();
+        });
+        let searched = 0;
+        const score = () => { write(); searched += 1; return this._worstImbalance(); };
+
+        let best = score();
+        for (let pass = 0; pass < 40; pass++) {
+            let moved = false;
+            for (let t = 0; t < targets.length; t++) {
+                const L = current[t].length;
+                for (let i = 0; i < L; i++) {
+                    // trade the tail at slot i for one nothing is using;
+                    // re-sort so the array stays ascending wall order
+                    for (let p = 1; p <= 6; p++) {
+                        if (current[t].includes(p)) continue;
+                        const was = current[t].slice();
+                        current[t][i] = p;
+                        current[t].sort((x, y) => x - y);
+                        const sc = score();
+                        if (sc < best - 0.01) { best = sc; moved = true; }
+                        else current[t] = was;
+                    }
+                }
+            }
+            if (!moved) break;
+        }
+        const winner = current.map(a => a.slice());
+
+        // put the project back exactly as it was; the label tail-slot cache
+        // may have been built against a candidate arrangement mid-search
+        // (getSocaPlan labels every leg), so drop it with the candidates
+        targets.forEach((t, i) => {
+            const store = t.layer.powerSocaPhasePos || (t.layer.powerSocaPhasePos = {});
+            if (original[i].every((p, k) => p === k + 1)) delete store[t.soca];
+            else store[t.soca] = original[i].slice();
+        });
+        this._circuitTailCache = null;
+
+        return {
+            before, after: best, searched,
+            targets: targets.map(t => `${t.name} (${t.layer.name}, ${t.legs} circuits)`),
+            moves: targets.map((t, i) => ({
+                layerId: t.layer.id, layerName: t.layer.name, soca: t.soca,
+                name: t.name, legs: t.legs,
+                from: original[i], to: winner[i],
+                amps: t.amps, labels: t.labels
+            })).filter(m => m.from.some((p, k) => p !== m.to[k]))
+        };
+    }
+
+    applyPhaseBalance(moves) {
+        const touched = new Set();
+        for (const m of moves || []) {
+            const layer = (this.project.layers || []).find(l => l.id === m.layerId);
+            if (!layer) continue;
+            const store = layer.powerSocaPhasePos || (layer.powerSocaPhasePos = {});
+            if (m.to.every((p, k) => p === k + 1)) delete store[m.soca];
+            else store[m.soca] = m.to.slice();
+            touched.add(layer);
+        }
+        this._circuitTailCache = null;
+        if (touched.size) this.updateLayers([...touched]);
+        return touched.size;
+    }
+
+    // Show what the balancer found and let the user accept or decline it.
+    // Advisory by design: this moves a multi to a different set of breakers
+    // on paper, and somebody still has to plug it in that way.
+    showBalanceDialog() {
+        const r = this.suggestPhaseBalance();
+        const ID = 'balance-modal';
+        document.getElementById(ID)?.remove();
+        const esc = (s) => this._esc ? this._esc(s) : s;
+        const gain = r.before - r.after;
+        const body = !r.targets.length
+            ? `<p style="margin:0; color:#a6b0bb;">Every multi on a three-phase distro is full, so the legs are already
+               as even as the pattern allows. Imbalance comes from partly-filled
+               multis — there are none here.</p>`
+            : !r.moves.length
+            ? `<p style="margin:0; color:#a6b0bb;">Checked ${r.searched} arrangement${r.searched === 1 ? '' : 's'} of
+               ${r.targets.length} partly-filled multi${r.targets.length === 1 ? '' : 's'} and could not beat the current
+               ${r.before.toFixed(1)}% imbalance. Landing them elsewhere will not help;
+               filling the short multis or moving circuits between them would.</p>`
+            : `<div style="display:flex; align-items:baseline; gap:10px; margin-bottom:14px;">
+                 <span style="font-size:22px; color:#e05050;">${r.before.toFixed(1)}%</span>
+                 <span style="color:#7d8894;">→</span>
+                 <span style="font-size:22px; color:#5fa85f;">${r.after.toFixed(1)}%</span>
+                 <span style="color:#8fa0b2; font-size:11px;">worst-leg imbalance · ${gain.toFixed(1)} points better</span>
+               </div>
+               <div style="font-size:11px; color:#8a949f; margin-bottom:6px;">Plug these circuits into different tails of the same
+               fan — no rewiring, no re-patching:</div>
+               ${r.moves.map(m => `
+                 <div style="margin-bottom:10px;">
+                   <div style="color:#e8eef5; margin-bottom:3px;">${esc(m.name)}
+                     <span style="color:#7d8894; font-weight:400;">· ${esc(m.layerName)}</span></div>
+                   <table style="width:100%; border-collapse:collapse; font-size:11px;">
+                     ${m.to.map((p, k) => p === m.from[k] ? '' : `<tr>
+                       <td style="padding:2px 8px; color:#a6b0bb; width:40%;">${esc((m.labels || [])[k] || `circuit ${k + 1}`)}
+                         <span style="color:#6d7681;">(${m.amps[k].toFixed(1)} A)</span></td>
+                       <td style="padding:2px 8px; color:#a6b0bb;">tail ${m.from[k]} → <strong style="color:#e8eef5;">tail ${p}</strong></td>
+                     </tr>`).join('')}
+                   </table>
+                 </div>`).join('')}
+               <div style="margin-top:12px; font-size:11px; color:#7d8894;">Balancing picks WHICH tails of the fan a partly-filled
+               multi uses — skipping a different tail lands the remainder on
+               different legs. Circuits keep wall order on the chosen tails,
+               so the labels still read in order across the wall.
+               Evaluated ${r.searched} arrangements.</div>`;
+
+        const el = document.createElement('div');
+        el.id = ID;
+        el.className = 'modal';
+        el.style.display = 'block';
+        el.innerHTML = `
+<div class="modal-content" style="background:#252525; border-radius:8px; padding:0; width:540px; max-width:94vw; margin:80px auto; border:1px solid #3a3a3a; overflow:hidden;">
+  <div style="display:flex; align-items:center; justify-content:space-between; padding:14px 20px; border-bottom:1px solid #3a3a3a;">
+    <h2 style="margin:0; font-size:15px; letter-spacing:0.5px;">BALANCE PHASE LEGS</h2>
+    <button class="btn btn-secondary balance-close" style="padding:4px 12px;">✕</button>
+  </div>
+  <div style="padding:16px 20px; font-size:12px; line-height:1.55;">${body}</div>
+  <div style="display:flex; gap:8px; justify-content:flex-end; padding:0 20px 16px;">
+    <button class="btn btn-secondary balance-reset" title="Put every multi back on its natural breaker position">Reset offsets</button>
+    <button class="btn btn-secondary balance-close">${r.moves.length ? 'Leave it' : 'Close'}</button>
+    ${r.moves.length ? '<button class="btn balance-apply">Apply</button>' : ''}
+  </div>
+</div>`;
+        document.body.appendChild(el);
+        el.querySelectorAll('.balance-close').forEach(b =>
+            b.addEventListener('click', () => el.remove()));
+        el.addEventListener('click', (e) => { if (e.target === el) el.remove(); });
+        // Balancing renumbers labels (true tails), so refresh EVERY pane
+        // that prints them - splitter rows and the label editor included,
+        // plus the canvas bubbles - not just the load roll-ups. The server
+        // echo would repaint them a round-trip later anyway; doing it here
+        // means the left pane and the map agree the moment the dialog
+        // closes (same refresh set as _writeSplitterManual).
+        const refreshAll = () => {
+            this.refreshDistroPanel();
+            this.refreshSocaRuns();
+            this.refreshSplitterPanel();
+            this.updatePowerLabelEditor && this.updatePowerLabelEditor();
+            if (window.canvasRenderer) window.canvasRenderer.render();
+        };
+        const resetBtn = el.querySelector('.balance-reset');
+        if (resetBtn) resetBtn.addEventListener('click', () => {
+            this.clearPhaseBalance();
+            el.remove();
+            refreshAll();
+        });
+        const applyBtn = el.querySelector('.balance-apply');
+        if (applyBtn) applyBtn.addEventListener('click', () => {
+            this.applyPhaseBalance(r.moves);
+            el.remove();
+            refreshAll();
+        });
+    }
+
+    // Plain-language explanation of what the three phasing schemes mean and
+    // why the choice changes the leg loads. Built on demand rather than
+    // living in index.html so the copy sits next to the math it describes.
+    showPhasingHelp() {
+        const ID = 'phasing-help-modal';
+        document.getElementById(ID)?.remove();
+        const el = document.createElement('div');
+        el.id = ID;
+        el.className = 'modal';
+        el.style.display = 'block';
+        el.innerHTML = `
+<div class="modal-content" style="background:#252525; border-radius:8px; padding:0; width:660px; max-width:94vw; margin:60px auto; border:1px solid #3a3a3a; display:flex; flex-direction:column; max-height:calc(100vh - 120px); overflow:hidden;">
+  <div style="display:flex; align-items:center; justify-content:space-between; padding:14px 20px; border-bottom:1px solid #3a3a3a;">
+    <h2 style="margin:0; font-size:15px; letter-spacing:0.5px;">HOW MULTIS LAND ON THE PHASE LEGS</h2>
+    <button class="btn btn-secondary phasing-help-close" style="padding:4px 12px;">✕</button>
+  </div>
+  <div style="padding:16px 20px; overflow-y:auto; font-size:12px; color:#c3ccd6; line-height:1.6;">
+
+    <p style="margin:0 0 14px;"><strong style="color:#e8eef5;">A distro fed from camlock is three-phase. Every circuit
+    coming off the breakout is single-phase</strong> — whether it is 120V (one
+    hot and a neutral) or 208V (two hots, no neutral). Three-phase never
+    reaches a panel. The legs only decide <em>which</em> hots each circuit
+    sits across, and therefore how the load spreads over the service.</p>
+
+    <div style="background:#3a2626; border-left:3px solid #b34a3a; padding:10px 12px; border-radius:0 4px 4px 0; margin:0 0 14px; color:#e0c0ba;">
+      <strong style="color:#f5cdc4;">There is no North American standard for this.</strong>
+      ANSI E1.80, USITT RP-1 and NEC 520.68 all cover the <em>pinout</em> —
+      which pin carries which circuit's conductors — and none of them assigns
+      a circuit to a leg. No major distro manufacturer publishes a universal
+      mapping. Motion Laboratories' own maintenance manual says to "verify
+      the pinout of each output, including that the correct phase is on the
+      correct pin per the pinout. (The pinout is marked on the panel near the
+      output devices.)" <strong style="color:#f5cdc4;">Read the unit.</strong>
+    </div>
+
+    <p style="margin:0 0 14px; color:#a6b0bb;">What every source does agree on is the
+    <em>balance goal</em>: two circuits per leg on 120V, two circuits per
+    leg-pair on 208V. Only the order varies — and the order is exactly what
+    decides where a partly-filled multi dumps its remainder. Each pattern
+    below is documented on a real distro or rack, none is a default.</p>
+
+    <table style="width:100%; border-collapse:collapse; margin-bottom:16px;">
+      <tr style="border-bottom:1px solid #3a3a3a;">
+        <th style="text-align:left; padding:6px 8px; font-size:10px; color:#8a949f; text-transform:uppercase;">Pattern</th>
+        <th style="text-align:left; padding:6px 8px; font-size:10px; color:#8a949f; text-transform:uppercase;">Circuits 1–6</th>
+        <th style="text-align:left; padding:6px 8px; font-size:10px; color:#8a949f; text-transform:uppercase;">Where it is documented</th>
+      </tr>
+      <tr style="border-bottom:1px solid #303030;">
+        <td style="padding:8px; vertical-align:top; color:#e8eef5;">120V rotating<br><span style="color:#7d8894; font-size:11px;">one leg each</span></td>
+        <td style="padding:8px; vertical-align:top; font-family:ui-monospace,Menlo,monospace; font-size:11px; white-space:nowrap;">X Y Z<br>X Y Z</td>
+        <td style="padding:8px; vertical-align:top; color:#a6b0bb;">Published phasing sheet for a 36-way 120V house distro.</td>
+      </tr>
+      <tr style="border-bottom:1px solid #303030;">
+        <td style="padding:8px; vertical-align:top; color:#e8eef5;">120V paired<br><span style="color:#7d8894; font-size:11px;">two circuits per leg</span></td>
+        <td style="padding:8px; vertical-align:top; font-family:ui-monospace,Menlo,monospace; font-size:11px; white-space:nowrap;">X X<br>Y Y<br>Z Z</td>
+        <td style="padding:8px; vertical-align:top; color:#a6b0bb;">What several practitioners report as usual.</td>
+      </tr>
+      <tr style="border-bottom:1px solid #303030;">
+        <td style="padding:8px; vertical-align:top; color:#e8eef5;">208V paired<br><span style="color:#7d8894; font-size:11px;">XY ZX YZ</span></td>
+        <td style="padding:8px; vertical-align:top; font-family:ui-monospace,Menlo,monospace; font-size:11px; white-space:nowrap;">XY XY<br>ZX ZX<br>YZ YZ</td>
+        <td style="padding:8px; vertical-align:top; color:#a6b0bb;">Two independent rental houses publish this exact map. The best-attested 208V pattern.</td>
+      </tr>
+      <tr style="border-bottom:1px solid #303030;">
+        <td style="padding:8px; vertical-align:top; color:#e8eef5;">208V paired<br><span style="color:#7d8894; font-size:11px;">XY YZ ZX</span></td>
+        <td style="padding:8px; vertical-align:top; font-family:ui-monospace,Menlo,monospace; font-size:11px; white-space:nowrap;">XY XY<br>YZ YZ<br>ZX ZX</td>
+        <td style="padding:8px; vertical-align:top; color:#a6b0bb;">Same grouping, different pair order — Strand LightRack module pinout.</td>
+      </tr>
+      <tr style="border-bottom:1px solid #303030;">
+        <td style="padding:8px; vertical-align:top; color:#e8eef5;">208V rotating<br><span style="color:#7d8894; font-size:11px;">pair rotates each circuit</span></td>
+        <td style="padding:8px; vertical-align:top; font-family:ui-monospace,Menlo,monospace; font-size:11px; white-space:nowrap;">XY XZ YZ<br>XY XZ YZ</td>
+        <td style="padding:8px; vertical-align:top; color:#a6b0bb;">Reported as a competing family. Spreads a partly-filled multi best.</td>
+      </tr>
+    </table>
+
+    <div style="background:#2b2f35; border-left:3px solid #4a6fa5; padding:10px 12px; border-radius:0 4px 4px 0;">
+      <div style="color:#e8eef5; margin-bottom:5px;">Why your legs are uneven</div>
+      <div style="color:#a6b0bb;">Imbalance almost always comes from <strong>partly-filled
+      multis</strong>, not from the screens. A full 6-circuit multi balances
+      itself under any scheme. A multi that stops at 4 or 5 circuits dumps its
+      remainder onto whichever legs come first in the pattern — with paired
+      legs that is always X. Fill the multi, move a circuit to another multi,
+      or use the rotating pattern if the distro is wired that way.</div>
+    </div>
+
+    <div style="margin-top:14px; color:#7d8894; font-size:11px;">
+      Per-leg current is a phasor sum, not a straight addition: a 208V circuit
+      is one load drawing the <em>same</em> current in both its legs, sitting
+      ±30° off each leg's line-to-neutral reference. Imbalance is NEMA-style —
+      the largest deviation from the average of the three legs.
+    </div>
+  </div>
+</div>`;
+        document.body.appendChild(el);
+        el.querySelector('.phasing-help-close').addEventListener('click', () => el.remove());
+        el.addEventListener('click', (e) => { if (e.target === el) el.remove(); });
+    }
+
+    // How a distro lands a multi's 6 circuits on its phase legs.
+    //
+    // This is a property of the DISTRO's internal bus and breaker
+    // arrangement. It is NOT the connector pinout: ANSI E1.80-2024 defines
+    // 120V Type U and 208V Types C/D/E, but those describe which PIN carries
+    // which circuit's conductors - the standard's own table key is only
+    // "L = Ungrounded Circuit Conductor" and it never assigns a circuit to
+    // L1, L2 or L3. Two distros with identical E1.80 pinouts can still land
+    // their circuits on different legs. Read the distro, not the connector.
+    //
+    // Every pattern below is documented on a real North American distro or
+    // rack. There is no national standard for phase rotation - a search of
+    // E1.80, USITT RP-1, NEC 520.68, and the published material from every
+    // major distro manufacturer turned up nothing that assigns a circuit to
+    // a leg. Motion Laboratories' own maintenance manual says to "verify the
+    // pinout of each output, including that the correct phase is on the
+    // correct pin per the pinout. (The pinout is marked on the panel near the
+    // output devices.)" That is the industry position: read the unit.
+    //
+    // What IS consistent across every source is the balance goal - two
+    // circuits per leg on 120V, two circuits per leg-PAIR on 208V. Only the
+    // order varies, and the order is what changes a partly-filled multi.
+    powerPhasingSchemes() {
+        return [
+            { id: 'rotating-ln', name: '120V — rotating (X Y Z X Y Z)', lineToLine: false,
+              note: '1>X 2>Y 3>Z 4>X 5>Y 6>Z — one published house distro sheet; no practitioner source corroborates it, so confirm before relying on it' },
+            { id: 'paired-ln', name: '120V — paired (X X Y Y Z Z)', lineToLine: false,
+              note: '1,2>X  3,4>Y  5,6>Z — the arrangement practitioners most often describe' },
+            { id: 'paired-ll', name: '208V — paired, XY ZX YZ', lineToLine: true,
+              note: '1,2>XY  3,4>ZX  5,6>YZ — two independent house pinouts publish this' },
+            { id: 'paired-ll-alt', name: '208V — paired, XY YZ ZX', lineToLine: true,
+              note: '1,2>XY  3,4>YZ  5,6>ZX — same grouping, other pair order (Strand LightRack)' },
+            { id: 'rotating-ll', name: '208V — rotating (XY XZ YZ)', lineToLine: true,
+              note: '1,4>XY  2,5>XZ  3,6>YZ — spreads a partly-filled multi better' }
+        ];
+    }
+
+    // Default scheme for a distro: line-to-line when the circuit voltage
+    // matches the service voltage (208V circuits on a 208V wye), otherwise
+    // line-to-neutral.
+    powerPhasingFor(distro, circuitVoltage) {
+        const schemes = this.powerPhasingSchemes();
+        const explicit = distro && distro.phasing && schemes.find(s => s.id === distro.phasing);
+        if (explicit) return explicit;
+        const ll = distro && circuitVoltage > 0 && Math.abs(circuitVoltage - distro.voltage) < 1;
+        return schemes.find(s => s.id === (ll ? 'paired-ll' : 'rotating-ln'));
+    }
+
+    // Order a leg pair cyclically (X>Y>Z>X). The first leg of the cyclic pair
+    // carries the line-to-line current at +30 deg relative to its own
+    // line-to-neutral voltage, the second at -30 deg.
+    _cyclicPair(a, b) {
+        const C = ['X', 'Y', 'Z'];
+        const ia = C.indexOf(a), ib = C.indexOf(b);
+        return ib === (ia + 1) % 3 ? [a, b] : [b, a];
+    }
+
+    _addLegPhasor(store, leg, amps, degrees) {
+        const r = degrees * Math.PI / 180;
+        store[leg].re += amps * Math.cos(r);
+        store[leg].im += amps * Math.sin(r);
+    }
+
+    // `offset` slides the used circuits along the multi's own six positions:
+    // a multi with 4 circuits in use can occupy positions 1-4, 2-5 or 3-6.
+    // The load does not move to another multi - it is the same 6-way fan,
+    // just landed on different legs of it.
+    //
+    // The offset MUST be bounded by socaPhaseOffsetMax so the last circuit
+    // stays within position 6. The modulo below is only a guard; if it ever
+    // actually wraps, the offset was invalid and the answer is nonsense -
+    // a 5-circuit multi at offset 3 would want positions 4..8, and wrapping
+    // 7 and 8 back to 1 and 2 silently invents a plan nobody can patch.
+    _circuitLegs(legIndex, schemeId, offset = 0) {
+        const i = ((legIndex - 1 + (Number(offset) || 0)) % 6 + 6) % 6;
+        if (schemeId === 'paired-ll') return [['X','Y'], ['X','Y'], ['Z','X'], ['Z','X'], ['Y','Z'], ['Y','Z']][i];
+        if (schemeId === 'paired-ll-alt') return [['X','Y'], ['X','Y'], ['Y','Z'], ['Y','Z'], ['Z','X'], ['Z','X']][i];
+        if (schemeId === 'rotating-ll') return [['X','Y'], ['X','Z'], ['Y','Z'], ['X','Y'], ['X','Z'], ['Y','Z']][i];
+        if (schemeId === 'paired-ln') return [['X'], ['X'], ['Y'], ['Y'], ['Z'], ['Z']][i];
+        return [['X', 'Y', 'Z'][i % 3]];
+    }
+
+    // How far a multi's used circuits can slide as a BLOCK before the last
+    // one runs off the end of the 6-way fan. Kept for the legacy block model;
+    // socaCircuitPositions supersedes it.
+    socaPhaseOffsetMax(legsUsed) {
+        return Math.max(0, 6 - (Number(legsUsed) || 6));
+    }
+
+    // Which position on the multi's 6-way fan each used circuit occupies.
+    //
+    // WALL-ORDER RULE (user decision, fixed): balancing - or anything else -
+    // only ever chooses WHICH tails of the fan are in use (the SET). The
+    // assignment of circuits to the chosen tails is always wall order ->
+    // ascending tail number, so a wall using tails {1,2,3,5,6} reads
+    // S1-1, S1-2, S1-3, S1-5, S1-6 left to right, never a permutation.
+    // Stored arrays are therefore sorted ascending ON READ: projects that
+    // still carry a permutation from the old balancer ([6,2,5,1,3]) or a
+    // rotation ([5,6,1,2,3]) display wall-ordered immediately, keeping the
+    // same occupied tails, without a re-balance.
+    //
+    // Returns a position (1-6) per used circuit, ascending in circuit
+    // (wall) order. Falls back to the legacy block offset - which selects
+    // the occupied tails off+1..off+L, already ascending - then to the
+    // natural 1..L.
+    socaCircuitPositions(layer, socaNum, legsUsed) {
+        const L = Math.max(0, Math.min(6, Number(legsUsed) || 0));
+        const saved = ((layer && layer.powerSocaPhasePos) || {})[socaNum];
+        if (Array.isArray(saved) && saved.length === L
+            && saved.every(p => Number.isInteger(p) && p >= 1 && p <= 6)
+            && new Set(saved).size === L) {
+            return saved.slice().sort((a, b) => a - b);
+        }
+        const off = this.socaPhaseOffset(layer, socaNum, L);
+        return Array.from({ length: L }, (_, i) => i + 1 + off);
+    }
+
+    // Positions must be a set of distinct 1-6 values, one per used circuit -
+    // two circuits cannot share a tail. Only the SET matters (wall-order
+    // rule): stored sorted ascending, and a permutation of 1..L is the
+    // natural arrangement.
+    setSocaCircuitPositions(layer, socaNum, positions, legsUsed) {
+        if (!layer) return false;
+        const L = Math.max(0, Math.min(6, Number(legsUsed) || 0));
+        const ok = Array.isArray(positions) && positions.length === L
+            && positions.every(p => Number.isInteger(p) && p >= 1 && p <= 6)
+            && new Set(positions).size === L;
+        if (!ok) return false;
+        const store = layer.powerSocaPhasePos || (layer.powerSocaPhasePos = {});
+        const sorted = positions.slice().sort((a, b) => a - b);
+        const natural = sorted.every((p, i) => p === i + 1);
+        if (natural) delete store[socaNum]; else store[socaNum] = sorted;
+        this._circuitTailCache = null;
+        this.updateLayers([layer]);
+        return true;
+    }
+
+    // Which position within the multi the first used circuit sits on (0-based).
+    // Clamped on read as well as on write, so a stored value that is no longer
+    // valid - the screen shed a circuit since it was set - degrades to the
+    // nearest legal position instead of wrapping off the end.
+    socaPhaseOffset(layer, socaNum, legsUsed) {
+        const map = (layer && layer.powerSocaPhaseOffset) || {};
+        const raw = Math.max(0, Number(map[socaNum]) || 0);
+        return Math.min(raw, this.socaPhaseOffsetMax(legsUsed));
+    }
+
+    setSocaPhaseOffset(layer, socaNum, offset, legsUsed) {
+        if (!layer) return;
+        // Always leave an object behind, never delete the property itself:
+        // an absent key is simply missing from the update payload and the
+        // server keeps whatever it had, so "clear this" would silently not
+        // clear. An empty object overwrites.
+        const map = layer.powerSocaPhaseOffset || (layer.powerSocaPhaseOffset = {});
+        const v = Math.min(Math.max(0, Number(offset) || 0),
+                           this.socaPhaseOffsetMax(legsUsed));
+        if (v) map[socaNum] = v; else delete map[socaNum];
+        this._circuitTailCache = null;
+        this.updateLayers([layer]);
+    }
+
+    // Drop every multi back to its natural breaker position.
+    clearPhaseBalance() {
+        const screens = (this.project.layers || []).filter(l => (l.type || 'screen') === 'screen');
+        screens.forEach(l => { l.powerSocaPhaseOffset = {}; l.powerSocaPhasePos = {}; });
+        this._circuitTailCache = null;
+        if (screens.length) this.updateLayers(screens);
+        return screens.length;
+    }
+
+    // Rollup per distro across every screen, plus an 'unassigned' bucket so
+    // no load is silently dropped. Three-phase distros also get per-leg
+    // (X/Y/Z) loads so you can see whether the service is loaded evenly.
+    getDistroLoads() {
+        const distros = this.getDistros();
+        const mk = (d) => ({
+            distro: d, socas: [], watts: 0,
+            legWatts: { X: 0, Y: 0, Z: 0 },
+            legPhasor: { X: { re: 0, im: 0 }, Y: { re: 0, im: 0 }, Z: { re: 0, im: 0 } },
+            pairWatts: {}
+        });
+        const buckets = new Map(distros.map(d => [d.id, mk(d)]));
+        const unassigned = mk(null);
+        for (const layer of this.project.layers || []) {
+            if ((layer.type || 'screen') !== 'screen') continue;
+            const plan = this.getSocaPlan(layer);
+            if (!plan.length) continue;
+            const assign = layer.powerSocaDistro || {};
+            const circuitV = parseFloat(layer.powerVoltage) || 0;
+            for (const s of plan) {
+                const b = buckets.get(assign[s.soca]) || unassigned;
+                b.socas.push({ layer: layer.name, layerId: layer.id, soca: s.soca, name: s.name, watts: s.watts, legs: s.legs.length });
+                b.watts += s.watts;
+                // spread this multi's circuits across the phase legs
+                const d = b.distro;
+                if (d && d.phase === 3) {
+                    const scheme = this.powerPhasingFor(d, circuitV);
+                    b.scheme = scheme;
+                    const vln = d.voltage / Math.sqrt(3);
+                    const pos = this.socaCircuitPositions(layer, s.soca, s.legs.length);
+                    for (let li = 0; li < s.legs.length; li++) {
+                        const leg = s.legs[li];
+                        const legs = this._circuitLegs(pos[li], scheme.id);
+                        if (legs.length === 1) {
+                            // line-to-neutral: full current on one leg, in
+                            // phase with that leg's L-N voltage
+                            b.legWatts[legs[0]] += leg.watts;
+                            this._addLegPhasor(b.legPhasor, legs[0], leg.watts / vln, 0);
+                        } else {
+                            // Line-to-line: the SAME current flows in both
+                            // legs (it is one series load) - it is NOT halved.
+                            // Referred to each leg's own L-N reference it sits
+                            // at +30 deg on the first leg of the cyclic pair
+                            // and -30 deg on the second.
+                            const [first, second] = this._cyclicPair(legs[0], legs[1]);
+                            const amps = leg.watts / d.voltage;
+                            this._addLegPhasor(b.legPhasor, first, amps, 30);
+                            this._addLegPhasor(b.legPhasor, second, amps, -30);
+                            // VA column keeps the panel-schedule convention:
+                            // half the VA booked against each leg
+                            b.legWatts[first] += leg.watts / 2;
+                            b.legWatts[second] += leg.watts / 2;
+                            const key = [first, second].join('');
+                            b.pairWatts[key] = (b.pairWatts[key] || 0) + leg.watts;
+                        }
+                    }
+                }
+            }
+        }
+        const shape = (b) => {
+            const d = b.distro;
+            const v = d ? d.voltage : 0;
+            const amps = v > 0 ? (d.phase === 3 ? b.watts / (v * 1.73) : b.watts / v) : 0;
+            const rating = d ? d.ratingA : 0;
+            // Per-leg amps are line-to-NEUTRAL: on a 208V wye that is 120V,
+            // which is what each leg actually sees.
+            let legs = null, imbalancePct = 0;
+            if (d && d.phase === 3) {
+                // Per-leg current is the PHASOR magnitude, not watts/voltage:
+                // line-to-line loads sit +-30 deg off their legs' L-N
+                // reference, so scalar addition would misreport by 13-15%.
+                const mag = (p) => Math.sqrt(p.re * p.re + p.im * p.im);
+                const w = b.legWatts, ph = b.legPhasor;
+                const one = (k) => {
+                    const a = mag(ph[k]);
+                    return { watts: w[k], amps: a, pct: rating > 0 ? (a / rating) * 100 : 0 };
+                };
+                legs = { X: one('X'), Y: one('Y'), Z: one('Z') };
+                // NEMA-style: max deviation from the AVERAGE (not max-min
+                // spread, which reads roughly double and is not what a
+                // genset spec or an electrician means by "% imbalance").
+                const amps = [legs.X.amps, legs.Y.amps, legs.Z.amps];
+                const avg = (amps[0] + amps[1] + amps[2]) / 3;
+                imbalancePct = avg > 0
+                    ? (Math.max(...amps.map(x => Math.abs(x - avg))) / avg) * 100 : 0;
+                legs.lineToNeutralV = v / Math.sqrt(3);
+                legs.avgAmps = avg;
+                legs.spreadAmps = Math.max(...amps) - Math.min(...amps);
+                legs.over = rating > 0 && Math.max(...amps) > rating;
+                legs.scheme = b.scheme ? b.scheme.name : null;
+                legs.schemeId = b.scheme ? b.scheme.id : null;
+                legs.pairWatts = b.pairWatts;
+            }
+            return {
+                id: d ? d.id : null,
+                name: d ? d.name : 'Unassigned',
+                location: (d && d.location) || null,
+                ratingA: rating, voltage: v, phase: d ? d.phase : null,
+                watts: b.watts, amps,
+                pct: rating > 0 ? (amps / rating) * 100 : 0,
+                over: rating > 0 && amps > rating,
+                legs, imbalancePct,
+                socas: b.socas
+            };
+        };
+        const out = distros.map(d => shape(buckets.get(d.id)));
+        if (unassigned.socas.length) out.push(shape(unassigned));
+        return out;
+    }
+
+    setSocaLength(layer, socaNum, length) {
+        if (!layer) return;
+        const store = layer.powerSocaLengths || (layer.powerSocaLengths = {});
+        const v = String(length || '').trim();
+        if (v) store[socaNum] = v; else delete store[socaNum];
+        this.updateLayers([layer]);
+    }
+
+    // Project-level distro list with a live load bar per source. Shown in the
+    // Power panel because that's where power planning lives, but the numbers
+    // roll up across EVERY screen, not just the selected one.
+    refreshDistroPanel() {
+        const host = document.getElementById('power-distros');
+        if (!host) return;
+        // The distro rows are editors too, and this wipe runs on every stats
+        // refresh - keyed fields plus the capture keep the user's focus and
+        // caret across it (see _preserveEditorFocus). The buttons carry keys
+        // as well: Tab out of a row's name field lands on its ✕ button, and
+        // an unkeyed stop is one the restore cannot bring back - the same
+        // reason the label editors keyed their row checkboxes.
+        this._preserveEditorFocus();
+        const esc = (s) => this._esc ? this._esc(s) : s;
+        const loads = this.getDistroLoads();
+        host.innerHTML = `
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+                <label style="font-weight:600;" data-tooltip="Power distros, Project-level power sources. Assign each multi to one and the load rolls up here across every screen.">Power Distros</label>
+                <span style="flex:1;"></span>
+                <button id="power-distro-balance" data-lrd-field="power-distro-balance" class="btn btn-secondary" style="padding:2px 10px;" data-tooltip="Balance legs, Searches which set of six breakers each partly-filled multi should land on. A full multi balances itself, so only short ones move. Nothing changes until you accept it.">Balance</button>
+                <button id="power-distro-add" data-lrd-field="power-distro-add" class="btn btn-secondary" style="padding:2px 10px;">+ Add</button>
+            </div>
+            ${loads.length ? loads.map(d => {
+                const pct = Math.min(100, Math.round(d.pct));
+                const feeds = d.socas.length
+                    ? d.socas.map(s => `${esc(s.name)} (${esc(s.layer)})`).join(', ')
+                    : 'nothing assigned';
+                return `<div class="power-distro-row" data-id="${d.id || ''}" style="margin-bottom:12px;">
+                    ${d.id ? `
+                    <div style="display:flex; gap:5px; align-items:center; margin-bottom:4px;">
+                        <input type="text" class="distro-name" data-lrd-field="distro-name-${d.id}" value="${esc(d.name).replace(/"/g, '&quot;')}" style="flex:1; min-width:60px;" data-tooltip="Name this power source.">
+                        <button class="btn btn-secondary distro-del" data-lrd-field="distro-del-${d.id}" style="padding:1px 7px; flex:none;">✕</button>
+                    </div>
+                    <div style="display:flex; gap:5px; align-items:center; margin-bottom:4px;">
+                        <input type="number" class="distro-rating" data-lrd-field="distro-rating-${d.id}" value="${d.ratingA}" min="1" style="width:56px;" data-tooltip="Rating, Service rating in amps.">
+                        <span style="font-size:10px; color:#777;">A</span>
+                        <select class="distro-voltage info-select" data-lrd-field="distro-voltage-${d.id}" style="width:70px;">
+                            ${[110, 120, 208, 220, 230, 240, 400, 415].map(v => `<option value="${v}" ${d.voltage === v ? 'selected' : ''}>${v}V</option>`).join('')}
+                        </select>
+                        <select class="distro-phase info-select" data-lrd-field="distro-phase-${d.id}" style="width:56px;">
+                            <option value="1" ${d.phase === 1 ? 'selected' : ''}>1φ</option>
+                            <option value="3" ${d.phase === 3 ? 'selected' : ''}>3φ</option>
+                        </select>
+                    </div>
+                    <div style="display:flex; gap:5px; align-items:center; margin-bottom:4px;">
+                        <input type="text" class="distro-location" data-lrd-field="distro-location-${d.id}" value="${esc(d.location || '').replace(/"/g, '&quot;')}" placeholder="beach / location" style="flex:1; min-width:60px;" data-tooltip="Location, Where this distro physically sits - the beach, stage left world, FOH. Prints on every power label that names it, so a runner can find the other end.">
+                    </div>
+                    ${d.phase === 3 ? `<div class="info-row" style="align-items:center; margin-bottom:4px;" data-tooltip="Phasing, How a multi's 6 circuits land on the phase legs. A property of the distro's bus and breaker arrangement - read it off the distro. Not the same as the connector's E1.80 pinout type.">
+                        <label style="font-weight:400; font-size:10px;">Phasing</label>
+                        <select class="distro-phasing info-select" data-lrd-field="distro-phasing-${d.id}" style="width:auto; flex:1; min-width:0;">
+                            ${this.powerPhasingSchemes().map(sc => `<option value="${sc.id}" ${(d.legs && d.legs.schemeId) === sc.id ? 'selected' : ''}>${sc.name}</option>`).join('')}
+                        </select>
+                        <button class="distro-phasing-help" data-lrd-field="distro-phasing-help-${d.id}" title="What do these mean?">?</button>
+                    </div>` : ''}` : `<div style="font-size:12px; font-weight:600; color:#d8a13c; margin-bottom:3px;">${esc(d.name)}</div>`}
+                    <div class="rack-bar"><div class="rack-bar-fill${d.over ? ' over' : ''}" style="width:${pct}%"></div></div>
+                    <div style="font-size:10px; color:${d.over ? '#e05050' : d.id ? '#8fa0b2' : '#d8a13c'}; margin-top:2px;">
+                        ${d.id
+                            ? `${d.amps.toFixed(1)} A / ${d.ratingA} A (${Math.round(d.pct)}%)${d.over ? ' — OVER' : ''} · ${Math.round(d.watts).toLocaleString()} W · ${d.phase}φ`
+                            : `${Math.round(d.watts).toLocaleString()} W with no distro — assign to see amps`}
+                    </div>
+                    ${d.legs ? `<div style="margin-top:4px;">
+                        <div style="display:flex; gap:4px; align-items:center; font-size:10px; color:${d.imbalancePct > 20 ? '#e05050' : d.imbalancePct > 10 ? '#d8a13c' : '#8fa0b2'};"
+                             data-tooltip="Leg loading, Per-leg current is a phasor sum - line-to-line circuits sit 30 degrees off each leg's line-to-neutral reference, so they are not simply added. Imbalance is NEMA-style: max deviation from the average.">
+                            <span style="letter-spacing:0.5px;">LEGS</span>
+                            ${['X', 'Y', 'Z'].map(k => `<span style="flex:1; text-align:center;">${k} ${d.legs[k].amps.toFixed(0)}A</span>`).join('')}
+                            <span>${d.imbalancePct > 1 ? `±${Math.round(d.imbalancePct)}%` : 'even'}</span>
+                        </div>
+                        <div style="display:flex; gap:3px; margin-top:2px;">
+                            ${['X', 'Y', 'Z'].map(k => `<div class="rack-bar" style="flex:1;"><div class="rack-bar-fill${d.legs[k].pct > 100 ? ' over' : ''}" style="width:${Math.min(100, Math.round(d.legs[k].pct))}%"></div></div>`).join('')}
+                        </div>
+                    </div>` : ''}
+                    <div style="font-size:10px; color:#6d7987; margin-top:3px;">${feeds}</div>
+                </div>`;
+            }).join('') : '<div style="font-size:11px; color:#777; padding:4px 0;">No distros yet — add one, then assign multis to it.</div>'}`;
+
+        const add = host.querySelector('#power-distro-add');
+        if (add) add.addEventListener('click', () => {
+            this.addDistro();
+            this.refreshDistroPanel();
+            this.refreshSocaRuns();
+        });
+        const bal = host.querySelector('#power-distro-balance');
+        if (bal) bal.addEventListener('click', () => this.showBalanceDialog());
+        host.querySelectorAll('.power-distro-row').forEach(row => {
+            const id = row.dataset.id;
+            if (!id) return;
+            // The restate is deferred, not inline: patch() fires from the
+            // rows' own change handlers, mid-Tab, and an inline wipe would
+            // destroy the field Tab is moving into (see _rebuildAfterGesture).
+            const patch = (p) => {
+                this.updateDistro(id, p);
+                this._rebuildAfterGesture(() => { this.refreshDistroPanel(); this.refreshSocaRuns(); });
+            };
+            const nameEl = row.querySelector('.distro-name');
+            if (nameEl) nameEl.addEventListener('change', () => patch({ name: nameEl.value }));
+            const rate = row.querySelector('.distro-rating');
+            if (rate) rate.addEventListener('change', () => patch({ ratingA: rate.value }));
+            const volt = row.querySelector('.distro-voltage');
+            if (volt) volt.addEventListener('change', () => patch({ voltage: volt.value }));
+            const ph = row.querySelector('.distro-phase');
+            if (ph) ph.addEventListener('change', () => patch({ phase: ph.value }));
+            const phg = row.querySelector('.distro-phasing');
+            if (phg) phg.addEventListener('change', () => patch({ phasing: phg.value }));
+            const loc = row.querySelector('.distro-location');
+            if (loc) loc.addEventListener('change', () => patch({ location: loc.value }));
+            const phHelp = row.querySelector('.distro-phasing-help');
+            if (phHelp) phHelp.addEventListener('click', () => this.showPhasingHelp());
+            const del = row.querySelector('.distro-del');
+            if (del) del.addEventListener('click', () => {
+                this.removeDistro(id);
+                this.refreshDistroPanel();
+                this.refreshSocaRuns();
+            });
+        });
+    }
+
+    refreshSocaRuns() {
+        const host = document.getElementById('power-soca-runs');
+        if (!host) return;
+        // Same wipe, same cure as the label editors: the round-trip after a
+        // soca-length edit lands here and rewrites the host the user is
+        // standing in. Every field below carries a data-lrd-field key so the
+        // capture can put focus and caret back after the innerHTML wipe.
+        this._preserveEditorFocus();
+        const layer = this.currentLayer;
+        if (!layer || (layer.type || 'screen') === 'image') { host.innerHTML = ''; return; }
+        const plan = this.getSocaPlan(layer);
+        if (!plan.length) { host.innerHTML = ''; return; }
+        const breakout = this.getPowerBreakout(layer);
+        host.innerHTML = `
+            <label style="font-weight: 600; margin-bottom: 6px; display: block;" data-tooltip="Soca / multi home runs, Each Soca (multi) feeds up to 6 circuits. Set the home-run cable length per multi - it flows into the gear checklist and report.">Soca / Multi Home Runs</label>
+            <div class="info-row" style="align-items:center;" data-tooltip="Breakout, How the multi terminates: True1 or powerCON breakouts feed panels directly (the 6-channel default), Edison is the 110V option, L6-20 adds L6-20-to-panel tails per circuit. Drives the gear checklist.">
+                <label style="font-weight:400;">Breakout</label>
+                <select id="power-breakout-type" data-lrd-field="power-breakout-type" class="info-select" style="width: 150px;">
+                    ${this.getPowerBreakoutTypes().map(t => `<option value="${t.id}" ${breakout.id === t.id ? 'selected' : ''}>${t.name}</option>`).join('')}
+                </select>
+            </div>
+            ${plan.map(s => {
+                const assigned = (layer.powerSocaDistro || {})[s.soca] || '';
+                return `
+                <div class="info-row" style="align-items:center;">
+                    <label style="font-weight:400;">${this._esc ? this._esc(s.name) : s.name} · ${s.legs.length} leg${s.legs.length === 1 ? '' : 's'} · ${s.amps.toFixed(1)} A</label>
+                    <select class="power-soca-distro info-select" data-soca="${s.soca}" data-lrd-field="power-soca-distro-${s.soca}" style="width:96px;" data-tooltip="Distro, Which power source this multi lands on. Load rolls up per distro across every screen.">
+                        <option value="">— distro —</option>
+                        ${this.getDistros().map(d => `<option value="${d.id}" ${assigned === d.id ? 'selected' : ''}>${this._esc ? this._esc(d.name) : d.name}</option>`).join('')}
+                    </select>
+                    <input type="text" class="power-soca-length" data-soca="${s.soca}" data-lrd-field="power-soca-length-${s.soca}" value="${(s.length || '').replace(/"/g, '&quot;')}" placeholder="e.g. 100ft" style="width: 74px;">
+                </div>`; }).join('')}
+            <div class="info-row checkbox-row" data-tooltip="Soca Brackets, Draw a bracket over each multi's span on the power map with its name and home-run length.">
+                <input type="checkbox" id="show-soca-brackets" data-lrd-field="show-soca-brackets" ${layer.showSocaBrackets !== false ? 'checked' : ''}>
+                <label for="show-soca-brackets">Soca Brackets on Map</label>
+            </div>`;
+        host.querySelectorAll('.power-soca-length').forEach(inp => {
+            inp.addEventListener('change', () => {
+                this.setSocaLength(layer, Number(inp.dataset.soca), inp.value);
+            });
+        });
+        host.querySelectorAll('.power-soca-distro').forEach(sel => {
+            sel.addEventListener('change', () => {
+                this.setSocaDistro(layer, Number(sel.dataset.soca), sel.value || null);
+                // Tab out of the last soca row lands in the distro panel this
+                // would wipe - defer past the gesture (see _rebuildAfterGesture).
+                this._rebuildAfterGesture(() => this.refreshDistroPanel());
+            });
+        });
+        const sel = host.querySelector('#power-breakout-type');
+        if (sel) sel.addEventListener('change', () => {
+            const list = this._socaPanelTargets(layer);
+            list.forEach(l => { l.powerBreakoutType = sel.value; });
+            this.updateLayers(list);
+        });
+        const brk = host.querySelector('#show-soca-brackets');
+        if (brk) brk.addEventListener('change', () => {
+            const list = this._socaPanelTargets(layer);
+            list.forEach(l => { l.showSocaBrackets = brk.checked; });
+            this.updateLayers(list);
+            if (window.canvasRenderer) window.canvasRenderer.render();
+        });
+    }
+
+    // The Splitters block beside the soca panel: the per-screen packing
+    // toggle and splitter size, plus one row per circuit for the manual
+    // merge/split override. Rendered like refreshSocaRuns (same focus
+    // doctrine, same _rebuildAfterGesture flow), with ids/classes DISTINCT
+    // from the soca panel's.
+    refreshSplitterPanel() {
+        const host = document.getElementById('power-splitters');
+        if (!host) return;
+        this._preserveEditorFocus();
+        const layer = this.currentLayer;
+        if (!layer || (layer.type || 'screen') !== 'screen') { host.innerHTML = ''; return; }
+        const sp = this.getPowerSplitters(layer);
+        const custom = this.usesCustomCircuits(layer);
+        // Rows appear when the manual lever means something: packed auto
+        // circuits, or drawn custom circuits (merge-only - drawn numbering
+        // is user intent and is never auto-packed).
+        const circuits = (sp.enabled || custom) ? this.screenCircuits(layer) : [];
+        const voltage = parseFloat(layer.powerVoltage) || 0;
+        const amperage = parseFloat(layer.powerAmperage) || 0;
+        const esc = (s) => this._esc ? this._esc(s) : s;
+        const stockWays = [2, 3, 4];
+        const isStock = stockWays.includes(sp.maxWays);
+        const rowHtml = circuits.map(c => {
+            const branches = (c.branches && c.branches.length) ? c.branches : [c.panels];
+            const srcLayers = c.layers || [];
+            const watts = c.panels.reduce((s, p, pi) => {
+                const src = srcLayers[pi];
+                const w = (src && src !== layer)
+                    ? (parseFloat(src.panelWatts) || 0)
+                    : (parseFloat(layer.panelWatts) || 0);
+                return s + w * this.getPanelLoadFactor(src || layer, p);
+            }, 0);
+            const amps = voltage ? watts / voltage : 0;
+            const over = amperage > 0 && amps > amperage;
+            const comp = branches.map(b => b.length).join('+');
+            const label = this.getPowerCircuitLabel(layer, c.num);
+            return `
+                <div class="info-row splitter-circuit-row" style="align-items:center; gap:6px;">
+                    <input type="checkbox" class="splitter-circuit-pick" data-circuit="${c.num}" data-lrd-field="splitter-circuit-pick-${c.num}">
+                    <label style="font-weight:400; flex:1;">${esc(label)} · ${branches.length > 1 ? `${branches.length} runs (${comp} tiles) via ${branches.length}fer` : `${c.panels.length} tiles`} · ${amps.toFixed(1)} A${over ? ' <span style="color:#c0392b; font-weight:600;">OVER</span>' : ''}</label>
+                </div>`;
+        }).join('');
+        host.innerHTML = `
+            <label style="font-weight: 600; margin-bottom: 6px; display: block;" data-tooltip="Power splitters, Share one circuit between adjacent short power runs through a 2fer/3fer/4fer Y-cable. Organized modes pack whole rows or columns as separate runs on a shared feed; Maximize already fills each circuit to capacity, so packing changes nothing there.">Splitters</label>
+            <div class="info-row checkbox-row" data-tooltip="Circuit sharing, Gang consecutive row/column runs onto one shared circuit through a splitter, up to the splitter size and the circuit capacity. Only adjacent runs share - a run is never skipped to pair two non-neighbours.">
+                <input type="checkbox" id="power-splitters-enabled" data-lrd-field="power-splitters-enabled" ${sp.enabled ? 'checked' : ''}>
+                <label for="power-splitters-enabled">Share circuits via splitters</label>
+            </div>
+            <div class="info-row" style="align-items:center;" data-tooltip="Splitter size, The largest Y-cable the packer may use. It always uses the smallest that fits: none, then 2fer, then 3fer.">
+                <label style="font-weight:400;">Max splitter</label>
+                <select id="power-splitters-maxways" data-lrd-field="power-splitters-maxways" class="info-select" style="width: 96px;">
+                    ${stockWays.map(w => `<option value="${w}" ${isStock && sp.maxWays === w ? 'selected' : ''}>${w}fer</option>`).join('')}
+                    <option value="custom" ${isStock ? '' : 'selected'}>Custom…</option>
+                </select>
+                ${isStock ? '' : `<input type="number" id="power-splitters-maxways-custom" data-lrd-field="power-splitters-maxways-custom" min="2" step="1" value="${sp.maxWays}" style="width: 56px;">`}
+            </div>
+            ${circuits.length ? `
+            <div id="power-splitter-rows">${rowHtml}</div>
+            <div class="info-row" style="gap:8px;">
+                <button id="power-splitters-merge" data-lrd-field="power-splitters-merge" class="btn btn-secondary" style="padding:2px 10px;" data-tooltip="Merge selected, Gang the checked circuits onto ONE shared circuit through a splitter. Honored even over capacity - the row flags OVER.">Merge selected</button>
+                <button id="power-splitters-split" data-lrd-field="power-splitters-split" class="btn btn-secondary" style="padding:2px 10px;" data-tooltip="Split, Un-merge the checked circuits and pin their runs out of auto packing.">Split</button>
+            </div>` : ''}`;
+        // Multi-select doctrine: the enabled/maxWays edits apply to EVERY
+        // selected screen (same helper as the soca panel's scalar settings);
+        // manual merge/split rows are inherently per-screen.
+        const writeAll = (patch) => {
+            const list = this._socaPanelTargets(layer);
+            list.forEach(l => {
+                const cur = this.getPowerSplitters(l);
+                l.powerSplitters = { ...cur, ...patch,
+                    manual: cur.manual };
+            });
+            this.updateLayers(list);
+            this._rebuildAfterGesture(() => {
+                this.refreshSplitterPanel();
+                this.refreshSocaRuns();
+                this.refreshDistroPanel();
+                this.updatePowerLabelEditor && this.updatePowerLabelEditor();
+                if (window.canvasRenderer) window.canvasRenderer.render();
+            });
+        };
+        const en = host.querySelector('#power-splitters-enabled');
+        if (en) en.addEventListener('change', () => writeAll({ enabled: en.checked }));
+        const mw = host.querySelector('#power-splitters-maxways');
+        if (mw) mw.addEventListener('change', () => {
+            if (mw.value === 'custom') {
+                // seed the custom input with a non-stock value so it renders
+                writeAll({ maxWays: 5 });
+                return;
+            }
+            writeAll({ maxWays: parseInt(mw.value, 10) || 3 });
+        });
+        const mwc = host.querySelector('#power-splitters-maxways-custom');
+        if (mwc) mwc.addEventListener('change', () => {
+            writeAll({ maxWays: Math.max(2, parseInt(mwc.value, 10) || 2) });
+        });
+        const picked = () => [...host.querySelectorAll('.splitter-circuit-pick:checked')]
+            .map(el => parseInt(el.dataset.circuit, 10))
+            .filter(n => Number.isFinite(n));
+        const mergeBtn = host.querySelector('#power-splitters-merge');
+        if (mergeBtn) mergeBtn.addEventListener('click', () => {
+            this.mergeSplitterCircuits(layer, picked());
+        });
+        const splitBtn = host.querySelector('#power-splitters-split');
+        if (splitBtn) splitBtn.addEventListener('click', () => {
+            this.splitSplitterCircuits(layer, picked());
+        });
+    }
+
+    // Merge the selected circuits into one manual group. The group is stored
+    // as RUN ids: for auto screens the run ordinals the selected circuits
+    // currently carry, for custom screens the drawn circuit numbers. Members
+    // leave any previous group and lose their split pins.
+    mergeSplitterCircuits(layer, circuitNums) {
+        if (!layer || !Array.isArray(circuitNums) || circuitNums.length < 2) return;
+        const chosen = new Set(circuitNums);
+        const runIds = [];
+        this.screenCircuits(layer).forEach(c => {
+            if (!chosen.has(c.num)) return;
+            (c.runIds || [c.num]).forEach(id => runIds.push(id));
+        });
+        if (runIds.length < 2) return;
+        this._writeSplitterManual(layer, (manual) => {
+            const inNew = new Set(runIds);
+            manual.merge = manual.merge
+                .map(g => (Array.isArray(g) ? g.filter(n => !inNew.has(n)) : []))
+                .filter(g => g.length >= 2);
+            manual.split = manual.split.filter(n => !inNew.has(n));
+            manual.merge.push([...runIds].sort((a, b) => a - b));
+        });
+    }
+
+    // Un-merge the selected circuits. Auto runs are additionally PINNED out
+    // of packing (one circuit per run) - the pin is what defeats a re-pack;
+    // custom circuits just fall back to their drawn numbering.
+    splitSplitterCircuits(layer, circuitNums) {
+        if (!layer || !Array.isArray(circuitNums) || !circuitNums.length) return;
+        const chosen = new Set(circuitNums);
+        const runIds = [];
+        this.screenCircuits(layer).forEach(c => {
+            if (!chosen.has(c.num)) return;
+            (c.runIds || [c.num]).forEach(id => runIds.push(id));
+        });
+        if (!runIds.length) return;
+        const custom = this.usesCustomCircuits(layer);
+        this._writeSplitterManual(layer, (manual) => {
+            const hit = new Set(runIds);
+            manual.merge = manual.merge
+                .map(g => (Array.isArray(g) ? g.filter(n => !hit.has(n)) : []))
+                .filter(g => g.length >= 2);
+            if (!custom) {
+                manual.split = [...new Set([...manual.split, ...runIds])]
+                    .sort((a, b) => a - b);
+            }
+        });
+    }
+
+    _writeSplitterManual(layer, fn) {
+        const cur = this.getPowerSplitters(layer);
+        const manual = {
+            merge: cur.manual.merge.map(g => (Array.isArray(g) ? g.slice() : [])),
+            split: cur.manual.split.slice(),
+        };
+        fn(manual);
+        layer.powerSplitters = { ...cur, manual };
+        this.updateLayers([layer]);
+        this._rebuildAfterGesture(() => {
+            this.refreshSplitterPanel();
+            this.refreshSocaRuns();
+            this.refreshDistroPanel();
+            this.updatePowerLabelEditor && this.updatePowerLabelEditor();
+            if (window.canvasRenderer) window.canvasRenderer.render();
+        });
+    }
+
+    // Multi-select doctrine: a panel edit applies to EVERY selected screen,
+    // not just the one the panel happens to show. Per-screen scalar settings
+    // (brackets toggle, breakout type) go through here; per-multi fields
+    // (lengths, distro assignments) stay with their own screen's soca plan.
+    _socaPanelTargets(layer) {
+        const sel = this.getSelectedLayers().filter(l => (l.type || 'screen') === 'screen');
+        return sel.some(l => l.id === layer.id) ? sel : [layer, ...sel];
+    }
+
+    // ---- Power splitters (circuit sharing via 2fer/3fer/4fer Y-cables) ------
+    //
+    // Real rigs gang multiple SHORT adjacent power runs onto ONE circuit
+    // through a splitter: a wall cabled top-down in 5-tall columns with a
+    // 15-tile circuit capacity feeds three adjacent columns from one feed
+    // labelled S1-1, through a 3fer. The model rides on the layer:
+    //   layer.powerSplitters = {
+    //     enabled: false,          // AUTO packing (organized modes only)
+    //     maxWays: 3,              // 2fer/3fer out of the box; any int >= 2
+    //     manual: {
+    //       merge: [[runId, ...], ...],   // hand-ganged runs, one group = one circuit
+    //       split: [runId, ...],          // runs pinned OUT of auto packing
+    //     },
+    //   }
+    // Run ids: the pre-packing run ordinal (1-based, traversal order) for
+    // auto modes; the drawn circuit number for custom screens.
+
+    // Normalized read - the raw field may be absent or partial.
+    getPowerSplitters(layer) {
+        const raw = (layer && layer.powerSplitters) || {};
+        const mw = parseInt(raw.maxWays, 10);
+        const manual = raw.manual || {};
+        return {
+            enabled: !!raw.enabled,
+            maxWays: Number.isFinite(mw) && mw >= 2 ? mw : 3,
+            manual: {
+                merge: Array.isArray(manual.merge) ? manual.merge : [],
+                split: Array.isArray(manual.split) ? manual.split : [],
+            },
+        };
+    }
+
+    // Validated-on-read manual groups against the run ids that currently
+    // exist. Ids that no longer resolve are silently dropped; a group left
+    // with fewer than two members dissolves; a run can sit in only one group
+    // (first wins), and a run inside a group cannot also be split-pinned.
+    appliedSplitterGroups(layer, validIds) {
+        const sp = this.getPowerSplitters(layer);
+        const valid = new Set((validIds || []).map(n => parseInt(n, 10)));
+        const used = new Set();
+        const merge = [];
+        for (const g of sp.manual.merge) {
+            if (!Array.isArray(g)) continue;
+            const ids = [...new Set(g.map(n => parseInt(n, 10)))]
+                .filter(n => valid.has(n) && !used.has(n))
+                .sort((a, b) => a - b);
+            if (ids.length < 2) continue;
+            ids.forEach(n => used.add(n));
+            merge.push(ids);
+        }
+        const split = [...new Set(sp.manual.split.map(n => parseInt(n, 10)))]
+            .filter(n => valid.has(n) && !used.has(n))
+            .sort((a, b) => a - b);
+        return { merge, split };
+    }
+
+    // Pack runs into circuits. Greedy over CONSECUTIVE runs only - never
+    // skip a run to gang two non-neighbours: a circuit keeps taking the next
+    // run while the summed load fits wattsPerCircuit and the branch count
+    // stays within maxWays (the packer thereby uses the smallest splitter
+    // that fits: none, then 2fer, then 3fer). A run that does not fit closes
+    // the circuit and starts the next. Manual overrides ride the same walk:
+    // a merge group is emitted whole as one circuit when its first member is
+    // reached (honored even over capacity - the soca `over` convention flags
+    // it); a split-pinned run is its own circuit and a boundary.
+    // Returns { circuits, runs, runIds } index-aligned: circuits[i] is the
+    // concatenated panels, runs[i] the per-branch panel counts, runIds[i]
+    // the run ordinals ganged into that circuit.
+    _packPowerRuns(runs, wattsPerCircuit, maxWays, manual) {
+        const N = runs.length;
+        const groupOf = new Map();
+        ((manual && manual.merge) || []).forEach(g =>
+            g.forEach(id => groupOf.set(id, g)));
+        const splitSet = new Set((manual && manual.split) || []);
+        const consumed = new Set();
+        const circuits = [], counts = [], runIds = [];
+        for (let i = 0; i < N; i++) {
+            const id = i + 1;
+            if (consumed.has(id)) continue;
+            let members;
+            const g = groupOf.get(id);
+            if (g) {
+                members = g.filter(n => !consumed.has(n));
+            } else if (splitSet.has(id)) {
+                members = [id];
+            } else {
+                members = [id];
+                let load = runs[i].load;
+                for (let j = i + 1; j < N; j++) {
+                    const nid = j + 1;
+                    if (members.length >= maxWays) break;
+                    if (groupOf.has(nid) || splitSet.has(nid)) break;
+                    if (load + runs[j].load > wattsPerCircuit) break;
+                    members.push(nid);
+                    load += runs[j].load;
+                }
+            }
+            members.forEach(n => consumed.add(n));
+            circuits.push(members.flatMap(n => runs[n - 1].panels));
+            counts.push(members.map(n => runs[n - 1].panels.length));
+            runIds.push(members.slice());
+        }
+        return { circuits, runs: counts, runIds };
+    }
+
+    // The drawn path steps a (possibly merged) custom circuit covers - the
+    // label sheets stamp every tile of a shared circuit with the ONE label,
+    // so the sticker run for merged circuit `num` concatenates every member
+    // path, not just the primary's.
+    _splitterMergedPathFor(layer, num) {
+        const paths = (layer && layer.powerCustomPaths) || {};
+        const own = paths[num] || [];
+        const drawnNums = Object.keys(paths)
+            .map(n => parseInt(n, 10))
+            .filter(n => Number.isFinite(n) && (paths[n] || []).length > 0);
+        const groups = this.appliedSplitterGroups(layer, drawnNums).merge;
+        const g = groups.find(x => x[0] === parseInt(num, 10));
+        if (!g) return own;
+        return g.flatMap(n => paths[n] || []);
     }
 
     calculatePowerAssignments(layer) {
@@ -391,6 +1815,44 @@ class _Power {
             const unitIndices = isHorizontalFirst
                 ? [...Array(layer.rows).keys()].map(i => (startsTop ? i : (layer.rows - 1 - i)))
                 : [...Array(layer.columns).keys()].map(i => (startsLeft ? i : (layer.columns - 1 - i)));
+
+            // Splitter packing: one RUN per unit (row/column) - each branch
+            // is its own short daisy fed at its head, the physical truth of
+            // a wall cabled top-down - then _packPowerRuns gangs consecutive
+            // runs onto shared circuits within maxWays and capacity. The
+            // single-unit-too-big error is unchanged. Off by default; the
+            // default path below is byte-identical to the pre-splitter code.
+            const splitters = this.getPowerSplitters(layer);
+            if (splitters.enabled) {
+                const runs = [];
+                for (const idx of unitIndices) {
+                    const unitPanels = visibleOrdered.filter(p => (isHorizontalFirst ? p.row === idx : p.col === idx));
+                    if (unitPanels.length === 0) continue;
+                    const unitLoad = unitPanels.reduce((sum, p) => sum + loadOf(p), 0);
+                    if (unitLoad > wattsPerCircuit) {
+                        return {
+                            circuits: [],
+                            error: {
+                                message: isHorizontalFirst ? 'CANNOT FIT COMPLETE ROW' : 'CANNOT FIT COMPLETE COLUMN',
+                                unitType: isHorizontalFirst ? 'row' : 'column',
+                                unitCount: isHorizontalFirst ? layer.columns : layer.rows
+                            }
+                        };
+                    }
+                    runs.push({
+                        panels: this.getOrganizedPanelsForUnits(
+                            layer, pattern, isHorizontalFirst, [idx], false),
+                        load: unitLoad,
+                    });
+                }
+                const manual = this.appliedSplitterGroups(
+                    layer, runs.map((_, i) => i + 1));
+                const packed = this._packPowerRuns(
+                    runs, wattsPerCircuit, splitters.maxWays, manual);
+                return { circuits: packed.circuits, runs: packed.runs,
+                         runIds: packed.runIds, error: null };
+            }
+
             let current = { unitIndices: [], load: 0 };
 
             for (const idx of unitIndices) {
@@ -444,8 +1906,113 @@ class _Power {
     getPortLabelText(layer, portNum, type) {
         const template = type === 'return' ? (layer.portLabelTemplateReturn || 'R#') : (layer.portLabelTemplatePrimary || 'P#');
         const overrides = type === 'return' ? (layer.portLabelOverridesReturn || {}) : (layer.portLabelOverridesPrimary || {});
+        // A port the user RELABELLED keeps that name no matter where it is
+        // patched - the sticker on the wall stays true. A port left at its
+        // default FOLLOWS the patch: it shows the UNIT port it lands on, so
+        // MAIN on 1-6 reads P1-P6 and IMAG landing on 7-8 reads P7-P8.
         if (overrides && overrides[portNum]) return overrides[portNum];
-        return template.replace('#', portNum);
+        let effective = portNum;
+        const alloc = layer.rackAllocation;
+        // A default label follows the NUMBER OF THE PORT IT IS ON - its
+        // position on the box it presents on. Which box that is has its own
+        // name ("SR A"), so the label never carries one: naming a converter
+        // used to rewrite a screen's P1 to STAGE-A-1, and disambiguating
+        // inside the label meant one screen's name changed because a
+        // different screen moved. A user template ("FOH-#") keeps plain unit
+        // numbering.
+        const isStockTemplate = template === (type === 'return' ? 'R#' : 'P#');
+        const nameFor = (unitPort) => template.replace('#',
+            (isStockTemplate && typeof this.rackPortLabelName === 'function')
+                ? this.rackPortLabelName(alloc.instanceId, unitPort)
+                : unitPort);
+        if (alloc && alloc.instanceId) {
+            // Pinned screens carry portStart; an AUTO screen's start is resolved
+            // FRESH from the live port map, not read from a stamp that only
+            // refreshes when the map happens to run - which is why an
+            // auto-placed screen used to keep rendering P1 on the Data tab after
+            // it was patched onto port 7.
+            const start = Number(alloc.portStart) || this._resolveUnitStart(layer) || 1;
+            effective = start + (Number(portNum) || 1) - 1;
+            // Return/backup label: if this primary unit-port has a designated
+            // backup port on the unit, the R label names THAT port (15 primary
+            // with port 16 backing your chosen port shows R16 there).
+            if (type === 'return' && typeof this.getPortBackup === 'function') {
+                const paired = this.getPortBackup(alloc.instanceId, effective);
+                if (paired) return nameFor(paired);
+            }
+            // primary and return name their port the same way - the two used to
+            // diverge (a primary took the converter name, a return only did so
+            // when the port had a backup pairing), printing STAGE-A-1 beside R1
+            // on one port
+            return nameFor(effective);
+        }
+        return template.replace('#', effective);
+    }
+
+    // The unit port an AUTO screen's first port lands on, resolved from the
+    // live port map rather than a stamp. Cached for the current render burst -
+    // one map build per instance, cleared on the next microtask - so a screen
+    // full of port labels does not each rebuild it. Refreshing here is what
+    // propagates a re-patch to the Data tab: patch a second screen and the
+    // first's numbers move without anyone having to poke the map.
+    _resolveUnitStart(layer) {
+        const alloc = layer.rackAllocation;
+        if (!alloc || !alloc.instanceId || typeof this.rackInstancePortMap !== 'function') return 1;
+        if (!this._unitStartCache) {
+            this._unitStartCache = {};
+            Promise.resolve().then(() => { this._unitStartCache = null; });
+        }
+        let byLayer = this._unitStartCache[alloc.instanceId];
+        if (!byLayer) {
+            byLayer = this._unitStartCache[alloc.instanceId] = {};
+            for (const m of this.rackInstancePortMap(alloc.instanceId)) byLayer[m.layerId] = m.start;
+        }
+        return byLayer[layer.id] || Number(layer._unitPortStart) || 1;
+    }
+
+    // Which multi and which PHYSICAL TAIL of its 6-way fan a circuit lands
+    // on, resolved through the soca plan (screenCircuits order) and the
+    // per-circuit fan positions (phase balancing / breaker offset).
+    //
+    // `moved` is per-soca: true only when that soca's circuits sit on
+    // non-natural positions. The label authority below uses the slot ONLY
+    // then, so screens nobody balanced keep their labels byte-identical -
+    // including custom-drawn screens with gaps in the numbering, where the
+    // drawn number is user intent.
+    //
+    // Cached for the current render burst (same doctrine as
+    // _resolveUnitStart): one screenCircuits walk per layer, cleared on the
+    // next microtask, so a canvas full of labels does not rebuild the plan
+    // per bubble.
+    _circuitTailSlot(layer, circuitNum) {
+        if (!layer || typeof this.screenCircuits !== 'function') return null;
+        if (!this._circuitTailCache) {
+            this._circuitTailCache = new Map();
+            Promise.resolve().then(() => { this._circuitTailCache = null; });
+        }
+        let slots = this._circuitTailCache.get(layer);
+        if (!slots) {
+            slots = new Map();
+            const tm = String(layer.powerLabelTemplate || 'S1-#')
+                .match(/^(.*?)(\d+)([^#\d]*)#(.*)$/);
+            const startMulti = tm ? parseInt(tm[2], 10) || 1 : 1;
+            const circuits = this.screenCircuits(layer) || [];
+            const perSoca = new Map();   // soca -> [circuit num] in plan order
+            circuits.forEach((c, ci) => {
+                const soca = startMulti + Math.floor(ci / 6);
+                const arr = perSoca.get(soca) || [];
+                arr.push(c.num);
+                perSoca.set(soca, arr);
+            });
+            for (const [soca, nums] of perSoca) {
+                const pos = this.socaCircuitPositions(layer, soca, nums.length);
+                const moved = !pos.every((p, i) => p === i + 1);
+                nums.forEach((num, i) =>
+                    slots.set(num, { multi: soca, tail: pos[i], moved }));
+            }
+            this._circuitTailCache.set(layer, slots);
+        }
+        return slots.get(parseInt(circuitNum, 10)) || null;
     }
 
     getPowerCircuitLabel(layer, circuitNum) {
@@ -462,6 +2029,15 @@ class _Power {
             const sep = m[3];
             const suffix = m[4];
             const n = Math.max(1, parseInt(circuitNum, 10) || 1);
+            // v0.12.0: once phase balancing (or a breaker offset) lands this
+            // soca's circuits on other tails of the fan, the AUTO label names
+            // the TRUE PHYSICAL TAIL - S1-6 for tail 6, gaps allowed. The
+            // tail range is the soca HARDWARE's 6 legs, never the used-leg
+            // count. Explicit overrides above stay the user's text verbatim;
+            // screens on natural positions keep the arithmetic below
+            // byte-identical (the drawn number is user intent).
+            const slot = this._circuitTailSlot(layer, n);
+            if (slot && slot.moved) return `${prefix}${slot.multi}${sep}${slot.tail}${suffix}`;
             const multi = startMulti + Math.floor((n - 1) / 6);
             const circuitInMulti = ((n - 1) % 6) + 1;
             return `${prefix}${multi}${sep}${circuitInMulti}${suffix}`;
@@ -567,6 +2143,28 @@ class _Power {
                 el.setSelectionRange(start, end);
             } catch (_) { /* selection unsupported on this element */ }
         });
+    }
+
+    // The synchronous sibling of the round-trip delay _preserveEditorFocus()
+    // was written for.
+    //
+    // The label editors above only rebuild when the PUT response (or socket
+    // echo) lands, so by the time their wipe runs the Tab gesture is over and
+    // document.activeElement IS the field the user landed in - the helper can
+    // see it and put it back. Several editors in this suite (the Port List
+    // name cells, the patch rail, the distro panel, the soca runs) restate
+    // their DOM synchronously inside the field's own `change` handler
+    // instead. That runs MID-gesture: the browser has already chosen the next
+    // tab stop but not focused it yet, so the wipe destroys a target no
+    // capture can know about and focus falls to <body>.
+    //
+    // So those sites push the restate one macrotask out. The gesture then
+    // completes onto the real element, and the rebuild that follows goes
+    // through _preserveEditorFocus() exactly like every round-trip rebuild
+    // does. Model writes and undo snapshots stay in the handler - only the
+    // DOM restatement moves.
+    _rebuildAfterGesture(fn) {
+        setTimeout(fn, 0);
     }
 
     updatePortLabelEditor() {
@@ -759,13 +2357,26 @@ class _Power {
             row.style.alignItems = 'center';
             row.style.width = '100%';
 
+            // v0.12.0: once balancing (or a breaker offset) moves this
+            // multi's circuits onto other tails of the fan, the number
+            // column shows the PHYSICAL TAIL - the same digit the canvas
+            // bubble and breaker sticker carry - through the same slot the
+            // label authority reads. A balanced wall on tails {1,2,3,5,6}
+            // lists 1, 2, 3, 5, 6 down the editor, never 1..5. Screens on
+            // natural positions keep today's sequential column
+            // byte-identical (`moved` gates exactly like the labels).
+            const slot = this._circuitTailSlot(this.currentLayer, circuitNum);
+            const moved = !!(slot && slot.moved);
+
             const cb = document.createElement('input');
             cb.type = 'checkbox';
             cb.setAttribute('data-circuit', String(circuitNum));
             // Tab out of a circuit's label field lands here, on the next
             // row's checkbox - the first thing the rebuild destroys.
             cb.dataset.lrdField = `power-check-${circuitNum}`;
-            cb.title = `Circuit ${circuitNum}`;
+            cb.title = moved
+                ? this.getPowerCircuitLabel(this.currentLayer, circuitNum)
+                : `Circuit ${circuitNum}`;
             cb.style.margin = '0';
 
             const numLabel = document.createElement('div');
@@ -774,7 +2385,7 @@ class _Power {
             numLabel.style.color = '#ccc';
             numLabel.style.textAlign = 'center';
             numLabel.style.fontFamily = 'monospace';
-            numLabel.textContent = String(circuitNum);
+            numLabel.textContent = String(moved ? slot.tail : circuitNum);
 
             const input = document.createElement('input');
             input.type = 'text';

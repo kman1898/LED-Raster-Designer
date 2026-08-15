@@ -394,6 +394,7 @@ export class LEDRasterApp {
             powerLabelOverrides: layer.powerLabelOverrides,
             powerCustomPaths: layer.powerCustomPaths,
             powerCustomIndex: layer.powerCustomIndex,
+            powerSplitters: layer.powerSplitters,
             border_color_pixel: layer.border_color_pixel,
             border_color_cabinet: layer.border_color_cabinet,
             border_color_data: layer.border_color_data,
@@ -716,6 +717,7 @@ export class LEDRasterApp {
                         if (layerProps.powerLabelOverrides !== undefined) layer.powerLabelOverrides = layerProps.powerLabelOverrides;
                         if (layerProps.powerCustomPaths !== undefined) layer.powerCustomPaths = layerProps.powerCustomPaths;
                         if (layerProps.powerCustomIndex !== undefined) layer.powerCustomIndex = layerProps.powerCustomIndex;
+                        if (layerProps.powerSplitters !== undefined) layer.powerSplitters = layerProps.powerSplitters;
                         if (layerProps.border_color_pixel !== undefined) layer.border_color_pixel = layerProps.border_color_pixel;
                         if (layerProps.border_color_cabinet !== undefined) layer.border_color_cabinet = layerProps.border_color_cabinet;
                         if (layerProps.border_color_data !== undefined) layer.border_color_data = layerProps.border_color_data;
@@ -827,6 +829,15 @@ export class LEDRasterApp {
             if (layer.powerLabelOverrides === undefined) layer.powerLabelOverrides = {};
                 if (layer.powerCustomPaths === undefined) layer.powerCustomPaths = {};
             if (layer.powerCustomIndex === undefined) layer.powerCustomIndex = 1;
+            // Power splitters (circuit sharing): off by default, 3fer max
+            // (2fer/3fer out of the box), no manual overrides. See
+            // getPowerSplitters for the normalized read.
+            if (layer.powerSplitters === undefined) {
+                layer.powerSplitters = {
+                    enabled: false, maxWays: 3,
+                    manual: { merge: [], split: [] },
+                };
+            }
             if (layer.halfFirstColumn === undefined) layer.halfFirstColumn = false;
             if (layer.halfLastColumn === undefined) layer.halfLastColumn = false;
             if (layer.halfFirstRow === undefined) layer.halfFirstRow = false;
@@ -1047,6 +1058,7 @@ export class LEDRasterApp {
                 powerLabelTextColor: layer.powerLabelTextColor,
                 powerCustomPaths: layer.powerCustomPaths,
                 powerCustomIndex: layer.powerCustomIndex,
+                powerSplitters: layer.powerSplitters,
                 border_color_pixel: layer.border_color_pixel,
                 border_color_cabinet: layer.border_color_cabinet,
                 border_color_data: layer.border_color_data,
@@ -1707,10 +1719,13 @@ export class LEDRasterApp {
         // View tabs
         document.querySelectorAll('.view-tab').forEach(tab => {
             tab.addEventListener('click', () => {
+                const mode = tab.getAttribute('data-mode');
+                // The patch bay opens over the workspace from Data Settings;
+                // switching to any view closes it and shows that view.
+                if (this.closePatchBay) this.closePatchBay();
                 document.querySelectorAll('.view-tab').forEach(t => t.classList.remove('active'));
                 tab.classList.add('active');
-                const mode = tab.getAttribute('data-mode');
-                
+
                 // Show/hide appropriate sidebar panels
                 document.querySelectorAll('.tab-panel').forEach(panel => {
                     if (panel.getAttribute('data-tab') === mode) {

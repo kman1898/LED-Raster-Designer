@@ -3381,6 +3381,11 @@ class CanvasRenderer {
         // v0.8.7.8: bump a per-render token so screen-fill gradients are built
         // at most once per layer per frame (cached on the layer keyed by this).
         this._renderPass = (this._renderPass || 0) + 1;
+        // Start each frame with a fresh port-label map: a re-patch may have
+        // moved auto screens' unit ports since the last frame, and the badges
+        // must follow. The map itself is still built at most once per instance
+        // per frame (getPortLabelText memoises it for the burst).
+        if (window.app) window.app._unitStartCache = null;
         if (this.layerSelectionRect && !this.isSelectingLayers && !this.isSelectingPanels && !this.isDraggingLayer) {
             this.layerSelectionRect = null;
         }
@@ -3676,6 +3681,7 @@ class CanvasRenderer {
                     if (this.viewMode === 'power') {
                         this._keepTextUpright = _rotating;
                         this.renderPowerArrows(layer);
+                        if (layer.showSocaBrackets !== false) this.renderSocaBrackets(layer);
                         this._keepTextUpright = false;
                     }
 
@@ -5196,33 +5202,73 @@ class CanvasRenderer {
         // group peer differs, and only that case needs the scoped keys below.
         let circuitOwners = null;
 
+        // Per-circuit branch panel counts (splitter circuits only) - null
+        // when nothing on this screen shares a circuit.
+        let circuitRuns = null;
+
         if (isCustom && layer.powerCustomPaths) {
             const circuitNums = Object.keys(layer.powerCustomPaths)
                 .map(n => parseInt(n, 10))
                 .filter(n => (layer.powerCustomPaths[n] || []).length > 0)
                 .sort((a, b) => a - b);
-            circuitNumKeys = circuitNums;
-            circuitOwners = [];
-            circuits = circuitNums.map(circuitNum => {
+            const entries = circuitNums.map(circuitNum => {
                 const path = layer.powerCustomPaths[circuitNum] || [];
                 if (!this._pathCrossesMembers(layer, path)) {
-                    circuitOwners.push(null);   // all this layer's own cabinets
-                    return path
-                        .map(pos => window.app.getPanelByRowCol(layer, pos.row, pos.col))
-                        .filter(p => p && !p.hidden);
+                    return { num: circuitNum, owners: null,   // all this layer's own cabinets
+                        panels: path
+                            .map(pos => window.app.getPanelByRowCol(layer, pos.row, pos.col))
+                            .filter(p => p && !p.hidden) };
                 }
                 const hits = this._resolvePathPanels(layer, path);
-                circuitOwners.push(hits.map(h => h.layer));
-                return hits.map(h => h.panel);
+                return { num: circuitNum, owners: hits.map(h => h.layer),
+                    panels: hits.map(h => h.panel) };
             });
+            // Manual splitter merges collapse drawn circuits into ONE shared
+            // circuit keyed (and labelled) by the first member's number, so
+            // every tile of the group tints and reads as the one circuit.
+            const groups = (window.app && typeof window.app.appliedSplitterGroups === 'function')
+                ? window.app.appliedSplitterGroups(layer, circuitNums).merge : [];
+            let merged = entries;
+            if (groups.length) {
+                const inG = new Map();
+                groups.forEach(g => g.forEach(n => inG.set(n, g)));
+                const byNum = new Map(entries.map(e => [e.num, e]));
+                const done = new Set();
+                merged = [];
+                circuitRuns = [];
+                for (const e of entries) {
+                    if (done.has(e.num)) continue;
+                    const g = inG.get(e.num);
+                    if (!g) {
+                        merged.push(e);
+                        circuitRuns.push([e.panels.length]);
+                        continue;
+                    }
+                    const ms = g.filter(n => byNum.has(n)).map(n => byNum.get(n));
+                    ms.forEach(m => done.add(m.num));
+                    merged.push({
+                        num: ms[0].num,
+                        owners: ms.some(m => m.owners)
+                            ? ms.flatMap(m => m.owners || m.panels.map(() => layer))
+                            : null,
+                        panels: ms.flatMap(m => m.panels),
+                    });
+                    circuitRuns.push(ms.map(m => m.panels.length));
+                }
+            }
+            circuitNumKeys = merged.map(e => e.num);
+            circuitOwners = merged.map(e => e.owners);
+            circuits = merged.map(e => e.panels);
         } else {
             const assignments = window.app.calculatePowerAssignments(layer);
             error = assignments.error;
             circuits = assignments.circuits || [];
+            circuitRuns = assignments.runs || null;
         }
 
         layer._powerError = error;
         layer._powerCircuits = circuits;
+        layer._powerCircuitRuns = circuitRuns;
         layer._powerCircuitNumKeys = circuitNumKeys;
         layer._powerCircuitOwners = circuitOwners;
 
@@ -5307,29 +5353,31 @@ class CanvasRenderer {
         const layerRight = layerBounds.x + layerBounds.width;
         const layerBottom = layerBounds.y + layerBounds.height;
 
-        const drawCircuitLabel = (panelStart, panelNext, circuitNum) => {
-            const label = window.app ? window.app.getPowerCircuitLabel(layer, circuitNum) : `S1-${circuitNum}`;
-            // v0.8.7.4: render at the user's labelSize directly (no
-            // fit-to-panel cap, that was overriding the size slider).
-            // Circle grows to fit text width so labels never get clipped.
-            // If the label would overflow the screen edge, shift the
-            // CENTER inward so the label stays fully inside the screen
-            // bounds. Long labels overflow into neighboring panels but
-            // never beyond the screen.
+        // v0.8.7.4: render at the user's labelSize directly (no
+        // fit-to-panel cap, that was overriding the size slider).
+        // Circle grows to fit text width so labels never get clipped.
+        // If the label would overflow the screen edge, shift the
+        // CENTER inward so the label stays fully inside the screen
+        // bounds. Long labels overflow into neighboring panels but
+        // never beyond the screen.
+        // v0.12.0: placement split from drawing so the splitter fan-out can
+        // place ONE bubble centered over its run heads (see
+        // drawCircuitBranches); the single-run path is unchanged.
+        const labelRadius = (label) => {
             this.ctx.font = `bold ${labelSize}px ${projectFontFamily()}`;
             const textWidth = this.ctx.measureText(label).width;
             const padding = Math.max(6, labelSize * 0.25);
-            const circleRadius = Math.max(labelSize * 0.7, lineWidth * 1.4, textWidth / 2 + padding);
-            let px = panelStart.x + panelStart.width / 2;
-            let py = panelStart.y + panelStart.height / 2;
+            return Math.max(labelSize * 0.7, lineWidth * 1.4, textWidth / 2 + padding);
+        };
+        const clampLabelCenter = (px, py, circleRadius) => {
             // Shift to keep circle fully within screen bounds.
             if (px - circleRadius < layerLeft) px = layerLeft + circleRadius;
             if (px + circleRadius > layerRight) px = layerRight - circleRadius;
             if (py - circleRadius < layerTop) py = layerTop + circleRadius;
             if (py + circleRadius > layerBottom) py = layerBottom - circleRadius;
-            px = this.snap(px);
-            py = this.snap(py);
-
+            return { px: this.snap(px), py: this.snap(py) };
+        };
+        const drawLabelBubble = (label, px, py, circleRadius) => {
             this.ctx.fillStyle = powerLabelBgColor;
             this.ctx.beginPath();
             this.ctx.arc(px, py, circleRadius, 0, Math.PI * 2);
@@ -5339,6 +5387,14 @@ class CanvasRenderer {
             this.ctx.textAlign = 'center';
             this.ctx.textBaseline = 'middle';
             this._fillText(label, px, py);
+        };
+        const drawCircuitLabel = (panelStart, panelNext, circuitNum) => {
+            const label = window.app ? window.app.getPowerCircuitLabel(layer, circuitNum) : `S1-${circuitNum}`;
+            const circleRadius = labelRadius(label);
+            const { px, py } = clampLabelCenter(
+                panelStart.x + panelStart.width / 2,
+                panelStart.y + panelStart.height / 2, circleRadius);
+            drawLabelBubble(label, px, py, circleRadius);
         };
 
         if (useColorCodedView) {
@@ -5381,9 +5437,9 @@ class CanvasRenderer {
             return;
         }
 
-        const drawCircuit = (circuitPanels, circuitNum) => {
-            if (circuitPanels.length === 0) return;
-            const currentLineColor = useRandomColors ? randomColors[(circuitNum - 1) % randomColors.length] : lineColor;
+        // The daisy polyline + direction arrows for ONE run of panels -
+        // shared by the whole-circuit path and the per-branch splitter path.
+        const drawDaisyLines = (circuitPanels, currentLineColor) => {
             this.ctx.strokeStyle = currentLineColor;
             this.ctx.lineWidth = lineWidth;
 
@@ -5428,8 +5484,52 @@ class CanvasRenderer {
                 this.ctx.closePath();
                 this.ctx.fill();
             }
+        };
 
+        const drawCircuit = (circuitPanels, circuitNum) => {
+            if (circuitPanels.length === 0) return;
+            const currentLineColor = useRandomColors ? randomColors[(circuitNum - 1) % randomColors.length] : lineColor;
+            drawDaisyLines(circuitPanels, currentLineColor);
             drawCircuitLabel(circuitPanels[0], circuitPanels[1], circuitNum);
+        };
+
+        // A splitter circuit: each branch is its own short daisy, and the
+        // ONE circuit label sits at the FAN-OUT - centered across the span
+        // of the run-head panels (between the two heads of a 2fer, over the
+        // middle of a 3fer) - with the dashed stubs radiating from the
+        // bubble to every run head. v0.12.0: it used to sit on run 1's first
+        // panel with the stubs crossing to the other heads, which read as
+        // clutter on a real wall; a single-branch circuit keeps the plain
+        // first-panel label.
+        const drawCircuitBranches = (branches, circuitNum) => {
+            const live = (branches || []).filter(b => b && b.length > 0);
+            if (!live.length) return;
+            const currentLineColor = useRandomColors ? randomColors[(circuitNum - 1) % randomColors.length] : lineColor;
+            live.forEach(b => drawDaisyLines(b, currentLineColor));
+            if (live.length === 1) {
+                drawCircuitLabel(live[0][0], live[0][1], circuitNum);
+                return;
+            }
+            const heads = live.map(b => b[0]);
+            const hx = heads.map(h => h.x + h.width / 2);
+            const hy = heads.map(h => h.y + h.height / 2);
+            const label = window.app ? window.app.getPowerCircuitLabel(layer, circuitNum) : `S1-${circuitNum}`;
+            const circleRadius = labelRadius(label);
+            const { px, py } = clampLabelCenter(
+                (Math.min(...hx) + Math.max(...hx)) / 2,
+                (Math.min(...hy) + Math.max(...hy)) / 2, circleRadius);
+            this.ctx.save();
+            this.ctx.strokeStyle = currentLineColor;
+            this.ctx.lineWidth = Math.max(1, lineWidth * 0.6);
+            this.ctx.setLineDash([lineWidth * 1.5, lineWidth]);
+            for (const h of heads) {
+                this.ctx.beginPath();
+                this.ctx.moveTo(px, py);
+                this.ctx.lineTo(this.snap(h.x + h.width / 2), this.snap(h.y + h.height / 2));
+                this.ctx.stroke();
+            }
+            this.ctx.restore();
+            drawLabelBubble(label, px, py, circleRadius);
         };
 
         if (isCustom && layer.powerCustomPaths) {
@@ -5437,7 +5537,32 @@ class CanvasRenderer {
                 .map(n => parseInt(n, 10))
                 .filter(n => (layer.powerCustomPaths[n] || []).length > 0)
                 .sort((a, b) => a - b);
+            // Manual splitter merges: the group's member paths draw as the
+            // BRANCHES of one shared circuit - one label (the first member's
+            // number), dashed stubs to the other runs. A group touching a
+            // cross-member path keeps the per-path drawing (the overlay pass
+            // machinery owns those), so nothing is wired twice.
+            const groups = (window.app && typeof window.app.appliedSplitterGroups === 'function')
+                ? window.app.appliedSplitterGroups(layer, circuitNums).merge : [];
+            const inG = new Map();
+            groups.forEach(g => g.forEach(n => inG.set(n, g)));
+            const homePanelsOf = (circuitNum) => (layer.powerCustomPaths[circuitNum] || [])
+                .map(pos => window.app.getPanelByRowCol(layer, pos.row, pos.col))
+                .filter(p => p && !p.hidden);
+            const done = new Set();
             circuitNums.forEach(circuitNum => {
+                if (done.has(circuitNum)) return;
+                const g = inG.get(circuitNum);
+                if (g && !this._crossMemberPass) {
+                    const members = g.filter(n => circuitNums.includes(n));
+                    const crosses = members.some(n =>
+                        this._pathCrossesMembers(layer, layer.powerCustomPaths[n] || []));
+                    if (!crosses) {
+                        members.forEach(n => done.add(n));
+                        drawCircuitBranches(members.map(homePanelsOf), members[0]);
+                        return;
+                    }
+                }
                 const path = layer.powerCustomPaths[circuitNum] || [];
                 // v0.11.0: same split as the data-flow custom branch, and it has
                 // to stay in step with preparePowerLayerRenderData above - the
@@ -5448,10 +5573,7 @@ class CanvasRenderer {
                     drawCircuit(this._crossMemberDrawPanels(layer, path), circuitNum);
                     return;
                 }
-                const panels = path
-                    .map(pos => window.app.getPanelByRowCol(layer, pos.row, pos.col))
-                    .filter(p => p && !p.hidden);
-                drawCircuit(panels, circuitNum);
+                drawCircuit(homePanelsOf(circuitNum), circuitNum);
             });
             this.ctx.restore();
             return;
@@ -5468,6 +5590,7 @@ class CanvasRenderer {
             const assignments = window.app.calculatePowerAssignments(layer);
             layer._powerError = assignments.error;
             layer._powerCircuits = assignments.circuits || [];
+            layer._powerCircuitRuns = assignments.runs || null;
         }
         if (layer._powerError) {
             this.ctx.restore();
@@ -5476,9 +5599,113 @@ class CanvasRenderer {
 
         layer._powerCircuits.forEach((circuitPanels, idx) => {
             if (!circuitPanels || circuitPanels.length === 0) return;
+            // Splitter circuit: break the daisy at run boundaries and fan
+            // dashed stubs out from the feed - one label either way.
+            const counts = layer._powerCircuitRuns && layer._powerCircuitRuns[idx];
+            if (counts && counts.length > 1) {
+                let off = 0;
+                drawCircuitBranches(
+                    counts.map(n => circuitPanels.slice(off, off += n)), idx + 1);
+                return;
+            }
             drawCircuit(circuitPanels, idx + 1);
         });
 
+        this.ctx.restore();
+    }
+
+    // Soca/multi brackets above the wall on the power map: one bracket per
+    // multi spanning the columns its 6 legs feed, labeled with the multi
+    // name and home-run length (Binder convention). Brackets stack upward
+    // when their spans overlap (row-major circuits usually span full width).
+    renderSocaBrackets(layer) {
+        if (!window.app || typeof window.app.getSocaPlan !== 'function') return;
+        if ((layer.type || 'screen') !== 'screen') return;
+        const plan = window.app.getSocaPlan(layer);
+        if (!plan.length) return;
+        const bounds = this.getLayerBounds(layer);
+        const top = bounds.y;
+        const labelSize = Math.max(11, (layer.powerLabelSize || 14) * 0.9);
+        const legFont = Math.max(8, labelSize * 0.62);
+        const rowH = labelSize + 14;
+        // clear space under the bracket line for the leg ticks + L labels
+        const baseGap = 12 + legFont * 1.9;
+        // assign stacking rows: first bracket whose x-span is free on a row
+        const rows = [];   // per row: list of [x1, x2]
+        const placed = plan.map(s => {
+            if (!Number.isFinite(s.x1) || !Number.isFinite(s.x2)) return null;
+            let r = 0;
+            for (; ; r++) {
+                const row = rows[r] || (rows[r] = []);
+                if (row.every(([a, b]) => s.x2 + 12 < a || s.x1 - 12 > b)) { row.push([s.x1, s.x2]); break; }
+            }
+            return { s, r };
+        }).filter(Boolean);
+
+        this.ctx.save();
+        this.ctx.lineWidth = Math.max(1.5, labelSize * 0.12);
+        this.ctx.strokeStyle = layer.powerLabelBgColor || '#D95000';
+        this.ctx.fillStyle = layer.powerLabelBgColor || '#D95000';
+        this.ctx.font = `bold ${labelSize}px ${projectFontFamily()}`;
+        for (const { s, r } of placed) {
+            const y = top - baseGap - r * rowH;
+            const tick = labelSize * 0.45;
+            this.ctx.beginPath();
+            this.ctx.moveTo(s.x1, y + tick);
+            this.ctx.lineTo(s.x1, y);
+            this.ctx.lineTo(s.x2, y);
+            this.ctx.lineTo(s.x2, y + tick);
+            this.ctx.stroke();
+            // Leg ticks: drop a short mark from the bracket to the columns
+            // each leg feeds, labeled L1..L6 (Binder power-diagram detail).
+            // Only meaningful when the legs sit on DISTINCT column groups -
+            // row-based circuits all span the same columns, so their ticks
+            // would pile up on one x; skip them rather than draw a smear.
+            const legs = (s.legs || [])
+                .filter(l => Number.isFinite(l.x1) && Number.isFinite(l.x2))
+                .map(l => ({ ...l, cx: (l.x1 + l.x2) / 2 }))
+                .sort((a, b) => a.cx - b.cx);
+            const minGap = legFont * 2.2;
+            const distinct = legs.length > 1 &&
+                legs.every((l, i) => i === 0 || (l.cx - legs[i - 1].cx) >= minGap);
+            if (distinct) {
+                this.ctx.save();
+                this.ctx.lineWidth = Math.max(1, labelSize * 0.07);
+                this.ctx.font = `600 ${legFont}px ${projectFontFamily()}`;
+                this.ctx.textAlign = 'center';
+                this.ctx.textBaseline = 'top';
+                for (const l of legs) {
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(l.cx, y);
+                    this.ctx.lineTo(l.cx, y + tick * 1.5);
+                    this.ctx.stroke();
+                    this._fillText('L' + l.leg, l.cx, y + tick * 1.6);
+                }
+                this.ctx.restore();
+            }
+            // Home-run lengths are paperwork: they print on exported maps
+            // (like the Binder's power diagram) but stay off the working view.
+            const label = s.name
+                + (this.exportMode && s.length ? ` · ${s.length}` : '')
+                + ` · ${s.amps.toFixed(1)}A`;
+            const cx = (s.x1 + s.x2) / 2;
+            const tw = this.ctx.measureText(label).width;
+            // knock out a gap in the bracket line behind the label
+            this.ctx.save();
+            this.ctx.textAlign = 'center';
+            this.ctx.textBaseline = 'middle';
+            this.ctx.globalCompositeOperation = 'source-over';
+            const padX = labelSize * 0.4;
+            this.ctx.fillStyle = layer.powerLabelBgColor || '#D95000';
+            this.ctx.beginPath();
+            const pillH = labelSize + 6;
+            if (this.ctx.roundRect) this.ctx.roundRect(cx - tw / 2 - padX, y - pillH / 2, tw + padX * 2, pillH, pillH / 2);
+            else this.ctx.rect(cx - tw / 2 - padX, y - pillH / 2, tw + padX * 2, pillH);
+            this.ctx.fill();
+            this.ctx.fillStyle = layer.powerLabelTextColor || '#000000';
+            this._fillText(label, cx, y);
+            this.ctx.restore();
+        }
         this.ctx.restore();
     }
 
@@ -6315,38 +6542,14 @@ class CanvasRenderer {
                 // `updatePortCapacityDisplay`, so other layers' labels would go
                 // stale until clicked. `renderDataFlowArrows` ran just above and
                 // populated fresh `_autoPortsRequired` on this layer.
-                // v0.11.0: one group-aware implementation, not a third private
-                // copy. "Ports required" used to be derived here, in
-                // app-power.js and in app-screen-info.js, and the three agreed
-                // only because a port could never leave its layer; once one can,
-                // three copies print three different numbers in the sidebar, the
-                // group roll-up and this canvas label. getLayerPortsRequired
-                // (app-screen-info.js) is the single source, and it still
-                // recomputes rather than trusting the cached `_portsRequired`,
-                // which updatePortCapacityDisplay only refreshes for the
-                // selected layer.
-                let portsRequired = 0;
-                if (typeof window.app.getLayerPortsRequired === 'function') {
-                    portsRequired = window.app.getLayerPortsRequired(layer) || 0;
-                } else {
-                    const isCustom = typeof window.app.isCustomFlow === 'function'
-                        ? window.app.isCustomFlow(layer)
-                        : (layer.flowPattern === 'custom');
-                    if (isCustom && layer.customPortPaths) {
-                        const customPorts = Object.keys(layer.customPortPaths)
-                            .map(p => parseInt(p, 10))
-                            .filter(p => (layer.customPortPaths[p] || []).length > 0);
-                        portsRequired = customPorts.length > 0
-                            ? Math.max(...customPorts)
-                            : (layer._autoPortsRequired || layer.customPortIndex || 0);
-                    } else {
-                        portsRequired = layer._autoPortsRequired || 0;
-                        if (portsRequired <= 0 && typeof window.app.calculatePortAssignments === 'function') {
-                            window.app.calculatePortAssignments(layer);
-                            portsRequired = layer._autoPortsRequired || 0;
-                        }
-                    }
-                }
+                // Both sides converged on the same lesson: ONE authority for
+                // "how many ports does this screen need". Upstream's
+                // getLayerPortsRequired is the group-aware one (a member fully
+                // served by a peer's crossing path needs zero of its own), so
+                // it is the one the canvas asks; the rack-side screenPortCount
+                // is being reconciled onto it rather than kept as a rival.
+                let portsRequired = typeof window.app.getLayerPortsRequired === 'function'
+                    ? (window.app.getLayerPortsRequired(layer) || 0) : 0;
                 if (portsRequired > 0) {
                     const mains = portsRequired;
                     const backups = portsRequired;
@@ -6371,19 +6574,16 @@ class CanvasRenderer {
                     centerLines.push(`${multis} Multi, ${circuits} Circuits | ${amps1.toFixed(2)}A 1φ / ${amps3.toFixed(2)}A 3φ`);
                 }
             } else if (cfg.showPowerCircuitInfo && window.app) {
-                // Always recompute from current layer state. `renderPowerArrows`
-                // (or `preparePowerLayerRenderData`) ran just above and populated
-                // `_powerCircuits` on this layer, so use that directly rather
-                // than trusting `_powerCircuitsRequired` (only refreshed for
-                // the currently-selected layer by `updatePowerStatsDisplay`).
-                let circuits = Array.isArray(layer._powerCircuits)
-                    ? layer._powerCircuits.filter(c => Array.isArray(c) && c.length > 0).length
+                // Ungrouped: recompute from current layer state rather than
+                // trusting `_powerCircuitsRequired` (only refreshed for the
+                // currently-selected layer). `screenCircuitCount` is the shared
+                // authority, so the badge, the Power tab, the soca plan and the
+                // report all say the same number on a custom-routed screen.
+                let circuits = typeof window.app.screenCircuitCount === 'function'
+                    ? window.app.screenCircuitCount(layer)
                     : 0;
-                if (circuits <= 0 && typeof window.app.calculatePowerAssignments === 'function') {
-                    const assignments = window.app.calculatePowerAssignments(layer);
-                    if (assignments && !assignments.error && Array.isArray(assignments.circuits)) {
-                        circuits = assignments.circuits.filter(c => Array.isArray(c) && c.length > 0).length;
-                    }
+                if (circuits <= 0 && Array.isArray(layer._powerCircuits)) {
+                    circuits = layer._powerCircuits.filter(c => Array.isArray(c) && c.length > 0).length;
                 }
                 const voltage = parseFloat(layer.powerVoltage) || 0;
                 const panelWatts = parseFloat(layer.panelWatts) || 0;
@@ -7102,13 +7302,16 @@ class CanvasRenderer {
     renderPerspectiveBadge() {
         if (this.viewMode !== 'data-flow' && this.viewMode !== 'power') return;
         if (!this.isMirroredView()) return;
-        const label = 'BACK';
+        // Banner reads REAR VIEW in BOTH top corners - the touring-paperwork
+        // convention, unmissable on a printed map at any crop.
+        const label = 'REAR VIEW';
         const arr = (window.app && window.app.project && Array.isArray(window.app.project.canvases))
             ? window.app.project.canvases : [];
         // v0.8.6: per-canvas badge so a mixed-perspective workspace makes
         // it obvious which canvas is flipped. Legacy single-canvas
         // projects fall back to the original viewport-corner badge.
         if (arr.length === 0) {
+            this._drawBackBadgeAt(label, 20, 20, 'left', this.canvas.width);
             this._drawBackBadgeAt(label, this.canvas.width - 20, 20, 'right', this.canvas.width);
             return;
         }
@@ -7133,11 +7336,14 @@ class CanvasRenderer {
             // any zoom; the badge is just a confirmation tag for normal
             // zoom levels.
             if (canvasScreenW < 110) return;
-            // Anchor to canvas corner with a small inset; clamp so badge
-            // stays visible if the canvas top-right is offscreen.
-            const x = Math.max(20, Math.min(this.canvas.width - 20, screenX - 4));
+            // Anchor to BOTH canvas top corners with a small inset; clamp so
+            // the banners stay visible if a corner is offscreen.
+            const screenXL = ws.wx * this.zoom + this.panX;
+            const xr = Math.max(20, Math.min(this.canvas.width - 20, screenX - 4));
+            const xl = Math.max(20, Math.min(this.canvas.width - 20, screenXL + 4));
             const y = Math.max(8, Math.min(this.canvas.height - 24, screenY + 4));
-            this._drawBackBadgeAt(label, x, y, 'right', canvasScreenW);
+            this._drawBackBadgeAt(label, xl, y, 'left', canvasScreenW);
+            this._drawBackBadgeAt(label, xr, y, 'right', canvasScreenW);
         });
     }
 

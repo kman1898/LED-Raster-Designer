@@ -1077,3 +1077,8 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     font-size: 12px;
 }
 .canvas-color-hex-row .canvas-color-apply:hover { background: #3a5d96; }
+
+/* Distro load bars (Power panel) */
+.rack-bar { height: 8px; border-radius: 4px; background: #1a1a1a; border: 1px solid #333; overflow: hidden; }
+.rack-bar-fill { height: 100%; background: linear-gradient(90deg, #2e7d4f, #37c15f); transition: width 0.25s ease; }
+.rack-bar-fill.over { background: linear-gradient(90deg, #a03030, #e05050); }

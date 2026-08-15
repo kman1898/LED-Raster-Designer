@@ -76,6 +76,17 @@ def add_layer():
         'panelColorMode', 'panelColors', 'transparentFill',
         'screenNameOffsetXPixelMap', 'screenNameOffsetYPixelMap',
         'screenNameOffsetXShowLook', 'screenNameOffsetYShowLook',
+        # Production suite: same omission, same consequence. Duplicate/paste
+        # sends the whole layer; without these the copy of a patched screen
+        # carried its rack allocation and soca plan in the browser and none on
+        # the server - gone on the next reload.
+        'rackAllocation', 'powerSocaLengths', 'powerSocaPhaseOffset',
+        'powerSocaPhasePos', 'powerBreakoutType', 'showSocaBrackets',
+        'powerSocaDistro',
+        # Power splitters (circuit sharing): {enabled, maxWays, manual}.
+        # Same omission risk as the block above - a duplicate/paste posts the
+        # whole layer, and a field missing here is gone on reload.
+        'powerSplitters',
         # Image Drop Shadow, same reason as the gradient block above: a
         # duplicate/paste posts the source's whole appearance here, and a
         # field missing from this list is gone the moment the page reloads.
@@ -323,6 +334,21 @@ def update_layer(layer_id):
                 'group_id',
                 'showDataFlowPortInfo', 'showDataFlowPortLoad',
                 'showPowerCircuitInfo',
+                # Production suite: processor rack allocation
+                # ({instanceId, ports, via} or null).
+                'rackAllocation',
+                # Production suite: Soca home-run lengths ({socaNum: '100ft'}),
+                # breakout type (soca-true1 / soca-powercon / soca-edison /
+                # soca-l620), and the power-map bracket toggle.
+                'powerSocaLengths', 'powerSocaPhaseOffset', 'powerSocaPhasePos',
+                'powerBreakoutType', 'showSocaBrackets',
+                # Production suite: power splitters (circuit sharing) -
+                # {enabled, maxWays, manual: {merge, split}}. Must be listed
+                # or every per-layer PUT drops the packing toggle and the
+                # manual merge/split groups on the floor.
+                'powerSplitters',
+                # Production suite: soca -> distro assignment ({socaNum: 'd1'}).
+                'powerSocaDistro',
                 # v0.11.0: the gradient/panel-colour block was never on this
                 # list - not removed, never added (git log -S finds no commit
                 # that took it out). The client has always PUT these fields and
@@ -486,6 +512,12 @@ def move_layer_to_canvas(layer_id):
         # source's group_id while the group's layer_ids knows nothing about
         # it. Duplicating a screen makes a new screen, not a new group member.
         clone['group_id'] = None
+        # Duplicating a screen does not duplicate the processor driving it.
+        # The rack is project-global, so a clone that kept rackAllocation
+        # would sit on the ORIGINAL's unit as a second consumer of the same
+        # physical ports (phantom double allocation). The clone starts
+        # unpatched; the MOVE branch below deliberately keeps its allocation.
+        clone['rackAllocation'] = None
         clone['offset_x'] = 0
         clone['offset_y'] = 0
         clone['showOffsetX'] = 0
@@ -516,6 +548,13 @@ def move_layer_to_canvas(layer_id):
         # spanning two canvases, with wiring pointing at a peer 5000 px away in
         # another workspace that the client then refused to draw.
         _detach_from_cross_canvas_group(layer, target_id)
+        # rackAllocation is deliberately KEPT on a move, unlike group_id: the
+        # rack is project-global (one list at project.rack, no canvas scoping
+        # anywhere on the rack side), so the same physical processor drives
+        # the screen wherever its canvas membership lands. Clearing it would
+        # silently unpatch a screen the user merely reorganised. Only the
+        # DUPLICATE branch above clears it, because a duplicate adds a second
+        # consumer the physical unit does not have ports for.
         log_event('layer_move_to_canvas', {
             'layer_id': layer_id, 'target_canvas_id': target_id,
         })
