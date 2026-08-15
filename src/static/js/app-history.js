@@ -30,6 +30,22 @@ class _History {
         sendClientLog('history_reset', { action: initialAction });
     }
     
+    // Snapshot serializer: leading-underscore keys are runtime caches by
+    // convention (the preset serializer skips them, file load deletes them),
+    // and they have no business in an undo entry. This is not only hygiene:
+    // the power render caches per-frame data on the layers, and one of those
+    // caches held references back into project.layers - which made the whole
+    // project CIRCULAR, so the plain JSON.stringify here THREW on every edit
+    // made after a grouped wall rendered in Power view. History silently
+    // stopped recording, and Ctrl+Z then restored whatever stale entry was
+    // last - which is how a power edit "undid" the user's screen groups.
+    // The cache itself now stores ids (canvas.js _powerOwnerIdRows), but the
+    // snapshot must stay immune to the next cache someone parks on a layer.
+    _snapshotReplacer(key, value) {
+        return (typeof key === 'string' && key.length > 1 && key.charAt(0) === '_')
+            ? undefined : value;
+    }
+
     saveState(action) {
         // v0.10.7.2: history isn't allocated until resetHistory() runs, which is
         // after setupEventListeners(). Guard against any save that fires before
@@ -44,7 +60,7 @@ class _History {
         // Save current project state
         const state = {
             action: action,
-            project: JSON.parse(JSON.stringify(this.project)),
+            project: JSON.parse(JSON.stringify(this.project, this._snapshotReplacer)),
             timestamp: Date.now()
         };
 
@@ -146,6 +162,11 @@ class _History {
             // depending on that.
             this.updateCustomFlowUI();
             this.updateCustomPowerUI();
+            // The restored project can name different distros, multis and
+            // splitter groups entirely, so the label ladder's tail cache and
+            // the three power hosts all restate from the restored state -
+            // the same set every distro/soca edit refreshes on its way in.
+            this._refreshPowerPanelsAfterRestore();
             // v0.10.7.2: updateUI() re-renders the canvas but does NOT reload the
             // Screen Info fields or the toolbar Raster inputs, so without this an
             // undo/redo reverts the geometry while the sidebar keeps showing the
@@ -158,7 +179,7 @@ class _History {
             if (typeof this.syncRasterFromProject === 'function') {
                 try { this.syncRasterFromProject(); } catch (_) {}
             }
-            
+
             // Sync the restored state to the backend
             fetch('/api/project', {
                 method: 'PUT',
@@ -177,7 +198,21 @@ class _History {
         } else {
         }
     }
-    
+
+    // Undo/redo's half of the power feature's refresh discipline. Every write
+    // to the distro list or a soca field drops _circuitTailCache and restates
+    // the three hosts; a restore that swaps the whole project out from under
+    // them has to do the same or the panels keep narrating the pre-undo state.
+    _refreshPowerPanelsAfterRestore() {
+        this._circuitTailCache = null;
+        ['refreshDistroPanel', 'refreshSocaRuns', 'refreshSplitterPanel',
+            'updatePowerLabelEditor'].forEach(fn => {
+            if (typeof this[fn] === 'function') {
+                try { this[fn](); } catch (_) { /* host absent outside Power */ }
+            }
+        });
+    }
+
     redo() {
         this._flushPendingSaveState();
 
@@ -206,6 +241,8 @@ class _History {
             // depending on that.
             this.updateCustomFlowUI();
             this.updateCustomPowerUI();
+            // Same restatement undo does - see _refreshPowerPanelsAfterRestore.
+            this._refreshPowerPanelsAfterRestore();
             // v0.10.7.2: updateUI() re-renders the canvas but does NOT reload the
             // Screen Info fields or the toolbar Raster inputs, so without this an
             // undo/redo reverts the geometry while the sidebar keeps showing the

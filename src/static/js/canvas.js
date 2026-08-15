@@ -5240,6 +5240,39 @@ class CanvasRenderer {
         return `${panel.row},${panel.col}`;
     }
 
+    // _powerCircuitOwners rows as LAYER IDS - one row per circuit, null for a
+    // circuit that never leaves `layer`, and null overall when nothing crosses.
+    //
+    // IDS, NOT LAYER OBJECTS. These rows are cached on the layer, and the
+    // layer lives inside app.project - a row holding the layer itself (which
+    // every stay-home cabinet of a grouped plan does) makes the project
+    // CIRCULAR, and the first JSON.stringify of it throws instead of saving.
+    // That is not a corner case: saveState deep-copies the project on every
+    // edit, updateLayers PUTs each layer, and the group commit PUTs the whole
+    // project - so one power render of a grouped wall silently broke undo and
+    // persistence everywhere. The automatic DATA crossing already ships plain
+    // layerIds on its items (_autoCrossMemberHits) for exactly this reason.
+    //
+    // Accepts rows of layers or of ids, so both the custom builder (which can
+    // hand ids straight through) and calculatePowerAssignments' object rows
+    // funnel through one conversion.
+    _powerOwnerIdRows(layer, ownerRows) {
+        if (!Array.isArray(ownerRows)) return null;
+        let crossesAnywhere = false;
+        const rows = ownerRows.map(row => {
+            if (!Array.isArray(row)) return null;
+            const ids = row.map(o => (o == null) ? null
+                : (o.id !== undefined ? o.id : o));
+            // An all-home row reads as "does not cross", the same shape the
+            // hand-drawn side has always used, so the crossing tests downstream
+            // stay a plain truthiness check.
+            if (ids.every(id => id == null || id === layer.id)) return null;
+            crossesAnywhere = true;
+            return ids;
+        });
+        return crossesAnywhere ? rows : null;
+    }
+
     preparePowerLayerRenderData(layer) {
         if (!window.app) return;
         const isCustom = (layer.powerFlowPattern || 'tl-h') === 'custom';
@@ -5270,8 +5303,9 @@ class CanvasRenderer {
                             .map(pos => window.app.getPanelByRowCol(layer, pos.row, pos.col))
                             .filter(p => p && !p.hidden) };
                 }
+                // Ids, not the layers themselves - see _powerOwnerIdRows.
                 const hits = this._resolvePathPanels(layer, path);
-                return { num: circuitNum, owners: hits.map(h => h.layer),
+                return { num: circuitNum, owners: hits.map(h => h.layer.id),
                     panels: hits.map(h => h.panel) };
             });
             // Manual splitter merges collapse drawn circuits into ONE shared
@@ -5300,7 +5334,7 @@ class CanvasRenderer {
                     merged.push({
                         num: ms[0].num,
                         owners: ms.some(m => m.owners)
-                            ? ms.flatMap(m => m.owners || m.panels.map(() => layer))
+                            ? ms.flatMap(m => m.owners || m.panels.map(() => layer.id))
                             : null,
                         panels: ms.flatMap(m => m.panels),
                     });
@@ -5321,7 +5355,7 @@ class CanvasRenderer {
             // the colour-coded tinting of every ungrouped screen - exactly as it
             // was. Without it a crossing circuit tints the OWNER's R3C4 instead
             // of the peer's, because that key cannot tell the two apart.
-            circuitOwners = assignments.layers || null;
+            circuitOwners = this._powerOwnerIdRows(layer, assignments.layers);
         }
 
         layer._powerError = error;
@@ -5345,14 +5379,15 @@ class CanvasRenderer {
                 const circuitNum = circuitNumKeys ? circuitNumKeys[idx] : idx + 1;
                 const owners = circuitOwners ? circuitOwners[idx] : null;
                 (circuitPanels || []).forEach((panel, panelIdx) => {
-                    const owner = (owners && owners[panelIdx]) || layer;
-                    if (owner === layer || owner.id === layer.id) {
+                    const ownerId = (owners && owners[panelIdx] != null)
+                        ? owners[panelIdx] : layer.id;
+                    if (ownerId === layer.id) {
                         const key = this.getPowerPanelKey(panel);
                         panelCircuitMap.set(key, circuitNum);
                         panelIndexMap.set(key, panelIdx + 1);
                     }
                     if (window.app && typeof window.app.getScopedPanelKey === 'function') {
-                        const scopedKey = window.app.getScopedPanelKey(owner.id, panel);
+                        const scopedKey = window.app.getScopedPanelKey(ownerId, panel);
                         panelCircuitScopedMap.set(scopedKey, circuitNum);
                         panelIndexScopedMap.set(scopedKey, panelIdx + 1);
                     }
@@ -5645,26 +5680,33 @@ class CanvasRenderer {
             layer._powerError = assignments.error;
             layer._powerCircuits = assignments.circuits || [];
             layer._powerCircuitRuns = assignments.runs || null;
-            layer._powerCircuitOwners = assignments.layers || null;
+            layer._powerCircuitOwners = this._powerOwnerIdRows(layer, assignments.layers);
         }
         if (layer._powerError) {
             this.ctx.restore();
             return;
         }
 
+        // The cached owner rows hold ids (_powerOwnerIdRows); resolve them
+        // through the same scope authority the ids were minted from.
+        const ownerById = (window.app && typeof window.app.getPathScopeLayers === 'function')
+            ? new Map(window.app.getPathScopeLayers(layer).map(l => [l.id, l]))
+            : null;
         layer._powerCircuits.forEach((circuitPanels, idx) => {
             if (!circuitPanels || circuitPanels.length === 0) return;
             const owners = layer._powerCircuitOwners && layer._powerCircuitOwners[idx];
             const crosses = Array.isArray(owners)
-                && owners.some(o => o && o.id !== layer.id);
+                && owners.some(id => id != null && id !== layer.id);
             if (this._deferCrossMember(layer, crosses)) return;
             // A crossing circuit is drawn through each cabinet's own member's
             // frame; a cabinet on a member this view does not draw is left off
             // the line rather than run onto blank paper.
+            const ownerOf = (i) => (owners && owners[i] != null && ownerById
+                && ownerById.get(owners[i])) || layer;
             const drawPanels = crosses
                 ? circuitPanels
-                    .map((p, i) => (((owners[i] || layer).visible !== false)
-                        ? this._crossMemberPanelShim(owners[i] || layer, p) : null))
+                    .map((p, i) => ((ownerOf(i).visible !== false)
+                        ? this._crossMemberPanelShim(ownerOf(i), p) : null))
                     .filter(Boolean)
                 : circuitPanels;
             // Splitter circuit: break the daisy at run boundaries and fan

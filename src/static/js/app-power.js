@@ -650,7 +650,7 @@ class _Power {
     setPowerBreakout(layer, id) {
         if (!layer) return;
         layer.powerBreakoutType = id;
-        this.updateLayers([layer]);
+        this.updateLayers([layer], true, 'Change Power Breakout');
     }
 
     // ---- distros / circuit groups -------------------------------------------
@@ -694,6 +694,11 @@ class _Power {
         // Adding a distro adds a bucket the numbering runs over, and its name
         // is what the multis landing on it will be called.
         this._circuitTailCache = null;
+        // Distros live on the PROJECT, and the history snapshot is the whole
+        // project - so the same saveState every layer edit takes covers them,
+        // and undo's project PUT restores them (restore_project replaces
+        // current_project wholesale). Post-mutation, like every other action.
+        this.saveState('Add Distro');
         this._persistDistros();
         return d;
     }
@@ -713,6 +718,9 @@ class _Power {
         // renamed by it, and so is every circuit hanging off those multis.
         // (Location is not - it is descriptive and names nothing.)
         this._circuitTailCache = null;
+        // One entry per committed field (these fire on change, not per
+        // keystroke), same as the other discrete label edits.
+        this.saveState('Edit Distro');
         this._persistDistros();
         return d;
     }
@@ -735,6 +743,10 @@ class _Power {
         // The orphaned multis fall back into the unassigned bucket, which
         // renumbers it and everything after it.
         this._circuitTailCache = null;
+        // ONE entry for the removal AND the orphaning it caused, taken after
+        // both so a single Ctrl+Z brings the distro back with its multis
+        // still assigned to it - not a distro with its feeds cut loose.
+        this.saveState('Remove Distro');
         this._persistDistros();
         return true;
     }
@@ -750,7 +762,7 @@ class _Power {
         // show can move. Stale labels for a frame is a bug this has already
         // been bitten by once.
         this._circuitTailCache = null;
-        this.updateLayers([layer]);
+        this.updateLayers([layer], true, 'Assign Multi Distro');
     }
 
     // A multi named by hand. Per-MULTI, so unlike the bracket toggle and the
@@ -765,7 +777,7 @@ class _Power {
         const v = String(name || '').trim();
         if (v) store[socaIndex] = v; else delete store[socaIndex];
         this._circuitTailCache = null;
-        this.updateLayers([layer]);
+        this.updateLayers([layer], true, 'Rename Multi');
     }
 
     // Every PARTLY-FILLED multi in the show that lands on a 3-phase distro,
@@ -892,7 +904,7 @@ class _Power {
             touched.add(layer);
         }
         this._circuitTailCache = null;
-        if (touched.size) this.updateLayers([...touched]);
+        if (touched.size) this.updateLayers([...touched], true, 'Balance Phase Legs');
         return touched.size;
     }
 
@@ -1315,7 +1327,7 @@ class _Power {
         const natural = sorted.every((p, i) => p === i + 1);
         if (natural) delete store[socaNum]; else store[socaNum] = sorted;
         this._circuitTailCache = null;
-        this.updateLayers([layer]);
+        this.updateLayers([layer], true, 'Move Circuit Tails');
         return true;
     }
 
@@ -1340,7 +1352,7 @@ class _Power {
                            this.socaPhaseOffsetMax(legsUsed));
         if (v) map[socaNum] = v; else delete map[socaNum];
         this._circuitTailCache = null;
-        this.updateLayers([layer]);
+        this.updateLayers([layer], true, 'Set Breaker Offset');
     }
 
     // Drop every multi back to its natural breaker position.
@@ -1348,7 +1360,7 @@ class _Power {
         const screens = (this.project.layers || []).filter(l => (l.type || 'screen') === 'screen');
         screens.forEach(l => { l.powerSocaPhaseOffset = {}; l.powerSocaPhasePos = {}; });
         this._circuitTailCache = null;
-        if (screens.length) this.updateLayers(screens);
+        if (screens.length) this.updateLayers(screens, true, 'Reset Phase Offsets');
         return screens.length;
     }
 
@@ -1469,7 +1481,7 @@ class _Power {
         const store = layer.powerSocaLengths || (layer.powerSocaLengths = {});
         const v = String(length || '').trim();
         if (v) store[socaIndex] = v; else delete store[socaIndex];
-        this.updateLayers([layer]);
+        this.updateLayers([layer], true, 'Set Multi Home Run');
     }
 
     // Project-level distro list with a live load bar per source. Shown in the
@@ -1817,13 +1829,13 @@ class _Power {
         if (sel) sel.addEventListener('change', () => {
             const list = this._socaPanelTargets(layer);
             list.forEach(l => { l.powerBreakoutType = sel.value; });
-            this.updateLayers(list);
+            this.updateLayers(list, true, 'Change Power Breakout');
         });
         const brk = host.querySelector('#show-soca-brackets');
         if (brk) brk.addEventListener('change', () => {
             const list = this._socaPanelTargets(layer);
             list.forEach(l => { l.showSocaBrackets = brk.checked; });
-            this.updateLayers(list);
+            this.updateLayers(list, true, 'Toggle Soca Brackets');
             if (window.canvasRenderer) window.canvasRenderer.render();
         });
     }
@@ -1909,7 +1921,7 @@ class _Power {
                 l.powerSplitters = { ...cur, ...patch,
                     manual: cur.manual };
             });
-            this.updateLayers(list);
+            this.updateLayers(list, true, 'Change Splitter Packing');
             this._rebuildAfterGesture(() => {
                 this.refreshSplitterPanel();
                 this.refreshSocaRuns();
@@ -2002,7 +2014,7 @@ class _Power {
         };
         fn(manual);
         layer.powerSplitters = { ...cur, manual };
-        this.updateLayers([layer]);
+        this.updateLayers([layer], true, 'Edit Splitter Groups');
         this._rebuildAfterGesture(() => {
             this.refreshSplitterPanel();
             this.refreshSocaRuns();

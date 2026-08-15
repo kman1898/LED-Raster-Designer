@@ -1289,7 +1289,7 @@ def test_a_crossing_automatic_circuit_tints_the_peers_cabinet_not_the_owners(pag
             owner: forOwner && { owner: forOwner.owner.id, circuit: forOwner.circuitNum },
             peerHasOwnMap: (b._powerPanelCircuitMap || new Map()).size,
             crossing: (a._powerCircuitOwners || []).map(
-                o => o ? [...new Set(o.map(l => l.id))] : null),
+                o => o ? [...new Set(o)] : null),
         };
     """, view='power')
     # The peer's own map is empty - its circuits are the owner's now.
@@ -1305,7 +1305,12 @@ def test_a_crossing_automatic_circuit_tints_the_peers_cabinet_not_the_owners(pag
     # cabinets while belonging to the top section. That is the case the
     # unscoped `${row},${col}` map cannot express at all: circuit 3 holds a
     # cabinet at row 0 col 0, and so does circuit 1.
-    assert result['crossing'] == [[1], [1], [2], [2]], result
+    #
+    # The rows hold LAYER IDS with all-home rows normalised to null (see
+    # canvas.js _powerOwnerIdRows): a row holding the layer OBJECT put the
+    # layer inside its own cache, made the project circular, and broke every
+    # JSON.stringify of it - saveState first among them.
+    assert result['crossing'] == [None, None, [2], [2]], result
 
 
 def test_a_peer_of_a_crossing_group_does_not_read_ERROR_in_the_sidebar(page):
