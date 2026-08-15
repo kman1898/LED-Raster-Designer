@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Turn a project into a NovaStar .scr.
 
-Lives in src/ because the app itself exports through it; tools/scr_export.py is
-a thin command-line front end onto the same code, so the button and the CLI can
-never disagree about what a canvas means.
+Lives in src/ so the app can export through it when the SCR UI is rewired (the
+in-app entry is currently parked); tools/scr_export.py is a thin command-line
+front end onto the same code, so the button and the CLI can never disagree
+about what a canvas means.
 
     python3 tools/scr_export.py --url http://localhost:8061 --out wall.scr
     python3 tools/scr_export.py --project saved.json --out wall.scr

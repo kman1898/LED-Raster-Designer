@@ -1838,7 +1838,13 @@
                     <option value="psd">PSD (Layered standard editors - screens as layers)</option>
                     <option value="pdf">PDF (All views combined)</option>
                     <option value="resolume-xml">Resolume XML (Advanced Output)</option>
-                    <option value="novastar-scr">NovaStar SCR (screen connection)</option>
+                    <!-- NovaStar SCR export is parked, not gone: the .scr file
+                         layer lives in src/scr_project.py / scr_encoder.py /
+                         scr_decoder.py with a working CLI in
+                         tools/scr_export.py. Rewiring it means adding the
+                         option back here, a geometry-only branch in the
+                         export-confirm handler, and a route that calls
+                         scr_project.build_sections. -->
                 </select>
             </div>
 

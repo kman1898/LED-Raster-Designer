@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Command-line front end for the SCR exporter.
 
-The mapping itself lives in src/scr_project.py because the app exports through
-it too - keeping one implementation means the Export button and this script
-cannot drift apart about what a canvas maps to.
+The mapping itself lives in src/scr_project.py. The in-app Export button for
+SCR is currently unwired (parked, not gone); this script is the working front
+end until it returns, and keeping one implementation means the button and this
+script cannot drift apart about what a canvas maps to when it does.
 
     python3 tools/scr_export.py --url http://localhost:8061 --out wall.scr
     python3 tools/scr_export.py --project saved.json --out wall.scr

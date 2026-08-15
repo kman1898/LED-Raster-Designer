@@ -3744,24 +3744,6 @@ export class LEDRasterApp {
                 return;
             }
 
-            // NovaStar SCR, no views needed either - this is the sending
-            // card map, not a rendered drawing.
-            if (format === 'novastar-scr') {
-                document.getElementById('export-modal').style.display = 'none';
-                document.getElementById('status-message').textContent = 'Exporting NovaStar SCR...';
-                try {
-                    await this.exportNovastarScr(projectName);
-                    document.getElementById('status-message').textContent = 'Export complete!';
-                    setTimeout(() => { document.getElementById('status-message').textContent = 'Ready'; }, 3000);
-                } catch (error) {
-                    console.error('SCR export error:', error);
-                    document.getElementById('status-message').textContent = 'Export failed!';
-                    alert('SCR export failed: ' + error.message);
-                    sendClientLog('export_failed', { message: error.message, format: 'novastar-scr' });
-                }
-                return;
-            }
-
             // Get selected views
             const views = [];
             if (document.getElementById('export-pixel-map').checked) views.push('pixel-map');

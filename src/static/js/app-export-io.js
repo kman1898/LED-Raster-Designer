@@ -672,15 +672,8 @@ class _ExportIo {
         // Hide view checkboxes for Resolume XML (geometry only, no rendered views)
         const viewSection = document.getElementById('export-views-section');
         if (viewSection) {
-            const geometryOnly = (format === 'resolume-xml' || format === 'novastar-scr');
+            const geometryOnly = (format === 'resolume-xml');
             viewSection.style.display = geometryOnly ? 'none' : '';
-        }
-
-        if (format === 'novastar-scr') {
-            preview.classList.add('value-accent');
-            preview.style.color = '';
-            preview.textContent = `${projectName}.scr`;
-            return;
         }
 
         if (format === 'resolume-xml') {
@@ -883,35 +876,6 @@ class _ExportIo {
         const blob = await response.blob();
         await this.saveBlobWithPicker(blob, `${projectName}.xml`, 'application/xml');
         sendClientLog('export_resolume_complete', { projectName, rasterW, rasterH });
-    }
-
-    // Export the sending card map as a NovaStar .scr.
-    //
-    // The server holds the project, so nothing is posted but the name: sending
-    // it from here would just be a second copy that could disagree. Warnings
-    // come back in a header because the exporter knows where it approximates,
-    // and silently writing a file that is subtly wrong for a wall is worse
-    // than saying so.
-    async exportNovastarScr(projectName) {
-        const response = await fetch('/api/export/scr', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ project_name: projectName })
-        });
-        if (!response.ok) {
-            const err = await response.json().catch(() => ({}));
-            throw new Error(err.error || 'SCR export failed');
-        }
-        const sections = response.headers.get('X-Scr-Sections');
-        let warnings = [];
-        try { warnings = JSON.parse(response.headers.get('X-Scr-Warnings') || '[]'); } catch (e) { }
-        const blob = await response.blob();
-        await this.saveBlobWithPicker(blob, `${projectName}.scr`, 'application/octet-stream');
-        sendClientLog('export_scr_complete', { projectName, sections, warnings: warnings.length });
-        if (warnings.length) {
-            alert('SCR exported (' + sections + ' sending card' + (sections === '1' ? '' : 's') +
-                  '), with things to check in NovaLCT:\n\n- ' + warnings.join('\n\n- '));
-        }
     }
 
     /**

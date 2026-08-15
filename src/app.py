@@ -3072,50 +3072,6 @@ def generate_resolume_xml(project, project_name, raster_w, raster_h):
     return xml
 
 
-@app.route('/api/export/scr', methods=['POST'])
-def export_novastar_scr():
-    """Export the project as a NovaStar .scr screen connection file.
-
-    One canvas becomes one section on one sending card - a NovaLCT "screen" is
-    a canvas here, not a screen layer. The mapping lives in scr_project so the
-    Export button and tools/scr_export.py cannot disagree about that.
-
-    Warnings are returned in a header rather than swallowed: the exporter knows
-    where it is approximating (the origin row's column shift, port renumbering
-    when one canvas carries several layers) and the operator needs to see that
-    before trusting the file on a wall.
-    """
-    try:
-        import scr_project
-        from scr_encoder import build_multi_screen_scr
-
-        data = request.get_json() or {}
-        project_name = data.get('project_name', current_project.get('name', 'Untitled Project'))
-
-        warnings = scr_project.Warnings()
-        sections = scr_project.build_sections(current_project, warnings)
-        if not sections:
-            return jsonify({'error': 'No canvas has any screen layers to export.'}), 400
-        scr_bytes = build_multi_screen_scr(sections)
-
-        log_event('export_scr', {
-            'project_name': project_name,
-            'sections': len(sections),
-            'bytes': len(scr_bytes),
-            'warnings': len(warnings),
-        })
-        resp = make_response(scr_bytes)
-        resp.headers['Content-Type'] = 'application/octet-stream'
-        resp.headers['X-Scr-Sections'] = str(len(sections))
-        if len(warnings):
-            resp.headers['X-Scr-Warnings'] = json.dumps(warnings.items)
-        return resp
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
-
-
 @app.route('/api/export/resolume', methods=['POST'])
 def export_resolume_xml():
     """Export project as Resolume Arena Advanced Output XML."""
