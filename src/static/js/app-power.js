@@ -305,11 +305,22 @@ class _Power {
             // calm green 0 next to Ports Required - and 0 ports reads as "none
             // needed", which is the one thing it does not mean.
             const noCapacity = !(portCapacity > 0) && panelCountForStatus > 0;
+            // v0.12: cabinets and NO ports is an error only when nothing is
+            // feeding them. A member of a group that routes as one screen is
+            // fed by the member that owns the walk, and a member every one of
+            // whose cabinets sits on a peer's hand-drawn cable is fed by that
+            // cable - in both cases zero is the honest figure and the wall's
+            // real port count is on the group row in the Screens list. Without
+            // this every peer of a crossing group reads a red ERROR while the
+            // wall beside it is correctly routed.
+            const servedByPeer = typeof this.isServedByPeerRouting === 'function'
+                && this.isServedByPeerRouting(this.currentLayer, 'data');
             if ((this.currentLayer._capacityError || noCapacity
-                    || (portsRequired === 0 && panelsPerPort > 0 && panelCountForStatus > 0))) {
+                    || (portsRequired === 0 && panelsPerPort > 0
+                        && panelCountForStatus > 0 && !servedByPeer))) {
                 portsRequiredEl.textContent = 'ERROR';
                 portsRequiredEl.style.color = '#ff0000';
-            } else if (panelCountForStatus === 0) {
+            } else if (panelCountForStatus === 0 || servedByPeer) {
                 portsRequiredEl.textContent = '0';
                 portsRequiredEl.style.color = '#888';
             } else {
@@ -467,6 +478,12 @@ class _Power {
         const res = this.calculatePowerAssignments(layer);
         return (res.circuits || []).map((panels, i) => {
             const c = { num: i + 1, panels };
+            // v0.12: an AUTOMATIC circuit can now cross into a group peer too,
+            // so it carries the same index-aligned `layers` a hand-drawn
+            // crossing circuit has carried since v0.11.0 - getSocaPlan charges
+            // each cabinet at its own member's wattage off this. Absent for
+            // every non-crossing plan, exactly as before.
+            if (res.layers && res.layers[i]) c.layers = res.layers[i];
             // Splitter packing (organized + enabled): the engine hands back
             // per-branch panel counts index-aligned with `circuits`. Carry
             // them as per-branch panel arrays so the renderers can break the
@@ -2056,6 +2073,20 @@ class _Power {
     calculatePowerAssignments(layer) {
         if (!layer || (layer.type || 'screen') === 'image' || !Array.isArray(layer.panels)) return { circuits: [], error: null };
 
+        // v0.12: a screen group whose members are the same panel AND the same
+        // wattage packs its circuits as ONE BIGGER SCREEN - see getAutoRoutePlan
+        // (app-screen-info.js). Null for every ungrouped screen and for a group
+        // that matches on resolution but not on watts, and then every line below
+        // is the line it always was.
+        const plan = (typeof this.getAutoRoutePlan === 'function')
+            ? this.getAutoRoutePlan(layer, 'power') : null;
+        if (plan && !plan.isOwner) {
+            // The wall's circuits are the first member's and are counted there.
+            // Same only-honest-zero rule a member fed by a peer's hand-drawn
+            // circuit already follows.
+            return { circuits: [], error: null };
+        }
+
         const voltage = parseFloat(layer.powerVoltage) || 0;
         const amperage = parseFloat(layer.powerAmperage) || 0;
         const panelWatts = parseFloat(layer.panelWatts) || 0;
@@ -2071,19 +2102,50 @@ class _Power {
             return { circuits: [], error: null };
         }
 
-        const loadOf = (panel) => panelWatts * this.getPanelLoadFactor(layer, panel);
-        const visibleOrdered = this.getOrderedPanelsByPattern(layer, pattern, false);
+        // The wall's grid and the screen each cabinet sits on. Without a plan
+        // these are the layer's own, so nothing below can tell the difference.
+        const gridRows = plan ? plan.rows : layer.rows;
+        const gridCols = plan ? plan.columns : layer.columns;
+        const rowOfPanel = plan ? (p => plan.rowOf.get(p)) : (p => p.row);
+        const colOfPanel = plan ? (p => plan.colOf.get(p)) : (p => p.col);
+        const panelOwners = new Map();
+        if (plan) plan.ordered.forEach(c => panelOwners.set(c.panel, c.layer));
+        const layerOfPanel = plan ? (p => panelOwners.get(p) || layer) : (() => layer);
+
+        // The load factor is a HALF-TILE derate, so it is read against the
+        // cabinet's own screen; the wattage is the group's, which the gate has
+        // already proved every member agrees on.
+        const loadOf = (panel) => panelWatts * this.getPanelLoadFactor(layerOfPanel(panel), panel);
+        const visibleOrdered = plan
+            ? plan.ordered.filter(c => !c.panel.hidden).map(c => c.panel)
+            : this.getOrderedPanelsByPattern(layer, pattern, false);
         if (visibleOrdered.length === 0) return { circuits: [], error: null };
 
         if (panelWatts > wattsPerCircuit) {
             return { circuits: [], error: { message: 'PANEL WATTS EXCEED CIRCUIT CAPACITY' } };
         }
 
+        // `layers`, index-aligned with `circuits` the way screenCircuits has
+        // written it for hand-drawn cross-member paths since v0.11.0, so the
+        // soca planner charges every cabinet at its OWN member's wattage and the
+        // power tinting can key a peer's cabinet by (layer, row, col). Under the
+        // crossing gate the members all share panelWatts, so the plan's figure
+        // comes out right either way - it is set anyway, because a total that is
+        // only ACCIDENTALLY correct is a total nobody can trust the next time
+        // the gate moves. The key is added only when the route actually crosses,
+        // so an ungrouped screen's return shape does not move at all.
+        const withOwners = (result) => {
+            if (!plan) return result;
+            result.layers = (result.circuits || [])
+                .map(panels => (panels || []).map(p => layerOfPanel(p)));
+            return result;
+        };
+
         const circuits = [];
         if (organized) {
             const unitIndices = isHorizontalFirst
-                ? [...Array(layer.rows).keys()].map(i => (startsTop ? i : (layer.rows - 1 - i)))
-                : [...Array(layer.columns).keys()].map(i => (startsLeft ? i : (layer.columns - 1 - i)));
+                ? [...Array(gridRows).keys()].map(i => (startsTop ? i : (gridRows - 1 - i)))
+                : [...Array(gridCols).keys()].map(i => (startsLeft ? i : (gridCols - 1 - i)));
 
             // Splitter packing: one RUN per unit (row/column) - each branch
             // is its own short daisy fed at its head, the physical truth of
@@ -2095,7 +2157,7 @@ class _Power {
             if (splitters.enabled) {
                 const runs = [];
                 for (const idx of unitIndices) {
-                    const unitPanels = visibleOrdered.filter(p => (isHorizontalFirst ? p.row === idx : p.col === idx));
+                    const unitPanels = visibleOrdered.filter(p => (isHorizontalFirst ? rowOfPanel(p) === idx : colOfPanel(p) === idx));
                     if (unitPanels.length === 0) continue;
                     const unitLoad = unitPanels.reduce((sum, p) => sum + loadOf(p), 0);
                     if (unitLoad > wattsPerCircuit) {
@@ -2104,13 +2166,13 @@ class _Power {
                             error: {
                                 message: isHorizontalFirst ? 'CANNOT FIT COMPLETE ROW' : 'CANNOT FIT COMPLETE COLUMN',
                                 unitType: isHorizontalFirst ? 'row' : 'column',
-                                unitCount: isHorizontalFirst ? layer.columns : layer.rows
+                                unitCount: isHorizontalFirst ? gridCols : gridRows
                             }
                         };
                     }
                     runs.push({
                         panels: this.getOrganizedPanelsForUnits(
-                            layer, pattern, isHorizontalFirst, [idx], false),
+                            layer, pattern, isHorizontalFirst, [idx], false, plan),
                         load: unitLoad,
                     });
                 }
@@ -2118,14 +2180,14 @@ class _Power {
                     layer, runs.map((_, i) => i + 1));
                 const packed = this._packPowerRuns(
                     runs, wattsPerCircuit, splitters.maxWays, manual);
-                return { circuits: packed.circuits, runs: packed.runs,
-                         runIds: packed.runIds, error: null };
+                return withOwners({ circuits: packed.circuits, runs: packed.runs,
+                                    runIds: packed.runIds, error: null });
             }
 
             let current = { unitIndices: [], load: 0 };
 
             for (const idx of unitIndices) {
-                const unitPanels = visibleOrdered.filter(p => (isHorizontalFirst ? p.row === idx : p.col === idx));
+                const unitPanels = visibleOrdered.filter(p => (isHorizontalFirst ? rowOfPanel(p) === idx : colOfPanel(p) === idx));
                 if (unitPanels.length === 0) continue;
                 const unitLoad = unitPanels.reduce((sum, p) => sum + loadOf(p), 0);
                 if (unitLoad > wattsPerCircuit) {
@@ -2134,13 +2196,13 @@ class _Power {
                         error: {
                             message: isHorizontalFirst ? 'CANNOT FIT COMPLETE ROW' : 'CANNOT FIT COMPLETE COLUMN',
                             unitType: isHorizontalFirst ? 'row' : 'column',
-                            unitCount: isHorizontalFirst ? layer.columns : layer.rows
+                            unitCount: isHorizontalFirst ? gridCols : gridRows
                         }
                     };
                 }
                 if (current.load > 0 && current.load + unitLoad > wattsPerCircuit) {
                     circuits.push(
-                        this.getOrganizedPanelsForUnits(layer, pattern, isHorizontalFirst, current.unitIndices || [], false)
+                        this.getOrganizedPanelsForUnits(layer, pattern, isHorizontalFirst, current.unitIndices || [], false, plan)
                     );
                     current = { unitIndices: [], load: 0 };
                 }
@@ -2149,7 +2211,7 @@ class _Power {
             }
             if ((current.unitIndices || []).length > 0) {
                 circuits.push(
-                    this.getOrganizedPanelsForUnits(layer, pattern, isHorizontalFirst, current.unitIndices || [], false)
+                    this.getOrganizedPanelsForUnits(layer, pattern, isHorizontalFirst, current.unitIndices || [], false, plan)
                 );
             }
         } else {
@@ -2169,7 +2231,7 @@ class _Power {
             if (current.length > 0) circuits.push(current);
         }
 
-        return { circuits, error: null };
+        return withOwners({ circuits, error: null });
     }
 
     // The label this port takes off the processor, or null when it takes none
@@ -3928,10 +3990,32 @@ class _Power {
      * later arrivals and emitting them right behind the representative means a
      * selected cabinet can never silently vanish.
      */
-    _orderPicksForPattern(ownerLayer, pattern, picks) {
+    _orderPicksForPattern(ownerLayer, pattern, picks, grid = null) {
         if (!picks || picks.length === 0) return [];
+        const g = grid || this._latticeGridForPicks(ownerLayer, picks);
+        const ordered = this.getPatternOrderForGrid(pattern, g.grid);
+        const out = [];
+        ordered.forEach(pick => {
+            const group = g.bucket.get(pick);
+            if (group) out.push(...group);
+            else out.push(pick);
+        });
+        return out;
+    }
+
+    // The picks laid out on the wall lattice, compacted to a dense grid: the
+    // step above that getPatternOrderForGrid then walks.
+    //
+    // Split out of _orderPicksForPattern - not a second copy of it - because
+    // automatic routing across a group's members (app-screen-info.js
+    // getAutoRoutePlan) needs the same ranking AND needs to keep each cabinet's
+    // compacted row and column afterwards: the Organized branch of the port and
+    // circuit walks packs whole rows or columns, and on a group those are the
+    // WALL's rows and columns, not one member's. Every expression here came
+    // across unchanged, so the hand-drawn Apply Pattern order is untouched.
+    _latticeGridForPicks(ownerLayer, picks) {
         const lattice = this._pathLattice(ownerLayer);
-        const cells = picks.map(pick => ({
+        const cells = (picks || []).map(pick => ({
             pick,
             row: lattice ? lattice.rowOf(pick.layer, pick.panel) : pick.panel.row,
             col: lattice ? lattice.colOf(pick.layer, pick.panel) : pick.panel.col,
@@ -3945,9 +4029,16 @@ class _Power {
         const grid = Array.from({ length: uniqueRows.length },
             () => Array(uniqueCols.length).fill(null));
         const bucket = new Map();   // representative pick -> every pick in its cell
+        // Panel object -> its compacted slot. Keyed by the object because
+        // `${row},${col}` is exactly the address that names two cabinets at once
+        // inside a group, which is the whole reason this lattice exists.
+        const rowOf = new Map();
+        const colOf = new Map();
         cells.forEach(c => {
             const r = rowIndex.get(c.row);
             const k = colIndex.get(c.col);
+            rowOf.set(c.pick.panel, r);
+            colOf.set(c.pick.panel, k);
             const held = grid[r][k];
             if (held === null) {
                 grid[r][k] = c.pick;
@@ -3957,14 +4048,10 @@ class _Power {
             }
         });
 
-        const ordered = this.getPatternOrderForGrid(pattern, grid);
-        const out = [];
-        ordered.forEach(pick => {
-            const group = bucket.get(pick);
-            if (group) out.push(...group);
-            else out.push(pick);
-        });
-        return out;
+        return {
+            grid, bucket, rowOf, colOf,
+            rows: uniqueRows.length, cols: uniqueCols.length,
+        };
     }
 
     applyPatternToSelection(pattern) {

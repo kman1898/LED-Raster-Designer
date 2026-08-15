@@ -1180,3 +1180,172 @@ def test_a_path_onto_a_hidden_member_still_resolves_for_drawing(page):
                  layers: resolved.map(r => r.layer.id) };
     """)
     assert result == {'count': 2, 'layers': [1, 2]}, result
+
+
+# ═════════════════════════════════════════════════════════════════════════
+# 9. AUTOMATIC routing across the members (v0.12)
+# ═════════════════════════════════════════════════════════════════════════
+#
+# Up to here every crossing run in this file was HAND DRAWN. A group of matching
+# panels now routes automatically across its members as well - one port walk and
+# one circuit walk over the whole wall - which breaks the assumption the arrow
+# renderers were written on ("automatic assignment walks one uniform grid and
+# never leaves its layer"). These are the two halves that assumption was holding
+# up: where the line is DRAWN, and which cabinet gets TINTED.
+
+# Two 6 x 6 sections of 128 px cabinets, stacked. Brompton 8-bit 60 Hz is
+# 525,000 px a port and a 6-wide row is 98,304 px, so five rows fit and six do
+# not: the wall's twelve rows pack 5 + 5 + 2, and port 2 runs from row 5 of the
+# top section into row 3 of the bottom one.
+AUTO_STACK = """
+    const a = ax.screen({ id: 1, name: 'Top', columns: 6, rows: 6,
+        flowPattern: 'tl-h', portMappingMode: 'organized',
+        powerFlowPattern: 'tl-h', powerOrganized: true });
+    const b = ax.screen({ id: 2, name: 'Bottom', columns: 6, rows: 6,
+        offset_y: 768, flowPattern: 'tl-h', portMappingMode: 'organized',
+        powerFlowPattern: 'tl-h', powerOrganized: true });
+"""
+
+# Every moveTo/lineTo issued while the deferred overlay pass is running, in
+# WORLD coords. Scoped to `_crossMemberPass` so an arrow drawn during a member's
+# own pass cannot be mistaken for one drawn across the seam.
+CROSS_PASS_STROKES = r"""
+window.__ax.crossPassStrokes = function () {
+    const r = window.canvasRenderer;
+    const ctx = r.ctx;
+    const origMove = ctx.moveTo;
+    const origLine = ctx.lineTo;
+    const out = [];
+    let passes = 0;
+    const origPass = r._renderCrossMemberPaths;
+    r._renderCrossMemberPaths = function (kind) {
+        if ((this._crossMemberOwners || []).length) passes += 1;
+        return origPass.apply(r, arguments);
+    };
+    const record = (x, y) => {
+        if (!r._crossMemberPass) return;
+        const m = ctx.getTransform();
+        out.push([Math.round(m.a * x + m.c * y + m.e),
+                  Math.round(m.b * x + m.d * y + m.f)]);
+    };
+    ctx.moveTo = function (x, y) { record(x, y); return origMove.call(ctx, x, y); };
+    ctx.lineTo = function (x, y) { record(x, y); return origLine.call(ctx, x, y); };
+    try { r.render(); } finally {
+        ctx.moveTo = origMove;
+        ctx.lineTo = origLine;
+        delete r._renderCrossMemberPaths;
+    }
+    return { passes: passes, points: out };
+};
+"""
+
+
+def _auto(page, body, view='data-flow'):
+    page.evaluate(CROSS_PASS_STROKES)
+    return _run(page, AUTO_STACK, body, view=view)
+
+
+def test_a_crossing_automatic_port_is_drawn_by_the_deferred_overlay_pass(page):
+    """The renderers used to return early from the overlay pass for automatic
+    maps, on the grounds that an automatic port never leaves its layer. A
+    crossing port drawn inside the owner's transform lands in the wrong place on
+    a member with a different rotation or Show Look offset, and a member drawn
+    later paints over it - so it has to go through the same deferred pass the
+    hand-drawn crossing cables use."""
+    result = _auto(page, """
+        const out = ax.crossPassStrokes();
+        return {
+            passes: out.passes,
+            ys: out.points.map(p => p[1]),
+            ports: window.app.calculatePortAssignments(a).reduce(
+                (m, x) => Math.max(m, x.port), 0),
+        };
+    """)
+    assert result['ports'] == 3, result
+    assert result['passes'] == 1, 'the overlay pass never ran for the automatic port'
+    ys = result['ys']
+    assert ys, 'the overlay pass drew nothing'
+    # The top section occupies y 0..768, the bottom 768..1536. One line, both.
+    assert min(ys) < 768, ys[:12]
+    assert max(ys) >= 768, ys[-12:]
+
+
+def test_a_crossing_automatic_circuit_tints_the_peers_cabinet_not_the_owners(page):
+    """layer._powerPanelCircuitMap is keyed `${row},${col}`, which names two
+    cabinets at once inside a group: the peer's R3C4 and the owner's. The scoped
+    twin has to be populated for an automatic crossing circuit too, or the
+    colour-coded power view paints the OWNER's R3C4 and leaves the peer's
+    cabinet on whatever the owner's own map happened to say."""
+    result = _run(page, AUTO_STACK, """
+        const r = window.canvasRenderer;
+        r.preparePowerLayerRenderData(a);
+        r.preparePowerLayerRenderData(b);
+        const peerCabinet = window.app.getPanelByRowCol(b, 0, 0);
+        const ownerCabinet = window.app.getPanelByRowCol(a, 0, 0);
+        const forPeer = r._powerCircuitForPanel(b, peerCabinet);
+        const forOwner = r._powerCircuitForPanel(a, ownerCabinet);
+        return {
+            peer: forPeer && { owner: forPeer.owner.id, circuit: forPeer.circuitNum },
+            owner: forOwner && { owner: forOwner.owner.id, circuit: forOwner.circuitNum },
+            peerHasOwnMap: (b._powerPanelCircuitMap || new Map()).size,
+            crossing: (a._powerCircuitOwners || []).map(
+                o => o ? [...new Set(o.map(l => l.id))] : null),
+        };
+    """, view='power')
+    # The peer's own map is empty - its circuits are the owner's now.
+    assert result['peerHasOwnMap'] == 0, result
+    # R0C0 of the BOTTOM section is fed by a circuit the TOP section owns, and
+    # it is not circuit 1 (which is the top section's own first three rows).
+    assert result['peer'] is not None, 'the peer cabinet was left untinted'
+    assert result['peer']['owner'] == 1, result
+    assert result['peer']['circuit'] != result['owner']['circuit'], result
+    assert result['owner'] == {'owner': 1, 'circuit': 1}, result
+    # Three rows fit a 4,160 W circuit, so the wall's twelve rows pack 3 + 3 +
+    # 3 + 3 and circuits 3 and 4 are made ENTIRELY of the bottom section's
+    # cabinets while belonging to the top section. That is the case the
+    # unscoped `${row},${col}` map cannot express at all: circuit 3 holds a
+    # cabinet at row 0 col 0, and so does circuit 1.
+    assert result['crossing'] == [[1], [1], [2], [2]], result
+
+
+def test_a_peer_of_a_crossing_group_does_not_read_ERROR_in_the_sidebar(page):
+    """Cabinets and no ports is an error only when nothing is feeding them.
+
+    Every peer of a crossing group reports zero ports of its own - the wall's
+    ports belong to the member that owns the walk - and the sidebar's "cabinets
+    but no ports" test would print a red ERROR beside a wall that is correctly
+    routed. The same trap was already reachable through a hand-drawn crossing
+    cable; both go through isServedByPeerRouting now.
+    """
+    result = _run(page, AUTO_STACK, """
+        const app = window.app;
+        const read = (layer) => {
+            app.currentLayer = layer;
+            app.updatePortCapacityDisplay();
+            const el = document.getElementById('ports-required');
+            return { text: el.textContent, red: el.style.color };
+        };
+        return {
+            owner: read(a),
+            peer: read(b),
+            servedOwner: app.isServedByPeerRouting(a, 'data'),
+            servedPeer: app.isServedByPeerRouting(b, 'data'),
+        };
+    """)
+    assert result['servedOwner'] is False, result
+    assert result['servedPeer'] is True, result
+    assert result['owner']['text'] == '3', result
+    assert result['peer']['text'] == '0', result
+    assert 'rgb(255, 0, 0)' not in result['peer']['red'], result
+
+
+def test_an_ungrouped_screen_is_never_served_by_a_peer(page):
+    """The helper must answer no for everything outside a group, or the sidebar
+    would stop reporting a genuine unroutable screen."""
+    result = _run(page, AUTO_STACK, """
+        return {
+            data: window.app.isServedByPeerRouting(a, 'data'),
+            power: window.app.isServedByPeerRouting(a, 'power'),
+        };
+    """, grouped=False)
+    assert result == {'data': False, 'power': False}, result

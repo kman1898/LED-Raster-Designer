@@ -115,6 +115,24 @@ class _ExportIo {
     calculatePortAssignments(layer) {
         if (!layer || !Array.isArray(layer.panels)) return [];
 
+        // v0.12: a screen group of matching panels routes as ONE BIGGER SCREEN,
+        // so the walk below runs once over every member's cabinets instead of
+        // once per member. `plan` is null for every ungrouped screen and every
+        // group that may not cross, and then every line after this is the line
+        // it always was. See getAutoRoutePlan (app-screen-info.js) for the rule.
+        const plan = (typeof this.getAutoRoutePlan === 'function')
+            ? this.getAutoRoutePlan(layer, 'data') : null;
+        if (plan && !plan.isOwner) {
+            // The wall's ports belong to the group's first member and are
+            // counted there. A peer reporting its own figure as well would put
+            // the same cable on the order sheet twice - the same reason a member
+            // fully served by a peer's hand-drawn path reports zero.
+            layer._capacityError = null;
+            layer._lowLatencyDerate = null;
+            layer._autoPortsRequired = 0;
+            return [];
+        }
+
         const bitDepth = layer.bitDepth || 8;
         const frameRate = layer.frameRate || 60;
         const processorType = layer.processorType || 'novastar-armor';
@@ -157,7 +175,28 @@ class _ExportIo {
         layer._autoPortsRequired = 0;
         if (portCapacity <= 0 || fullPanelPixels <= 0) return [];
 
-        const orderedForCapacity = this.getOrderedPanelsByPattern(layer, pattern, usesRectangle);
+        // The wall's grid. With no plan these ARE the layer's own grid and its
+        // own panel indices, so nothing below can tell the difference; with one
+        // they are the position lattice's compacted rows and columns, which is
+        // the only address that means the same thing on every member.
+        const gridRows = plan ? plan.rows : layer.rows;
+        const gridCols = plan ? plan.columns : layer.columns;
+        const rowOfPanel = plan ? (p => plan.rowOf.get(p)) : (p => p.row);
+        const colOfPanel = plan ? (p => plan.colOf.get(p)) : (p => p.col);
+        const layerOfPanel = plan
+            ? (() => {
+                const owners = new Map();
+                plan.ordered.forEach(c => owners.set(c.panel, c.layer));
+                return p => owners.get(p) || layer;
+            })()
+            : (() => layer);
+        const orderedByPattern = includeHidden => (plan
+            ? plan.ordered
+                .filter(c => includeHidden || !c.panel.hidden)
+                .map(c => c.panel)
+            : this.getOrderedPanelsByPattern(layer, pattern, includeHidden));
+
+        const orderedForCapacity = orderedByPattern(usesRectangle);
         if (orderedForCapacity.length === 0) return [];
 
         const ports = [];
@@ -257,8 +296,8 @@ class _ExportIo {
             const raiseCapacityError = (unitType, unitCount) => {
                 layer._capacityError = {
                     isHorizontalFirst,
-                    cols: layer.columns,
-                    rows: layer.rows,
+                    cols: gridCols,
+                    rows: gridRows,
                     panelsPerPort: Math.floor(portCapacity / fullPanelPixels),
                     portCapacity,
                     panelPixels: fullPanelPixels,
@@ -270,7 +309,7 @@ class _ExportIo {
             // The cabinets in the layer's own flow order - the SAME walk normal
             // mode uses, over the whole screen. Zero-area and hidden cabinets
             // drop out so a port's load is only what actually lights up.
-            const llPanels = this.getOrderedPanelsByPattern(layer, pattern, false)
+            const llPanels = orderedByPattern(false)
                 .filter(p => this.getPanelPixelArea(p) > 0);
             if (llPanels.length === 0) return [];
 
@@ -345,8 +384,8 @@ class _ExportIo {
             }
         } else if (isOrganized) {
             const unitIndices = isHorizontalFirst
-                ? [...Array(layer.rows).keys()].map(i => (startsTop ? i : (layer.rows - 1 - i)))
-                : [...Array(layer.columns).keys()].map(i => (startsLeft ? i : (layer.columns - 1 - i)));
+                ? [...Array(gridRows).keys()].map(i => (startsTop ? i : (gridRows - 1 - i)))
+                : [...Array(gridCols).keys()].map(i => (startsLeft ? i : (gridCols - 1 - i)));
 
             // Rectangle-constraint processors (NovaStar Armor / 1G) reserve a
             // pixel rectangle that encloses every visible cabinet in the port.
@@ -357,7 +396,7 @@ class _ExportIo {
                 if (!usesRectangle) {
                     // Non-rectangle processors: sum actual pixel areas
                     return unitIdxList.reduce((total, idx) => {
-                        const panels = orderedForCapacity.filter(p => (isHorizontalFirst ? p.row === idx : p.col === idx));
+                        const panels = orderedForCapacity.filter(p => (isHorizontalFirst ? rowOfPanel(p) === idx : colOfPanel(p) === idx));
                         return total + panels.reduce((sum, p) => sum + this.getPanelPixelArea(p), 0);
                     }, 0);
                 }
@@ -370,7 +409,7 @@ class _ExportIo {
                 let minY = Infinity, maxY = -Infinity;
                 let hasVisible = false;
                 unitIdxList.forEach(idx => {
-                    const visible = orderedForCapacity.filter(p => (isHorizontalFirst ? p.row === idx : p.col === idx) && !p.hidden);
+                    const visible = orderedForCapacity.filter(p => (isHorizontalFirst ? rowOfPanel(p) === idx : colOfPanel(p) === idx) && !p.hidden);
                     visible.forEach(p => {
                         hasVisible = true;
                         const x1 = Number(p.x) || 0;
@@ -396,7 +435,7 @@ class _ExportIo {
                 let bounds = emptyRect();
                 unitIdxList.forEach(idx => {
                     orderedForCapacity
-                        .filter(p => (isHorizontalFirst ? p.row === idx : p.col === idx) && !p.hidden)
+                        .filter(p => (isHorizontalFirst ? rowOfPanel(p) === idx : colOfPanel(p) === idx) && !p.hidden)
                         .forEach(p => { bounds = unionRect(bounds, p); });
                 });
                 return capacityForRect(portCapacity, bounds);
@@ -405,7 +444,7 @@ class _ExportIo {
             let current = { unitIndices: [], load: 0 };
 
             unitIndices.forEach(unitIdx => {
-                const unitPanelsAll = orderedForCapacity.filter(p => (isHorizontalFirst ? p.row === unitIdx : p.col === unitIdx));
+                const unitPanelsAll = orderedForCapacity.filter(p => (isHorizontalFirst ? rowOfPanel(p) === unitIdx : colOfPanel(p) === unitIdx));
                 if (unitPanelsAll.length === 0) return;
                 // Skip rows/columns with no visible panels
                 const visibleInUnit = unitPanelsAll.filter(p => !p.hidden);
@@ -435,13 +474,13 @@ class _ExportIo {
                 if (singleUnitLoad > capacityForUnits([unitIdx])) {
                     layer._capacityError = {
                         isHorizontalFirst,
-                        cols: layer.columns,
-                        rows: layer.rows,
+                        cols: gridCols,
+                        rows: gridRows,
                         panelsPerPort: Math.floor(portCapacity / fullPanelPixels),
                         portCapacity,
                         panelPixels: fullPanelPixels,
                         unitType: isHorizontalFirst ? 'row' : 'column',
-                        unitCount: isHorizontalFirst ? layer.columns : layer.rows
+                        unitCount: isHorizontalFirst ? gridCols : gridRows
                     };
                     return;
                 }
@@ -503,8 +542,8 @@ class _ExportIo {
                 if (soloLoad > portCapacity) {
                     layer._capacityError = {
                         isHorizontalFirst,
-                        cols: layer.columns,
-                        rows: layer.rows,
+                        cols: gridCols,
+                        rows: gridRows,
                         panelsPerPort: Math.floor(portCapacity / fullPanelPixels),
                         portCapacity,
                         panelPixels: fullPanelPixels,
@@ -565,8 +604,8 @@ class _ExportIo {
                         && panelLoad > capacityForRect(portCapacity, panelRect(panel))) {
                     layer._capacityError = {
                         isHorizontalFirst,
-                        cols: layer.columns,
-                        rows: layer.rows,
+                        cols: gridCols,
+                        rows: gridRows,
                         panelsPerPort: Math.floor(portCapacity / fullPanelPixels),
                         portCapacity,
                         panelPixels: fullPanelPixels,
@@ -589,16 +628,24 @@ class _ExportIo {
             // v0.11.0: only the Organized branch stores row/column indices;
             // the Low Latency branch carries its own ordered panel list.
             const portPanels = (isOrganized && !llGeometry)
-                ? this.getOrganizedPanelsForUnits(layer, pattern, isHorizontalFirst, port.unitIndices || [], false)
+                ? this.getOrganizedPanelsForUnits(layer, pattern, isHorizontalFirst, port.unitIndices || [], false, plan)
                 : (port.panels || []);
             let pixelIndex = 0;
             portPanels.forEach((panel, panelIdx) => {
-                assignments.push({
+                const item = {
                     panel,
                     port: idx + 1,
                     isPortStart: panelIdx === 0,
                     pixelIndex
-                });
+                };
+                // Which SCREEN this cabinet is on, and ONLY on a crossing group
+                // - the item shape of every ungrouped screen is untouched. It is
+                // the id rather than the layer because an assignment list is
+                // read, logged and compared all over the app, and it is the only
+                // way the renderer can put a crossing port's arrow on the peer's
+                // cabinet instead of the owner's at the same row and column.
+                if (plan) item.layerId = layerOfPanel(panel).id;
+                assignments.push(item);
                 pixelIndex += this.getPanelPixelArea(panel);
             });
         });

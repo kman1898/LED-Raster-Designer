@@ -1346,6 +1346,13 @@ class _Presets {
             // member whose cabinets are already fed by a peer's crossing
             // port, so summing it across the project can neither miss a
             // hand-drawn port nor count one cable twice.
+            //
+            // v0.12 adds the second way a member reports 0: a group of
+            // matching panels routes AUTOMATICALLY as one bigger screen, and
+            // the group's first member carries the whole wall's figure. The
+            // sum here is unchanged by that - one wall, counted once - and it
+            // is the wall's real requirement rather than the sum of what its
+            // sections would each have needed apart.
             totalPrimary += this.getLayerPortsRequired(layer) || 0;
         });
         // Every primary port has a backup/return port
@@ -1361,7 +1368,10 @@ class _Presets {
     //             which ignores row/column packing entirely and can only ever
     //             UNDER-count. It now comes from the map the app actually
     //             draws, through the same getLayerCircuitsRequired the group
-    //             roll-up uses, so a hand-drawn circuit map is honoured too.
+    //             roll-up uses, so a hand-drawn circuit map is honoured too -
+    //             and, since v0.12, so is a group whose members are the same
+    //             panel and the same wattage, where ONE combined walk's figure
+    //             is reported by the group's first member and by nobody else.
     //   voltage   mixed voltages were blended: all the watts divided by
     //             whichever voltage was seen first. There is no honest
     //             combined amps figure across two voltages, so the combined

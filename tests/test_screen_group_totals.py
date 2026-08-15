@@ -19,6 +19,7 @@ Run locally:
     python -m pytest tests/test_screen_group_totals.py -v --browser chromium
 """
 
+import json
 import sys
 import os
 
@@ -286,8 +287,22 @@ def test_matching_voltages_are_not_flagged(page):
 # ── Ports and circuits are the members' own requirements, summed ──────────
 
 def test_ports_and_circuits_are_the_sum_of_the_members_own_requirements(page):
-    """Automatic assignment walks one uniform grid, so it stays per member.
-    Proven against the app's own per-layer answers rather than a constant."""
+    """A MIXED-RESOLUTION group still sums its members' own requirements.
+
+    This used to be the rule for every group, on the grounds that automatic
+    assignment walks one uniform grid. It is no longer: a group whose members
+    are the same panel routes as ONE bigger screen and reports ONE figure - see
+    test_a_crossing_group_reports_the_combined_walks_port_count below, where the
+    combined figure is deliberately LOWER than this sum.
+
+    This wall is 1m JP5 cabinets (128 x 128 px) above 0.5m panels (64 x 64 px),
+    which is exactly the case that may NOT cross: there is no single port
+    capacity or circuit load that describes two different panels. So it keeps
+    the per-member behaviour, and this assertion is unchanged - it now pins the
+    OTHER side of the gate rather than a universal rule.
+
+    Proven against the app's own per-layer answers rather than a constant.
+    """
     result = page.evaluate("""() => {
         const gt = window.__gt;
         const a = gt.screen({ id: 1, columns: 20, rows: 9, panelWatts: 300 });
@@ -637,3 +652,480 @@ def test_a_peer_with_no_paths_object_still_counts_as_fed_by_its_neighbour(page):
     assert got['peerHasPathsKey'] is False, 'the edge under test was not set up'
     assert got['ports'] == 1, f"phantom extra port in the roll-up: {got}"
     assert got['circuits'] == 1, f"phantom extra circuit in the roll-up: {got}"
+
+
+# ═════════════════════════════════════════════════════════════════════════
+# Automatic routing ACROSS the members (v0.12)
+# ═════════════════════════════════════════════════════════════════════════
+#
+# A group of matching panels is ONE BIGGER SCREEN: the port walk and the circuit
+# walk run once over every member's cabinets instead of once per member, and the
+# group's first member reports the whole wall while every other member reports
+# zero. The rule, and the reason the two halves of it differ:
+#
+#   data   every member the same panel RESOLUTION (cabinet_width /
+#          cabinet_height). Physical millimetres are irrelevant - a 128 x 128
+#          cabinet chains the same whether its box is 500 mm or 600 mm.
+#   power  the same resolution AND the same panelWatts, because a circuit packs
+#          by load.
+#
+# So a group can legitimately cross for data and not for power. That is not an
+# oversight, it is the rule, and it has its own test below.
+#
+# Every wall here is 128 x 128 cabinets on Brompton 8-bit 60 Hz = 525,000 px a
+# port, so a cabinet is 16,384 px and a 6-wide row is 98,304 px: FIVE rows fit
+# one port and a sixth does not. Circuits are 208 V x 20 A = 4,160 W at 200 W a
+# cabinet, so a 6-wide row is 1,200 W and THREE rows fit one circuit.
+
+def _routes(page, build_js):
+    """Per-member and combined figures for a group, plus the same wall UNGROUPED.
+
+    The ungrouped run is the control: it is what the app produced before this
+    feature, computed live rather than pinned, so the comparison cannot rot.
+    """
+    return page.evaluate("""() => {
+        const gt = window.__gt;
+        const [layers, group] = (%s)(gt);
+        const read = (grouped) => {
+            layers.forEach(l => { l.group_id = grouped ? group.id : null; });
+            return gt.withProject(layers, grouped ? [group] : [], () => {
+                const ports = layers.map(l => window.app.getLayerPortsRequired(l));
+                const circuits = layers.map(l => window.app.getLayerCircuitsRequired(
+                    l, (window.app.calculatePowerAssignments(l).circuits || []).length));
+                const portMap = layers.map(l => window.app.calculatePortAssignments(l)
+                    .map(a => `${a.layerId === undefined ? l.id : a.layerId}:`
+                        + `${a.panel.row},${a.panel.col}#${a.port}`));
+                const powerMap = layers.map(l => {
+                    const res = window.app.calculatePowerAssignments(l);
+                    return (res.circuits || []).map((c, i) => c.map((p, j) =>
+                        `${res.layers ? res.layers[i][j].id : l.id}:${p.row},${p.col}`));
+                });
+                const totals = grouped ? window.app.getGroupTotals(group.id) : null;
+                return {
+                    ports, circuits, portMap, powerMap,
+                    dataPlan: !!window.app.getAutoRoutePlan(layers[0], 'data'),
+                    powerPlan: !!window.app.getAutoRoutePlan(layers[0], 'power'),
+                    totalPorts: totals ? totals.portsPrimary : ports.reduce((a, b) => a + b, 0),
+                    totalCircuits: totals ? totals.circuits : circuits.reduce((a, b) => a + b, 0),
+                };
+            });
+        };
+        return { grouped: read(true), apart: read(false) };
+    }""" % build_js)
+
+
+def _crossing_runs(runs, owner_id):
+    """The runs (ports or circuits) that carry a cabinet from another member."""
+    return [r for r in runs if any(not k.startswith('%s:' % owner_id) for k in r)]
+
+
+# 6 wide x 6 tall, twice, one directly under the other. Different physical
+# cabinet sizes on purpose: 500 mm and 600 mm boxes at the SAME resolution, to
+# prove the gate is the panel's pixels and not its millimetres.
+TALL_PAIR_JS = """(gt) => {
+    const a = gt.screen({ id: 1, name: 'Top', columns: 6, rows: 6,
+        panel_width_mm: 500, panel_height_mm: 500,
+        flowPattern: 'tl-h', portMappingMode: 'organized' });
+    const b = gt.screen({ id: 2, name: 'Bottom', columns: 6, rows: 6,
+        panel_width_mm: 600, panel_height_mm: 600, offset_y: 768,
+        flowPattern: 'tl-h', portMappingMode: 'organized' });
+    return [[a, b], gt.group([a, b])];
+}"""
+
+
+def test_a_same_resolution_group_crosses_for_data(page):
+    """One port carries cabinets from both members, and only the first member
+    reports the wall's ports."""
+    r = _routes(page, TALL_PAIR_JS)
+    g = r['grouped']
+    assert g['dataPlan'] is True
+    assert g['portMap'][1] == [], 'the peer routed its own ports as well'
+    crossing = _crossing_runs(_ports_of(g['portMap'][0]), 1)
+    assert crossing, f"no port left the first member: {g['portMap'][0]}"
+    # Port 2 opens on the first member's last row and finishes four rows into
+    # the second's - one port, one chain, straight through the seam.
+    assert crossing[0][0] == '1:5,0'
+    assert [k.split(':')[0] for k in crossing[0]] == ['1'] * 6 + ['2'] * 24
+    assert crossing[0][-1].startswith('2:3,')
+    assert g['ports'][1] == 0, 'the peer reported a requirement of its own'
+    assert g['totalPorts'] == g['ports'][0]
+
+
+def test_a_crossing_group_reports_the_combined_walks_port_count(page):
+    """THE COUNT CAN DROP, and that is the feature working.
+
+    Each member is 6 x 6 cabinets = twelve 98,304 px rows across the pair.
+    Five rows fit a 525,000 px Brompton port and six do not, so:
+
+        apart     6 rows each -> 5 + 1 = TWO ports a member = 4 ports
+        together  12 rows     -> 5 + 5 + 2                  = 3 ports
+
+    The port that vanishes is the rounding waste at each member's boundary: the
+    lone sixth row of the top member and the lone sixth row of the bottom one
+    were each buying a whole port. One wall, one walk, one less port to rack.
+    """
+    r = _routes(page, TALL_PAIR_JS)
+    assert r['apart']['ports'] == [2, 2]
+    assert r['apart']['totalPorts'] == 4
+    assert r['grouped']['ports'] == [3, 0]
+    assert r['grouped']['totalPorts'] == 3
+    assert r['grouped']['totalPorts'] < r['apart']['totalPorts']
+
+
+# 6 wide x 4 tall, twice. Eight 1,200 W rows across the pair at 4,160 W a
+# circuit: three rows fit, four do not.
+SHORT_PAIR_JS = """(gt) => {
+    const a = gt.screen({ id: 1, name: 'Top', columns: 6, rows: 4,
+        powerFlowPattern: 'tl-h', powerOrganized: true });
+    const b = gt.screen({ id: 2, name: 'Bottom', columns: 6, rows: 4,
+        offset_y: 512, powerFlowPattern: 'tl-h', powerOrganized: true });
+    return [[a, b], gt.group([a, b])];
+}"""
+
+
+def test_a_same_resolution_same_watts_group_crosses_for_power(page):
+    """A circuit carries cabinets from both members, and the count drops.
+
+        apart     4 rows each -> 3 + 1 = TWO circuits a member = 4
+        together  8 rows      -> 3 + 3 + 2                     = 3
+    """
+    r = _routes(page, SHORT_PAIR_JS)
+    g = r['grouped']
+    assert g['powerPlan'] is True
+    assert g['powerMap'][1] == [], 'the peer packed its own circuits as well'
+    crossing = _crossing_runs(g['powerMap'][0], 1)
+    assert crossing, f"no circuit left the first member: {g['powerMap'][0]}"
+    assert crossing[0][0] == '1:3,0'
+    assert [k.split(':')[0] for k in crossing[0]] == ['1'] * 6 + ['2'] * 12
+    assert crossing[0][-1].startswith('2:1,')
+    assert r['apart']['circuits'] == [2, 2]
+    assert r['apart']['totalCircuits'] == 4
+    assert g['circuits'] == [3, 0]
+    assert g['totalCircuits'] == 3
+
+
+MATCHED_PANEL_MISMATCHED_WATTS_JS = """(gt) => {
+    const a = gt.screen({ id: 1, name: 'Top', columns: 6, rows: 6,
+        panelWatts: 200, flowPattern: 'tl-h', portMappingMode: 'organized',
+        powerFlowPattern: 'tl-h', powerOrganized: true });
+    const b = gt.screen({ id: 2, name: 'Bottom', columns: 6, rows: 6,
+        panelWatts: 250, offset_y: 768,
+        flowPattern: 'tl-h', portMappingMode: 'organized',
+        powerFlowPattern: 'tl-h', powerOrganized: true });
+    return [[a, b], gt.group([a, b])];
+}"""
+
+
+def test_matching_resolution_but_not_watts_crosses_for_data_and_not_power(page):
+    """Same cabinet, different draw - a real wall of one panel type where one
+    section is running a different LED module. The data chain does not care what
+    a cabinet draws, so it crosses; a circuit is packed by load, so it cannot."""
+    r = _routes(page, MATCHED_PANEL_MISMATCHED_WATTS_JS)
+    g = r['grouped']
+    assert g['dataPlan'] is True
+    assert g['powerPlan'] is False
+    assert _crossing_runs(_ports_of(g['portMap'][0]), 1), 'data did not cross'
+    assert g['ports'] == [3, 0]
+    # Power keeps today's per-member behaviour, exactly.
+    assert g['powerMap'][1] != [], 'the peer stopped packing its own circuits'
+    assert not _crossing_runs(g['powerMap'][0], 1), 'a circuit crossed on mixed watts'
+    assert g['circuits'] == r['apart']['circuits']
+    assert g['totalCircuits'] == sum(r['apart']['circuits'])
+
+
+MIXED_RESOLUTION_JS = """(gt) => {
+    const a = gt.screen({ id: 1, name: 'JP5', columns: 6, rows: 6,
+        cabinet_width: 128, cabinet_height: 128,
+        flowPattern: 'tl-h', portMappingMode: 'organized',
+        powerFlowPattern: 'tl-h', powerOrganized: true });
+    const b = gt.screen({ id: 2, name: 'Half', columns: 12, rows: 12,
+        cabinet_width: 64, cabinet_height: 64, offset_y: 768,
+        flowPattern: 'tl-h', portMappingMode: 'organized',
+        powerFlowPattern: 'tl-h', powerOrganized: true });
+    return [[a, b], gt.group([a, b])];
+}"""
+
+
+def test_a_mixed_resolution_group_does_not_cross_at_all(page):
+    """1m cabinets over 0.5m ones. Grouping it changes NOTHING about its
+    routing - the figures and the maps are the ungrouped ones, cabinet for
+    cabinet. Those walls are routed across the seam with custom cables."""
+    r = _routes(page, MIXED_RESOLUTION_JS)
+    assert r['grouped']['dataPlan'] is False
+    assert r['grouped']['powerPlan'] is False
+    assert r['grouped']['portMap'] == r['apart']['portMap']
+    assert r['grouped']['powerMap'] == r['apart']['powerMap']
+    assert r['grouped']['ports'] == r['apart']['ports']
+    assert r['grouped']['circuits'] == r['apart']['circuits']
+    assert r['grouped']['totalPorts'] == sum(r['apart']['ports'])
+    assert r['grouped']['totalCircuits'] == sum(r['apart']['circuits'])
+
+
+HALF_TILE_PAIR_JS = """(gt) => {
+    const a = gt.screen({ id: 1, name: 'Top', columns: 6, rows: 6,
+        flowPattern: 'tl-h', portMappingMode: 'organized' });
+    const b = gt.screen({ id: 2, name: 'Bottom', columns: 6, rows: 6,
+        offset_y: 768, flowPattern: 'tl-h', portMappingMode: 'organized' });
+    // The same panel, cropped: the top member's last column and the bottom
+    // member's first column are half tiles. NOT a different cabinet spec -
+    // cabinet_width / cabinet_height are untouched, which is the whole point.
+    a.halfLastColumn = true;
+    a.panels.forEach(p => { if (p.col === 5) { p.width = 64; p.halfTile = 'right'; } });
+    b.halfFirstColumn = true;
+    b.panels.forEach(p => { if (p.col === 0) { p.width = 64; p.halfTile = 'left'; } });
+    return [[a, b], gt.group([a, b])];
+}"""
+
+
+def test_half_tiles_do_not_block_crossing(page):
+    """A half tile is the same panel cropped, so it can never be the reason a
+    wall stops routing as one. The gate compares the panel SPEC and never the
+    half-tile flags; the reduced load is already carried per cabinet."""
+    r = _routes(page, HALF_TILE_PAIR_JS)
+    g = r['grouped']
+    assert g['dataPlan'] is True, 'half tiles blocked the crossing'
+    assert g['powerPlan'] is True
+    assert _crossing_runs(_ports_of(g['portMap'][0]), 1), 'no port crossed'
+    assert g['ports'][1] == 0
+
+
+# The upper half of the wall is the SECOND layer in the list. Index order and
+# physical order disagree, which is the whole reason the walk is ranked on a
+# position lattice rather than on panel.row.
+UPSIDE_DOWN_JS = """(gt) => {
+    const lower = gt.screen({ id: 1, name: 'Lower', columns: 6, rows: 6,
+        flowPattern: 'tl-h', portMappingMode: 'organized' });
+    const upper = gt.screen({ id: 2, name: 'Upper', columns: 6, rows: 6,
+        offset_y: -768, flowPattern: 'tl-h', portMappingMode: 'organized' });
+    return [[lower, upper], gt.group([lower, upper])];
+}"""
+
+
+def test_the_combined_walk_starts_where_the_wall_starts_not_where_the_list_does(page):
+    """A top-left serpentine over this wall has to begin on the UPPER member,
+    which is layer 2 and sits at a negative offset. Ordered by panel.row it
+    would begin on layer 1's row 0, which is halfway down the wall."""
+    r = _routes(page, UPSIDE_DOWN_JS)
+    first = _ports_of(r['grouped']['portMap'][0])[0]
+    assert first[0] == '2:0,0', f'the walk did not start at the top of the wall: {first[:8]}'
+    assert first[6] == '2:1,5', f'the serpentine did not turn at the wall edge: {first[:8]}'
+    # It still ENDS on the lower member's bottom-right, and the port that
+    # crosses the seam is one port, not two.
+    last = _ports_of(r['grouped']['portMap'][0])[-1]
+    assert last[-1] == '1:5,0'
+
+
+def _ports_of(flat):
+    """`['1:0,0#1', ...]` regrouped into one list per port number."""
+    out = {}
+    for key in flat:
+        addr, port = key.split('#')
+        out.setdefault(int(port), []).append(addr)
+    return [out[n] for n in sorted(out)]
+
+
+# ── The regression bar: NO group, or a group of one ───────────────────────
+#
+# Every project that has no groups in it, and every group of one, must produce
+# exactly what it produced before automatic routing could cross. These are not
+# recomputed expectations - they are the literal JSON.stringify bytes this tree
+# produced at 1a83348, BEFORE any of the crossing code existed, captured by
+# running the battery below against the stashed tree.
+#
+# The battery is chosen to touch every branch the change reaches into: both Port
+# Mapping modes, a rectangle-constraint processor, horizontal-first and
+# vertical-first patterns starting from three different corners, half tiles
+# (which change a cabinet's load), and a wall with hidden and blank cabinets in
+# the middle of it (which change the traversal).
+
+PIN_ROUTES = {
+    'org_h':
+        '{"ports":[[0,0,1,true,0],[0,1,1,false,16384],[0,2,1,false,32768],[0,3,1,false,49152],[0,4,'
+        '1,false,65536],[0,5,1,false,81920],[1,5,1,false,98304],[1,4,1,false,114688],[1,3,1,false,1'
+        '31072],[1,2,1,false,147456],[1,1,1,false,163840],[1,0,1,false,180224],[2,0,1,false,196608]'
+        ',[2,1,1,false,212992],[2,2,1,false,229376],[2,3,1,false,245760],[2,4,1,false,262144],[2,5,'
+        '1,false,278528],[3,5,1,false,294912],[3,4,1,false,311296],[3,3,1,false,327680],[3,2,1,fals'
+        'e,344064],[3,1,1,false,360448],[3,0,1,false,376832],[4,0,1,false,393216],[4,1,1,false,4096'
+        '00],[4,2,1,false,425984],[4,3,1,false,442368],[4,4,1,false,458752],[4,5,1,false,475136],[5'
+        ',0,2,true,0],[5,1,2,false,16384],[5,2,2,false,32768],[5,3,2,false,49152],[5,4,2,false,6553'
+        '6],[5,5,2,false,81920]],"autoPorts":2,"portsRequired":2,"power":[[[0,0],[0,1],[0,2],[0,3],'
+        '[0,4],[0,5],[1,5],[1,4],[1,3],[1,2],[1,1],[1,0],[2,0],[2,1],[2,2],[2,3],[2,4],[2,5]],[[3,0'
+        '],[3,1],[3,2],[3,3],[3,4],[3,5],[4,5],[4,4],[4,3],[4,2],[4,1],[4,0],[5,0],[5,1],[5,2],[5,3'
+        '],[5,4],[5,5]]],"circuits":2,"soca":"[{\\"soca\\":1,\\"number\\":1,\\"name\\":\\"S1\\",\\"distroId\\'
+        '":null,\\"legs\\":[{\\"leg\\":1,\\"circuit\\":1,\\"label\\":\\"S1-1\\",\\"tiles\\":18,\\"watts\\":3600,\\'
+        '"amps\\":17.307692307692307,\\"x1\\":0,\\"x2\\":768},{\\"leg\\":2,\\"circuit\\":2,\\"label\\":\\"S1-2\\'
+        '",\\"tiles\\":18,\\"watts\\":3600,\\"amps\\":17.307692307692307,\\"x1\\":0,\\"x2\\":768}],\\"watts\\":'
+        '7200,\\"x1\\":0,\\"x2\\":768,\\"amps\\":34.61538461538461,\\"length\\":null}]"}',
+    'org_v':
+        '{"ports":[[6,4,1,true,0],[5,4,1,false,16384],[4,4,1,false,32768],[3,4,1,false,49152],[2,4,'
+        '1,false,65536],[1,4,1,false,81920],[0,4,1,false,98304],[0,3,1,false,114688],[1,3,1,false,1'
+        '31072],[2,3,1,false,147456],[3,3,1,false,163840],[4,3,1,false,180224],[5,3,1,false,196608]'
+        ',[6,3,1,false,212992],[6,2,1,false,229376],[5,2,1,false,245760],[4,2,1,false,262144],[3,2,'
+        '1,false,278528],[2,2,1,false,294912],[1,2,1,false,311296],[0,2,1,false,327680],[0,1,1,fals'
+        'e,344064],[1,1,1,false,360448],[2,1,1,false,376832],[3,1,1,false,393216],[4,1,1,false,4096'
+        '00],[5,1,1,false,425984],[6,1,1,false,442368],[6,0,2,true,0],[5,0,2,false,16384],[4,0,2,fa'
+        'lse,32768],[3,0,2,false,49152],[2,0,2,false,65536],[1,0,2,false,81920],[0,0,2,false,98304]'
+        '],"autoPorts":2,"portsRequired":2,"power":[[[6,0],[5,0],[4,0],[3,0],[2,0],[1,0],[0,0],[0,1'
+        '],[1,1],[2,1],[3,1],[4,1],[5,1],[6,1]],[[6,2],[5,2],[4,2],[3,2],[2,2],[1,2],[0,2],[0,3],[1'
+        ',3],[2,3],[3,3],[4,3],[5,3],[6,3]],[[6,4],[5,4],[4,4],[3,4],[2,4],[1,4],[0,4]]],"circuits"'
+        ':3,"soca":"[{\\"soca\\":1,\\"number\\":1,\\"name\\":\\"S1\\",\\"distroId\\":null,\\"legs\\":[{\\"leg\\":'
+        '1,\\"circuit\\":1,\\"label\\":\\"S1-1\\",\\"tiles\\":14,\\"watts\\":2100,\\"amps\\":19.09090909090909,'
+        '\\"x1\\":0,\\"x2\\":256},{\\"leg\\":2,\\"circuit\\":2,\\"label\\":\\"S1-2\\",\\"tiles\\":14,\\"watts\\":21'
+        '00,\\"amps\\":19.09090909090909,\\"x1\\":256,\\"x2\\":512},{\\"leg\\":3,\\"circuit\\":3,\\"label\\":\\"'
+        'S1-3\\",\\"tiles\\":7,\\"watts\\":1050,\\"amps\\":9.545454545454545,\\"x1\\":512,\\"x2\\":640}],\\"wat'
+        'ts\\":5250,\\"x1\\":0,\\"x2\\":640,\\"amps\\":47.72727272727273,\\"length\\":null}]"}',
+    'maxcap':
+        '{"ports":[[0,6,1,true,0],[0,5,1,false,16384],[0,4,1,false,32768],[0,3,1,false,49152],[0,2,'
+        '1,false,65536],[0,1,1,false,81920],[0,0,1,false,98304],[1,0,1,false,114688],[1,1,1,false,1'
+        '31072],[1,2,1,false,147456],[1,3,1,false,163840],[1,4,1,false,180224],[1,5,1,false,196608]'
+        ',[1,6,1,false,212992],[2,6,1,false,229376],[2,5,1,false,245760],[2,4,1,false,262144],[2,3,'
+        '1,false,278528],[2,2,1,false,294912],[2,1,1,false,311296],[2,0,1,false,327680],[3,0,1,fals'
+        'e,344064],[3,1,1,false,360448],[3,2,1,false,376832],[3,3,1,false,393216],[3,4,1,false,4096'
+        '00],[3,5,1,false,425984],[3,6,1,false,442368]],"autoPorts":1,"portsRequired":1,"power":[[['
+        '0,6],[0,5],[0,4],[0,3],[0,2],[0,1],[0,0],[1,0],[1,1],[1,2],[1,3],[1,4],[1,5],[1,6],[2,6],['
+        '2,5],[2,4],[2,3],[2,2],[2,1]],[[2,0],[3,0],[3,1],[3,2],[3,3],[3,4],[3,5],[3,6]]],"circuits'
+        '":2,"soca":"[{\\"soca\\":1,\\"number\\":1,\\"name\\":\\"S1\\",\\"distroId\\":null,\\"legs\\":[{\\"leg\\"'
+        ':1,\\"circuit\\":1,\\"label\\":\\"S1-1\\",\\"tiles\\":20,\\"watts\\":4000,\\"amps\\":19.23076923076923'
+        ',\\"x1\\":0,\\"x2\\":896},{\\"leg\\":2,\\"circuit\\":2,\\"label\\":\\"S1-2\\",\\"tiles\\":8,\\"watts\\":16'
+        '00,\\"amps\\":7.6923076923076925,\\"x1\\":0,\\"x2\\":896}],\\"watts\\":5600,\\"x1\\":0,\\"x2\\":896,\\"'
+        'amps\\":26.923076923076923,\\"length\\":null}]"}',
+    'armor':
+        '{"ports":[[0,0,1,true,0],[1,0,1,false,16384],[2,0,1,false,32768],[3,0,1,false,49152],[4,0,'
+        '1,false,65536],[4,1,1,false,81920],[3,1,1,false,98304],[2,1,1,false,114688],[1,1,1,false,1'
+        '31072],[0,1,1,false,147456],[0,2,1,false,163840],[1,2,1,false,180224],[2,2,1,false,196608]'
+        ',[3,2,1,false,212992],[4,2,1,false,229376],[4,3,1,false,245760],[3,3,1,false,262144],[2,3,'
+        '1,false,278528],[1,3,1,false,294912],[0,3,1,false,311296],[0,4,1,false,327680],[1,4,1,fals'
+        'e,344064],[2,4,1,false,360448],[3,4,1,false,376832],[4,4,1,false,393216],[4,5,1,false,4096'
+        '00],[3,5,1,false,425984],[2,5,1,false,442368],[1,5,1,false,458752],[0,5,1,false,475136],[0'
+        ',6,1,false,491520],[1,6,1,false,507904],[2,6,1,false,524288],[3,6,1,false,540672],[4,6,1,f'
+        'alse,557056],[4,7,1,false,573440],[3,7,1,false,589824],[2,7,1,false,606208],[1,7,1,false,6'
+        '22592],[0,7,1,false,638976]],"autoPorts":1,"portsRequired":1,"power":[[[0,0],[1,0],[2,0],['
+        '3,0],[4,0],[4,1],[3,1],[2,1],[1,1],[0,1],[0,2],[1,2],[2,2],[3,2],[4,2],[4,3],[3,3],[2,3],['
+        '1,3],[0,3]],[[0,4],[1,4],[2,4],[3,4],[4,4],[4,5],[3,5],[2,5],[1,5],[0,5],[0,6],[1,6],[2,6]'
+        ',[3,6],[4,6],[4,7],[3,7],[2,7],[1,7],[0,7]]],"circuits":2,"soca":"[{\\"soca\\":1,\\"number\\":'
+        '1,\\"name\\":\\"S1\\",\\"distroId\\":null,\\"legs\\":[{\\"leg\\":1,\\"circuit\\":1,\\"label\\":\\"S1-1\\",'
+        '\\"tiles\\":20,\\"watts\\":4000,\\"amps\\":19.23076923076923,\\"x1\\":0,\\"x2\\":512},{\\"leg\\":2,\\"c'
+        'ircuit\\":2,\\"label\\":\\"S1-2\\",\\"tiles\\":20,\\"watts\\":4000,\\"amps\\":19.23076923076923,\\"x1\\'
+        '":512,\\"x2\\":1024}],\\"watts\\":8000,\\"x1\\":0,\\"x2\\":1024,\\"amps\\":38.46153846153846,\\"lengt'
+        'h\\":null}]"}',
+    'halves':
+        '{"ports":[[0,0,1,true,0],[0,1,1,false,8192],[0,2,1,false,24576],[0,3,1,false,40960],[0,4,1'
+        ',false,57344],[0,5,1,false,73728],[1,5,1,false,90112],[1,4,1,false,106496],[1,3,1,false,12'
+        '2880],[1,2,1,false,139264],[1,1,1,false,155648],[1,0,1,false,172032],[2,0,1,false,180224],'
+        '[2,1,1,false,188416],[2,2,1,false,204800],[2,3,1,false,221184],[2,4,1,false,237568],[2,5,1'
+        ',false,253952],[3,5,1,false,270336],[3,4,1,false,286720],[3,3,1,false,303104],[3,2,1,false'
+        ',319488],[3,1,1,false,335872],[3,0,1,false,352256]],"autoPorts":1,"portsRequired":1,"power'
+        '":[[[0,0],[0,1],[0,2],[0,3],[0,4],[0,5],[1,5],[1,4],[1,3],[1,2],[1,1],[1,0],[2,0],[2,1],[2'
+        ',2],[2,3],[2,4],[2,5],[3,5],[3,4],[3,3]],[[3,2],[3,1],[3,0]]],"circuits":2,"soca":"[{\\"soc'
+        'a\\":1,\\"number\\":1,\\"name\\":\\"S1\\",\\"distroId\\":null,\\"legs\\":[{\\"leg\\":1,\\"circuit\\":1,\\"'
+        'label\\":\\"S1-1\\",\\"tiles\\":21,\\"watts\\":3990,\\"amps\\":19.182692307692307,\\"x1\\":0,\\"x2\\":7'
+        '68},{\\"leg\\":2,\\"circuit\\":2,\\"label\\":\\"S1-2\\",\\"tiles\\":3,\\"watts\\":530,\\"amps\\":2.54807'
+        '6923076923,\\"x1\\":0,\\"x2\\":384}],\\"watts\\":4520,\\"x1\\":0,\\"x2\\":768,\\"amps\\":21.7307692307'
+        '6923,\\"length\\":null}]"}',
+    'holes':
+        '{"ports":[[4,0,1,true,0],[4,1,1,false,16384],[4,2,1,false,32768],[4,3,1,false,49152],[4,4,'
+        '1,false,65536],[4,5,1,false,81920],[3,5,1,false,98304],[3,4,1,false,114688],[3,3,1,false,1'
+        '31072],[3,2,1,false,147456],[3,1,1,false,163840],[3,0,1,false,180224],[2,0,1,false,196608]'
+        ',[2,1,1,false,212992],[2,2,1,false,229376],[1,5,1,false,245760],[1,4,1,false,262144],[1,3,'
+        '1,false,278528],[1,2,1,false,294912],[1,1,1,false,311296],[1,0,1,false,327680],[0,0,1,fals'
+        'e,344064],[0,1,1,false,360448],[0,2,1,false,376832],[0,3,1,false,393216],[0,4,1,false,4096'
+        '00],[0,5,1,false,425984]],"autoPorts":1,"portsRequired":1,"power":[[[4,0],[4,1],[4,2],[4,3'
+        '],[4,4],[4,5],[3,5],[3,4],[3,3],[3,2],[3,1],[3,0],[2,0],[2,1],[2,2]],[[1,0],[1,1],[1,2],[1'
+        ',3],[1,4],[1,5],[0,5],[0,4],[0,3],[0,2],[0,1],[0,0]]],"circuits":2,"soca":"[{\\"soca\\":1,\\"'
+        'number\\":1,\\"name\\":\\"S1\\",\\"distroId\\":null,\\"legs\\":[{\\"leg\\":1,\\"circuit\\":1,\\"label\\":'
+        '\\"S1-1\\",\\"tiles\\":15,\\"watts\\":3000,\\"amps\\":14.423076923076923,\\"x1\\":0,\\"x2\\":768},{\\"l'
+        'eg\\":2,\\"circuit\\":2,\\"label\\":\\"S1-2\\",\\"tiles\\":12,\\"watts\\":2400,\\"amps\\":11.5384615384'
+        '61538,\\"x1\\":0,\\"x2\\":768}],\\"watts\\":5400,\\"x1\\":0,\\"x2\\":768,\\"amps\\":25.96153846153846,'
+        '\\"length\\":null}]"}',
+    'group_of_one':
+        '{"ports":[[0,0,1,true,0],[0,1,1,false,16384],[0,2,1,false,32768],[0,3,1,false,49152],[0,4,'
+        '1,false,65536],[0,5,1,false,81920],[1,5,1,false,98304],[1,4,1,false,114688],[1,3,1,false,1'
+        '31072],[1,2,1,false,147456],[1,1,1,false,163840],[1,0,1,false,180224],[2,0,1,false,196608]'
+        ',[2,1,1,false,212992],[2,2,1,false,229376],[2,3,1,false,245760],[2,4,1,false,262144],[2,5,'
+        '1,false,278528],[3,5,1,false,294912],[3,4,1,false,311296],[3,3,1,false,327680],[3,2,1,fals'
+        'e,344064],[3,1,1,false,360448],[3,0,1,false,376832],[4,0,1,false,393216],[4,1,1,false,4096'
+        '00],[4,2,1,false,425984],[4,3,1,false,442368],[4,4,1,false,458752],[4,5,1,false,475136],[5'
+        ',0,2,true,0],[5,1,2,false,16384],[5,2,2,false,32768],[5,3,2,false,49152],[5,4,2,false,6553'
+        '6],[5,5,2,false,81920]],"autoPorts":2,"portsRequired":2,"power":[[[0,0],[0,1],[0,2],[0,3],'
+        '[0,4],[0,5],[1,5],[1,4],[1,3],[1,2],[1,1],[1,0],[2,0],[2,1],[2,2],[2,3],[2,4],[2,5]],[[3,0'
+        '],[3,1],[3,2],[3,3],[3,4],[3,5],[4,5],[4,4],[4,3],[4,2],[4,1],[4,0],[5,0],[5,1],[5,2],[5,3'
+        '],[5,4],[5,5]]],"circuits":2,"soca":"[{\\"soca\\":1,\\"number\\":1,\\"name\\":\\"S1\\",\\"distroId\\'
+        '":null,\\"legs\\":[{\\"leg\\":1,\\"circuit\\":1,\\"label\\":\\"S1-1\\",\\"tiles\\":18,\\"watts\\":3600,\\'
+        '"amps\\":17.307692307692307,\\"x1\\":0,\\"x2\\":768},{\\"leg\\":2,\\"circuit\\":2,\\"label\\":\\"S1-2\\'
+        '",\\"tiles\\":18,\\"watts\\":3600,\\"amps\\":17.307692307692307,\\"x1\\":0,\\"x2\\":768}],\\"watts\\":'
+        '7200,\\"x1\\":0,\\"x2\\":768,\\"amps\\":34.61538461538461,\\"length\\":null}]"}',
+}
+
+
+ROUTE_BATTERY_JS = """
+    const gt = window.__gt;
+    const mk = {
+        org_h: () => gt.screen({ id: 1, name: 'OrgH', columns: 6, rows: 6,
+            flowPattern: 'tl-h', portMappingMode: 'organized',
+            powerFlowPattern: 'tl-h', powerOrganized: true }),
+        org_v: () => gt.screen({ id: 1, name: 'OrgV', columns: 5, rows: 7,
+            flowPattern: 'br-v', portMappingMode: 'organized',
+            powerFlowPattern: 'bl-v', powerOrganized: true,
+            panelWatts: 150, powerVoltage: 110, powerAmperage: 20 }),
+        maxcap: () => gt.screen({ id: 1, name: 'Max', columns: 7, rows: 4,
+            flowPattern: 'tr-h', portMappingMode: 'maximize',
+            powerFlowPattern: 'tr-h', powerOrganized: false, powerMaximize: true }),
+        armor: () => gt.screen({ id: 1, name: 'Armor', columns: 8, rows: 5,
+            processorType: 'novastar-armor', flowPattern: 'tl-v',
+            portMappingMode: 'organized', powerFlowPattern: 'tl-v',
+            powerOrganized: true }),
+        halves: () => {
+            const s = gt.screen({ id: 1, name: 'Halves', columns: 6, rows: 4,
+                flowPattern: 'tl-h', portMappingMode: 'organized' });
+            s.halfFirstColumn = true;
+            s.panels.forEach(p => { if (p.col === 0) { p.width = 64; p.halfTile = 'left'; } });
+            return s;
+        },
+        holes: () => {
+            const s = gt.screen({ id: 1, name: 'Holes', columns: 6, rows: 5,
+                flowPattern: 'bl-h', portMappingMode: 'organized',
+                powerFlowPattern: 'bl-h', powerOrganized: true });
+            s.panels.forEach(p => { if (p.row === 2 && p.col > 2) p.hidden = true; });
+            s.panels.forEach(p => { if (p.row === 0 && p.col === 0) p.blank = true; });
+            return s;
+        },
+    };
+    const read = (s) => JSON.stringify({
+        ports: window.app.calculatePortAssignments(s).map(a =>
+            [a.panel.row, a.panel.col, a.port, a.isPortStart, a.pixelIndex]),
+        autoPorts: s._autoPortsRequired,
+        portsRequired: window.app.getLayerPortsRequired(s),
+        power: window.app.calculatePowerAssignments(s).circuits.map(
+            c => c.map(p => [p.row, p.col])),
+        circuits: window.app.screenCircuitCount(s),
+        soca: JSON.stringify(window.app.getSocaPlan(s)),
+    });
+    const out = {};
+    for (const key of Object.keys(mk)) {
+        const s = mk[key]();
+        out[key] = gt.withProject([s], [], () => read(s));
+    }
+    // A GROUP OF ONE is not a group. It must behave exactly like no group.
+    const solo = mk.org_h();
+    solo.group_id = 'g1';
+    out.group_of_one = gt.withProject([solo], [gt.group([solo])], () => read(solo));
+    return out;
+"""
+
+
+def test_an_ungrouped_project_routes_exactly_as_it_did_before(page):
+    """Ports, circuits, the soca plan and both requirement figures, byte for
+    byte against the capture taken before the crossing code existed."""
+    out = page.evaluate("() => {%s}" % ROUTE_BATTERY_JS)
+    for key, pin in PIN_ROUTES.items():
+        assert out[key] == pin, f'{key}: an ungrouped screen\'s routing moved'
+        assert json.loads(out[key]) == json.loads(pin)   # readable diff
+
+
+def test_a_group_of_one_routes_exactly_as_an_ungrouped_screen(page):
+    """Same wall, same everything - the only difference is a group_id and a
+    one-member group. getAutoRoutePlan needs two members before it does
+    anything, so this is the same code path an ungrouped screen takes."""
+    out = page.evaluate("() => {%s}" % ROUTE_BATTERY_JS)
+    assert out['group_of_one'] == out['org_h']
+    assert out['group_of_one'] == PIN_ROUTES['org_h']

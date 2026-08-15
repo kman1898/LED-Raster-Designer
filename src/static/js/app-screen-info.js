@@ -178,16 +178,29 @@ class _ScreenInfo {
             // up? It is somewhere between ceil(their pixels / port capacity)
             // and the requirement of the whole member, and the app cannot
             // narrow it: the automatic walk packs ports along whole rows or
-            // columns of THIS grid, so dropping a cabinet out of the middle of
-            // it does not reliably drop a port, and pro-rating the figure by
-            // the uncovered share would quietly hand back FEWER ports than the
+            // columns of a grid, so dropping a cabinet out of the middle of one
+            // does not reliably drop a port, and pro-rating the figure by the
+            // uncovered share would quietly hand back FEWER ports than the
             // remaining cabinets need. Removing cabinets can never make the
             // automatic walk need more ports, so the whole member's own figure
             // is a true upper bound on what the remainder needs - at worst one
             // port too many on the order sheet, where the old behaviour was
             // 39 cabinets with nothing to plug them into.
+            //
+            // WHICH GRID is that walk over? THIS member's, here - reaching this
+            // line means the member is on a custom flow, and a group with one
+            // custom member does not cross automatically at all
+            // (_autoCrossMembers). Where the group DOES cross, the walk is over
+            // the whole wall and `auto` is already the wall's figure on the
+            // first member and 0 on every other, so this branch never sees it.
             return auto > 0 ? auto : (layer.customPortIndex || 1);
         }
+        // For a crossing group this is the figure the ONE combined walk
+        // produced, reported by the group's first member and by nobody else -
+        // see getAutoRoutePlan. It is not the sum of what the members would each
+        // have needed alone, and it can be LOWER than that sum: two members that
+        // each need 1.5 ports round up to 2 + 2 = 4 apart and pack into 3
+        // together. Losing that per-member rounding waste is the point.
         return auto;
     }
 
@@ -435,13 +448,197 @@ class _ScreenInfo {
         return totals;
     }
 
-    getOrganizedPanelsForUnits(layer, pattern, isHorizontalFirst, orderedUnitIndices, includeHidden = false) {
+    // ── Automatic routing across a group's members ────────────────────────
+    //
+    // A GROUP IS ONE BIGGER SCREEN, so the automatic port and circuit walk runs
+    // over the whole wall instead of once per member. The user's words: a
+    // crossing group "wouldn't change the count necessarily it just basically
+    // increases screen size". The practical win is the per-member rounding
+    // waste: two members each needing 1.5 ports round up to 2 + 2 = 4 today,
+    // where one walk across the pair needs 3. A count that DROPS after grouping
+    // is this working, not a bug.
+    //
+    // WHEN MAY IT CROSS. Every member has to be the same panel, because the
+    // walk packs one uniform run of cabinets:
+    //   data   same RESOLUTION - cabinet_width and cabinet_height equal. The
+    //          physical millimetres are irrelevant; a 128x128 cabinet chains the
+    //          same whether its box is 500 mm or 600 mm.
+    //   power  same resolution AND the same panelWatts, because a circuit is
+    //          packed by load.
+    // So a group can legitimately cross for data and not for power - a 500 mm
+    // and a 600 mm cabinet at the same resolution but different draw. That falls
+    // out of the rule and is intended.
+    //
+    // HALF TILES DO NOT BLOCK IT. A half tile is the same panel cropped, not a
+    // different panel, so the comparison is the panel SPEC and never
+    // halfFirstColumn / halfLastColumn / halfFirstRow / halfLastRow or anything
+    // derived from them. Their reduced load is already carried per cabinet by
+    // getPanelPixelArea / getPanelLoadFactor.
+    //
+    // MIXED RESOLUTION KEEPS TODAY'S BEHAVIOUR - each member routes its own
+    // grid and the user wires the seam with a custom path. The lattice below
+    // orders a mixed wall perfectly well (tests/test_audit_cross_member.py
+    // proves it across all eight patterns on a 1m + 0.5m wall); the gate is
+    // deliberately stricter than the ordering can manage, because there is no
+    // single port capacity or circuit load that describes two different panels.
+    _autoCrossMembers(layer, kind) {
+        if (!layer || (layer.type || 'screen') !== 'screen') return null;
+        if (!layer.group_id) return null;
+        // A hidden member is not part of the wall this walk describes, and it
+        // must not be the one holding the group's whole requirement - see
+        // getGroupTotals, which skips hidden members outright.
+        if (layer.visible === false) return null;
+        if (typeof this.getPathScopeLayers !== 'function') return null;
+        // No renderer means no position lattice, and ordering a crossing walk
+        // by the panels' own indices would snake it through an order that
+        // exists nowhere on site. Refuse to cross rather than cross badly - and
+        // refuse it HERE, so the owner and its peers reach the same answer.
+        const cr = (typeof window !== 'undefined') ? window.canvasRenderer : null;
+        if (!cr || typeof cr.getPositionLattice !== 'function') return null;
+
+        const scope = this.getPathScopeLayers(layer).filter(l => l
+            && (l.type || 'screen') === 'screen'
+            && Array.isArray(l.panels) && l.panels.length > 0
+            && l.visible !== false);
+        if (scope.length < 2) return null;
+
+        // A member the user has hand-wired is not on the automatic map at all,
+        // and half a wall walked automatically while the other half is drawn is
+        // not one screen. One custom member takes the whole group back to
+        // per-member routing, which is exactly what it did before.
+        const custom = kind === 'power'
+            ? (l => this.isCustomPower(l)) : (l => this.isCustomFlow(l));
+        if (scope.some(custom)) return null;
+
+        // ONE PROCESSOR RASTER. getPathScopeLayers already keeps the members
+        // to one SHOW canvas, which is what makes a cable drawable across them.
+        // A port is judged against the processor's raster though - panel.x/y are
+        // laid out from the layer's offset on canvas_id, and the low-latency
+        // (1 - Y/H) derate measures Y down that raster - so two members that
+        // share a show canvas while sitting on different rasters have no honest
+        // combined port load and no honest H. Same refusal _crossMemberLoadPanels
+        // makes for a hand-drawn crossing port's load badge.
+        const raster = scope[0].canvas_id || null;
+        if (!scope.every(l => (l.canvas_id || null) === raster)) return null;
+
+        // Compare the panel SPEC, never the half-tile flags.
+        const w = Number(scope[0].cabinet_width) || 0;
+        const h = Number(scope[0].cabinet_height) || 0;
+        if (!(w > 0) || !(h > 0)) return null;
+        if (!scope.every(l => (Number(l.cabinet_width) || 0) === w
+                && (Number(l.cabinet_height) || 0) === h)) return null;
+        if (kind === 'power') {
+            const watts = parseFloat(scope[0].panelWatts) || 0;
+            if (!(watts > 0)) return null;
+            if (!scope.every(l => (parseFloat(l.panelWatts) || 0) === watts)) return null;
+        }
+
+        // ONE canonical order, so every member derives the SAME wall. The path
+        // scope puts the asking layer first, which would give each member a
+        // different first member and a different owner; the group's own member
+        // order does not move with who is asking.
+        const group = (typeof this.getGroupOfLayer === 'function')
+            ? this.getGroupOfLayer(layer) : null;
+        const rank = new Map();
+        ((group && typeof this.getGroupMembers === 'function')
+            ? (this.getGroupMembers(group) || []) : []).forEach((m, i) => {
+            if (m) rank.set(m.id, i);
+        });
+        const at = m => (rank.has(m.id) ? rank.get(m.id) : Number.MAX_SAFE_INTEGER);
+        return scope.slice().sort((a, b) => at(a) - at(b) || (a.id - b.id));
+    }
+
+    // The wall an automatic route walks, or null when this layer routes alone -
+    // which is every ungrouped screen, every group of one and every group whose
+    // members are not the same panel, so those take exactly the path they took
+    // before this existed.
+    //
+    // ORDERING IS BY POSITION, NOT BY INDEX. A member's row 3 and a peer's row 3
+    // are two different heights on the wall the moment the members sit at
+    // different offsets, so the cabinets are ranked on the shared position
+    // lattice (canvas.js getPositionLattice) and then walked by the same
+    // getPatternOrderForGrid the hand-drawn cross-member patterns use. There is
+    // exactly one ordering in this app and this is it; a second one would
+    // eventually snake the wall in a different order than the cabinet IDs read.
+    //
+    // ONE OWNER REPORTS THE WALL. members[0] carries the whole group's route;
+    // every other member returns an empty assignment and a requirement of 0.
+    // That is the same convention a member fully served by a peer's hand-drawn
+    // path already follows (_layerFullyServedByPeerPath), and it is what stops
+    // the group roll-up counting one port twice.
+    getAutoRoutePlan(layer, kind = 'data') {
+        const members = this._autoCrossMembers(layer, kind);
+        if (!members) return null;
+        const owner = members[0];
+        // A peer only ever asks one question - am I the owner - and the answer
+        // is no. Returning before the lattice is built keeps a frame to ONE
+        // ranking per group instead of one per member; this runs from every
+        // render of every member and from both roll-ups.
+        if (owner.id !== layer.id) {
+            return { kind, members, owner, isOwner: false };
+        }
+        const pattern = kind === 'power'
+            ? (owner.powerFlowPattern || 'tl-h') : (owner.flowPattern || 'tl-h');
+
+        const picks = [];
+        members.forEach(m => (m.panels || []).forEach(panel => picks.push({ layer: m, panel })));
+
+        // Hidden cabinets are IN the walk and dropped on the way out, exactly as
+        // getOrderedPanelsByPattern has always treated them: the serpentine runs
+        // over the whole grid, so a hidden cabinet still consumes its slot and
+        // does not reverse the row it sits in.
+        const grid = this._latticeGridForPicks(owner, picks);
+        const ordered = this._orderPicksForPattern(owner, pattern, picks, grid);
+
+        return {
+            kind,
+            members,
+            owner,
+            isOwner: true,
+            pattern,
+            ordered,
+            rowOf: grid.rowOf,
+            colOf: grid.colOf,
+            rows: grid.rows,
+            columns: grid.cols,
+        };
+    }
+
+    // Is this member's routing carried by ANOTHER member, rather than missing?
+    //
+    // Two ways that happens, and both make a requirement of 0 the honest figure
+    // rather than a screen with nothing plugged into it:
+    //   * the group routes automatically as one screen and this is not the
+    //     member that owns the walk (v0.12);
+    //   * every one of its cabinets is already on a peer's hand-drawn cable
+    //     (v0.11.0).
+    // Read by the sidebar, which otherwise prints a red ERROR next to a wall
+    // that is correctly routed.
+    isServedByPeerRouting(layer, kind = 'data') {
+        const plan = this.getAutoRoutePlan(layer, kind);
+        if (plan && !plan.isOwner) return true;
+        const custom = kind === 'power' ? this.isCustomPower(layer) : this.isCustomFlow(layer);
+        if (!custom) return false;
+        return this._layerFullyServedByPeerPath(
+            layer, kind === 'power' ? 'powerCustomPaths' : 'customPortPaths');
+    }
+
+    // `plan` (from getAutoRoutePlan) swaps the layer's own grid for the wall's
+    // position lattice: same serpentine, ranked slots instead of panel indices.
+    // Null - every ungrouped screen - reads the panels' own row/col and this is
+    // expression for expression what it always was.
+    getOrganizedPanelsForUnits(layer, pattern, isHorizontalFirst, orderedUnitIndices, includeHidden = false, plan = null) {
         if (!layer || !Array.isArray(layer.panels) || !Array.isArray(orderedUnitIndices)) return [];
         const startsTop = pattern.startsWith('t');
         const startsLeft = pattern.includes('l-');
+        const source = plan ? plan.ordered.map(c => c.panel) : layer.panels;
+        const rowOfPanel = plan ? (p => plan.rowOf.get(p)) : (p => p.row);
+        const colOfPanel = plan ? (p => plan.colOf.get(p)) : (p => p.col);
+        const gridRows = plan ? plan.rows : layer.rows;
+        const gridCols = plan ? plan.columns : layer.columns;
         const panelMap = new Map();
-        layer.panels.forEach(panel => {
-            panelMap.set(`${panel.row},${panel.col}`, panel);
+        source.forEach(panel => {
+            panelMap.set(`${rowOfPanel(panel)},${colOfPanel(panel)}`, panel);
         });
 
         const ordered = [];
@@ -449,13 +646,13 @@ class _ScreenInfo {
             if (isHorizontalFirst) {
                 const leftToRight = startsLeft ? (unitPos % 2 === 0) : (unitPos % 2 !== 0);
                 if (leftToRight) {
-                    for (let col = 0; col < layer.columns; col++) {
+                    for (let col = 0; col < gridCols; col++) {
                         const panel = panelMap.get(`${unitIdx},${col}`);
                         if (!panel) continue;
                         if (includeHidden || !panel.hidden) ordered.push(panel);
                     }
                 } else {
-                    for (let col = layer.columns - 1; col >= 0; col--) {
+                    for (let col = gridCols - 1; col >= 0; col--) {
                         const panel = panelMap.get(`${unitIdx},${col}`);
                         if (!panel) continue;
                         if (includeHidden || !panel.hidden) ordered.push(panel);
@@ -464,13 +661,13 @@ class _ScreenInfo {
             } else {
                 const topToBottom = startsTop ? (unitPos % 2 === 0) : (unitPos % 2 !== 0);
                 if (topToBottom) {
-                    for (let row = 0; row < layer.rows; row++) {
+                    for (let row = 0; row < gridRows; row++) {
                         const panel = panelMap.get(`${row},${unitIdx}`);
                         if (!panel) continue;
                         if (includeHidden || !panel.hidden) ordered.push(panel);
                     }
                 } else {
-                    for (let row = layer.rows - 1; row >= 0; row--) {
+                    for (let row = gridRows - 1; row >= 0; row--) {
                         const panel = panelMap.get(`${row},${unitIdx}`);
                         if (!panel) continue;
                         if (includeHidden || !panel.hidden) ordered.push(panel);

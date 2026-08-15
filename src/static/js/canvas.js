@@ -2691,7 +2691,14 @@ class CanvasRenderer {
     // remembered; in the overlay pass only crossing paths draw. Returns true
     // when the caller should skip.
     _deferCrossMemberPath(ownerLayer, path) {
-        const crosses = this._pathCrossesMembers(ownerLayer, path);
+        return this._deferCrossMember(ownerLayer, this._pathCrossesMembers(ownerLayer, path));
+    }
+
+    // The same decision for a run whose crossing is already known - an
+    // AUTOMATIC port or circuit, where the answer comes from the assignment's
+    // own layer ids rather than from a stored path. Split out so the two kinds
+    // of crossing run cannot drift into two queueing rules.
+    _deferCrossMember(ownerLayer, crosses) {
         if (this._crossMemberPass) return !crosses;
         if (crosses) {
             if (!this._crossMemberOwners) this._crossMemberOwners = [];
@@ -2701,6 +2708,24 @@ class CanvasRenderer {
             return true;
         }
         return false;
+    }
+
+    // An automatic assignment list resolved to {layer, panel} pairs, the same
+    // shape _resolvePathPanels hands the hand-drawn side, with cabinets on a
+    // member this view does not draw dropped: a printed map must not carry a
+    // cable running off the wall onto blank paper.
+    _autoCrossMemberHits(ownerLayer, items) {
+        const app = window.app;
+        const scope = (app && typeof app.getPathScopeLayers === 'function')
+            ? app.getPathScopeLayers(ownerLayer) : [ownerLayer];
+        const byId = new Map(scope.map(l => [l.id, l]));
+        return (items || [])
+            .map(item => {
+                const l = (item.layerId === undefined || item.layerId === null)
+                    ? ownerLayer : byId.get(item.layerId);
+                return (l && l.visible !== false) ? { layer: l, panel: item.panel } : null;
+            })
+            .filter(Boolean);
     }
 
     // The overlay frame: the canvas workspace translate and the canvas mirror,
@@ -5132,14 +5157,15 @@ class CanvasRenderer {
             return;
         }
 
-        // v0.11.0: the overlay pass exists only to finish the crossing custom
-        // paths. Automatic assignment walks one uniform grid and never leaves
-        // its layer, so there is nothing here for it to draw a second time.
-        if (this._crossMemberPass) {
-            this.ctx.restore();
-            return;
-        }
-
+        // v0.12: automatic assignment CAN leave its layer now - a screen group
+        // whose members are the same panel routes as one bigger screen (see
+        // getAutoRoutePlan). A port that stays home is drawn here exactly as it
+        // always was; one that reaches a peer is deferred to the same overlay
+        // pass the hand-drawn crossing paths use, because an arrow drawn inside
+        // this layer's transform lands in the wrong place on a member carrying a
+        // different rotation or Show Look offset, and a member drawn later would
+        // paint over it. A layer the plan makes a PEER gets an empty assignment
+        // list back and draws nothing at all.
         const assignments = window.app ? window.app.calculatePortAssignments(layer) : [];
         if (layer._capacityError) {
             this.ctx.restore();
@@ -5150,11 +5176,25 @@ class CanvasRenderer {
         assignments.forEach(item => {
             if (!item || !item.panel || item.panel.hidden) return;
             if (!ports.has(item.port)) ports.set(item.port, []);
-            ports.get(item.port).push(item.panel);
+            ports.get(item.port).push(item);
         });
 
         [...ports.keys()].sort((a, b) => a - b).forEach(portNum => {
-            drawPort(ports.get(portNum) || [], portNum);
+            const items = ports.get(portNum) || [];
+            const crosses = items.some(i =>
+                i.layerId !== undefined && i.layerId !== null && i.layerId !== layer.id);
+            if (this._deferCrossMember(layer, crosses)) return;
+            if (crosses) {
+                const hits = this._autoCrossMemberHits(layer, items);
+                // Drawn through each cabinet's own member's frame; SCORED on the
+                // raw panels, which are already canvas-relative and share one
+                // processor raster across the group (_crossMemberLoadPanels
+                // carries the same distinction for the hand-drawn side).
+                drawPort(hits.map(h => this._crossMemberPanelShim(h.layer, h.panel)),
+                    portNum, hits.map(h => h.panel));
+                return;
+            }
+            drawPort(items.map(i => i.panel), portNum);
         });
         
         this.ctx.restore();
@@ -5272,6 +5312,13 @@ class CanvasRenderer {
             error = assignments.error;
             circuits = assignments.circuits || [];
             circuitRuns = assignments.runs || null;
+            // v0.12: an automatic circuit that crosses into a group peer names
+            // the screen each cabinet is on. Null for every non-crossing plan,
+            // which keeps the unscoped `${row},${col}` map below - and therefore
+            // the colour-coded tinting of every ungrouped screen - exactly as it
+            // was. Without it a crossing circuit tints the OWNER's R3C4 instead
+            // of the peer's, because that key cannot tell the two apart.
+            circuitOwners = assignments.layers || null;
         }
 
         layer._powerError = error;
@@ -5587,18 +5634,15 @@ class CanvasRenderer {
             return;
         }
 
-        // v0.11.0: automatic circuits never leave their layer, so the overlay
-        // pass has nothing to add here.
-        if (this._crossMemberPass) {
-            this.ctx.restore();
-            return;
-        }
-
+        // v0.12: an automatic circuit CAN leave its layer - same change as the
+        // one in renderDataFlowArrows above, and the same reason for the overlay
+        // pass. A circuit that stays home draws here exactly as it did.
         if (!Array.isArray(layer._powerCircuits) && window.app) {
             const assignments = window.app.calculatePowerAssignments(layer);
             layer._powerError = assignments.error;
             layer._powerCircuits = assignments.circuits || [];
             layer._powerCircuitRuns = assignments.runs || null;
+            layer._powerCircuitOwners = assignments.layers || null;
         }
         if (layer._powerError) {
             this.ctx.restore();
@@ -5607,16 +5651,31 @@ class CanvasRenderer {
 
         layer._powerCircuits.forEach((circuitPanels, idx) => {
             if (!circuitPanels || circuitPanels.length === 0) return;
+            const owners = layer._powerCircuitOwners && layer._powerCircuitOwners[idx];
+            const crosses = Array.isArray(owners)
+                && owners.some(o => o && o.id !== layer.id);
+            if (this._deferCrossMember(layer, crosses)) return;
+            // A crossing circuit is drawn through each cabinet's own member's
+            // frame; a cabinet on a member this view does not draw is left off
+            // the line rather than run onto blank paper.
+            const drawPanels = crosses
+                ? circuitPanels
+                    .map((p, i) => (((owners[i] || layer).visible !== false)
+                        ? this._crossMemberPanelShim(owners[i] || layer, p) : null))
+                    .filter(Boolean)
+                : circuitPanels;
             // Splitter circuit: break the daisy at run boundaries and fan
-            // dashed stubs out from the feed - one label either way.
+            // dashed stubs out from the feed - one label either way. The run
+            // counts index the same list either way, so a crossing splitter
+            // circuit keeps its branches instead of collapsing into one daisy.
             const counts = layer._powerCircuitRuns && layer._powerCircuitRuns[idx];
             if (counts && counts.length > 1) {
                 let off = 0;
                 drawCircuitBranches(
-                    counts.map(n => circuitPanels.slice(off, off += n)), idx + 1);
+                    counts.map(n => drawPanels.slice(off, off += n)), idx + 1);
                 return;
             }
-            drawCircuit(circuitPanels, idx + 1);
+            drawCircuit(drawPanels, idx + 1);
         });
 
         this.ctx.restore();
@@ -6536,9 +6595,13 @@ class CanvasRenderer {
             }
         } else if (this.viewMode === 'data-flow') {
             if (cfg.showDataFlowPortInfo && groupTotals) {
-                // v0.11.0: a group's ports are the SUM of its members' own
-                // requirements (automatic assignment walks one uniform grid,
-                // so there is nothing to re-run across the combined shape).
+                // A group's ports come straight out of the roll-up, which adds
+                // up whatever each member reports. v0.12: on a group whose
+                // members are the same panel that is ONE combined walk's figure,
+                // carried by the first member with every other member reporting
+                // zero - so this label reads the wall's real port count and not
+                // the sum of what its sections would have needed apart. On every
+                // other group it is still the members' own requirements summed.
                 const mains = groupTotals.portsPrimary;
                 const backups = groupTotals.portsBackup;
                 if (mains > 0) {
@@ -6566,7 +6629,9 @@ class CanvasRenderer {
             }
         } else if (this.viewMode === 'power') {
             if (cfg.showPowerCircuitInfo && groupTotals) {
-                // v0.11.0: circuits sum the same way ports do. Amps do NOT:
+                // Circuits come through the roll-up the same way ports do, and
+                // on a crossing group that is one combined walk's figure for the
+                // same reason. Amps do NOT:
                 // 200 A at 110 V and 200 A at 208 V are not the same load, so
                 // when the members disagree on voltage the roll-up hands back
                 // null and the label says so instead of printing a blended

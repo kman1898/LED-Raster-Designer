@@ -472,3 +472,134 @@ def test_an_unpublished_frame_rate_warns_instead_of_inventing_a_map():
 
     assert any('no port capacity' in w for w in warnings.items)
     assert all(p['hidden'] for p in sections[0]['panels'])
+
+
+# ── screen groups that route across their members ────────────────────────
+#
+# The app routes a group of MATCHING PANELS as one bigger screen: a single port
+# walk over every member, so one port can hold cabinets from two layers. This
+# file does not, and cannot as it stands - ports are built one layer at a time
+# and `routed` is keyed (col, row) inside a layer, where two members' (0,0) name
+# the same slot. Making the .scr understand a crossing route is a separate job.
+#
+# The DECISION pinned here: the export still runs, and says by name that its
+# port map is not the one on screen. It does not refuse - a project would then
+# be un-exportable with no answer but to ungroup the wall - and it does not stay
+# quiet, which is the outcome that gets found on site.
+
+def _grouped(members, group_id='g1', name='Main Wall'):
+    for layer in members:
+        layer['group_id'] = group_id
+    return {'id': group_id, 'name': name,
+            'layer_ids': [l['id'] for l in members]}
+
+
+def _project_with_groups(canvases, layers, groups):
+    project = _project(canvases, layers)
+    project['groups'] = groups
+    return project
+
+
+def test_a_group_that_routes_across_its_members_warns_by_name():
+    a = _layer('l1', 'c1', 4, 3)
+    b = _layer('l2', 'c1', 4, 3, oy=300)
+    project = _project_with_groups([_canvas('c1', 'One')], [a, b], [_grouped([a, b])])
+
+    warnings = Warnings()
+    sections = build_sections(project, warnings)
+
+    hit = [w for w in warnings.items if 'Main Wall' in w]
+    assert hit, warnings.items
+    assert 'ONE screen in the app' in hit[0]
+    assert 'DO NOT match' in hit[0]
+    assert '"Layer l1"' in hit[0] and '"Layer l2"' in hit[0]
+    # It is a warning, not a refusal: the file is still built.
+    assert len(sections) == 1
+    assert build_multi_screen_scr(sections)
+
+
+def test_the_crossing_warning_is_raised_once_per_group():
+    a = _layer('l1', 'c1', 4, 3)
+    b = _layer('l2', 'c1', 4, 3, oy=300)
+    c = _layer('l3', 'c1', 4, 3, oy=600)
+    project = _project_with_groups([_canvas('c1', 'One')], [a, b, c],
+                                   [_grouped([a, b, c])])
+
+    warnings = Warnings()
+    build_sections(project, warnings)
+
+    assert len([w for w in warnings.items if 'Main Wall' in w]) == 1
+
+
+def test_a_mixed_resolution_group_does_not_warn():
+    """The app does not cross those either - each member keeps its own grid, so
+    this file's per-layer routing IS the app's routing and there is nothing to
+    report."""
+    a = _layer('l1', 'c1', 4, 3, cw=128, ch=128)
+    b = _layer('l2', 'c1', 8, 6, cw=64, ch=64, oy=384)
+    project = _project_with_groups([_canvas('c1', 'One')], [a, b], [_grouped([a, b])])
+
+    warnings = Warnings()
+    build_sections(project, warnings)
+
+    assert not [w for w in warnings.items if 'Main Wall' in w], warnings.items
+
+
+def test_a_hand_wired_member_takes_the_whole_group_off_the_crossing_path():
+    """One custom member and the app routes every member on its own grid again,
+    so there is nothing to warn about. (The crossing CUSTOM cable is its own
+    known gap - see custom_port_assignments.)"""
+    a = _layer('l1', 'c1', 4, 3, flowPattern='custom',
+               customPortPaths={'1': [{'col': 0, 'row': 0}]})
+    b = _layer('l2', 'c1', 4, 3, oy=300)
+    project = _project_with_groups([_canvas('c1', 'One')], [a, b], [_grouped([a, b])])
+
+    warnings = Warnings()
+    build_sections(project, warnings)
+
+    assert not [w for w in warnings.items if 'Main Wall' in w], warnings.items
+
+
+def test_a_group_of_one_visible_member_does_not_warn():
+    a = _layer('l1', 'c1', 4, 3)
+    b = _layer('l2', 'c1', 4, 3, oy=300, visible=False)
+    project = _project_with_groups([_canvas('c1', 'One')], [a, b], [_grouped([a, b])])
+
+    warnings = Warnings()
+    build_sections(project, warnings)
+
+    assert not [w for w in warnings.items if 'Main Wall' in w], warnings.items
+
+
+def test_members_on_different_canvases_do_not_warn():
+    """Two canvases are two sending cards, two workspaces and two processor
+    rasters; a group cannot route across them in the app either."""
+    a = _layer('l1', 'c1', 4, 3)
+    b = _layer('l2', 'c2', 4, 3)
+    project = _project_with_groups([_canvas('c1', 'One'), _canvas('c2', 'Two')],
+                                   [a, b], [_grouped([a, b])])
+
+    warnings = Warnings()
+    build_sections(project, warnings)
+
+    assert not [w for w in warnings.items if 'Main Wall' in w], warnings.items
+
+
+def test_a_project_with_no_groups_key_is_untouched():
+    """The overwhelming majority of projects, including every one saved before
+    groups existed. Same bytes, same warnings."""
+    project = _project([_canvas('c1', 'One')],
+                       [_layer('l1', 'c1', 4, 3), _layer('l2', 'c1', 4, 3, oy=300)])
+    assert 'groups' not in project
+
+    warnings = Warnings()
+    sections = build_sections(project, warnings)
+
+    grouped_project = _project([_canvas('c1', 'One')],
+                               [_layer('l1', 'c1', 4, 3), _layer('l2', 'c1', 4, 3, oy=300)])
+    grouped_project['groups'] = []
+    empty_warnings = Warnings()
+    also = build_sections(grouped_project, empty_warnings)
+
+    assert build_multi_screen_scr(sections) == build_multi_screen_scr(also)
+    assert warnings.items == empty_warnings.items

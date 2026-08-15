@@ -764,6 +764,13 @@ def custom_port_assignments(layer, warnings=None):
     drawn IS the chain order, so nothing is re-sorted here. Ports are walked in
     ascending numeric order so port 10 lands after port 9 rather than after
     port 1, which a plain string sort would do.
+
+    KNOWN GAP, not fixed here: a step may carry `layerId` naming a group PEER
+    (v0.11.0 cross-member cables). The panel map below is built from this
+    layer's own panels and the step's layerId is ignored, so a crossing step
+    lands on the OWNER's cabinet at that row and column - a different cabinet,
+    or none. Cross-member routing in the .scr is one job, and it is not this
+    one; see crossing_groups() for the automatic half of the same gap.
     """
     paths = layer.get('customPortPaths') or {}
     if not isinstance(paths, dict) or not paths:
@@ -1051,6 +1058,97 @@ def build_canvas_section(project, canvas, canvas_index, layers, warnings):
     }
 
 
+def _path_canvas_id(layer):
+    """The canvas a group treats a layer as living on - the same
+    `show_canvas_id or canvas_id` rule getPathScopeLayers applies in
+    app-power.js, because that is what decides whether the app crosses."""
+    return layer.get('show_canvas_id') or layer.get('canvas_id') or None
+
+
+def crossing_groups(project):
+    """The groups whose AUTOMATIC data routing the APP runs across the members.
+
+    A screen group of matching panels is one bigger screen to the app: a single
+    port walk over every member's cabinets, so one port can hold cabinets from
+    two layers (getAutoRoutePlan, src/static/js/app-screen-info.js).
+
+    This file does NOT do that, and cannot as it stands. Ports here are built
+    one layer at a time, `routed` is keyed (col, row) INSIDE a layer - so two
+    members' (0,0) name the same slot - and a crossing port would have to span
+    two iterations of the layer loop and then survive the per-layer port
+    renumbering below. Making it understand a crossing route is a separate job.
+
+    So the gap is reported by name instead. The gate is transcribed from the JS
+    so the two cannot disagree about which projects it applies to: at least two
+    visible screen members sharing one canvas, every member the same cabinet
+    RESOLUTION, and no member hand-wired (one custom member takes the whole
+    group back to per-member routing). panelWatts is deliberately not checked -
+    it gates the POWER walk, and a .scr carries data routing only.
+
+    Returns [(group, [layer, ...])] in project group order.
+    """
+    groups = project.get('groups') or []
+    layers = project.get('layers') or []
+    if not isinstance(groups, list) or not groups:
+        return []
+    by_id = {l.get('id'): l for l in layers if isinstance(l, dict)}
+
+    out = []
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        members = [by_id.get(lid) for lid in (group.get('layer_ids') or [])]
+        members = [m for m in members
+                   if m and (m.get('type') or 'screen') == 'screen'
+                   and (m.get('panels') or [])
+                   and m.get('visible', True) is not False]
+        if len(members) < 2:
+            continue
+        # One canvas at a time: members on another canvas are a different
+        # workspace and never share a route.
+        by_canvas = collections.defaultdict(list)
+        for m in members:
+            by_canvas[_path_canvas_id(m)].append(m)
+        for scope in by_canvas.values():
+            if len(scope) < 2:
+                continue
+            if any(m.get('flowPattern') == 'custom' for m in scope):
+                continue
+            # ONE PROCESSOR RASTER as well as one show canvas - the JS refuses
+            # to cross members laid out against different rasters, because a
+            # port's pixel load and the low-latency derate are both measured
+            # down one of them.
+            raster = scope[0].get('canvas_id')
+            if any(m.get('canvas_id') != raster for m in scope):
+                continue
+            width = _int(scope[0].get('cabinet_width'))
+            height = _int(scope[0].get('cabinet_height'))
+            if width <= 0 or height <= 0:
+                continue
+            if any(_int(m.get('cabinet_width')) != width
+                   or _int(m.get('cabinet_height')) != height for m in scope):
+                continue
+            out.append((group, scope))
+    return out
+
+
+def warn_crossing_groups(project, warnings):
+    """Say plainly, once per group, that the file's ports are NOT the app's."""
+    for group, members in crossing_groups(project):
+        names = ', '.join('"%s"' % (m.get('name') or m.get('id')) for m in members)
+        warnings.warn(
+            'group-crosses-%s' % group.get('id'),
+            'screen group "%s" (%s) routes as ONE screen in the app - a single '
+            'port walk across every member, so a port can carry cabinets from '
+            'more than one of them. This export does NOT follow that: each '
+            'member was routed on its own grid, exactly as it was before the '
+            'group existed, and its ports were then renumbered per layer. The '
+            'port numbers and chain order in this .scr therefore DO NOT match '
+            'the Data Flow map on screen. Check every port of this group '
+            'against the drawing before trusting the file in NovaLCT.'
+            % (group.get('name') or group.get('id'), names))
+
+
 def build_sections(project, warnings):
     """Canvases, in project order, to encoder sections. Canvases with no screen
     layers are skipped - an empty section would be a screen NovaLCT has to draw
@@ -1060,6 +1158,11 @@ def build_sections(project, warnings):
 
     if not canvases:
         raise ValueError('project has no canvases')
+
+    # Before anything is written, not after: a crossing group means the port
+    # map below is a different map from the one the user is looking at, and
+    # that has to be said out loud rather than discovered on site.
+    warn_crossing_groups(project, warnings)
 
     by_canvas = collections.defaultdict(list)
     for layer in layers:
