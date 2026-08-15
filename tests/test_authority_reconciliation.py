@@ -24,9 +24,18 @@ than skipped:
     not ported.
   - the ungrouped pins below lost their `ports` probe for the same reason
     (see the note on UNGROUPED_PINS_JS); the power pins are intact.
-The two rack backend tests that DO pass are kept: routes_layers.py carries
-the rackAllocation whitelist and duplicate/move rules, so they guard code
-that is genuinely present.
+  - test_duplicate_layer_to_canvas_clears_clone_rack_allocation asserted
+    that PUT /api/layer/<id>/canvas with mode=duplicate leaves the source's
+    rackAllocation intact but stamps the clone's to None, so the copy does
+    not become a second consumer of the original's physical ports.
+  - test_move_layer_to_canvas_keeps_rack_allocation asserted the opposite
+    half of the same rule: mode=move changes canvas_id but KEEPS
+    rackAllocation, because the rack is project-global and a screen the
+    user merely reorganised must not silently unpatch.
+    Both went when the rackAllocation residue came out of routes_layers.py
+    (whitelists + the clone-stamping line). Nothing in this tree writes the
+    field, so the rules they pinned no longer exist to be tested; restore
+    them alongside the rack if it is ever ported.
 
 The browser tests use the synthetic-project style of
 test_screen_group_totals.py: window.app.project is swapped for a hand-built
@@ -50,15 +59,20 @@ pw = pytest.importorskip("playwright.sync_api", reason="playwright not installed
 
 @pytest.fixture(scope="module", autouse=True)
 def _restore_server_project(e2e_server):
-    """The Flask `client` tests below reset the module-global project (the
-    conftest `client` fixture rebuilds it per test), and this file runs
-    alphabetically BEFORE the browser-test files that share the live e2e
-    server - they would inherit whatever project the last backend test here
-    left behind (test_browser_flows' alt-click test trips over it). Snapshot
-    the server state when this module starts and put it back when it ends,
-    so this file is invisible to its neighbours. Depends on e2e_server so
-    the snapshot is taken AFTER the shared server has seeded its Screen1
-    project, not before."""
+    """Keeps this module invisible to its neighbours. A Flask `client` test
+    resets the module-global project (the conftest `client` fixture rebuilds
+    it per test), and this file runs alphabetically BEFORE the browser-test
+    files that share the live e2e server - they would inherit whatever
+    project it left behind (test_browser_flows' alt-click test trips over
+    it). Snapshot the server state when this module starts and put it back
+    when it ends. Depends on e2e_server so the snapshot is taken AFTER the
+    shared server has seeded its Screen1 project, not before.
+
+    The backend tests this originally guarded went with the rackAllocation
+    residue (see the module docstring), so today it is a no-op standing
+    guard: the file is currently all browser tests. Kept because it is
+    autouse and free, and the next Flask-client test added here would
+    silently poison its neighbours without it."""
     import copy
     import app as app_module
     saved_project = copy.deepcopy(app_module.current_project)
@@ -257,44 +271,3 @@ def test_ungrouped_outputs_pinned_to_pre_change_values(page):
                  [2, 2, 2, 400, 1.923077, 0, 256]],
     }]
     assert out['p4'] == {'circuits': 1, 'circuitShape': [[1, 12]]}
-
-
-# ── Backend: duplicate must not double-book the rack ──────────────────────
-
-ALLOC = {'instanceId': 'r1', 'portStart': 1, 'ports': 4}
-def test_duplicate_layer_to_canvas_clears_clone_rack_allocation(client_with_layer):
-    """Same rule on the per-layer duplicate route."""
-    proj = client_with_layer.get('/api/project').get_json()
-    src_id = proj['layers'][0]['id']
-    client_with_layer.put(f'/api/layer/{src_id}', json={'rackAllocation': ALLOC})
-    client_with_layer.post('/api/canvas', json={})  # c2
-
-    resp = client_with_layer.put(f'/api/layer/{src_id}/canvas', json={
-        'canvas_id': 'c2', 'mode': 'duplicate',
-    })
-    assert resp.status_code == 200
-    proj = resp.get_json()
-    original = next(l for l in proj['layers'] if l['id'] == src_id)
-    clone = next(l for l in proj['layers'] if l['id'] != src_id)
-    assert original['rackAllocation'] == ALLOC
-    assert clone['rackAllocation'] is None
-
-
-def test_move_layer_to_canvas_keeps_rack_allocation(client_with_layer):
-    """MOVE keeps the patch: the rack is project-global, so the same physical
-    processor drives the screen wherever its canvas membership lands.
-    Clearing it would silently unpatch a screen the user merely
-    reorganised."""
-    proj = client_with_layer.get('/api/project').get_json()
-    layer_id = proj['layers'][0]['id']
-    client_with_layer.put(f'/api/layer/{layer_id}', json={'rackAllocation': ALLOC})
-    client_with_layer.post('/api/canvas', json={})  # c2
-
-    resp = client_with_layer.put(f'/api/layer/{layer_id}/canvas', json={
-        'canvas_id': 'c2', 'mode': 'move',
-    })
-    assert resp.status_code == 200
-    proj = resp.get_json()
-    moved = next(l for l in proj['layers'] if l['id'] == layer_id)
-    assert moved['canvas_id'] == 'c2'
-    assert moved['rackAllocation'] == ALLOC

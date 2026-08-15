@@ -3381,11 +3381,6 @@ class CanvasRenderer {
         // v0.8.7.8: bump a per-render token so screen-fill gradients are built
         // at most once per layer per frame (cached on the layer keyed by this).
         this._renderPass = (this._renderPass || 0) + 1;
-        // Start each frame with a fresh port-label map: a re-patch may have
-        // moved auto screens' unit ports since the last frame, and the badges
-        // must follow. The map itself is still built at most once per instance
-        // per frame (getPortLabelText memoises it for the burst).
-        if (window.app) window.app._unitStartCache = null;
         if (this.layerSelectionRect && !this.isSelectingLayers && !this.isSelectingPanels && !this.isDraggingLayer) {
             this.layerSelectionRect = null;
         }
@@ -7302,16 +7297,13 @@ class CanvasRenderer {
     renderPerspectiveBadge() {
         if (this.viewMode !== 'data-flow' && this.viewMode !== 'power') return;
         if (!this.isMirroredView()) return;
-        // Banner reads REAR VIEW in BOTH top corners - the touring-paperwork
-        // convention, unmissable on a printed map at any crop.
-        const label = 'REAR VIEW';
+        const label = 'BACK';
         const arr = (window.app && window.app.project && Array.isArray(window.app.project.canvases))
             ? window.app.project.canvases : [];
         // v0.8.6: per-canvas badge so a mixed-perspective workspace makes
         // it obvious which canvas is flipped. Legacy single-canvas
         // projects fall back to the original viewport-corner badge.
         if (arr.length === 0) {
-            this._drawBackBadgeAt(label, 20, 20, 'left', this.canvas.width);
             this._drawBackBadgeAt(label, this.canvas.width - 20, 20, 'right', this.canvas.width);
             return;
         }
@@ -7336,14 +7328,11 @@ class CanvasRenderer {
             // any zoom; the badge is just a confirmation tag for normal
             // zoom levels.
             if (canvasScreenW < 110) return;
-            // Anchor to BOTH canvas top corners with a small inset; clamp so
-            // the banners stay visible if a corner is offscreen.
-            const screenXL = ws.wx * this.zoom + this.panX;
-            const xr = Math.max(20, Math.min(this.canvas.width - 20, screenX - 4));
-            const xl = Math.max(20, Math.min(this.canvas.width - 20, screenXL + 4));
+            // Anchor to canvas corner with a small inset; clamp so badge
+            // stays visible if the canvas top-right is offscreen.
+            const x = Math.max(20, Math.min(this.canvas.width - 20, screenX - 4));
             const y = Math.max(8, Math.min(this.canvas.height - 24, screenY + 4));
-            this._drawBackBadgeAt(label, xl, y, 'left', canvasScreenW);
-            this._drawBackBadgeAt(label, xr, y, 'right', canvasScreenW);
+            this._drawBackBadgeAt(label, x, y, 'right', canvasScreenW);
         });
     }
 

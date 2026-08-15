@@ -1906,68 +1906,8 @@ class _Power {
     getPortLabelText(layer, portNum, type) {
         const template = type === 'return' ? (layer.portLabelTemplateReturn || 'R#') : (layer.portLabelTemplatePrimary || 'P#');
         const overrides = type === 'return' ? (layer.portLabelOverridesReturn || {}) : (layer.portLabelOverridesPrimary || {});
-        // A port the user RELABELLED keeps that name no matter where it is
-        // patched - the sticker on the wall stays true. A port left at its
-        // default FOLLOWS the patch: it shows the UNIT port it lands on, so
-        // MAIN on 1-6 reads P1-P6 and IMAG landing on 7-8 reads P7-P8.
         if (overrides && overrides[portNum]) return overrides[portNum];
-        let effective = portNum;
-        const alloc = layer.rackAllocation;
-        // A default label follows the NUMBER OF THE PORT IT IS ON - its
-        // position on the box it presents on. Which box that is has its own
-        // name ("SR A"), so the label never carries one: naming a converter
-        // used to rewrite a screen's P1 to STAGE-A-1, and disambiguating
-        // inside the label meant one screen's name changed because a
-        // different screen moved. A user template ("FOH-#") keeps plain unit
-        // numbering.
-        const isStockTemplate = template === (type === 'return' ? 'R#' : 'P#');
-        const nameFor = (unitPort) => template.replace('#',
-            (isStockTemplate && typeof this.rackPortLabelName === 'function')
-                ? this.rackPortLabelName(alloc.instanceId, unitPort)
-                : unitPort);
-        if (alloc && alloc.instanceId) {
-            // Pinned screens carry portStart; an AUTO screen's start is resolved
-            // FRESH from the live port map, not read from a stamp that only
-            // refreshes when the map happens to run - which is why an
-            // auto-placed screen used to keep rendering P1 on the Data tab after
-            // it was patched onto port 7.
-            const start = Number(alloc.portStart) || this._resolveUnitStart(layer) || 1;
-            effective = start + (Number(portNum) || 1) - 1;
-            // Return/backup label: if this primary unit-port has a designated
-            // backup port on the unit, the R label names THAT port (15 primary
-            // with port 16 backing your chosen port shows R16 there).
-            if (type === 'return' && typeof this.getPortBackup === 'function') {
-                const paired = this.getPortBackup(alloc.instanceId, effective);
-                if (paired) return nameFor(paired);
-            }
-            // primary and return name their port the same way - the two used to
-            // diverge (a primary took the converter name, a return only did so
-            // when the port had a backup pairing), printing STAGE-A-1 beside R1
-            // on one port
-            return nameFor(effective);
-        }
-        return template.replace('#', effective);
-    }
-
-    // The unit port an AUTO screen's first port lands on, resolved from the
-    // live port map rather than a stamp. Cached for the current render burst -
-    // one map build per instance, cleared on the next microtask - so a screen
-    // full of port labels does not each rebuild it. Refreshing here is what
-    // propagates a re-patch to the Data tab: patch a second screen and the
-    // first's numbers move without anyone having to poke the map.
-    _resolveUnitStart(layer) {
-        const alloc = layer.rackAllocation;
-        if (!alloc || !alloc.instanceId || typeof this.rackInstancePortMap !== 'function') return 1;
-        if (!this._unitStartCache) {
-            this._unitStartCache = {};
-            Promise.resolve().then(() => { this._unitStartCache = null; });
-        }
-        let byLayer = this._unitStartCache[alloc.instanceId];
-        if (!byLayer) {
-            byLayer = this._unitStartCache[alloc.instanceId] = {};
-            for (const m of this.rackInstancePortMap(alloc.instanceId)) byLayer[m.layerId] = m.start;
-        }
-        return byLayer[layer.id] || Number(layer._unitPortStart) || 1;
+        return template.replace('#', portNum);
     }
 
     // Which multi and which PHYSICAL TAIL of its 6-way fan a circuit lands
@@ -1980,10 +1920,9 @@ class _Power {
     // including custom-drawn screens with gaps in the numbering, where the
     // drawn number is user intent.
     //
-    // Cached for the current render burst (same doctrine as
-    // _resolveUnitStart): one screenCircuits walk per layer, cleared on the
-    // next microtask, so a canvas full of labels does not rebuild the plan
-    // per bubble.
+    // Cached for the current render burst: one screenCircuits walk per layer,
+    // cleared on the next microtask, so a canvas full of labels does not
+    // rebuild the plan per bubble.
     _circuitTailSlot(layer, circuitNum) {
         if (!layer || typeof this.screenCircuits !== 'function') return null;
         if (!this._circuitTailCache) {

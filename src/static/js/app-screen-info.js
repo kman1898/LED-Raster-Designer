@@ -1330,10 +1330,9 @@ class _ScreenInfo {
                 'imageShadowOpacity', 'imageShadowAngle',
                 'imageShadowDistance', 'imageShadowSpread',
                 'imageShadowSize',
-                // Production suite: the rack allocation and soca plan must
-                // survive the round-trip or stats lose the screen<->instance
-                // link and the power map loses its home runs.
-                'rackAllocation', 'powerSocaLengths', 'powerSocaPhaseOffset',
+                // Production suite: the soca plan must survive the round-trip
+                // or the power map loses its home runs.
+                'powerSocaLengths', 'powerSocaPhaseOffset',
                 'powerSocaPhasePos', 'powerSocaDistro', 'powerBreakoutType',
                 'showSocaBrackets', 'powerSplitters'
             ];
