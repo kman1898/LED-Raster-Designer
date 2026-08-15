@@ -929,12 +929,24 @@ class _Power {
         });
     }
 
-    // Plain-language explanation of what the three phasing schemes mean and
-    // why the choice changes the leg loads. Built on demand rather than
-    // living in index.html so the copy sits next to the math it describes.
+    // Plain-language explanation of what the phasing schemes mean and why the
+    // choice changes the leg loads. Built on demand rather than living in
+    // index.html so the copy sits next to the math it describes.
+    //
+    // The scheme table is GENERATED from powerPhasingSchemes and the leg map
+    // itself: names come from the same records the select prints, and the
+    // circuit row is read out of _circuitLegs. A user asked what the
+    // difference between "line-to-line" and "paired" was because the same
+    // scheme was named one way here and another way there; nothing here
+    // restates a name or a mapping in prose, so they cannot drift apart again.
     showPhasingHelp() {
         const ID = 'phasing-help-modal';
         document.getElementById(ID)?.remove();
+        const schemes = this.powerPhasingSchemes();
+        const byId = (id) => schemes.find(s => s.id === id);
+        // the six positions of the fan, straight out of the leg map
+        const spread = (id) => [1, 2, 3, 4, 5, 6]
+            .map(i => this._circuitLegs(i, id).join('')).join(' ');
         const el = document.createElement('div');
         el.id = ID;
         el.className = 'modal';
@@ -948,13 +960,38 @@ class _Power {
   <div style="padding:16px 20px; overflow-y:auto; font-size:12px; color:#c3ccd6; line-height:1.6;">
 
     <p style="margin:0 0 14px;"><strong style="color:#e8eef5;">A distro fed from camlock is three-phase. Every circuit
-    coming off the breakout is single-phase</strong> — whether it is 120V (one
-    hot and a neutral) or 208V (two hots, no neutral). Three-phase never
+    coming off the breakout is single-phase</strong> — whether it sits on one
+    hot and a neutral, or across two hots with no neutral. Three-phase never
     reaches a panel. The legs only decide <em>which</em> hots each circuit
     sits across, and therefore how the load spreads over the service.</p>
 
+    <div style="background:#2b2f35; border-left:3px solid #4a6fa5; padding:10px 12px; border-radius:0 4px 4px 0; margin:0 0 14px;">
+      <div style="color:#e8eef5; margin-bottom:5px;">Two things vary, and they are independent</div>
+      <div style="color:#a6b0bb; margin-bottom:8px;">Every scheme is named for both, coupling first, order second — so
+      <em>${byId('paired-ll').name}</em> and <em>${byId('rotating-ll').name}</em>
+      are the same coupling dealt differently, not two answers to one question.</div>
+      <table style="width:100%; border-collapse:collapse;">
+        <tr>
+          <td style="padding:3px 8px 3px 0; vertical-align:top; color:#e8eef5; white-space:nowrap;">Coupling</td>
+          <td style="padding:3px 0; color:#a6b0bb;"><strong style="color:#c3ccd6;">Line-to-neutral</strong> is one hot and
+          a neutral (X). <strong style="color:#c3ccd6;">Line-to-line</strong> is two hots and no neutral (XY). This is the
+          electrical relationship, and it follows the circuit voltage: line-to-neutral
+          runs at the service divided by √3 — 120 V off a 208 V service, 230 V off a
+          400 V one.</td>
+        </tr>
+        <tr>
+          <td style="padding:3px 8px 3px 0; vertical-align:top; color:#e8eef5; white-space:nowrap;">Order</td>
+          <td style="padding:3px 0; color:#a6b0bb;"><strong style="color:#c3ccd6;">Rotating</strong> advances on every
+          circuit (X Y Z X Y Z). <strong style="color:#c3ccd6;">Paired</strong> puts two consecutive circuits on the same
+          assignment before advancing (X X Y Y Z Z). This is how the distro is wired
+          internally, which is why it is a setting here and not something the voltage
+          can answer.</td>
+        </tr>
+      </table>
+    </div>
+
     <div style="background:#3a2626; border-left:3px solid #b34a3a; padding:10px 12px; border-radius:0 4px 4px 0; margin:0 0 14px; color:#e0c0ba;">
-      <strong style="color:#f5cdc4;">There is no North American standard for this.</strong>
+      <strong style="color:#f5cdc4;">No standard assigns a circuit to a leg.</strong>
       ANSI E1.80, USITT RP-1 and NEC 520.68 all cover the <em>pinout</em> —
       which pin carries which circuit's conductors — and none of them assigns
       a circuit to a leg. No major distro manufacturer publishes a universal
@@ -965,43 +1002,31 @@ class _Power {
     </div>
 
     <p style="margin:0 0 14px; color:#a6b0bb;">What every source does agree on is the
-    <em>balance goal</em>: two circuits per leg on 120V, two circuits per
-    leg-pair on 208V. Only the order varies — and the order is exactly what
-    decides where a partly-filled multi dumps its remainder. Each pattern
+    <em>balance goal</em>: two circuits per leg line-to-neutral, two circuits
+    per leg-pair line-to-line. Only the order varies — and the order is exactly
+    what decides where a partly-filled multi dumps its remainder. Each pattern
     below is documented on a real distro or rack, none is a default.</p>
 
-    <table style="width:100%; border-collapse:collapse; margin-bottom:16px;">
+    <table class="phasing-scheme-table" style="width:100%; border-collapse:collapse; margin-bottom:10px;">
       <tr style="border-bottom:1px solid #3a3a3a;">
-        <th style="text-align:left; padding:6px 8px; font-size:10px; color:#8a949f; text-transform:uppercase;">Pattern</th>
+        <th style="text-align:left; padding:6px 8px; font-size:10px; color:#8a949f; text-transform:uppercase;">Scheme</th>
         <th style="text-align:left; padding:6px 8px; font-size:10px; color:#8a949f; text-transform:uppercase;">Circuits 1–6</th>
         <th style="text-align:left; padding:6px 8px; font-size:10px; color:#8a949f; text-transform:uppercase;">Where it is documented</th>
       </tr>
+      ${schemes.map(sc => `
       <tr style="border-bottom:1px solid #303030;">
-        <td style="padding:8px; vertical-align:top; color:#e8eef5;">120V rotating<br><span style="color:#7d8894; font-size:11px;">one leg each</span></td>
-        <td style="padding:8px; vertical-align:top; font-family:ui-monospace,Menlo,monospace; font-size:11px; white-space:nowrap;">X Y Z<br>X Y Z</td>
-        <td style="padding:8px; vertical-align:top; color:#a6b0bb;">Published phasing sheet for a 36-way 120V house distro.</td>
-      </tr>
-      <tr style="border-bottom:1px solid #303030;">
-        <td style="padding:8px; vertical-align:top; color:#e8eef5;">120V paired<br><span style="color:#7d8894; font-size:11px;">two circuits per leg</span></td>
-        <td style="padding:8px; vertical-align:top; font-family:ui-monospace,Menlo,monospace; font-size:11px; white-space:nowrap;">X X<br>Y Y<br>Z Z</td>
-        <td style="padding:8px; vertical-align:top; color:#a6b0bb;">What several practitioners report as usual.</td>
-      </tr>
-      <tr style="border-bottom:1px solid #303030;">
-        <td style="padding:8px; vertical-align:top; color:#e8eef5;">208V paired<br><span style="color:#7d8894; font-size:11px;">XY ZX YZ</span></td>
-        <td style="padding:8px; vertical-align:top; font-family:ui-monospace,Menlo,monospace; font-size:11px; white-space:nowrap;">XY XY<br>ZX ZX<br>YZ YZ</td>
-        <td style="padding:8px; vertical-align:top; color:#a6b0bb;">Two independent rental houses publish this exact map. The best-attested 208V pattern.</td>
-      </tr>
-      <tr style="border-bottom:1px solid #303030;">
-        <td style="padding:8px; vertical-align:top; color:#e8eef5;">208V paired<br><span style="color:#7d8894; font-size:11px;">XY YZ ZX</span></td>
-        <td style="padding:8px; vertical-align:top; font-family:ui-monospace,Menlo,monospace; font-size:11px; white-space:nowrap;">XY XY<br>YZ YZ<br>ZX ZX</td>
-        <td style="padding:8px; vertical-align:top; color:#a6b0bb;">Same grouping, different pair order — Strand LightRack module pinout.</td>
-      </tr>
-      <tr style="border-bottom:1px solid #303030;">
-        <td style="padding:8px; vertical-align:top; color:#e8eef5;">208V rotating<br><span style="color:#7d8894; font-size:11px;">pair rotates each circuit</span></td>
-        <td style="padding:8px; vertical-align:top; font-family:ui-monospace,Menlo,monospace; font-size:11px; white-space:nowrap;">XY XZ YZ<br>XY XZ YZ</td>
-        <td style="padding:8px; vertical-align:top; color:#a6b0bb;">Reported as a competing family. Spreads a partly-filled multi best.</td>
-      </tr>
+        <td style="padding:8px; vertical-align:top; color:#e8eef5;">${sc.name}<br><span style="color:#7d8894; font-size:11px;">${sc.lineToLine ? 'two hots, no neutral' : 'one hot and a neutral'}</span></td>
+        <td style="padding:8px; vertical-align:top; font-family:ui-monospace,Menlo,monospace; font-size:11px;">${spread(sc.id)}</td>
+        <td style="padding:8px; vertical-align:top; color:#a6b0bb;">${sc.where}</td>
+      </tr>`).join('')}
     </table>
+
+    <p style="margin:0 0 16px; color:#a6b0bb;">The two paired line-to-line schemes differ
+    only in the order the pairs come round: <em>${byId('paired-ll-alt').pattern}</em>
+    follows the cyclic order X → Y → Z → X, the way AB → BC → CA does, and
+    <em>${byId('paired-ll').pattern}</em> does not. That is the ordering fact,
+    not a ranking — neither is a default, and the only way to know which one a
+    box uses is to read it.</p>
 
     <div style="background:#2b2f35; border-left:3px solid #4a6fa5; padding:10px 12px; border-radius:0 4px 4px 0;">
       <div style="color:#e8eef5; margin-bottom:5px;">Why your legs are uneven</div>
@@ -1014,8 +1039,8 @@ class _Power {
     </div>
 
     <div style="margin-top:14px; color:#7d8894; font-size:11px;">
-      Per-leg current is a phasor sum, not a straight addition: a 208V circuit
-      is one load drawing the <em>same</em> current in both its legs, sitting
+      Per-leg current is a phasor sum, not a straight addition: a line-to-line
+      circuit is one load drawing the <em>same</em> current in both its legs, sitting
       ±30° off each leg's line-to-neutral reference. Imbalance is NEMA-style —
       the largest deviation from the average of the three legs.
     </div>
@@ -1046,26 +1071,46 @@ class _Power {
     // output devices.)" That is the industry position: read the unit.
     //
     // What IS consistent across every source is the balance goal - two
-    // circuits per leg on 120V, two circuits per leg-PAIR on 208V. Only the
-    // order varies, and the order is what changes a partly-filled multi.
+    // circuits per leg line-to-neutral, two circuits per leg-PAIR
+    // line-to-line. Only the order varies, and the order is what changes a
+    // partly-filled multi.
+    //
+    // NAMING. A scheme varies along TWO independent axes and the name gives
+    // both, coupling first, order second:
+    //   coupling  line-to-neutral (one leg, X) or line-to-line (two, XY)
+    //   order     rotating (advance every circuit) or paired (two circuits
+    //             on one assignment, then advance)
+    // Naming only one axis made two orthogonal things look like alternatives
+    // - the same scheme read as "paired" in the list and "line-to-line" on
+    // the derived entry, and a user asked what the difference was. `name` is
+    // therefore COMPUTED from the axes so no caller can spell it its own way.
+    //
+    // The volts are deliberately not in the name: line-to-neutral is 120V on
+    // a 208V service and 230V on a 400V one, so the figure belongs to the
+    // SERVICE, not the scheme. It is derived as V / sqrt(3) where it helps.
     powerPhasingSchemes() {
+        const named = (s) => ({
+            ...s,
+            coupling: s.lineToLine ? 'Line-to-line' : 'Line-to-neutral',
+            name: `${s.lineToLine ? 'Line-to-line' : 'Line-to-neutral'}, ${s.order} (${s.pattern})`,
+        });
         return [
-            { id: 'rotating-ln', name: '120V — rotating (X Y Z X Y Z)', lineToLine: false,
+            { id: 'rotating-ln', lineToLine: false, order: 'rotating',
               pattern: 'X Y Z X Y Z',
-              note: '1>X 2>Y 3>Z 4>X 5>Y 6>Z — one published house distro sheet; no practitioner source corroborates it, so confirm before relying on it' },
-            { id: 'paired-ln', name: '120V — paired (X X Y Y Z Z)', lineToLine: false,
+              where: 'Published phasing sheet for a 36-way house distro. No practitioner source corroborates it, so confirm before relying on it.' },
+            { id: 'paired-ln', lineToLine: false, order: 'paired',
               pattern: 'X X Y Y Z Z',
-              note: '1,2>X  3,4>Y  5,6>Z — the arrangement practitioners most often describe' },
-            { id: 'paired-ll', name: '208V — paired, XY ZX YZ', lineToLine: true,
+              where: 'What several practitioners report as usual.' },
+            { id: 'paired-ll', lineToLine: true, order: 'paired',
               pattern: 'XY ZX YZ',
-              note: '1,2>XY  3,4>ZX  5,6>YZ — two independent house pinouts publish this' },
-            { id: 'paired-ll-alt', name: '208V — paired, XY YZ ZX', lineToLine: true,
+              where: 'Two independent rental houses publish this exact map.' },
+            { id: 'paired-ll-alt', lineToLine: true, order: 'paired',
               pattern: 'XY YZ ZX',
-              note: '1,2>XY  3,4>YZ  5,6>ZX — same grouping, other pair order (Strand LightRack)' },
-            { id: 'rotating-ll', name: '208V — rotating (XY XZ YZ)', lineToLine: true,
+              where: 'Same grouping, other pair order — published as the Strand LightRack module pinout.' },
+            { id: 'rotating-ll', lineToLine: true, order: 'rotating',
               pattern: 'XY XZ YZ',
-              note: '1,4>XY  2,5>XZ  3,6>YZ — spreads a partly-filled multi better' }
-        ];
+              where: 'Reported as a competing family. Spreads a partly-filled multi best.' }
+        ].map(named);
     }
 
     // Default scheme for a distro: line-to-line when the circuit voltage
@@ -1443,7 +1488,7 @@ class _Power {
                     <div style="display:flex; gap:5px; align-items:center; margin-bottom:4px;">
                         <input type="text" class="distro-location" data-lrd-field="distro-location-${d.id}" value="${esc(d.location || '').replace(/"/g, '&quot;')}" placeholder="beach / location" style="flex:1; min-width:60px;" data-tooltip="Location, Where this distro physically sits - the beach, stage left world, FOH. Prints on every power label that names it, so a runner can find the other end.">
                     </div>
-                    ${d.phase === 3 && ph ? `<div class="info-row" style="margin-bottom:4px;" data-tooltip="Phasing, How a multi's 6 circuits land on the phase legs. A property of the distro's bus and breaker arrangement - read it off the distro. Not the same as the connector's E1.80 pinout type.">
+                    ${d.phase === 3 && ph ? `<div class="info-row" style="margin-bottom:4px;" data-tooltip="Phasing, How a multi's 6 circuits land on the phase legs. A property of the distro's bus and breaker arrangement - read it off the distro. Not the same as the connector's E1.80 pinout type. Each name gives the coupling (how many legs one circuit touches) then the dealing order.">
                         <label style="font-weight:400; font-size:10px;">Phasing</label>
                         <!-- The select and its help button share a line of
                              their own beneath the caption: the row was written
@@ -1451,15 +1496,30 @@ class _Power {
                              select sized itself to its longest option and hung
                              off the panel at every width below its own. -->
                         <div style="display:flex; align-items:center; gap:6px;">
+                            <!-- Two KINDS of entry, so they are grouped as
+                                 two: the first is an instruction to the app
+                                 ("follow the voltage"), the rest describe how
+                                 a distro is wired. Read as one flat list the
+                                 old "Match voltage" entry scanned as a peer
+                                 of "paired", which is not a choice anybody
+                                 has - deriving and paired are not
+                                 alternatives.
+                                 Deriving is a state, not the absence of one:
+                                 an empty value clears distro.phasing and
+                                 hands the choice back to the voltage.
+                                 The resolved volts ride on the GROUP, off
+                                 this distro's own service - they are not a
+                                 property of any scheme (line-to-neutral is
+                                 120V on a 208V service, 230V on a 400V one),
+                                 and hard-coding them into names made every
+                                 label wrong on a EU 400V box. -->
                             <select class="distro-phasing info-select" data-lrd-field="distro-phasing-${d.id}" style="flex:1 1 0; min-width:0;">
-                                <!-- Deriving is a state, not the absence of
-                                     one: an empty value clears distro.phasing
-                                     and hands the choice back to the voltage.
-                                     Named by legs rather than by volts -
-                                     line-to-neutral is 120V on a 208V service
-                                     and 230V on a 400V one. -->
-                                <option value="" ${ph.explicit ? '' : 'selected'}>Match voltage — ${ph.derived.lineToLine ? 'line-to-line' : 'line-to-neutral'} (${ph.derived.pattern})</option>
-                                ${this.powerPhasingSchemes().map(sc => `<option value="${sc.id}" ${ph.explicit && ph.scheme.id === sc.id ? 'selected' : ''}>${sc.name}</option>`).join('')}
+                                <optgroup label="Let the voltage decide">
+                                    <option value="" ${ph.explicit ? '' : 'selected'}>Follow the circuit voltage — ${ph.derived.name}</option>
+                                </optgroup>
+                                <optgroup label="Read it off the distro · ${Math.round(d.voltage / Math.sqrt(3))} V line-to-neutral, ${Math.round(d.voltage)} V line-to-line">
+                                    ${this.powerPhasingSchemes().map(sc => `<option value="${sc.id}" ${ph.explicit && ph.scheme.id === sc.id ? 'selected' : ''}>${sc.name}</option>`).join('')}
+                                </optgroup>
                             </select>
                             <button class="distro-phasing-help" data-lrd-field="distro-phasing-help-${d.id}" title="What do these mean?">?</button>
                         </div>
@@ -1645,6 +1705,15 @@ class _Power {
                 <input type="checkbox" id="power-splitters-enabled" data-lrd-field="power-splitters-enabled" ${sp.enabled ? 'checked' : ''}>
                 <label for="power-splitters-enabled">Share circuits via splitters</label>
             </div>
+            <!-- Splitter size only means something while the packer is
+                 running: sharing is off by default, so on a fresh project
+                 this row was a control that did nothing. It follows the
+                 checkbox above it - and on a MIXED multi-selection that is
+                 the shown screen's flag, the same one the checkbox itself
+                 shows, so the row never contradicts the box beside it. The
+                 tick writes through to every selected screen (writeAll), so
+                 one gesture settles both the state and the row. -->
+            ${sp.enabled ? `
             <div class="info-row" style="align-items:center;" data-tooltip="Splitter size, The largest Y-cable the packer may use. It always uses the smallest that fits: none, then 2fer, then 3fer.">
                 <label style="font-weight:400;">Max splitter</label>
                 <select id="power-splitters-maxways" data-lrd-field="power-splitters-maxways" class="info-select" style="width: 96px;">
@@ -1652,7 +1721,7 @@ class _Power {
                     <option value="custom" ${isStock ? '' : 'selected'}>Custom…</option>
                 </select>
                 ${isStock ? '' : `<input type="number" id="power-splitters-maxways-custom" data-lrd-field="power-splitters-maxways-custom" min="2" step="1" value="${sp.maxWays}" style="width: 56px;">`}
-            </div>
+            </div>` : ''}
             ${circuits.length ? `
             <div id="power-splitter-rows">${rowHtml}</div>
             <div class="info-row" style="gap:8px;">

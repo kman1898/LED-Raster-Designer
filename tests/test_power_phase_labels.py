@@ -696,14 +696,14 @@ def test_the_phasing_select_says_whether_it_is_deriving(page):
     ll = page.evaluate(PHASING_SELECT_JS, {'circuitV': 208})
     assert ll, "the distro row built no phasing select"
     assert ll['value'] == '', f"a derived scheme is not shown as derived: {ll}"
-    assert 'line-to-line' in ll['text'], (
+    assert 'Line-to-line' in ll['text'], (
         f"the derived entry does not name what it resolves to: {ll}")
     assert 'XY ZX YZ' in ll['text'], (
         f"the derived entry does not name the pattern it resolves to: {ll}")
 
     ln = page.evaluate(PHASING_SELECT_JS, {'circuitV': 120})
     assert ln['value'] == '', f"a derived scheme is not shown as derived: {ln}"
-    assert 'line-to-neutral' in ln['text'], (
+    assert 'Line-to-neutral' in ln['text'], (
         f"the derived entry did not follow the circuit voltage: {ln}")
 
     picked = page.evaluate(PHASING_SELECT_JS, {
@@ -719,8 +719,8 @@ def test_the_phasing_select_says_whether_it_is_deriving(page):
 
 def test_choosing_a_scheme_and_choosing_the_voltage_again_round_trips(page):
     """The whole workflow through the real panel: a 208V distro fed by 208V
-    circuits derives the 208V scheme, an explicit pick sticks across a voltage
-    change, and the Match-voltage entry hands the choice back."""
+    circuits derives the line-to-line scheme, an explicit pick sticks across a
+    voltage change, and the follow-the-voltage entry hands the choice back."""
     page.locator('[data-mode="power"]').click()
     page.wait_for_timeout(400)
     seeded = page.evaluate("""() => {
@@ -749,7 +749,7 @@ def test_choosing_a_scheme_and_choosing_the_voltage_again_round_trips(page):
     }"""
     try:
         derived = page.evaluate(read)
-        assert derived['value'] == '' and 'line-to-line' in derived['text'], (
+        assert derived['value'] == '' and 'Line-to-line' in derived['text'], (
             f"208V circuits on a 208V distro did not derive the 208V scheme "
             f"through the real panel: {derived}")
         assert derived['stored'] in (None, '(undefined)'), (
@@ -771,10 +771,186 @@ def test_choosing_a_scheme_and_choosing_the_voltage_again_round_trips(page):
         page.wait_for_timeout(600)
         back = page.evaluate(read)
         assert back['value'] == '' and back['stored'] is None, (
-            f"the Match-voltage entry did not hand the choice back to the "
-            f"voltage: {back}")
+            f"the follow-the-voltage entry did not hand the choice back to "
+            f"the voltage: {back}")
     finally:
         page.evaluate("""(id) => {
             window.app.removeDistro(id);
             window.app.refreshDistroPanel();
         }""", seeded)
+
+
+# ── 8. ONE SCHEME, ONE NAME ───────────────────────────────────────────────
+#
+# A user asked "what is the difference between line to line and paired?".
+# The question only existed because the SAME scheme was labelled two ways:
+# "208V - paired, XY ZX YZ" in the list and "line-to-line" on the derived
+# entry. Both were true and they name DIFFERENT AXES, so showing one here and
+# the other there made two orthogonal things look like alternatives:
+#
+#   coupling   line-to-neutral (one leg, X) or line-to-line (two, XY)
+#   order      rotating (advance every circuit) or paired (two circuits on
+#              one assignment, then advance)
+#
+# And the volts in those names were not merely untidy, they were wrong: the
+# distro voltage select offers 400V and 415V, where line-to-neutral is 230V,
+# so "120V - rotating" lied on every EU service. The leg maths was already
+# voltage-agnostic (V / sqrt(3)); only the labels assumed North America.
+
+SCHEMES_JS = """() => window.app.powerPhasingSchemes().map(s => ({
+    id: s.id, name: s.name, pattern: s.pattern,
+    order: s.order, lineToLine: s.lineToLine }))"""
+
+SCHEME_IDS = ['rotating-ln', 'paired-ln', 'paired-ll', 'paired-ll-alt',
+              'rotating-ll']
+
+
+def test_every_scheme_name_gives_both_axes_and_none_leads_with_a_voltage(page):
+    """The five patterns and their ids are fixed. Each name says its coupling
+    first and its dealing order second, and none of them carries a voltage -
+    line-to-neutral is 120V on a 208V service and 230V on a 400V one, so the
+    figure belongs to the SERVICE and cannot name a scheme."""
+    import re
+    schemes = page.evaluate(SCHEMES_JS)
+    assert [s['id'] for s in schemes] == SCHEME_IDS, (
+        f"the scheme list changed shape - ids and order are fixed: {schemes}")
+    for s in schemes:
+        m = re.match(r'^(Line-to-neutral|Line-to-line), (rotating|paired) '
+                     r'\(([XYZ ]+)\)$', s['name'])
+        assert m, f"the name does not give both axes: {s}"
+        coupling, order, pattern = m.groups()
+        assert (coupling == 'Line-to-line') == s['lineToLine'], (
+            f"the name's coupling contradicts the leg maths: {s}")
+        assert order == s['order'], f"the name's order is not the record's: {s}"
+        assert pattern == s['pattern'], f"the name's pattern drifted: {s}"
+        assert not re.search(r'\d\s*V', s['name']), (
+            f"a voltage names this scheme, and the same scheme is a different "
+            f"voltage on a 400V service: {s}")
+
+
+NAMING_JS = """(opts) => {
+    const ph = window.__ph;
+    const app = window.app;
+    const d = Object.assign(ph.distro(), opts.distro || {});
+    const out = ph.withProject(
+        { layers: [ph.unequal({ powerVoltage: opts.circuitV })], distros: [d] },
+        () => {
+            app.refreshDistroPanel();
+            const sel = document.querySelector('#power-distros .distro-phasing');
+            app.showPhasingHelp();
+            const modal = document.getElementById('phasing-help-modal');
+            const cells = [...modal.querySelectorAll(
+                '.phasing-scheme-table tr')].slice(1).map(tr => ({
+                    name: tr.children[0].childNodes[0].textContent.trim(),
+                    spread: tr.children[1].textContent.trim(),
+                }));
+            const res = {
+                options: [...sel.options].map(o => o.text),
+                values: [...sel.options].map(o => o.value),
+                selected: sel.options[sel.selectedIndex].text,
+                groups: [...sel.querySelectorAll('optgroup')].map(g => ({
+                    label: g.label,
+                    options: [...g.querySelectorAll('option')].map(o => o.text),
+                })),
+                derivedName: app.distroPhasingState(d).derived.name,
+                modalNames: cells.map(c => c.name),
+                modalSpreads: cells.map(c => c.spread),
+                modalText: modal.textContent.replace(/\\s+/g, ' '),
+            };
+            modal.remove();
+            return res;
+        });
+    app.refreshDistroPanel();   // put the real project's rows back
+    return out;
+}"""
+
+
+def test_one_scheme_one_name_in_the_select_the_derived_entry_and_the_help(page):
+    """The same scheme must never be called two different things. The select
+    prints powerPhasingSchemes' names, the derived entry prints the name of
+    what it resolves to, and the help modal's table is generated from the same
+    records - so all three carry byte-identical strings."""
+    schemes = page.evaluate(SCHEMES_JS)
+    names = [s['name'] for s in schemes]
+    out = page.evaluate(NAMING_JS, {'circuitV': 208})
+
+    assert out['options'][1:] == names, (
+        f"the select does not print the scheme names verbatim: {out}")
+    assert out['modalNames'] == names, (
+        f"the help modal names the schemes differently from the select - the "
+        f"exact drift that made a user ask what the difference was: {out}")
+    assert out['selected'] == f"Follow the circuit voltage — {out['derivedName']}", (
+        f"the derived entry names its scheme its own way: {out}")
+    assert out['derivedName'] == 'Line-to-line, paired (XY ZX YZ)', (
+        f"208V circuits on a 208V service derive the line-to-line scheme: {out}")
+    for name in names:
+        assert out['modalText'].count(name) >= 1, (
+            f"{name!r} is missing from the help modal: {out['modalText']}")
+    # the modal's circuit row is read out of _circuitLegs itself, so prose
+    # cannot drift from the maths
+    assert out['modalSpreads'] == [
+        'X Y Z X Y Z', 'X X Y Y Z Z', 'XY XY ZX ZX YZ YZ',
+        'XY XY YZ YZ ZX ZX', 'XY XZ YZ XY XZ YZ'], out['modalSpreads']
+
+
+def test_the_help_modal_explains_the_two_axes(page):
+    """The answer to "what is the difference between line to line and
+    paired?" lives here: they are not alternatives, they are the two axes
+    every scheme name carries."""
+    out = page.evaluate(NAMING_JS, {'circuitV': 208})
+    text = out['modalText']
+    assert 'Two things vary, and they are independent' in text, text
+    for phrase in ('Coupling', 'Order',
+                   'Line-to-neutral is one hot and a neutral',
+                   'Line-to-line is two hots and no neutral',
+                   'Rotating advances on every circuit',
+                   'Paired puts two consecutive circuits'):
+        assert phrase in text, f"{phrase!r} missing from the help modal: {text}"
+    assert 'divided by √3' in text, (
+        f"the modal does not say where the line-to-neutral figure comes "
+        f"from: {text}")
+    # neither line-to-line paired map may be sold as the standard one
+    for claim in ('best-attested', 'most common', 'recommended', 'default pattern'):
+        assert claim not in text.lower(), (
+            f"the modal ranks one documented map above another: {claim!r}")
+
+
+def test_deriving_and_the_schemes_are_visibly_different_kinds_of_entry(page):
+    """"Match voltage" sitting in one flat list beside "paired" read as if
+    the two were alternatives of the same kind. They are not: one is an
+    instruction to the app, the others describe how a box is wired - so they
+    are grouped as two, and the derive entry is phrased as an instruction."""
+    schemes = page.evaluate(SCHEMES_JS)
+    out = page.evaluate(NAMING_JS, {'circuitV': 208})
+    assert len(out['groups']) == 2, (
+        f"the two kinds of entry are not separated: {out['groups']}")
+    derive, wiring = out['groups']
+    assert derive['options'] == [out['selected']], (
+        f"the derive entry does not stand alone in its group: {out}")
+    assert wiring['options'] == [s['name'] for s in schemes], (
+        f"the schemes are not grouped together: {out}")
+    assert out['values'][0] == '', (
+        "deriving is still the empty value that clears distro.phasing")
+    assert derive['options'][0].startswith('Follow the circuit voltage'), (
+        f"the derive entry does not read as an instruction: {derive}")
+    assert not any(o.startswith('Follow') for o in wiring['options']), out
+
+
+def test_the_resolved_volts_follow_the_distro_not_the_scheme(page):
+    """A EU 400V service: line-to-neutral is 230V there, 120V on a 208V one.
+    The figures are shown against the GROUP, derived from that distro's own
+    voltage - the scheme names stay identical on both services."""
+    na = page.evaluate(NAMING_JS, {'circuitV': 208})
+    eu = page.evaluate(NAMING_JS,
+                       {'circuitV': 400, 'distro': {'voltage': 400}})
+    assert na['groups'][1]['options'] == eu['groups'][1]['options'], (
+        f"the scheme names changed with the service voltage: "
+        f"{na['groups'][1]} vs {eu['groups'][1]}")
+    assert '120 V line-to-neutral, 208 V line-to-line' in na['groups'][1]['label'], (
+        f"the 208V service does not resolve to 120V line-to-neutral: {na}")
+    assert '231 V line-to-neutral, 400 V line-to-line' in eu['groups'][1]['label'], (
+        f"the 400V service does not resolve to its own line-to-neutral "
+        f"figure: {eu}")
+    for name in eu['groups'][1]['options']:
+        assert '400' not in name and '231' not in name, (
+            f"a service voltage leaked into a scheme name: {name}")

@@ -588,6 +588,80 @@ def test_the_distro_rows_fit_inside_the_power_panel(page, w):
         page.evaluate(DISTRO_CLEANUP_JS, seeded['added'])
 
 
+# The Splitters block above the distros carries the other row that comes and
+# goes: "Max splitter" only renders while sharing is switched on, so both
+# states have to fit the same 180px column.
+
+SPLITTER_SEED_JS = """(enabled) => {
+    const app = window.app;
+    const l = app.currentLayer;
+    if (!l) return null;
+    // In-memory only - no updateLayers, so nothing is written to the server
+    // and the shared project is handed back untouched by the cleanup.
+    if (window.__spSaved === undefined) {
+        window.__spSaved = l.powerSplitters ? JSON.parse(JSON.stringify(l.powerSplitters)) : null;
+    }
+    l.powerSplitters = { ...app.getPowerSplitters(l), enabled: enabled };
+    app.refreshSplitterPanel();
+    return { size: !!document.getElementById('power-splitters-maxways'),
+             box: !!document.getElementById('power-splitters-enabled') };
+}"""
+
+SPLITTER_CLEANUP_JS = """() => {
+    const app = window.app;
+    const l = app.currentLayer;
+    if (l && window.__spSaved !== undefined) {
+        if (window.__spSaved === null) delete l.powerSplitters;
+        else l.powerSplitters = window.__spSaved;
+    }
+    delete window.__spSaved;
+    app.refreshSplitterPanel();
+}"""
+
+SPLITTER_OVERFLOW_JS = """() => {
+    const host = document.getElementById('power-splitters');
+    const box = host.getBoundingClientRect();
+    const strays = [];
+    host.querySelectorAll('*').forEach(el => {
+        const r = el.getBoundingClientRect();
+        if (r.width === 0 && r.height === 0) return;
+        if (r.right > box.right + 0.5 || r.left < box.left - 0.5) {
+            strays.push({ tag: el.tagName,
+                          key: el.getAttribute('data-lrd-field') || el.className || null,
+                          over: Math.round(Math.max(r.right - box.right,
+                                                    box.left - r.left)) });
+        }
+    });
+    return { hostW: Math.round(box.width), scrollW: host.scrollWidth,
+             clientW: host.clientWidth, strays: strays };
+}"""
+
+
+@pytest.mark.parametrize('w', [MIN_W, DEFAULT_W])
+@pytest.mark.parametrize('enabled', [False, True])
+def test_the_splitter_rows_fit_inside_the_power_panel(page, w, enabled):
+    reset_widths(page, 'power')
+    seeded = page.evaluate(SPLITTER_SEED_JS, enabled)
+    try:
+        assert seeded and seeded['box'], (
+            f"the splitter panel never rendered its enable checkbox: {seeded}")
+        assert seeded['size'] is enabled, (
+            f"the Max splitter row must follow the enable checkbox - present "
+            f"only when sharing is on: {seeded}")
+        if w != DEFAULT_W:
+            assert drag(page, 'power', w - DEFAULT_W) == w
+        page.wait_for_timeout(300)
+        m = page.evaluate(SPLITTER_OVERFLOW_JS)
+        assert not m['strays'], (
+            f"splitter controls hang outside the panel at {w}px with sharing "
+            f"{'on' if enabled else 'off'}: {m['strays']} (host {m['hostW']}px)")
+        assert m['scrollW'] <= m['clientW'], (
+            f"the splitter block scrolls sideways at {w}px: content "
+            f"{m['scrollW']}px in a {m['clientW']}px column")
+    finally:
+        page.evaluate(SPLITTER_CLEANUP_JS)
+
+
 def test_the_rating_row_is_one_line_at_the_default_and_wraps_at_the_minimum(page):
     """The wrap has to be a wrap, not a permanent restack: at the 260px default
     rating, voltage and phase still read as one line, and only the drag to the

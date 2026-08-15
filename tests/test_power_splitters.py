@@ -490,3 +490,157 @@ PIN_ASSIGNMENTS = {
     'greedy': '{"circuits":[[{"row":0,"col":0,"x":0,"y":0,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"},{"row":0,"col":1,"x":128,"y":0,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"},{"row":0,"col":2,"x":256,"y":0,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"},{"row":0,"col":3,"x":384,"y":0,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"},{"row":1,"col":3,"x":384,"y":128,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"},{"row":1,"col":2,"x":256,"y":128,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"},{"row":1,"col":1,"x":128,"y":128,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"},{"row":1,"col":0,"x":0,"y":128,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"}],[{"row":2,"col":0,"x":0,"y":256,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"},{"row":2,"col":1,"x":128,"y":256,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"},{"row":2,"col":2,"x":256,"y":256,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"},{"row":2,"col":3,"x":384,"y":256,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"}]],"error":null}',
     'org_br': '{"circuits":[[{"row":4,"col":5,"x":640,"y":512,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"},{"row":3,"col":5,"x":640,"y":384,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"},{"row":2,"col":5,"x":640,"y":256,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"},{"row":1,"col":5,"x":640,"y":128,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"},{"row":0,"col":5,"x":640,"y":0,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"},{"row":0,"col":4,"x":512,"y":0,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"},{"row":1,"col":4,"x":512,"y":128,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"},{"row":2,"col":4,"x":512,"y":256,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"},{"row":3,"col":4,"x":512,"y":384,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"},{"row":4,"col":4,"x":512,"y":512,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"},{"row":4,"col":3,"x":384,"y":512,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"},{"row":3,"col":3,"x":384,"y":384,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"},{"row":2,"col":3,"x":384,"y":256,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"},{"row":1,"col":3,"x":384,"y":128,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"},{"row":0,"col":3,"x":384,"y":0,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"}],[{"row":4,"col":2,"x":256,"y":512,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"},{"row":3,"col":2,"x":256,"y":384,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"},{"row":2,"col":2,"x":256,"y":256,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"},{"row":1,"col":2,"x":256,"y":128,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"},{"row":0,"col":2,"x":256,"y":0,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"},{"row":0,"col":1,"x":128,"y":0,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"},{"row":1,"col":1,"x":128,"y":128,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"},{"row":2,"col":1,"x":128,"y":256,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"},{"row":3,"col":1,"x":128,"y":384,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"},{"row":4,"col":1,"x":128,"y":512,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"},{"row":4,"col":0,"x":0,"y":512,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"},{"row":3,"col":0,"x":0,"y":384,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"},{"row":2,"col":0,"x":0,"y":256,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"},{"row":1,"col":0,"x":0,"y":128,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"},{"row":0,"col":0,"x":0,"y":0,"width":128,"height":128,"hidden":false,"blank":false,"halfTile":"none"}]],"error":null}',
 }
+
+
+# ── 11. the Splitters panel: the size row only when sharing is on ─────────
+#
+# Splitters default to OFF, so on a fresh project the "Max splitter" select
+# was a control that did nothing - it drives the packer, and the packer is
+# not running. The row now follows the enable checkbox.
+#
+# The per-circuit merge/split rows are a SEPARATE condition (packing on OR
+# the screen routes custom) and are deliberately not folded into this one:
+# a hand-merge on a custom-drawn screen never consults maxWays.
+#
+# MIXED MULTI-SELECTION. The enable checkbox writes through _socaPanelTargets
+# to every selected screen, but it can only SHOW one state, and it shows the
+# screen the panel is displaying. The size row follows that same flag, so the
+# row never contradicts the box beside it; one tick settles both, because the
+# write lands on every selected screen.
+
+PANEL_INSTALL_JS = """(specs) => {
+    const sp = window.__sp;
+    const app = window.app;
+    const layers = specs.map((s, i) => sp.column_wall(3, Object.assign(
+        { id: 9900 + i, name: 'Panel' + (i + 1) }, s)));
+    window.__panelSaved = { project: app.project, layer: app.currentLayer,
+                            sel: app.selectedLayerIds, update: app.updateLayers };
+    app.project = { layers: layers, groups: [], canvases: [], rack: [] };
+    app.currentLayer = layers[0];
+    app.selectedLayerIds = new Set(layers.map(l => l.id));
+    app.updateLayers = () => {};   // a synthetic tree makes no server trip
+    app.refreshSplitterPanel();
+    return layers.map(l => l.id);
+}"""
+
+PANEL_RESTORE_JS = """() => {
+    const app = window.app;
+    const s = window.__panelSaved;
+    if (!s) return;
+    app.project = s.project;
+    app.currentLayer = s.layer;
+    app.selectedLayerIds = s.sel;
+    app.updateLayers = s.update;
+    delete window.__panelSaved;
+    app.refreshSplitterPanel();
+}"""
+
+PANEL_READ_JS = """() => {
+    const host = document.getElementById('power-splitters');
+    const en = host.querySelector('#power-splitters-enabled');
+    const labels = [...host.querySelectorAll('label')]
+        .map(l => l.textContent.trim());
+    return {
+        enableBox: !!en,
+        checked: !!(en && en.checked),
+        sizeSelect: !!host.querySelector('#power-splitters-maxways'),
+        sizeLabel: labels.includes('Max splitter'),
+        customInput: !!host.querySelector('#power-splitters-maxways-custom'),
+        circuitRows: host.querySelectorAll('.splitter-circuit-row').length,
+        enabledFlags: window.app.project.layers.map(
+            l => window.app.getPowerSplitters(l).enabled),
+    };
+}"""
+
+
+@pytest.fixture
+def panel(page):
+    """Install a synthetic project the real panel can render, and put the
+    page's own project back afterwards. Unlike __sp.withProject this outlives
+    the call, so the deferred _rebuildAfterGesture restate lands on it."""
+    page.locator('[data-mode="power"]').click()   # the panel's own view
+    page.wait_for_timeout(400)
+
+    def install(*specs):
+        page.evaluate(PANEL_INSTALL_JS, list(specs))
+        return page.evaluate(PANEL_READ_JS)
+    yield install
+    page.evaluate(PANEL_RESTORE_JS)
+
+
+def test_splitter_size_row_is_absent_until_sharing_is_switched_on(page, panel):
+    """Splitters off - the default - and the Max splitter row is not there:
+    label, select and all. Ticking the box brings it back with no further
+    gesture from the user."""
+    off = panel({})
+    assert off['enableBox'] and not off['checked'], 'fixture: sharing starts off'
+    assert not off['sizeSelect'] and not off['sizeLabel'], (
+        f"the splitter size select is on screen with the packer switched "
+        f"off, driving nothing: {off}")
+
+    page.locator('#power-splitters-enabled').click()
+    page.wait_for_timeout(300)   # the panel restates past the gesture
+    on = page.evaluate(PANEL_READ_JS)
+    assert on['checked'] and on['enabledFlags'] == [True], on
+    assert on['sizeSelect'] and on['sizeLabel'], (
+        f"ticking the box did not bring the size row back: {on}")
+
+    page.locator('#power-splitters-enabled').click()
+    page.wait_for_timeout(300)
+    back = page.evaluate(PANEL_READ_JS)
+    assert not back['checked'] and not back['sizeSelect'], (
+        f"switching sharing off left the size row behind: {back}")
+
+
+def test_a_custom_splitter_size_hides_with_its_row(page, panel):
+    """The number input for a non-stock size is part of the row, so it goes
+    with it - a 5fer stored on a screen with sharing off shows nothing."""
+    off = panel({'powerSplitters': {'enabled': False, 'maxWays': 5,
+                                    'manual': {'merge': [], 'split': []}}})
+    assert not off['sizeSelect'] and not off['customInput'], (
+        f"a stored custom size kept the row on screen: {off}")
+
+    page.evaluate("""() => {
+        const app = window.app;
+        const l = app.currentLayer;
+        l.powerSplitters = { ...app.getPowerSplitters(l), enabled: true };
+        app.refreshSplitterPanel();
+    }""")
+    on = page.evaluate(PANEL_READ_JS)
+    assert on['sizeSelect'] and on['customInput'], (
+        f"the custom size input did not come back with the row: {on}")
+
+
+def test_merge_rows_keep_their_own_condition_on_a_custom_screen(page, panel):
+    """The per-circuit rows appear when packing is on OR the screen routes
+    custom; the size row only when packing is on. A custom-drawn screen with
+    sharing off keeps its Merge/Split rows and shows no size select - the two
+    conditions are not the same condition."""
+    paths = {str(c + 1): [{'row': 0, 'col': c}, {'row': 1, 'col': c}]
+             for c in range(3)}
+    out = panel({'powerFlowPattern': 'custom', 'powerCustomIndex': 4,
+                 'powerCustomPaths': paths})
+    assert out['circuitRows'] == 3, (
+        f"the drawn circuits lost their merge rows: {out}")
+    assert not out['sizeSelect'] and not out['sizeLabel'], (
+        f"a hand-merge never consults maxWays, so the size row does not "
+        f"belong on a custom screen with packing off: {out}")
+
+
+def test_mixed_selection_shows_the_panel_screen_and_the_tick_settles_both(page, panel):
+    """Two screens selected, the shown one off and the other on. The row
+    follows the checkbox, which shows the screen the panel is displaying -
+    so the panel never states two things at once. The tick writes through to
+    every selected screen, which makes the states agree."""
+    mixed = panel({}, {'powerSplitters': {'enabled': True, 'maxWays': 3,
+                                          'manual': {'merge': [], 'split': []}}})
+    assert mixed['enabledFlags'] == [False, True], 'fixture: mixed states'
+    assert not mixed['checked'] and not mixed['sizeSelect'], (
+        f"the row disagreed with the checkbox beside it: {mixed}")
+
+    page.locator('#power-splitters-enabled').click()
+    page.wait_for_timeout(300)
+    after = page.evaluate(PANEL_READ_JS)
+    assert after['enabledFlags'] == [True, True], (
+        f"the tick did not reach every selected screen: {after}")
+    assert after['checked'] and after['sizeSelect'], after
