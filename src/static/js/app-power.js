@@ -1522,6 +1522,32 @@ class _Power {
                 // be first in the list.
                 const raw = d.id ? this.getDistros().find(x => x.id === d.id) : null;
                 const ph = raw && raw.phase === 3 ? this.distroPhasingState(raw) : null;
+                // The voltage DECIDES the coupling: line-to-line IS the
+                // service voltage and line-to-neutral is service/sqrt(3), so
+                // a 208V circuit on a 208V service cannot be line-to-neutral
+                // and a 120V one cannot be line-to-line. Only the ORDER axis
+                // is a real per-distro choice, so the wiring group offers
+                // just the orderings of the coupling the derivation picked -
+                // read off ph.derived, the same comparison the leg maths
+                // runs (powerPhasingFor), never a second one that could
+                // disagree with it.
+                //
+                // An explicit scheme whose coupling the voltage no longer
+                // permits (picked first, voltage changed after) is
+                // somebody's paperwork: it stays selected with the mismatch
+                // said out loud, never silently dropped or swapped. Picking
+                // any other entry - the derive entry included - releases it
+                // through the normal change handler.
+                let phasingOptions = '';
+                if (ph) {
+                    const offered = this.powerPhasingSchemes()
+                        .filter(sc => sc.lineToLine === ph.derived.lineToLine);
+                    if (ph.explicit && !offered.some(sc => sc.id === ph.scheme.id)) {
+                        offered.push({ ...ph.scheme,
+                            name: `${ph.scheme.name} — does not match the ${Math.round(ph.circuitVoltage)} V circuits (${ph.derived.coupling.toLowerCase()})` });
+                    }
+                    phasingOptions = offered.map(sc => `<option value="${sc.id}" ${ph.explicit && ph.scheme.id === sc.id ? 'selected' : ''}>${sc.name}</option>`).join('');
+                }
                 return `<div class="power-distro-row" data-id="${d.id || ''}" style="margin-bottom:12px;">
                     ${d.id ? `
                     <div style="display:flex; gap:5px; align-items:center; margin-bottom:4px;">
@@ -1579,7 +1605,7 @@ class _Power {
                                     <option value="" ${ph.explicit ? '' : 'selected'}>Follow the circuit voltage — ${ph.derived.name}</option>
                                 </optgroup>
                                 <optgroup label="Read it off the distro · ${Math.round(d.voltage / Math.sqrt(3))} V line-to-neutral, ${Math.round(d.voltage)} V line-to-line">
-                                    ${this.powerPhasingSchemes().map(sc => `<option value="${sc.id}" ${ph.explicit && ph.scheme.id === sc.id ? 'selected' : ''}>${sc.name}</option>`).join('')}
+                                    ${phasingOptions}
                                 </optgroup>
                             </select>
                             <button class="distro-phasing-help" data-lrd-field="distro-phasing-help-${d.id}" title="What do these mean?">?</button>
@@ -1671,6 +1697,39 @@ class _Power {
         });
     }
 
+    // Why this screen's plan is empty, when a POWER ERROR is why - the
+    // sentence, minus its lead-in, so the soca host ("No circuits — ...")
+    // and the label editor ("No circuits to edit — ...") share one story.
+    //
+    // Live repro: a 13-wide screen of 200W panels at 110V/15A in organized
+    // row mode cannot fit a row on a circuit, so the plan is empty - and the
+    // soca panel rendered NOTHING, which read as the soca feature being
+    // broken. The explanation lived only in the left sidebar and the red
+    // wall tint. Every other empty state stays blank: a non-screen layer, a
+    // screen with nothing visible on it, a group member counted on its
+    // owner, and a custom-routed screen (whose drawn paths supersede the
+    // auto error - the same rule updatePowerCapacityDisplay applies to
+    // _powerError) have no error to explain.
+    _socaPlanEmptyReason(layer) {
+        if (!layer || (layer.type || 'screen') !== 'screen') return null;
+        if (this.usesCustomCircuits(layer)) return null;
+        const err = this.calculatePowerAssignments(layer).error;
+        if (!err) return null;
+        const voltage = parseFloat(layer.powerVoltage) || 0;
+        const amperage = parseFloat(layer.powerAmperage) || 0;
+        const fmt = (w) => `${Math.round(w).toLocaleString()} W`;
+        const circuit = `a circuit at ${voltage} V / ${amperage} A carries ${fmt(voltage * amperage)}`;
+        if (err.unitType) {
+            const across = err.unitType === 'row' ? 'column' : 'row';
+            return `a full ${err.unitType} is ${fmt(err.unitLoad || 0)} and ${circuit}. `
+                + `Fix in Power Settings: higher voltage or amperage, a ${across} pattern, or a custom path.`;
+        }
+        // PANEL WATTS EXCEED CIRCUIT CAPACITY: one cabinet alone is over,
+        // so no pattern can help.
+        return `one panel is ${fmt(parseFloat(layer.panelWatts) || 0)} and ${circuit}. `
+            + `Fix in Power Settings: higher voltage or amperage.`;
+    }
+
     refreshSocaRuns() {
         const host = document.getElementById('power-soca-runs');
         if (!host) return;
@@ -1682,7 +1741,16 @@ class _Power {
         const layer = this.currentLayer;
         if (!layer || (layer.type || 'screen') === 'image') { host.innerHTML = ''; return; }
         const plan = this.getSocaPlan(layer);
-        if (!plan.length) { host.innerHTML = ''; return; }
+        if (!plan.length) {
+            // An empty plan CAUSED by a power error gets the error told
+            // where the socas would be; the legitimately-empty states keep
+            // today's blank host - see _socaPlanEmptyReason.
+            const why = this._socaPlanEmptyReason(layer);
+            host.innerHTML = why ? `
+                <label style="font-weight: 600; margin-bottom: 6px; display: block;">Soca / Multi Home Runs</label>
+                <div style="font-size:11px; color:#e05050; padding:4px 0;">No circuits — ${why}</div>` : '';
+            return;
+        }
         const breakout = this.getPowerBreakout(layer);
         host.innerHTML = `
             <label style="font-weight: 600; margin-bottom: 6px; display: block;" data-tooltip="Soca / multi home runs, Each Soca (multi) feeds up to 6 circuits. Set the home-run cable length per multi - it flows into the gear checklist and report.">Soca / Multi Home Runs</label>
@@ -1716,7 +1784,11 @@ class _Power {
                     </div>
                 </div>`; }).join('')}
             <div class="info-row checkbox-row" data-tooltip="Soca Brackets, Draw a bracket over each multi's span on the power map with its name and home-run length.">
-                <input type="checkbox" id="show-soca-brackets" data-lrd-field="show-soca-brackets" ${layer.showSocaBrackets !== false ? 'checked' : ''}>
+                <!-- OFF unless explicitly ticked (=== true, matching the
+                     canvas gate): brackets started life on by default and
+                     the user asked for them unselected. A field never
+                     touched now means off, on old projects too. -->
+                <input type="checkbox" id="show-soca-brackets" data-lrd-field="show-soca-brackets" ${layer.showSocaBrackets === true ? 'checked' : ''}>
                 <label for="show-soca-brackets">Soca Brackets on Map</label>
             </div>`;
         host.querySelectorAll('.power-soca-length').forEach(inp => {
@@ -2166,7 +2238,10 @@ class _Power {
                             error: {
                                 message: isHorizontalFirst ? 'CANNOT FIT COMPLETE ROW' : 'CANNOT FIT COMPLETE COLUMN',
                                 unitType: isHorizontalFirst ? 'row' : 'column',
-                                unitCount: isHorizontalFirst ? gridCols : gridRows
+                                unitCount: isHorizontalFirst ? gridCols : gridRows,
+                                // the offending unit's own watts, so the empty
+                                // soca panel can say WHY with real figures
+                                unitLoad
                             }
                         };
                     }
@@ -2196,7 +2271,10 @@ class _Power {
                         error: {
                             message: isHorizontalFirst ? 'CANNOT FIT COMPLETE ROW' : 'CANNOT FIT COMPLETE COLUMN',
                             unitType: isHorizontalFirst ? 'row' : 'column',
-                            unitCount: isHorizontalFirst ? gridCols : gridRows
+                            unitCount: isHorizontalFirst ? gridCols : gridRows,
+                            // the offending unit's own watts, so the empty
+                            // soca panel can say WHY with real figures
+                            unitLoad
                         }
                     };
                 }
@@ -2808,7 +2886,12 @@ class _Power {
             const empty = document.createElement('div');
             empty.style.color = '#888';
             empty.style.fontSize = '11px';
-            empty.textContent = 'No circuits to edit.';
+            // Zero circuits BECAUSE of a power error gets the same one-line
+            // reason the soca panel tells - extending this message rather
+            // than inventing a second empty-state pattern.
+            const why = this._socaPlanEmptyReason(this.currentLayer);
+            empty.textContent = why
+                ? `No circuits to edit — ${why}` : 'No circuits to edit.';
             list.appendChild(empty);
             return;
         }

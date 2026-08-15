@@ -758,6 +758,65 @@ def test_the_phasing_select_says_whether_it_is_deriving(page):
         f"the option list changed shape between the two states: {picked}")
 
 
+def test_the_select_offers_only_the_coupling_the_voltage_permits(page):
+    """Reported as "if i am using 208 it makes no sense for me to be able to
+    choose line to neutral". Line-to-line IS the service voltage and
+    line-to-neutral is service/sqrt(3), so the voltage DECIDES the coupling;
+    the only genuine per-distro choice left is the ORDER axis. The select
+    therefore offers only the orderings of the coupling the derivation picks
+    (the same comparison the leg maths runs), and the derive entry always
+    stays."""
+    schemes = page.evaluate(SCHEMES_JS)
+    ll_names = [s['name'] for s in schemes if s['lineToLine']]
+    ln_names = [s['name'] for s in schemes if not s['lineToLine']]
+    assert len(ll_names) == 3 and len(ln_names) == 2, schemes
+
+    ll = page.evaluate(NAMING_JS, {'circuitV': 208})
+    assert ll['groups'][1]['options'] == ll_names, (
+        f"208V circuits on a 208V service must offer only the line-to-line "
+        f"orderings: {ll['groups'][1]}")
+    assert ll['values'][0] == '', f"the derive entry left the list: {ll}"
+
+    ln = page.evaluate(NAMING_JS, {'circuitV': 120})
+    assert ln['groups'][1]['options'] == ln_names, (
+        f"120V circuits on a 208V service must offer only the line-to-neutral "
+        f"orderings: {ln['groups'][1]}")
+    assert ln['values'][0] == '', f"the derive entry left the list: {ln}"
+
+    # There is no third state to guess at: powerPhasingFor's ONE comparison
+    # is "circuit voltage equals the service voltage -> line-to-line,
+    # anything else -> line-to-neutral". A circuit voltage matching neither
+    # figure (220V circuits on a 208V service) still derives line-to-neutral
+    # through that same comparison, so the list follows it - the authority
+    # never answers "unknown".
+    odd = page.evaluate(NAMING_JS, {'circuitV': 220})
+    assert odd['groups'][1]['options'] == ln_names, (
+        f"a circuit voltage matching neither figure follows the derivation's "
+        f"own catch-all, line-to-neutral: {odd['groups'][1]}")
+
+
+def test_a_mismatched_explicit_scheme_stays_selected_and_says_so(page):
+    """An explicit line-to-line scheme on a distro whose circuits later
+    became 120V is somebody's paperwork about how a real box is wired: it
+    stays selected and VISIBLE with the mismatch stated in its option text,
+    never silently dropped or swapped. The rest of the list still offers the
+    permitted coupling, and the derive entry is still the way out."""
+    out = page.evaluate(PHASING_SELECT_JS, {
+        'circuitV': 120, 'distro': {'phasing': 'paired-ll-alt'}})
+    assert out['value'] == 'paired-ll-alt', (
+        f"the mismatched explicit scheme was dropped or deselected: {out}")
+    assert 'does not match' in out['text'], (
+        f"the mismatch is not stated on the option itself: {out}")
+    assert '120 V' in out['text'] and 'line-to-neutral' in out['text'], (
+        f"the mismatch does not say what the circuits actually are: {out}")
+    # derive + the two line-to-neutral orderings + the kept mismatch
+    assert out['options'] == 4, (
+        f"the list should carry the derive entry, the permitted orderings and "
+        f"the kept mismatch, nothing else: {out}")
+    assert out['firstValue'] == '', (
+        f"the derive entry must survive the mismatch state: {out}")
+
+
 def test_choosing_a_scheme_and_choosing_the_voltage_again_round_trips(page):
     """The whole workflow through the real panel: a 208V distro fed by 208V
     circuits derives the line-to-line scheme, an explicit pick sticks across a
@@ -807,6 +866,9 @@ def test_choosing_a_scheme_and_choosing_the_voltage_again_round_trips(page):
         kept = page.evaluate(read)
         assert kept['value'] == 'rotating-ll' and kept['stored'] == 'rotating-ll', (
             f"changing the voltage overwrote a scheme somebody chose: {kept}")
+        assert 'does not match' in kept['text'], (
+            f"a kept scheme whose coupling the voltage no longer permits must "
+            f"say so on its option: {kept}")
 
         page.select_option('#power-distros .distro-phasing', '')
         page.wait_for_timeout(600)
@@ -915,7 +977,10 @@ def test_one_scheme_one_name_in_the_select_the_derived_entry_and_the_help(page):
     names = [s['name'] for s in schemes]
     out = page.evaluate(NAMING_JS, {'circuitV': 208})
 
-    assert out['options'][1:] == names, (
+    # 208V circuits on a 208V service: the select carries the line-to-line
+    # orderings (the voltage decides the coupling); the help modal still
+    # documents all five schemes.
+    assert out['options'][1:] == [s['name'] for s in schemes if s['lineToLine']], (
         f"the select does not print the scheme names verbatim: {out}")
     assert out['modalNames'] == names, (
         f"the help modal names the schemes differently from the select - the "
@@ -968,7 +1033,9 @@ def test_deriving_and_the_schemes_are_visibly_different_kinds_of_entry(page):
     derive, wiring = out['groups']
     assert derive['options'] == [out['selected']], (
         f"the derive entry does not stand alone in its group: {out}")
-    assert wiring['options'] == [s['name'] for s in schemes], (
+    # at 208-on-208 the wiring group carries the line-to-line orderings -
+    # the voltage decides the coupling, so the other coupling is not offered
+    assert wiring['options'] == [s['name'] for s in schemes if s['lineToLine']], (
         f"the schemes are not grouped together: {out}")
     assert out['values'][0] == '', (
         "deriving is still the empty value that clears distro.phasing")

@@ -3701,7 +3701,10 @@ class CanvasRenderer {
                     if (this.viewMode === 'power') {
                         this._keepTextUpright = _rotating;
                         this.renderPowerArrows(layer);
-                        if (layer.showSocaBrackets !== false) this.renderSocaBrackets(layer);
+                        // Brackets draw only when explicitly ticked (=== true,
+                        // matching the soca panel's checkbox): the user asked
+                        // for them off by default.
+                        if (layer.showSocaBrackets === true) this.renderSocaBrackets(layer);
                         this._keepTextUpright = false;
                     }
 
