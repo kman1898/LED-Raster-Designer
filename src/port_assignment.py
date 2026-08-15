@@ -318,8 +318,40 @@ def resolve(processors, screens, state=None):
         'auto': auto_on,
         'cards': [_card_summary(c, claims) for c in cards],
         'screens': resolved_screens,
+        'occupancy': _occupancy(resolved_screens),
         'issues': issues,
     }
+
+
+def _occupancy(resolved_screens):
+    """The same placements read from the CARD's end: who is on port 7.
+
+    The screens list answers "where did my ports go", which is what the Port
+    Assignment panel asks. The Processors panel is standing at the other end of
+    the cable and asks the opposite question, and answering it by walking every
+    screen for every port row would be the same join done once per row. A port
+    nobody claims is simply absent, so the panel can say free without having to
+    know what free looks like.
+
+    A contested port carries EVERY claimant, in the order they claimed it,
+    rather than the last one to win a dict key. Two screens on one port is a
+    real state this module reports and refuses to fix, and a row that named one
+    of them would hide half of exactly the thing the user needs to see.
+    """
+    out = {}
+    for scr in resolved_screens:
+        for port in scr['ports']:
+            if not port['cardId']:
+                continue
+            on_card = out.setdefault(port['cardId'], {})
+            on_card.setdefault(str(port['port']), []).append({
+                'layerId': scr['layerId'],
+                'name': scr['name'],
+                'number': port['number'],
+                'source': port['source'],
+                'overlap': port['overlap'],
+            })
+    return out
 
 
 def _card_summary(card, claims):

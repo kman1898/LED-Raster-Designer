@@ -831,6 +831,36 @@ def test_a_label_template_is_editable_and_comes_back_from_the_server(client):
     assert first_card(only(reread))['ports'][0]['label'] == 'SR.P1'
 
 
+def test_one_port_named_by_hand_outranks_the_whole_ladder(client):
+    """A rank above the nearest named device upstream, and the only one that
+    can be aimed at a single port. The ladder produces a whole card at a time,
+    which is what makes naming a card enough to label a wall; what it cannot
+    produce is the one port that is not like its neighbours. Since a screen's
+    own override no longer reaches an assigned port, this is where that port is
+    named. tests/test_processor_labels.py carries the rest of the rule."""
+    state = add_processor(client, 'novastar-h9')
+    pid = only(state)['id']
+    state = set_card(client, pid, 0, 'novastar-card-h-4xfiber')
+    card_id = first_card(only(state))['id']
+    client.put(f'/api/processors/{pid}/cards/{card_id}', json={'name': 'SR'})
+    state = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
+                        json={'deviceId': 'novastar-cvt10'}).get_json()
+    cvt_id = first_card(only(state))['cvts'][0]['id']
+    client.put(f'/api/processors/{pid}/cvts/{cvt_id}', json={'name': 'CVT-A'})
+
+    resp = client.put(f'/api/processors/{pid}/cards/{card_id}/ports/2',
+                      json={'name': 'HOUSE-LEFT'})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    card = first_card(only(resp.get_json()))
+    assert [p['label'] for p in card['ports'][:3]] == \
+        ['CVT-A-1', 'HOUSE-LEFT', 'CVT-A-3']
+    assert card['ports'][1]['labelSource'] == 'manual'
+    assert card['portNames'] == {'2': 'HOUSE-LEFT'}
+
+    reread = first_card(only(client.get('/api/processors').get_json()))
+    assert reread['ports'][1]['label'] == 'HOUSE-LEFT'
+
+
 # ── 4. Ceilings that are exceeded stay visible ────────────────────────────
 
 def test_a_fifth_box_on_a_four_trunk_card_is_refused(client):

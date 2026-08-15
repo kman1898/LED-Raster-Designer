@@ -279,6 +279,43 @@ def render_port_label(name, template, number):
     return text.replace('{name}', name or '').replace('#', str(number))
 
 
+def port_name(card, number):
+    """A name typed onto ONE port of one card, or None.
+
+    Stored on the card and keyed by the CARD's own port number, because that is
+    the port - a CVT is where it comes out, not a second port. Keys arrive as
+    strings from JSON and as ints from Python, so both are read; blank is not a
+    name, it is the absence of one, and returns None so the generated label
+    takes back over.
+    """
+    names = (card or {}).get('portNames') or {}
+    value = names.get(str(number))
+    if value is None:
+        value = names.get(number)
+    value = (value or '').strip()
+    return value or None
+
+
+def set_port_name(card, number, name):
+    """Name one port by hand, or hand it back to the template with a blank.
+
+    Clearing DELETES the key rather than storing an empty string. A port with
+    no name is the normal state of every port, and a card carrying forty empty
+    strings would put them in the saved file of anyone who typed a name and
+    thought better of it.
+    """
+    names = card.setdefault('portNames', {})
+    text = (name or '').strip()
+    if text:
+        names[str(number)] = text
+    else:
+        names.pop(str(number), None)
+        names.pop(number, None)
+    if not names:
+        card.pop('portNames', None)
+    return text or None
+
+
 def _label_owner(cvt, card, proc):
     """The nearest NAMED device upstream of a port, and nothing else.
 
@@ -419,7 +456,20 @@ def resolve_card(card, proc):
         # which matters the moment a card carries two unnamed CVTs, where
         # numbering both from 1 would print the same eight labels twice.
         numbered = local if source == 'cvt' else number
-        if owner is None:
+        # A NAME TYPED ONTO ONE PORT BEATS EVERY RULE ABOVE IT.
+        #
+        # The rules produce a whole card at a time - SR-1 to SR-16 - which is
+        # what makes naming a card enough to label a wall. What they cannot
+        # produce is the one port that is not like its neighbours: the spare
+        # patched to the far side of the room, the port a house rig already
+        # calls something else. That port used to be handled by overriding the
+        # label on the SCREEN, and a screen's override no longer reaches an
+        # assigned port, so this is where it lives now.
+        manual = port_name(card, number)
+        if manual:
+            label = manual
+            source = 'manual'
+        elif owner is None:
             label = None
         elif source == 'processor':
             # A processor carries a name but no template of its own - it lends
@@ -478,6 +528,12 @@ def resolve_card(card, proc):
         'vendor': device.get('vendor', ''),
         'name': card.get('name', ''),
         'portLabelTemplate': card.get('portLabelTemplate') or DEFAULT_PORT_LABEL_TEMPLATE,
+        # Sent back as typed, so the panel's per-port boxes show what is in
+        # them rather than only the label they produced. Keys are strings for
+        # the same reason they are stored that way - a JSON round-trip makes
+        # them strings whether anyone wanted it or not.
+        'portNames': {str(k): v for k, v in
+                      (card.get('portNames') or {}).items() if v},
         'fixed': bool(card.get('fixed')),
         'connector': device.get('connector', ''),
         'mode': cap['mode'],

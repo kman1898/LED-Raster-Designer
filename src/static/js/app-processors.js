@@ -54,6 +54,16 @@ class _Processors {
             this.project.processors = data.processors || [];
         }
         this.renderProcessorPanel();
+        // A PROCESSOR EDIT IS A LABEL EDIT. The drawing's port labels come out
+        // of the port assignment, and the assignment is resolved against this
+        // tree, so naming a card "SR" only reaches the canvas once it has been
+        // re-resolved. Doing it here is also what clears the labels when the
+        // last processor is deleted - the guard in updateUIFromProject skips
+        // the walk for a project with no processors, which is right for every
+        // other reason and would leave a deleted machine's names on the wall.
+        if (typeof this.refreshPortAssignment === 'function') {
+            this.refreshPortAssignment();
+        }
     }
 
     _processorRequest(url, method, body) {
@@ -451,7 +461,7 @@ class _Processors {
             wrap.appendChild(this._buildCvt(proc, cvt));
         });
 
-        wrap.appendChild(this._buildPortList(card));
+        wrap.appendChild(this._buildPortList(proc, card));
         return wrap;
     }
 
@@ -518,10 +528,19 @@ class _Processors {
         return wrap;
     }
 
-    _buildPortList(card) {
+    // Who is sitting on one card port, as the assignment last resolved it.
+    // Read from the resolution rather than worked out here, for the same
+    // reason nothing else in this panel is derived: the allocation order and
+    // the clashes are port_assignment.py's answer, not a second one.
+    _portOccupants(cardId, number) {
+        const occ = (this._assignment && this._assignment.occupancy) || {};
+        return (occ[cardId] && occ[cardId][String(number)]) || [];
+    }
+
+    _buildPortList(proc, card) {
         const list = document.createElement('div');
         list.style.marginTop = '6px';
-        list.style.maxHeight = '150px';
+        list.style.maxHeight = '190px';
         list.style.overflow = 'auto';
         list.style.background = '#0d0d0d';
         list.style.border = '1px solid #262626';
@@ -538,25 +557,91 @@ class _Processors {
             return list;
         }
         card.ports.forEach(port => {
-            const row = document.createElement('div');
-            row.style.display = 'grid';
-            row.style.gridTemplateColumns = '24px 1fr';
-            row.style.gap = '4px';
-            row.style.fontSize = '11px';
-            row.style.fontFamily = 'monospace';
-            const num = document.createElement('div');
-            num.style.color = port.beyondCeiling ? '#d05a52' : '#666';
-            num.textContent = String(port.number);
-            const label = document.createElement('div');
-            label.style.color = port.label ? '#ccc' : '#666';
-            // No name anywhere upstream means no processor-derived label, and
-            // the screen's own template is still the thing doing the work.
-            label.textContent = port.label || 'unnamed';
-            row.appendChild(num);
-            row.appendChild(label);
-            list.appendChild(row);
+            list.appendChild(this._buildPortRow(proc, card, port));
         });
         return list;
+    }
+
+    _buildPortRow(proc, card, port) {
+        const row = document.createElement('div');
+        row.style.display = 'grid';
+        // Number, name, occupant. The name is an input rather than text
+        // because a port is a socket someone has to be able to call what the
+        // house already calls it, and since the processor now beats a screen's
+        // own override for an assigned port, this box is the ONLY place left
+        // to do it. Making it a mode to find would strand every port that
+        // needs one.
+        row.style.gridTemplateColumns = '22px minmax(0, 1fr) minmax(0, 1fr)';
+        row.style.gap = '4px';
+        row.style.alignItems = 'center';
+        row.style.fontSize = '11px';
+        row.style.fontFamily = 'monospace';
+
+        const num = document.createElement('div');
+        num.style.color = port.beyondCeiling ? '#d05a52' : '#666';
+        num.textContent = String(port.number);
+        row.appendChild(num);
+
+        const name = document.createElement('input');
+        name.type = 'text';
+        name.value = (card.portNames || {})[String(port.number)] || '';
+        // The generated label sits in the placeholder, so an empty box still
+        // reads as what the port is actually called. No name anywhere upstream
+        // means no processor-derived label at all, and the screen's own
+        // template is still the thing doing the work - which is what "unnamed"
+        // has always meant here.
+        name.placeholder = port.label || 'unnamed';
+        name.title = port.labelSource === 'manual'
+            ? 'Named by hand. Clear the box to go back to the card’s template.'
+            : 'Name this port. It beats the card’s template for this port only.';
+        name.dataset.lrdField = `processor-port-name-${card.id}-${port.number}`;
+        name.style.padding = '0 3px';
+        name.style.background = 'transparent';
+        name.style.border = '1px solid transparent';
+        name.style.borderRadius = '3px';
+        name.style.color = port.labelSource === 'manual' ? '#e0c98a' : '#ccc';
+        name.style.fontFamily = 'monospace';
+        name.style.fontSize = '11px';
+        name.style.width = '100%';
+        name.style.minWidth = '0';
+        name.style.boxSizing = 'border-box';
+        name.addEventListener('focus', () => {
+            name.style.borderColor = '#3a3a3a';
+            name.style.background = '#0d0d0d';
+        });
+        name.addEventListener('blur', () => {
+            name.style.borderColor = 'transparent';
+            name.style.background = 'transparent';
+        });
+        name.addEventListener('change', () => this._processorRequest(
+            `/api/processors/${proc.id}/cards/${card.id}/ports/${port.number}`,
+            'PUT', { name: name.value.trim() }));
+        row.appendChild(name);
+
+        const who = document.createElement('div');
+        who.style.overflow = 'hidden';
+        who.style.textOverflow = 'ellipsis';
+        who.style.whiteSpace = 'nowrap';
+        const occupants = this._portOccupants(card.id, port.number);
+        if (!occupants.length) {
+            // A port with nothing on it says so. The panel used to show the
+            // label and nothing else, which reads as if no screen were ever on
+            // the machine even when six of them are.
+            who.style.color = '#4a4a4a';
+            who.textContent = 'free';
+            who.title = 'No screen is on this port.';
+        } else {
+            const parts = occupants.map(o => `${o.name} p${o.number}`);
+            who.style.color = occupants.length > 1 ? '#d05a52' : '#888';
+            who.textContent = parts.join(', ')
+                + (occupants.length > 1 ? ' - clash' : '');
+            who.title = occupants.length > 1
+                ? `${parts.join(' and ')} both claim this port. Nothing has `
+                  + 'been renumbered - see Port Assignment.'
+                : `${occupants[0].name}, its port ${occupants[0].number}`;
+        }
+        row.appendChild(who);
+        return row;
     }
 }
 

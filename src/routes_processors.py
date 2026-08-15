@@ -175,6 +175,35 @@ def update_card(processor_id, card_id):
     return _state()
 
 
+@processors_bp.route('/api/processors/<processor_id>/cards/<card_id>/ports/<int:number>',
+                     methods=['PUT'])
+def update_card_port(processor_id, card_id, number):
+    """Name one port by hand. A blank hands it back to the card's template.
+
+    Per PORT rather than per card, and on the card rather than on the screen,
+    because a port is a socket on a machine: it keeps its name when the wall in
+    front of it is renumbered, moved to another screen or deleted. This is the
+    only override an assigned port has - the screen's own portLabelOverrides no
+    longer reach one - so it is deliberately a plain PUT that any port row can
+    make, not a mode anyone has to find.
+    """
+    proc = _find_processor(processor_id)
+    if not proc:
+        return jsonify({'error': 'Processor not found'}), 404
+    card = _find_card(proc, card_id)
+    if not card:
+        return jsonify({'error': 'Card not found'}), 404
+    if number < 1:
+        return jsonify({'error': 'Port numbers start at 1'}), 400
+    data = request.json or {}
+    if 'name' not in data:
+        return jsonify({'error': 'name is required'}), 400
+    stored = catalog.set_port_name(card, number, data.get('name'))
+    log_event('processor_port_name', {'card': card_id, 'port': number,
+                                      'named': bool(stored)})
+    return _state()
+
+
 @processors_bp.route('/api/processors/<processor_id>/cards/<card_id>/cvts', methods=['POST'])
 def add_cvt(processor_id, card_id):
     proc = _find_processor(processor_id)

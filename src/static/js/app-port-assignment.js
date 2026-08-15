@@ -28,6 +28,10 @@ class _PortAssignment {
     initPortAssignmentPanel() {
         this._assignment = null;
         this._assignmentKeyRaw = '';
+        // Empty, not absent: getPortLabelText reads it on every frame from the
+        // first render, which happens long before this endpoint answers.
+        this._processorPortLabels = {};
+        this._occupancyRaw = '';
         this.refreshPortAssignment();
     }
 
@@ -94,10 +98,68 @@ class _PortAssignment {
                 if (data.state && this.project) {
                     this.project.port_assignments = data.state;
                 }
-                this.renderPortAssignmentPanel();
+                this._applyAssignmentResolution();
             })
             .catch(err => sendClientLog('port_assignment_request_failed',
                                         { url, method, error: String(err) }));
+    }
+
+    // Everything that has to happen when a new resolution lands, in one place
+    // so no caller can update the panel and leave the drawing behind.
+    //
+    // A resolution is not just a picture of a sidebar: it is where the port
+    // labels on the drawing come from, and it is what the Processors panel
+    // reads to say which screen is sitting on each of its ports. All three
+    // move together or the app shows three different answers at once.
+    _applyAssignmentResolution() {
+        this._indexAssignmentLabels();
+        this.renderPortAssignmentPanel();
+        // The Processors panel only needs redrawing when what is ON its ports
+        // changed, which is why this is compared rather than simply redrawn.
+        // That panel is rebuilt wholesale, so redrawing it on every resolve
+        // would throw away whatever somebody was halfway through typing into a
+        // card name each time a screen was resized on the other side of the
+        // app. Comparing a small blob beats losing an edit.
+        const occupancy = JSON.stringify(
+            (this._assignment && this._assignment.occupancy) || {});
+        if (occupancy !== this._occupancyRaw) {
+            this._occupancyRaw = occupancy;
+            if (typeof this.renderProcessorPanel === 'function') {
+                this.renderProcessorPanel();
+            }
+        }
+        // The labels on the drawing just changed, or just stopped changing.
+        // Nothing else redraws the canvas on this path - the panel's own
+        // render only touches the sidebar.
+        if (window.canvasRenderer) window.canvasRenderer.render();
+    }
+
+    // Flatten the resolution into layerId -> portNumber -> label, once.
+    //
+    // getPortLabelText is called for every port of every screen on every
+    // frame, and the resolution it would otherwise have to search is a list of
+    // screens each holding a list of ports. Two object lookups instead of two
+    // nested scans is the difference between a label rule and a frame-rate
+    // problem on a wall with thirty screens.
+    //
+    // A port with no label is left OUT rather than stored as null, so the
+    // lookup's own miss is the fallback: an unassigned port, a card nobody
+    // named, or a project with no processor at all all land on the layer's own
+    // template with nothing extra to check.
+    _indexAssignmentLabels() {
+        const map = {};
+        const res = this._assignment;
+        ((res && res.screens) || []).forEach(scr => {
+            const byPort = {};
+            let any = false;
+            (scr.ports || []).forEach(port => {
+                if (!port.label) return;
+                byPort[port.number] = port.label;
+                any = true;
+            });
+            if (any) map[String(scr.layerId)] = byPort;
+        });
+        this._processorPortLabels = map;
     }
 
     // ── drawing ───────────────────────────────────────────────────────────
