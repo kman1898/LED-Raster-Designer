@@ -4844,7 +4844,13 @@ class CanvasRenderer {
             capacity,
             percent,
             shown,
-            state: over ? 'over' : (shown >= 90 ? 'warn' : 'ok')
+            // Binary: a port either fits or it does not. There used to be an
+            // amber 90%+ "warn" band, which made sense while 100% was a fault
+            // and you wanted warning before it. Now that a port filled exactly
+            // to capacity is legal, amber marked good ports as suspect - and a
+            // drawing where every healthy port is plain means any colour on it
+            // is a real problem.
+            state: over ? 'over' : 'ok'
         };
     }
 
@@ -4888,8 +4894,6 @@ class CanvasRenderer {
 
         if (stats.state === 'over') {
             this.ctx.fillStyle = '#ff0000';
-        } else if (stats.state === 'warn') {
-            this.ctx.fillStyle = '#ff6600';
         } else {
             this.ctx.fillStyle = layer.labelsColor || '#ffffff';
         }

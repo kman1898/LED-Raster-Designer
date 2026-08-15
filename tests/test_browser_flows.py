@@ -3019,12 +3019,14 @@ def expected_load_label(load, capacity):
     The clamps keep the digits and the colour agreeing: a port that fits can
     never print above 100, and one that does not can never print below 101.
     Without them a 100.4% port would round to a passing-looking "100" while
-    glowing red."""
+    glowing red.
+
+    There is no amber band. It existed to warn before an at-capacity fault;
+    with 100% legal it only marked good ports as suspect."""
     percent = load / capacity * 100
     if load > capacity:
         return max(101, js_round(percent)), 'over'
-    shown = min(100, js_round(percent))
-    return shown, ('warn' if shown >= 90 else 'ok')
+    return min(100, js_round(percent)), 'ok'
 
 
 def test_port_load_percent_matches_the_emitted_map(page):
