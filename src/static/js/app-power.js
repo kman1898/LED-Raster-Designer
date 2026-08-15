@@ -476,15 +476,23 @@ class _Power {
         // the Processors panel: the wall labels itself off the machine driving
         // it instead of off a template typed into every screen. The way to
         // change an assigned port's label is to rename the port, or the card,
-        // in the Processors panel; both ends of the run take the same name,
-        // because both ends are the same socket.
+        // in the Processors panel; both ends of the run take that name.
+        //
+        // BOTH ENDS, NOT THE SAME TEXT. A redundant loop leaves the socket and
+        // comes back to it, so the two ends print at opposite corners of the
+        // wall and the drawing is the only thing saying which is which. Two
+        // labels reading SR-1 make a backup run impossible to trace, which is
+        // the one job the return label has. It is the primary with an R after
+        // it - SR-1 out, SR-1R back - so the socket is still named once and the
+        // return is still the return, which is what P1 / R1 said before a
+        // processor was naming anything.
         //
         // _processorPortLabels is a flat layerId -> portNum -> label lookup,
         // rebuilt only when the assignment changes (see _indexAssignmentLabels
         // in app-port-assignment.js). This runs for every port of every screen
         // on every frame, so it must never resolve anything itself.
         const assigned = this.getProcessorPortLabel(layer, portNum);
-        if (assigned) return assigned;
+        if (assigned) return type === 'return' ? `${assigned}R` : assigned;
 
         // No processor in the project, or a port that is not on one: exactly
         // what every project did before processors existed, override included.
@@ -702,9 +710,9 @@ class _Power {
             const fromProcessor = this.getProcessorPortLabel(this.currentLayer, portNum);
             const ownedNote = fromProcessor
                 ? `Port ${portNum} is on the processor, which names it `
-                  + `${fromProcessor}. Rename it in the Processors panel. What `
-                  + `you type here is kept, and draws again only if this port `
-                  + `stops being assigned.`
+                  + `${fromProcessor} and its return ${fromProcessor}R. Rename `
+                  + `it in the Processors panel. What you type here is kept, `
+                  + `and draws again only if this port stops being assigned.`
                 : '';
             if (fromProcessor) {
                 numLabel.style.color = '#c8a04a';

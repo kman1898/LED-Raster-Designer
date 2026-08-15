@@ -80,6 +80,16 @@ def by_name(resolution, name):
     return next(s for s in resolution['screens'] if s['layerId'] == name)
 
 
+def place(client, layer_id, index, card_id, port, sc, confirm=False):
+    """One port of one screen onto one card port - the request both panels
+    send, from either end of the cable."""
+    body = {'layerId': layer_id, 'index': index, 'cardId': card_id,
+            'port': port, 'screens': sc}
+    if confirm:
+        body['confirm'] = True
+    return client.post('/api/port-assignments/place', json=body)
+
+
 def spots(resolution, name):
     """(cardId, port) for each of one screen's own ports, in its own order.
     None where a port has nowhere to go."""
@@ -511,6 +521,245 @@ def test_a_block_move_with_nowhere_to_land_is_refused_not_half_done(one_card):
     assert numbers(after, 'Side') == numbers(before, 'Side')
 
 
+# ── 3b. One port, placed by hand ──────────────────────────────────────────
+#
+# The block move is for a screen cabled as one run. This is for the port that
+# is not like its neighbours - the spare patched across the room, the run the
+# house rig was already made up to - and the rule it adds is that moving one
+# port moves ONE port.
+
+def test_one_port_can_be_placed_on_the_card_port_somebody_chose(one_card):
+    client, _pid, card = one_card
+    sc = screens(('Main', 6),)
+    assert numbers(resolve(client, ('Main', 6)), 'Main') == [1, 2, 3, 4, 5, 6]
+
+    resp = place(client, 'Main', 2, card, 12, sc)
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    res = resp.get_json()['resolution']
+    assert spots(res, 'Main')[2] == (card, 12)
+    assert sources(res, 'Main')[2] == 'pin'
+    assert resp.get_json()['moved']['port'] == 12
+    assert resp.get_json()['moved']['from'] == {'cardId': card, 'port': 3}
+
+
+def test_placing_one_port_leaves_the_screens_other_ports_where_they_were(one_card):
+    """The whole point of the control. Left to itself the tail of the run would
+    slide down into the port that was vacated - an auto port is arithmetic and
+    re-packs into whatever room appears - so one click would renumber four
+    ports on a drawing. The rest of the run is held first, which is the same
+    trade the block move makes and prints PINNED on the page just as loudly."""
+    client, _pid, card = one_card
+    sc = screens(('Main', 6),)
+    before = numbers(resolve(client, ('Main', 6)), 'Main')
+
+    resp = place(client, 'Main', 2, card, 12, sc)
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    after = numbers(resp.get_json()['resolution'], 'Main')
+
+    assert after == [1, 2, 12, 4, 5, 6], after
+    assert [after[i] for i in (0, 1, 3, 4, 5)] == \
+        [before[i] for i in (0, 1, 3, 4, 5)], 'a port nobody moved was renumbered'
+    assert resp.get_json()['moved']['held'] == 5
+    assert 'held where they were' in resp.get_json()['moved']['note']
+
+
+def test_placing_one_port_leaves_another_screens_pins_alone(one_card):
+    client, _pid, card = one_card
+    sc = screens(('Main', 4), ('Side', 3))
+    for index, port in enumerate((10, 11, 12)):
+        client.post('/api/port-assignments/pin', json={
+            'layerId': 'Side', 'index': index, 'cardId': card, 'port': port,
+            'screens': sc})
+
+    resp = place(client, 'Main', 0, card, 16, sc)
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    res = resp.get_json()['resolution']
+    assert numbers(res, 'Side') == [10, 11, 12], "another screen's pins moved"
+    assert numbers(res, 'Main') == [16, 2, 3, 4]
+
+
+def test_placing_onto_an_occupied_port_is_reported_rather_than_taken(one_card):
+    """Detect and OFFER, at the finest grain the feature has. The refusal names
+    who is on the socket and what happens if this lands on it as well, and
+    nothing has moved by the time it is read - so the answer is a person's,
+    not a retry's."""
+    client, _pid, card = one_card
+    sc = screens(('Main', 4), ('Side', 4))
+    assert numbers(resolve(client, ('Main', 4), ('Side', 4)), 'Side') == [5, 6, 7, 8]
+
+    resp = place(client, 'Side', 0, card, 2, sc)
+    assert resp.status_code == 409, resp.get_data(as_text=True)
+    body = resp.get_json()
+    assert 'Main port 2' in body['error'], body['error']
+    assert body['conflict']['port'] == 2
+    assert [o['name'] for o in body['conflict']['occupants']] == ['Main']
+
+    after = resolve(client, ('Main', 4), ('Side', 4))
+    assert numbers(after, 'Main') == [1, 2, 3, 4], 'the occupant was displaced'
+    assert numbers(after, 'Side') == [5, 6, 7, 8], 'the refused move happened'
+    assert assignment.STATE_KEY not in client.get('/api/project').get_json(), (
+        'a refused placement stamped state onto the project')
+
+
+def test_the_refusal_says_which_of_the_two_things_would_happen(one_card):
+    """The two outcomes are nothing like each other, so a refusal that only
+    said "occupied" would be no use in choosing. An auto port gets out of the
+    way, which is the same thing as saying its screen is renumbered; a pinned
+    one is somebody's decision and stays, and the socket ends up claimed
+    twice."""
+    client, _pid, card = one_card
+    sc = screens(('Main', 4), ('Side', 4))
+    auto = place(client, 'Side', 0, card, 2, sc).get_json()['error']
+    assert 'renumbers that screen' in auto, auto
+
+    client.post('/api/port-assignments/pin', json={
+        'layerId': 'Main', 'index': 1, 'cardId': card, 'port': 2,
+        'screens': sc})
+    held = place(client, 'Side', 0, card, 2, sc).get_json()['error']
+    assert 'draw as a clash' in held, held
+
+
+def test_confirming_over_an_auto_port_packs_it_around_and_says_so(one_card):
+    """Nothing was silently rearranged: the renumbering was named in the
+    refusal, agreed to, and named again in what came back."""
+    client, _pid, card = one_card
+    sc = screens(('Main', 4), ('Side', 4))
+    assert place(client, 'Side', 0, card, 2, sc).status_code == 409
+
+    resp = place(client, 'Side', 0, card, 2, sc, confirm=True)
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    res = resp.get_json()['resolution']
+    assert numbers(res, 'Side')[0] == 2
+    assert numbers(res, 'Main') == [1, 3, 4, 5], 'auto did not pack around it'
+    assert 'Main' in resp.get_json()['moved']['note']
+
+
+def test_confirming_over_a_pinned_port_keeps_both_claims(one_card):
+    """Two screens on one socket is a real thing - a hot spare on the same
+    port - so it stays reachable once it has been read out. Both keep the
+    claim, both draw as a clash, and neither is renumbered."""
+    client, _pid, card = one_card
+    sc = screens(('Main', 4), ('Side', 4))
+    client.post('/api/port-assignments/pin', json={
+        'layerId': 'Main', 'index': 1, 'cardId': card, 'port': 2,
+        'screens': sc})
+    assert place(client, 'Side', 0, card, 2, sc).status_code == 409
+
+    resp = place(client, 'Side', 0, card, 2, sc, confirm=True)
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    res = resp.get_json()['resolution']
+    assert numbers(res, 'Main')[1] == 2, 'the occupant was pushed off'
+    assert numbers(res, 'Side')[0] == 2
+    assert by_name(res, 'Side')['ports'][0]['overlap'] is True
+    assert 'overlap' in kinds(res)
+    assert 'nothing was displaced' in resp.get_json()['moved']['note']
+
+
+def test_a_placement_onto_another_card_says_the_run_now_spans_two(one_card):
+    """The honest half of a per-port move: it CAN strand a run across two
+    machines, which auto-numbering would never have chosen on its own. It is
+    allowed - somebody asked - and it is said out loud, because two cards is
+    two trunks to one wall."""
+    client, pid, card_a = one_card
+    state = set_card(client, pid, 1, 'novastar-card-h-16xrj45-2xfiber')
+    card_b = card_ids(state)[1]
+    sc = screens(('Main', 5),)
+
+    resp = place(client, 'Main', 4, card_b, 1, sc)
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    res = resp.get_json()['resolution']
+    assert spots(res, 'Main') == [(card_a, 1), (card_a, 2), (card_a, 3),
+                                  (card_a, 4), (card_b, 1)]
+    assert by_name(res, 'Main')['split'] is True
+    assert 'spans 2 cards' in resp.get_json()['moved']['note']
+
+
+def test_a_placement_names_the_socket_it_landed_on(one_card):
+    """The note is what the panel prints after the move, and a port number on
+    its own is not what the tech is standing in front of. The card's name is
+    not repeated in front of a label already built out of it - "SR SR-9" reads
+    like two different things."""
+    client, pid, card = one_card
+    client.put(f'/api/processors/{pid}/cards/{card}', json={'name': 'SR'})
+    resp = place(client, 'Main', 0, card, 9, screens(('Main', 3),))
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    assert 'is now on SR-9.' in resp.get_json()['moved']['note'], \
+        resp.get_json()['moved']['note']
+
+
+def test_a_socket_a_box_named_is_called_by_both_names(one_card):
+    """The other half of the same rule. A CVT's ports are named after the box,
+    so the label alone does not say which card it hangs off - and that is the
+    thing somebody is about to plug into."""
+    client, pid, card = one_card
+    client.put(f'/api/processors/{pid}/cards/{card}', json={'name': 'SR'})
+    resp = client.post(f'/api/processors/{pid}/cards/{card}/cvts',
+                       json={'deviceId': 'novastar-cvt10'})
+    cvt_id = resp.get_json()['resolved'][0]['slots'][0]['card']['cvts'][0]['id']
+    client.put(f'/api/processors/{pid}/cvts/{cvt_id}', json={'name': 'BOX-A'})
+
+    resp = place(client, 'Main', 0, card, 5, screens(('Main', 3),))
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    assert 'is now on SR BOX-A-5.' in resp.get_json()['moved']['note'], \
+        resp.get_json()['moved']['note']
+
+
+def test_a_placement_past_the_cards_last_port_is_refused(one_card):
+    """Sixteen ports is a fact about metal. There is no port 20 to place onto,
+    and offering one would put a wall on a socket that does not exist."""
+    client, _pid, card = one_card
+    resp = place(client, 'Main', 0, card, 20, screens(('Main', 2),))
+    assert resp.status_code == 409
+    assert '16 ports' in resp.get_json()['error']
+    assert assignment.STATE_KEY not in client.get('/api/project').get_json()
+
+
+def test_a_placement_of_a_port_the_screen_does_not_have_is_refused(one_card):
+    client, _pid, card = one_card
+    resp = place(client, 'Main', 7, card, 1, screens(('Main', 3),))
+    assert resp.status_code == 409
+    assert 'no port 8' in resp.get_json()['error']
+
+
+def test_a_card_with_no_settled_count_still_takes_a_placement(client):
+    """"Ports can still be pinned to it by hand" is what the panel says about
+    an SQ200, and this is the by-hand path. There is no ceiling to check
+    against, and inventing one to check against is the failure the catalog
+    exists to prevent."""
+    state = add_processor(client, 'brompton-sq200')
+    card = card_ids(state)[0]
+    resp = place(client, 'Main', 0, card, 6, screens(('Main', 2),))
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    assert spots(resp.get_json()['resolution'], 'Main')[0] == (card, 6)
+
+
+def test_assigning_from_the_socket_lands_where_pinning_from_the_screen_does(
+        one_card):
+    """The Processors panel knows a card and a port number and asks which
+    screen plugs in; the Port Assignment panel knows a screen's port and asks
+    where it goes. Same cable, two ends, and they have to write the same pin -
+    two implementations of "what does that mean" would disagree the first time
+    a socket was already claimed."""
+    client, _pid, card = one_card
+    sc = screens(('Main', 4), ('Side', 2))
+    assert client.post('/api/port-assignments/pin', json={
+        'layerId': 'Main', 'index': 2, 'cardId': card, 'port': 11,
+        'screens': sc}).status_code == 200
+    pinned = spots(resolve(client, ('Main', 4), ('Side', 2)), 'Main')
+
+    client.post('/api/port-assignments/unpin',
+                json={'layerId': 'Main', 'screens': sc})
+    assert place(client, 'Main', 2, card, 11, sc).status_code == 200
+    placed = spots(resolve(client, ('Main', 4), ('Side', 2)), 'Main')
+
+    assert placed[2] == pinned[2] == (card, 11)
+    stored = [p for p in
+              client.get('/api/project').get_json()[assignment.STATE_KEY]['pins']
+              if p['index'] == 2]
+    assert stored == [{'layerId': 'Main', 'index': 2, 'cardId': card,
+                       'port': 11}]
+
+
 # ── 4. Overflow onto another card ─────────────────────────────────────────
 
 def test_a_wall_bigger_than_its_card_is_reported_rather_than_spilled(one_card):
@@ -803,6 +1052,18 @@ def test_a_refused_edit_leaves_no_state_behind(client):
     assert project['is_pristine'] is True
 
 
+def test_a_placement_with_no_processor_leaves_the_project_alone(client):
+    """There is no socket to place onto, and saying so must not be the thing
+    that stamps assignment state onto a project that has none."""
+    resp = client.post('/api/port-assignments/place', json={
+        'layerId': 'Main', 'index': 0, 'cardId': 'cardNope', 'port': 1,
+        'screens': screens(('Main', 2))})
+    assert resp.status_code == 404
+    project = client.get('/api/project').get_json()
+    assert assignment.STATE_KEY not in project
+    assert project['is_pristine'] is True
+
+
 def test_releasing_a_pin_that_was_never_made_changes_nothing(client):
     resp = client.post('/api/port-assignments/unpin',
                        json={'layerId': 'Main', 'screens': screens(('Main', 2))})
@@ -871,3 +1132,80 @@ def test_an_unnamed_card_gives_its_ports_no_label(one_card):
     res = resolve(client, ('Main', 2))
     assert [p['label'] for p in by_name(res, 'Main')['ports']] == [None, None]
     assert numbers(res, 'Main') == [1, 2], 'an unnamed card still numbers'
+
+
+def test_a_card_summary_carries_the_names_its_ports_go_by(one_card):
+    """A panel offering somebody a choice of sockets has to call each one what
+    the box calls it. Without the names the list reads 1, 2, 3 while the card
+    in the rack reads SR-1, SR-2, and the two get matched up by counting."""
+    client, pid, card = one_card
+    client.put(f'/api/processors/{pid}/cards/{card}', json={'name': 'SR'})
+    summary = resolve(client, ('Main', 2))['cards'][0]
+    assert summary['labels']['1'] == 'SR-1'
+    assert summary['labels']['16'] == 'SR-16'
+
+
+# ── 9. Both ends of one cable ─────────────────────────────────────────────
+#
+# The Port Assignment panel asks "where did my ports go" and the Processors
+# panel asks "what is on this socket". They are the same question from the two
+# ends of one cable, and the answer has to be written once.
+
+def js(filename):
+    path = os.path.join(os.path.dirname(__file__), '..', 'src', 'static', 'js',
+                        filename)
+    with open(path, encoding='utf-8') as fh:
+        return fh.read()
+
+
+def function_body(source, signature):
+    """One method out of a mixin class, from its signature to the closing brace
+    at method indentation. Crude, and it only has to be good enough to prove
+    which branch is where."""
+    start = source.index(signature)
+    return source[start:source.index('\n    }', start)]
+
+
+def test_both_panels_place_a_port_through_the_one_request():
+    """Two request builders would be two sets of rules about what may land on
+    an occupied socket, and they would disagree the first time one was
+    changed."""
+    panel = js('app-port-assignment.js')
+    processors = js('app-processors.js')
+    assert panel.count("'/api/port-assignments/place'") == 1
+    assert '_placePort(spot, confirmed) {' in panel
+    assert 'this._placePort(' in processors, (
+        'the Processors panel does not use the shared placement')
+    assert '/api/port-assignments/place' not in processors, (
+        'the Processors panel built its own placement request')
+
+
+def test_a_placement_asks_before_it_lands_on_somebody():
+    """The refusal is a question, not a failure. Retrying it automatically
+    would put the app back to rearranging things nobody agreed to."""
+    body = function_body(js('app-port-assignment.js'),
+                         '_placePort(spot, confirmed) {')
+    assert 'if (confirmed || !data.conflict) return false;' in body
+    assert 'window.confirm(' in body
+    assert 'this._placePort(spot, true);' in body
+
+
+def test_both_choosers_are_keyed_for_the_focus_guard():
+    """Both panels are rebuilt wholesale whenever anything re-resolves, so a
+    control with no stable key is destroyed under the user's fingers - the same
+    bug the port label editor had, fixed by the same _preserveEditorFocus."""
+    panel = js('app-port-assignment.js')
+    assert 'port-move-card-${scr.layerId}-${port.index}' in panel
+    assert 'port-move-port-${scr.layerId}-${port.index}' in panel
+    processors = js('app-processors.js')
+    assert 'processor-port-assign-${card.id}-${port.number}' in processors
+
+
+def test_a_half_made_choice_is_not_held_in_the_dom():
+    """Either panel can be rebuilt by a screen being resized on the other side
+    of the app, so which port has its chooser open lives on the app rather than
+    in the markup that is about to be thrown away."""
+    panel = js('app-port-assignment.js')
+    assert 'this._movingPort = null;' in panel
+    assert 'this._assigningPort = null;' in panel
+    assert 'this._assigningPort = null;' in js('app-processors.js')

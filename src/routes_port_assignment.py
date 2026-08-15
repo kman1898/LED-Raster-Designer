@@ -138,6 +138,53 @@ def pin_port():
     return _saved(_store(state), extra={'pinned': pinned})
 
 
+@port_assignment_bp.route('/api/port-assignments/place', methods=['POST'])
+def place_port():
+    """Put one port of one screen on the card port somebody named.
+
+    Deliberately not /pin. A pin says "hold this port, on that card, wherever
+    that turns out to be" and lands on the lowest free number; a placement
+    names the socket. Naming the socket is what makes landing on somebody
+    else's claim possible on purpose, and that is the one case that has to be
+    read out and agreed to rather than quietly reported afterwards - so it gets
+    a 409 carrying the conflict, and the same request with confirm goes
+    through.
+
+    It is also the endpoint the Processors panel posts to. Pointing at a socket
+    and saying what plugs into it, and pointing at a screen's port and saying
+    where it goes, are the same edit written from the two ends of one cable;
+    two routes for it would be two chances to disagree.
+    """
+    data = request.json or {}
+    layer_id = data.get('layerId')
+    card_id = data.get('cardId')
+    try:
+        index = int(data.get('index'))
+        port = int(data.get('port'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'index and port are required'}), 400
+    if layer_id is None or not card_id:
+        return jsonify({'error': 'layerId and cardId are required'}), 400
+    if str(card_id) not in {c['cardId'] for c in
+                            assignment.cards_in(_processors())}:
+        return jsonify({'error': 'That card is not in this project'}), 404
+    state = _working()
+    placed, error, conflict = assignment.place_port(
+        _processors(), _screens(), state, layer_id, index, card_id, port,
+        confirm=bool(data.get('confirm')))
+    if error:
+        body = {'error': error}
+        # The client may not simply retry: a conflict is a question, and the
+        # answer to it is a person reading who is already there.
+        if conflict:
+            body['conflict'] = conflict
+        return jsonify(body), 409
+    log_event('port_assignment_place', {'layer': layer_id, 'index': index,
+                                        'card': card_id, 'port': placed['port'],
+                                        'confirmed': bool(data.get('confirm'))})
+    return _saved(_store(state), extra={'moved': placed})
+
+
 @port_assignment_bp.route('/api/port-assignments/unpin', methods=['POST'])
 def unpin_port():
     """Release one pinned port, or a whole screen's worth when no index is

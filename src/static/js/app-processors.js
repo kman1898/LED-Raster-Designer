@@ -563,15 +563,17 @@ class _Processors {
     }
 
     _buildPortRow(proc, card, port) {
+        const wrap = document.createElement('div');
         const row = document.createElement('div');
         row.style.display = 'grid';
-        // Number, name, occupant. The name is an input rather than text
-        // because a port is a socket someone has to be able to call what the
-        // house already calls it, and since the processor now beats a screen's
-        // own override for an assigned port, this box is the ONLY place left
-        // to do it. Making it a mode to find would strand every port that
-        // needs one.
-        row.style.gridTemplateColumns = '22px minmax(0, 1fr) minmax(0, 1fr)';
+        // Number, name, occupant, and the button that sets the occupant. The
+        // name is an input rather than text because a port is a socket someone
+        // has to be able to call what the house already calls it, and since
+        // the processor now beats a screen's own override for an assigned
+        // port, this box is the ONLY place left to do it. Making it a mode to
+        // find would strand every port that needs one.
+        row.style.gridTemplateColumns =
+            '22px minmax(0, 1fr) minmax(0, 1fr) auto';
         row.style.gap = '4px';
         row.style.alignItems = 'center';
         row.style.fontSize = '11px';
@@ -641,7 +643,129 @@ class _Processors {
                 : `${occupants[0].name}, its port ${occupants[0].number}`;
         }
         row.appendChild(who);
-        return row;
+        row.appendChild(this._buildPortClaimControl(card, port));
+        wrap.appendChild(row);
+
+        // The chooser opens under its own row, where the ports either side of
+        // it are still readable. Which socket is free is decided by looking at
+        // the neighbours, and a dialog over the top hides them.
+        const open = this._assigningPort;
+        if (open && open.cardId === card.id && open.port === port.number) {
+            wrap.appendChild(this._buildPortClaimPicker(card, port));
+        }
+        return wrap;
+    }
+
+    // Point at a socket and say what plugs into it.
+    //
+    // The Port Assignment panel asks the same question from the screen's end -
+    // "where did my ports go" - and that was the only end it could be answered
+    // from. Anyone holding a patch sheet reads it the other way round: this
+    // socket, that wall. It posts the same request the screen-side move does,
+    // because it is the same decision written from the far end of one cable.
+    _buildPortClaimControl(card, port) {
+        const btn = document.createElement('button');
+        btn.className = 'btn';
+        btn.style.padding = '0 5px';
+        btn.style.fontSize = '10px';
+        btn.style.background = '#2a2a2a';
+        const open = !!(this._assigningPort
+            && this._assigningPort.cardId === card.id
+            && this._assigningPort.port === port.number);
+        btn.textContent = open ? 'close' : 'set';
+        const screens = (this._assignment && this._assignment.screens) || [];
+        btn.disabled = !screens.length;
+        btn.title = screens.length
+            ? 'Put a screen’s port on this one. It is held here afterwards, '
+              + 'the same as pinning it from the Port Assignment panel.'
+            : 'No screen in this project needs a port yet.';
+        btn.addEventListener('click', () => {
+            this._assigningPort = open
+                ? null : { cardId: card.id, port: port.number };
+            this.renderProcessorPanel();
+        });
+        return btn;
+    }
+
+    _buildPortClaimPicker(card, port) {
+        const box = document.createElement('div');
+        box.style.margin = '2px 0 4px 26px';
+        box.style.padding = '6px';
+        box.style.border = '1px solid #333';
+        box.style.borderRadius = '4px';
+        box.style.background = '#111';
+        box.style.display = 'grid';
+        box.style.gap = '4px';
+
+        // One control, grouped by screen: picking the screen and picking which
+        // of its ports is one decision, and two selects in a 260px sidebar
+        // would be two-thirds chrome. Same reason the device picker groups by
+        // vendor rather than asking for the vendor first.
+        const choices = [];
+        const select = document.createElement('select');
+        select.style.fontSize = '10px';
+        select.style.width = '100%';
+        select.dataset.lrdField =
+            `processor-port-assign-${card.id}-${port.number}`;
+        ((this._assignment && this._assignment.screens) || []).forEach(scr => {
+            const group = document.createElement('optgroup');
+            group.label = scr.name;
+            (scr.ports || []).forEach(p => {
+                const opt = document.createElement('option');
+                opt.value = String(choices.length);
+                choices.push({ layerId: scr.layerId, index: p.index });
+                // Where each port sits now, so nobody has to read the other
+                // panel to find out what this would take away from. The
+                // derived label already carries the card's name - it is built
+                // out of it - so naming the card in front of it would read
+                // "SR SR-1"; the card is only spelt out where nothing named
+                // the port at all.
+                opt.textContent = `p${p.number} - ` + (p.cardId
+                    ? `on ${p.label || `${p.cardName} port ${p.port}`}`
+                    : 'no card');
+                if (p.cardId === card.id && p.port === port.number) {
+                    opt.selected = true;
+                }
+                group.appendChild(opt);
+            });
+            select.appendChild(group);
+        });
+        box.appendChild(select);
+
+        const buttons = document.createElement('div');
+        buttons.style.display = 'flex';
+        buttons.style.gap = '4px';
+        const go = document.createElement('button');
+        go.className = 'btn';
+        go.style.padding = '2px 8px';
+        go.style.fontSize = '10px';
+        go.textContent = 'Place';
+        go.addEventListener('click', () => {
+            const pick = choices[parseInt(select.value, 10)];
+            // Closed before the request rather than after it: a placement onto
+            // an occupied socket comes back as a question, and a chooser still
+            // sitting open behind the answer reads as though nothing was sent.
+            this._assigningPort = null;
+            this.renderProcessorPanel();
+            if (pick) {
+                this._placePort({ layerId: pick.layerId, index: pick.index,
+                                  cardId: card.id, port: port.number });
+            }
+        });
+        const cancel = document.createElement('button');
+        cancel.className = 'btn';
+        cancel.style.padding = '2px 8px';
+        cancel.style.fontSize = '10px';
+        cancel.style.background = '#2a2a2a';
+        cancel.textContent = 'Cancel';
+        cancel.addEventListener('click', () => {
+            this._assigningPort = null;
+            this.renderProcessorPanel();
+        });
+        buttons.appendChild(go);
+        buttons.appendChild(cancel);
+        box.appendChild(buttons);
+        return box;
     }
 }
 

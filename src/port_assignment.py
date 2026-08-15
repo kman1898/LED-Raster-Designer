@@ -34,7 +34,9 @@ until you know it is the point:
   renumber.
 * A SCREEN'S PORTS NEVER SPAN TWO CARDS BY THEMSELVES. Ports that do not fit
   are left UNPLACED and reported, because a screen is cabled as one run and
-  splitting one across two cards is a decision, not a rounding.
+  splitting one across two cards is a decision, not a rounding. A person may
+  still make that decision - place_overflow takes the tail somewhere else,
+  place_port takes one socket anywhere at all - and both say so when they do.
 * AUTO WORKS AROUND PINS, WHICH CAN SPLIT A RUN. A pin sitting at port 3 makes
   the next screen take 1, 2, 4, 5 - a gap in the middle of a run. That is worse
   cabling than a clean block, so the block move exists to get out of it, but it
@@ -116,6 +118,22 @@ def _card_title(card):
     if card['processorName']:
         return f"{card['processorName']} slot {(card['slot'] or 0) + 1}"
     return card['deviceName']
+
+
+def _port_title(card, port):
+    """How a message names ONE card port. The label the catalog derived wins
+    where there is one, because it is what is silkscreened beside the socket
+    the tech is standing in front of; a bare number is what is left when
+    nothing upstream has been named yet."""
+    label = (card.get('labels') or {}).get(port)
+    title = _card_title(card)
+    if not label:
+        return f'{title} port {port}'
+    # A label is usually built out of the card's own name - the template is
+    # {name}-# - so naming both would read "SR SR-1". Where it is not, because
+    # a box in front of the card named it or somebody typed it, both halves are
+    # what it takes to find the socket.
+    return label if label.startswith(title) else f'{title} {label}'
 
 
 # ── Inputs ────────────────────────────────────────────────────────────────
@@ -366,6 +384,11 @@ def _card_summary(card, claims):
         'capacityKnown': card['capacityKnown'],
         'used': used,
         'free': None if capacity is None else max(0, capacity - used),
+        # The names the ports carry, so a panel offering somebody a choice of
+        # sockets can call each one what the box calls it. Without them a port
+        # picker reads "1, 2, 3..." while the card in the rack reads
+        # "SR-1, SR-2", and the two have to be matched up by counting.
+        'labels': dict(card['labels']),
     }
 
 
@@ -583,6 +606,173 @@ def pin_to_card(processors, screens, state, layer_id, index, card_id,
     return {'cardId': card['cardId'], 'port': int(port)}, None
 
 
+# ── Placing one port by hand ──────────────────────────────────────────────
+#
+# The block move relocates a screen's whole run, because a screen is normally
+# cabled as one. This is the other half of the same decision, for the port that
+# genuinely is not like its neighbours: the spare patched across the room, the
+# run that has to land on the socket the house rig was made up to. Underneath
+# it is still a pin - a pin already means "this port, here, and auto may not
+# touch it" - and what is new is only that a person may say WHICH socket.
+
+def _spot_index(resolution):
+    """(layerId, index) -> (cardId, port), for comparing two resolutions."""
+    return {(scr['layerId'], port['index']): (port['cardId'], port['port'])
+            for scr in resolution['screens'] for port in scr['ports']}
+
+
+def _resolved_screen(resolution, layer_id):
+    return next((s for s in resolution['screens']
+                 if s['layerId'] == str(layer_id)), None)
+
+
+def _foreign_occupants(resolution, card_id, port, layer_id, index):
+    """Who is on a card port, not counting the port being placed onto it."""
+    here = resolution['occupancy'].get(card_id, {}).get(str(port), [])
+    return [o for o in here
+            if not (o['layerId'] == str(layer_id) and o['number'] == index + 1)]
+
+
+def _hold_screen(state, resolution, layer_id, skip_index):
+    """Pin a screen's other ports where they already are, and say how many.
+
+    Placing one port by hand overrules the app's arithmetic for THAT port; it
+    is not permission to renumber the five beside it. Left alone they would be
+    renumbered, because an auto port is recomputed from nothing every time and
+    packs into whatever room appears - including the room the moved port has
+    just left, which slides the whole tail of the run down by one. One click
+    would then change four numbers on a drawing, which is the opposite of an
+    override.
+
+    So the rest of the run is held first. That is the same trade the block move
+    already makes and it is as visible: every held port prints PINNED, and
+    Release all pins hands the lot back.
+    """
+    scr = _resolved_screen(resolution, layer_id)
+    held = 0
+    for port in (scr or {}).get('ports', []):
+        if port['index'] == skip_index or not port['cardId']:
+            continue
+        if port['source'] != 'pin':
+            held += 1
+        set_pin(state, layer_id, port['index'], port['cardId'], port['port'])
+    return held
+
+
+def _placement_note(before, after, scr, index, card, port, held):
+    """What the move actually did, in the one line the panel has for it.
+
+    Everything past the first sentence is a consequence nobody asked for, and
+    each one is here because the alternative is finding it by reading twenty
+    rows: another screen's auto ports packing into the vacated socket, a run
+    that now leaves the card it was on, and a port deliberately placed on top
+    of somebody after the offer to do it was accepted.
+    """
+    name = scr['name']
+    parts = [f'{name} port {index + 1} is now on {_port_title(card, port)}.']
+    if held:
+        parts.append(f'Its other {held} ports are held where they were, so '
+                     f'only this one moved.')
+
+    moved_key = (scr['layerId'], index)
+    was = _spot_index(before)
+    now = _spot_index(after)
+    shifted = []
+    for key, spot in now.items():
+        if key == moved_key or was.get(key) == spot:
+            continue
+        other = _resolved_screen(after, key[0])
+        if other and other['name'] not in shifted:
+            shifted.append(other['name'])
+    if shifted:
+        parts.append(f'Auto ports on {_and_list(shifted)} packed into the room '
+                     f'it left - pin them to hold a numbering.')
+
+    mine = _resolved_screen(after, scr['layerId'])
+    if mine and len(mine['cardIds']) > 1:
+        parts.append(f'{name} now spans {len(mine["cardIds"])} cards, which is '
+                     f'that many trunks to one wall.')
+    if mine and any(p['overlap'] for p in mine['ports']):
+        parts.append('It shares the port with what was already there; nothing '
+                     'was displaced.')
+    return ' '.join(parts)
+
+
+def place_port(processors, screens, state, layer_id, index, card_id, port,
+               confirm=False):
+    """Put ONE port of ONE screen on the card port somebody chose.
+
+    Three answers instead of the usual two, because this is the one edit that
+    can be refused for a reason the user is entitled to overrule. A port
+    somebody else already claims is refused the FIRST time and named in the
+    refusal: two screens on one socket is a state this module supports and
+    reports - a hot spare on the same port is a real thing - so it stays
+    reachable, but never as the silent result of a click somewhere else. Say
+    what is there and what happens next, then let them ask again with confirm.
+    """
+    layer_id = str(layer_id)
+    index = int(index)
+    port = int(port)
+    by_id = {c['cardId']: c for c in cards_in(processors)}
+    card = by_id.get(str(card_id))
+    if card is None:
+        return None, 'That card is not in this project.', None
+    scr = next((s for s in _clean_screens(screens)
+                if s['layerId'] == layer_id), None)
+    if scr is None:
+        return None, 'That screen is not in this project.', None
+    if index < 0 or index >= scr['ports']:
+        return None, f'{scr["name"]} has no port {index + 1}.', None
+    if port < 1:
+        return None, 'Port numbers start at 1.', None
+    # A card whose count nobody settled takes any number, which is the whole of
+    # what "ports can still be pinned to it by hand" means. A card with a
+    # settled one is a fact about metal and there is no port past it to place
+    # onto - offering one would put a wall on a socket that does not exist.
+    if card['capacity'] and port > card['capacity']:
+        return None, (f'{_card_title(card)} has {card["capacity"]} ports, so '
+                      f'there is no port {port} on it.'), None
+
+    before, taken = _foreign_claims(processors, screens, state, layer_id, index)
+    if (card['cardId'], port) in taken and not confirm:
+        here = _foreign_occupants(before, card['cardId'], port, layer_id, index)
+        names = _and_list([f'{o["name"]} port {o["number"]}' for o in here])
+        # What happens next depends entirely on how the sitting tenant got
+        # there, and the two outcomes are nothing like each other. A pinned
+        # port is somebody's decision and stays: both claims are kept and the
+        # socket draws as a clash. An auto port is arithmetic and gets out of
+        # the way, which is the same thing as saying the screen it belongs to
+        # is renumbered. Only one of those two can be true of any one port -
+        # auto is dealt out around pins and never onto them - so this reads as
+        # one sentence rather than a table of cases.
+        held = [o for o in here if o['source'] == 'pin']
+        outcome = (
+            'held there by hand and would keep the claim, so the socket would '
+            'draw as a clash' if held else
+            'numbered automatically and would pack around this one, which '
+            'renumbers that screen')
+        return None, (
+            f'{names} {"is" if len(here) == 1 else "are"} already on '
+            f'{_port_title(card, port)}. Nothing has been renumbered: '
+            f'{"they are" if len(here) > 1 else "it is"} {outcome}. Place '
+            f'{scr["name"]} port {index + 1} here anyway, or choose a port '
+            f'nobody is on.'
+        ), {'cardId': card['cardId'], 'port': port, 'occupants': here}
+
+    held = _hold_screen(state, before, layer_id, index)
+    set_pin(state, layer_id, index, card['cardId'], port)
+    after = resolve(processors, screens, state)
+    was = _spot_index(before).get((layer_id, index))
+    return {
+        'cardId': card['cardId'],
+        'port': port,
+        'from': None if not was or was[0] is None else {'cardId': was[0],
+                                                        'port': was[1]},
+        'held': held,
+        'note': _placement_note(before, after, scr, index, card, port, held),
+    }, None, None
+
+
 def _fits(card, start, size, taken):
     capacity = card['capacity']
     if not capacity or start < 1 or start + size - 1 > capacity:
@@ -672,10 +862,12 @@ def _pin_block(state, layer_id, card_id, start, size):
 def place_overflow(processors, screens, state, layer_id, card_id):
     """Put the ports that did not fit onto a different card.
 
-    This is the only path by which one screen's ports end up on two cards, and
-    it exists because a 17-port wall on a 16-port card is a real thing someone
-    builds. `.scr` stores the sending card per CABINET, so the format has no
-    objection either - it is only the app that must not do it unasked.
+    One of the two paths by which a screen's ports end up on two cards - the
+    other is place_port, one socket at a time - and both are somebody asking
+    for it in as many words. It exists because a 17-port wall on a 16-port card
+    is a real thing someone builds. `.scr` stores the sending card per CABINET,
+    so the format has no objection either; it is only the app that must not do
+    it unasked.
     """
     layer_id = str(layer_id)
     by_id = {c['cardId']: c for c in cards_in(processors)}

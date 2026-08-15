@@ -18,6 +18,11 @@ Everything below is that rule and the two things it must not break:
 * AN ASSIGNED PORT IS STILL NAMEABLE. The screen's override no longer reaches
   it, so the name moves to the port itself, on the card, where a socket's name
   belongs - it survives the wall in front of it being renumbered or deleted.
+* THE RETURN END IS STILL TELLABLE FROM THE PRIMARY. Both ends of a redundant
+  loop are the same socket, but they print at opposite corners of the wall and
+  the drawing is the only thing saying which is which. The return is the
+  primary with an R after it - SR-1 out, SR-1R back - which is what P1 / R1
+  said before a processor was naming anything.
 
 The label rules themselves live in processor_catalog.py and are asserted here
 through the API, never as they were sent: this codebase drops unlisted fields
@@ -28,7 +33,10 @@ Run locally:
     python3 -m pytest tests/test_processor_labels.py -q
 """
 
+import json
 import os
+import shutil
+import subprocess
 import sys
 
 import pytest
@@ -418,15 +426,15 @@ def test_the_processor_is_consulted_before_any_per_layer_override():
     body = function_body(js('app-power.js'),
                          'getPortLabelText(layer, portNum, type) {')
     processor = body.index('getProcessorPortLabel')
-    returned = body.index('if (assigned) return assigned;')
+    returned = body.index('if (assigned) return')
     override = body.index('portLabelOverridesPrimary')
     template = body.index('portLabelTemplatePrimary')
     assert processor < returned < template, (
         'getPortLabelText reads the layer template before the processor')
     assert returned < override, (
         'a per-layer override is read before the processor has answered')
-    assert 'if (assigned) return assigned;' in body, (
-        'the processor label is no longer returned outright')
+    assert "if (assigned) return type === 'return' ? `${assigned}R` : assigned;" \
+        in body, ('the processor label is no longer returned outright')
 
 
 def test_the_layer_template_is_still_the_fallback():
@@ -463,7 +471,8 @@ def test_the_lookup_is_built_once_when_the_assignment_changes():
     # Every path that stores a resolution has to go through the one that
     # rebuilds the map, or the canvas draws last week's labels.
     assert source.count('this._assignment = data.resolution') == 1
-    body = function_body(source, '_assignmentRequest(url, method, body) {')
+    body = function_body(source,
+                         '_assignmentRequest(url, method, body, onRefused) {')
     assert 'this._applyAssignmentResolution();' in body
 
 
@@ -483,6 +492,94 @@ def test_the_port_row_is_an_input_keyed_for_the_focus_guard():
     assert 'processor-port-name-${card.id}-${port.number}' in source
     assert '/ports/${port.number}' in source
     assert "who.textContent = 'free';" in source
+
+
+# ── 6. The return end of the same socket ──────────────────────────────────
+#
+# A redundant loop leaves a socket and comes back to it, so both ends carry the
+# same port's name - but they print at opposite corners of the wall and the
+# drawing is the only thing that says which end is which. Two labels reading
+# SR-1 make a backup run impossible to trace, which is the one job the return
+# label has.
+
+NODE = shutil.which('node')
+
+
+def run_labels(assigned, layer, ports):
+    """The real getPortLabelText, lifted out of the file and run.
+
+    There is no second implementation of the rule to assert against - the point
+    of that method is that there is exactly one - and reading the source only
+    proves the branch is there, not what it prints. So the two methods are
+    taken verbatim, hung on a bare object with the same one field they read,
+    and asked. Anything that drifts inside them fails here.
+    """
+    source = js('app-power.js')
+    methods = '\n'.join(
+        function_body(source, signature) + '\n    }'
+        for signature in ('getProcessorPortLabel(layer, portNum) {',
+                          'getPortLabelText(layer, portNum, type) {'))
+    script = (
+        'class Probe {\n' + methods + '\n}\n'
+        'const probe = new Probe();\n'
+        f'probe._processorPortLabels = {json.dumps(assigned)};\n'
+        f'const layer = {json.dumps(layer)};\n'
+        f'const out = {json.dumps(ports)}.map(n => ['
+        "probe.getPortLabelText(layer, n, 'primary'), "
+        "probe.getPortLabelText(layer, n, 'return')]);\n"
+        'console.log(JSON.stringify(out));\n')
+    done = subprocess.run([NODE, '-e', script], capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)
+
+
+def test_the_return_label_is_derived_inside_the_assigned_branch():
+    """Source-level, so it runs everywhere: the R belongs to the processor's
+    label and must not reach a port the processor never named - that port's
+    return is the layer's own R# template and always has been."""
+    body = function_body(js('app-power.js'),
+                         'getPortLabelText(layer, portNum, type) {')
+    assert body.index('${assigned}R') \
+        < body.index("layer.portLabelTemplateReturn || 'R#'"), (
+        'the return suffix escaped the assigned branch')
+
+
+@pytest.mark.skipif(NODE is None, reason='node is not on PATH')
+def test_an_assigned_ports_return_label_is_not_its_primary():
+    """The bug this fixes: both ends printed SR-1, so a backup run could not be
+    traced on the drawing that was meant to trace it."""
+    out = run_labels({'7': {'1': 'SR-1', '2': 'HOUSE-LEFT'}}, {'id': 7}, [1, 2])
+    assert out == [['SR-1', 'SR-1R'], ['HOUSE-LEFT', 'HOUSE-LEFTR']]
+    for primary, backup in out:
+        assert primary != backup
+
+
+@pytest.mark.skipif(NODE is None, reason='node is not on PATH')
+def test_an_unassigned_port_still_takes_the_layers_own_return_template():
+    """One screen, one port on the processor and one not. The port with no
+    socket behind it prints exactly what it printed before any of this existed,
+    which is the regression bar stated one port at a time."""
+    out = run_labels({'7': {'1': 'SR-1'}}, {'id': 7}, [1, 3])
+    assert out == [['SR-1', 'SR-1R'], ['P3', 'R3']]
+
+
+@pytest.mark.skipif(NODE is None, reason='node is not on PATH')
+def test_a_project_with_no_processor_prints_p_and_r_exactly_as_before():
+    out = run_labels({}, {'id': 7}, [1, 2])
+    assert out == [['P1', 'R1'], ['P2', 'R2']]
+
+
+@pytest.mark.skipif(NODE is None, reason='node is not on PATH')
+def test_templates_and_overrides_still_reach_a_port_with_no_socket():
+    """Drawings have been issued off these. The processor naming its own ports
+    added a branch in front of them and took nothing away."""
+    out = run_labels({}, {
+        'id': 7,
+        'portLabelTemplatePrimary': 'SR-#',
+        'portLabelTemplateReturn': 'SRB-#',
+        'portLabelOverridesReturn': {'2': 'SPARE'},
+    }, [1, 2])
+    assert out == [['SR-1', 'SRB-1'], ['SR-2', 'SPARE']]
 
 
 @pytest.mark.parametrize('number,stored', [(1, 'SR-A'), ('2', 'SR-B')])

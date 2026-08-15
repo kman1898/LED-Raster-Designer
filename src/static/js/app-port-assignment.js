@@ -32,6 +32,14 @@ class _PortAssignment {
         // first render, which happens long before this endpoint answers.
         this._processorPortLabels = {};
         this._occupancyRaw = '';
+        // Which port has its chooser open, in either panel. Held here rather
+        // than in the DOM because both panels are rebuilt wholesale on every
+        // resolution and a half-made choice would be thrown away by a screen
+        // being resized on the other side of the app.
+        this._movingPort = null;
+        this._assigningPort = null;
+        this._assignmentError = null;
+        this._assignmentNote = null;
         this.refreshPortAssignment();
     }
 
@@ -71,7 +79,12 @@ class _PortAssignment {
                                        { screens });
     }
 
-    _assignmentRequest(url, method, body) {
+    // onRefused sees a 409 first and returns true when it has dealt with it.
+    // Only one caller needs it - a placement can be refused with a QUESTION
+    // rather than a fact ("Side port 2 is already there") and the answer is a
+    // person, not a retry - and the alternative was a second request path that
+    // did not go through _applyAssignmentResolution on the way back.
+    _assignmentRequest(url, method, body, onRefused) {
         const payload = Object.assign({ screens: this._assignmentScreens() },
                                       body || {});
         return fetch(url, {
@@ -82,18 +95,24 @@ class _PortAssignment {
             .then(r => r.json().then(data => ({ ok: r.ok, data })))
             .then(({ ok, data }) => {
                 if (!ok) {
+                    if (onRefused && onRefused(data)) return;
                     // A refused move is not a failure to hide. It is usually
                     // "there is no run that long free", which is the thing the
                     // user needs to read.
                     this._assignmentError = data.error || 'That move is not possible.';
+                    this._assignmentNote = null;
                     this.renderPortAssignmentPanel();
                     return;
                 }
-                // A move can succeed and still not do everything asked - a
-                // card that took nine of the twelve overflow ports. That is
-                // not an error, but it is the one thing the user needs to
-                // read, so it goes in the same place an error would.
-                this._assignmentError = (data.moved && data.moved.note) || null;
+                // A move that worked still has something to say: which socket
+                // it landed on, what it held to get there, and the parts
+                // nobody asked for - another screen's auto ports packing into
+                // the room it left, a run that now spans two cards. It reads
+                // where an error would but not in an error's colour: a move
+                // that did exactly what it was told is not a warning, and
+                // colouring the two alike trains people past both.
+                this._assignmentError = null;
+                this._assignmentNote = (data.moved && data.moved.note) || null;
                 if (data.resolution) this._assignment = data.resolution;
                 if (data.state && this.project) {
                     this.project.port_assignments = data.state;
@@ -184,6 +203,10 @@ class _PortAssignment {
         if (this._assignmentError) {
             issues.appendChild(this._buildAssignmentNote(
                 this._assignmentError, '#d05a52'));
+        }
+        if (this._assignmentNote) {
+            issues.appendChild(this._buildAssignmentNote(
+                this._assignmentNote, '#8aa8c8'));
         }
         (res.issues || []).forEach(issue => {
             issues.appendChild(this._buildIssue(issue));
@@ -279,6 +302,39 @@ class _PortAssignment {
         }
     }
 
+    // One port of one screen onto one card port, from either end of the cable:
+    // the row in this panel, and the port row in the Processors panel. Both
+    // send the same request because they are the same decision - "this plugs
+    // in there" - and a second implementation of it would be a second set of
+    // rules about what is allowed to land on an occupied socket.
+    //
+    // The refusal is the interesting half. The server names who is already on
+    // the port and what happens if this lands on it as well, and nothing has
+    // moved at that point; confirming re-sends the identical request with the
+    // answer attached. Placing first and reporting after would be the silent
+    // rearrangement this whole feature is built not to do.
+    _placePort(spot, confirmed) {
+        return this._assignmentRequest(
+            '/api/port-assignments/place', 'POST',
+            Object.assign({ confirm: !!confirmed }, spot),
+            (data) => {
+                if (confirmed || !data.conflict) return false;
+                sendClientLog('port_assignment_place_conflict', data.conflict);
+                if (window.confirm(`${data.error}\n\nPlace it here anyway?`)) {
+                    this._placePort(spot, true);
+                } else {
+                    // Backed out. Clear whatever the last move left on the
+                    // panel: a note still reading "X is now on SR-7" beside a
+                    // numbering that did not change looks like an answer to
+                    // the question just declined.
+                    this._assignmentError = null;
+                    this._assignmentNote = null;
+                    this.renderPortAssignmentPanel();
+                }
+                return true;
+            });
+    }
+
     _buildAssignmentScreen(scr, res) {
         const box = document.createElement('div');
         box.style.border = '1px solid #333';
@@ -341,9 +397,10 @@ class _PortAssignment {
     }
 
     _buildAssignmentPort(scr, port, res) {
+        const wrap = document.createElement('div');
         const row = document.createElement('div');
         row.style.display = 'grid';
-        row.style.gridTemplateColumns = '22px 1fr auto auto';
+        row.style.gridTemplateColumns = '22px 1fr auto auto auto';
         row.style.gap = '4px';
         row.style.alignItems = 'center';
         row.style.fontSize = '11px';
@@ -385,6 +442,8 @@ class _PortAssignment {
             : 'Numbered automatically. Will re-pack as screens change.';
         row.appendChild(mark);
 
+        row.appendChild(this._buildMoveControl(scr, port, res));
+
         if (port.source === 'pin') {
             const act = document.createElement('button');
             act.className = 'btn';
@@ -400,7 +459,176 @@ class _PortAssignment {
         } else {
             row.appendChild(this._buildPinControl(scr, port, res));
         }
-        return row;
+        wrap.appendChild(row);
+
+        // The chooser opens UNDER the row it belongs to rather than in a
+        // dialog: which sockets are free is the thing being decided, and the
+        // rest of the screen's run is the context for deciding it.
+        const moving = this._movingPort;
+        if (moving && moving.layerId === scr.layerId
+                && moving.index === port.index) {
+            wrap.appendChild(this._buildPortMover(scr, port, res));
+        }
+        return wrap;
+    }
+
+    // "Move whole block" relocates a screen's entire run, which is right when
+    // a screen is cabled as one. This is for the port that is not like its
+    // neighbours - the spare patched across the room, the run the house rig
+    // was already made up to - and it moves that one and nothing else.
+    _buildMoveControl(scr, port, res) {
+        const btn = document.createElement('button');
+        btn.className = 'btn';
+        btn.style.padding = '1px 6px';
+        btn.style.fontSize = '10px';
+        btn.style.background = '#2a2a2a';
+        const open = !!(this._movingPort
+            && this._movingPort.layerId === scr.layerId
+            && this._movingPort.index === port.index);
+        btn.textContent = open ? 'close' : 'move';
+        btn.disabled = !(res.cards || []).length;
+        // Said before it is pressed, not after: holding the rest of the run is
+        // what makes "only this port moved" true, and it turns this screen's
+        // auto ports into pins that no longer re-pack.
+        btn.title = 'Place this one port on a card and port you choose. The '
+            + 'screen\'s other ports are held where they are, so only this one '
+            + 'moves.';
+        btn.addEventListener('click', () => {
+            this._movingPort = open
+                ? null : { layerId: scr.layerId, index: port.index };
+            this.renderPortAssignmentPanel();
+        });
+        return btn;
+    }
+
+    _buildPortMover(scr, port, res) {
+        const box = document.createElement('div');
+        box.style.margin = '2px 0 4px 26px';
+        box.style.padding = '6px';
+        box.style.border = '1px solid #333';
+        box.style.borderRadius = '4px';
+        box.style.background = '#0d0d0d';
+        box.style.display = 'grid';
+        box.style.gap = '4px';
+
+        const cards = res.cards || [];
+        // Where it is now is the sensible thing to open on: most placements
+        // are a nudge along one card, not a jump to another machine.
+        const chosen = {
+            cardId: port.cardId || (cards[0] && cards[0].cardId) || '',
+            port: port.port || 1,
+        };
+
+        const cardSelect = document.createElement('select');
+        cardSelect.style.fontSize = '10px';
+        cardSelect.style.width = '100%';
+        cardSelect.dataset.lrdField =
+            `port-move-card-${scr.layerId}-${port.index}`;
+        cards.forEach(card => {
+            const opt = document.createElement('option');
+            opt.value = card.cardId;
+            opt.textContent = card.capacityKnown
+                ? `${card.title} - ${card.free} free` : card.title;
+            if (card.cardId === chosen.cardId) opt.selected = true;
+            cardSelect.appendChild(opt);
+        });
+        box.appendChild(cardSelect);
+
+        const portWrap = document.createElement('div');
+        const drawPorts = () => {
+            portWrap.innerHTML = '';
+            portWrap.appendChild(this._buildPortNumberControl(
+                res, chosen, `port-move-port-${scr.layerId}-${port.index}`));
+        };
+        cardSelect.addEventListener('change', () => {
+            chosen.cardId = cardSelect.value;
+            // A number that meant something on the old card means nothing on
+            // this one, so it starts at the top rather than carrying over.
+            chosen.port = 1;
+            drawPorts();
+        });
+        drawPorts();
+        box.appendChild(portWrap);
+
+        const buttons = document.createElement('div');
+        buttons.style.display = 'flex';
+        buttons.style.gap = '4px';
+        const go = document.createElement('button');
+        go.className = 'btn';
+        go.style.padding = '2px 8px';
+        go.style.fontSize = '10px';
+        go.textContent = 'Place';
+        go.addEventListener('click', () => {
+            // Closed before the request rather than after it: the placement can
+            // come back as a question, and a chooser still sitting open behind
+            // the answer reads as though nothing had been sent.
+            this._movingPort = null;
+            this.renderPortAssignmentPanel();
+            this._placePort({ layerId: scr.layerId, index: port.index,
+                              cardId: chosen.cardId, port: chosen.port });
+        });
+        const cancel = document.createElement('button');
+        cancel.className = 'btn';
+        cancel.style.padding = '2px 8px';
+        cancel.style.fontSize = '10px';
+        cancel.style.background = '#2a2a2a';
+        cancel.textContent = 'Cancel';
+        cancel.addEventListener('click', () => {
+            this._movingPort = null;
+            this.renderPortAssignmentPanel();
+        });
+        buttons.appendChild(go);
+        buttons.appendChild(cancel);
+        box.appendChild(buttons);
+        return box;
+    }
+
+    // Which socket, named the way the card names it, with whoever is already
+    // on it spelled out beside it. Occupied ports are offered rather than
+    // greyed out: two screens on one port is a state this app supports and
+    // reports, and the refusal that comes back names what is there - which is
+    // more use than a row that cannot be clicked and does not say why.
+    //
+    // A card whose port count nobody ever settled cannot be listed at all.
+    // Guessing a ceiling to fill the list with is the one failure the catalog
+    // exists to prevent, so it gets a plain number box instead.
+    _buildPortNumberControl(res, chosen, fieldKey) {
+        const card = (res.cards || []).find(c => c.cardId === chosen.cardId);
+        const occupancy = (res.occupancy || {})[chosen.cardId] || {};
+        if (!card || !card.capacityKnown || !card.capacity) {
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.min = '1';
+            input.value = String(chosen.port || 1);
+            input.dataset.lrdField = fieldKey;
+            input.style.fontSize = '10px';
+            input.style.width = '100%';
+            input.style.boxSizing = 'border-box';
+            input.addEventListener('change', () => {
+                chosen.port = Math.max(1, parseInt(input.value, 10) || 1);
+            });
+            return input;
+        }
+        const select = document.createElement('select');
+        select.style.fontSize = '10px';
+        select.style.width = '100%';
+        select.dataset.lrdField = fieldKey;
+        for (let n = 1; n <= card.capacity; n++) {
+            const opt = document.createElement('option');
+            opt.value = String(n);
+            const label = (card.labels || {})[String(n)];
+            const here = occupancy[String(n)] || [];
+            opt.textContent = (label ? `${n} ${label}` : `port ${n}`) + ' - '
+                + (here.length
+                    ? here.map(o => `${o.name} p${o.number}`).join(', ')
+                    : 'free');
+            if (n === chosen.port) opt.selected = true;
+            select.appendChild(opt);
+        }
+        select.addEventListener('change', () => {
+            chosen.port = parseInt(select.value, 10) || 1;
+        });
+        return select;
     }
 
     // ANY port of ANY screen, onto a card the user names. With one card in the
