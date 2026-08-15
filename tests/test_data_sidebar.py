@@ -650,3 +650,230 @@ def test_editing_a_distro_name_and_tabbing_keeps_focus_in_a_real_control(page):
     assert page.evaluate(
         "() => window.app.getDistros()[0].name") == 'BEACH 1', (
         "the distro rename did not survive the move")
+
+
+# ── collapsible sections: the ▾ works everywhere it appears ───────────────
+#
+# Every titled section bar carried a decorative ▾ (theme.css ::after) that
+# did nothing. It is now a real arrow button with ONE behaviour everywhere
+# (user spec, exact): a single click on the ARROW toggles the section, a
+# DOUBLE-click anywhere on the header does the same, and a single click on
+# the header does NOTHING - stray clicks are harmless. State persists per
+# section (ledRasterPanelCollapsed_<id>), survives a reload, and is
+# independent of the sidebar-level collapse. The body hides but never
+# leaves the DOM, and a focus restore into a folded section auto-expands
+# it. The Power panel's generated block headings (soca / splitters /
+# distros / circuit labels) are wired by the same mechanism at every
+# rebuild.
+
+# (view, panel title) for the headers the user named; the same wiring
+# reaches every other .panel-header for free.
+NAMED_HEADERS = [
+    ('data-flow', 'Data Settings'),
+    ('data-flow', 'Processors'),
+    ('data-flow', 'Port Assignment'),
+    ('data-flow', 'Port Labels'),
+    ('power', 'Power Distribution'),
+]
+
+
+def header_of(page, title):
+    return page.locator(f'.panel-header:has(h2:text-is("{title}"))')
+
+
+HEADER_STATE_JS = """(title) => {
+    const hdr = [...document.querySelectorAll('.panel-header')].find(h => {
+        const t = h.querySelector('h2');
+        return t && t.textContent.trim() === title;
+    });
+    if (!hdr) return null;
+    const panel = hdr.parentElement;
+    const content = panel.querySelector(':scope > .panel-content');
+    const arrow = hdr.querySelector('.lrd-sec-arrow');
+    return {
+        id: panel.dataset.lrdSecId || null,
+        hasArrow: !!arrow,
+        arrowFontPx: arrow ? parseFloat(getComputedStyle(arrow).fontSize) : 0,
+        arrowPainted: arrow ? arrow.getClientRects().length > 0 : false,
+        collapsed: content ? getComputedStyle(content).display === 'none' : null,
+        bodyInDom: !!content && content.isConnected,
+        stored: panel.dataset.lrdSecId ? localStorage.getItem(
+            'ledRasterPanelCollapsed_' + panel.dataset.lrdSecId) : null,
+    };
+}"""
+
+
+def header_state(page, title):
+    return page.evaluate(HEADER_STATE_JS, title)
+
+
+@pytest.mark.parametrize('mode,title', NAMED_HEADERS)
+def test_every_named_header_carries_a_live_visible_arrow(page, mode, title):
+    open_view(page, mode)
+    s = header_state(page, title)
+    assert s, f"no panel header titled {title!r}"
+    assert s['hasArrow'], f"{title} has no collapse arrow: {s}"
+    assert s['arrowPainted'], f"{title}'s arrow is not painted: {s}"
+    assert s['arrowFontPx'] >= 12, (
+        f"{title}'s arrow is no bigger than the old 10px decorative glyph "
+        f"it replaces: {s}")
+    assert s['id'], f"{title} has no persistence id: {s}"
+
+
+@pytest.mark.parametrize('mode,title', NAMED_HEADERS)
+def test_arrow_click_collapses_and_header_single_click_is_inert(page, mode, title):
+    open_view(page, mode)
+    hdr = header_of(page, title)
+    assert header_state(page, title)['collapsed'] is False
+    # a single click on the header body does nothing - stray clicks harmless
+    hdr.click()
+    page.wait_for_timeout(100)
+    assert header_state(page, title)['collapsed'] is False, (
+        f"a single click on the {title} header must not collapse it")
+    # a single click on the ARROW collapses; the body hides but stays in DOM
+    hdr.locator('.lrd-sec-arrow').click()
+    page.wait_for_timeout(100)
+    s = header_state(page, title)
+    assert s['collapsed'] is True, f"the arrow did not collapse {title}: {s}"
+    assert s['bodyInDom'], (
+        f"{title}'s body left the DOM - collapse must hide, never detach")
+    assert s['stored'] == '1', f"collapse did not persist for {title}: {s}"
+    # and expands again
+    hdr.locator('.lrd-sec-arrow').click()
+    page.wait_for_timeout(100)
+    assert header_state(page, title)['collapsed'] is False
+
+
+@pytest.mark.parametrize('mode,title', [('data-flow', 'Port Labels'),
+                                        ('power', 'Power Distribution')])
+def test_double_click_anywhere_on_the_header_toggles(page, mode, title):
+    open_view(page, mode)
+    hdr = header_of(page, title)
+    assert header_state(page, title)['collapsed'] is False
+    hdr.dblclick()
+    page.wait_for_timeout(100)
+    assert header_state(page, title)['collapsed'] is True, (
+        f"double-click on the {title} header must collapse it")
+    hdr.dblclick()
+    page.wait_for_timeout(100)
+    assert header_state(page, title)['collapsed'] is False, (
+        f"a second double-click must expand {title} again")
+
+
+def test_the_collapsed_state_survives_a_reload(page):
+    open_view(page, 'data-flow')
+    hdr = header_of(page, 'Port Labels')
+    hdr.locator('.lrd-sec-arrow').click()
+    page.wait_for_timeout(100)
+    assert header_state(page, 'Port Labels')['collapsed'] is True
+    page.reload(wait_until='domcontentloaded')
+    page.wait_for_timeout(2000)
+    open_view(page, 'data-flow')
+    s = header_state(page, 'Port Labels')
+    assert s['collapsed'] is True, (
+        f"Port Labels came back expanded after a reload: {s}")
+    header_of(page, 'Port Labels').locator('.lrd-sec-arrow').click()
+    page.wait_for_timeout(100)
+    assert header_state(page, 'Port Labels')['collapsed'] is False
+
+
+POWER_BLOCK_JS = """(hostId) => {
+    const host = document.getElementById(hostId);
+    if (!host) return null;
+    const head = host.querySelector(':scope > .lrd-sec-head');
+    const body = host.querySelector(':scope > .lrd-sec-body');
+    const arrow = host.querySelector('.lrd-sec-arrow');
+    return {
+        wired: !!(head && body && arrow),
+        collapsed: body ? getComputedStyle(body).display === 'none' : null,
+        bodyInDom: !!body && body.isConnected,
+    };
+}"""
+
+
+def test_the_power_blocks_collapse_and_survive_their_rebuilds(page):
+    """The soca / splitter / distro blocks rebuild with innerHTML on every
+    refresh; the generation wires the same collapse and re-applies the
+    persisted state, so a folded block stays folded across a rebuild."""
+    open_view(page, 'power')
+    page.evaluate(POWER_SEED_JS)
+    page.wait_for_timeout(600)
+    for host in ('power-soca-runs', 'power-splitters', 'power-distros'):
+        s = page.evaluate(POWER_BLOCK_JS, host)
+        assert s and s['wired'], f"#{host} built no collapsible heading: {s}"
+        assert s['collapsed'] is False, f"#{host} started collapsed: {s}"
+    # the static Circuit Labels block is wired by the same init
+    assert page.evaluate("""() => {
+        const head = document.querySelector('[data-lrd-sec="power-circuit-labels"]');
+        return !!(head && head.querySelector('.lrd-sec-arrow'));
+    }"""), "the Circuit Labels block has no collapse arrow"
+
+    page.locator('#power-soca-runs .lrd-sec-arrow').click()
+    page.wait_for_timeout(100)
+    assert page.evaluate(POWER_BLOCK_JS, 'power-soca-runs')['collapsed'] is True
+    survived = page.evaluate("""async () => {
+        window.app.refreshSocaRuns();
+        await new Promise(r => setTimeout(r, 50));
+        const body = document.querySelector('#power-soca-runs > .lrd-sec-body');
+        return getComputedStyle(body).display === 'none';
+    }""")
+    assert survived, "a rebuild re-expanded the folded soca block"
+    page.locator('#power-soca-runs .lrd-sec-arrow').click()
+    page.wait_for_timeout(100)
+    assert page.evaluate(POWER_BLOCK_JS, 'power-soca-runs')['collapsed'] is False
+
+
+def test_focus_restore_into_a_collapsed_section_expands_it(page):
+    """The stated rule: a field the app programmatically focuses (the
+    _preserveEditorFocus restore after a rebuild) must be visible, so the
+    folded section it lives in opens rather than swallowing the focus."""
+    open_view(page, 'power')
+    page.evaluate(POWER_SEED_JS)
+    page.wait_for_timeout(600)
+    out = page.evaluate("""async () => {
+        const app = window.app;
+        const host = document.getElementById('power-soca-runs');
+        const el = host.querySelector('input[data-lrd-field]');
+        if (!el) return { skipped: true };
+        el.focus();
+        app._preserveEditorFocus();           // captures key + schedules restore
+        app._setSectionCollapsed(host, true); // fold before the restore lands
+        if (document.activeElement) document.activeElement.blur();
+        await new Promise(r => setTimeout(r, 20));
+        const body = host.querySelector(':scope > .lrd-sec-body');
+        const reopened = getComputedStyle(body).display !== 'none';
+        const focusedBack = document.activeElement === el;
+        return { reopened, focusedBack,
+                 stored: localStorage.getItem('ledRasterPanelCollapsed_power-soca-runs') };
+    }""")
+    assert not out.get('skipped'), "the soca panel built no field to focus"
+    assert out['reopened'], (
+        f"the restore left the section folded around the focused field: {out}")
+    assert out['focusedBack'], f"focus was not restored into the field: {out}"
+    assert out['stored'] == '0', (
+        f"the auto-expansion must persist, or the next rebuild folds the "
+        f"field away again: {out}")
+
+
+def test_section_collapse_is_independent_of_the_sidebar_collapse(page):
+    """Folding the Power panel and reopening it must not touch a folded
+    section inside it - the two states live under different keys."""
+    open_view(page, 'power')
+    page.evaluate(POWER_SEED_JS)
+    page.wait_for_timeout(600)
+    page.locator('#power-distros .lrd-sec-arrow').click()
+    page.wait_for_timeout(100)
+    assert page.evaluate(POWER_BLOCK_JS, 'power-distros')['collapsed'] is True
+    set_panel_collapsed(page, 'power', True)
+    set_panel_collapsed(page, 'power', False)
+    s = page.evaluate(POWER_BLOCK_JS, 'power-distros')
+    assert s['collapsed'] is True, (
+        f"collapsing the sidebar re-expanded the section inside it: {s}")
+    keys = page.evaluate("""() => ({
+        section: localStorage.getItem('ledRasterPanelCollapsed_power-distros'),
+        sidebar: localStorage.getItem('ledRasterSidebarCollapsed_power'),
+    })""")
+    assert keys['section'] == '1' and keys['sidebar'] == '0', keys
+    page.locator('#power-distros .lrd-sec-arrow').click()
+    page.wait_for_timeout(100)
+    assert page.evaluate(POWER_BLOCK_JS, 'power-distros')['collapsed'] is False

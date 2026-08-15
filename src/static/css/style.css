@@ -1120,3 +1120,35 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 .rack-bar { height: 8px; border-radius: 4px; background: #1a1a1a; border: 1px solid #333; overflow: hidden; }
 .rack-bar-fill { height: 100%; background: linear-gradient(90deg, #2e7d4f, #37c15f); transition: width 0.25s ease; }
 .rack-bar-fill.over { background: linear-gradient(90deg, #a03030, #e05050); }
+
+/* Collapsible sections (app-core.js initSectionCollapse). The body HIDES,
+   it is never detached - getElementById lookups and live references into a
+   folded section must keep working. !important because the Screens panel's
+   content is display:flex by id above, which would otherwise outrank this. */
+.lrd-sec-collapsed > .panel-content,
+.lrd-sec-collapsed > .lrd-sec-body { display: none !important; }
+/* a folded Screens panel must not keep its flex:1 slot as a big empty box */
+#right-sidebar > .panel.lrd-sec-collapsed { flex: 0 0 auto; }
+/* double-click toggles, so a stray double-click must not smear a text
+   selection across the title */
+.lrd-sec-click { user-select: none; -webkit-user-select: none; }
+.panel-header.lrd-sec-click { position: relative; }
+/* The arrow: the one ▾ that was always drawn on these bars, now clickable,
+   bigger and brighter than the decorative 10px glyph it replaces, and
+   rotated a quarter-turn while the section is folded (▾ open, ▸ closed). */
+.lrd-sec-arrow {
+    background: none; border: none; cursor: pointer;
+    padding: 1px 4px; margin: 0;
+    color: #cfcfcf; font-size: 13px; line-height: 1;
+    transition: transform 0.12s ease, color 0.12s ease;
+}
+.lrd-sec-arrow:hover { color: #fff; }
+.panel-header .lrd-sec-arrow {
+    position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+}
+.lrd-sec-collapsed > .panel-header .lrd-sec-arrow {
+    transform: translateY(-50%) rotate(-90deg);
+}
+/* generated block headings lead with the arrow, like the screen-group rows */
+.lrd-sec-head .lrd-sec-arrow { margin-right: 4px; padding-left: 0; vertical-align: -1px; }
+.lrd-sec-collapsed > .lrd-sec-head .lrd-sec-arrow { transform: rotate(-90deg); }

@@ -382,3 +382,45 @@ def test_legitimately_empty_states_stay_blank(page):
     assert unset['empty'], (
         f"an unconfigured screen claimed an error it does not have: "
         f"{unset['text']}")
+
+
+# ── the multi rows read as rows, not as three bare boxes ──────────────────
+#
+# User screenshot: each multi rendered a heading and then three UNLABELED
+# inputs - the name (repeating the heading), the distro select and the
+# length - with nothing separating one multi from the next. The fields now
+# carry captions in the distro rows' own register, and the name field shows
+# the DERIVED name as its placeholder while unnamed, so following-the-distro
+# (grey) vs named-by-hand (typed) is visible at a glance - the same
+# legibility rule as the phasing select's deriving state.
+
+def test_the_multi_rows_carry_field_labels(page):
+    out = page.evaluate("""() => {
+        const app = window.app;
+        app.refreshSocaRuns();
+        const host = document.getElementById('power-soca-runs');
+        const rows = [...host.querySelectorAll('.power-soca-row')];
+        const plan = app.getSocaPlan(app.currentLayer);
+        return {
+            rows: rows.length,
+            labels: rows.map(r => [...r.querySelectorAll('.power-soca-field-label')]
+                .map(l => l.textContent.trim())),
+            headings: rows.map(r => r.querySelector(':scope > label').textContent.trim()),
+            placeholders: rows.map(r => r.querySelector('.power-soca-name').placeholder),
+            planNames: plan.map(s => s.name),
+            fits: host.scrollWidth <= host.clientWidth,
+        };
+    }""")
+    assert out['rows'] > 0, "the soca panel built no multi rows"
+    for labels in out['labels']:
+        assert labels == ['Name', 'Distro', 'Length'], (
+            f"every field in a multi row carries its caption: {out['labels']}")
+    for head, name in zip(out['headings'], out['planNames']):
+        assert head.startswith(f'{name} ·'), (
+            f"the row heading must lead with the plan's own name: {out}")
+    assert out['placeholders'] == out['planNames'], (
+        "the name field's placeholder is the derived name, so an unnamed "
+        f"multi visibly follows its distro: {out}")
+    assert out['fits'], (
+        "the labelled rows overflow the panel sideways - they must wrap "
+        "inside the clamp like the distro rows do")

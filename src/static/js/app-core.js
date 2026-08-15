@@ -57,6 +57,9 @@ export class LEDRasterApp {
         // Restore collapsed sidebar state before anything paints so there's
         // no flash of the open panel.
         this.initSidebarToggles();
+        // Same doctrine one level down: per-section collapse, restored
+        // before first paint.
+        this.initSectionCollapse();
         // The Signal and Power panels' markup ships hidden, which is right for
         // the pixel-map view the app opens on. Reconcile anyway so neither can
         // be left behind if the renderer ever boots on another view.
@@ -158,6 +161,134 @@ export class LEDRasterApp {
             window.addEventListener('resize', positionToggle);
             this._sidebarPositioners.push(positionToggle);
         });
+    }
+
+    /**
+     * Collapsible sections, one mechanism for every titled block.
+     *
+     * Every section title bar carried a ▾ glyph (theme.css ::after) that did
+     * nothing. It is now the collapse affordance, with one behaviour
+     * everywhere it appears (user spec, fixed):
+     *
+     *   - a single click on the ARROW collapses/expands the section
+     *   - a DOUBLE-click anywhere on the header does the same; a single
+     *     click on the header does nothing, so stray clicks are harmless
+     *   - state persists per section (ledRasterPanelCollapsed_<id>) and is
+     *     independent of the sidebar-level collapse above
+     *
+     * Two header shapes come through here: the static .panel-header bars
+     * (arrow at the right, where the decorative glyph sat) and the generated
+     * block headings inside the Power panel (.lrd-sec-head, arrow leading
+     * the title the way the screen-group rows lead with theirs). Both hide
+     * their body with a class - never detach it - so getElementById lookups
+     * and live references into a collapsed section keep working, and the
+     * hosts that rebuild with innerHTML re-wire themselves by calling
+     * _wireSectionCollapse(host) after every render.
+     *
+     * A focus restore into a collapsed section auto-expands it
+     * (_expandSectionsFor, called from _preserveEditorFocus): a field the
+     * app is putting the user's caret back into must not be display:none.
+     */
+    initSectionCollapse() {
+        this._wireSectionCollapse(document);
+    }
+
+    _wireSectionCollapse(scope) {
+        scope.querySelectorAll('.panel-header, .lrd-sec-head').forEach(head => {
+            if (head.dataset.lrdSecWired) return;
+            const container = head.parentElement;
+            if (!container) return;
+            const generated = head.classList.contains('lrd-sec-head');
+            const body = container.querySelector(
+                generated ? ':scope > .lrd-sec-body' : ':scope > .panel-content');
+            if (!body) return;   // a bar with nothing under it has nothing to fold
+            // The id is what the collapsed state persists under, so it must
+            // be stable across reloads and unique across sections. Generated
+            // heads declare theirs (data-lrd-sec); the static panels derive
+            // tab + title, which disambiguates the three "Image Layer" bars.
+            let id = head.dataset.lrdSec;
+            if (!id) {
+                const h2 = head.querySelector('h2, h3');
+                const slug = ((h2 ? h2.textContent : head.textContent) || '')
+                    .trim().toLowerCase()
+                    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+                if (!slug) return;
+                const tab = container.dataset.tab || '';
+                id = tab ? `${tab}--${slug}` : slug;
+            }
+            head.dataset.lrdSecWired = '1';
+            head.classList.add('lrd-sec-click');
+            container.dataset.lrdSecId = id;
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'lrd-sec-arrow';
+            // Out of the tab ring on purpose: the headers sit between every
+            // panel's fields, and a focusable stop there would rewrite the
+            // tab order the editors' focus tests pin. The arrow is a pointer
+            // affordance; double-click serves the same gesture.
+            btn.tabIndex = -1;
+            btn.textContent = '▾';
+            if (generated) {
+                // Lead the title with the arrow, the way the screen-group
+                // rows do. Into the title LABEL when the head is a flex row
+                // (the distro heading carries buttons beside its label) so
+                // the arrow wraps with the title instead of stranding on its
+                // own line at the 180px clamp.
+                const anchor = head.querySelector(':scope > label') || head;
+                anchor.insertBefore(btn, anchor.firstChild);
+            } else {
+                head.appendChild(btn);
+            }
+            const toggle = () => this._setSectionCollapsed(
+                container, !container.classList.contains('lrd-sec-collapsed'));
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                toggle();
+            });
+            head.addEventListener('dblclick', (e) => {
+                // A double-click that lands on a real control is the
+                // control's, not ours - the distro heading carries the
+                // Balance and + Add buttons. Our own arrow still counts.
+                const hit = e.target.closest && e.target.closest(
+                    'button, input, select, textarea');
+                if (hit && hit !== btn) return;
+                toggle();
+            });
+            this._setSectionCollapsed(container,
+                localStorage.getItem(`ledRasterPanelCollapsed_${id}`) === '1');
+        });
+    }
+
+    _setSectionCollapsed(container, collapsed) {
+        container.classList.toggle('lrd-sec-collapsed', collapsed);
+        const btn = container.querySelector(
+            ':scope > .panel-header .lrd-sec-arrow, '
+            + ':scope > .lrd-sec-head .lrd-sec-arrow');
+        if (btn) {
+            btn.setAttribute('aria-expanded', String(!collapsed));
+            btn.title = collapsed ? 'Expand section' : 'Collapse section';
+        }
+        const id = container.dataset.lrdSecId;
+        if (id) {
+            try {
+                localStorage.setItem(`ledRasterPanelCollapsed_${id}`,
+                                     collapsed ? '1' : '0');
+            } catch (_) { /* storage full/blocked: state just won't persist */ }
+        }
+    }
+
+    /**
+     * Expand every collapsed section above `el`, persisting the expansion.
+     * The focus-restore rule: a field the app is programmatically focusing
+     * (after a rebuild, or from a test driving the editors) must be visible,
+     * so the section it lives in opens rather than swallowing the focus.
+     */
+    _expandSectionsFor(el) {
+        for (let n = el && el.parentElement; n; n = n.parentElement) {
+            if (n.classList && n.classList.contains('lrd-sec-collapsed')) {
+                this._setSectionCollapsed(n, false);
+            }
+        }
     }
 
     /**

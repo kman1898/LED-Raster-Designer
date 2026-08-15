@@ -169,10 +169,11 @@ window.__ph = {
         }, extra || {}));
     },
     distro() {
-        // Named 'D', not 'D1': a multi takes its name from its distro plus
-        // its number under that distro, so the one multi on this distro is
-        // D1 and its circuits read D1-1, D1-2, ... A distro called 'D1'
-        // would name its first multi 'D11', which is correct and unreadable.
+        // Named 'D': a multi takes its name from its distro plus its number
+        // under that distro, so the one multi on this distro is D1 and its
+        // circuits read D1-1, D1-2, ... A digit-ending distro name takes a
+        // separator instead (D1's multis would be D1-1) - pinned in the
+        // "derived names" section at the end of this file.
         return { id: 'd1', name: 'D', ratingA: 400, voltage: 208, phase: 3 };
     },
     withProject(project, fn) {
@@ -1396,3 +1397,121 @@ def test_a_multi_that_moves_distro_takes_the_new_distros_name(page):
     }""")
     assert out['before'] == ['SL1-1', 'SL1-2', 'SL1-3']
     assert out['after'] == ['SR1-1', 'SR1-2', 'SR1-3']
+
+
+# ── 6. derived names: a digit-ending base takes a separator ───────────────
+#
+# Live bug (user screenshot): the default distro name is DISTRO 1, and the
+# derived multi names glued name + number - DISTRO 11, DISTRO 12, DISTRO 13,
+# unreadable as anything but distros eleven through thirteen. The rule
+# (user decision): a base that ends in a DIGIT takes a separator before the
+# multi number - the same separator the screen's label template carries
+# (S1-#'s '-') - while a letter-ending base stays glued (SL1, SL2 read
+# correctly and are pinned above). Hand-typed names are verbatim, always.
+
+def test_a_digit_ending_distro_name_takes_a_separator(page):
+    """DISTRO 1's multis are DISTRO 1-1 and DISTRO 1-2 - never DISTRO 11 -
+    and their circuits compose through the one authority: DISTRO 1-1-1..6,
+    then DISTRO 1-2-1, DISTRO 1-2-2."""
+    out = page.evaluate("""() => {
+        const ph = window.__ph;
+        const S = ph.col5(31, 'Wall', 8, { powerSocaDistro: { 1: 'd9', 2: 'd9' } });
+        return ph.withProject(
+            { layers: [S], distros: [ph.box('d9', 'DISTRO 1')] }, () => ({
+                names: ph.planOf(S).map(s => s.name),
+                labels: ph.labelsOf(S),
+            }));
+    }""")
+    assert out['names'] == ['DISTRO 1-1', 'DISTRO 1-2']
+    assert out['labels'] == [f'DISTRO 1-1-{i}' for i in range(1, 7)] \
+        + ['DISTRO 1-2-1', 'DISTRO 1-2-2']
+
+
+def test_a_letter_ending_distro_name_stays_glued(page):
+    """SL numbers its multis SL1, SL2 with no separator - the shape that
+    reads correctly and that every label already issued was built on."""
+    out = page.evaluate("""() => {
+        const ph = window.__ph;
+        const S = ph.col5(32, 'Wall', 8, { powerSocaDistro: { 1: 'dl', 2: 'dl' } });
+        return ph.withProject(
+            { layers: [S], distros: [ph.box('dl', 'SL')] }, () => ({
+                names: ph.planOf(S).map(s => s.name),
+                labels: ph.labelsOf(S).slice(0, 2),
+            }));
+    }""")
+    assert out['names'] == ['SL1', 'SL2']
+    assert out['labels'] == ['SL1-1', 'SL1-2']
+
+
+def test_a_hand_typed_digit_ending_name_is_verbatim(page):
+    """A name somebody typed is the user's text: RIG 7 stays RIG 7 (never
+    reformatted), and its circuits are the name plus the tail - RIG 7-1."""
+    out = page.evaluate("""() => {
+        const ph = window.__ph;
+        const S = ph.col5(33, 'Wall', 3, { powerSocaNames: { 1: 'RIG 7' } });
+        return ph.withProject({ layers: [S] }, () => ({
+            names: ph.planOf(S).map(s => s.name),
+            labels: ph.labelsOf(S),
+        }));
+    }""")
+    assert out['names'] == ['RIG 7']
+    assert out['labels'] == ['RIG 7-1', 'RIG 7-2', 'RIG 7-3']
+
+
+def test_the_separator_is_the_templates_own(page):
+    """The inserted separator is read off the screen's label template, so the
+    multi name and the circuit labels built on it stay in one register:
+    S1_# gives DISTRO 1_1 and circuits DISTRO 1_1_1..."""
+    out = page.evaluate("""() => {
+        const ph = window.__ph;
+        const S = ph.col5(34, 'Wall', 3, {
+            powerLabelTemplate: 'S1_#',
+            powerSocaDistro: { 1: 'd9' },
+        });
+        return ph.withProject(
+            { layers: [S], distros: [ph.box('d9', 'DISTRO 1')] }, () => ({
+                names: ph.planOf(S).map(s => s.name),
+                labels: ph.labelsOf(S),
+            }));
+    }""")
+    assert out['names'] == ['DISTRO 1_1']
+    assert out['labels'] == ['DISTRO 1_1_1', 'DISTRO 1_1_2', 'DISTRO 1_1_3']
+
+
+def test_the_separated_name_reaches_panel_feeds_and_editor(page):
+    """getSocaPlan and getPowerCircuitLabel are the only authorities, so the
+    soca panel headings, the name placeholder, the distro feeds list and the
+    label editor placeholders all print the separated name."""
+    out = page.evaluate("""() => {
+        const ph = window.__ph;
+        const app = window.app;
+        const S = ph.col5(35, 'Wall', 8, { powerSocaDistro: { 1: 'd9', 2: 'd9' } });
+        return ph.withProject(
+            { layers: [S], distros: [ph.box('d9', 'DISTRO 1')] }, () => {
+                const savedCur = app.currentLayer;
+                app.currentLayer = S;
+                app._circuitTailCache = null;
+                try {
+                    app.refreshSocaRuns();
+                    const host = document.getElementById('power-soca-runs');
+                    return {
+                        heads: [...host.querySelectorAll('.power-soca-row > label')]
+                            .map(l => l.textContent.trim()),
+                        placeholder: host.querySelector(
+                            '[data-lrd-field="power-soca-name-1"]').placeholder,
+                        feeds: app.getDistroLoads()
+                            .map(d => d.socas.map(s => s.name)),
+                        editorLabel: app.getPowerCircuitLabel(S, 7),
+                    };
+                } finally {
+                    app.currentLayer = savedCur;
+                    app._circuitTailCache = null;
+                    app.refreshSocaRuns();
+                }
+            });
+    }""")
+    assert out['heads'][0].startswith('DISTRO 1-1 ·'), out['heads']
+    assert out['heads'][1].startswith('DISTRO 1-2 ·'), out['heads']
+    assert out['placeholder'] == 'DISTRO 1-1'
+    assert ['DISTRO 1-1', 'DISTRO 1-2'] in out['feeds'], out['feeds']
+    assert out['editorLabel'] == 'DISTRO 1-2-1'

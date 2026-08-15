@@ -118,6 +118,10 @@ body, #app {
 #left-sidebar > h2::after, #left-sidebar > h3::after, #right-sidebar > h2::after, #right-sidebar > h3::after {
   content:'\25BE'; position:absolute; right:9px; top:50%; transform:translateY(-50%);
   color:var(--ps-faint); font-size:10px; pointer-events:none; }
+/* a header the collapse init wired carries a REAL arrow button
+   (.lrd-sec-arrow, app-core.js initSectionCollapse) - the decorative glyph
+   would double it */
+.panel-header.lrd-sec-click::after { content:none !important; }
 /* inner header text (was blue) → white, NO second bar/chevron (prevents doubling) */
 .panel-header h2, .panel-header h3, .sidebar-section-header h2,
 #left-sidebar h2, #left-sidebar h3, #right-sidebar h2, #right-sidebar h3 {
@@ -302,6 +306,19 @@ input[type="radio"] { accent-color:var(--ps-accent) !important; }
 #export-modal input:not([type="checkbox"]):not([type="radio"]),
 #export-modal select {
   background:var(--ps-inset) !important; color:var(--ps-text) !important; }
+
+/* ---- Power panel reading ladder ---- */
+/* "it is all grey": the .panel-content label rule above paints EVERY label
+   the same dim tone, so the section heads, the per-multi headings and the
+   field captions all merged into one grey. Same ladder the layer list and
+   the Power Settings readouts already follow - titles and the figures a
+   tech reads at a glance in the bright text tone, captions dim, hints
+   faint. No new colours: these are the three steps the theme already has. */
+#power-sidebar .lrd-sec-head, #power-sidebar .lrd-sec-head label,
+#power-sidebar .power-soca-row > label { color:var(--ps-text) !important; }
+/* a derived value shown as a placeholder (the multi name that follows its
+   distro, e.g. 100ft) is a hint, one step below typed text */
+#power-sidebar input::placeholder { color:var(--ps-faint) !important; }
 
 /* dim helper lines in the side panels (e.g. "Click & drag the screen name…") */
 #left-sidebar .hint, #left-sidebar small, #left-sidebar .help-text,

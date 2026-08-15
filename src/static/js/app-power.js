@@ -578,7 +578,8 @@ class _Power {
             const s = socas.get(n) || {
                 soca: n,
                 number: info ? info.number : n,
-                name: (info && info.name) || `${nm.tpl.prefix || 'S'}${n}`,
+                name: (info && info.name)
+                    || this._deriveMultiName(nm.tpl.prefix || 'S', n, nm.tpl),
                 distroId: (info && info.distroId) || null,
                 legs: [], watts: 0, x1: Infinity, x2: -Infinity
             };
@@ -1516,13 +1517,14 @@ class _Power {
                  the group wraps in turn once even it runs out of room. The
                  heading takes the slack instead of a spacer span, so a wrapped
                  line has nothing stretched across it. -->
-            <div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:6px;">
+            <div class="lrd-sec-head" data-lrd-sec="power-distros" style="display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:6px;">
                 <label style="font-weight:600; flex:1 1 auto;" data-tooltip="Power distros, Project-level power sources. Assign each multi to one and the load rolls up here across every screen.">Power Distros</label>
                 <div style="display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; margin-left:auto;">
                     <button id="power-distro-balance" data-lrd-field="power-distro-balance" class="btn btn-secondary" style="padding:2px 10px; white-space:nowrap;" data-tooltip="Balance legs, Searches which set of six breakers each partly-filled multi should land on. A full multi balances itself, so only short ones move. Nothing changes until you accept it.">Balance</button>
                     <button id="power-distro-add" data-lrd-field="power-distro-add" class="btn btn-secondary" style="padding:2px 10px; white-space:nowrap;">+ Add</button>
                 </div>
             </div>
+            <div class="lrd-sec-body">
             ${loads.length ? loads.map(d => {
                 const pct = Math.min(100, Math.round(d.pct));
                 const feeds = d.socas.length
@@ -1573,7 +1575,7 @@ class _Power {
                          row still fits on one line at the 260px default. -->
                     <div style="display:flex; flex-wrap:wrap; gap:5px; align-items:center; margin-bottom:4px;">
                         <input type="number" class="distro-rating" data-lrd-field="distro-rating-${d.id}" value="${d.ratingA}" min="1" style="width:56px;" data-tooltip="Rating, Service rating in amps.">
-                        <span style="font-size:10px; color:#777;">A</span>
+                        <span style="font-size:10px; color:var(--ps-faint, #999);">A</span>
                         <div style="display:flex; gap:5px; align-items:center; flex:1 1 110px; min-width:0;">
                             <select class="distro-voltage info-select" data-lrd-field="distro-voltage-${d.id}" style="width:70px; min-width:0;">
                                 ${[110, 120, 208, 220, 230, 240, 400, 415].map(v => `<option value="${v}" ${d.voltage === v ? 'selected' : ''}>${v}V</option>`).join('')}
@@ -1624,7 +1626,12 @@ class _Power {
                         </div>
                     </div>` : ''}` : `<div style="font-size:12px; font-weight:600; color:#d8a13c; margin-bottom:3px;">${esc(d.name)}</div>`}
                     <div class="rack-bar"><div class="rack-bar-fill${d.over ? ' over' : ''}" style="width:${pct}%"></div></div>
-                    <div style="font-size:10px; color:${d.over ? '#e05050' : d.id ? '#8fa0b2' : '#d8a13c'}; margin-top:2px;">
+                    <!-- The amps line is THE figure a tech reads off this
+                         row, so a healthy one sits on the bright text step
+                         (the .value-normal doctrine: colour here means
+                         something is wrong, and nothing else). It was the
+                         same muted blue-grey as everything around it. -->
+                    <div style="font-size:11px; color:${d.over ? '#e05050' : d.id ? 'var(--ps-text, #e0e0e0)' : '#d8a13c'}; margin-top:2px;">
                         ${d.id
                             ? `${d.amps.toFixed(1)} A / ${d.ratingA} A (${Math.round(d.pct)}%)${d.over ? ' — OVER' : ''} · ${Math.round(d.watts).toLocaleString()} W · ${d.phase}φ`
                             : `${Math.round(d.watts).toLocaleString()} W with no distro — assign to see amps`}
@@ -1634,7 +1641,7 @@ class _Power {
                              180px the imbalance figure is the one that no
                              longer fits, and it drops below the three legs
                              rather than off the panel. -->
-                        <div style="display:flex; flex-wrap:wrap; gap:4px; align-items:center; font-size:10px; color:${d.imbalancePct > 20 ? '#e05050' : d.imbalancePct > 10 ? '#d8a13c' : '#8fa0b2'};"
+                        <div style="display:flex; flex-wrap:wrap; gap:4px; align-items:center; font-size:10px; color:${d.imbalancePct > 20 ? '#e05050' : d.imbalancePct > 10 ? '#d8a13c' : 'var(--ps-dim, #b8b8b8)'};"
                              data-tooltip="Leg loading, Per-leg current is a phasor sum - line-to-line circuits sit 30 degrees off each leg's line-to-neutral reference, so they are not simply added. Imbalance is NEMA-style: max deviation from the average.">
                             <span style="letter-spacing:0.5px;">LEGS</span>
                             ${['X', 'Y', 'Z'].map(k => `<span style="flex:1; text-align:center;">${k} ${d.legs[k].amps.toFixed(0)}A</span>`).join('')}
@@ -1644,13 +1651,22 @@ class _Power {
                             ${['X', 'Y', 'Z'].map(k => `<div class="rack-bar" style="flex:1;"><div class="rack-bar-fill${d.legs[k].pct > 100 ? ' over' : ''}" style="width:${Math.min(100, Math.round(d.legs[k].pct))}%"></div></div>`).join('')}
                         </div>
                     </div>` : ''}
-                    <div style="font-size:10px; color:#6d7987; margin-top:3px;">${feeds}</div>
+                    <div style="font-size:10px; color:var(--ps-faint, #909090); margin-top:3px;">${feeds}</div>
                 </div>`;
-            }).join('') : '<div style="font-size:11px; color:#777; padding:4px 0;">No distros yet — add one, then assign multis to it.</div>'}`;
+            }).join('') : '<div style="font-size:11px; color:var(--ps-faint, #888); padding:4px 0;">No distros yet — add one, then assign multis to it.</div>'}
+            </div>`;
+        if (typeof this._wireSectionCollapse === 'function') this._wireSectionCollapse(host);
 
         const add = host.querySelector('#power-distro-add');
         if (add) add.addEventListener('click', () => {
             this.addDistro();
+            // + Add lives in the section HEAD, so it works while the list is
+            // folded - but a distro appearing into a folded list looks like
+            // nothing happened. Open the section so the new row is seen (the
+            // rebuild below re-reads the persisted state this writes).
+            if (typeof this._expandSectionsFor === 'function') {
+                this._expandSectionsFor(add);
+            }
             this._restateNaming();
         });
         const bal = host.querySelector('#power-distro-balance');
@@ -1759,13 +1775,17 @@ class _Power {
             // today's blank host - see _socaPlanEmptyReason.
             const why = this._socaPlanEmptyReason(layer);
             host.innerHTML = why ? `
-                <label style="font-weight: 600; margin-bottom: 6px; display: block;">Soca / Multi Home Runs</label>
-                <div style="font-size:11px; color:#e05050; padding:4px 0;">No circuits — ${why}</div>` : '';
+                <label class="lrd-sec-head" data-lrd-sec="power-soca-runs" style="font-weight: 600; margin-bottom: 6px; display: block;">Soca / Multi Home Runs</label>
+                <div class="lrd-sec-body">
+                    <div style="font-size:11px; color:#e05050; padding:4px 0;">No circuits — ${why}</div>
+                </div>` : '';
+            if (typeof this._wireSectionCollapse === 'function') this._wireSectionCollapse(host);
             return;
         }
         const breakout = this.getPowerBreakout(layer);
         host.innerHTML = `
-            <label style="font-weight: 600; margin-bottom: 6px; display: block;" data-tooltip="Soca / multi home runs, Each Soca (multi) feeds up to 6 circuits. Set the home-run cable length per multi - it flows into the gear checklist and report.">Soca / Multi Home Runs</label>
+            <label class="lrd-sec-head" data-lrd-sec="power-soca-runs" style="font-weight: 600; margin-bottom: 6px; display: block;" data-tooltip="Soca / multi home runs, Each Soca (multi) feeds up to 6 circuits. Set the home-run cable length per multi - it flows into the gear checklist and report.">Soca / Multi Home Runs</label>
+            <div class="lrd-sec-body">
             <!-- Wraps for the same reason the distro rows do: a fixed 150px
                  select does not fit the ~119px column the panel offers at its
                  180px minimum, and the sidebar's overflow-x:hidden was simply
@@ -1782,17 +1802,33 @@ class _Power {
                 const hand = ((layer.powerSocaNames || {})[s.soca] || '');
                 // Three fields on one line has never fitted the 180px clamp,
                 // so the heading takes its own line and the fields wrap under
-                // it - the same treatment the distro rows got.
+                // it - the same treatment the distro rows got. The heading is
+                // the multi's identity (bold, like the distro rows' own
+                // headings) and each field wears the caption the bare inputs
+                // never had: three unlabeled boxes in a row read as noise.
+                // The name field shows the DERIVED name as its placeholder
+                // while unnamed - grey text means "following the distro",
+                // typed text means named by hand, same legibility rule as
+                // the phasing select's deriving state.
                 return `
-                <div class="power-soca-row" style="margin-bottom:8px;">
-                    <label style="font-weight:400; display:block; margin-bottom:3px;">${esc(s.name)} · ${s.legs.length} leg${s.legs.length === 1 ? '' : 's'} · ${s.amps.toFixed(1)} A</label>
-                    <div style="display:flex; flex-wrap:wrap; gap:5px; align-items:center;">
-                        <input type="text" class="power-soca-name" data-soca="${s.soca}" data-lrd-field="power-soca-name-${s.soca}" value="${esc(hand).replace(/"/g, '&quot;')}" placeholder="${esc(s.name).replace(/"/g, '&quot;')}" style="flex:1 1 70px; min-width:0;" data-tooltip="Multi name, Name this multi by hand. Leave it blank and it follows its distro — multis on a distro named SL are SL1, SL2 — so renaming the distro renames them all. A name typed here stops following.">
-                        <select class="power-soca-distro info-select" data-soca="${s.soca}" data-lrd-field="power-soca-distro-${s.soca}" style="flex:1 1 90px; min-width:0;" data-tooltip="Distro, Which power source this multi lands on. Load rolls up per distro across every screen, and the multi takes its number from that distro.">
-                            <option value="">— distro —</option>
-                            ${this.getDistros().map(d => `<option value="${d.id}" ${assigned === d.id ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}
-                        </select>
-                        <input type="text" class="power-soca-length" data-soca="${s.soca}" data-lrd-field="power-soca-length-${s.soca}" value="${(s.length || '').replace(/"/g, '&quot;')}" placeholder="e.g. 100ft" style="flex:1 1 70px; min-width:0;">
+                <div class="power-soca-row" style="margin-bottom:12px;">
+                    <label style="font-weight:600; display:block; margin-bottom:3px;">${esc(s.name)} · ${s.legs.length} leg${s.legs.length === 1 ? '' : 's'} · ${s.amps.toFixed(1)} A</label>
+                    <div style="display:flex; flex-wrap:wrap; gap:5px;">
+                        <div style="flex:1 1 70px; min-width:0;">
+                            <label class="power-soca-field-label" style="font-weight:400; display:block; margin-bottom:2px;">Name</label>
+                            <input type="text" class="power-soca-name" data-soca="${s.soca}" data-lrd-field="power-soca-name-${s.soca}" value="${esc(hand).replace(/"/g, '&quot;')}" placeholder="${esc(s.name).replace(/"/g, '&quot;')}" style="width:100%; min-width:0; box-sizing:border-box;" data-tooltip="Multi name, Name this multi by hand. Leave it blank and it follows its distro — multis on a distro named SL are SL1, SL2 — so renaming the distro renames them all. A name typed here stops following.">
+                        </div>
+                        <div style="flex:1 1 90px; min-width:0;">
+                            <label class="power-soca-field-label" style="font-weight:400; display:block; margin-bottom:2px;">Distro</label>
+                            <select class="power-soca-distro info-select" data-soca="${s.soca}" data-lrd-field="power-soca-distro-${s.soca}" style="width:100%; min-width:0; box-sizing:border-box;" data-tooltip="Distro, Which power source this multi lands on. Load rolls up per distro across every screen, and the multi takes its number from that distro.">
+                                <option value="">— distro —</option>
+                                ${this.getDistros().map(d => `<option value="${d.id}" ${assigned === d.id ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div style="flex:1 1 70px; min-width:0;">
+                            <label class="power-soca-field-label" style="font-weight:400; display:block; margin-bottom:2px;">Length</label>
+                            <input type="text" class="power-soca-length" data-soca="${s.soca}" data-lrd-field="power-soca-length-${s.soca}" value="${(s.length || '').replace(/"/g, '&quot;')}" placeholder="e.g. 100ft" style="width:100%; min-width:0; box-sizing:border-box;">
+                        </div>
                     </div>
                 </div>`; }).join('')}
             <div class="info-row checkbox-row" data-tooltip="Soca Brackets, Draw a bracket over each multi's span on the power map with its name and home-run length.">
@@ -1802,7 +1838,9 @@ class _Power {
                      touched now means off, on old projects too. -->
                 <input type="checkbox" id="show-soca-brackets" data-lrd-field="show-soca-brackets" ${layer.showSocaBrackets === true ? 'checked' : ''}>
                 <label for="show-soca-brackets">Soca Brackets on Map</label>
+            </div>
             </div>`;
+        if (typeof this._wireSectionCollapse === 'function') this._wireSectionCollapse(host);
         host.querySelectorAll('.power-soca-length').forEach(inp => {
             inp.addEventListener('change', () => {
                 this.setSocaLength(layer, Number(inp.dataset.soca), inp.value);
@@ -1883,7 +1921,8 @@ class _Power {
                 </div>`;
         }).join('');
         host.innerHTML = `
-            <label style="font-weight: 600; margin-bottom: 6px; display: block;" data-tooltip="Power splitters, Share one circuit between adjacent short power runs through a 2fer/3fer/4fer Y-cable. Organized modes pack whole rows or columns as separate runs on a shared feed; Maximize already fills each circuit to capacity, so packing changes nothing there.">Splitters</label>
+            <label class="lrd-sec-head" data-lrd-sec="power-splitters" style="font-weight: 600; margin-bottom: 6px; display: block;" data-tooltip="Power splitters, Share one circuit between adjacent short power runs through a 2fer/3fer/4fer Y-cable. Organized modes pack whole rows or columns as separate runs on a shared feed; Maximize already fills each circuit to capacity, so packing changes nothing there.">Splitters</label>
+            <div class="lrd-sec-body">
             <div class="info-row checkbox-row" data-tooltip="Circuit sharing, Gang consecutive row/column runs onto one shared circuit through a splitter, up to the splitter size and the circuit capacity. Only adjacent runs share - a run is never skipped to pair two non-neighbours.">
                 <input type="checkbox" id="power-splitters-enabled" data-lrd-field="power-splitters-enabled" ${sp.enabled ? 'checked' : ''}>
                 <label for="power-splitters-enabled">Share circuits via splitters</label>
@@ -1910,7 +1949,9 @@ class _Power {
             <div class="info-row" style="gap:8px;">
                 <button id="power-splitters-merge" data-lrd-field="power-splitters-merge" class="btn btn-secondary" style="padding:2px 10px;" data-tooltip="Merge selected, Gang the checked circuits onto ONE shared circuit through a splitter. Honored even over capacity - the row flags OVER.">Merge selected</button>
                 <button id="power-splitters-split" data-lrd-field="power-splitters-split" class="btn btn-secondary" style="padding:2px 10px;" data-tooltip="Split, Un-merge the checked circuits and pin their runs out of auto packing.">Split</button>
-            </div>` : ''}`;
+            </div>` : ''}
+            </div>`;
+        if (typeof this._wireSectionCollapse === 'function') this._wireSectionCollapse(host);
         // Multi-select doctrine: the enabled/maxWays edits apply to EVERY
         // selected screen (same helper as the soca panel's scalar settings);
         // manual merge/split rows are inherently per-screen.
@@ -2393,6 +2434,21 @@ class _Power {
         };
     }
 
+    // A DERIVED multi name is <base><number> - a distro named SL numbers its
+    // multis SL1, SL2, and that shape reads correctly. A base that ITSELF
+    // ends in a digit does not: the default distro name is DISTRO 1, and
+    // glueing its multis on printed DISTRO 11, DISTRO 12 - unreadable as
+    // anything but distros eleven and twelve. So a digit-ending base takes a
+    // separator before the number - the same one the screen's label template
+    // carries (the '-' of S1-#), so the circuit labels built on top of the
+    // name stay in one register: DISTRO 1-1 yields DISTRO 1-1-1..-6.
+    // Only derived names come through here. A hand-typed multi name is the
+    // user's text and is never reformatted.
+    _deriveMultiName(base, number, tpl) {
+        const sep = /\d$/.test(base) ? ((tpl && tpl.sep) || '-') : '';
+        return `${base}${sep}${number}`;
+    }
+
     // Old projects keyed the per-multi stores - lengths, tail positions,
     // breaker offsets, distro assignments - by the number the SCREEN's own
     // template produced, so `S3-#` stored its multis under 3, 4, 5. That was
@@ -2457,7 +2513,9 @@ class _Power {
     //      authority itself, because that names one CIRCUIT, not a multi
     //   2. the multi's own name, if somebody typed one
     //   3. the distro's name plus the multi's number under it: two multis on
-    //      a distro named SL are SL1 and SL2, so their circuits read SL1-1..6
+    //      a distro named SL are SL1 and SL2, so their circuits read SL1-1..6.
+    //      A digit-ending distro name gets a separator first (_deriveMultiName):
+    //      DISTRO 1's multis are DISTRO 1-1, DISTRO 1-2, never DISTRO 11
     //   4. the screen's powerLabelTemplate prefix plus the number - the
     //      fallback for a multi on no distro
     //
@@ -2521,8 +2579,8 @@ class _Power {
             const hand = String(named[idx] || '').trim();
             const name = hand
                 || (distro && String(distro.name || '').trim()
-                    ? `${String(distro.name).trim()}${number}` : '')
-                || (tpl.ok ? `${tpl.prefix}${number}` : '');
+                    ? this._deriveMultiName(String(distro.name).trim(), number, tpl) : '')
+                || (tpl.ok ? this._deriveMultiName(tpl.prefix, number, tpl) : '');
             const pos = this.socaCircuitPositions(layer, idx, nums.length);
             const moved = !pos.every((p, i) => p === i + 1);
             socas.set(idx, {
@@ -2669,6 +2727,12 @@ class _Power {
             // Gone - the port/circuit count shrank out from under it. Leave
             // focus alone rather than throwing.
             if (!el || el === document.activeElement) return;
+            // A collapsed section swallows focus() silently (the field is
+            // display:none), so the restore opens the section first - the
+            // stated rule for any programmatic focus into a folded section.
+            if (typeof this._expandSectionsFor === 'function') {
+                this._expandSectionsFor(el);
+            }
             try {
                 el.focus();
             } catch (_) {
