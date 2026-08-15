@@ -68,7 +68,8 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
    layout/interactions stay intact. */
 #left-sidebar.collapsed,
 #right-sidebar.collapsed,
-#data-sidebar.collapsed {
+#data-sidebar.collapsed,
+#power-sidebar.collapsed {
     width: 0;
     min-width: 0;
     padding: 0;
@@ -76,12 +77,14 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     border-left: none;
 }
 
-/* ── Signal panel, Data view only ────────────────────────────────────── */
-/* A third docked panel between the left sidebar and the canvas, holding
-   everything about signal (port labelling now, processor/chassis next).
-   It carries the left sidebar's geometry deliberately, so the two read as
-   one column of panels rather than a panel and an add-on. */
-#data-sidebar {
+/* ── Signal panel (Data view) and Power panel (Power view) ───────────── */
+/* Middle docked panels between the left sidebar and the canvas: signal (port
+   labelling and the processors behind it) in one, power distribution (multis,
+   splitters, distros) in the other. Only ever one of them is in layout, and
+   both carry the left sidebar's geometry deliberately, so whichever is showing
+   reads as one column of panels with it rather than a panel and an add-on. */
+#data-sidebar,
+#power-sidebar {
     background: #252525;
     width: 260px;
     flex: 0 0 auto;
@@ -93,17 +96,22 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     box-sizing: border-box;
     transition: width 0.18s ease, padding 0.18s ease, border-color 0.18s ease;
 }
-/* Outside Data view the panel is removed from layout entirely rather than
+/* Outside its own view a panel is removed from layout entirely rather than
    collapsed to zero width: collapsed still occupies a flex slot and still
-   renders its border, and the bar for this feature is that anyone who never
-   opens Data view sees no change at all. The toggle goes with it - a button
+   renders its border, and the bar for both panels is that anyone who never
+   opens that view sees no change at all. The toggle goes with it - a button
    for a panel that isn't there is worse than no button. */
 #data-sidebar.view-hidden,
-#data-sidebar-toggle.view-hidden { display: none; }
-/* Both toggles hug the same vertical edge once this panel is collapsed flush
-   against the left sidebar, so this one sits below the midline; otherwise
-   they land on top of each other and only one is clickable. */
-#data-sidebar-toggle { border-left: none; border-radius: 0 4px 4px 0; top: calc(50% + 70px); }
+#data-sidebar-toggle.view-hidden,
+#power-sidebar.view-hidden,
+#power-sidebar-toggle.view-hidden { display: none; }
+/* Both toggles hug the same vertical edge once a middle panel is collapsed
+   flush against the left sidebar, so the middle one sits below the midline;
+   otherwise it lands on top of the left sidebar's and only one is clickable.
+   Signal and Power can share the offset because they are never both in
+   layout. */
+#data-sidebar-toggle,
+#power-sidebar-toggle { border-left: none; border-radius: 0 4px 4px 0; top: calc(50% + 70px); }
 #right-sidebar > .panel { margin: 0 10px 0 10px; flex: 1; overflow: hidden; min-height: 0; display: flex; flex-direction: column; }
 #right-sidebar > .panel > .panel-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 #right-sidebar > .panel > .panel-content > #layers-list { flex: 1; min-height: 0; overflow-y: auto; }

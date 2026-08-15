@@ -385,9 +385,15 @@ class _Power {
         if (amps3El) amps3El.textContent = totalAmps3 ? totalAmps3.toFixed(2) + ' A' : '0';
         // Deferred, not called inline: this runs synchronously inside the
         // change handlers of the static Power fields (panel watts, voltage,
-        // amperage), and the next tab stop after Watts per Panel lives inside
-        // the soca-runs host. Wiping that host mid-gesture destroys the field
-        // Tab is about to land in - see _rebuildAfterGesture.
+        // amperage), and it wipes all three hosts.
+        //
+        // Those hosts moved to the Power panel (#power-sidebar), so Tab out of
+        // Watts per Panel now lands on the Flow Pattern buttons that follow it
+        // in the left sidebar rather than inside the soca host. The deferral
+        // still earns its place: the three hosts are siblings there and tab
+        // into one another, and this same path runs from their own controls,
+        // so an inline wipe still destroys the field Tab is about to land in.
+        // See _rebuildAfterGesture.
         this._rebuildAfterGesture(() => {
             this.refreshSocaRuns();
             this.refreshSplitterPanel();
@@ -1311,6 +1317,13 @@ class _Power {
     // Project-level distro list with a live load bar per source. Shown in the
     // Power panel because that's where power planning lives, but the numbers
     // roll up across EVERY screen, not just the selected one.
+    //
+    // Unlike refreshSocaRuns and refreshSplitterPanel it never blanks itself:
+    // there is no layer it is wrong for. What keeps it off the other tabs is
+    // its host's ancestry - the Power panel leaves layout outside Power view
+    // (updateViewSidebars) and the tab-panel around the hosts hides with the
+    // tab. Give the host a parent that lives in every view and this list
+    // renders in every view.
     refreshDistroPanel() {
         const host = document.getElementById('power-distros');
         if (!host) return;
@@ -1468,8 +1481,11 @@ class _Power {
         host.querySelectorAll('.power-soca-distro').forEach(sel => {
             sel.addEventListener('change', () => {
                 this.setSocaDistro(layer, Number(sel.dataset.soca), sel.value || null);
-                // Tab out of the last soca row lands in the distro panel this
-                // would wipe - defer past the gesture (see _rebuildAfterGesture).
+                // The distro panel is still the next host after this one -
+                // soca, splitters, distros kept their order when they moved
+                // into the Power panel - so tabbing on from a soca row walks
+                // into the very thing this would wipe. Defer past the gesture
+                // (see _rebuildAfterGesture).
                 this._rebuildAfterGesture(() => this.refreshDistroPanel());
             });
         });

@@ -1,21 +1,26 @@
-"""Drag-resizable docked panels: left sidebar, Signal panel, right sidebar.
+"""Drag-resizable docked panels: left sidebar, Signal panel, Power panel, right
+sidebar.
 
 The resize code (theme.js) was hardcoded to the two string literals 'left' and
-'right', so the Signal panel - a third, middle column added later - collapsed
-but could not be resized. It is now a table of panels, the same shape as the
-collapse table in app-core.js initSidebarToggles, and these tests pin the
-behaviour that table has to keep producing.
+'right', so the Signal panel - a middle column added later - collapsed but could
+not be resized. It is now a table of panels, the same shape as the collapse
+table in app-core.js initSidebarToggles, and these tests pin the behaviour that
+table has to keep producing. The Power panel is the second middle column and
+went in as one more row of each table, so every assertion below runs against
+both of them rather than against a copy of the file.
 
 What these tests pin:
 
-* All three panels carry a drag strip on their inner edge, and dragging it
-  really changes the panel's width - not just the CSS variable.
+* Every panel carries a drag strip on its inner edge, and dragging it really
+  changes the panel's width - not just the CSS variable.
 * The width clamps between 180 and 560 so a panel can neither vanish nor
   swallow the canvas, and it survives a reload.
-* The Signal panel's strip leaves with the panel. Outside Data view the panel
-  is display:none, and a fixed-position strip left floating over the canvas
-  there would be a live bug: a 7px column of the drawing that silently starts
-  a resize instead of a selection.
+* Each middle panel's strip leaves with the panel. Outside its own view the
+  panel is display:none, and a fixed-position strip left floating over the
+  canvas there would be a live bug: a 7px column of the drawing that silently
+  starts a resize instead of a selection.
+* The two middle panels are independent. Signal and Power keep their own width
+  and their own collapsed state, and neither moves when the other is dragged.
 * The collapse toggle stays on top of the strip. They occupy the same seam,
   and the toggle is the only way back from a collapsed panel.
 * Dragging re-measures the canvas. The canvas backing store is sized from its
@@ -25,7 +30,7 @@ What these tests pin:
 * No toggle and no drag strip is ever left floating over the drawing. Reported
   as "the sidebar is still floating in the air": collapsing a panel used to
   reposition only its own toggle, so collapsing the left sidebar slid the
-  Signal panel across without telling its toggle, stranding it mid-canvas.
+  middle panel across without telling its toggle, stranding it mid-canvas.
   These assert on coordinates, because in that bug every class was already
   correct.
 
@@ -58,8 +63,26 @@ VIEWPORT = {'width': 1700, 'height': 900}
 PANELS = {
     'left': 'left-sidebar',
     'data': 'data-sidebar',
+    'power': 'power-sidebar',
     'right': 'right-sidebar',
 }
+
+# The middle columns and the one view each belongs to. The left and right
+# sidebars are in every view, so they have no entry here.
+VIEW_OF = {'data': 'data-flow', 'power': 'power'}
+
+ALL_VIEWS = ['pixel-map', 'cabinet-id', 'show-look', 'data-flow', 'power']
+
+# Every (middle panel, view it is absent from) pair, which is what the
+# "the strip left with the panel" assertions have to sweep.
+ABSENT = [(key, mode) for key in VIEW_OF for mode in ALL_VIEWS
+          if mode != VIEW_OF[key]]
+
+
+def keys_in(mode):
+    """The panels that are in layout in `mode`, left to right."""
+    middle = [k for k, v in VIEW_OF.items() if v == mode]
+    return ['left'] + middle + ['right']
 
 
 @pytest.fixture(scope="module")
@@ -81,17 +104,20 @@ def open_view(page, mode):
     page.wait_for_timeout(400)
 
 
-def reset_widths(page):
-    """Back to the default width on every panel, through the same localStorage
-    keys theme.js reads on boot, so each test starts from a known geometry."""
+def reset_widths(page, mode='data-flow'):
+    """Back to the default width and expanded on every panel, through the same
+    localStorage keys app-core.js and theme.js read on boot, so each test starts
+    from a known geometry no matter what the one before it left collapsed."""
     page.evaluate(
         """(w) => {
-            ['lrd_left_w', 'lrd_data_w', 'lrd_right_w'].forEach(
+            ['lrd_left_w', 'lrd_data_w', 'lrd_power_w', 'lrd_right_w'].forEach(
                 k => localStorage.setItem(k, String(w)));
+            ['left', 'data', 'power', 'right'].forEach(
+                k => localStorage.setItem('ledRasterSidebarCollapsed_' + k, '0'));
         }""", DEFAULT_W)
     page.reload(wait_until='domcontentloaded')
     page.wait_for_timeout(2000)
-    open_view(page, 'data-flow')
+    open_view(page, mode)
 
 
 def width(page, key):
@@ -152,19 +178,20 @@ def assert_canvas_matches_wrapper(page, why):
 
 # ── the handles exist and are where they should be ────────────────────────
 
-def test_every_docked_panel_has_a_drag_strip_in_data_view(page):
-    reset_widths(page)
-    for key in PANELS:
-        assert handle(page, key), f"the {key} panel has no resize handle"
+@pytest.mark.parametrize('mode', ALL_VIEWS)
+def test_every_docked_panel_in_a_view_has_a_drag_strip(page, mode):
+    reset_widths(page, mode)
+    for key in keys_in(mode):
+        assert handle(page, key), f"the {key} panel has no resize handle in {mode}"
 
 
 @pytest.mark.parametrize('key,edge', [
-    ('left', 'right'), ('data', 'right'), ('right', 'left')])
+    ('left', 'right'), ('data', 'right'), ('power', 'right'), ('right', 'left')])
 def test_each_strip_sits_on_its_panels_inner_edge(page, key, edge):
-    """The Signal panel is a middle column docked left, so it is dragged from
-    the right exactly like the left sidebar - not from the left because it is
-    'the second panel'."""
-    reset_widths(page)
+    """The middle panels dock left, so they are dragged from the right exactly
+    like the left sidebar - not from the left because they are 'the second
+    panel'."""
+    reset_widths(page, VIEW_OF.get(key, 'data-flow'))
     h = handle(page, key)
     rect = page.evaluate(
         "(id) => { const r = document.getElementById(id).getBoundingClientRect();"
@@ -175,87 +202,118 @@ def test_each_strip_sits_on_its_panels_inner_edge(page, key, edge):
         f"strip at {h['left']}, edge at {target}")
 
 
-# ── dragging the Signal panel ─────────────────────────────────────────────
+# ── dragging a middle panel ───────────────────────────────────────────────
 
-def test_dragging_the_signal_panel_changes_its_width(page):
-    reset_widths(page)
-    before = width(page, 'data')
-    after = drag(page, 'data', 120)
-    assert after > before + 80, (
-        f"the Signal panel did not widen: {before} -> {after}")
+@pytest.mark.parametrize('key', sorted(VIEW_OF))
+def test_dragging_a_middle_panel_changes_its_width(page, key):
+    reset_widths(page, VIEW_OF[key])
+    before = width(page, key)
+    after = drag(page, key, 120)
+    assert after > before + 80, f"the {key} panel did not widen: {before} -> {after}"
     assert abs(after - (before + 120)) <= 8, (
-        f"the Signal panel did not follow the pointer: {before} -> {after}")
+        f"the {key} panel did not follow the pointer: {before} -> {after}")
 
 
-def test_the_signal_panel_width_survives_a_reload(page):
-    reset_widths(page)
-    dragged = drag(page, 'data', 120)
+@pytest.mark.parametrize('key', sorted(VIEW_OF))
+def test_a_middle_panels_width_survives_a_reload(page, key):
+    mode = VIEW_OF[key]
+    reset_widths(page, mode)
+    dragged = drag(page, key, 120)
 
     page.reload(wait_until='domcontentloaded')
     page.wait_for_timeout(2000)
-    open_view(page, 'data-flow')
-    assert abs(width(page, 'data') - dragged) <= 2, (
-        f"the Signal panel came back at {width(page, 'data')}, not {dragged}")
+    open_view(page, mode)
+    assert abs(width(page, key) - dragged) <= 2, (
+        f"the {key} panel came back at {width(page, key)}, not {dragged}")
 
     # And the other way round, so this cannot pass on a panel that is simply
     # always wide.
-    reset_widths(page)
-    assert abs(width(page, 'data') - DEFAULT_W) <= 2, (
-        "the Signal panel ignored a stored default width")
+    reset_widths(page, mode)
+    assert abs(width(page, key) - DEFAULT_W) <= 2, (
+        f"the {key} panel ignored a stored default width")
 
 
-def test_the_signal_panel_clamps_at_the_minimum(page):
-    reset_widths(page)
-    assert drag(page, 'data', -600) == MIN_W, (
-        "the Signal panel can be dragged narrower than the clamp")
+@pytest.mark.parametrize('key', sorted(VIEW_OF))
+def test_a_middle_panel_clamps_at_the_minimum(page, key):
+    reset_widths(page, VIEW_OF[key])
+    assert drag(page, key, -600) == MIN_W, (
+        f"the {key} panel can be dragged narrower than the clamp")
 
 
-def test_the_signal_panel_clamps_at_the_maximum(page):
-    reset_widths(page)
-    assert drag(page, 'data', 600) == MAX_W, (
-        "the Signal panel can be dragged wider than the clamp")
+@pytest.mark.parametrize('key', sorted(VIEW_OF))
+def test_a_middle_panel_clamps_at_the_maximum(page, key):
+    reset_widths(page, VIEW_OF[key])
+    assert drag(page, key, 600) == MAX_W, (
+        f"the {key} panel can be dragged wider than the clamp")
 
 
-def test_resizing_one_panel_leaves_the_others_alone(page):
-    reset_widths(page)
+@pytest.mark.parametrize('mode', ['data-flow', 'power'])
+def test_resizing_one_panel_leaves_the_others_alone(page, mode):
+    reset_widths(page, mode)
     drag(page, 'left', 100)
     assert width(page, 'left') == DEFAULT_W + 100, "the left sidebar did not resize"
-    assert width(page, 'data') == DEFAULT_W, (
-        "resizing the left sidebar resized the Signal panel with it")
-    assert width(page, 'right') == DEFAULT_W, (
-        "resizing the left sidebar resized the right sidebar with it")
+    for key in keys_in(mode)[1:]:
+        assert width(page, key) == DEFAULT_W, (
+            f"resizing the left sidebar resized the {key} panel with it")
+
+
+def test_the_two_middle_panels_keep_their_own_widths(page):
+    """Signal and Power occupy the same slot and are never both in layout, so a
+    shared storage key would look right until the user switched tabs."""
+    reset_widths(page, 'data-flow')
+    signal = drag(page, 'data', 120)
+
+    open_view(page, 'power')
+    assert width(page, 'power') == DEFAULT_W, (
+        f"widening Signal widened Power with it: {width(page, 'power')}")
+    power = drag(page, 'power', -60)
+
+    open_view(page, 'data-flow')
+    assert width(page, 'data') == signal, (
+        f"the Signal panel came back at {width(page, 'data')}, not {signal} - "
+        f"resizing Power overwrote it")
+    open_view(page, 'power')
+    assert width(page, 'power') == power, (
+        f"the Power panel came back at {width(page, 'power')}, not {power}")
+
+    stored = page.evaluate(
+        """() => ({ data: localStorage.getItem('lrd_data_w'),
+                    power: localStorage.getItem('lrd_power_w') })""")
+    assert stored['data'] != stored['power'], (
+        f"both panels are persisting through the same value: {stored}")
 
 
 # ── the strip leaves when the panel does ──────────────────────────────────
 
-@pytest.mark.parametrize('mode', ['pixel-map', 'cabinet-id', 'show-look', 'power'])
-def test_the_signal_strip_is_gone_outside_data_view(page, mode):
-    reset_widths(page)
-    open_view(page, mode)
-    assert handle(page, 'data') is None, (
-        f"the Signal panel's drag strip is still over the canvas in {mode}")
+@pytest.mark.parametrize('key,mode', ABSENT)
+def test_a_middle_strip_is_gone_outside_its_own_view(page, key, mode):
+    reset_widths(page, mode)
+    assert handle(page, key) is None, (
+        f"the {key} panel's drag strip is still over the canvas in {mode}")
     # The other two are unaffected - the strip did not simply stop being drawn.
     assert handle(page, 'left') and handle(page, 'right'), (
-        f"leaving Data view took the other panels' strips with it, in {mode}")
+        f"leaving {VIEW_OF[key]} took the other panels' strips with it, in {mode}")
 
 
-def test_the_signal_strip_is_gone_while_the_panel_is_collapsed(page):
-    reset_widths(page)
-    page.locator('#data-sidebar-toggle').click()
+@pytest.mark.parametrize('key', sorted(VIEW_OF))
+def test_a_middle_strip_is_gone_while_the_panel_is_collapsed(page, key):
+    reset_widths(page, VIEW_OF[key])
+    page.locator(f'#{key}-sidebar-toggle').click()
     page.wait_for_timeout(500)
-    assert handle(page, 'data') is None, (
-        "a collapsed panel still offers a strip to drag")
-    page.locator('#data-sidebar-toggle').click()
+    assert handle(page, key) is None, (
+        f"a collapsed {key} panel still offers a strip to drag")
+    page.locator(f'#{key}-sidebar-toggle').click()
     page.wait_for_timeout(500)
-    assert handle(page, 'data'), "the strip did not come back with the panel"
+    assert handle(page, key), f"the {key} strip did not come back with the panel"
 
 
-def test_the_strip_does_not_swallow_the_collapse_toggle(page):
+@pytest.mark.parametrize('mode', ['data-flow', 'power'])
+def test_the_strip_does_not_swallow_the_collapse_toggle(page, mode):
     """They share the same seam and the strip is full height. The toggle is the
     only way back from a collapsed panel, so it has to win the hit test."""
-    reset_widths(page)
-    for toggle_id in ('left-sidebar-toggle', 'data-sidebar-toggle',
-                      'right-sidebar-toggle'):
+    reset_widths(page, mode)
+    for key in keys_in(mode):
+        toggle_id = f'{key}-sidebar-toggle'
         hit = page.evaluate(
             """(id) => {
                 const r = document.getElementById(id).getBoundingClientRect();
@@ -265,30 +323,31 @@ def test_the_strip_does_not_swallow_the_collapse_toggle(page):
                 return el ? (el.id || el.className) : null;
             }""", toggle_id)
         assert hit == toggle_id, (
-            f"#{toggle_id} is covered by {hit} - the resize strip is on top "
-            f"of the only control that can expand the panel again")
+            f"#{toggle_id} is covered by {hit} in {mode} - the resize strip is "
+            f"on top of the only control that can expand the panel again")
 
 
 # ── the canvas keeps up ───────────────────────────────────────────────────
 
-@pytest.mark.parametrize('key', ['left', 'data', 'right'])
+@pytest.mark.parametrize('key', ['left', 'data', 'power', 'right'])
 def test_dragging_a_panel_re_measures_the_canvas(page, key):
     """setupCanvas() sizes the canvas from its wrapper and only runs itself on
     a window resize, so a drag used to leave the canvas painting at its
     pre-drag pixel width until the window was touched."""
-    reset_widths(page)
+    reset_widths(page, VIEW_OF.get(key, 'data-flow'))
     assert_canvas_matches_wrapper(page, "a reset")
     dx = -140 if key == 'right' else 140
     drag(page, key, dx)
     assert_canvas_matches_wrapper(page, f"dragging the {key} panel")
 
 
-def test_the_canvas_keeps_up_during_the_drag_not_only_at_the_end(page):
+@pytest.mark.parametrize('key', sorted(VIEW_OF))
+def test_the_canvas_keeps_up_during_the_drag_not_only_at_the_end(page, key):
     """The width transition is suppressed while dragging, so every frame is
     already in layout - the canvas is re-measured per move rather than left to
     the staged settle on mouseup."""
-    reset_widths(page)
-    h = handle(page, 'data')
+    reset_widths(page, VIEW_OF[key])
+    h = handle(page, key)
     page.mouse.move(h['x'], h['y'])
     page.mouse.down()
     page.mouse.move(h['x'] + 60, h['y'])
@@ -298,7 +357,7 @@ def test_the_canvas_keeps_up_during_the_drag_not_only_at_the_end(page):
     page.mouse.up()
     page.wait_for_timeout(400)
     assert mid['canvasW'] == mid['wrapperW'], (
-        f"the canvas lagged the pointer mid-drag: {mid}")
+        f"the canvas lagged the pointer mid-drag on the {key} panel: {mid}")
 
 
 # ── nothing stranded over the drawing ─────────────────────────────────────
@@ -307,7 +366,7 @@ def test_the_canvas_keeps_up_during_the_drag_not_only_at_the_end(page):
 # panels collapsed, a chevron tab sat in the middle of the artwork.
 #
 # The cause was that collapsing a panel repositioned only its OWN toggle, while
-# collapsing the left sidebar MOVES the Signal panel - the next flex column -
+# collapsing the left sidebar MOVES the middle panel - the next flex column -
 # without changing its size. Its toggle was never told, and the ResizeObserver
 # that was meant to be the safety net watches size, not position, so it never
 # fired either. Nothing else repositions toggles, so it stayed stranded.
@@ -321,12 +380,16 @@ STRAYS_JS = """() => {
     const panels = [
         { key: 'left',  sidebar: 'left-sidebar',  toggle: 'left-sidebar-toggle',  inner: 'right' },
         { key: 'data',  sidebar: 'data-sidebar',  toggle: 'data-sidebar-toggle',  inner: 'right' },
+        { key: 'power', sidebar: 'power-sidebar', toggle: 'power-sidebar-toggle', inner: 'right' },
         { key: 'right', sidebar: 'right-sidebar', toggle: 'right-sidebar-toggle', inner: 'left'  },
     ];
     const strays = [];
     panels.forEach(p => {
-        const edge = document.getElementById(p.sidebar)
-                             .getBoundingClientRect()[p.inner];
+        const panel = document.getElementById(p.sidebar);
+        // A panel that has left layout has no geometry to measure against, so
+        // the bar for it is simply that neither of its controls is drawn.
+        const inLayout = shown(panel);
+        const edge = panel.getBoundingClientRect()[p.inner];
         const controls = [
             ['toggle', document.getElementById(p.toggle)],
             ['handle', document.querySelector(
@@ -335,6 +398,12 @@ STRAYS_JS = """() => {
         controls.forEach(([kind, el]) => {
             if (!shown(el)) return;   // out of layout can't be floating
             const r = el.getBoundingClientRect();
+            if (!inLayout) {
+                strays.push({ kind: kind, key: p.key, reason: 'panel not in layout',
+                              at: Math.round(r.left),
+                              intoCanvas: Math.round(r.left - canvas.left) });
+                return;
+            }
             // Both controls straddle the seam, so measure whichever of their
             // own edges faces the panel they belong to.
             const own = p.inner === 'right' ? r.left : r.right;
@@ -372,56 +441,58 @@ def set_collapsed(page, key, want):
     page.wait_for_timeout(500)
 
 
-def test_collapsing_the_left_sidebar_takes_the_signal_toggle_with_it(page):
-    """The reported repro, exactly: in Data view, collapse the Signal panel and
-    then the left sidebar. The Signal panel slides left without resizing, and
-    its toggle used to stay behind in the middle of the drawing."""
-    reset_widths(page)
-    set_collapsed(page, 'data', True)
-    assert_nothing_stranded(page, "with only the Signal panel collapsed")
+@pytest.mark.parametrize('key', sorted(VIEW_OF))
+def test_collapsing_the_left_sidebar_takes_the_middle_toggle_with_it(page, key):
+    """The reported repro, exactly: in the panel's own view, collapse the middle
+    panel and then the left sidebar. The middle panel slides left without
+    resizing, and its toggle used to stay behind in the middle of the
+    drawing."""
+    reset_widths(page, VIEW_OF[key])
+    set_collapsed(page, key, True)
+    assert_nothing_stranded(page, f"with only the {key} panel collapsed")
     set_collapsed(page, 'left', True)
     page.wait_for_timeout(500)
     assert_nothing_stranded(
-        page, "after collapsing the left sidebar behind a collapsed Signal panel")
+        page, f"after collapsing the left sidebar behind a collapsed {key} panel")
     set_collapsed(page, 'left', False)
-    set_collapsed(page, 'data', False)
+    set_collapsed(page, key, False)
 
 
-def test_resizing_the_left_sidebar_takes_the_signal_toggle_with_it(page):
+@pytest.mark.parametrize('mode', ['data-flow', 'power'])
+def test_resizing_the_left_sidebar_takes_the_middle_toggle_with_it(page, mode):
     """The same failure the drag handles could reintroduce: widening the left
-    sidebar moves the Signal panel without resizing it."""
-    reset_widths(page)
+    sidebar moves the middle panel without resizing it."""
+    reset_widths(page, mode)
     drag(page, 'left', 140)
-    assert_nothing_stranded(page, "after widening the left sidebar")
+    assert_nothing_stranded(page, f"after widening the left sidebar in {mode}")
     drag(page, 'left', -140)
-    assert_nothing_stranded(page, "after narrowing the left sidebar again")
+    assert_nothing_stranded(
+        page, f"after narrowing the left sidebar again in {mode}")
 
 
-@pytest.mark.parametrize('mode', ['pixel-map', 'cabinet-id', 'show-look',
-                                  'data-flow', 'power'])
+@pytest.mark.parametrize('mode', ALL_VIEWS)
 def test_no_control_is_stranded_in_any_view_or_collapse_order(page, mode):
     """Every view, and both collapse orders - the bug only appeared in one of
     them, so a single ordering would have missed it."""
-    reset_widths(page)
-    open_view(page, mode)
-    in_data = mode == 'data-flow'
+    reset_widths(page, mode)
+    order = keys_in(mode)
 
-    for key in (['left', 'data', 'right'] if in_data else ['left', 'right']):
+    for key in order:
         set_collapsed(page, key, False)
     assert_nothing_stranded(page, f"in {mode} with everything expanded")
 
     # left first, then the rest
-    for key in (['left', 'data', 'right'] if in_data else ['left', 'right']):
+    for key in order:
         set_collapsed(page, key, True)
         assert_nothing_stranded(page, f"in {mode} after collapsing {key} first")
-    for key in (['left', 'data', 'right'] if in_data else ['left', 'right']):
+    for key in order:
         set_collapsed(page, key, False)
 
-    # and the reverse order, which is what actually stranded the Signal toggle
-    for key in (['right', 'data', 'left'] if in_data else ['right', 'left']):
+    # and the reverse order, which is what actually stranded the middle toggle
+    for key in reversed(order):
         set_collapsed(page, key, True)
         assert_nothing_stranded(page, f"in {mode} collapsing inwards, at {key}")
-    for key in (['left', 'data', 'right'] if in_data else ['left', 'right']):
+    for key in order:
         set_collapsed(page, key, False)
 
 
@@ -429,7 +500,26 @@ def test_nothing_is_stranded_across_a_view_switch(page):
     """A panel leaving layout entirely moves everything to its right."""
     reset_widths(page)
     set_collapsed(page, 'left', True)
-    for mode in ('data-flow', 'pixel-map', 'data-flow', 'power', 'data-flow'):
+    for mode in ('data-flow', 'pixel-map', 'data-flow', 'power', 'show-look',
+                 'power', 'data-flow'):
         open_view(page, mode)
         assert_nothing_stranded(page, f"after switching to {mode}")
     set_collapsed(page, 'left', False)
+
+
+@pytest.mark.parametrize('key', sorted(VIEW_OF))
+def test_a_collapsed_middle_panel_stays_collapsed_across_a_view_switch(page, key):
+    """Collapsing a panel and then leaving its view must not silently
+    re-expand it on the way back - the visibility pass touches .view-hidden and
+    nothing else."""
+    mode = VIEW_OF[key]
+    reset_widths(page, mode)
+    set_collapsed(page, key, True)
+    open_view(page, 'pixel-map')
+    open_view(page, mode)
+    still = page.evaluate(
+        "(id) => document.getElementById(id).classList.contains('collapsed')",
+        PANELS[key])
+    assert still, f"the {key} panel came back expanded after a view switch"
+    assert_nothing_stranded(page, f"back in {mode} with {key} still collapsed")
+    set_collapsed(page, key, False)

@@ -977,9 +977,11 @@
                             <div>Total Amps (3φ): <span id="power-total-amps-3ph">0</span></div>
                         </div>
 
-                        <div id="power-soca-runs" style="margin-bottom: 12px;"></div>
-                        <div id="power-splitters" style="margin-bottom: 12px;"></div>
-                        <div id="power-distros" style="margin-bottom: 12px;"></div>
+                        <!-- The soca / splitter / distro hosts used to sit
+                             here. They moved to the Power panel (#power-sidebar
+                             below) when the left sidebar ran out of width for
+                             them; nothing was copied, so the ids are still
+                             unique and the focus restore still finds them. -->
 
                         <div style="margin-bottom: 12px;">
                             <label style="font-weight: 600; margin-bottom: 8px; display: block;">Flow Pattern</label>
@@ -1619,6 +1621,45 @@
                             <div id="port-label-list" style="display: grid; gap: 6px; max-height: 160px; overflow: auto; padding: 6px; background: #111; border: 1px solid #333; border-radius: 4px;"></div>
                             <p style="font-size: 11px; color: #888; margin: 6px 0 0;">Use # for port number. Overrides apply per port.</p>
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Power panel. Everything about how power REACHES the cabinets
+                 lives here: the home-run multis, the splitters that gang
+                 circuits onto one of them, and the distros they land on. It
+                 exists only in Power view - the markup ships carrying
+                 .view-hidden so the other four views are untouched from the
+                 very first paint, with no flash of a panel they never show.
+                 Collapse and drag are the same two mechanisms as the Signal
+                 panel above (app-core.js initSidebarToggles, theme.js PANELS),
+                 with their own storage keys so the two panels' widths and
+                 collapsed states never move together. -->
+            <button id="power-sidebar-toggle" class="sidebar-toggle view-hidden" data-side="power" title="Collapse power panel" aria-label="Toggle power panel">‹</button>
+            <div id="power-sidebar" class="view-hidden">
+                <!-- The three hosts below are built by app-power.js rather
+                     than declared here: the rows are per-multi, per-circuit
+                     and per-distro, with no fixed number of them.
+
+                     They keep a .panel-content parent because that is what
+                     styles their bold section headings and gives them their
+                     12px gutter - .panel-content label in theme.css is the
+                     only rule those headings have.
+
+                     data-tab is belt to the sidebar's braces. refreshSocaRuns
+                     and refreshSplitterPanel blank themselves for the layer
+                     types they don't apply to, but the distro list is
+                     project-level and blanks itself for nothing, so it needs
+                     an ancestor that leaves Power view or it would render on
+                     every other tab. -->
+                <div class="panel tab-panel screen-only" data-tab="power" style="display: none;">
+                    <div class="panel-header" data-tooltip="Power Distribution, Home-run multis, the splitters that gang circuits onto one of them, and the distros they land on. Distro loads roll up across every screen, not just the selected one.">
+                        <h2>Power Distribution</h2>
+                    </div>
+                    <div class="panel-content">
+                        <div id="power-soca-runs" style="margin-bottom: 12px;"></div>
+                        <div id="power-splitters" style="margin-bottom: 12px;"></div>
+                        <div id="power-distros" style="margin-bottom: 12px;"></div>
                     </div>
                 </div>
             </div>

@@ -57,10 +57,10 @@ export class LEDRasterApp {
         // Restore collapsed sidebar state before anything paints so there's
         // no flash of the open panel.
         this.initSidebarToggles();
-        // The Signal panel's markup ships hidden, which is right for the
-        // pixel-map view the app opens on. Reconcile anyway so the panel can
-        // never be left behind if the renderer ever boots on another view.
-        this.updateDataSidebarVisibility(window.canvasRenderer.viewMode);
+        // The Signal and Power panels' markup ships hidden, which is right for
+        // the pixel-map view the app opens on. Reconcile anyway so neither can
+        // be left behind if the renderer ever boots on another view.
+        this.updateViewSidebars(window.canvasRenderer.viewMode);
 
         // Check server session FIRST - if server restarted, clear localStorage
         this.checkServerSession().then(() => {
@@ -102,18 +102,19 @@ export class LEDRasterApp {
      * dimensions ever change at runtime.
      *
      * `edge` is which side of the app the panel docks to, and it is NOT the
-     * same thing as `key`: the Signal panel is a third, middle column that
-     * docks left like the left sidebar, so its toggle hugs its right-hand
-     * edge the same way, but its storage key has to stay its own.
+     * same thing as `key`: the Signal and Power panels are middle columns that
+     * dock left like the left sidebar, so their toggles hug their right-hand
+     * edges the same way, but their storage keys have to stay their own.
      */
     initSidebarToggles() {
         const sides = [
             { key: 'left', edge: 'left', label: 'left', sidebarId: 'left-sidebar', toggleId: 'left-sidebar-toggle', expandSym: '›', collapseSym: '‹' },
             { key: 'data', edge: 'left', label: 'signal', sidebarId: 'data-sidebar', toggleId: 'data-sidebar-toggle', expandSym: '›', collapseSym: '‹' },
+            { key: 'power', edge: 'left', label: 'power', sidebarId: 'power-sidebar', toggleId: 'power-sidebar-toggle', expandSym: '›', collapseSym: '‹' },
             { key: 'right', edge: 'right', label: 'right', sidebarId: 'right-sidebar', toggleId: 'right-sidebar-toggle', expandSym: '‹', collapseSym: '›' },
         ];
         // Kept so a panel entering or leaving layout (see
-        // updateDataSidebarVisibility) can re-pin every toggle at once.
+        // updateViewSidebars) can re-pin every toggle at once.
         this._sidebarPositioners = [];
         sides.forEach(({ key, edge, label, sidebarId, toggleId, expandSym, collapseSym }) => {
             const sidebar = document.getElementById(sidebarId);
@@ -185,7 +186,7 @@ export class LEDRasterApp {
      * ~180ms, so measuring once measures the wrong frame - the canvas would
      * settle at whatever width it happened to have mid-animation.
      *
-     * Collapse, view switching (updateDataSidebarVisibility) and the end of a
+     * Collapse, view switching (updateViewSidebars) and the end of a
      * drag-resize (theme.js, through window.app) all land here, so there is
      * one mechanism for this rather than one per caller. A live drag suppresses
      * the transition and calls remeasureCanvas() directly instead.
@@ -198,23 +199,39 @@ export class LEDRasterApp {
     }
 
     /**
-     * The Signal panel belongs to Data view and nowhere else. Port labelling -
-     * and the processor work that joins it - describes how signal reaches the
-     * cabinets, which is meaningless in Pixel Map, Cabinet ID, Show Look and
-     * Power, so the panel and its toggle leave layout completely in those
-     * views (.view-hidden is display:none, not a collapse). That is the whole
-     * reason a user who never opens Data view sees nothing new.
+     * The middle panels each belong to ONE view and nowhere else. Port
+     * labelling - and the processor work that joins it - describes how signal
+     * reaches the cabinets; the multis, splitters and distros describe how
+     * power does. Neither means anything in Pixel Map, Cabinet ID or Show
+     * Look, or in each other's view, so a panel and its toggle leave layout
+     * completely everywhere else (.view-hidden is display:none, not a
+     * collapse). That is the whole reason a user who only ever opens Pixel Map
+     * sees nothing new.
      *
-     * Its collapsed state is untouched here: collapsing the panel and then
-     * leaving Data view must not silently re-expand it on the way back.
+     * One row per view-scoped panel, the same table shape as the collapse and
+     * resize tables it sits between (initSidebarToggles above, PANELS in
+     * theme.js): a fourth panel is a row here rather than a fourth near-copy
+     * of this function.
+     *
+     * Collapsed state is untouched here: collapsing a panel and then leaving
+     * its view must not silently re-expand it on the way back.
      */
-    updateDataSidebarVisibility(mode) {
-        const sidebar = document.getElementById('data-sidebar');
-        if (!sidebar) return;
-        const btn = document.getElementById('data-sidebar-toggle');
-        const visible = mode === 'data-flow';
-        sidebar.classList.toggle('view-hidden', !visible);
-        if (btn) btn.classList.toggle('view-hidden', !visible);
+    updateViewSidebars(mode) {
+        const panels = [
+            { sidebarId: 'data-sidebar', toggleId: 'data-sidebar-toggle', mode: 'data-flow' },
+            { sidebarId: 'power-sidebar', toggleId: 'power-sidebar-toggle', mode: 'power' },
+        ];
+        let touched = false;
+        panels.forEach(({ sidebarId, toggleId, mode: owns }) => {
+            const sidebar = document.getElementById(sidebarId);
+            if (!sidebar) return;
+            touched = true;
+            const btn = document.getElementById(toggleId);
+            const visible = mode === owns;
+            sidebar.classList.toggle('view-hidden', !visible);
+            if (btn) btn.classList.toggle('view-hidden', !visible);
+        });
+        if (!touched) return;
         // A whole flex column appearing or disappearing changes the width the
         // canvas has to fill, and moves every toggle.
         this.settleLayout();
@@ -1832,9 +1849,9 @@ export class LEDRasterApp {
                 });
                 
                 window.canvasRenderer.setViewMode(mode);
-                // The Signal panel is Data-view-only, so it joins or leaves
-                // layout with the tab, not with the selection.
-                this.updateDataSidebarVisibility(mode);
+                // The Signal and Power panels each belong to one view, so they
+                // join or leave layout with the tab, not with the selection.
+                this.updateViewSidebars(mode);
                 // v0.8.6.1: re-render the Screens sidebar so groups reflect
                 // the view-effective canvas (Show Look groups by
                 // show_canvas_id; Pixel Map groups by canvas_id).

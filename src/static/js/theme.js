@@ -134,12 +134,14 @@
      `dragEdge` is which edge of the PANEL its drag strip lives on - the inner
      one, facing the canvas. Deliberately not called `edge`: the collapse table
      uses that name for the side of the APP a panel docks to, and for the
-     Signal panel the two differ. It is a third, middle column that docks left,
-     so it collapses leftward but is dragged from its right-hand edge, exactly
-     like the left sidebar - while its storage key and CSS var stay its own. */
+     Signal and Power panels the two differ. They are middle columns that dock
+     left, so they collapse leftward but are dragged from their right-hand
+     edges, exactly like the left sidebar - while each keeps its own storage
+     key and CSS var, so no two panels' widths ever move together. */
   var PANELS = [
     { key: 'left',  sidebarId: 'left-sidebar',  toggleId: 'left-sidebar-toggle',  storageKey: 'lrd_left_w',  cssVar: '--lrd-left-w',  dragEdge: 'right' },
     { key: 'data',  sidebarId: 'data-sidebar',  toggleId: 'data-sidebar-toggle',  storageKey: 'lrd_data_w',  cssVar: '--lrd-data-w',  dragEdge: 'right' },
+    { key: 'power', sidebarId: 'power-sidebar', toggleId: 'power-sidebar-toggle', storageKey: 'lrd_power_w', cssVar: '--lrd-power-w', dragEdge: 'right' },
     { key: 'right', sidebarId: 'right-sidebar', toggleId: 'right-sidebar-toggle', storageKey: 'lrd_right_w', cssVar: '--lrd-right-w', dragEdge: 'left'  }
   ];
 
@@ -164,9 +166,9 @@
     PANELS.forEach(function (p) {
       var h = handles[p.key], s = sb(p); if (!h || !s) return;
       /* offsetWidth 0 covers both a collapsed panel and one that has left
-         layout altogether - the Signal panel is display:none outside Data
-         view, and a fixed strip left floating over the canvas there would be
-         a live bug, not a cosmetic one. */
+         layout altogether - the Signal and Power panels are display:none
+         outside their own view, and a fixed strip left floating over the
+         canvas there would be a live bug, not a cosmetic one. */
       if (s.classList.contains('collapsed') || s.offsetWidth <= 1) { h.style.display = 'none'; return; }
       var r = s.getBoundingClientRect();
       h.style.display = 'block';
@@ -228,8 +230,8 @@
       h.addEventListener('mousedown', startDrag(p, h));
       document.body.appendChild(h);
       handles[p.key] = h;
-      /* Collapse toggles `class`, and leaving Data view toggles it too
-         (.view-hidden), so one observer covers both ways a panel can stop
+      /* Collapse toggles `class`, and leaving a panel's own view toggles it
+         too (.view-hidden), so one observer covers both ways a panel can stop
          being draggable. */
       try { new MutationObserver(repaint).observe(s, { attributes: true, attributeFilter: ['class', 'style'] }); } catch (e) { /* ignore */ }
       var b = document.getElementById(p.toggleId);
