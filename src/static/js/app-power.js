@@ -1802,24 +1802,32 @@ class _Power {
                     ${this.getPowerBreakoutTypes().map(t => `<option value="${t.id}" ${breakout.id === t.id ? 'selected' : ''}>${t.name}</option>`).join('')}
                 </select>
             </div>
+            <div class="lrd-tile-grid lrd-tile-grid-wide" style="margin:6px 0;">
             ${plan.map(s => {
                 const assigned = (layer.powerSocaDistro || {})[s.soca] || '';
                 const esc = (t) => this._esc ? this._esc(t) : t;
                 const hand = ((layer.powerSocaNames || {})[s.soca] || '');
-                // Three fields on one line has never fitted the 180px clamp,
-                // so the heading takes its own line and the fields wrap under
-                // it - the same treatment the distro rows got. The heading is
-                // the multi's identity (bold, like the distro rows' own
-                // headings) and each field wears the caption the bare inputs
-                // never had: three unlabeled boxes in a row read as noise.
+                // Each multi is a tile: the face is the heading data - the
+                // multi's identity (bold, like the distro rows' own
+                // headings), its legs and its amps - and clicking it opens
+                // the three captioned fields in place, the same open-in-the-
+                // box shape the port tiles wear. The editor is hidden, never
+                // detached, so its keyed fields keep answering the focus
+                // restore from inside a closed tile. Which tile is open is
+                // keyed per layer (the plan is the shown screen's), so
+                // flipping screens does not carry one wall's open editor
+                // onto another wall's multi.
                 // The name field shows the DERIVED name as its placeholder
                 // while unnamed - grey text means "following the distro",
                 // typed text means named by hand, same legibility rule as
                 // the phasing select's deriving state.
+                const tileId = `soca-${layer.id}-${s.soca}`;
+                const openCls = this._tileOpenId(`soca-runs-${layer.id}`) === tileId
+                    ? ' lrd-tile-open' : '';
                 return `
-                <div class="power-soca-row" style="margin-bottom:12px;">
-                    <label style="font-weight:600; display:block; margin-bottom:3px;">${esc(s.name)} · ${s.legs.length} leg${s.legs.length === 1 ? '' : 's'} · ${s.amps.toFixed(1)} A</label>
-                    <div style="display:flex; flex-wrap:wrap; gap:5px;">
+                <div class="power-soca-row lrd-tile${openCls}" data-lrd-tile="${tileId}" data-lrd-tile-box="soca-runs-${layer.id}">
+                    <label class="lrd-tile-face" style="font-weight:600;" data-tooltip="Multi, ${esc(s.name).replace(/"/g, '&quot;')} feeds ${s.legs.length} circuit${s.legs.length === 1 ? '' : 's'} at ${s.amps.toFixed(1)} A. Click to set its name, distro and home-run length.">${esc(s.name)} · ${s.legs.length} leg${s.legs.length === 1 ? '' : 's'} · ${s.amps.toFixed(1)} A</label>
+                    <div class="lrd-tile-body" style="display:flex; flex-wrap:wrap; gap:5px;">
                         <div style="flex:1 1 70px; min-width:0;">
                             <label class="power-soca-field-label" style="font-weight:400; display:block; margin-bottom:2px;">Name</label>
                             <input type="text" class="power-soca-name" data-soca="${s.soca}" data-lrd-field="power-soca-name-${s.soca}" value="${esc(hand).replace(/"/g, '&quot;')}" placeholder="${esc(s.name).replace(/"/g, '&quot;')}" style="width:100%; min-width:0; box-sizing:border-box;" data-tooltip="Multi name, Name this multi by hand. Leave it blank and it follows its distro — multis on a distro named SL are SL1, SL2 — so renaming the distro renames them all. A name typed here stops following.">
@@ -1837,6 +1845,7 @@ class _Power {
                         </div>
                     </div>
                 </div>`; }).join('')}
+            </div>
             <div class="info-row checkbox-row" data-tooltip="Soca Brackets, Draw a bracket over each multi's span on the power map with its name and home-run length.">
                 <!-- OFF unless explicitly ticked (=== true, matching the
                      canvas gate): brackets started life on by default and
@@ -1847,6 +1856,8 @@ class _Power {
             </div>
             </div>`;
         if (typeof this._wireSectionCollapse === 'function') this._wireSectionCollapse(host);
+        // the tiles' open/close wiring, rebuilt after the same innerHTML wipe
+        if (typeof this._wireTiles === 'function') this._wireTiles(host);
         host.querySelectorAll('.power-soca-length').forEach(inp => {
             inp.addEventListener('change', () => {
                 this.setSocaLength(layer, Number(inp.dataset.soca), inp.value);

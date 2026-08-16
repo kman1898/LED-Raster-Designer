@@ -1172,3 +1172,57 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 /* the no-smear rule guards the double-click TITLE gesture; the name field
    in this head is a real editor and keeps real text selection */
 .lrd-sec-click input { user-select: text; -webkit-user-select: text; }
+
+/* Tiles (app-core.js _wireTiles): a port or a multi drawn as one dense cell
+   of a wrapping grid, its editor folded inside it. Clicking the face opens
+   the editor IN the tile - the tile takes the row's full width and the
+   controls unfold under the face - because the box the thing lives in is
+   where its edits happen; a chooser drawn elsewhere would orphan its
+   controls from the tile in a wrapped grid, where "beneath" points at
+   whatever happens to have wrapped there. Same hide-never-detach rule as
+   the sections above it: a closed tile's fields must keep answering the
+   focus-restore and key-collision lookups, and the restore's auto-open
+   (_expandSectionsFor) is what brings a hidden field back. The grid tracks
+   are minmax so the columns give way before anything clips - the 180px
+   clamp reflows to fewer columns, never to a sideways scroll. */
+.lrd-tile-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+    gap: 4px;
+    min-width: 0;
+}
+/* the multi tiles carry a longer glance line, so their columns start wider */
+.lrd-tile-grid-wide {
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+}
+.lrd-tile {
+    border: 1px solid #262626;
+    border-radius: 3px;
+    background: #0d0d0d;
+    min-width: 0;
+}
+.lrd-tile-face {
+    display: block;
+    cursor: pointer;
+    padding: 3px 5px;
+    min-width: 0;
+    user-select: none; -webkit-user-select: none;
+}
+.lrd-tile-face:focus-visible { outline: 1px solid #3a5d96; outline-offset: -1px; }
+.lrd-tile-line {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 11px; font-family: monospace; line-height: 1.35;
+    min-width: 0;
+}
+.lrd-tile:not(.lrd-tile-open) > .lrd-tile-body { display: none !important; }
+.lrd-tile-open {
+    grid-column: 1 / -1;
+    background: #111;
+    border-color: #3a3a3a;
+}
+.lrd-tile-open > .lrd-tile-body { padding: 0 5px 5px; min-width: 0; }
+/* Idle and occupied told apart at a squint: the occupied tile is the lit
+   one - a background rung up the same grey ladder the text uses, not a
+   badge. A clash keeps the issue boxes' red ground. */
+.lrd-tile-occupied { background: #1e1e1e; border-color: #4a4a4a; }
+.lrd-tile-clash { background: #1a1010; border-color: #3a2a28; }

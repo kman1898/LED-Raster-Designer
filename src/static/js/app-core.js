@@ -285,10 +285,102 @@ export class LEDRasterApp {
      */
     _expandSectionsFor(el) {
         for (let n = el && el.parentElement; n; n = n.parentElement) {
-            if (n.classList && n.classList.contains('lrd-sec-collapsed')) {
+            if (!n.classList) continue;
+            // A field that lives inside a closed tile is the same case one
+            // register down: the restore is about to focus it, so the tile
+            // opens - and records the opening, or the next rebuild would
+            // close the editor around the caret.
+            if (n.classList.contains('lrd-tile')
+                    && !n.classList.contains('lrd-tile-open')) {
+                this._setTileOpen(n, true);
+            }
+            if (n.classList.contains('lrd-sec-collapsed')) {
                 this._setSectionCollapsed(n, false);
             }
         }
+    }
+
+    /**
+     * Tiles: a port or a multi drawn as one dense cell of a wrapping grid,
+     * with its editor folded inside it (style.css .lrd-tile). Clicking the
+     * face opens the editor in place; one editor per box at a time, so
+     * opening a tile closes whichever neighbour was open.
+     *
+     * Which tile is open lives HERE (`_openTiles`, boxId -> tileId), never
+     * in the DOM: both panels that draw tiles rebuild wholesale on every
+     * resolution, and the open editor has to come back by id through the
+     * wipe - the same reason the fold state and the half-made choosers
+     * (_assigningPort, _movingPort) live off the markup. In memory only, on
+     * purpose: an editor is a gesture, not a preference, so unlike the fold
+     * it does not outlive the page.
+     */
+    _tileOpenId(boxId) {
+        return (this._openTiles || {})[boxId] || null;
+    }
+
+    _setTileOpen(tile, open, focusFace) {
+        if (!tile) return;
+        const boxId = tile.dataset.lrdTileBox || '';
+        const id = tile.dataset.lrdTile || '';
+        if (!this._openTiles) this._openTiles = {};
+        if (open) {
+            const prev = this._openTiles[boxId];
+            if (prev && prev !== id) {
+                // the box's other open tile closes as this one opens
+                const el = document.querySelector(
+                    `[data-lrd-tile="${prev}"]`);
+                if (el) {
+                    el.classList.remove('lrd-tile-open');
+                    const f = el.querySelector(':scope > .lrd-tile-face');
+                    if (f) f.setAttribute('aria-expanded', 'false');
+                }
+            }
+            this._openTiles[boxId] = id;
+        } else if (this._openTiles[boxId] === id) {
+            delete this._openTiles[boxId];
+        }
+        tile.classList.toggle('lrd-tile-open', open);
+        const face = tile.querySelector(':scope > .lrd-tile-face');
+        if (face) {
+            face.setAttribute('aria-expanded', String(open));
+            // Closing from inside the editor would otherwise drop focus into
+            // a field that just went display:none - the tile is the stop the
+            // gesture came from, so it is where focus goes back to.
+            if (!open && focusFace) face.focus();
+        }
+    }
+
+    _wireTiles(scope) {
+        scope.querySelectorAll('.lrd-tile').forEach(tile => {
+            if (tile.dataset.lrdTileWired) return;
+            const face = tile.querySelector(':scope > .lrd-tile-face');
+            if (!face) return;
+            tile.dataset.lrdTileWired = '1';
+            // The face is a real tab stop: the old rows were keyboard-
+            // reachable through their inputs, and a tile whose fields are
+            // hidden until opened would otherwise take that access away.
+            // Enter/Space open it, Escape anywhere in the tile closes it.
+            face.tabIndex = 0;
+            face.setAttribute('role', 'button');
+            face.setAttribute('aria-expanded',
+                              String(tile.classList.contains('lrd-tile-open')));
+            const toggle = () => this._setTileOpen(
+                tile, !tile.classList.contains('lrd-tile-open'), true);
+            face.addEventListener('click', toggle);
+            face.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    toggle();
+                }
+            });
+            tile.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape'
+                        && tile.classList.contains('lrd-tile-open')) {
+                    e.stopPropagation();
+                    this._setTileOpen(tile, false, true);
+                }
+            });
+        });
     }
 
     /**

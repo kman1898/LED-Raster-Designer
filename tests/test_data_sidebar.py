@@ -839,6 +839,13 @@ def test_focus_restore_into_a_collapsed_section_expands_it(page):
     out = page.evaluate("""async () => {
         const app = window.app;
         const host = document.getElementById('power-soca-runs');
+        // The soca fields live inside tiles now, so the field a user would
+        // be standing in is one whose tile is open - open it the way they
+        // would, through the face.
+        const tile = host.querySelector('.lrd-tile');
+        if (tile && !tile.classList.contains('lrd-tile-open')) {
+            tile.querySelector(':scope > .lrd-tile-face').click();
+        }
         const el = host.querySelector('input[data-lrd-field]');
         if (!el) return { skipped: true };
         el.focus();

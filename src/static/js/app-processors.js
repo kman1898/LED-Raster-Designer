@@ -125,11 +125,20 @@ class _Processors {
         if (typeof this._wireSectionCollapse === 'function') {
             this._wireSectionCollapse(list);
         }
-        // The set/place chooser acts into a port row. Opened under a folded
+        // The tiles' own open/close wiring, rebuilt for the same reason -
+        // the wipe above took the wired nodes with it. Which tile is open
+        // rode the wipe on the app (_openTiles), the way the fold state
+        // rode it in localStorage.
+        if (typeof this._wireTiles === 'function') {
+            this._wireTiles(list);
+        }
+        // The set/place chooser acts into a port tile. Opened under a folded
         // processor it would sit display:none and the click would look like
         // nothing happened - the stated rule for anything that acts into a
         // hidden place is that the place opens first, same as the distro
-        // list's + Add.
+        // list's + Add. The build has already opened the TILE itself
+        // (_buildPortTile records the aim in _openTiles); this walk opens
+        // the processor above it.
         if (this._assigningPort
                 && typeof this._expandSectionsFor === 'function') {
             const open = list.querySelector(
@@ -738,15 +747,15 @@ class _Processors {
         // No height cap and no scrollbar of its own: the SIDEBAR is the one
         // scroll context. A 190px scrollbox here showed two and a half ports
         // of twenty and made every read a scroll-within-a-scroll; the section
-        // header folds the whole panel away when the length is unwanted.
-        list.style.background = '#0d0d0d';
-        list.style.border = '1px solid #262626';
-        list.style.borderRadius = '4px';
-        list.style.padding = '4px';
+        // header folds the whole panel away when the length is unwanted. The
+        // tiles are what keep the natural height honest - a 20-port card is
+        // a few rows of grid, not twenty stacked editors.
+        list.className = 'lrd-tile-grid';
         if (!(card.ports || []).length) {
             const empty = document.createElement('div');
             empty.style.fontSize = '11px';
             empty.style.color = '#888';
+            empty.style.gridColumn = '1 / -1';
             empty.textContent = card.ceilingKnown
                 ? 'No ports.'
                 : 'Port count unknown for this device.';
@@ -754,9 +763,95 @@ class _Processors {
             return list;
         }
         card.ports.forEach(port => {
-            list.appendChild(this._buildPortRow(proc, card, port));
+            list.appendChild(this._buildPortTile(proc, card, port));
         });
         return list;
+    }
+
+    // One port as one dense cell of the card's grid: number, the resolved
+    // label (the assignment's answer, never re-derived here), and who is on
+    // it. Clicking the face opens the port's editor IN the tile - it takes
+    // the row's full width and the controls unfold under the face - because
+    // the box a port lives in is where its edits happen; an editor drawn
+    // outside the tile would orphan its controls in a wrapped grid, where
+    // "beneath" points at whatever happened to wrap there. The editor is
+    // hidden, never detached (style.css .lrd-tile-body), so every field
+    // keeps answering the focus-restore lookup from inside a closed tile.
+    _buildPortTile(proc, card, port) {
+        const tile = document.createElement('div');
+        tile.className = 'lrd-tile';
+        tile.dataset.lrdTile = `port-${card.id}-${port.number}`;
+        tile.dataset.lrdTileBox = `card-${card.id}`;
+        const occupants = this._portOccupants(card.id, port.number);
+        // The same states the editor prints, worn as the tile's ground so
+        // idle and occupied read apart at a squint: free stays dark,
+        // occupied is the lit one, a clash keeps the issue boxes' red.
+        if (occupants.length > 1) tile.classList.add('lrd-tile-clash');
+        else if (occupants.length) tile.classList.add('lrd-tile-occupied');
+
+        const face = document.createElement('div');
+        face.className = 'lrd-tile-face';
+        const top = document.createElement('div');
+        top.className = 'lrd-tile-line';
+        const num = document.createElement('span');
+        num.style.color = port.beyondCeiling ? '#d05a52' : '#666';
+        num.textContent = String(port.number);
+        top.appendChild(num);
+        if (port.label) {
+            const label = document.createElement('span');
+            // Typed gold vs derived grey - the same tell the editor's boxes
+            // wear, at the same 11px, so it survives the shrink to a tile.
+            label.style.color = port.labelSource === 'manual'
+                ? '#e0c98a' : '#ccc';
+            top.appendChild(document.createTextNode(' '));
+            label.textContent = port.label;
+            top.appendChild(label);
+        }
+        face.appendChild(top);
+        const who = document.createElement('div');
+        who.className = 'lrd-tile-line';
+        if (!occupants.length) {
+            who.style.color = '#4a4a4a';
+            who.textContent = 'free';
+        } else if (occupants.length > 1) {
+            who.style.color = '#d05a52';
+            who.textContent = 'clash';
+        } else {
+            who.style.color = '#999';
+            who.textContent = occupants[0].name;
+        }
+        face.appendChild(who);
+        // The full story a squeezed cell cannot print, on hover - the open
+        // editor is where it is spelled out for real.
+        face.title = `Port ${port.number}`
+            + (port.label ? ` - ${port.label}` : '')
+            + (occupants.length
+                ? ` - ${occupants.map(o => `${o.name} p${o.number}`).join(', ')}`
+                    + (occupants.length > 1 ? ' - clash' : '')
+                : ' - free')
+            + (port.beyondCeiling ? ' - beyond this card’s ceiling' : '')
+            + '. Click to edit.';
+        tile.appendChild(face);
+
+        const body = this._buildPortRow(proc, card, port);
+        body.classList.add('lrd-tile-body');
+        tile.appendChild(body);
+
+        // The set/place flow acts into this editor, and a chooser opened
+        // inside a closed tile would sit display:none and read as a dead
+        // click - so aiming here IS opening here, recorded in the same
+        // store a click writes, or the next rebuild would close it again.
+        const aiming = this._assigningPort;
+        if (aiming && aiming.cardId === card.id
+                && aiming.port === port.number) {
+            if (!this._openTiles) this._openTiles = {};
+            this._openTiles[tile.dataset.lrdTileBox] = tile.dataset.lrdTile;
+        }
+        if (this._tileOpenId(tile.dataset.lrdTileBox)
+                === tile.dataset.lrdTile) {
+            tile.classList.add('lrd-tile-open');
+        }
+        return tile;
     }
 
     // One of a port row's two name boxes, captioned the way the soca rows'
@@ -805,27 +900,23 @@ class _Processors {
         return cell;
     }
 
+    // The open tile's editor: the two name boxes on a wrapping line, then
+    // the occupancy detail with the button that sets the occupant.
     _buildPortRow(proc, card, port) {
         const wrap = document.createElement('div');
         const row = document.createElement('div');
-        row.style.display = 'grid';
-        // Number, occupant, and the button that sets the occupant on the
-        // first line; the two name boxes on their own line beneath. The
-        // names are inputs rather than text because a port is a socket
+        // The names are inputs rather than text because a port is a socket
         // someone has to be able to call what the house already calls it,
         // and since the processor now beats a screen's own override for an
         // assigned port, these boxes are the ONLY place left to do it.
         // Making it a mode to find would strand every port that needs one.
-        row.style.gridTemplateColumns = '22px minmax(0, 1fr) auto';
+        row.style.display = 'flex';
+        row.style.flexWrap = 'wrap';
         row.style.gap = '4px';
         row.style.alignItems = 'center';
         row.style.fontSize = '11px';
         row.style.fontFamily = 'monospace';
-
-        const num = document.createElement('div');
-        num.style.color = port.beyondCeiling ? '#d05a52' : '#666';
-        num.textContent = String(port.number);
-        row.appendChild(num);
+        row.style.marginBottom = '2px';
 
         const rename = (body, action) => this._processorRequest(
             `/api/processors/${proc.id}/cards/${card.id}/ports/${port.number}`,
@@ -834,15 +925,15 @@ class _Processors {
         // Two ends of one socket, named side by side. The fields share a
         // wrapping line of their own: two 70px boxes fit abreast at the
         // panel's usual width and stack at its 180px clamp, exactly as the
-        // soca rows' captioned fields do. Full row width, not indented under
-        // the number column - the nested tree has already spent ~60px of the
-        // panel by here, and an indent is the difference between abreast and
-        // stacked at every width.
+        // soca rows' captioned fields do. Full editor width, never indented -
+        // the nested tree has already spent ~60px of the panel by here, and
+        // an indent is the difference between abreast and stacked at every
+        // width.
         const names = document.createElement('div');
         names.style.display = 'flex';
         names.style.flexWrap = 'wrap';
         names.style.gap = '4px';
-        names.style.margin = '0 0 6px 0';
+        names.style.margin = '0 0 4px 0';
         names.appendChild(this._buildPortNameField(
             'Name',
             `processor-port-name-${card.id}-${port.number}`,
@@ -875,6 +966,9 @@ class _Processors {
                             'Rename Processor Port Return')));
 
         const who = document.createElement('div');
+        // the one elastic cell of its line, same shape as the assignment rows
+        who.style.flex = '1 1 60px';
+        who.style.minWidth = '0';
         who.style.overflow = 'hidden';
         who.style.textOverflow = 'ellipsis';
         who.style.whiteSpace = 'nowrap';
@@ -898,12 +992,12 @@ class _Processors {
         }
         row.appendChild(who);
         row.appendChild(this._buildPortClaimControl(card, port));
-        wrap.appendChild(row);
         wrap.appendChild(names);
+        wrap.appendChild(row);
 
-        // The chooser opens under its own row, where the ports either side of
-        // it are still readable. Which socket is free is decided by looking at
-        // the neighbours, and a dialog over the top hides them.
+        // The chooser opens inside its own tile, where the tiles either side
+        // of it are still readable. Which socket is free is decided by
+        // looking at the neighbours, and a dialog over the top hides them.
         const open = this._assigningPort;
         if (open && open.cardId === card.id && open.port === port.number) {
             wrap.appendChild(this._buildPortClaimPicker(card, port));
@@ -944,7 +1038,7 @@ class _Processors {
 
     _buildPortClaimPicker(card, port) {
         const box = document.createElement('div');
-        box.style.margin = '2px 0 4px 26px';
+        box.style.margin = '2px 0 4px 0';
         box.style.padding = '6px';
         box.style.border = '1px solid #333';
         box.style.borderRadius = '4px';

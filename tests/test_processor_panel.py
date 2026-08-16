@@ -1246,6 +1246,18 @@ SET_WIDTH_JS = """(width) => {
     document.documentElement.style.setProperty('--lrd-data-w', width + 'px');
 }"""
 
+# The ports render as tiles and a port's editor only shows while its tile is
+# open, so a driver that measures or types into the editor first opens the
+# tile the way a user does - through its face.
+OPEN_TILE_JS = """(tileId) => {
+    const tile = document.querySelector(`[data-lrd-tile="${tileId}"]`);
+    if (!tile) return false;
+    if (!tile.classList.contains('lrd-tile-open')) {
+        tile.querySelector(':scope > .lrd-tile-face').click();
+    }
+    return tile.classList.contains('lrd-tile-open');
+}"""
+
 MEASURE_ROW_JS = """(args) => {
     const sidebar = document.getElementById('data-sidebar');
     const list = document.getElementById('processor-list');
@@ -1302,6 +1314,9 @@ def test_the_port_row_renders_both_fields(panel_page, width):
     # and measured once the animation has landed.
     panel_page.evaluate(SET_WIDTH_JS, width)
     panel_page.wait_for_timeout(500)
+    assert panel_page.evaluate(OPEN_TILE_JS, f"port-{ids['cardId']}-1"), (
+        'port 1 has no tile to open')
+    panel_page.wait_for_timeout(100)
     out = panel_page.evaluate(MEASURE_ROW_JS,
                               {'cardId': ids['cardId'], 'width': width})
     assert out['sidebarWidth'] == width, out
@@ -1766,6 +1781,10 @@ def test_sidebar_scroll_alone_reaches_all_twenty_ports(panel_page):
     panel_page.wait_for_timeout(600)
     panel_page.evaluate(SET_WIDTH_JS, 260)
     panel_page.wait_for_timeout(400)
+    # port 20's editor is the far end of the walk, so it is the one opened
+    assert panel_page.evaluate(OPEN_TILE_JS, f"port-{ids['cardId']}-20"), (
+        'port 20 has no tile to open')
+    panel_page.wait_for_timeout(100)
     out = panel_page.evaluate(MEASURE_PORT_LIST_JS, {'cardId': ids['cardId']})
     assert out['ports'] == 20, out
     assert not out['nested'], (
@@ -2264,6 +2283,8 @@ def test_focus_restore_into_a_folded_processor_unfolds_it(panel_page):
     rebuild folds the field away again."""
     pytest.importorskip("playwright.sync_api", reason="playwright not installed")
     ids = seed_fold(panel_page)
+    assert panel_page.evaluate(OPEN_TILE_JS, f"port-{ids['sxCard']}-1"), (
+        'port 1 has no tile to open')
     out = panel_page.evaluate("""async (args) => {
         const app = window.app;
         const el = document.querySelector(
