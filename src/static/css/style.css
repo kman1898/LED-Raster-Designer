@@ -1152,3 +1152,23 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 /* generated block headings lead with the arrow, like the screen-group rows */
 .lrd-sec-head .lrd-sec-arrow { margin-right: 4px; padding-left: 0; vertical-align: -1px; }
 .lrd-sec-collapsed > .lrd-sec-head .lrd-sec-arrow { transform: rotate(-90deg); }
+
+/* A processor card folds to one line (app-processors.js
+   _buildProcessorCard). The machinery above hides the card's .lrd-sec-body;
+   the head then swaps its editors (.lrd-proc-live: the name field, the ×)
+   for the summary, so folded reads as glance data rather than an orphaned
+   input. Swapped by display, never detached - the focus-restore keys must
+   keep resolving into a folded card, and the restore's auto-expand is what
+   brings the field back. */
+.lrd-proc-summary {
+    display: none;
+    font-size: 11px; font-family: monospace; color: #ccc;
+    line-height: 1.4; min-width: 0;
+}
+.lrd-sec-collapsed > .lrd-sec-head > .lrd-proc-summary {
+    display: block; flex: 1 1 auto;
+}
+.lrd-sec-collapsed > .lrd-sec-head > .lrd-proc-live { display: none; }
+/* the no-smear rule guards the double-click TITLE gesture; the name field
+   in this head is a real editor and keeps real text selection */
+.lrd-sec-click input { user-select: text; -webkit-user-select: text; }

@@ -1893,3 +1893,479 @@ def test_the_sidebar_hosts_pin_their_grid_track():
         assert 'minmax(0, 1fr)' in tag, (
             f'#{host} is back on an auto grid track, which overflows the '
             f'clamp in a real window')
+
+
+# ── 13. Each processor folds to one line ──────────────────────────────────
+#
+# Eight screens is eight processors, and eight expanded SX40 trees - name
+# field, redundancy block, card fields, a 20-port list each - is a wall no
+# sidebar scroll makes readable. Each card now folds by the SAME section
+# machinery the panel headers and the Power blocks use (app-core.js
+# _wireSectionCollapse): single click on the arrow, double-click on the
+# head, state per processor id under ledRasterPanelCollapsed_processor-<id>.
+# Folded, the head swaps its editors for one line of glance data read off
+# the resolve - model, name, ports used/ceiling, the redundancy flag.
+
+def test_the_processor_card_wires_the_shared_fold_machinery():
+    """One mechanism, not a copy: the cards go through _wireSectionCollapse
+    on every rebuild, keyed per processor id, and the × takes the deleted
+    machine's key with it - every other way a processor leaves (undo, a
+    project loading over this one) merely orphans a key, which nothing can
+    inherit because ids never recur within a project."""
+    source = js_source('app-processors.js')
+    assert 'this._wireSectionCollapse(list)' in source
+    assert 'head.dataset.lrdSec = `processor-${proc.id}`' in source
+    assert "head.className = 'lrd-sec-head'" in source
+    assert "bodyWrap.className = 'lrd-sec-body'" in source
+    assert 'ledRasterPanelCollapsed_processor-${proc.id}' in source, (
+        'the deleted processor key is not cleaned up')
+
+
+FOLD_SEED_JS = """async () => {
+    const state = await (await fetch('/api/processors')).json();
+    for (const p of (state.processors || [])) {
+        await fetch(`/api/processors/${p.id}`, { method: 'DELETE' });
+    }
+    const mk = async (deviceId, body) => {
+        const add = await (await fetch('/api/processors', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ deviceId }),
+        })).json();
+        const proc = add.resolved[add.resolved.length - 1];
+        if (body) {
+            await fetch(`/api/processors/${proc.id}`, {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+        }
+        return proc.id;
+    };
+    // The user's own shape: a named, redundant SX40 - and a second machine
+    // so independence is provable.
+    const sx = await mk('brompton-sx40', { name: 'SL IMAG', redundancy: true });
+    const mx = await mk('novastar-mx20', null);
+    await window.app.refreshProcessors();
+    const resolved = (await (await fetch('/api/processors')).json()).resolved;
+    return { sx, mx,
+             sxCard: resolved[0].slots.map(s => s.card).find(Boolean).id,
+             resolved };
+}"""
+
+FOLD_STATE_JS = """(procId) => {
+    const head = document.querySelector(
+        `[data-lrd-sec="processor-${procId}"]`);
+    if (!head) return null;
+    const box = head.parentElement;
+    const body = box.querySelector(':scope > .lrd-sec-body');
+    const arrow = head.querySelector('.lrd-sec-arrow');
+    const summary = head.querySelector('.lrd-proc-summary');
+    const name = head.querySelector(
+        `input[data-lrd-field="processor-name-${procId}"]`);
+    const vis = (el) => !!el && el.getClientRects().length > 0;
+    return {
+        wired: !!(arrow && body),
+        collapsed: body ? getComputedStyle(body).display === 'none' : null,
+        bodyInDom: !!body && body.isConnected,
+        arrowVisible: vis(arrow),
+        summaryVisible: vis(summary),
+        summaryText: summary ? summary.textContent : null,
+        summaryFits: summary
+            ? summary.scrollWidth <= summary.clientWidth : null,
+        nameVisible: vis(name),
+        boxHeight: Math.round(box.getBoundingClientRect().height),
+        boxFits: box.scrollWidth <= box.clientWidth,
+        stored: localStorage.getItem(
+            'ledRasterPanelCollapsed_processor-' + procId),
+    };
+}"""
+
+
+def fold_state(page, proc_id):
+    return page.evaluate(FOLD_STATE_JS, proc_id)
+
+
+def proc_arrow(page, proc_id):
+    return page.locator(
+        f'[data-lrd-sec="processor-{proc_id}"] .lrd-sec-arrow')
+
+
+def seed_fold(panel_page):
+    ids = panel_page.evaluate(FOLD_SEED_JS)
+    panel_page.wait_for_timeout(600)
+    panel_page.evaluate(SET_WIDTH_JS, 260)
+    panel_page.wait_for_timeout(400)
+    return ids
+
+
+def test_the_arrow_folds_a_processor_and_nothing_leaves_the_dom(panel_page):
+    """Fresh ids have no stored state, so both machines arrive expanded; the
+    arrow folds one to its summary line while the other stands, the folded
+    body hides but never detaches (the focus keys must keep resolving), and
+    the state lands under the processor's own key."""
+    pytest.importorskip("playwright.sync_api", reason="playwright not installed")
+    ids = seed_fold(panel_page)
+    for pid in (ids['sx'], ids['mx']):
+        s = fold_state(panel_page, pid)
+        assert s and s['wired'], f'{pid} was not wired for folding: {s}'
+        assert s['collapsed'] is False, f'a NEW processor arrived folded: {s}'
+        assert s['arrowVisible'], f'{pid} has no visible arrow: {s}'
+        assert not s['summaryVisible'], (
+            f'the summary shows on an OPEN card: {s}')
+
+    proc_arrow(panel_page, ids['sx']).click()
+    panel_page.wait_for_timeout(100)
+    s = fold_state(panel_page, ids['sx'])
+    assert s['collapsed'] is True, f'the arrow did not fold the card: {s}'
+    assert s['bodyInDom'], 'the folded body left the DOM'
+    assert s['summaryVisible'] and not s['nameVisible'], (
+        f'folded must read as the summary line, not the editors: {s}')
+    assert s['stored'] == '1', f'the fold did not persist: {s}'
+    assert fold_state(panel_page, ids['mx'])['collapsed'] is False, (
+        'folding one processor took its neighbour')
+    # hidden, never detached: a port field inside the folded body still
+    # answers the focus-restore lookup
+    assert panel_page.evaluate(
+        """(cardId) => !!document.querySelector(
+               `[data-lrd-field="processor-port-name-${cardId}-1"]`)""",
+        ids['sxCard']), 'a folded port field no longer resolves by its key'
+
+    proc_arrow(panel_page, ids['sx']).click()
+    panel_page.wait_for_timeout(100)
+    s = fold_state(panel_page, ids['sx'])
+    assert s['collapsed'] is False and s['stored'] == '0', s
+
+
+def test_the_summary_line_reads_model_name_screens_ports_redundancy(panel_page):
+    """The glance line, read off the resolve and the occupancy and nothing
+    else: model, the name, what the machine DRIVES, defined over ceiling,
+    and the redundancy flag - the SX40's halved 20/20, not the datasheet
+    40. The screens segment is the occupancy's answer, never a one-to-one
+    assumption: the live screen sits on the first machine's card, so the
+    second machine says so - 'no screens', an unused box stated as such. An
+    unnamed, non-redundant machine states neither an empty name segment nor
+    a flag."""
+    pytest.importorskip("playwright.sync_api", reason="playwright not installed")
+    ids = seed_fold(panel_page)
+    sx = ids['resolved'][0]
+    mx = ids['resolved'][1]
+
+    proc_arrow(panel_page, ids['sx']).click()
+    proc_arrow(panel_page, ids['mx']).click()
+    panel_page.wait_for_timeout(100)
+
+    text = fold_state(panel_page, ids['sx'])['summaryText']
+    assert text == (f"{sx['deviceName']} · SL IMAG · Screen1 · "
+                    f"{sx['defined']}/{sx['ceiling']} ports · redundant"), text
+    assert '20/20 ports' in text, (
+        f'the summary does not carry the redundancy-halved figures: {text}')
+
+    text = fold_state(panel_page, ids['mx'])['summaryText']
+    assert text == (f"{mx['deviceName']} · no screens · "
+                    f"{mx['defined']}/{mx['ceiling']} ports"), text
+    assert 'redundant' not in text and '· ·' not in text, text
+
+
+def test_the_summary_names_two_screens_and_counts_three_or_more(panel_page):
+    """One machine, many screens - the H-series shape. Up to two screens are
+    NAMED (the folded line wraps at the clamp rather than clipping, and two
+    names is the most that still reads as a glance line there); three or
+    more become a count, still read off the same occupancy. The folded
+    summary follows the occupancy as screens arrive, because the occupancy
+    change is what re-renders the panel."""
+    pytest.importorskip("playwright.sync_api", reason="playwright not installed")
+    ids = seed_fold(panel_page)
+    snapshot = panel_page.evaluate(
+        "async () => await (await fetch('/api/project')).json()")
+    try:
+        def add_screen(name):
+            panel_page.evaluate("""async (name) => {
+                await fetch('/api/layer/add', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, columns: 2, rows: 2,
+                                           cabinet_width: 128,
+                                           cabinet_height: 128 }),
+                });
+                window.app.project =
+                    await (await fetch('/api/project')).json();
+                await window.app.refreshPortAssignment();
+            }""", name)
+            panel_page.wait_for_timeout(500)
+
+        proc_arrow(panel_page, ids['sx']).click()
+        panel_page.wait_for_timeout(100)
+
+        add_screen('WallB')
+        text = fold_state(panel_page, ids['sx'])['summaryText']
+        assert ' · Screen1, WallB · ' in text, (
+            f'two screens should be named outright: {text}')
+
+        add_screen('WallC')
+        add_screen('WallD')
+        text = fold_state(panel_page, ids['sx'])['summaryText']
+        assert ' · 4 screens · ' in text, (
+            f'three or more screens should fold to a count: {text}')
+        assert 'WallB' not in text, f'a count and a name at once: {text}'
+    finally:
+        # the added layers would haunt every later seed's occupancy
+        panel_page.evaluate("""async (project) => {
+            await fetch('/api/project', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(project),
+            });
+            window.app.project = await (await fetch('/api/project')).json();
+            await window.app.refreshPortAssignment();
+        }""", snapshot)
+        panel_page.wait_for_timeout(400)
+
+
+@pytest.mark.parametrize('width', [260, 180])
+def test_the_folded_line_fits_both_widths(panel_page, width):
+    """One line of glance data that wraps at the clamp the way the soca
+    headings do - the folded card never scrolls sideways, and eight of these
+    is a panel of summary lines, not a wall."""
+    pytest.importorskip("playwright.sync_api", reason="playwright not installed")
+    ids = seed_fold(panel_page)
+    proc_arrow(panel_page, ids['sx']).click()
+    proc_arrow(panel_page, ids['mx']).click()
+    panel_page.wait_for_timeout(100)
+    panel_page.evaluate(SET_WIDTH_JS, width)
+    panel_page.wait_for_timeout(500)
+    for pid in (ids['sx'], ids['mx']):
+        s = fold_state(panel_page, pid)
+        assert s['summaryFits'], (
+            f'{pid} summary clips sideways at {width}px: {s}')
+        assert s['boxFits'], f'{pid} card scrolls sideways at {width}px: {s}'
+        # One line at the usual width; at the clamp the line WRAPS rather
+        # than clipping (the soca-heading treatment), so the budget is a
+        # couple of short lines there - against ~1700px expanded.
+        assert s['boxHeight'] <= (80 if width >= 260 else 120), (
+            f'{pid} folded is not a glance line at {width}px: {s}')
+
+
+def test_a_single_click_is_inert_and_the_name_field_still_edits(panel_page):
+    """The head holds the name field, so the fold must never eat a click:
+    a single click anywhere on the head does nothing, and typing into the
+    field commits through the same PUT it always did."""
+    pytest.importorskip("playwright.sync_api", reason="playwright not installed")
+    ids = seed_fold(panel_page)
+    head = panel_page.locator(f'[data-lrd-sec="processor-{ids["sx"]}"]')
+    # the caption label is head surface that is neither the arrow nor an input
+    head.locator('label').first.click()
+    panel_page.wait_for_timeout(100)
+    assert fold_state(panel_page, ids['sx'])['collapsed'] is False, (
+        'a single click on the header folded the card')
+
+    field = panel_page.locator(
+        f'[data-lrd-field="processor-name-{ids["sx"]}"]')
+    field.click()
+    field.fill('')
+    panel_page.keyboard.type('SL WALL')
+    panel_page.keyboard.press('Tab')
+    panel_page.wait_for_timeout(800)
+    stored = panel_page.evaluate(
+        "async () => (await (await fetch('/api/processors')).json())"
+        ".processors[0].name")
+    assert stored == 'SL WALL', 'the rename never reached the server'
+    assert fold_state(panel_page, ids['sx'])['collapsed'] is False, (
+        'editing the name folded the card')
+
+
+def test_double_click_toggles_except_on_the_name_field(panel_page):
+    """Double-click on head surface folds; double-click on the folded
+    summary unfolds; a double-click that lands IN the name input is the
+    input's word-select, never a fold."""
+    pytest.importorskip("playwright.sync_api", reason="playwright not installed")
+    ids = seed_fold(panel_page)
+    head = panel_page.locator(f'[data-lrd-sec="processor-{ids["sx"]}"]')
+
+    head.locator('label').first.dblclick()
+    panel_page.wait_for_timeout(100)
+    assert fold_state(panel_page, ids['sx'])['collapsed'] is True, (
+        'double-click on the header did not fold the card')
+
+    head.locator('.lrd-proc-summary').dblclick()
+    panel_page.wait_for_timeout(100)
+    assert fold_state(panel_page, ids['sx'])['collapsed'] is False, (
+        'double-click on the summary line did not unfold the card')
+
+    head.locator(f'[data-lrd-field="processor-name-{ids["sx"]}"]').dblclick()
+    panel_page.wait_for_timeout(100)
+    assert fold_state(panel_page, ids['sx'])['collapsed'] is False, (
+        'double-click inside the name field folded the card under the caret')
+
+
+def test_fold_state_survives_reload_and_new_processors_arrive_open(panel_page):
+    """Per-machine persistence: the folded SX40 comes back folded, its open
+    neighbour open, and a processor added afterwards - about to be
+    configured - arrives expanded without touching either."""
+    pytest.importorskip("playwright.sync_api", reason="playwright not installed")
+    ids = seed_fold(panel_page)
+    proc_arrow(panel_page, ids['sx']).click()
+    panel_page.wait_for_timeout(100)
+
+    panel_page.reload(wait_until='domcontentloaded')
+    panel_page.wait_for_timeout(2000)
+    panel_page.locator('[data-mode="data-flow"]').click()
+    panel_page.wait_for_timeout(600)
+    assert fold_state(panel_page, ids['sx'])['collapsed'] is True, (
+        'the folded processor came back expanded after a reload')
+    assert fold_state(panel_page, ids['mx'])['collapsed'] is False, (
+        'the open processor came back folded after a reload')
+
+    new_id = panel_page.evaluate("""async () => {
+        const add = await (await fetch('/api/processors', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ deviceId: 'brompton-s8' }),
+        })).json();
+        await window.app.refreshProcessors();
+        return add.resolved[add.resolved.length - 1].id;
+    }""")
+    panel_page.wait_for_timeout(400)
+    assert fold_state(panel_page, new_id)['collapsed'] is False, (
+        'a brand-new processor arrived folded')
+    assert fold_state(panel_page, ids['sx'])['collapsed'] is True, (
+        'adding a processor unfolded an existing one')
+
+
+def test_a_rebuild_keeps_each_processors_own_state(panel_page):
+    """The panel is rebuilt wholesale on every change; the fold rides the
+    per-id keys through the wipe, both on a bare re-render and on a real
+    server round-trip that changes the tree."""
+    pytest.importorskip("playwright.sync_api", reason="playwright not installed")
+    ids = seed_fold(panel_page)
+    proc_arrow(panel_page, ids['sx']).click()
+    panel_page.wait_for_timeout(100)
+
+    panel_page.evaluate("() => window.app.renderProcessorPanel()")
+    panel_page.wait_for_timeout(200)
+    assert fold_state(panel_page, ids['sx'])['collapsed'] is True, (
+        'a bare re-render dropped the fold')
+    assert fold_state(panel_page, ids['mx'])['collapsed'] is False
+
+    panel_page.evaluate("""async (args) => {
+        await fetch(`/api/processors/${args.sx}/cards/${args.sxCard}`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: 'SL' }),
+        });
+        await window.app.refreshProcessors();
+    }""", {'sx': ids['sx'], 'sxCard': ids['sxCard']})
+    panel_page.wait_for_timeout(400)
+    assert fold_state(panel_page, ids['sx'])['collapsed'] is True, (
+        'a server round-trip re-expanded the folded card')
+    assert fold_state(panel_page, ids['mx'])['collapsed'] is False
+
+
+def test_focus_restore_into_a_folded_processor_unfolds_it(panel_page):
+    """The stated rule from the section machinery, one level down: a field
+    the app is putting the caret back into must not be display:none, so the
+    restore opens the processor - and persists the opening, or the next
+    rebuild folds the field away again."""
+    pytest.importorskip("playwright.sync_api", reason="playwright not installed")
+    ids = seed_fold(panel_page)
+    out = panel_page.evaluate("""async (args) => {
+        const app = window.app;
+        const el = document.querySelector(
+            `[data-lrd-field="processor-port-name-${args.sxCard}-1"]`);
+        if (!el) return { skipped: true };
+        el.focus();
+        app._preserveEditorFocus();            // captures key + schedules restore
+        const box = document.querySelector(
+            `[data-lrd-sec-id="processor-${args.sx}"]`);
+        app._setSectionCollapsed(box, true);   // fold before the restore lands
+        if (document.activeElement) document.activeElement.blur();
+        await new Promise(r => setTimeout(r, 20));
+        const body = box.querySelector(':scope > .lrd-sec-body');
+        return {
+            reopened: getComputedStyle(body).display !== 'none',
+            focusedBack: document.activeElement === el,
+            stored: localStorage.getItem(
+                'ledRasterPanelCollapsed_processor-' + args.sx),
+        };
+    }""", {'sx': ids['sx'], 'sxCard': ids['sxCard']})
+    assert not out.get('skipped'), 'the card built no port field to focus'
+    assert out['reopened'], (
+        f'the restore left the processor folded around the field: {out}')
+    assert out['focusedBack'], f'focus was not restored into the field: {out}'
+    assert out['stored'] == '0', f'the auto-expansion did not persist: {out}'
+
+
+def test_the_port_chooser_reveal_unfolds_its_processor(panel_page):
+    """The set/place chooser opens under a port row; under a folded
+    processor it would open display:none and the gesture would look like
+    nothing happened. The render that reveals it unfolds the machine
+    first."""
+    pytest.importorskip("playwright.sync_api", reason="playwright not installed")
+    ids = seed_fold(panel_page)
+    proc_arrow(panel_page, ids['sx']).click()
+    panel_page.wait_for_timeout(100)
+    assert fold_state(panel_page, ids['sx'])['collapsed'] is True
+
+    out = panel_page.evaluate("""(args) => {
+        const app = window.app;
+        app._assigningPort = { cardId: args.sxCard, port: 1 };
+        app.renderProcessorPanel();
+        const picker = document.querySelector(
+            `[data-lrd-field="processor-port-assign-${args.sxCard}-1"]`);
+        const box = document.querySelector(
+            `[data-lrd-sec-id="processor-${args.sx}"]`);
+        const body = box.querySelector(':scope > .lrd-sec-body');
+        const result = {
+            expanded: getComputedStyle(body).display !== 'none',
+            pickerPainted: !!picker && picker.getClientRects().length > 0,
+        };
+        app._assigningPort = null;             // leave the panel as found
+        app.renderProcessorPanel();
+        return result;
+    }""", {'sx': ids['sx'], 'sxCard': ids['sxCard']})
+    assert out['expanded'], f'the chooser opened into a folded card: {out}'
+    assert out['pickerPainted'], f'the chooser itself is not drawn: {out}'
+
+
+def test_the_panel_fold_hides_all_and_gives_each_card_back_its_state(panel_page):
+    """Folding PROCESSORS folds everything; unfolding it is not a reset -
+    the folded SX40 is still folded, its open neighbour still open. Two
+    levels, two sets of keys."""
+    pytest.importorskip("playwright.sync_api", reason="playwright not installed")
+    ids = seed_fold(panel_page)
+    proc_arrow(panel_page, ids['sx']).click()
+    panel_page.wait_for_timeout(100)
+
+    hdr = panel_page.locator('.panel-header:has(h2:text-is("Processors"))')
+    hdr.locator('.lrd-sec-arrow').click()
+    panel_page.wait_for_timeout(100)
+    hidden = panel_page.evaluate("""() => {
+        const list = document.getElementById('processor-list');
+        return list.getClientRects().length === 0;
+    }""")
+    assert hidden, 'folding the PROCESSORS section left the cards painted'
+
+    hdr.locator('.lrd-sec-arrow').click()
+    panel_page.wait_for_timeout(100)
+    assert fold_state(panel_page, ids['sx'])['collapsed'] is True, (
+        'unfolding the section reset a folded processor')
+    assert fold_state(panel_page, ids['mx'])['collapsed'] is False, (
+        'unfolding the section folded an open processor')
+
+
+def test_deleting_a_processor_takes_its_fold_key_with_it(panel_page):
+    """The id never comes back, so the key must not sit in localStorage
+    forever. The × removes both; every other leaving path just orphans a
+    key, which no later processor can inherit."""
+    pytest.importorskip("playwright.sync_api", reason="playwright not installed")
+    ids = seed_fold(panel_page)
+    proc_arrow(panel_page, ids['mx']).click()
+    proc_arrow(panel_page, ids['mx']).click()   # key now exists, card open
+    panel_page.wait_for_timeout(100)
+    assert fold_state(panel_page, ids['mx'])['stored'] == '0'
+
+    panel_page.locator(
+        f'[data-lrd-sec="processor-{ids["mx"]}"] button.btn').click()
+    panel_page.wait_for_timeout(800)
+    assert fold_state(panel_page, ids['mx']) is None, (
+        'the deleted processor is still drawn')
+    left = panel_page.evaluate(
+        """(pid) => localStorage.getItem(
+               'ledRasterPanelCollapsed_processor-' + pid)""", ids['mx'])
+    assert left is None, f'the deleted processor left its fold key: {left}'

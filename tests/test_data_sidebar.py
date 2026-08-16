@@ -766,7 +766,7 @@ def test_double_click_anywhere_on_the_header_toggles(page, mode, title):
         f"a second double-click must expand {title} again")
 
 
-def test_the_collapsed_state_survives_a_reload(page):
+def test_the_section_collapsed_state_survives_a_reload(page):
     open_view(page, 'data-flow')
     hdr = header_of(page, 'Port Labels')
     hdr.locator('.lrd-sec-arrow').click()
@@ -883,3 +883,81 @@ def test_section_collapse_is_independent_of_the_sidebar_collapse(page):
     page.locator('#power-distros .lrd-sec-arrow').click()
     page.wait_for_timeout(100)
     assert page.evaluate(POWER_BLOCK_JS, 'power-distros')['collapsed'] is False
+
+
+def test_the_processor_cards_fold_by_the_same_machinery(page):
+    """The generated per-processor heads in the Signal panel are wired by the
+    SAME _wireSectionCollapse as every bar this file pins: a real arrow per
+    card, per-id keys under the ledRasterPanelCollapsed_ convention, one
+    behaviour. Folded, a card is its one-line summary; the deep coverage
+    (persistence, focus restore, the chooser reveal) lives in
+    tests/test_processor_panel.py."""
+    open_view(page, 'data-flow')
+    ids = page.evaluate("""async () => {
+        const mk = async (deviceId) => {
+            const add = await (await fetch('/api/processors', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ deviceId }),
+            })).json();
+            return add.resolved[add.resolved.length - 1].id;
+        };
+        const a = await mk('brompton-sx40');
+        const b = await mk('brompton-sx40');
+        await window.app.refreshProcessors();
+        return [a, b];
+    }""")
+    page.wait_for_timeout(600)
+    try:
+        cards = page.evaluate("""(ids) => ids.map(pid => {
+            const head = document.querySelector(
+                `[data-lrd-sec="processor-${pid}"]`);
+            const box = head && head.parentElement;
+            const arrow = head && head.querySelector('.lrd-sec-arrow');
+            return {
+                wired: !!(head && head.dataset.lrdSecWired),
+                arrowPainted: !!arrow && arrow.getClientRects().length > 0,
+                key: box ? box.dataset.lrdSecId : null,
+            };
+        })""", ids)
+        for pid, card in zip(ids, cards):
+            assert card['wired'], f'{pid} not wired by the section machinery'
+            assert card['arrowPainted'], f'{pid} carries no live arrow'
+            assert card['key'] == f'processor-{pid}', (
+                f'{pid} persists outside the ledRasterPanelCollapsed_ '
+                f'convention: {card}')
+
+        page.locator(
+            f'[data-lrd-sec="processor-{ids[0]}"] .lrd-sec-arrow').click()
+        page.wait_for_timeout(100)
+        folded = page.evaluate("""(ids) => ids.map(pid => {
+            const head = document.querySelector(
+                `[data-lrd-sec="processor-${pid}"]`);
+            const box = head.parentElement;
+            const body = box.querySelector(':scope > .lrd-sec-body');
+            const sum = head.querySelector('.lrd-proc-summary');
+            return {
+                collapsed: getComputedStyle(body).display === 'none',
+                bodyInDom: body.isConnected,
+                summaryPainted: !!sum && sum.getClientRects().length > 0,
+                stored: localStorage.getItem(
+                    'ledRasterPanelCollapsed_processor-' + pid),
+            };
+        })""", ids)
+        assert folded[0]['collapsed'] and folded[0]['summaryPainted'], (
+            f'the arrow did not fold the card to its summary: {folded[0]}')
+        assert folded[0]['bodyInDom'], (
+            'the folded body left the DOM - collapse must hide, never detach')
+        assert folded[0]['stored'] == '1', folded[0]
+        assert not folded[1]['collapsed'], (
+            f'folding one card took its neighbour: {folded[1]}')
+    finally:
+        # the shared server serves every module after this one
+        page.evaluate("""async (ids) => {
+            for (const pid of ids) {
+                await fetch(`/api/processors/${pid}`, { method: 'DELETE' });
+                localStorage.removeItem(
+                    'ledRasterPanelCollapsed_processor-' + pid);
+            }
+            await window.app.refreshProcessors();
+        }""", ids)

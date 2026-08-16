@@ -118,6 +118,25 @@ class _Processors {
         (this._processorsResolved || []).forEach(proc => {
             list.appendChild(this._buildProcessorCard(proc));
         });
+        // Every card folds by the section machinery (app-core.js). The
+        // rebuild just wiped the wired nodes, so wire the fresh ones and
+        // re-apply each machine's stored state - the same call the Power
+        // panel's generated headings make after every rebuild.
+        if (typeof this._wireSectionCollapse === 'function') {
+            this._wireSectionCollapse(list);
+        }
+        // The set/place chooser acts into a port row. Opened under a folded
+        // processor it would sit display:none and the click would look like
+        // nothing happened - the stated rule for anything that acts into a
+        // hidden place is that the place opens first, same as the distro
+        // list's + Add.
+        if (this._assigningPort
+                && typeof this._expandSectionsFor === 'function') {
+            const open = list.querySelector(
+                '[data-lrd-field="processor-port-assign-'
+                + `${this._assigningPort.cardId}-${this._assigningPort.port}"]`);
+            if (open) this._expandSectionsFor(open);
+        }
 
         const picker = this._buildDeviceSelect(
             this._processorDevices('processor'), '', 'Add a processor...');
@@ -213,6 +232,52 @@ class _Processors {
         return row;
     }
 
+    // The one line a folded processor is: model, name, and the figures a
+    // tech reads at a glance - ports and the redundancy flag. Every number
+    // is the resolve's answer, read off the same fields the capacity row
+    // prints; deriving a second count here is the class of bug the panel's
+    // header comment forbids. Plain text that wraps at the 180px clamp, the
+    // way the soca headings do - never a sideways scroll.
+    _buildProcessorSummary(proc) {
+        const sum = document.createElement('div');
+        sum.className = 'lrd-proc-summary';
+        const parts = [proc.deviceName];
+        if (proc.name) parts.push(proc.name);
+        // What the machine DRIVES, read off the same occupancy the port
+        // rows print. One processor is often a whole show's worth of
+        // screens - an H series most of all - so the mapping is stated,
+        // never assumed one-to-one. Two names at most: the folded line
+        // wraps at the 180px clamp rather than clipping, and two names is
+        // the most that still reads as a glance line there; three or more
+        // become a count. A machine with nothing on it says so - an unused
+        // box in the rack list is a fact worth seeing.
+        const occ = (this._assignment && this._assignment.occupancy) || {};
+        const screens = [];
+        (proc.slots || []).forEach(slot => {
+            if (!slot.card) return;
+            Object.values(occ[slot.card.id] || {}).forEach(list => {
+                (list || []).forEach(o => {
+                    if (!screens.includes(o.name)) screens.push(o.name);
+                });
+            });
+        });
+        parts.push(!screens.length ? 'no screens'
+            : screens.length <= 2 ? screens.join(', ')
+                : `${screens.length} screens`);
+        parts.push(proc.ceilingKnown
+            ? `${proc.defined}/${proc.ceiling} ports`
+            : `${proc.defined} ports`);
+        if (proc.redundancy) parts.push('redundant');
+        sum.textContent = parts.join(' · ');
+        // The capacity row's own comparison: an over-capacity machine may
+        // not read as fine just because it is folded.
+        if (proc.ceilingKnown && proc.defined > proc.ceiling) {
+            sum.style.color = '#d05a52';
+            sum.title = 'Over capacity - open the processor for the figures.';
+        }
+        return sum;
+    }
+
     _buildProcessorCard(proc) {
         const box = document.createElement('div');
         box.style.border = '1px solid #333';
@@ -220,27 +285,60 @@ class _Processors {
         box.style.padding = '8px';
         box.style.background = '#111';
 
+        // The head is the fold handle (.lrd-sec-head, wired by
+        // _wireSectionCollapse after the render): single click on the arrow,
+        // double-click on the head. It also holds the name field, so single
+        // clicks stay inert and a double-click landing on the input is the
+        // input's - both already the machinery's rules. Folded, the editors
+        // give way to the summary line (style.css .lrd-proc-live /
+        // .lrd-proc-summary) - hidden, never detached, so the focus-restore
+        // keys keep resolving into a folded card.
         const head = document.createElement('div');
+        head.className = 'lrd-sec-head';
+        // What the fold persists under (ledRasterPanelCollapsed_processor-
+        // <id>). Ids never recur within a project, so a machine keeps its
+        // state for as long as it exists, and a NEW machine - no key yet -
+        // arrives open, which is right: it is about to be configured.
+        head.dataset.lrdSec = `processor-${proc.id}`;
         head.style.display = 'flex';
         head.style.gap = '6px';
         head.style.alignItems = 'flex-end';
-        head.appendChild(this._buildTextField(
+        const name = this._buildTextField(
             proc.deviceName, proc.name, 'unnamed',
             `processor-name-${proc.id}`,
             (val) => this._processorRequest(
                 `/api/processors/${proc.id}`, 'PUT', { name: val },
-                'Rename Processor')));
+                'Rename Processor'));
+        name.classList.add('lrd-proc-live');
+        head.appendChild(name);
         const del = document.createElement('button');
-        del.className = 'btn';
+        del.className = 'btn lrd-proc-live';
         del.textContent = '×';
         del.title = 'Remove this processor';
         del.style.padding = '6px 10px';
         del.style.background = '#333';
         del.addEventListener('click', () => this._processorRequest(
             `/api/processors/${proc.id}`, 'DELETE', undefined,
-            'Remove Processor'));
+            'Remove Processor')
+            .then(() => {
+                // The machine is gone and its id never comes back, so its
+                // fold key goes with it. The other ways a processor leaves
+                // (undo of an add, another project loading over this one)
+                // just orphan their keys, harmlessly: no later processor in
+                // this project can inherit one.
+                try {
+                    localStorage.removeItem(
+                        `ledRasterPanelCollapsed_processor-${proc.id}`);
+                } catch (_) { /* blocked storage never held the key */ }
+            }));
         head.appendChild(del);
+        head.appendChild(this._buildProcessorSummary(proc));
         box.appendChild(head);
+
+        // Everything below the head folds as one body.
+        const bodyWrap = document.createElement('div');
+        bodyWrap.className = 'lrd-sec-body';
+        box.appendChild(bodyWrap);
 
         const cap = document.createElement('div');
         cap.style.display = 'flex';
@@ -260,7 +358,7 @@ class _Processors {
             cards.title = proc.note || '';
             cap.appendChild(cards);
         }
-        box.appendChild(cap);
+        bodyWrap.appendChild(cap);
 
         if (proc.redundancySupported) {
             const label = document.createElement('label');
@@ -281,7 +379,7 @@ class _Processors {
             // A backup port consumes a port number; it is never a hidden extra
             // one, so turning this on can only take capacity away.
             label.appendChild(document.createTextNode('Redundancy (halves usable ports)'));
-            box.appendChild(label);
+            bodyWrap.appendChild(label);
 
             // WHERE THE VENDOR FIXES THE PAIRING, IT IS A FACT, NOT A FIELD.
             // Brompton pairs adjacent outputs automatically - A backs up to
@@ -300,12 +398,12 @@ class _Processors {
                 fact.textContent = proc.redundancyPairing.statement;
                 fact.title = 'Fixed pairing. This is how the device runs '
                     + 'redundancy; it is not a setting.';
-                box.appendChild(fact);
+                bodyWrap.appendChild(fact);
             }
         }
 
         (proc.slots || []).forEach(slot => {
-            box.appendChild(this._buildSlot(proc, slot));
+            bodyWrap.appendChild(this._buildSlot(proc, slot));
         });
         return box;
     }
