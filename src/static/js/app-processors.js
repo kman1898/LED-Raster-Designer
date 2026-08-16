@@ -1,10 +1,14 @@
 // app-processors: the Processors panel in the Signal sidebar.
 //
-// The panel draws a tree - processor, slot, card, CVT, ports - and every level
-// of it earns its place. The CARD is where the port count comes from, so the
-// same H9 is a 100-port machine with RJ45 cards and a 160-port one with fiber
-// cards; and a fiber card's ports arrive at a CVT box, which is the thing a
-// tech is standing in front of when they read a port label off it.
+// The panel draws a tree - processor, slot, card, breakout box, ports - and
+// every level of it earns its place. The CARD is where the port count comes
+// from, so the same H9 is a 100-port machine with RJ45 cards and a 160-port
+// one with fiber cards; and a fiber card's ports arrive at a breakout box,
+// which is the thing a tech is standing in front of when they read a port
+// label off it. ("cvt" in ids and endpoints is the stored key, kept stable;
+// the generic DEVICE is a breakout box - CVT is one vendor's name for
+// theirs, the way Tessera XD is another's, so only actual model names say
+// it.)
 //
 // It deliberately derives nothing. Counts, labels and over-capacity flags all
 // come back from /api/processors, which resolves them in processor_catalog.py.
@@ -278,6 +282,26 @@ class _Processors {
             // one, so turning this on can only take capacity away.
             label.appendChild(document.createTextNode('Redundancy (halves usable ports)'));
             box.appendChild(label);
+
+            // WHERE THE VENDOR FIXES THE PAIRING, IT IS A FACT, NOT A FIELD.
+            // Brompton pairs adjacent outputs automatically - A backs up to
+            // B, C backs up to D - and offers no other arrangement, so the
+            // pairing is stated under the switch and never drawn as a
+            // control. The sentence comes from the server (the one authority
+            // on the rule); no statement arrives for vendors with none
+            // documented, and nothing is invented for them here.
+            if (proc.redundancy && proc.redundancyPairing
+                    && proc.redundancyPairing.fixed) {
+                const fact = document.createElement('div');
+                fact.style.fontSize = '11px';
+                fact.style.color = '#888';
+                fact.style.lineHeight = '1.4';
+                fact.style.margin = '2px 0 0 20px';
+                fact.textContent = proc.redundancyPairing.statement;
+                fact.title = 'Fixed pairing. This is how the device runs '
+                    + 'redundancy; it is not a setting.';
+                box.appendChild(fact);
+            }
         }
 
         (proc.slots || []).forEach(slot => {
@@ -328,8 +352,14 @@ class _Processors {
         wrap.style.paddingLeft = '8px';
         wrap.style.borderLeft = '2px solid #2a2a2a';
 
+        // Three captioned fields share a wrapping line: the card's name, the
+        // primary template, and the RETURN template - "a template spot for
+        // naming all backups the same way we do for primary". The wrap is
+        // what keeps all three usable at the panel's 180px clamp, exactly as
+        // the port rows' name fields wrap below.
         const names = document.createElement('div');
         names.style.display = 'flex';
+        names.style.flexWrap = 'wrap';
         names.style.gap = '6px';
         names.appendChild(this._buildTextField(
             'Card name', card.name, proc.name || 'unnamed',
@@ -343,6 +373,24 @@ class _Processors {
             (val) => this._processorRequest(
                 `/api/processors/${proc.id}/cards/${card.id}`, 'PUT',
                 { portLabelTemplate: val }, 'Edit Card Label Template')));
+        // The placeholder is the rung below this one on the return ladder:
+        // left blank, every return end is the primary with an R after it, so
+        // an empty box still reads as what the backups are actually called.
+        // A name typed on ONE port's return end still beats the template.
+        names.appendChild(this._buildTextField(
+            'Return', card.returnLabelTemplate,
+            `${card.portLabelTemplate || '{name}-#'}R`,
+            `processor-card-return-template-${card.id}`,
+            (val) => this._processorRequest(
+                `/api/processors/${proc.id}/cards/${card.id}`, 'PUT',
+                { returnLabelTemplate: val },
+                'Edit Card Return Label Template')));
+        names.querySelectorAll(':scope > div').forEach(cell => {
+            // A basis, not a bare grow: flex '1' never wraps its line, it
+            // only squeezes, and three squeezed fields at 180px are three
+            // unusable slivers.
+            cell.style.flex = '1 1 90px';
+        });
         wrap.appendChild(names);
 
         // Only offered where the device actually has one. A mode here is a
@@ -381,22 +429,24 @@ class _Processors {
         cap.style.marginTop = '6px';
         wrap.appendChild(cap);
 
-        // CVTs only where ports actually reach one. A card with no OPT - an
-        // H_20xRJ45 - has nothing to hang a box off, and a card whose OPTs are
-        // all used has nothing left. Both are hard facts about the metal, so
-        // the picker goes away rather than offering something the server will
-        // refuse: "cant do 3 or 4 OPTs on a 16 port card, it only has 2".
+        // Breakout boxes only where ports actually reach one. A card with no
+        // trunk - an H_20xRJ45 - has nothing to hang a box off, and a card
+        // whose trunks are all used has nothing left. Both are hard facts
+        // about the metal, so the picker goes away rather than offering
+        // something the server will refuse: "cant do 3 or 4 OPTs on a 16
+        // port card, it only has 2".
         if (card.trunks) {
             const row = document.createElement('div');
             row.style.display = 'flex';
             row.style.gap = '6px';
             row.style.marginTop = '6px';
-            // A box can take more than one OPT - a CVT4K-S is two - so what is
-            // offerable is what FITS in the trunks left, not simply anything
-            // while one remains.
+            // A box can take more than one trunk - a CVT4K-S is two - so what
+            // is offerable is what FITS in the trunks left, not simply
+            // anything while one remains.
             const fits = this._processorDevices('cvt')
                 .filter(d => (d.trunksIn || 1) <= card.trunksFree);
-            const picker = this._buildDeviceSelect(fits, '', 'Add a CVT...');
+            const picker = this._buildDeviceSelect(fits, '',
+                                                   'Add a breakout box...');
             picker.dataset.lrdField = `processor-cvt-add-${card.id}`;
             const btn = document.createElement('button');
             btn.className = 'btn';
@@ -407,7 +457,7 @@ class _Processors {
                 if (!picker.value) return;
                 this._processorRequest(
                     `/api/processors/${proc.id}/cards/${card.id}/cvts`, 'POST',
-                    { deviceId: picker.value }, 'Add CVT');
+                    { deviceId: picker.value }, 'Add Breakout Box');
             });
             if (fits.length) {
                 row.appendChild(picker);
@@ -417,8 +467,8 @@ class _Processors {
                 full.style.fontSize = '11px';
                 full.style.color = '#888';
                 full.textContent = card.trunksFree
-                    ? `Only ${card.trunksFree} OPT left - no box fits it.`
-                    : `All ${card.trunks} OPTs are used.`;
+                    ? `Only ${card.trunksFree} trunk left - no box fits it.`
+                    : `All ${card.trunks} trunks are used.`;
                 row.appendChild(full);
             }
             wrap.appendChild(row);
@@ -474,14 +524,14 @@ class _Processors {
         }
 
         (card.cvts || []).forEach(cvt => {
-            wrap.appendChild(this._buildCvt(proc, cvt));
+            wrap.appendChild(this._buildCvt(proc, card, cvt));
         });
 
         wrap.appendChild(this._buildPortList(proc, card));
         return wrap;
     }
 
-    _buildCvt(proc, cvt) {
+    _buildCvt(proc, card, cvt) {
         const wrap = document.createElement('div');
         wrap.style.marginTop = '6px';
         wrap.style.marginLeft = '8px';
@@ -490,6 +540,7 @@ class _Processors {
 
         const head = document.createElement('div');
         head.style.display = 'flex';
+        head.style.flexWrap = 'wrap';
         head.style.gap = '6px';
         head.style.alignItems = 'flex-end';
         head.appendChild(this._buildTextField(
@@ -497,22 +548,36 @@ class _Processors {
             `processor-cvt-name-${cvt.id}`,
             (val) => this._processorRequest(
                 `/api/processors/${proc.id}/cvts/${cvt.id}`, 'PUT',
-                { name: val }, 'Rename CVT')));
+                { name: val }, 'Rename Breakout Box')));
         head.appendChild(this._buildTextField(
             'Label', cvt.portLabelTemplate, '{name}-#',
             `processor-cvt-template-${cvt.id}`,
             (val) => this._processorRequest(
                 `/api/processors/${proc.id}/cvts/${cvt.id}`, 'PUT',
-                { portLabelTemplate: val }, 'Edit CVT Label Template')));
+                { portLabelTemplate: val }, 'Edit Breakout Box Label Template')));
+        // The box's own backup template, one register up from the per-port
+        // Return boxes: a box in front of the card names the ports, so it
+        // gets the same return-side template spot the card has.
+        head.appendChild(this._buildTextField(
+            'Return', cvt.returnLabelTemplate,
+            `${cvt.portLabelTemplate || '{name}-#'}R`,
+            `processor-cvt-return-template-${cvt.id}`,
+            (val) => this._processorRequest(
+                `/api/processors/${proc.id}/cvts/${cvt.id}`, 'PUT',
+                { returnLabelTemplate: val },
+                'Edit Breakout Box Return Label Template')));
+        head.querySelectorAll(':scope > div').forEach(cell => {
+            cell.style.flex = '1 1 90px';  // a basis, so the line can wrap
+        });
         const del = document.createElement('button');
         del.className = 'btn';
         del.textContent = '×';
-        del.title = 'Remove this CVT';
+        del.title = 'Remove this breakout box';
         del.style.padding = '6px 10px';
         del.style.background = '#333';
         del.addEventListener('click', () => this._processorRequest(
             `/api/processors/${proc.id}/cvts/${cvt.id}`, 'DELETE', undefined,
-            'Remove CVT'));
+            'Remove Breakout Box'));
         head.appendChild(del);
         wrap.appendChild(head);
 
@@ -526,18 +591,33 @@ class _Processors {
         // 8B/10B card and why only the first 10 of an XD-S work behind an SX40.
         info.textContent = `ports ${cvt.firstPort}-`
             + `${cvt.firstPort + (cvt.portCount || 0) - 1}`;
-        // How many OPTs it eats is as much a fact about the box as how many
+        // How many trunks it eats is as much a fact about the box as how many
         // ports come out of it, and it is the one that decides what else will
         // go on the card.
-        if (cvt.trunksIn > 1) info.textContent += `, ${cvt.trunksIn} OPTs in`;
+        if (cvt.trunksIn > 1) info.textContent += `, ${cvt.trunksIn} trunks in`;
+        const backupOfId = cvt.backupOf
+            || (card.redundancyPairing ? cvt.duplicateOf : null);
         if (cvt.beyondTrunks) {
             // There is no trunk left to hang it on. Not refused - somebody may
             // be drawing a machine they have not built - but it is the one
             // thing that can push a card past its ceiling, so it says so.
             info.style.color = '#d05a52';
             info.textContent += ' - no trunk left for this box';
+        } else if (backupOfId) {
+            // A BACKUP UNIT, SAID AS SUCH. Two ways a box earns the line: it
+            // was created as a NovaStar primary's backup (backupOf, delete it
+            // to decline the default), or it sits on the backup half of a
+            // fixed Brompton pair, where being the earlier box's backup is
+            // the only thing a second box can be.
+            const primary = (card.cvts || [])
+                .find(c => c.id === backupOfId);
+            const who = primary
+                ? (primary.name || primary.deviceName) : 'the primary box';
+            info.style.color = '#c8a04a';
+            info.textContent += ` - backs up ${who}`;
         } else if (cvt.duplicateOf) {
-            // A backup or copy trunk: the same ports delivered a second time.
+            // A copy trunk outside any backup pairing: the same ports
+            // delivered a second time.
             info.style.color = '#c8a04a';
             info.textContent += ' again (copy)';
         }
@@ -557,8 +637,10 @@ class _Processors {
     _buildPortList(proc, card) {
         const list = document.createElement('div');
         list.style.marginTop = '6px';
-        list.style.maxHeight = '190px';
-        list.style.overflow = 'auto';
+        // No height cap and no scrollbar of its own: the SIDEBAR is the one
+        // scroll context. A 190px scrollbox here showed two and a half ports
+        // of twenty and made every read a scroll-within-a-scroll; the section
+        // header folds the whole panel away when the length is unwanted.
         list.style.background = '#0d0d0d';
         list.style.border = '1px solid #262626';
         list.style.borderRadius = '4px';

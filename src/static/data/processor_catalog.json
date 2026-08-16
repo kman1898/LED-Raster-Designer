@@ -273,7 +273,7 @@
       "portsPerTrunk": 8,
       "trunkDelivery": "copy",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16}]},
-      "note": "The OPT ports copy Ethernet 1-8 / 9-16, so they add no ports - a CVT on OPT 1 is another place to plug into ports 1-8, not eight more ports. Both deliveries are real and both get used: patch the copper on the card, or take the same ports out at a box across the room. Counted as an RJ45 sending card against the H9 Enhanced limit; no document says which side of that split a mixed card falls on."
+      "note": "The OPT ports copy Ethernet 1-8 / 9-16, so they add no ports - a breakout box on OPT 1 is another place to plug into ports 1-8, not eight more ports. Both deliveries are real and both get used: patch the copper on the card, or take the same ports out at a box across the room. Counted as an RJ45 sending card against the H9 Enhanced limit; no document says which side of that split a mixed card falls on."
     },
     {
       "id": "novastar-card-h-4xfiber",
@@ -388,9 +388,9 @@
       "trunks": 4,
       "portsPerTrunk": 10,
       "requiresDistribution": true,
-      "redundancy": {"supported": true, "halvesPorts": true},
+      "redundancy": {"supported": true, "halvesPorts": true, "pairing": "adjacent"},
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 40}]},
-      "note": "8 physical 10G connectors = 4 logical trunks, each auto-switching between the copper and fibre of a pair. It has NO 1G fixture ports of its own; fixtures hang off XD boxes, 10 per trunk. Redundancy is opt-in per pair and halves the usable count to 20; a backup port is never a hidden extra port."
+      "note": "8 physical 10G connectors = 4 logical trunks, each auto-switching between the copper and fibre of a pair. It has NO 1G fixture ports of its own; fixtures hang off XD boxes, 10 per trunk. Redundancy is opt-in per pair and halves the usable count to 20; a backup port is never a hidden extra port. Pairing is fixed adjacent pairs - A backs up to B, C backs up to D - automatically; that is the only way redundancy runs on this device."
     },
     {
       "id": "brompton-s8",
@@ -440,12 +440,14 @@
       "kind": "processor",
       "form": "all-in-one",
       "family": "brompton",
+      "redundancy": {"supported": true, "halvesPorts": true, "pairing": "adjacent"},
       "ports": {
         "defaultMode": "default",
         "modes": [{"id": "default", "label": "", "count": null}],
         "unknown": true,
         "unknownReason": "Only \"2x 100G QSFP28\" is published, and the device is absent from Brompton's own capacity tool. No port count was found, and one must not be inferred from another Tessera."
-      }
+      },
+      "note": "Redundancy pairs the same fixed way as the SX40 - adjacent outputs, A backs up to B, C backs up to D, automatically - while the output count itself stays unpublished. The pairing rule does not letter outputs nobody has counted."
     },
     {
       "id": "brompton-xd",

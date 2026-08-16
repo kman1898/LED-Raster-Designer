@@ -1515,12 +1515,13 @@
                  two sidebars (app-core.js initSidebarToggles). -->
             <button id="data-sidebar-toggle" class="sidebar-toggle view-hidden" data-side="data" title="Collapse signal panel" aria-label="Toggle signal panel">‹</button>
             <div id="data-sidebar" class="view-hidden">
-                <!-- Processors. The tree is chassis -> slot -> card -> CVT ->
-                     ports, and every level of it is load-bearing: the CARD
-                     decides the port count, so an H9 of 20xRJ45 cards and an
-                     H9 of 4xfiber cards are different machines, and a fiber
-                     card's ports physically arrive at a CVT box, which is
-                     what a tech stands in front of on site.
+                <!-- Processors. The tree is chassis -> slot -> card ->
+                     breakout box -> ports, and every level of it is
+                     load-bearing: the CARD decides the port count, so an H9
+                     of 20xRJ45 cards and an H9 of 4xfiber cards are
+                     different machines, and a fiber card's ports physically
+                     arrive at a breakout box (a CVT10, a Tessera XD), which
+                     is what a tech stands in front of on site.
 
                      Everything inside is built by app-processors.js rather
                      than declared here. The rows are per-processor and there
@@ -1530,12 +1531,16 @@
                      control in a tab-panel straight at the selected layer,
                      which none of these belong to. -->
                 <div class="panel tab-panel" data-tab="data-flow" style="display: none;">
-                    <div class="panel-header" data-tooltip="Processors, Define the processors driving this project: the cards in a chassis's slots, any CVT breakout boxes downstream of them, and the port labels their names generate.">
+                    <div class="panel-header" data-tooltip="Processors, Define the processors driving this project: the cards in a chassis's slots, any breakout boxes downstream of them, and the port labels their names generate.">
                         <h2>Processors</h2>
                     </div>
                     <div class="panel-content">
                         <div class="info-row">
-                            <div id="processor-list" style="display: grid; gap: 10px;"></div>
+                            <!-- minmax(0, 1fr) for the same reason as the
+                                 Port Assignment hosts below: an auto track
+                                 sizes to min-content and overflows the
+                                 180px clamp. -->
+                            <div id="processor-list" style="display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px;"></div>
                             <div id="processor-add-row" style="display: flex; gap: 6px; margin-top: 8px;"></div>
                             <p id="processor-empty-note" style="font-size: 11px; color: #888; margin: 6px 0 0;">A card's ports take the nearest name above them. Name a card SR and its ports read SR-1, SR-2.</p>
                         </div>
@@ -1562,8 +1567,12 @@
                     </div>
                     <div class="panel-content">
                         <div class="info-row">
-                            <div id="port-assignment-issues" style="display: grid; gap: 6px;"></div>
-                            <div id="port-assignment-list" style="display: grid; gap: 8px; margin-top: 8px;"></div>
+                            <!-- minmax(0, 1fr): a bare auto track sizes to
+                                 its content's min-content and overflows the
+                                 clamp; pinned to the column, the rows' own
+                                 wrapping absorbs the narrowness instead. -->
+                            <div id="port-assignment-issues" style="display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px;"></div>
+                            <div id="port-assignment-list" style="display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin-top: 8px;"></div>
                             <div id="port-assignment-foot" style="margin-top: 8px;"></div>
                             <p id="port-assignment-empty-note" style="font-size: 11px; color: #888; margin: 6px 0 0;">Add a processor above and each screen's ports are numbered onto its cards automatically.</p>
                         </div>
@@ -1604,7 +1613,11 @@
                                 <button id="port-label-select-all" class="btn" style="flex: 1; padding: 6px 10px; background: #222;">Select All</button>
                                 <button id="port-label-deselect-all" class="btn" style="flex: 1; padding: 6px 10px; background: #222;">Deselect All</button>
                             </div>
-                            <div id="port-label-list" style="display: grid; gap: 6px; max-height: 160px; overflow: auto; padding: 6px; background: #111; border: 1px solid #333; border-radius: 4px;"></div>
+                            <!-- No height cap: the sidebar is the one scroll
+                                 context, same rule as the processor port
+                                 list. A capped list here was a scrollbox
+                                 nested inside the scrolling sidebar. -->
+                            <div id="port-label-list" style="display: grid; gap: 6px; padding: 6px; background: #111; border: 1px solid #333; border-radius: 4px;"></div>
                             <p style="font-size: 11px; color: #888; margin: 6px 0 0;">Use # for port number. Overrides apply per port.</p>
                         </div>
                     </div>

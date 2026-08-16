@@ -769,3 +769,219 @@ def test_the_label_editor_names_the_actual_return_label():
         "getPortLabelText(this.currentLayer, portNum, 'return')", note)
     assert asks - note < 200, (
         'the ownedNote does not read the return label from getPortLabelText')
+
+
+# ── 7. The backup template - naming all the returns at once ───────────────
+#
+# "We need a template spot for naming all backups the same way we do for
+# primary." The card and the box carry a return-side template beside the
+# primary one, and the return ladder reads, top rung first:
+#
+#   1. a name typed on ONE port's return end;
+#   2. the return template on the device naming the port;
+#   3. the primary with an R after it - the default, unchanged;
+#   4. nothing, leaving the screen's own R# template in charge.
+#
+# All of it resolves in resolve_card and rides returnLabels through the
+# assignment, so every surface - the panel placeholder, the drawing, the
+# exports - reads one answer.
+
+def set_return_template(client, proc_id, card_id, template):
+    resp = client.put(f'/api/processors/{proc_id}/cards/{card_id}',
+                      json={'returnLabelTemplate': template})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    return resp.get_json()
+
+
+def test_a_return_template_names_every_backup_at_once(client):
+    """One field, every return end: BU-1 to BU-20 off a single edit, exactly
+    the way the primary template names the outbound side."""
+    state = add_processor(client, 'novastar-h9')
+    pid = only(state)['id']
+    state = set_card(client, pid, 0, 'novastar-card-h-20xrj45')
+    card_id = first_card(only(state))['id']
+    name_card(client, pid, card_id, 'SR')
+
+    state = set_return_template(client, pid, card_id, 'BU-#')
+    card = first_card(only(state))
+    assert card['returnLabelTemplate'] == 'BU-#'
+    assert [p['returnLabel'] for p in card['ports'][:3]] == \
+        ['BU-1', 'BU-2', 'BU-3']
+    assert card['ports'][-1]['returnLabel'] == 'BU-20'
+    assert all(p['returnLabelSource'] == 'template' for p in card['ports'])
+    # The primary side is untouched: two templates, two ends.
+    assert [p['label'] for p in card['ports'][:2]] == ['SR-1', 'SR-2']
+
+
+def test_the_template_takes_the_owners_name_too(client):
+    """{name} in the return template is the same name the primary borrows, so
+    'SRB' typed once labels the whole backup loom SR-1R style off its own
+    series: card SR, template {name}B-# -> SRB-1."""
+    state = add_processor(client, 'novastar-h9')
+    pid = only(state)['id']
+    state = set_card(client, pid, 0, 'novastar-card-h-20xrj45')
+    card_id = first_card(only(state))['id']
+    name_card(client, pid, card_id, 'SR')
+    state = set_return_template(client, pid, card_id, '{name}B-#')
+    card = first_card(only(state))
+    assert [p['returnLabel'] for p in card['ports'][:2]] == ['SRB-1', 'SRB-2']
+
+
+def test_a_typed_return_name_still_beats_the_template(client):
+    """Rung 1 over rung 2: the one return end the house already calls
+    something else keeps its name while the template does the other 19."""
+    state = add_processor(client, 'novastar-h9')
+    pid = only(state)['id']
+    state = set_card(client, pid, 0, 'novastar-card-h-20xrj45')
+    card_id = first_card(only(state))['id']
+    name_card(client, pid, card_id, 'SR')
+    set_return_template(client, pid, card_id, 'BU-#')
+    resp = name_return(client, pid, card_id, 2, 'HOUSE-RTN')
+    card = first_card(only(resp.get_json()))
+    assert [p['returnLabel'] for p in card['ports'][:3]] == \
+        ['BU-1', 'HOUSE-RTN', 'BU-3']
+    assert card['ports'][1]['returnLabelSource'] == 'manual'
+    assert card['ports'][0]['returnLabelSource'] == 'template'
+
+
+def test_clearing_the_template_hands_the_returns_back_to_primary_r(client):
+    """Rung 3 is the default and stays the default: blank the template and
+    every untyped return end reads <primary>R again - and the cleared key
+    leaves nothing behind in the saved file."""
+    state = add_processor(client, 'novastar-h9')
+    pid = only(state)['id']
+    state = set_card(client, pid, 0, 'novastar-card-h-20xrj45')
+    card_id = first_card(only(state))['id']
+    name_card(client, pid, card_id, 'SR')
+    set_return_template(client, pid, card_id, 'BU-#')
+
+    state = set_return_template(client, pid, card_id, '')
+    card = first_card(only(state))
+    assert [p['returnLabel'] for p in card['ports'][:2]] == ['SR-1R', 'SR-2R']
+    assert card['returnLabelTemplate'] == ''
+
+    stored = client.get('/api/project').get_json()['processors'][0]
+    stored_card = stored['slots'][0]['card']
+    assert 'returnLabelTemplate' not in stored_card, (
+        f'a cleared template left something in the project: {stored_card}')
+
+
+def test_the_box_in_front_carries_its_own_return_template(client):
+    """The template lives at the same level the primary naming lives: a named
+    box owns its ports' labels, so its return template names their backups -
+    and the card's template does not reach past it, exactly as the card's
+    primary template does not."""
+    state = add_processor(client, 'novastar-h9')
+    pid = only(state)['id']
+    state = set_card(client, pid, 0, 'novastar-card-h-4xfiber')
+    card_id = first_card(only(state))['id']
+    name_card(client, pid, card_id, 'SR')
+    set_return_template(client, pid, card_id, 'CARD-#')
+    state = add_cvt(client, pid, card_id, 'novastar-cvt10')
+    cvt_id = first_card(only(state))['cvts'][0]['id']
+    resp = client.put(f'/api/processors/{pid}/cvts/{cvt_id}',
+                      json={'name': 'BOX-A', 'returnLabelTemplate': 'XB-#'})
+    card = first_card(only(resp.get_json()))
+    behind = [p for p in card['ports'] if p['cvtId'] == cvt_id]
+    assert [p['returnLabel'] for p in behind[:2]] == ['XB-1', 'XB-2']
+    # Ports the box does not reach still belong to the card and its template.
+    direct = [p for p in card['ports'] if p['cvtId'] is None]
+    assert direct[0]['returnLabel'] == 'CARD-9'
+
+
+def test_an_all_in_ones_name_reaches_the_return_template(client):
+    """A processor lends its name to the card's templates - return side
+    included - which is what makes naming an all-in-one enough to label both
+    ends of every run."""
+    state = add_processor(client, 'novastar-mx20')
+    pid = only(state)['id']
+    card_id = first_card(only(state))['id']
+    client.put(f'/api/processors/{pid}', json={'name': 'FOH'})
+    state = set_return_template(client, pid, card_id, '{name}R-#')
+    card = first_card(only(state))
+    assert [p['returnLabel'] for p in card['ports'][:2]] == ['FOHR-1', 'FOHR-2']
+
+
+def test_a_template_on_an_unnamed_tree_labels_nothing(client):
+    """Rung 4 unchanged: with nothing named upstream there is no owner to hang
+    a label on, so the template sits inert and the screen's own R# template is
+    still doing the work - the fallback every issued drawing depends on."""
+    state = add_processor(client, 'novastar-h9')
+    pid = only(state)['id']
+    state = set_card(client, pid, 0, 'novastar-card-h-20xrj45')
+    card_id = first_card(only(state))['id']
+    state = set_return_template(client, pid, card_id, 'BU-#')
+    card = first_card(only(state))
+    assert all(p['returnLabel'] is None for p in card['ports'])
+
+
+def test_the_template_reaches_the_resolution_the_canvas_reads(client):
+    """returnLabels ride the assignment from the same resolve_card pass, so
+    the drawing's return bubbles print the template's answer - one authority,
+    every surface."""
+    state = add_processor(client, 'novastar-h9')
+    pid = only(state)['id']
+    state = set_card(client, pid, 0, 'novastar-card-h-20xrj45')
+    card_id = first_card(only(state))['id']
+    name_card(client, pid, card_id, 'SR')
+    set_return_template(client, pid, card_id, 'BU-#')
+    name_return(client, pid, card_id, 2, 'HOUSE-RTN')
+
+    res = resolve(client, ('Main', 3))
+    assert labels(res, 'Main') == ['SR-1', 'SR-2', 'SR-3']
+    assert return_labels(res, 'Main') == ['BU-1', 'HOUSE-RTN', 'BU-3']
+
+
+def test_the_template_survives_save_and_reload(client):
+    """A template that does not come back off disk is a session-long
+    accident, same bar as the per-port names."""
+    state = add_processor(client, 'novastar-mx20')
+    pid = only(state)['id']
+    card_id = first_card(only(state))['id']
+    name_card(client, pid, card_id, 'SR')
+    set_return_template(client, pid, card_id, 'BU-#')
+
+    saved = client.get('/api/project').get_json()
+    assert client.post('/api/project', json=saved).status_code == 200
+    assert client.put('/api/project', json=saved).status_code == 200
+
+    card = first_card(only(client.get('/api/processors').get_json()))
+    assert card['returnLabelTemplate'] == 'BU-#'
+    assert card['ports'][0]['returnLabel'] == 'BU-1'
+
+
+def test_a_template_edit_rides_the_project_snapshot(client):
+    """Undo replays whole-project snapshots through PUT /api/project, so the
+    round trip the history makes is: before-blob restores SR-1R, after-blob
+    restores BU-1. If either direction dropped the field, Ctrl+Z would strand
+    the labels."""
+    state = add_processor(client, 'novastar-mx20')
+    pid = only(state)['id']
+    card_id = first_card(only(state))['id']
+    name_card(client, pid, card_id, 'SR')
+
+    before = client.get('/api/project').get_json()
+    set_return_template(client, pid, card_id, 'BU-#')
+    after = client.get('/api/project').get_json()
+
+    assert client.put('/api/project', json=before).status_code == 200
+    card = first_card(only(client.get('/api/processors').get_json()))
+    assert card['ports'][0]['returnLabel'] == 'SR-1R', 'undo kept the template'
+
+    assert client.put('/api/project', json=after).status_code == 200
+    card = first_card(only(client.get('/api/processors').get_json()))
+    assert card['ports'][0]['returnLabel'] == 'BU-1', 'redo lost the template'
+
+
+def test_the_template_fields_are_keyed_and_named_for_history():
+    """The panel's half of the contract: both template fields carry stable
+    focus keys (the panel is rebuilt under the user's fingers) and both edits
+    enter history under their own names, through the same post-mutation
+    snapshot every processor edit takes."""
+    source = js('app-processors.js')
+    assert 'processor-card-return-template-${card.id}' in source
+    assert 'processor-cvt-return-template-${cvt.id}' in source
+    assert "'Edit Card Return Label Template'" in source
+    assert "'Edit Breakout Box Return Label Template'" in source
+    # The placeholder states the rung below: primary template plus R.
+    assert "${card.portLabelTemplate || '{name}-#'}R" in source

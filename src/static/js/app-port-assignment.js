@@ -360,12 +360,15 @@ class _PortAssignment {
 
         const head = document.createElement('div');
         head.style.display = 'flex';
+        head.style.flexWrap = 'wrap';
         head.style.justifyContent = 'space-between';
         head.style.alignItems = 'center';
         head.style.gap = '6px';
         const title = document.createElement('div');
         title.style.fontSize = '12px';
         title.style.color = '#ccc';
+        title.style.minWidth = '0';
+        title.style.overflowWrap = 'anywhere';
         title.textContent = scr.name;
         const count = document.createElement('div');
         count.style.fontSize = '11px';
@@ -388,6 +391,9 @@ class _PortAssignment {
         const grid = document.createElement('div');
         grid.style.marginTop = '6px';
         grid.style.display = 'grid';
+        // Pinned to the column: a bare auto track takes its rows' min-content
+        // and pushes the whole screen box past the 180px clamp.
+        grid.style.gridTemplateColumns = 'minmax(0, 1fr)';
         grid.style.gap = '2px';
         scr.ports.forEach(port => {
             grid.appendChild(this._buildAssignmentPort(scr, port, res));
@@ -396,6 +402,9 @@ class _PortAssignment {
 
         const tools = document.createElement('div');
         tools.style.display = 'flex';
+        // "Move whole block" and "Release all pins" together outgrow the
+        // 180px clamp; they wrap rather than being clipped.
+        tools.style.flexWrap = 'wrap';
         tools.style.gap = '4px';
         tools.style.marginTop = '6px';
         tools.appendChild(this._buildOffer({
@@ -415,19 +424,30 @@ class _PortAssignment {
     _buildAssignmentPort(scr, port, res) {
         const wrap = document.createElement('div');
         const row = document.createElement('div');
-        row.style.display = 'grid';
-        row.style.gridTemplateColumns = '22px 1fr auto auto auto';
+        // A wrapping flex row, not a five-column grid: the number, the
+        // placement, the PINNED/auto mark and two buttons total ~200px of
+        // hard minimum, and the panel clamps at 180 - where the sidebar's
+        // overflow-x:hidden simply cut the buttons off. Same treatment the
+        // distro and soca rows got: one line at the default width, and the
+        // controls drop to a second line together at the clamp.
+        row.style.display = 'flex';
+        row.style.flexWrap = 'wrap';
         row.style.gap = '4px';
         row.style.alignItems = 'center';
         row.style.fontSize = '11px';
         row.style.fontFamily = 'monospace';
 
         const own = document.createElement('div');
+        own.style.flex = '0 0 22px';
         own.style.color = '#666';
         own.textContent = String(port.number);
         row.appendChild(own);
 
         const where = document.createElement('div');
+        // The one elastic cell: it grows to hold the line together at the
+        // default width and shrinks to its 60px basis before anything wraps.
+        where.style.flex = '1 1 60px';
+        where.style.minWidth = '0';
         where.style.overflow = 'hidden';
         where.style.textOverflow = 'ellipsis';
         where.style.whiteSpace = 'nowrap';
@@ -717,15 +737,20 @@ class _PortAssignment {
 
         const cards = document.createElement('div');
         cards.style.display = 'grid';
+        cards.style.gridTemplateColumns = 'minmax(0, 1fr)';
         cards.style.gap = '2px';
         (res.cards || []).forEach(card => {
             const row = document.createElement('div');
             row.style.display = 'flex';
+            // A long card title meets the 180px clamp here too; the count
+            // drops under it rather than pushing past the panel's edge.
+            row.style.flexWrap = 'wrap';
             row.style.justifyContent = 'space-between';
             row.style.fontSize = '11px';
             row.style.fontFamily = 'monospace';
             row.style.color = card.free === 0 ? '#c8a04a' : '#888';
             const name = document.createElement('span');
+            name.style.overflowWrap = 'anywhere';
             name.textContent = card.title;
             const use = document.createElement('span');
             use.textContent = card.capacityKnown

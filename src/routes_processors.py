@@ -1,7 +1,10 @@
 """
-Processor routes: the chassis / slot / card / CVT tree that feeds the Signal
-panel. Thin controllers over processor_catalog, which owns every rule about
-port counts and labels.
+Processor routes: the chassis / slot / card / breakout box tree that feeds the
+Signal panel. Thin controllers over processor_catalog, which owns every rule
+about port counts and labels. ("CVT" in identifiers and routes is the stored
+key and the API surface, kept stable so saved projects keep opening; the
+GENERIC device is a breakout box - CVT is one vendor's name for theirs, the
+same way Tessera XD is another's.)
 
 The tree is project state, so it lives on current_project['processors'] and
 rides the existing whole-project POST / PUT with no allow-list to fall through.
@@ -170,7 +173,16 @@ def update_card(processor_id, card_id):
     if not card:
         return jsonify({'error': 'Card not found'}), 404
     data = request.json or {}
-    changed = _apply(card, data, ('name', 'portLabelTemplate', 'mode'))
+    changed = _apply(card, data, ('name', 'portLabelTemplate',
+                                  'returnLabelTemplate', 'mode'))
+    # A blank return template is the ABSENCE of one - rung two of the return
+    # ladder steps aside and <primary>R takes back over. Deleted rather than
+    # stored empty, the same as a cleared port name: an untemplated return
+    # side is the normal state of every card and must leave nothing behind in
+    # the saved file.
+    if 'returnLabelTemplate' in data and \
+            not (card.get('returnLabelTemplate') or '').strip():
+        card.pop('returnLabelTemplate', None)
     log_event('processor_card_update', {'id': card_id, 'changed': list(changed)})
     return _state()
 
@@ -225,11 +237,11 @@ def add_cvt(processor_id, card_id):
         return jsonify({'error': 'Card not found'}), 404
     data = request.json or {}
     device_id = data.get('deviceId')
-    # A card has a fixed number of OPTs and nothing can add one, so a box with
-    # no trunk left is refused rather than drawn and flagged. This is the one
-    # place in the feature that blocks instead of reporting: an over-subscribed
-    # CARD is a real situation with a real answer, but a box hung on an OPT
-    # that does not exist is not a situation at all.
+    # A card has a fixed number of trunks and nothing can add one, so a box
+    # with no trunk left is refused rather than drawn and flagged. This is the
+    # one place in the feature that blocks instead of reporting: an
+    # over-subscribed CARD is a real situation with a real answer, but a box
+    # hung on a trunk that does not exist is not a situation at all.
     ok, why = catalog.can_add_cvt(card, device_id)
     if not ok:
         return jsonify({'error': why}), 400
@@ -237,7 +249,23 @@ def add_cvt(processor_id, card_id):
     if not cvt:
         return jsonify({'error': f'Unknown device: {device_id}'}), 400
     card.setdefault('cvts', []).append(cvt)
-    log_event('processor_cvt_add', {'card': card_id, 'device': device_id})
+    # NOVASTAR'S DEFAULT IS A PAIR: a primary box and a backup box, unit to
+    # unit, whenever the card's mode has trunks backing other trunks - and a
+    # DEFAULT is all it is. `pair: false` declines it up front, deleting the
+    # backup box undoes it afterwards, and the backup rides its primary's
+    # backup trunk (resolve_card) so the pair really is one set of ports
+    # twice. default_backup_pair names the one vendor this is documented for;
+    # Brompton pairs the fixed way it pairs, and Megapixel gets no default.
+    backup_id = None
+    if data.get('pair') is not False and catalog.default_backup_pair(card):
+        ok_backup, _why = catalog.can_add_cvt(card, device_id)
+        if ok_backup:
+            backup = catalog.new_cvt(device_id, _next_seq(), '')
+            backup['backupOf'] = cvt['id']
+            card['cvts'].append(backup)
+            backup_id = backup['id']
+    log_event('processor_cvt_add', {'card': card_id, 'device': device_id,
+                                    'backup': backup_id})
     return _state(201)
 
 
@@ -248,9 +276,14 @@ def update_cvt(processor_id, cvt_id):
         return jsonify({'error': 'Processor not found'}), 404
     _card, cvt = _find_cvt(proc, cvt_id)
     if not cvt:
-        return jsonify({'error': 'CVT not found'}), 404
+        return jsonify({'error': 'Breakout box not found'}), 404
     data = request.json or {}
-    changed = _apply(cvt, data, ('name', 'portLabelTemplate', 'mode'))
+    changed = _apply(cvt, data, ('name', 'portLabelTemplate',
+                                 'returnLabelTemplate', 'mode'))
+    # Same clearing rule as the card's, for the same reason.
+    if 'returnLabelTemplate' in data and \
+            not (cvt.get('returnLabelTemplate') or '').strip():
+        cvt.pop('returnLabelTemplate', None)
     log_event('processor_cvt_update', {'id': cvt_id, 'changed': list(changed)})
     return _state()
 
@@ -262,7 +295,13 @@ def delete_cvt(processor_id, cvt_id):
         return jsonify({'error': 'Processor not found'}), 404
     card, cvt = _find_cvt(proc, cvt_id)
     if not cvt:
-        return jsonify({'error': 'CVT not found'}), 404
+        return jsonify({'error': 'Breakout box not found'}), 404
     card['cvts'].remove(cvt)
+    # A backup whose primary is gone is just a box again. Left pointing at a
+    # deleted id, it would jump back onto a backup trunk the moment an id was
+    # ever reused - so the link goes with the thing it named.
+    for other in card['cvts']:
+        if other.get('backupOf') == cvt_id:
+            other.pop('backupOf', None)
     log_event('processor_cvt_delete', {'id': cvt_id})
     return _state()

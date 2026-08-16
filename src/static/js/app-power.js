@@ -2528,7 +2528,7 @@ class _Power {
     // (_assignmentScreens: "project layer order, untouched"). Numbering per
     // screen is what let two screens both own an S1.
     //
-    // THE NAME LADDER, top wins, mirroring manual -> CVT -> card -> processor
+    // THE NAME LADDER, top wins, mirroring manual -> box -> card -> processor
     // on the Data tab:
     //   1. an explicit powerLabelOverrides entry - handled by the label
     //      authority itself, because that names one CIRCUIT, not a multi

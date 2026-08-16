@@ -1209,3 +1209,28 @@ def test_a_half_made_choice_is_not_held_in_the_dom():
     assert 'this._movingPort = null;' in panel
     assert 'this._assigningPort = null;' in panel
     assert 'this._assigningPort = null;' in js('app-processors.js')
+
+
+def test_the_backup_template_rides_the_return_labels_here_too(one_card):
+    """returnLabels is this module's half of the one authority: the return
+    ladder resolves in resolve_card and the assignment only carries the
+    answer. A card-level backup template, a per-port typed name over it, and
+    the derived <primary>R where neither speaks - all three rungs arrive in
+    the same resolution the canvas indexes."""
+    client, pid, card = one_card
+    client.put(f'/api/processors/{pid}/cards/{card}',
+               json={'name': 'SR', 'returnLabelTemplate': 'BU-#'})
+    client.put(f'/api/processors/{pid}/cards/{card}/ports/2',
+               json={'returnName': 'HOUSE-RTN'})
+    res = resolve(client, ('Main', 3))
+    scr = by_name(res, 'Main')
+    assert [p['returnLabel'] for p in scr['ports']] == \
+        ['BU-1', 'HOUSE-RTN', 'BU-3']
+
+    # Template cleared: rung three is back, and it is the same old default.
+    client.put(f'/api/processors/{pid}/cards/{card}',
+               json={'returnLabelTemplate': ''})
+    res = resolve(client, ('Main', 3))
+    scr = by_name(res, 'Main')
+    assert [p['returnLabel'] for p in scr['ports']] == \
+        ['SR-1R', 'HOUSE-RTN', 'SR-3R']

@@ -111,6 +111,48 @@ def port_capacity(device_id, mode=None, redundancy=False):
     return {'count': count, 'known': True, 'mode': chosen_id, 'reason': ''}
 
 
+def redundancy_pairing(device, redundancy_on):
+    """The documented backup pairing of one device, or None where none is.
+
+    Only Brompton documents one, and the rule arrived verbatim: "SX40s and
+    SQ200, A back up to B, C back up to D automatically - that is the only way
+    it works for Brompton." Fixed adjacent pairs, so the pairing is REPORTED
+    as a fact, never offered as a choice; there is nothing here for a caller
+    to edit and no storage for an alternative arrangement.
+
+    `pairs` letters the device's trunks where it has trunks to letter, and is
+    empty where it does not: the SQ200 publishes no output count, and
+    lettering outputs nobody has counted would be a guessed ceiling wearing a
+    different hat. The statement still states the rule.
+
+    NovaStar carries no entry here - its redundancy is a DEFAULT pair of
+    boxes, primary plus backup, built in add_cvt's caller and freely
+    rearranged. Megapixel carries none either, deliberately: no pairing rule
+    is documented for it, and a default invented in the safe-looking
+    direction is still an invented one.
+    """
+    if not redundancy_on:
+        return None
+    if ((device or {}).get('redundancy') or {}).get('pairing') != 'adjacent':
+        return None
+    trunks = device.get('trunks') or 0
+    letters = [chr(ord('A') + i) for i in range(trunks)]
+    pairs = [{'primary': letters[i], 'backup': letters[i + 1]}
+             for i in range(0, trunks - 1, 2)]
+    if pairs:
+        text = ', '.join(f'{p["primary"]} backs up to {p["backup"]}'
+                         for p in pairs)
+    else:
+        text = 'adjacent outputs back each other (A to B, C to D)'
+    return {
+        'scheme': 'adjacent',
+        'fixed': True,
+        'pairs': pairs,
+        'statement': f'{text} - automatic, and the only way this device '
+                     f'pairs.',
+    }
+
+
 def trunks_in(cvt_device):
     """How many OPT trunks a box takes IN. One unless the table says otherwise.
 
@@ -123,16 +165,49 @@ def trunks_in(cvt_device):
 
 
 def trunks_used(card):
-    """OPTs already spoken for on one card. Trunks, not boxes - a CVT4K-S is
+    """Trunks already spoken for on one card. Trunks, not boxes - a CVT4K-S is
     two of them, so it fills a two-trunk card on its own."""
     return sum(trunks_in(get_device(cvt.get('deviceId')))
                for cvt in (card or {}).get('cvts') or [])
 
 
+def default_backup_pair(card):
+    """Whether one box added to this card should bring a backup box with it.
+
+    The user's rule, and it names ONE vendor: "For NovaStar typically there
+    would be a primary box and a backup box, but that doesn't mean that you
+    have to do it that way." So on a NovaStar card whose current mode makes
+    some trunks copies of others - an H_4xfiber in copy/backup, an MX40 Pro
+    in 20-port mode - a new box defaults to a pair, primary plus backup, and
+    stays a plain single box everywhere else. It is a DEFAULT and nothing
+    more: the caller may decline it, and the backup deletes like any box.
+
+    Nothing here reaches Brompton, whose pairing is fixed the opposite way
+    (redundancy_pairing above), and nothing reaches Megapixel, for which no
+    rule is documented at all - "I'm not sure about how megapixel works" is
+    an instruction, not a gap to fill in.
+    """
+    device = get_device((card or {}).get('deviceId')) or {}
+    if device.get('vendor') != 'NovaStar':
+        return False
+    if device.get('trunkDelivery') == 'copy':
+        # The trunks copy the card's own copper: a box there is another place
+        # to plug into ports the card already delivers, not a backup unit.
+        return False
+    ceiling = port_capacity(card.get('deviceId'), card.get('mode'))['count']
+    per_trunk = device.get('portsPerTrunk')
+    trunks = device.get('trunks') or 0
+    if not (ceiling and per_trunk and ceiling >= per_trunk):
+        return False
+    # Some trunks duplicate others exactly when there are more trunks than
+    # blocks of ports - which is what "redundancy in play" means on the card.
+    return ((ceiling + per_trunk - 1) // per_trunk) < trunks
+
+
 def can_add_cvt(card, device_id):
     """Whether one more box will physically go on this card.
 
-    A card has a fixed number of OPTs and there is no way round it: a
+    A card has a fixed number of trunks and there is no way round it: a
     16xRJ45+2xfiber has two, so two CVT10s fill it and so does one CVT4K-S. A
     third box has nothing to plug into.
 
@@ -140,14 +215,14 @@ def can_add_cvt(card, device_id):
     rest of this feature behaves, and the difference is worth stating. A wall
     that needs more ports than a card has is a real situation with a real
     answer - add a card - so the app shows it and lets someone decide. A box
-    hung on an OPT that does not exist is not a situation at all; there is
+    hung on a trunk that does not exist is not a situation at all; there is
     nothing to decide and nothing it could mean on site.
     """
     device = get_device((card or {}).get('deviceId')) or {}
     trunks = device.get('trunks') or 0
     name = device.get('name', 'This card')
     if not trunks:
-        return False, (f'{name} has no OPT trunks - its ports come out on '
+        return False, (f'{name} has no optical trunks - its ports come out on '
                        f'copper, so there is nothing to hang a box off.')
     box = get_device(device_id)
     if not box:
@@ -156,9 +231,9 @@ def can_add_cvt(card, device_id):
     free = trunks - trunks_used(card)
     if need > free:
         if free <= 0:
-            return False, (f'All {trunks} OPTs on {name} are used. Remove a '
+            return False, (f'All {trunks} trunks on {name} are used. Remove a '
                            f'box before adding another.')
-        return False, (f'{box.get("name", device_id)} takes {need} OPTs and '
+        return False, (f'{box.get("name", device_id)} takes {need} trunks and '
                        f'{name} has {free} left.')
     return True, ''
 
@@ -192,7 +267,7 @@ def _cvt_port_count(cvt_device, card_device):
 
         min(box ports, trunks in x the card's ports per trunk)
 
-    A CVT fans out whatever its trunks carry, so the box's own port count is a
+    A box fans out whatever its trunks carry, so the box's own port count is a
     maximum and not a promise. Both halves of the minimum are load-bearing and
     each is documented by a case the other gets wrong:
 
@@ -219,7 +294,7 @@ def _cvt_port_count(cvt_device, card_device):
 def new_processor(device_id, seq, name=''):
     """Build a processor node. A chassis gets one empty slot per documented
     output card; an all-in-one gets a single fixed slot holding itself, so the
-    slot / card / CVT / port shape is the same all the way down and the label
+    slot / card / breakout box / port shape is the same all the way down and the label
     rules do not need a second code path for it."""
     device = get_device(device_id)
     if not device:
@@ -305,7 +380,7 @@ def port_name(card, number):
     """A name typed onto ONE port of one card, or None.
 
     Stored on the card and keyed by the CARD's own port number, because that is
-    the port - a CVT is where it comes out, not a second port. Keys arrive as
+    the port - a breakout box is where it comes out, not a second port. Keys arrive as
     strings from JSON and as ints from Python, so both are read; blank is not a
     name, it is the absence of one, and returns None so the generated label
     takes back over.
@@ -350,7 +425,7 @@ def set_return_port_name(card, number, name):
 def _label_owner(cvt, card, proc):
     """The nearest NAMED device upstream of a port, and nothing else.
 
-    A fiber card's ports physically arrive at a CVT, so that box is what a tech
+    A fiber card's ports physically arrive at a breakout box, so that box is what a tech
     stands in front of and its name wins. Failing that the card, failing that
     the processor. If nothing upstream carries a name there is no
     processor-derived label at all - the caller falls back to the screen's own
@@ -374,17 +449,17 @@ def resolve_card(card, proc):
 
     # A TRUNK DELIVERS A BLOCK OF THE CARD'S PORTS. IT DOES NOT CREATE ANY.
     #
-    # This is the rule that stops a CVT inflating a card, and it has to be one
+    # This is the rule that stops a breakout box inflating a card, and it has to be one
     # rule rather than a case per device, because the same shape turns up on
     # cards that look nothing alike:
     #
     # * H_4xfiber, independent: 32 ports, 8 per trunk, four trunks. Each OPT
-    #   carries its own block - 1-8, 9-16, 17-24, 25-32 - and the CVTs on them
+    #   carries its own block - 1-8, 9-16, 17-24, 25-32 - and the boxes on them
     #   are the only way to get copper out of the card at all.
     # * H_4xfiber, copy/backup: the same card at 16 ports. OPT 3 and 4 back up
     #   OPT 1 and 2, so the third box delivers ports 1-8 AGAIN.
     # * H_16xRJ45+2xfiber: 16 ports that are already on the front of the card,
-    #   and two OPTs that copy Ethernet 1-8 and 9-16. A CVT here is a different
+    #   and two OPTs that copy Ethernet 1-8 and 9-16. A box here is a different
     #   place to plug into the same sixteen ports, not sixteen more.
     # * MX40 Pro: four trunks that are four distinct blocks in 40-port mode and
     #   two blocks delivered twice in 20-port mode.
@@ -406,6 +481,18 @@ def resolve_card(card, proc):
     block_count = (((ceiling + per_trunk - 1) // per_trunk)
                    if (ceiling and per_trunk and ceiling >= per_trunk) else 0)
 
+    # WHICH TRUNK BACKS WHICH IS THE VENDOR'S CALL, NOT A PATTERN. NovaStar
+    # documents interleaved copies - OPT 3/4 back up OPT 1/2 - which is what
+    # `block = index mod block count` produces. Brompton documents ADJACENT
+    # pairs, verbatim: "A back up to B, C back up to D automatically; that is
+    # the only way it works" - so under Brompton redundancy a pair of
+    # neighbouring trunks carries one block between them, and the box on the
+    # second trunk of a pair is the first one's backup by construction.
+    # Neither shape is ever applied to the other vendor, and Megapixel gets
+    # neither, because none is documented for it.
+    adjacent = bool(proc.get('redundancy')) and \
+        ((device.get('redundancy') or {}).get('pairing') == 'adjacent')
+
     cvts = []
     claimed = 0
     # Boxes past the last trunk have nothing to hang off, and can_add_cvt now
@@ -417,19 +504,38 @@ def resolve_card(card, proc):
     # Where the block model does not apply at all, boxes simply take
     # consecutive ports from 1 as they always did.
     beyond = 1 if not block_count else (ceiling or 0) + 1
-    # A BOX CONSUMES TRUNKS, NOT JUST PORTS. A CVT4K-S takes two OPTs, so two
-    # of them fill a four-trunk card and a third has nothing left to plug into.
-    # Counting boxes instead of trunks would let three of them read as 48 ports
-    # off a machine with 32 and four fibers.
+    # A BOX CONSUMES TRUNKS, NOT JUST PORTS. A CVT4K-S takes two trunks, so
+    # two of them fill a four-trunk card and a third has nothing left to plug
+    # into. Counting boxes instead of trunks would let three of them read as
+    # 48 ports off a machine with 32 and four fibers.
     used_trunks = 0
+    taken = set()
+    placed_by_id = {}
     for cvt in card.get('cvts') or []:
         cvt_device = get_device(cvt.get('deviceId')) or {}
         size = _cvt_port_count(cvt_device, device)
         takes = trunks_in(cvt_device)
-        index = used_trunks
         used_trunks += takes
+        # A box created as another box's BACKUP sits on the trunk that
+        # duplicates its primary's - OPT 3 for a primary on OPT 1 - rather
+        # than the next one along, or the "pair" would be two boxes carrying
+        # different ports. Everything else takes the lowest free run of
+        # trunks, which is exactly the old first-come order whenever no
+        # backup has jumped the queue.
+        index = None
+        primary = placed_by_id.get(cvt.get('backupOf'))
+        if primary is not None and block_count:
+            want = primary['trunkIndex'] + block_count
+            if (want + takes <= trunks
+                    and all(t not in taken for t in range(want, want + takes))):
+                index = want
+        if index is None:
+            index = 0
+            while any(t in taken for t in range(index, index + takes)):
+                index += 1
+        taken.update(range(index, index + takes))
         if block_count and index + takes <= trunks:
-            block = index % block_count
+            block = ((index // 2) if adjacent else index) % block_count
             first = block * per_trunk + 1
             over_trunk = False
             # A box can never deliver ports the card does not have, however
@@ -450,6 +556,7 @@ def resolve_card(card, proc):
             'vendor': cvt_device.get('vendor', ''),
             'name': cvt.get('name', ''),
             'portLabelTemplate': cvt.get('portLabelTemplate') or DEFAULT_PORT_LABEL_TEMPLATE,
+            'returnLabelTemplate': cvt.get('returnLabelTemplate') or '',
             'portCount': size,
             'firstPort': first,
             'trunkIndex': index,
@@ -458,14 +565,18 @@ def resolve_card(card, proc):
             # A second delivery of ports an earlier box already carries: OPT 3
             # backing up OPT 1, or a copy OPT mirroring the card's own copper.
             'duplicateOf': earlier['id'] if earlier else None,
+            # The NovaStar pair link, carried through so the panel can say
+            # "backs up X" about the box somebody may want to delete.
+            'backupOf': cvt.get('backupOf') or None,
             'beyondTrunks': over_trunk,
             'ports': [],
         }
         cvts.append(resolved)
+        placed_by_id[resolved['id']] = resolved
         if size:
             claimed = max(claimed, first + size - 1)
 
-    # A CVT can only claim past the ceiling by hanging off a trunk that is not
+    # A box can only claim past the ceiling by hanging off a trunk that is not
     # there - five CVT10s on a four-trunk card. That stays visible rather than
     # being clamped away, because it is a real mistake to make on paper.
     defined = max(ceiling or 0, claimed)
@@ -481,12 +592,13 @@ def resolve_card(card, proc):
                     and c['firstPort'] <= number < c['firstPort'] + c['portCount']]
         cvt = covering[0] if covering else None
         local = number - cvt['firstPort'] + 1 if cvt else number
-        owner, source = _label_owner(cvt, card, proc)
+        owner, owner_source = _label_owner(cvt, card, proc)
+        source = owner_source
         # A port is numbered within whatever is naming it. On the box, because
         # that is what is silkscreened on its face; on the card otherwise -
-        # which matters the moment a card carries two unnamed CVTs, where
+        # which matters the moment a card carries two unnamed boxes, where
         # numbering both from 1 would print the same eight labels twice.
-        numbered = local if source == 'cvt' else number
+        numbered = local if owner_source == 'cvt' else number
         # A NAME TYPED ONTO ONE PORT BEATS EVERY RULE ABOVE IT.
         #
         # The rules produce a whole card at a time - SR-1 to SR-16 - which is
@@ -514,15 +626,36 @@ def resolve_card(card, proc):
         # THE RETURN END IS THE SAME SOCKET, RESOLVED HERE FOR THE SAME REASON
         # THE PRIMARY IS: every reader - the panel row's placeholder, the
         # assignment the canvas indexes - takes the answer rather than deriving
-        # one of its own. A name typed on the return end wins outright; with
-        # none typed the return is the primary with an R after it, which is
-        # what P1 / R1 said before a processor was naming anything. A port
-        # whose primary resolves to nothing has no derived return either - the
-        # screen's own R# template is still doing the work there.
+        # one of its own. The ladder, top rung wins:
+        #
+        #   1. a name typed on THIS port's return end;
+        #   2. the return template on the device naming the port - the
+        #      "template spot for naming all backups the same way we do for
+        #      primary", read off the same owner the primary reads, because
+        #      the backup loom is labelled off the same box the primary is;
+        #   3. the primary with an R after it, which is what P1 / R1 said
+        #      before a processor was naming anything;
+        #   4. nothing - an unassigned port, or a card nobody named, leaves
+        #      the screen's own R# template doing the work exactly as before.
         manual_return = return_port_name(card, number)
+        return_template = ''
+        template_name = None
+        if owner is not None:
+            if owner_source == 'processor':
+                # A processor lends its name to the card's templates, return
+                # side included - the same loan the primary takes.
+                return_template = (card.get('returnLabelTemplate') or '').strip()
+                template_name = proc.get('name')
+            else:
+                return_template = (owner.get('returnLabelTemplate') or '').strip()
+                template_name = owner.get('name')
         if manual_return:
             return_label = manual_return
             return_source = 'manual'
+        elif return_template:
+            return_label = render_port_label(template_name, return_template,
+                                             numbered)
+            return_source = 'template'
         else:
             return_label = f'{label}R' if label else None
             return_source = source
@@ -576,6 +709,10 @@ def resolve_card(card, proc):
         'vendor': device.get('vendor', ''),
         'name': card.get('name', ''),
         'portLabelTemplate': card.get('portLabelTemplate') or DEFAULT_PORT_LABEL_TEMPLATE,
+        # The backup side's template. No default: absent means rung 3 of the
+        # return ladder - <primary>R - is doing the work, and the panel's
+        # placeholder says so.
+        'returnLabelTemplate': card.get('returnLabelTemplate') or '',
         # Sent back as typed, so the panel's per-port boxes show what is in
         # them rather than only the label they produced. Keys are strings for
         # the same reason they are stored that way - a JSON round-trip makes
@@ -595,7 +732,7 @@ def resolve_card(card, proc):
         'portsPerTrunk': device.get('portsPerTrunk'),
         # Whether hanging a box on a trunk gets you ports you did not already
         # have. On an H_16xRJ45+2xfiber it does not: the OPTs copy Ethernet
-        # 1-8 and 9-16, so a CVT there is somewhere else to plug into the same
+        # 1-8 and 9-16, so a box there is somewhere else to plug into the same
         # sixteen. The panel has to say so out loud, because the obvious
         # reading of "16 RJ45 plus 2 fiber plus a breakout box" is that the
         # ports add up, and they do not.
@@ -604,6 +741,11 @@ def resolve_card(card, proc):
         # Trunks, not boxes: two CVT4K-S fill a four-trunk card.
         'trunksUsed': used_trunks,
         'trunksFree': max(0, (trunks or 0) - used_trunks),
+        # The vendor's fixed backup pairing, where one is documented and
+        # redundancy is on - derived every resolve, stored nowhere, because a
+        # fact is not project state and must not become editable by accident.
+        'redundancyPairing': redundancy_pairing(device,
+                                                proc.get('redundancy')),
         'delivered': delivered,
         'shortfall': shortfall,
         'defined': defined,
@@ -657,6 +799,11 @@ def resolve_processor(proc):
         'mode': proc.get('mode'),
         'redundancy': bool(proc.get('redundancy')),
         'redundancySupported': bool((device.get('redundancy') or {}).get('supported')),
+        # Stated beside the checkbox that turns redundancy on: WHICH output
+        # backs which, where the vendor fixes it. A fact the panel displays,
+        # never a control - Brompton pairs adjacent outputs automatically and
+        # offers no other arrangement.
+        'redundancyPairing': redundancy_pairing(device, proc.get('redundancy')),
         'requiresDistribution': bool(device.get('requiresDistribution')),
         'ceiling': ceiling,
         'ceilingKnown': known,

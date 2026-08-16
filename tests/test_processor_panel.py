@@ -296,7 +296,7 @@ def test_naming_a_card_names_its_ports(client):
     assert all(p['labelSource'] == 'card' for p in card['ports'])
 
 
-def test_a_cvts_name_beats_the_cards(client):
+def test_a_boxes_name_beats_the_cards(client):
     """A fiber card's ports physically arrive at the CVT box, and that box is
     what the tech is standing in front of, so its name is the one on the port."""
     state = add_processor(client, 'novastar-h9')
@@ -322,7 +322,7 @@ def test_a_cvts_name_beats_the_cards(client):
     assert direct[0]['labelSource'] == 'card'
 
 
-def test_a_cvt_fans_out_what_its_trunk_carries_not_what_its_lid_says(client):
+def test_a_box_fans_out_what_its_trunk_carries_not_what_its_lid_says(client):
     """A CVT10 gives 10 ports on a 64B/66B trunk and 8 on an 8B/10B one, so an
     H_4xfiber's boxes are 8-port boxes. The same cap is why both Brompton
     datasheets say only the first 10 of an XD-S's 12 work behind an SX40."""
@@ -362,11 +362,14 @@ def test_a_cvt_fans_out_what_its_trunk_carries_not_what_its_lid_says(client):
 # device: chop the card's ports into blocks of portsPerTrunk and hand trunk N
 # the block (N mod block count).
 
-def add_cvts(client, pid, card_id, count, device='novastar-cvt10'):
+def add_boxes(client, pid, card_id, count, device='novastar-cvt10'):
     state = None
     for _ in range(count):
         state = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
-                            json={'deviceId': device}).get_json()
+                            # pair: False declines the NovaStar backup-box
+                            # default - these tests build exact box sets, and
+                            # the default has tests of its own below.
+                            json={'deviceId': device, 'pair': False}).get_json()
     return state
 
 
@@ -377,7 +380,7 @@ def with_card(client, chassis, card_device):
     return pid, first_card(only(state))['id']
 
 
-def test_a_cvt_on_a_copy_opt_card_adds_no_ports_at_all(client):
+def test_a_box_on_a_copy_trunk_card_adds_no_ports_at_all(client):
     """The 16xRJ45+2xfiber, which is the card the trap lives on. Sixteen ports
     before the boxes, sixteen after both of them - what changed is where you
     plug in, not how much you can drive."""
@@ -393,7 +396,7 @@ def test_a_cvt_on_a_copy_opt_card_adds_no_ports_at_all(client):
         assert card['over'] is False
         assert len(card['ports']) == 16
         assert only(state)['ceiling'] == 16, 'the chassis total inflated too'
-        add_cvts(client, pid, card_id, 1)
+        add_boxes(client, pid, card_id, 1)
 
 
 def test_a_copy_opts_box_delivers_the_ports_the_card_already_has(client):
@@ -401,7 +404,7 @@ def test_a_copy_opts_box_delivers_the_ports_the_card_already_has(client):
     comes out of the boxes hung on them."""
     pid, card_id = with_card(client, 'novastar-h9',
                              'novastar-card-h-16xrj45-2xfiber')
-    state = add_cvts(client, pid, card_id, 2)
+    state = add_boxes(client, pid, card_id, 2)
     card = first_card(only(state))
     assert [c['firstPort'] for c in card['cvts']] == [1, 9]
     assert [c['portCount'] for c in card['cvts']] == [8, 8]
@@ -411,7 +414,7 @@ def test_a_copy_opts_box_delivers_the_ports_the_card_already_has(client):
         'the panel has no way to tell the user these OPTs add nothing')
 
 
-def test_a_copy_opt_card_is_offered_cvts_in_the_first_place(client):
+def test_a_copy_trunk_card_is_offered_boxes_in_the_first_place(client):
     """It is an RJ45 card with fiber OPTs on it, and the OPTs get used. The
     panel gates its CVT picker on the card having trunks, so a card with no
     declared trunks would never offer one."""
@@ -430,7 +433,7 @@ def test_a_backup_trunk_delivers_the_same_ports_over_again(client):
     pid, card_id = with_card(client, 'novastar-h9', 'novastar-card-h-4xfiber')
     client.put(f'/api/processors/{pid}/cards/{card_id}',
                json={'mode': 'copy-backup'})
-    state = add_cvts(client, pid, card_id, 4)
+    state = add_boxes(client, pid, card_id, 4)
     card = first_card(only(state))
     assert card['ceiling'] == 16
     assert card['defined'] == 16, 'four boxes on a 16-port card made more ports'
@@ -444,7 +447,7 @@ def test_the_same_card_in_independent_mode_gives_every_trunk_its_own_ports(clien
     identical card, four identical boxes, and 32 ports because in this mode
     each OPT genuinely carries its own eight."""
     pid, card_id = with_card(client, 'novastar-h9', 'novastar-card-h-4xfiber')
-    state = add_cvts(client, pid, card_id, 4)
+    state = add_boxes(client, pid, card_id, 4)
     card = first_card(only(state))
     assert card['ceiling'] == 32 and card['defined'] == 32
     assert [c['firstPort'] for c in card['cvts']] == [1, 9, 17, 25]
@@ -458,7 +461,7 @@ def test_the_mx40_pros_optical_modes_follow_the_same_rule(client):
     state = add_processor(client, 'novastar-mx40-pro')
     pid = only(state)['id']
     card_id = first_card(only(state))['id']
-    state = add_cvts(client, pid, card_id, 4)
+    state = add_boxes(client, pid, card_id, 4)
     card = first_card(only(state))
     assert card['ceiling'] == 40
     assert [c['firstPort'] for c in card['cvts']] == [1, 11, 21, 31]
@@ -476,7 +479,7 @@ def test_two_opts_means_two_boxes_and_a_third_is_refused(client):
     it and a third has nothing to plug into."""
     pid, card_id = with_card(client, 'novastar-h9',
                              'novastar-card-h-16xrj45-2xfiber')
-    add_cvts(client, pid, card_id, 2)
+    add_boxes(client, pid, card_id, 2)
     resp = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
                        json={'deviceId': 'novastar-cvt10'})
     assert resp.status_code == 400
@@ -492,7 +495,7 @@ def test_one_two_opt_box_fills_a_two_opt_card_on_its_own(client):
     let a second one on."""
     pid, card_id = with_card(client, 'novastar-h9',
                              'novastar-card-h-16xrj45-2xfiber')
-    add_cvts(client, pid, card_id, 1, 'novastar-cvt4k-s')
+    add_boxes(client, pid, card_id, 1, 'novastar-cvt4k-s')
     resp = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
                        json={'deviceId': 'novastar-cvt10'})
     assert resp.status_code == 400, 'a second box went on beside a 2-OPT box'
@@ -537,7 +540,7 @@ def test_a_backup_box_does_not_rename_the_ports_the_primary_named(client):
     pid, card_id = with_card(client, 'novastar-h9', 'novastar-card-h-4xfiber')
     client.put(f'/api/processors/{pid}/cards/{card_id}',
                json={'mode': 'copy-backup'})
-    state = add_cvts(client, pid, card_id, 3)
+    state = add_boxes(client, pid, card_id, 3)
     card = first_card(only(state))
     primary, _second, backup = card['cvts']
     client.put(f'/api/processors/{pid}/cvts/{primary["id"]}',
@@ -611,7 +614,7 @@ def test_a_box_consumes_trunks_and_not_just_ports(client):
     plug into, and must not read as sixteen more ports off a machine that has
     thirty-two - which is what counting boxes instead of trunks would do."""
     pid, card_id = with_card(client, 'novastar-h9', 'novastar-card-h-4xfiber')
-    state = add_cvts(client, pid, card_id, 2, 'novastar-cvt4k-s')
+    state = add_boxes(client, pid, card_id, 2, 'novastar-cvt4k-s')
     card = first_card(only(state))
     assert card['trunksUsed'] == 4 and card['trunks'] == 4
     assert card['defined'] == 32 and card['over'] is False
@@ -632,7 +635,7 @@ def test_a_box_that_does_not_fit_the_trunks_left_is_refused_by_name(client):
     message says which box and how many are left, because "no" on its own
     sends someone hunting for a fault that is not there."""
     pid, card_id = with_card(client, 'novastar-h9', 'novastar-card-h-4xfiber')
-    add_cvts(client, pid, card_id, 3, 'novastar-cvt10')
+    add_boxes(client, pid, card_id, 3, 'novastar-cvt10')
     resp = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
                        json={'deviceId': 'novastar-cvt4k-s'})
     assert resp.status_code == 400
@@ -649,7 +652,7 @@ def test_a_box_bigger_than_one_trunk_still_cannot_exceed_the_card(client):
     would need two boxes - and the card is still a sixteen-port card."""
     pid, card_id = with_card(client, 'novastar-h9',
                              'novastar-card-h-16xrj45-2xfiber')
-    state = add_cvts(client, pid, card_id, 1, 'novastar-cvt4k-s')
+    state = add_boxes(client, pid, card_id, 1, 'novastar-cvt4k-s')
     card = first_card(only(state))
     assert card['ceiling'] == 16
     assert card['defined'] == 16, 'a 16-port box on a 16-port card made 32'
@@ -664,8 +667,8 @@ def test_boxes_of_different_sizes_share_a_cards_trunks(client):
     """A CVT4K-S on two OPTs and a CVT10 on each of the other two is a real
     patch, and it fills a four-trunk 32-port card exactly."""
     pid, card_id = with_card(client, 'novastar-h9', 'novastar-card-h-4xfiber')
-    add_cvts(client, pid, card_id, 1, 'novastar-cvt4k-s')
-    state = add_cvts(client, pid, card_id, 2, 'novastar-cvt10')
+    add_boxes(client, pid, card_id, 1, 'novastar-cvt4k-s')
+    state = add_boxes(client, pid, card_id, 2, 'novastar-cvt10')
     card = first_card(only(state))
     assert card['trunksUsed'] == 4
     assert [c['firstPort'] for c in card['cvts']] == [1, 17, 25]
@@ -687,7 +690,7 @@ def test_a_device_whose_trunks_are_not_its_own_ports_is_left_alone(client):
     state = add_processor(client, 'megapixel-helios-8k')
     pid = only(state)['id']
     card_id = first_card(only(state))['id']
-    state = add_cvts(client, pid, card_id, 3, 'megapixel-rs12')
+    state = add_boxes(client, pid, card_id, 3, 'megapixel-rs12')
     card = first_card(only(state))
     assert [c['firstPort'] for c in card['cvts']] == [1, 13, 25], (
         'the boxes were folded into blocks of a card that has no such blocks')
@@ -702,7 +705,7 @@ def test_the_enhanced_card_reaches_forty_with_cvt10s(client):
     card's documented number and the box that gets you there."""
     pid, card_id = with_card(client, 'novastar-h9',
                              'novastar-card-h-4xfiber-enhanced')
-    state = add_cvts(client, pid, card_id, 4, 'novastar-cvt10')
+    state = add_boxes(client, pid, card_id, 4, 'novastar-cvt10')
     card = first_card(only(state))
     assert card['ceiling'] == 40
     assert card['delivered'] == 40
@@ -718,7 +721,7 @@ def test_the_same_card_falls_eight_short_on_cvt4k_s_and_says_so(client):
     assumes the app is wrong; told why, they change the box."""
     pid, card_id = with_card(client, 'novastar-h9',
                              'novastar-card-h-4xfiber-enhanced')
-    state = add_cvts(client, pid, card_id, 2, 'novastar-cvt4k-s')
+    state = add_boxes(client, pid, card_id, 2, 'novastar-cvt4k-s')
     card = first_card(only(state))
     assert card['ceiling'] == 40
     assert card['trunksUsed'] == 4, 'both boxes should have eaten two OPTs each'
@@ -737,7 +740,7 @@ def test_the_same_boxes_on_a_plain_four_fiber_card_fall_short_of_nothing(client)
     H_4xfiber at 8 per trunk, a CVT4K-S's two OPTs carry exactly its 16, so two
     of them deliver the whole 32 and there is nothing to report."""
     pid, card_id = with_card(client, 'novastar-h9', 'novastar-card-h-4xfiber')
-    state = add_cvts(client, pid, card_id, 2, 'novastar-cvt4k-s')
+    state = add_boxes(client, pid, card_id, 2, 'novastar-cvt4k-s')
     card = first_card(only(state))
     assert card['ceiling'] == 32 and card['delivered'] == 32
     assert card['shortfall'] is None
@@ -749,18 +752,18 @@ def test_a_half_patched_card_is_not_reported_as_falling_short(client):
     them - nagging here would train people to ignore the message that matters."""
     pid, card_id = with_card(client, 'novastar-h9',
                              'novastar-card-h-4xfiber-enhanced')
-    state = add_cvts(client, pid, card_id, 1, 'novastar-cvt10')
+    state = add_boxes(client, pid, card_id, 1, 'novastar-cvt10')
     card = first_card(only(state))
     assert card['trunksFree'] == 3
     assert card['shortfall'] is None
 
 
-def test_a_copy_opt_card_never_reports_a_shortfall(client):
+def test_a_copy_trunk_card_never_reports_a_shortfall(client):
     """There is nothing short on a card whose OPTs copy its own RJ45s: the
     ports are on the front of the card and you patch them there."""
     pid, card_id = with_card(client, 'novastar-h9',
                              'novastar-card-h-16xrj45-2xfiber')
-    state = add_cvts(client, pid, card_id, 1, 'novastar-cvt4k-s')
+    state = add_boxes(client, pid, card_id, 1, 'novastar-cvt4k-s')
     card = first_card(only(state))
     assert card['trunksFree'] == 0, 'the box should have taken both OPTs'
     assert card['delivered'] == 16
@@ -769,14 +772,14 @@ def test_a_copy_opt_card_never_reports_a_shortfall(client):
     # And the same card filled with two one-OPT boxes instead.
     state = set_card(client, pid, 0, 'novastar-card-h-16xrj45-2xfiber')
     card_id = first_card(only(state))['id']
-    state = add_cvts(client, pid, card_id, 2, 'novastar-cvt10')
+    state = add_boxes(client, pid, card_id, 2, 'novastar-cvt10')
     card = first_card(only(state))
     assert card['trunksFree'] == 0
     assert card['delivered'] == 16
     assert card['shortfall'] is None
 
 
-def test_two_unnamed_cvts_do_not_print_the_same_labels_twice(client):
+def test_two_unnamed_boxes_do_not_print_the_same_labels_twice(client):
     """A port is numbered within whatever names it. With the boxes unnamed the
     CARD is doing the naming, so its numbering is the card's - numbering both
     boxes from 1 would silkscreen SR-1 through SR-8 onto two different runs."""
@@ -885,7 +888,7 @@ def test_a_fifth_box_on_a_four_trunk_card_is_refused(client):
     resp = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
                        json={'deviceId': 'novastar-cvt10'})
     assert resp.status_code == 400, 'a fifth box went onto a four-trunk card'
-    assert 'OPT' in resp.get_json()['error']
+    assert 'trunk' in resp.get_json()['error']
 
     card = first_card(only(client.get('/api/processors').get_json()))
     assert card['trunksUsed'] == 4 and card['trunks'] == 4
@@ -1165,7 +1168,10 @@ MEASURE_ROW_JS = """(args) => {
 
 
 @pytest.fixture(scope="module")
-def panel_page(e2e_server, pw_browser):
+def panel_page(e2e_server, pw_browser, server_project_guard):
+    # server_project_guard: these tests seed processors into the SHARED live
+    # server; the guard hands the project back the way the module found it
+    # (see tests/conftest.py).
     context = pw_browser.new_context()
     context.add_init_script(
         "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
@@ -1184,9 +1190,8 @@ def test_the_port_row_renders_both_fields(panel_page, width):
     layout, both placeholders carrying the RESOLVED label for their own end
     (SR-1 out, SR-1R back), both inside the panel's right edge, and the port
     list not scrolling sideways - scrollWidth over clientWidth is exactly the
-    off-the-panel overflow the clamp forbids. Scoped to the Processors rows:
-    the Port Assignment rows below them have their own, pre-existing overflow
-    at 180 that this feature neither caused nor fixes."""
+    off-the-panel overflow the clamp forbids. The Port Assignment rows below
+    them are measured by their own test further down."""
     pytest.importorskip("playwright.sync_api", reason="playwright not installed")
     ids = panel_page.evaluate(RESET_PROCESSORS_JS)
     panel_page.wait_for_timeout(600)
@@ -1251,3 +1256,518 @@ def test_renaming_either_end_round_trips_through_undo(panel_page):
     panel_page.evaluate("() => window.app.redo()")
     panel_page.wait_for_timeout(1000)
     assert stored() == ('HL', 'BU-1')
+
+
+# ── 9. The generic device is a breakout box ───────────────────────────────
+#
+# CVT is NovaStar's name for THEIR breakout box, the way Tessera XD is
+# Brompton's. Actual devices keep their model names; every generic surface -
+# the add control, helper text, error messages - says breakout box, and the
+# shared trunk messages name no vendor's silkscreen ("OPT" is NovaStar's).
+
+def test_the_add_control_offers_a_breakout_box_not_a_cvt():
+    source = js_source('app-processors.js')
+    assert "'Add a breakout box...'" in source
+    assert 'Add a CVT' not in source, (
+        'the generic add control wears one vendor\'s product name')
+    for action in ("'Add Breakout Box'", "'Rename Breakout Box'",
+                   "'Remove Breakout Box'",
+                   "'Edit Breakout Box Label Template'"):
+        assert action in source, f'{action} missing from the history actions'
+    assert "'Add CVT'" not in source and "'Rename CVT'" not in source
+
+
+def test_the_shared_trunk_messages_name_no_vendors_silkscreen():
+    """The refusals and the trunk summaries print for every vendor's cards,
+    so they say trunks; OPT survives only where it IS the silkscreen - in
+    NovaStar device notes and NovaStar-specific explanations."""
+    source = js_source('app-processors.js')
+    assert 'OPTs are used' not in source and 'OPT left' not in source
+    assert 'OPTs in' not in source
+    # The server's refusals are the same surface.
+    _ok, why = catalog.can_add_cvt(
+        {'deviceId': 'brompton-sx40', 'cvts': [
+            {'deviceId': 'brompton-xd'} for _ in range(4)]},
+        'brompton-xd')
+    assert not re.search(r'\bOPTs?\b', why), why
+    assert 'trunks' in why
+
+
+def test_the_panel_markup_says_breakout_box_generically():
+    template = os.path.join(os.path.dirname(__file__), '..', 'src',
+                            'templates', 'index.html')
+    with open(template, encoding='utf-8') as fh:
+        html = fh.read()
+    assert 'CVT breakout boxes' not in html
+    start = html.index('<h2>Processors</h2>')
+    tooltip = html[html.rindex('data-tooltip', 0, start):start]
+    assert 'breakout box' in tooltip and 'CVT' not in tooltip
+
+
+# ── 10. Redundancy pairing, per vendor, no extrapolation ──────────────────
+#
+# Three vendors, three answers, each exactly as documented and no further:
+#
+# * BROMPTON (SX40, SQ200, and its breakout boxes): fixed adjacent pairs -
+#   "A back up to B, C back up to D automatically; that is the only way it
+#   works" - stated as a fact, enforced in the trunk blocks, never editable.
+# * NOVASTAR: a primary box and a backup box is the DEFAULT when a card's
+#   mode has trunks backing trunks - created as a pair, freely overridden.
+# * MEGAPIXEL: nothing. No rule is documented, so no default is invented -
+#   not even in the safe-looking direction.
+
+def test_brompton_redundancy_states_its_fixed_pairing(client):
+    state = add_processor(client, 'brompton-sx40')
+    pid = only(state)['id']
+    assert only(state)['redundancyPairing'] is None, (
+        'a pairing was claimed with redundancy off')
+    resp = client.put(f'/api/processors/{pid}', json={'redundancy': True})
+    proc = only(resp.get_json())
+    pairing = proc['redundancyPairing']
+    assert pairing['fixed'] is True
+    assert pairing['scheme'] == 'adjacent'
+    assert pairing['pairs'] == [{'primary': 'A', 'backup': 'B'},
+                                {'primary': 'C', 'backup': 'D'}]
+    assert 'A backs up to B' in pairing['statement']
+    assert 'C backs up to D' in pairing['statement']
+    # The resolved card carries it too, for the box rows underneath.
+    assert first_card(proc)['redundancyPairing']['scheme'] == 'adjacent'
+
+
+def test_brompton_pairing_is_a_fact_not_a_field(client):
+    """Derived on every resolve and stored nowhere, so there is nothing to
+    edit: a PUT aiming at it is dropped by the allow-list and the answer
+    afterwards is the same answer."""
+    state = add_processor(client, 'brompton-sx40')
+    pid = only(state)['id']
+    client.put(f'/api/processors/{pid}', json={'redundancy': True})
+    resp = client.put(f'/api/processors/{pid}', json={
+        'redundancyPairing': {'scheme': 'free-for-all', 'fixed': False}})
+    proc = only(resp.get_json())
+    assert proc['redundancyPairing']['scheme'] == 'adjacent'
+    assert proc['redundancyPairing']['fixed'] is True
+    raw = resp.get_json()['processors'][0]
+    assert 'redundancyPairing' not in raw, (
+        'the pairing leaked into stored state, where an edit could reach it')
+
+
+def test_brompton_boxes_pair_adjacent_and_the_pairing_is_enforced(client):
+    """Four XDs on a redundant SX40: the second box carries the FIRST box's
+    ports again (A backs up to B), the fourth carries the third's (C backs up
+    to D). Interleaving them - the NovaStar shape - would pair A with C,
+    which is not how Brompton runs. Redundancy off, the same four boxes are
+    four distinct blocks again."""
+    state = add_processor(client, 'brompton-sx40')
+    pid = only(state)['id']
+    card_id = first_card(only(state))['id']
+    client.put(f'/api/processors/{pid}', json={'redundancy': True})
+    state = add_boxes(client, pid, card_id, 4, 'brompton-xd')
+    card = first_card(only(state))
+    assert [c['firstPort'] for c in card['cvts']] == [1, 1, 11, 11]
+    assert [c['duplicateOf'] for c in card['cvts']] == [
+        None, card['cvts'][0]['id'], None, card['cvts'][2]['id']]
+
+    state = client.put(f'/api/processors/{pid}',
+                       json={'redundancy': False}).get_json()
+    card = first_card(only(state))
+    assert [c['firstPort'] for c in card['cvts']] == [1, 11, 21, 31]
+    assert all(c['duplicateOf'] is None for c in card['cvts'])
+
+
+def test_brompton_adds_one_box_per_add(client):
+    """The enforcement is the SHAPE, not extra units: Brompton gets no
+    auto-created backup box - the second box someone adds IS the backup,
+    because adjacent pairing leaves it nothing else to be."""
+    state = add_processor(client, 'brompton-sx40')
+    pid = only(state)['id']
+    card_id = first_card(only(state))['id']
+    client.put(f'/api/processors/{pid}', json={'redundancy': True})
+    state = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
+                        json={'deviceId': 'brompton-xd'}).get_json()
+    card = first_card(only(state))
+    assert len(card['cvts']) == 1
+    assert card['cvts'][0]['backupOf'] is None
+
+
+def test_the_sq200_states_the_rule_without_lettering_unknown_outputs(client):
+    """The SQ200 pairs the same fixed way - the user's rule names it - while
+    its output count stays unpublished. So the statement states the rule and
+    the pairs list stays empty: lettering outputs nobody has counted would be
+    a guessed ceiling wearing a different hat."""
+    state = add_processor(client, 'brompton-sq200')
+    proc = only(state)
+    assert proc['redundancySupported'] is True
+    pid = proc['id']
+    resp = client.put(f'/api/processors/{pid}', json={'redundancy': True})
+    proc = only(resp.get_json())
+    assert proc['redundancyPairing']['fixed'] is True
+    assert proc['redundancyPairing']['pairs'] == []
+    assert 'A to B' in proc['redundancyPairing']['statement']
+    assert proc['ceilingKnown'] is False, 'the pairing invented a count'
+
+
+def test_the_other_tesseras_halve_but_claim_no_pairing_shape(client):
+    """The rule was given for the SX40 and SQ200 by name. The S8 still halves
+    - that much is documented - but no pairing statement is extrapolated onto
+    it, not even the plausible one."""
+    state = add_processor(client, 'brompton-s8')
+    pid = only(state)['id']
+    resp = client.put(f'/api/processors/{pid}', json={'redundancy': True})
+    proc = only(resp.get_json())
+    assert proc['ceiling'] == 4
+    assert proc['redundancyPairing'] is None
+
+
+def test_a_novastar_box_in_redundancy_defaults_to_a_pair(client):
+    """H_4xfiber in copy/backup and one add: a primary box and a backup box,
+    the backup on the trunk that duplicates the primary's (OPT 3 backing
+    OPT 1), so the pair really is one set of ports twice - primary box in a
+    backup box, unit to unit."""
+    pid, card_id = with_card(client, 'novastar-h9', 'novastar-card-h-4xfiber')
+    client.put(f'/api/processors/{pid}/cards/{card_id}',
+               json={'mode': 'copy-backup'})
+    state = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
+                        json={'deviceId': 'novastar-cvt10'}).get_json()
+    card = first_card(only(state))
+    assert len(card['cvts']) == 2, 'the default did not create the pair'
+    primary, backup = card['cvts']
+    assert backup['backupOf'] == primary['id']
+    assert primary['backupOf'] is None
+    assert (primary['trunkIndex'], backup['trunkIndex']) == (0, 2)
+    assert (primary['firstPort'], backup['firstPort']) == (1, 1)
+    assert backup['duplicateOf'] == primary['id']
+    # And the link is stored state: it survives a save/reload round trip.
+    saved = client.get('/api/project').get_json()
+    assert client.put('/api/project', json=saved).status_code == 200
+    card = first_card(only(client.get('/api/processors').get_json()))
+    assert card['cvts'][1]['backupOf'] == card['cvts'][0]['id']
+
+
+def test_the_mx40_pro_pairs_only_in_its_copy_mode(client):
+    """The same all-in-one is both cases: in 20-port mode OPT 3/4 copy
+    OPT 1/2, so a box arrives as a pair; in 40-port mode every trunk is its
+    own block and an add is one box."""
+    state = add_processor(client, 'novastar-mx40-pro')
+    pid = only(state)['id']
+    card_id = first_card(only(state))['id']
+    state = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
+                        json={'deviceId': 'novastar-cvt10'}).get_json()
+    assert len(first_card(only(state))['cvts']) == 1, (
+        'a pair was created outside any redundancy mode')
+
+    client.put(f'/api/processors/{pid}/cards/{card_id}',
+               json={'mode': '20-port'})
+    state = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
+                        json={'deviceId': 'novastar-cvt10'}).get_json()
+    card = first_card(only(state))
+    boxes = card['cvts']
+    assert len(boxes) == 3
+    assert boxes[2]['backupOf'] == boxes[1]['id']
+
+
+def test_the_novastar_pair_is_freely_overridable(client):
+    """"That doesn't mean that you have to do it that way": decline the pair
+    up front with pair: false, or delete the backup box afterwards and the
+    primary stands alone. Deleting the PRIMARY frees the backup to be a plain
+    box - no dangling link survives."""
+    pid, card_id = with_card(client, 'novastar-h9', 'novastar-card-h-4xfiber')
+    client.put(f'/api/processors/{pid}/cards/{card_id}',
+               json={'mode': 'copy-backup'})
+    # Declined up front.
+    state = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
+                        json={'deviceId': 'novastar-cvt10',
+                              'pair': False}).get_json()
+    card = first_card(only(state))
+    assert len(card['cvts']) == 1 and card['cvts'][0]['backupOf'] is None
+    # Taken, then undone by deleting the backup.
+    state = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
+                        json={'deviceId': 'novastar-cvt10'}).get_json()
+    card = first_card(only(state))
+    assert len(card['cvts']) == 3
+    backup_id = card['cvts'][2]['id']
+    state = client.delete(
+        f'/api/processors/{pid}/cvts/{backup_id}').get_json()
+    card = first_card(only(state))
+    assert len(card['cvts']) == 2
+    assert all(c['backupOf'] is None for c in card['cvts'])
+    # Rebuilt, then the PRIMARY deleted: the backup link goes with it.
+    state = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
+                        json={'deviceId': 'novastar-cvt10'}).get_json()
+    card = first_card(only(state))
+    primary_id = card['cvts'][2]['id']
+    assert card['cvts'][3]['backupOf'] == primary_id
+    state = client.delete(
+        f'/api/processors/{pid}/cvts/{primary_id}').get_json()
+    card = first_card(only(state))
+    assert all(c['backupOf'] is None for c in card['cvts']), (
+        'a backup still points at a deleted primary')
+
+
+def test_a_pair_that_does_not_fit_degrades_to_one_box(client):
+    """Three trunks already spoken for on a copy/backup card: the add still
+    lands, as one box - a pair that will not fit is not a reason to refuse
+    the primary."""
+    pid, card_id = with_card(client, 'novastar-h9', 'novastar-card-h-4xfiber')
+    client.put(f'/api/processors/{pid}/cards/{card_id}',
+               json={'mode': 'copy-backup'})
+    add_boxes(client, pid, card_id, 3)
+    state = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
+                        json={'deviceId': 'novastar-cvt10'}).get_json()
+    card = first_card(only(state))
+    assert len(card['cvts']) == 4
+    assert card['cvts'][3]['backupOf'] is None
+    assert card['trunksUsed'] == 4
+
+
+def test_a_copy_own_ports_card_gets_no_pair(client):
+    """The H_16xRJ45+2xfiber's trunks copy its own copper - a box there is
+    another place to plug into ports the card already delivers, not a backup
+    unit, so no pair is created."""
+    pid, card_id = with_card(client, 'novastar-h9',
+                             'novastar-card-h-16xrj45-2xfiber')
+    state = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
+                        json={'deviceId': 'novastar-cvt10'}).get_json()
+    assert len(first_card(only(state))['cvts']) == 1
+
+
+def test_megapixel_gets_no_default_and_no_claimed_pairing(client):
+    """"I'm not sure about how megapixel works" is an instruction: no
+    redundancy toggle, no pairing statement, no auto-created backup unit.
+    Manual wiring only - the absence is asserted so nobody fills it in as a
+    tidy-up."""
+    assert 'redundancy' not in catalog.get_device('megapixel-helios-8k')
+    assert catalog.default_backup_pair(
+        {'deviceId': 'megapixel-helios-8k'}) is False
+    state = add_processor(client, 'megapixel-helios-8k')
+    proc = only(state)
+    assert proc['redundancySupported'] is False, (
+        'a redundancy toggle appeared for a vendor with no documented rule')
+    assert proc['redundancyPairing'] is None
+    pid = proc['id']
+    card_id = first_card(proc)['id']
+    state = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
+                        json={'deviceId': 'megapixel-rs12'}).get_json()
+    card = first_card(only(state))
+    assert len(card['cvts']) == 1, 'a pair was invented for Megapixel'
+    assert card['cvts'][0]['backupOf'] is None
+    assert card['redundancyPairing'] is None
+
+
+def test_the_panel_states_the_pairing_and_offers_no_control_for_it():
+    """The pairing renders as text under the redundancy switch - the server's
+    statement, verbatim - and as a 'backs up X' line on the backup box row.
+    No select, no input, no lrd-field: a fact, not a setting."""
+    source = js_source('app-processors.js')
+    assert 'proc.redundancyPairing' in source
+    assert 'pairing.statement' in source or \
+        'redundancyPairing.statement' in source
+    assert 'backs up ${who}' in source
+    section = source[source.index('redundancyPairing'):]
+    head = section[:section.index('_buildSlot')]
+    assert 'lrdField' not in head.split('appendChild(fact)')[0].rsplit(
+        'const fact', 1)[-1], 'the pairing fact grew a focus key - a control'
+
+
+# ── 11. The port list is the sidebar's height, not its own ────────────────
+
+def test_the_port_list_has_no_inner_scroll_cap():
+    """The sidebar is the ONE scroll context. The list used to cap itself at
+    190px - two and a half ports of twenty, a scrollbox nested inside the
+    scrolling sidebar - and the fold on the section header is the way to put
+    a long list away, not an inner scrollbar."""
+    source = js_source('app-processors.js')
+    body = source[source.index('_buildPortList(proc, card) {'):]
+    body = body[:body.index('\n    }')]
+    assert 'maxHeight' not in body, 'the port list capped itself again'
+    assert 'overflow' not in body, 'the port list scrolls inside the sidebar'
+
+
+PORT_LIST_SEED_JS = """async () => {
+    const state = await (await fetch('/api/processors')).json();
+    for (const p of (state.processors || [])) {
+        await fetch(`/api/processors/${p.id}`, { method: 'DELETE' });
+    }
+    const add = await (await fetch('/api/processors', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceId: 'novastar-h9' }),
+    })).json();
+    const proc = add.resolved[0];
+    const slot = await (await fetch(`/api/processors/${proc.id}/slots/0`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceId: 'novastar-card-h-20xrj45' }),
+    })).json();
+    await window.app.refreshProcessors();
+    return { procId: proc.id,
+             cardId: slot.resolved[0].slots[0].card.id };
+}"""
+
+MEASURE_PORT_LIST_JS = """(args) => {
+    const sidebar = document.getElementById('data-sidebar');
+    const rows = document.querySelectorAll(
+        `[data-lrd-field^="processor-port-name-${args.cardId}-"]`);
+    const last = rows[rows.length - 1];
+    // Any scrolling ancestor STRICTLY between a port row and the sidebar is
+    // a nested scrollbox - the double scroll this test exists to forbid.
+    const nested = [];
+    for (let el = last.parentElement; el && el !== sidebar;
+         el = el.parentElement) {
+        const cs = getComputedStyle(el);
+        if ((cs.overflowY === 'auto' || cs.overflowY === 'scroll')
+                && el.scrollHeight > el.clientHeight + 1) {
+            nested.push(el.id || el.className || el.tagName);
+        }
+    }
+    // Reaching port 20 must be the SIDEBAR's scroll and nobody else's:
+    // scroll the row into view, then check it landed inside the sidebar's
+    // box and that the sidebar is the thing that moved.
+    sidebar.scrollTop = 0;
+    last.scrollIntoView({ block: 'nearest' });
+    const s = sidebar.getBoundingClientRect();
+    const r = last.getBoundingClientRect();
+    return {
+        ports: rows.length,
+        nested: nested,
+        sidebarScrolls: sidebar.scrollHeight > sidebar.clientHeight + 1,
+        sidebarMoved: sidebar.scrollTop > 0,
+        lastReachable: r.top >= s.top - 0.5 && r.bottom <= s.bottom + 0.5,
+    };
+}"""
+
+
+def test_sidebar_scroll_alone_reaches_all_twenty_ports(panel_page):
+    """A 20-port card, drawn at its natural height: every port row is reached
+    by scrolling the SIDEBAR, and nothing between a row and the sidebar
+    scrolls on its own - the wall of ports is one list in one column, foldable
+    by its section header rather than trapped in a 190px window."""
+    pytest.importorskip("playwright.sync_api", reason="playwright not installed")
+    ids = panel_page.evaluate(PORT_LIST_SEED_JS)
+    panel_page.wait_for_timeout(600)
+    panel_page.evaluate(SET_WIDTH_JS, 260)
+    panel_page.wait_for_timeout(400)
+    out = panel_page.evaluate(MEASURE_PORT_LIST_JS, {'cardId': ids['cardId']})
+    assert out['ports'] == 20, out
+    assert not out['nested'], (
+        f"a scrollbox sits between the port rows and the sidebar: "
+        f"{out['nested']}")
+    assert out['sidebarScrolls'], (
+        'the sidebar has nothing to scroll - the list is not at natural '
+        'height, so this test proves nothing')
+    assert out['sidebarMoved'], (
+        'port 20 came into view without the sidebar scrolling - something '
+        'else is doing the scrolling')
+    assert out['lastReachable'], (
+        'scrolling the sidebar does not bring port 20 into view')
+
+
+# ── 12. The Port Assignment rows fit the clamp ────────────────────────────
+
+ASSIGNMENT_FIT_JS = """(hostId) => {
+    const host = document.getElementById(hostId);
+    if (!host) return null;
+    const box = host.getBoundingClientRect();
+    const strays = [];
+    host.querySelectorAll('*').forEach(el => {
+        const r = el.getBoundingClientRect();
+        if (r.width === 0 && r.height === 0) return;
+        if (r.right > box.right + 0.5 || r.left < box.left - 0.5) {
+            strays.push({ tag: el.tagName,
+                          key: el.getAttribute('data-lrd-field')
+                              || el.className || el.textContent.slice(0, 24),
+                          over: Math.round(Math.max(r.right - box.right,
+                                                    box.left - r.left)) });
+        }
+    });
+    return { rows: host.children.length, scrollW: host.scrollWidth,
+             clientW: host.clientWidth, strays: strays };
+}"""
+
+
+@pytest.mark.parametrize('width', [260, 180])
+def test_the_port_assignment_rows_fit_at_both_widths(panel_page, width):
+    """The move/pin rows and the Move whole block tools measured at the
+    default and at the clamp: nothing hangs past the panel's edge and the
+    list does not scroll sideways. Before the wrap treatment the rows'
+    scrollWidth was 203 in a 165px column at the clamp - the same overflow
+    the distro and soca rows were taught out of."""
+    pytest.importorskip("playwright.sync_api", reason="playwright not installed")
+    panel_page.evaluate(RESET_PROCESSORS_JS)
+    panel_page.wait_for_timeout(800)
+    panel_page.evaluate(SET_WIDTH_JS, width)
+    panel_page.wait_for_timeout(500)
+    for host in ('port-assignment-list', 'port-assignment-foot'):
+        m = panel_page.evaluate(ASSIGNMENT_FIT_JS, host)
+        assert m, f'#{host} is not in the document'
+        if host == 'port-assignment-list':
+            assert m['rows'] > 0, (
+                'no assignment rows rendered - the seed screen carries no '
+                'ports, so this test proves nothing')
+        assert not m['strays'], (
+            f"#{host} controls hang outside the panel at {width}px: "
+            f"{m['strays']} (host clientWidth {m['clientW']}px)")
+        assert m['scrollW'] <= m['clientW'], (
+            f"#{host} scrolls sideways at {width}px: content {m['scrollW']}px "
+            f"in a {m['clientW']}px column")
+
+
+def test_the_return_template_round_trips_through_undo(panel_page):
+    """The backup template through the real input: the edit lands on the
+    server, earns its own named history entry, and undo/redo walk the whole
+    card's returns back to <primary>R and forward to the template again."""
+    pytest.importorskip("playwright.sync_api", reason="playwright not installed")
+    ids = panel_page.evaluate(RESET_PROCESSORS_JS)
+    panel_page.wait_for_timeout(600)
+
+    panel_page.evaluate("""(args) => {
+        const input = document.querySelector(
+            `[data-lrd-field="processor-card-return-template-${args.cardId}"]`);
+        input.value = 'BU-#';
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+    }""", {'cardId': ids['cardId']})
+    panel_page.wait_for_timeout(800)
+
+    def stored():
+        state = panel_page.evaluate(
+            "async () => await (await fetch('/api/processors')).json()")
+        card = next(s['card'] for s in state['processors'][0]['slots']
+                    if s.get('card'))
+        resolved = next(s['card'] for s in state['resolved'][0]['slots']
+                        if s.get('card'))
+        return (card.get('returnLabelTemplate'),
+                resolved['ports'][0]['returnLabel'])
+
+    assert stored() == ('BU-#', 'BU-1')
+    action = panel_page.evaluate(
+        "() => window.app.history[window.app.history.length - 1].action")
+    assert action == 'Edit Card Return Label Template'
+
+    panel_page.evaluate("() => window.app.undo()")
+    panel_page.wait_for_timeout(1000)
+    assert stored() == (None, 'SR-1R'), 'undo did not clear the template'
+
+    panel_page.evaluate("() => window.app.redo()")
+    panel_page.wait_for_timeout(1000)
+    assert stored() == ('BU-#', 'BU-1'), 'redo did not restore the template'
+
+
+def test_the_sidebar_hosts_pin_their_grid_track():
+    """Headless scrollbars are overlay, so the browser fit test above measures
+    a wider column than a real window has - a classic scrollbar gutter leaves
+    the hosts ~119px at the clamp. The real-window failure mode was an AUTO
+    grid track sizing itself to its rows' min-content and carrying the whole
+    screen box past the panel's edge; the fix is the track pinned to the
+    column, so the pin is asserted as source where the measurement cannot
+    reach it."""
+    source = js_source('app-port-assignment.js')
+    assert source.count("gridTemplateColumns = 'minmax(0, 1fr)'") >= 2, (
+        'the assignment row grids lost their pinned track')
+    template = os.path.join(os.path.dirname(__file__), '..', 'src',
+                            'templates', 'index.html')
+    with open(template, encoding='utf-8') as fh:
+        html = fh.read()
+    for host in ('processor-list', 'port-assignment-issues',
+                 'port-assignment-list'):
+        start = html.index(f'id="{host}"')
+        tag = html[html.rindex('<div', 0, start):html.index('>', start)]
+        assert 'minmax(0, 1fr)' in tag, (
+            f'#{host} is back on an auto grid track, which overflows the '
+            f'clamp in a real window')
