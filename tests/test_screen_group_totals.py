@@ -949,7 +949,8 @@ def _ports_of(flat):
 #
 # Some walls are cabled per section on site no matter what the panels would
 # allow, so a group can turn the DATA crossing off (group.routeDataAsOne =
-# false, set from the group menu). Off means every member routes exactly as it
+# false, set from the "Route <group> as one screen" row in Data Settings).
+# Off means every member routes exactly as it
 # would ungrouped - the walk, the counts, the roll-up and the peer's sidebar
 # state all revert together, because the switch sits in the ONE gate they all
 # read (_autoCrossMembers). Absent means ON: every group saved before the

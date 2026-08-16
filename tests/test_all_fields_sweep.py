@@ -189,6 +189,14 @@ SKIP = {
         'staging colour for the Apply button; its picker callback is empty',
     'power-circuit-color-custom-hex':
         'staging colour for the Apply button; its picker callback is empty',
+    # Group state, not layer state: the handler writes group.routeDataAsOne
+    # through the group commit funnel (PUT /api/project), so the sweep's
+    # layer-diff and /api/layer PUT log would both come up empty by design.
+    # The sweep project has no groups, so the row is hidden anyway - it only
+    # exists while the shown screen belongs to a group.
+    'route-group-as-one':
+        'writes group.routeDataAsOne on the project, not the layer; driven '
+        'end-to-end by tests/test_audit_cross_member.py',
 }
 
 ALL_FIELDS = _discover_fields()

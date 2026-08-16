@@ -1369,7 +1369,8 @@ def test_an_ungrouped_screen_is_never_served_by_a_peer(page):
 # ═════════════════════════════════════════════════════════════════════════
 #
 # A group of matching panels can now DECLINE the automatic data crossing
-# (group.routeDataAsOne = false, group menu): some walls are cabled per
+# (group.routeDataAsOne = false, the "Route <group> as one screen" row in
+# Data Settings): some walls are cabled per
 # section on site no matter what the panels would allow. Off means every
 # reader of the crossing reverts together - the walk, the counts, the arrows
 # and the sidebar - because the switch sits in the one gate they all pass
@@ -1527,46 +1528,99 @@ def test_route_switch_copies_with_duplicate_group(page):
     assert out['original'] is False, out
 
 
-def test_route_switch_menu_item_checks_toggles_and_greys_out(page):
-    """Where the switch LIVES: the group's own menu, checked while the wall
-    routes as one, unchecked after, and greyed out - with the reason in the
-    tooltip - on a group whose members could never route as one anyway."""
-    out = _rt(page, r"""
+# Reading the panel row is the same few lookups in every test below, so the
+# reader is shared: shown is the row's own display (absent-vs-present is the
+# design - an ungrouped screen gets NO row, not a greyed one), the label is
+# where the group's name lands, and the hint is the row title that carries
+# the "no choice here" reason when the box greys out.
+ROUTE_ROW_READ_JS = r"""
+window.__rtRow = () => {
+    const row = document.getElementById('route-group-as-one-row');
+    const box = document.getElementById('route-group-as-one');
+    return {
+        shown: row.style.display !== 'none',
+        checked: box.checked,
+        enabled: !box.disabled,
+        label: document.getElementById(
+            'route-group-as-one-label').textContent,
+        hint: row.title,
+    };
+};
+"""
+
+
+def _rt_row(page, body):
+    page.evaluate(ROUTE_ROW_READ_JS)
+    return _rt(page, body)
+
+
+def test_route_switch_panel_row_checks_toggles_and_greys_out(page):
+    """Where the switch LIVES: the Data Settings panel, beside Port Mapping,
+    labelled with the group's own name so it reads as group-wide. Checked
+    while the wall routes as one, driving the same stored flag and the same
+    undo entry as before, and greyed out - with the reason in the tooltip -
+    on a group whose members could never route as one anyway."""
+    out = _rt_row(page, r"""
         const gid = await rt.fresh();
-        window.app.renderLayers();
-        await rt.settle(200);
-        const open = () => {
-            document.querySelector(
-                '.screen-group[data-group-id="' + gid + '"] .screen-group-menu-btn'
-            ).click();
-            return document.querySelector(
-                '.screen-group-menu-popup [data-action="route-as-one"]');
-        };
-        const item = open();
-        const first = { enabled: !item.disabled,
-                        label: item.textContent.trim(), hint: item.title };
-        item.click();
+        const first = window.__rtRow();
+        const box = document.getElementById('route-group-as-one');
+        box.click();
         await rt.settle(700);
         const stored = rt.flag(gid);
-        const again = open();
-        const second = { label: again.textContent.trim() };
-        again.click();
+        const action = window.app.history[window.app.historyIndex].action;
+        const second = window.__rtRow();
+        box.click();
         await rt.settle(700);
         const restored = rt.flag(gid);
         // Mixed resolution never crosses, so there is no choice to offer.
         const g = rt.group(gid);
         window.app.project.layers.find(
             l => l.id === g.layer_ids[1]).cabinet_width = 64;
-        const mixed = open();
-        const third = { enabled: !mixed.disabled, hint: mixed.title };
-        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
-        return { first, stored, second, restored, third };
+        window.app.updatePortCapacityDisplay();
+        const third = window.__rtRow();
+        return { first, stored, action, second, restored, third,
+                 name: rt.group(gid).name };
     """)
+    assert out['first']['shown'] is True, out
     assert out['first']['enabled'] is True, out
-    assert out['first']['label'] == '✓ Route data as one screen', out
+    assert out['first']['checked'] is True, out
+    assert out['first']['label'] == f"Route {out['name']} as one screen", out
     assert 'cables on its own' in out['first']['hint'], out
     assert out['stored'] is False, out
-    assert out['second']['label'] == 'Route data as one screen', out
+    assert out['action'] == 'Toggle Group Data Routing', out
+    assert out['second']['checked'] is False, out
     assert out['restored'] is True, out
     assert out['third']['enabled'] is False, out
     assert 'never route as one' in out['third']['hint'], out
+
+
+def test_route_switch_row_exists_only_while_a_grouped_screen_is_shown(page):
+    """The row describes a GROUP, so an ungrouped screen gets no row at all -
+    absent, not greyed - and it comes and goes as the selection moves between
+    grouped and ungrouped screens."""
+    out = _rt_row(page, r"""
+        const gid = await rt.fresh();
+        // A third screen outside the group, far from the wall.
+        const alone = await (await fetch('/api/layer/add', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ name: 'Alone', columns: 6, rows: 6,
+                cabinet_width: 128, cabinet_height: 128,
+                offset_x: 900, offset_y: 2000 }),
+        })).json();
+        const p = await (await fetch('/api/project')).json();
+        window.app.project = p;
+        const loner = p.layers.find(l => l.id === alone.id);
+        const member = p.layers.find(l => l.group_id === gid);
+        window.app.selectLayer(member);
+        const onMember = window.__rtRow();
+        window.app.selectLayer(loner);
+        const onLoner = window.__rtRow();
+        window.app.selectLayer(member);
+        const back = window.__rtRow();
+        return { onMember, onLoner, back, name: rt.group(gid).name };
+    """)
+    assert out['onMember']['shown'] is True, out
+    assert out['name'] in out['onMember']['label'], out
+    assert out['onLoner']['shown'] is False, out
+    assert out['back']['shown'] is True, out
+    assert out['name'] in out['back']['label'], out

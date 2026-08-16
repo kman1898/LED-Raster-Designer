@@ -482,9 +482,10 @@ class _ScreenInfo {
     // deliberately stricter than the ordering can manage, because there is no
     // single port capacity or circuit load that describes two different panels.
     //
-    // THE GROUP CAN DECLINE. "Route data as one screen" (group.routeDataAsOne,
-    // group menu) turns the DATA crossing off for one group - some walls are
-    // cabled per section on site regardless of what the panels would allow.
+    // THE GROUP CAN DECLINE. "Route <group> as one screen" (group.
+    // routeDataAsOne, Data Settings) turns the DATA crossing off for one
+    // group - some walls are cabled per section on site regardless of what
+    // the panels would allow.
     // The check sits here rather than in every reader because this is the one
     // gate they all pass through: the walk, the counts, the arrows, the group
     // roll-up and the peer's sidebar figure all revert together.
@@ -496,8 +497,9 @@ class _ScreenInfo {
         // crossing; only a stored false takes the wall back to per-member
         // routing, cabled exactly as ungrouped screens. DATA only: a circuit
         // packs by load and the power gate below reads exactly as it did.
-        // `ignoreToggle` lets the group menu ask whether the wall COULD cross,
-        // so the switch can grey out where crossing is never on offer.
+        // `ignoreToggle` lets the Data Settings row ask whether the wall
+        // COULD cross, so the switch can grey out where crossing is never on
+        // offer.
         if (kind === 'data' && !ignoreToggle) {
             const own = (typeof this.getGroupOfLayer === 'function')
                 ? this.getGroupOfLayer(layer) : null;

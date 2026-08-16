@@ -2640,6 +2640,23 @@ export class LEDRasterApp {
             });
         }
 
+        // "Route <group> as one screen" (Data Settings). Unlike its
+        // neighbours this writes the GROUP, not the selected layers, so it
+        // goes through the group commit funnel - one history entry labelled
+        // 'Toggle Group Data Routing', and the commit's own renderLayers /
+        // loadLayerToInputs pass re-syncs the row. The row is only visible
+        // while the shown screen belongs to a group (updateGroupRouteControl),
+        // so the guard here is belt and braces.
+        const routeGroupAsOneBox = document.getElementById('route-group-as-one');
+        if (routeGroupAsOneBox) {
+            routeGroupAsOneBox.addEventListener('change', () => {
+                const group = this.currentLayer
+                    ? this.getGroupOfLayer(this.currentLayer) : null;
+                if (!group) return;
+                this.toggleGroupRouteDataAsOne(group.id);
+            });
+        }
+
         if (bitDepthSelect) {
             bitDepthSelect.addEventListener('change', () => {
                 this.applyToSelectedLayers(layer => {

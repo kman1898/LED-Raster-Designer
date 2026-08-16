@@ -214,6 +214,12 @@ class _Power {
         // v0.11.0: same reasoning - the Low Latency control and its note must
         // not latch on a stale processor when the early returns below fire.
         this.updateLowLatencyUI();
+        // Same again for the group's "Route <name> as one screen" row: it has
+        // to HIDE when the selection moves to an ungrouped screen, an image
+        // layer or nothing at all, so it runs ahead of the early returns too.
+        if (typeof this.updateGroupRouteControl === 'function') {
+            this.updateGroupRouteControl();
+        }
 
         if (!this.currentLayer) {
             return;

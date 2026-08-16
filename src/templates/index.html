@@ -603,6 +603,26 @@
                                 </div>
                             </div>
 
+                            <!-- The group's "Route <name> as one screen"
+                                 switch (group.routeDataAsOne). It sits under
+                                 Port Mapping because the two answer the same
+                                 question - how cabinets are walked into ports
+                                 - and it decides what the readout below
+                                 describes: on, this screen is one section of
+                                 the wall's single walk; off, every member
+                                 cables on its own. Hidden, not greyed, unless
+                                 the selected screen belongs to a group: the
+                                 switch describes a group, and an ungrouped
+                                 screen has none to describe. State and label
+                                 text - the group's actual name, so it cannot
+                                 read as a per-screen setting - are filled in
+                                 by updateGroupRouteControl
+                                 (app-screen-groups.js). -->
+                            <div class="info-row checkbox-row" id="route-group-as-one-row" style="display: none;" data-tooltip="Route group as one screen, Route the whole group's data as one screen: the serpentine crosses every member as a single wall. Off, each member routes its own data exactly as if it were ungrouped.">
+                                <input type="checkbox" id="route-group-as-one" data-lrd-field="route-group-as-one" checked>
+                                <label for="route-group-as-one" id="route-group-as-one-label">Route group as one screen</label>
+                            </div>
+
                             <!-- v0.11.0: per-layer Low Latency. What it costs
                                  depends on the processor family, so the note
                                  below is filled in from lowLatencyProfiles. -->

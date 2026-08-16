@@ -558,7 +558,7 @@ class _ScreenGroups {
     }
 
     // Whether the members COULD route as one screen for data - the walk's own
-    // gate with the switch held open. Read by the group menu, so the switch
+    // gate with the switch held open. Read by the Data Settings switch, so it
     // greys out on a group where crossing is never on offer (mixed
     // resolution, different canvases, a hand-wired member) instead of
     // pretending there is a choice to make.
@@ -568,6 +568,43 @@ class _ScreenGroups {
         const member = this.getGroupMembers(g).find(l => l
             && (l.type || 'screen') === 'screen' && l.visible !== false);
         return !!(member && this._autoCrossMembers(member, 'data', true));
+    }
+
+    // The switch's face in the UI: the #route-group-as-one row in Data
+    // Settings, next to Port Mapping, because a routing decision belongs with
+    // the routing controls whose readout it changes. Shown only while the
+    // selected screen belongs to a group, and named after the group - "Route
+    // SL IMAG as one screen" - so it cannot read as a per-screen setting; an
+    // ungrouped screen gets no row at all, because there is no group to
+    // describe. With several screens selected the row follows currentLayer,
+    // the shown screen, the same way the soca panel and every other Data
+    // Settings field resolve a multi-selection. Called from
+    // updatePortCapacityDisplay because that pass is the funnel every
+    // selection change, group commit and undo already runs through, so the
+    // row can never show a stale group.
+    updateGroupRouteControl() {
+        const row = document.getElementById('route-group-as-one-row');
+        const box = document.getElementById('route-group-as-one');
+        const label = document.getElementById('route-group-as-one-label');
+        if (!row || !box || !label) return;
+        const layer = this.currentLayer;
+        const group = (layer && (layer.type || 'screen') === 'screen')
+            ? this.getGroupOfLayer(layer) : null;
+        if (!group) {
+            row.style.display = 'none';
+            return;
+        }
+        row.style.display = '';
+        // The box reads the STORED state even on a group that cannot cross:
+        // disabled says "no choice here", the mark says what is remembered,
+        // and the tooltip carries the reason.
+        box.checked = group.routeDataAsOne !== false;
+        const canRoute = this._groupCanRouteDataAsOne(group);
+        box.disabled = !canRoute;
+        label.textContent = `Route ${group.name} as one screen`;
+        row.title = canRoute
+            ? 'Off: each screen cables on its own'
+            : 'These screens never route as one - the cabinets differ, or a member is hand-wired';
     }
 
     // One lock for the wall, same "any unlocked => lock them all" rule
@@ -1380,19 +1417,12 @@ class _ScreenGroups {
         const canAdd = selected.some(l => l.group_id !== group.id);
         const canRemove = selected.some(l => l.group_id === group.id);
         const locked = members.length > 0 && members.every(m => m.locked);
-        // The check reads the STORED state even on a group that cannot cross:
-        // disabled says "no choice here", the mark says what is remembered.
-        const routesAsOne = group.routeDataAsOne !== false;
-        const canRouteAsOne = this._groupCanRouteDataAsOne(group);
         const menu = document.createElement('div');
         menu.className = 'canvas-menu-popup screen-group-menu-popup';
         menu.innerHTML = `
             <button data-action="rename">Rename</button>
             <button data-action="duplicate">Duplicate Group</button>
             <button data-action="lock">${locked ? 'Unlock Group' : 'Lock Group'}</button>
-            <button data-action="route-as-one"${canRouteAsOne ? '' : ' disabled'} title="${canRouteAsOne
-                ? 'Off: each screen cables on its own'
-                : 'These screens never route as one - the cabinets differ, or a member is hand-wired'}">${routesAsOne ? '✓ ' : ''}Route data as one screen</button>
             <button data-action="add"${canAdd ? '' : ' disabled'}>Add Selected Screens</button>
             <button data-action="remove"${canRemove ? '' : ' disabled'}>Remove Selected Screens</button>
             <button data-action="ungroup">Ungroup</button>
@@ -1443,8 +1473,6 @@ class _ScreenGroups {
             this.duplicateGroup(group.id);
         } else if (action === 'lock') {
             this.toggleGroupLock(group.id);
-        } else if (action === 'route-as-one') {
-            this.toggleGroupRouteDataAsOne(group.id);
         } else if (action === 'add') {
             this.addSelectedToGroup(group.id);
         } else if (action === 'remove') {
