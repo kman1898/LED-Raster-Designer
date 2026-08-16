@@ -320,6 +320,12 @@ def new_processor(device_id, seq, name=''):
 
 
 def new_card(device_id, seq, name='', fixed=False):
+    # No portLabelTemplate at birth. The default is what an ABSENT template
+    # means (render_port_label falls back to it), so stamping it here wrote
+    # the app's own fallback into every saved file as if somebody had typed
+    # it - and the panel then drew it as a value nobody could tell from a
+    # choice, or clear back out. Same rule as a port name: unset is the
+    # normal state, and it stores nothing.
     device = get_device(device_id)
     if not device:
         return None
@@ -327,7 +333,6 @@ def new_card(device_id, seq, name='', fixed=False):
         'id': f'card{seq}',
         'deviceId': device_id,
         'name': name or '',
-        'portLabelTemplate': DEFAULT_PORT_LABEL_TEMPLATE,
         'mode': (device.get('ports') or {}).get('defaultMode'),
         'fixed': bool(fixed),
         'cvts': [],
@@ -335,6 +340,8 @@ def new_card(device_id, seq, name='', fixed=False):
 
 
 def new_cvt(device_id, seq, name=''):
+    # Same birth rule as new_card: the default template is a fallback, not a
+    # value, and it is not stored.
     device = get_device(device_id)
     if not device:
         return None
@@ -342,7 +349,6 @@ def new_cvt(device_id, seq, name=''):
         'id': f'cvt{seq}',
         'deviceId': device_id,
         'name': name or '',
-        'portLabelTemplate': DEFAULT_PORT_LABEL_TEMPLATE,
         'mode': (device.get('ports') or {}).get('defaultMode'),
     }
 
@@ -352,6 +358,21 @@ def new_cvt(device_id, seq, name=''):
 def render_port_label(name, template, number):
     text = template if template else DEFAULT_PORT_LABEL_TEMPLATE
     return text.replace('{name}', name or '').replace('#', str(number))
+
+
+def typed_port_label_template(node):
+    """The label template somebody CHOSE, or '' - what the panel's Label box
+    shows as a value, with the default left to its placeholder.
+
+    A stored copy of the default reads as absent: every card and box created
+    before v0.11.2 was stamped with '{name}-#' at birth, so in an old file
+    that text is the absence of a choice, not one - and a hand that types the
+    default has chosen exactly what the placeholder already promised, so
+    nothing is lost by showing it as the placeholder either. Rendering is
+    untouched either way; render_port_label falls back to the same default
+    whether the key holds it, holds '', or is gone."""
+    text = ((node or {}).get('portLabelTemplate') or '').strip()
+    return '' if text == DEFAULT_PORT_LABEL_TEMPLATE else text
 
 
 def _stored_port_name(card, store, number):
@@ -555,7 +576,11 @@ def resolve_card(card, proc):
             'deviceName': cvt_device.get('name', cvt.get('deviceId')),
             'vendor': cvt_device.get('vendor', ''),
             'name': cvt.get('name', ''),
-            'portLabelTemplate': cvt.get('portLabelTemplate') or DEFAULT_PORT_LABEL_TEMPLATE,
+            # Only a TYPED template comes back as a value; unset - and the
+            # birth-stamped default of old files - reads as '' so the panel
+            # shows the derived text where derived text belongs, in the
+            # placeholder. Same shape as returnLabelTemplate below it.
+            'portLabelTemplate': typed_port_label_template(cvt),
             'returnLabelTemplate': cvt.get('returnLabelTemplate') or '',
             'portCount': size,
             'firstPort': first,
@@ -708,7 +733,11 @@ def resolve_card(card, proc):
         'deviceName': device.get('name', card.get('deviceId')),
         'vendor': device.get('vendor', ''),
         'name': card.get('name', ''),
-        'portLabelTemplate': card.get('portLabelTemplate') or DEFAULT_PORT_LABEL_TEMPLATE,
+        # A value only where somebody typed one - the default lives in the
+        # panel's placeholder, and a stored copy of it (stamped at birth by
+        # every version before v0.11.2) reads as absent. See
+        # typed_port_label_template.
+        'portLabelTemplate': typed_port_label_template(card),
         # The backup side's template. No default: absent means rung 3 of the
         # return ladder - <primary>R - is doing the work, and the panel's
         # placeholder says so.

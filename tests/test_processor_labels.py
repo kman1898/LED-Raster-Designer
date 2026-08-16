@@ -985,3 +985,11 @@ def test_the_template_fields_are_keyed_and_named_for_history():
     assert "'Edit Breakout Box Return Label Template'" in source
     # The placeholder states the rung below: primary template plus R.
     assert "${card.portLabelTemplate || '{name}-#'}R" in source
+    # The primary Label boxes hold the same shape: the value is the resolved
+    # portLabelTemplate - which the server sends as '' unless somebody typed
+    # one, so the default lives in the placeholder beside it, never as text
+    # that looks chosen - and each edit takes its own named history step.
+    assert "'Label', card.portLabelTemplate, '{name}-#'" in source
+    assert "'Label', cvt.portLabelTemplate, '{name}-#'" in source
+    assert "'Edit Card Label Template'" in source
+    assert "'Edit Breakout Box Label Template'" in source

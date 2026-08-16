@@ -175,14 +175,14 @@ def update_card(processor_id, card_id):
     data = request.json or {}
     changed = _apply(card, data, ('name', 'portLabelTemplate',
                                   'returnLabelTemplate', 'mode'))
-    # A blank return template is the ABSENCE of one - rung two of the return
-    # ladder steps aside and <primary>R takes back over. Deleted rather than
-    # stored empty, the same as a cleared port name: an untemplated return
-    # side is the normal state of every card and must leave nothing behind in
-    # the saved file.
-    if 'returnLabelTemplate' in data and \
-            not (card.get('returnLabelTemplate') or '').strip():
-        card.pop('returnLabelTemplate', None)
+    # A blank template is the ABSENCE of one, on either side. The primary
+    # falls back to the built-in {name}-#, the return to <primary>R - rung
+    # two of its ladder stepping aside. Deleted rather than stored empty,
+    # the same as a cleared port name: an untemplated card is the normal
+    # state of every card and must leave nothing behind in the saved file.
+    for key in ('portLabelTemplate', 'returnLabelTemplate'):
+        if key in data and not (card.get(key) or '').strip():
+            card.pop(key, None)
     log_event('processor_card_update', {'id': card_id, 'changed': list(changed)})
     return _state()
 
@@ -280,10 +280,11 @@ def update_cvt(processor_id, cvt_id):
     data = request.json or {}
     changed = _apply(cvt, data, ('name', 'portLabelTemplate',
                                  'returnLabelTemplate', 'mode'))
-    # Same clearing rule as the card's, for the same reason.
-    if 'returnLabelTemplate' in data and \
-            not (cvt.get('returnLabelTemplate') or '').strip():
-        cvt.pop('returnLabelTemplate', None)
+    # Same clearing rule as the card's, for the same reason: a blank hands
+    # either template back to what it derives from, and stores nothing.
+    for key in ('portLabelTemplate', 'returnLabelTemplate'):
+        if key in data and not (cvt.get(key) or '').strip():
+            cvt.pop(key, None)
     log_event('processor_cvt_update', {'id': cvt_id, 'changed': list(changed)})
     return _state()
 

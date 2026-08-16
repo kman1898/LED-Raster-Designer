@@ -834,6 +834,109 @@ def test_a_label_template_is_editable_and_comes_back_from_the_server(client):
     assert first_card(only(reread))['ports'][0]['label'] == 'SR.P1'
 
 
+def test_a_new_card_stores_no_label_template(client):
+    """The default template is a fallback, not a value. A card used to be
+    stamped with '{name}-#' at birth, which put the app's own fallback into
+    every saved file and drew it in the panel's Label box as text nobody
+    could tell from a choice - the same derived-as-value disease a port name
+    box would have if it held the resolved label. Unset stores nothing,
+    resolves to '' for the panel (value empty, placeholder doing the work),
+    and still labels the ports off the default."""
+    state = add_processor(client, 'novastar-mx20')
+    pid = only(state)['id']
+    card = first_card(only(state))
+    assert card['portLabelTemplate'] == ''
+
+    stored = client.get('/api/project').get_json()['processors'][0]
+    assert 'portLabelTemplate' not in stored['slots'][0]['card'], (
+        'a fresh card carries the default template as if somebody typed it')
+
+    # The fallback still does the labelling exactly as before.
+    resp = client.put(f'/api/processors/{pid}/cards/{card["id"]}',
+                      json={'name': 'SR'})
+    named = first_card(only(resp.get_json()))
+    assert named['ports'][0]['label'] == 'SR-1'
+
+
+def test_clearing_the_label_template_leaves_nothing_behind(client):
+    """Same clearing rule as a port name and the return template: blank is
+    the absence of a template, the key comes out of the file, and the ladder
+    reads exactly as it would had one never been typed."""
+    state = add_processor(client, 'novastar-mx20')
+    pid = only(state)['id']
+    card_id = first_card(only(state))['id']
+    resp = client.put(f'/api/processors/{pid}/cards/{card_id}',
+                      json={'name': 'SR', 'portLabelTemplate': '{name}.P#'})
+    assert first_card(only(resp.get_json()))['ports'][0]['label'] == 'SR.P1'
+
+    resp = client.put(f'/api/processors/{pid}/cards/{card_id}',
+                      json={'portLabelTemplate': '  '})
+    card = first_card(only(resp.get_json()))
+    assert card['portLabelTemplate'] == ''
+    assert card['ports'][0]['label'] == 'SR-1', (
+        'a cleared template did not hand the ports back to the default')
+    assert card['ports'][0]['labelSource'] == 'card'
+
+    stored = client.get('/api/project').get_json()['processors'][0]
+    assert 'portLabelTemplate' not in stored['slots'][0]['card'], (
+        'a cleared template left something in the project')
+
+
+def test_a_birth_stamped_default_template_reads_as_absent(client):
+    """Every file saved before v0.11.2 carries '{name}-#' on every card,
+    stamped at creation, never chosen. Resolving it as '' is what stops the
+    panel showing it as typed text in an old project - and costs nothing,
+    because a hand that really typed the default typed what the placeholder
+    already promised."""
+    state = add_processor(client, 'novastar-mx20')
+    pid = only(state)['id']
+    card_id = first_card(only(state))['id']
+    name_resp = client.put(f'/api/processors/{pid}/cards/{card_id}',
+                           json={'name': 'SR'})
+    assert name_resp.status_code == 200
+
+    saved = client.get('/api/project').get_json()
+    saved['processors'][0]['slots'][0]['card']['portLabelTemplate'] = '{name}-#'
+    assert client.post('/api/project', json=saved).status_code == 200
+
+    card = first_card(only(client.get('/api/processors').get_json()))
+    assert card['portLabelTemplate'] == '', (
+        'the stamp every old file carries came back as a typed value')
+    assert card['ports'][0]['label'] == 'SR-1'
+
+
+def test_a_boxes_label_template_follows_the_same_doctrine(client):
+    """The box in front of the card has the same Label box, so it has the
+    same rules: nothing stored at birth, a typed template as the value, a
+    blank deleting the key and handing the ports back to the default."""
+    state = add_processor(client, 'novastar-h9')
+    pid = only(state)['id']
+    state = set_card(client, pid, 0, 'novastar-card-h-4xfiber')
+    card_id = first_card(only(state))['id']
+    resp = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
+                       json={'deviceId': 'novastar-cvt10', 'pair': False})
+    assert resp.status_code == 201
+    cvt = first_card(only(resp.get_json()))['cvts'][0]
+    assert cvt['portLabelTemplate'] == ''
+    stored = client.get('/api/project').get_json()['processors'][0]
+    assert 'portLabelTemplate' not in stored['slots'][0]['card']['cvts'][0]
+
+    url = f'/api/processors/{pid}/cvts/{cvt["id"]}'
+    resp = client.put(url, json={'name': 'A', 'portLabelTemplate': '{name}.#'})
+    box = first_card(only(resp.get_json()))['cvts'][0]
+    assert box['portLabelTemplate'] == '{name}.#'
+    assert box['ports'][0]['label'] == 'A.1'
+
+    resp = client.put(url, json={'portLabelTemplate': ''})
+    box = first_card(only(resp.get_json()))['cvts'][0]
+    assert box['portLabelTemplate'] == ''
+    assert box['ports'][0]['label'] == 'A-1', (
+        'a cleared box template did not hand the ports back to the default')
+    stored = client.get('/api/project').get_json()['processors'][0]
+    assert 'portLabelTemplate' not in stored['slots'][0]['card']['cvts'][0], (
+        'a cleared box template left something in the project')
+
+
 def test_one_port_named_by_hand_outranks_the_whole_ladder(client):
     """A rank above the nearest named device upstream, and the only one that
     can be aimed at a single port. The ladder produces a whole card at a time,
@@ -1256,6 +1359,25 @@ def test_renaming_either_end_round_trips_through_undo(panel_page):
     panel_page.evaluate("() => window.app.redo()")
     panel_page.wait_for_timeout(1000)
     assert stored() == ('HL', 'BU-1')
+
+    # CLEARING IS AN EDIT LIKE ANY OTHER. Emptying the box is the one way
+    # back from a typed name to the derived label, so it takes its own named
+    # step: undo brings the name back, redo clears it again. This is the
+    # gesture "reset this port" actually is, and it must round-trip or the
+    # only path back to derived is the one path history cannot walk.
+    commit('name', '')
+    assert stored() == (None, 'BU-1')
+    actions = panel_page.evaluate(
+        "() => window.app.history.map(h => h.action).slice(-1)")
+    assert actions == ['Rename Processor Port']
+
+    panel_page.evaluate("() => window.app.undo()")
+    panel_page.wait_for_timeout(1000)
+    assert stored() == ('HL', 'BU-1'), 'undo did not bring the name back'
+
+    panel_page.evaluate("() => window.app.redo()")
+    panel_page.wait_for_timeout(1000)
+    assert stored() == (None, 'BU-1'), 'redo did not re-clear the name'
 
 
 # ── 9. The generic device is a breakout box ───────────────────────────────
