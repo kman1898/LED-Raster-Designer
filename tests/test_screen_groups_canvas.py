@@ -627,3 +627,355 @@ def test_a_hidden_member_does_not_stretch_the_pattern(page):
     arcs = _grouped_wall(page, _CIRCLE_ON + " half.visible = false; return gc.arcs();")
     assert len(arcs) == 1, arcs
     assert arcs[0] == {'x': 1280, 'y': 576, 'r': 461}, arcs
+
+
+# ── The NAMES switch: Screens / Group / Both ──────────────────────────────
+#
+# project.groupNameDisplay chooses what a grouped wall is CALLED on the
+# drawing. 'group' is the default and the behaviour above: one name, the
+# group's. 'screens' hands every member its own name back (exactly the
+# ungrouped path); 'both' draws the group's headline AND the member names.
+# The combined figures stay consolidated on the group's single label in all
+# three - the switch moves names, never numbers. Ungrouped screens are
+# untouched by every mode.
+
+def test_the_name_display_defaults_to_group_byte_for_byte(page):
+    """An absent field and an explicit 'group' draw the same frame, call for
+    call - the regression bar for every project saved before the switch."""
+    result = _grouped_wall(page, """
+            const r = window.canvasRenderer;
+            const record = () => {
+                const ctx = r.ctx;
+                const original = ctx.fillText;
+                const calls = [];
+                ctx.fillText = function (t, x, y, w) {
+                    calls.push([String(t), Math.round(x * 100) / 100,
+                                Math.round(y * 100) / 100]);
+                    return original.call(ctx, t, x, y, w);
+                };
+                try { r.render(); } finally { ctx.fillText = original; }
+                return JSON.stringify(calls);
+            };
+            delete window.app.project.groupNameDisplay;
+            const absent = record();
+            window.app.project.groupNameDisplay = 'group';
+            const explicit = record();
+            return { absent: absent, explicit: explicit };
+    """)
+    assert result['absent'] == result['explicit']
+    assert '"Main Wall"' in result['absent']
+    assert '"JP5"' not in result['absent']
+
+
+def test_screens_display_gives_each_member_its_own_name_back(page):
+    """'screens': the members' names, no group name - and the combined info
+    bar still consolidates, because the switch moves names, not figures."""
+    texts = _grouped_wall(page, """
+            window.app.project.groupNameDisplay = 'screens';
+            return gc.drawn();
+    """)
+    assert texts.count('JP5') == 1, texts
+    assert texts.count('Half Panels') == 1, texts
+    assert 'Main Wall' not in texts
+    info = [t for t in texts if 'Cabinets Total' in t]
+    assert len(info) == 1, info
+    assert '260 Cabinets Total' in info[0], info[0]
+    assert '2 Screens' in info[0], info[0]
+
+
+def test_both_display_draws_the_headline_and_every_member_name(page):
+    texts = _grouped_wall(page, """
+            window.app.project.groupNameDisplay = 'both';
+            return gc.drawn();
+    """)
+    assert texts.count('Main Wall') == 1, texts
+    assert texts.count('JP5') == 1, texts
+    assert texts.count('Half Panels') == 1, texts
+    info = [t for t in texts if 'Cabinets Total' in t]
+    assert len(info) == 1 and '260 Cabinets Total' in info[0], info
+
+
+def test_ungrouped_screens_ignore_the_name_display(page):
+    """The switch is about groups; a lone screen reads the same in all
+    three modes."""
+    result = page.evaluate("""() => {
+        const gc = window.__gc;
+        %s
+        return gc.withProject([jp5, half], [], 'pixel-map', () => {
+            const out = {};
+            ['group', 'screens', 'both'].forEach(mode => {
+                window.app.project.groupNameDisplay = mode;
+                out[mode] = gc.drawn();
+            });
+            return out;
+        });
+    }""" % MIXED_WALL_JS)
+    for mode in ('group', 'screens', 'both'):
+        assert result[mode].count('JP5') == 1, (mode, result[mode])
+        assert result[mode].count('Half Panels') == 1, (mode, result[mode])
+    assert result['group'] == result['screens'] == result['both']
+
+
+# The dodge: 'both' puts the group's headline where the main member's own
+# name already sits (a wall's main section centres about where the wall
+# does). Resolved the way the label stack resolves its own collisions - the
+# headline keeps its place, the member name steps below it with the stack's
+# 5px gap. A member clear of the headline never moves.
+#
+# The pair is built so the collision is real: a 4x4 of 128px (centre y=256)
+# under a 64px strip (union 0..576, centre 288). Name boxes are 46px tall
+# (30px font + 4 + 2x6 padding), |288 - 256| = 32 < 46 -> they collide.
+
+DODGE_PAIR_JS = """
+    const a = gc.screen({
+        id: 1, name: 'Main Section', columns: 4, rows: 4,
+        cabinet_width: 128, cabinet_height: 128,
+    });
+    const b = gc.screen({
+        id: 2, name: 'Under Strip', columns: 8, rows: 1,
+        cabinet_width: 64, cabinet_height: 64,
+        offset_y: 512,
+    });
+    a.group_id = 'g1';
+    b.group_id = 'g1';
+    const group = gc.group([a, b], { name: 'Dodge Wall' });
+"""
+
+
+def _dodge_hits(page, extra=""):
+    """Name-label centres by text, in 'both' display."""
+    return page.evaluate("""() => {
+        const gc = window.__gc;
+        %s
+        return gc.withProject([a, b], [group], 'pixel-map', () => {
+            window.app.project.groupNameDisplay = 'both';
+            %s
+            const r = window.canvasRenderer;
+            const ctx = r.ctx;
+            const original = ctx.fillText;
+            const hits = {};
+            ctx.fillText = function (t, x, y, w) {
+                hits[String(t)] = { x: x, y: y };
+                return original.call(ctx, t, x, y, w);
+            };
+            try { r.render(); } finally { ctx.fillText = original; }
+            return hits;
+        });
+    }""" % (DODGE_PAIR_JS, extra))
+
+
+def test_the_headline_dodge_steps_the_colliding_member_name_below(page):
+    """Main Section's name would sit under the headline; it steps to just
+    below the headline's box (bottom 311) + 5px gap + half its own height
+    (23) = 339. The strip's name never moves from its own centre (544)."""
+    hits = _dodge_hits(page)
+    assert 'Dodge Wall' in hits and 'Main Section' in hits, hits
+    assert hits['Dodge Wall']['y'] == pytest.approx(288, abs=1)
+    assert hits['Main Section']['y'] == pytest.approx(339, abs=2), hits
+    assert hits['Under Strip']['y'] == pytest.approx(544, abs=1), hits
+
+
+def test_the_dodge_is_never_healed_into_the_stored_offsets(page):
+    """The step is a draw-time dodge. The offset self-heal must keep writing
+    the member's REAL offset (0), not the dodged position - or leaving
+    'both' would strand every main section's name below centre."""
+    offsets = _dodge_hits(page, """
+            window.canvasRenderer.render();
+    """)
+    stored = page.evaluate("""() => {
+        const gc = window.__gc;
+        %s
+        return gc.withProject([a, b], [group], 'pixel-map', () => {
+            window.app.project.groupNameDisplay = 'both';
+            const r = window.canvasRenderer;
+            r.render();
+            r.render();   // heal runs on every non-drag render
+            return {
+                x: a.screenNameOffsetXPixelMap || 0,
+                y: a.screenNameOffsetYPixelMap || 0,
+            };
+        });
+    }""" % DODGE_PAIR_JS)
+    assert stored == {'x': 0, 'y': 0}, stored
+    assert offsets['Main Section']['y'] == pytest.approx(339, abs=2)
+
+
+def test_the_group_headline_drags_on_the_groups_own_fields(page):
+    """In 'both' the headline is its own draggable label: dragging it writes
+    the GROUP's per-view offsets, leaves every member's fields alone, and
+    records one 'Move Group Name' undo entry."""
+    result = page.evaluate("""() => {
+        const gc = window.__gc;
+        %s
+        return gc.withProject([a, b], [group], 'pixel-map', () => {
+            const app = window.app;
+            const r = window.canvasRenderer;
+            const savedSaveProject = app.saveProject;
+            app.saveProject = () => {};
+            try {
+                app.project.groupNameDisplay = 'both';
+                app.selectLayer(app.project.layers[0]);
+                r._extendSelectionToGroups();
+                app.saveState('Setup');
+                r.render();
+                const g = app.project.groups[0];
+                const rect = app.project.layers[0]._groupNameHitRect;
+                if (!rect) return { rect: null };
+                const cx = (rect.x1 + rect.x2) / 2;
+                const cy = (rect.y1 + rect.y2) / 2;
+                r.handleMouseDown(gc.ev(cx, cy));
+                const started = r.isDraggingGroupName;
+                r.handleMouseMove(gc.ev(cx + 100, cy + 50));
+                r.handleMouseUp(gc.ev(cx + 100, cy + 50));
+                return {
+                    rect: rect,
+                    started: started,
+                    group: { x: g.screenNameOffsetXPixelMap,
+                             y: g.screenNameOffsetYPixelMap },
+                    memberA: { x: a.screenNameOffsetXPixelMap || 0,
+                               y: a.screenNameOffsetYPixelMap || 0 },
+                    memberB: { x: b.screenNameOffsetXPixelMap || 0,
+                               y: b.screenNameOffsetYPixelMap || 0 },
+                    actions: app.history.map(h => h.action),
+                    undoSnapshot: app.history[app.historyIndex - 1]
+                        .project.groups[0].screenNameOffsetXPixelMap,
+                };
+            } finally {
+                app.saveProject = savedSaveProject;
+            }
+        });
+    }""" % DODGE_PAIR_JS)
+    assert result['rect'], 'the headline cached no hit rect'
+    assert result['started'], 'mousedown on the headline did not start its drag'
+    assert result['group']['x'] == pytest.approx(100, abs=1)
+    assert result['group']['y'] == pytest.approx(50, abs=1)
+    assert result['memberA'] == {'x': 0, 'y': 0}
+    assert result['memberB'] == {'x': 0, 'y': 0}
+    assert result['actions'] == ['Setup', 'Move Group Name']
+    # The entry one Undo lands on has the headline back where it started.
+    assert not result.get('undoSnapshot')
+
+
+def test_a_member_name_drags_only_itself_in_screens_display(page):
+    """'screens' hands the members the exact pre-group drag: their own hit
+    rect, their own per-view fields, nobody else's."""
+    result = page.evaluate("""() => {
+        const gc = window.__gc;
+        %s
+        return gc.withProject([a, b], [group], 'pixel-map', () => {
+            const app = window.app;
+            const r = window.canvasRenderer;
+            app.project.groupNameDisplay = 'screens';
+            app.selectLayer(app.project.layers[0]);
+            r._extendSelectionToGroups();
+            r.render();
+            const rect = a._screenNameHitRect;
+            if (!rect) return { rect: null };
+            const cx = (rect.x1 + rect.x2) / 2;
+            const cy = (rect.y1 + rect.y2) / 2;
+            r.handleMouseDown(gc.ev(cx, cy));
+            const started = r.isDraggingScreenName;
+            r.handleMouseMove(gc.ev(cx - 80, cy + 30));
+            r.handleMouseUp(gc.ev(cx - 80, cy + 30));
+            const g = app.project.groups[0];
+            return {
+                rect: rect,
+                started: started,
+                memberA: { x: a.screenNameOffsetXPixelMap,
+                           y: a.screenNameOffsetYPixelMap },
+                memberB: { x: b.screenNameOffsetXPixelMap || 0,
+                           y: b.screenNameOffsetYPixelMap || 0 },
+                group: { x: g.screenNameOffsetXPixelMap || 0,
+                         y: g.screenNameOffsetYPixelMap || 0 },
+            };
+        });
+    }""" % DODGE_PAIR_JS)
+    assert result['rect'], 'the member cached no hit rect of its own'
+    assert result['started']
+    assert result['memberA']['x'] == pytest.approx(-80, abs=1)
+    assert result['memberA']['y'] == pytest.approx(30, abs=1)
+    assert result['memberB'] == {'x': 0, 'y': 0}
+    assert result['group'] == {'x': 0, 'y': 0}
+
+
+def test_member_names_honor_their_own_per_view_sizes(page):
+    """Cabinet ID view, 'screens': each member's name draws at that member's
+    own screenNameSizeCabinet; in 'both' the headline stays on the FIRST
+    member's size, the same rule every group label setting follows."""
+    result = page.evaluate("""() => {
+        const gc = window.__gc;
+        %s
+        a.screenNameSizeCabinet = 40;
+        b.screenNameSizeCabinet = 18;
+        return gc.withProject([a, b], [group], 'cabinet-id', () => {
+            const r = window.canvasRenderer;
+            const record = () => {
+                const ctx = r.ctx;
+                const original = ctx.fillText;
+                const fonts = {};
+                ctx.fillText = function (t, x, y, w) {
+                    fonts[String(t)] = ctx.font;
+                    return original.call(ctx, t, x, y, w);
+                };
+                try { r.render(); } finally { ctx.fillText = original; }
+                return fonts;
+            };
+            window.app.project.groupNameDisplay = 'screens';
+            const screens = record();
+            window.app.project.groupNameDisplay = 'both';
+            const both = record();
+            return { screens: screens, both: both };
+        });
+    }""" % DODGE_PAIR_JS)
+    assert '40px' in result['screens']['Main Section'], result['screens']
+    assert '18px' in result['screens']['Under Strip'], result['screens']
+    assert '40px' in result['both']['Dodge Wall'], result['both']
+    assert '40px' in result['both']['Main Section'], result['both']
+    assert '18px' in result['both']['Under Strip'], result['both']
+
+
+def test_the_display_choice_rides_the_undo_snapshot(page):
+    """Undo restores a history entry's project wholesale, so 'rides undo'
+    is exactly: the snapshot before the change still holds the old mode,
+    the snapshot of the change holds the new one."""
+    result = _grouped_wall(page, """
+            const app = window.app;
+            app.saveState('Setup');
+            app.project.groupNameDisplay = 'both';
+            app.saveState('Change Name Display');
+            return {
+                actions: app.history.map(h => h.action),
+                before: app.history[app.historyIndex - 1].project.groupNameDisplay || null,
+                after: app.history[app.historyIndex].project.groupNameDisplay,
+            };
+    """)
+    assert result['actions'] == ['Setup', 'Change Name Display']
+    assert result['before'] is None
+    assert result['after'] == 'both'
+
+
+def test_export_mode_bakes_the_display_choice(page):
+    """The PDF/PNG exports draw through this very renderer with exportMode
+    on, so the choice must hold there - all names in 'both', and no hit
+    rects cached into the export pass."""
+    result = _grouped_wall(page, """
+            const r = window.canvasRenderer;
+            window.app.project.groupNameDisplay = 'both';
+            const jp5L = window.app.project.layers[0];
+            jp5L._screenNameHitRect = null;
+            jp5L._groupNameHitRect = null;
+            r.exportMode = true;
+            let texts;
+            try { texts = gc.drawn(); } finally { r.exportMode = false; }
+            return {
+                texts: texts,
+                cachedName: !!jp5L._screenNameHitRect,
+                cachedGroup: !!jp5L._groupNameHitRect,
+            };
+    """)
+    texts = result['texts']
+    assert texts.count('Main Wall') == 1, texts
+    assert texts.count('JP5') == 1, texts
+    assert texts.count('Half Panels') == 1, texts
+    assert not result['cachedName']
+    assert not result['cachedGroup']

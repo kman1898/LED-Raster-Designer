@@ -17,6 +17,9 @@ class CanvasRenderer {
         this.isDraggingLayer = false;
         this.isDraggingScreenName = false;
         this.screenNameDragHistorySaved = false;
+        // The 'both' name display's group headline drag (see _groupNameMode).
+        this.isDraggingGroupName = false;
+        this._dragGroupNameGroup = null;
         this.isSelectingPanels = false;
         this.isSelectingLayers = false;
         this.selectionRect = null;
@@ -800,6 +803,36 @@ class CanvasRenderer {
             }
         }
 
+        // The 'both' name display adds a second grabbable label: the group's
+        // headline. Checked AFTER the member-name rect above so the more
+        // specific label wins where the two overlap. The rect is cached on
+        // the group's cfg member (resolved through the plan, so any selected
+        // member can grab it); the offsets ride the group object itself.
+        if (e.button === 0 && !this.spacePressed && !e.altKey && !e.shiftKey
+                && !e.metaKey && !e.ctrlKey
+                && window.app && window.app.currentLayer
+                && (window.app.currentLayer.type || 'screen') === 'screen'
+                && window.app.currentLayer.visible !== false
+                && this._groupNameMode() === 'both') {
+            const _plan = this._groupLabelPlan(window.app.currentLayer);
+            const _gr = _plan && _plan.cfg._groupNameHitRect;
+            if (_gr && _gr.viewMode === this.viewMode
+                    && worldX >= _gr.x1 && worldX <= _gr.x2
+                    && worldY >= _gr.y1 && worldY <= _gr.y2) {
+                this.isDraggingGroupName = true;
+                this._dragGroupNameGroup = _plan.group;
+                this.dragScreenNameStartX = worldX;
+                this.dragScreenNameStartY = worldY;
+                const _f = this._screenNameOffsetFields();
+                this.screenNameStartOffset = {
+                    x: _plan.group[_f.x] || 0,
+                    y: _plan.group[_f.y] || 0,
+                };
+                this.canvas.style.cursor = 'move';
+                return;
+            }
+        }
+
         // Slice 5: dragging a canvas's dashed outline edge repositions
         // the canvas in the workspace. Must be checked BEFORE the Slice 4
         // panel/canvas-activate block so edge-drag wins over body-click
@@ -1496,11 +1529,63 @@ class CanvasRenderer {
 
                 this.render();
             }
+        } else if (this.isDraggingGroupName) {
+            // The 'both' display's group headline drag: same visual-space
+            // delta, mirror compensation and magnetic-snap treatment as a
+            // screen name's, measured against the group's union bounds and
+            // stored on the group object under the per-view field names.
+            const group = this._dragGroupNameGroup;
+            const layer = window.app && window.app.currentLayer;
+            if (group && layer) {
+                const plan = this._groupLabelPlan(layer);
+                const bounds = plan
+                    ? this._groupUnionBounds(plan.members, plan.host)
+                    : this.getLayerBoundsInActiveView(layer);
+
+                const dx = worldX - this.dragScreenNameStartX;
+                const dy = worldY - this.dragScreenNameStartY;
+                const _mirrorActive = (() => {
+                    if (typeof this._effectiveLayerCanvasId !== 'function') return false;
+                    const cid = this._effectiveLayerCanvasId(layer);
+                    const arr = window.app.project && window.app.project.canvases;
+                    if (!Array.isArray(arr)) return false;
+                    const c = arr.find(c => c && c.id === cid);
+                    return !!(c && this._isCanvasMirrored && this._isCanvasMirrored(c));
+                })();
+                const _visualDx = _mirrorActive ? -dx : dx;
+
+                let newOffsetX = this.screenNameStartOffset.x + _visualDx;
+                let newOffsetY = this.screenNameStartOffset.y + dy;
+
+                if (this.magneticSnap) {
+                    const snapThreshold = 20;
+                    const snapPositionsX = [-bounds.width / 2, 0, bounds.width / 2];
+                    const snapPositionsY = [-bounds.height / 2, 0, bounds.height / 2];
+                    for (const snapX of snapPositionsX) {
+                        if (Math.abs(newOffsetX - snapX) < snapThreshold) {
+                            newOffsetX = snapX;
+                            break;
+                        }
+                    }
+                    for (const snapY of snapPositionsY) {
+                        if (Math.abs(newOffsetY - snapY) < snapThreshold) {
+                            newOffsetY = snapY;
+                            break;
+                        }
+                    }
+                }
+
+                const f = this._screenNameOffsetFields();
+                group[f.x] = newOffsetX;
+                group[f.y] = newOffsetY;
+
+                this.render();
+            }
         }
-        
+
         if (this.spacePressed && !this.isDragging) {
             this.canvas.style.cursor = 'grab';
-        } else if (!this.isDragging && !this.isDraggingLayer && !this.isDraggingScreenName && !this.isDraggingCanvas) {
+        } else if (!this.isDragging && !this.isDraggingLayer && !this.isDraggingScreenName && !this.isDraggingGroupName && !this.isDraggingCanvas) {
             // Slice 5: hovering a canvas's outline edge → show 'move' so
             // the user knows they can grab it. Skip when a modifier is
             // held (other actions own those gestures).
@@ -2014,6 +2099,25 @@ class CanvasRenderer {
                 window.app.saveClientSideProperties();
             }
             this.render();
+        } else if (this.isDraggingGroupName) {
+            this.isDraggingGroupName = false;
+            const group = this._dragGroupNameGroup;
+            this._dragGroupNameGroup = null;
+            // Persist and snapshot ONLY if the headline actually moved. The
+            // offsets live on the group, which rides the project itself, so
+            // persistence is a project save rather than a layer PUT.
+            if (group && window.app) {
+                const f = this._screenNameOffsetFields();
+                const moved = (group[f.x] || 0) !== this.screenNameStartOffset.x
+                    || (group[f.y] || 0) !== this.screenNameStartOffset.y;
+                if (moved && typeof window.app.saveState === 'function') {
+                    window.app.saveState('Move Group Name');
+                }
+                if (typeof window.app.saveProject === 'function') {
+                    window.app.saveProject();
+                }
+            }
+            this.render();
         }
     }
     
@@ -2330,6 +2434,33 @@ class CanvasRenderer {
             && this._effectiveLayerCanvasId(m) === cid);
     }
 
+    // Which name a grouped wall carries on the canvas. 'group' (the default,
+    // and the v0.11.0 behaviour): ONE name - the group's - over the whole
+    // wall. 'screens': every member keeps its own name, the way the wall
+    // read before it was grouped. 'both': the group's name headlines the
+    // wall AND every member keeps its own. Project-level, because it names
+    // a drawing convention for every grouped wall - not one layer's toggle -
+    // and the exports simply bake whatever the canvas draws.
+    _groupNameMode() {
+        const m = window.app && window.app.project
+            && window.app.project.groupNameDisplay;
+        return (m === 'screens' || m === 'both') ? m : 'group';
+    }
+
+    // The per-view screen-name offset field pair for the CURRENT view. One
+    // authority for the mapping the drag handlers and the group-name drag
+    // both need; the field names are the same whether they sit on a layer
+    // (a screen's own name) or on a group (the group's headline).
+    _screenNameOffsetFields() {
+        switch (this.viewMode) {
+            case 'cabinet-id': return { x: 'screenNameOffsetXCabinet', y: 'screenNameOffsetYCabinet' };
+            case 'data-flow': return { x: 'screenNameOffsetXDataFlow', y: 'screenNameOffsetYDataFlow' };
+            case 'power': return { x: 'screenNameOffsetXPower', y: 'screenNameOffsetYPower' };
+            case 'show-look': return { x: 'screenNameOffsetXShowLook', y: 'screenNameOffsetYShowLook' };
+            default: return { x: 'screenNameOffsetXPixelMap', y: 'screenNameOffsetYPixelMap' };
+        }
+    }
+
     // Who draws the group's single label, and whose label settings it uses.
     // Null unless `layer` is in a group with at least two drawn members - a
     // group of one has nothing to consolidate and keeps its own label.
@@ -2383,6 +2514,89 @@ class CanvasRenderer {
         });
         if (!isFinite(x1)) return this.getLayerBounds(host);
         return { x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
+    }
+
+    // Where the 'both' name display's group headline will land, in `member`'s
+    // own drawing frame - the box a member's name must keep clear of. The
+    // member passes draw BEFORE the host draws the headline, so the box is
+    // predicted with a lean restatement of renderLayerLabels' name layout
+    // rather than read back from a previous frame (a stale read would come
+    // apart in exports, which render each view exactly once). Null when the
+    // headline is not drawn at all on this tab.
+    _bothModeGroupNameBox(plan, member) {
+        const cfg = plan.cfg;
+        const group = plan.group || {};
+        // Per-tab name visibility, the same fallback chain the label uses.
+        let shown;
+        if (this.viewMode === 'cabinet-id') {
+            shown = cfg.showLabelNameCabinet !== undefined ? cfg.showLabelNameCabinet
+                : (cfg.showLabelName !== undefined ? cfg.showLabelName : true);
+        } else if (this.viewMode === 'data-flow') {
+            shown = cfg.showLabelNameDataFlow !== undefined ? cfg.showLabelNameDataFlow
+                : (cfg.showLabelName !== undefined ? cfg.showLabelName : true);
+        } else if (this.viewMode === 'power') {
+            shown = cfg.showLabelNamePower !== undefined ? cfg.showLabelNamePower
+                : (cfg.showLabelName !== undefined ? cfg.showLabelName : true);
+        } else {
+            shown = cfg.showLabelName !== undefined ? cfg.showLabelName : true;
+        }
+        if (!shown) return null;
+        const name = group.name || cfg.name || '';
+        if (!name) return null;
+
+        const bounds = this._groupUnionBounds(plan.members, member);
+        const padding = 6;
+        const fontSize = cfg.labelsFontSize || 30;
+        let nameSize = fontSize;
+        if (this.viewMode === 'cabinet-id') nameSize = cfg.screenNameSizeCabinet || 14;
+        else if (this.viewMode === 'data-flow') nameSize = cfg.screenNameSizeDataFlow || 14;
+        else if (this.viewMode === 'power') nameSize = cfg.screenNameSizePower || 14;
+        const nameHeight = (nameSize + 4) + padding * 2;
+
+        const prevFont = this.ctx.font;
+        this.ctx.font = `bold ${nameSize}px ${projectFontFamily()}`;
+        const nameWidth = this.ctx.measureText(name).width + padding * 2;
+        this.ctx.font = prevFont;
+
+        const f = this._screenNameOffsetFields();
+        const offX = this._mirror ? -(group[f.x] || 0) : (group[f.x] || 0);
+        const offY = group[f.y] || 0;
+        const centerX = bounds.x + bounds.width / 2;
+        const centerY = bounds.y + bounds.height / 2;
+
+        // The dodge must clear the headline's WHOLE centre stack - the name
+        // plus whatever rides under it (the size/weight lines on Pixel Map,
+        // the port/circuit line on Data and Power) - or a member name pushed
+        // past the name box just lands behind the next line down.
+        let stackBelow = 0;   // stack height below the name box's own bottom
+        if (this.viewMode === 'pixel-map') {
+            let lines = 0;
+            if (cfg.showLabelSizePx) lines++;
+            if (cfg.showLabelSizeM) lines++;
+            if (cfg.showLabelSizeFt) lines++;
+            if (cfg.showLabelWeight) lines++;
+            if (lines > 0) stackBelow = 5 + lines * (fontSize + 4) + padding * 2;
+        } else if (this.viewMode === 'data-flow' && cfg.showDataFlowPortInfo) {
+            stackBelow = 5 + (nameSize + 4) + padding * 2;
+        } else if (this.viewMode === 'power' && cfg.showPowerCircuitInfo) {
+            stackBelow = 5 + (nameSize + 4) + padding * 2;
+        }
+        // Pixel Map centres name + lines as one stack, so the name box sits
+        // above centre by half the lines' height. Every other tab centres
+        // the name itself and hangs the info line beneath it.
+        let boxCenterY = centerY;
+        if (this.viewMode === 'pixel-map') {
+            boxCenterY = centerY - (nameHeight + stackBelow) / 2 + nameHeight / 2;
+        }
+
+        // The same edge clamp the real draw applies, against the union.
+        const _clamp = (v, lo, hi) => (lo > hi ? (lo + hi) / 2 : Math.min(Math.max(v, lo), hi));
+        const cx = _clamp(centerX + offX, bounds.x + nameWidth / 2, bounds.x + bounds.width - nameWidth / 2);
+        const cy = _clamp(boxCenterY + offY, bounds.y + nameHeight / 2, bounds.y + bounds.height - nameHeight / 2);
+        return {
+            x1: cx - nameWidth / 2, y1: cy - nameHeight / 2,
+            x2: cx + nameWidth / 2, y2: cy + nameHeight / 2 + stackBelow,
+        };
     }
 
     // Pull every selected layer's group peers into the selection. This extends
@@ -6466,14 +6680,29 @@ class CanvasRenderer {
         return letter;
     }
     
-    renderLayerLabels(layer) {
+    renderLayerLabels(layer, groupLabelPass = false) {
         // v0.11.0: screen groups draw ONE label for the whole group. The host
         // member draws it (see _groupLabelPlan) and every peer bows out right
         // here - peers keep drawing their own cabinets, only the label
         // consolidates. `plan` is null for an ungrouped layer, so everything
         // below is unchanged for a project without groups.
         const plan = this._groupLabelPlan(layer);
-        if (plan && plan.host.id !== layer.id) {
+        // The NAMES switch (_groupNameMode). In 'screens' and 'both' every
+        // member draws its own name again - exactly the ungrouped path - so
+        // the group's consolidated label moves to a separate pass, hosted by
+        // the same last member as always: with the group's name in 'both',
+        // with no name line at all in 'screens'. The combined figures
+        // consolidate either way; only the NAME element changes hands.
+        const nameMode = plan ? this._groupNameMode() : 'group';
+        const memberNamePass = !!plan && nameMode !== 'group' && !groupLabelPass;
+        if (memberNamePass && plan.host.id === layer.id) {
+            this.renderLayerLabels(layer, true);
+        }
+        // gplan: the plan the rest of this function acts on. Null during a
+        // member's own-name pass, so every line below reads exactly as it
+        // does for an ungrouped layer.
+        const gplan = memberNamePass ? null : plan;
+        if (gplan && gplan.host.id !== layer.id) {
             if (layer._screenNameHitRect) layer._screenNameHitRect = null;
             return;
         }
@@ -6481,15 +6710,24 @@ class CanvasRenderer {
         // group's first member. This is also the layer that caches the hit
         // rect and stores the screen-name drag offset, so the one label has
         // exactly one owner no matter which member happens to draw it.
-        const cfg = plan ? plan.cfg : layer;
+        const cfg = gplan ? gplan.cfg : layer;
 
         // v0.8.7.7: clear any stale screen-name hit rect from a previous
         // render; the if-block below resets it when the label is actually
         // drawn, but layers with showLabelName off (or tab-specific
         // toggles like showLabelNameCabinet) need a clean slate so a
         // mousedown doesn't catch the ghost.
-        if (layer && layer._screenNameHitRect) layer._screenNameHitRect = null;
-        if (cfg._screenNameHitRect) cfg._screenNameHitRect = null;
+        // The group label pass must NOT touch it: in 'screens'/'both' the
+        // rect on cfg belongs to the first member's OWN name, drawn in that
+        // member's earlier pass this same frame.
+        if (!groupLabelPass) {
+            if (layer && layer._screenNameHitRect) layer._screenNameHitRect = null;
+            if (cfg._screenNameHitRect) cfg._screenNameHitRect = null;
+        }
+        // Same hygiene for the group headline's rect ('both'): cleared on
+        // every group-label pass and re-set only when the headline is drawn,
+        // so switching away from 'both' leaves no ghost to grab.
+        if (gplan && cfg._groupNameHitRect) cfg._groupNameHitRect = null;
         if ((layer.type || 'screen') === 'image') {
             return;
         }
@@ -6505,12 +6743,12 @@ class CanvasRenderer {
         // otherwise the wall's centre is thrown wherever one member's rotation
         // sends it. The ctx.save above pops it; an ungrouped screen's name still
         // rotates with its screen.
-        if (plan) this._unrotateLayerInPlace(layer);
+        if (gplan) this._unrotateLayerInPlace(layer);
 
         // v0.11.0: a group's label is positioned against the union of its
         // members' drawn footprints - the real shape of the wall - not one
         // member's.
-        const bounds = plan ? this._groupUnionBounds(plan.members, layer) : this.getLayerBounds(layer);
+        const bounds = gplan ? this._groupUnionBounds(gplan.members, layer) : this.getLayerBounds(layer);
         const layerWidth = bounds.width;
         const layerHeight = bounds.height;
         const centerX = bounds.x + layerWidth / 2;
@@ -6524,8 +6762,8 @@ class CanvasRenderer {
         // rather than every member wherever it sits. Without it the label under
         // a two-section wall could carry the weight of a third section drawn
         // somewhere else entirely.
-        const groupTotals = (plan && window.app && typeof window.app.getGroupTotals === 'function')
-            ? window.app.getGroupTotals(plan.group, this._effectiveLayerCanvasId(layer))
+        const groupTotals = (gplan && window.app && typeof window.app.getGroupTotals === 'function')
+            ? window.app.getGroupTotals(gplan.group, this._effectiveLayerCanvasId(layer))
             : null;
 
         // Calculate physical dimensions. For a group the pixel span is the
@@ -6574,15 +6812,25 @@ class CanvasRenderer {
         }
         // v0.11.0: the group's name, not the host member's - the wall has one
         // name on site and now one on the drawing.
-        const screenName = showLabelName
+        // Under the NAMES switch the group label carries its name line only
+        // when the group's name is wanted: always in 'group', in 'both' as
+        // the wall's headline, never in 'screens' (the members carry their
+        // own, in their own passes).
+        let screenName = showLabelName
             ? (groupTotals ? (groupTotals.name || cfg.name) : layer.name)
             : null;
-        
+        if (groupLabelPass && nameMode === 'screens') screenName = null;
+
         // Other center labels (regular style)
         const centerLines = [];
-        
-        // Other labels only in pixel-map mode
-        if (this.viewMode === 'pixel-map') {
+
+        // Other labels only in pixel-map mode.
+        // A member's own-name pass draws the NAME and nothing else - the
+        // sizes, weight, port and circuit figures stay consolidated on the
+        // group's single label, exactly where they are in 'group' display.
+        if (memberNamePass) {
+            // no center lines
+        } else if (this.viewMode === 'pixel-map') {
             if (cfg.showLabelSizePx) {
                 centerLines.push(`W ${layerWidth} X H ${layerHeight}`);
             }
@@ -6729,7 +6977,7 @@ class CanvasRenderer {
         // keeping the whole info bar bound inside the layer instead of spilling
         // past both edges on a narrow screen.
         const infoParts = [];
-        if (this.viewMode === 'pixel-map' && cfg.showLabelInfo) {
+        if (!memberNamePass && this.viewMode === 'pixel-map' && cfg.showLabelInfo) {
             const aspectRatio = layerWidth / layerHeight;
             const aspectRatioStr = `${aspectRatio.toFixed(2)}`;
             // v0.11.0: a group has no single Columns X Rows - that is the whole
@@ -6755,37 +7003,43 @@ class CanvasRenderer {
         const infoFontSize = cfg.infoLabelSize || 14;
         const infoLineHeight = infoFontSize + 4;
         
-        // Screen name uses tab-specific size and position settings
+        // Screen name uses tab-specific size and position settings.
+        // Where the name's drag offset lives: the cfg layer, except for the
+        // group headline in 'both' - there the first member's fields already
+        // position the first member's OWN name, and one stored offset cannot
+        // place two labels, so the headline's offsets ride the group object
+        // under the same field names.
+        const nameCfg = (groupLabelPass && nameMode === 'both') ? gplan.group : cfg;
         let screenNameSize = fontSize; // Default for pixel-map
         let screenNameOffsetX = 0;
         let screenNameOffsetY = 0;
-        
+
         if (this.viewMode === 'pixel-map') {
             // v0.8.7.7: Pixel Map screen-name size stays tied to the
             // legacy labelsFontSize slider (the default for pixel-map),
             // but the X/Y offset is now read from per-view fields so the
             // user can Shift+Alt+drag the name out of the center stack.
-            screenNameOffsetX = cfg.screenNameOffsetXPixelMap || 0;
-            screenNameOffsetY = cfg.screenNameOffsetYPixelMap || 0;
+            screenNameOffsetX = nameCfg.screenNameOffsetXPixelMap || 0;
+            screenNameOffsetY = nameCfg.screenNameOffsetYPixelMap || 0;
         } else if (this.viewMode === 'cabinet-id') {
             screenNameSize = cfg.screenNameSizeCabinet || 14;
-            screenNameOffsetX = cfg.screenNameOffsetXCabinet || 0;
-            screenNameOffsetY = cfg.screenNameOffsetYCabinet || 0;
+            screenNameOffsetX = nameCfg.screenNameOffsetXCabinet || 0;
+            screenNameOffsetY = nameCfg.screenNameOffsetYCabinet || 0;
         } else if (this.viewMode === 'data-flow') {
             screenNameSize = cfg.screenNameSizeDataFlow || 14;
-            screenNameOffsetX = cfg.screenNameOffsetXDataFlow || 0;
-            screenNameOffsetY = cfg.screenNameOffsetYDataFlow || 0;
+            screenNameOffsetX = nameCfg.screenNameOffsetXDataFlow || 0;
+            screenNameOffsetY = nameCfg.screenNameOffsetYDataFlow || 0;
             fontSize = screenNameSize;
         } else if (this.viewMode === 'power') {
             screenNameSize = cfg.screenNameSizePower || 14;
-            screenNameOffsetX = cfg.screenNameOffsetXPower || 0;
-            screenNameOffsetY = cfg.screenNameOffsetYPower || 0;
+            screenNameOffsetX = nameCfg.screenNameOffsetXPower || 0;
+            screenNameOffsetY = nameCfg.screenNameOffsetYPower || 0;
             fontSize = screenNameSize;
         } else if (this.viewMode === 'show-look') {
             // v0.8.7.7.3: Show Look gets its own grabbable screen-name offset
             // so the label can be repositioned (and edge-clamped) here too.
-            screenNameOffsetX = cfg.screenNameOffsetXShowLook || 0;
-            screenNameOffsetY = cfg.screenNameOffsetYShowLook || 0;
+            screenNameOffsetX = nameCfg.screenNameOffsetXShowLook || 0;
+            screenNameOffsetY = nameCfg.screenNameOffsetYShowLook || 0;
         }
 
         const screenNameLineHeight = screenNameSize + 4;
@@ -6862,6 +7116,31 @@ class CanvasRenderer {
             _appliedNameOffsetX = screenNameX - baseX;
             _appliedNameOffsetY = screenNameY - baseY;
 
+            // The 'both' display keeps the group's headline AND the member
+            // names on the wall at once, and they must never sit on top of
+            // each other - the wall's main section centres exactly where the
+            // headline does. Resolved the way the label stack already
+            // resolves its own collisions: the headline keeps its place and
+            // the member name steps BELOW it, with the stack's own 5px gap.
+            // Applied after the offset bookkeeping above so the step is a
+            // draw-time dodge, never healed into the stored offsets; skipped
+            // while this very name is being dragged so it tracks the cursor
+            // out from under the headline.
+            if (memberNamePass && nameMode === 'both'
+                    && !(this.isDraggingScreenName && window.app && window.app.currentLayer
+                        && window.app.currentLayer.id === layer.id)) {
+                const gBox = this._bothModeGroupNameBox(plan, layer);
+                if (gBox
+                        && screenNameX + nameWidth / 2 > gBox.x1
+                        && screenNameX - nameWidth / 2 < gBox.x2
+                        && screenNameY + nameHeight / 2 > gBox.y1
+                        && screenNameY - nameHeight / 2 < gBox.y2) {
+                    screenNameY = _clamp(gBox.y2 + 5 + nameHeight / 2,
+                        bounds.y + nameHeight / 2,
+                        bounds.y + layerHeight - nameHeight / 2);
+                }
+            }
+
             const nameX = screenNameX - nameWidth / 2;
             const nameY = screenNameY - nameHeight / 2;
 
@@ -6878,14 +7157,18 @@ class CanvasRenderer {
                 const _ldx = (typeof this._renderDx === 'number') ? this._renderDx : 0;
                 const _ldy = (typeof this._renderDy === 'number') ? this._renderDy : 0;
                 // v0.11.0: cached on `cfg`, so a group's single label has a
-                // single owner for the plain-click drag hit-test.
-                cfg._screenNameHitRect = {
+                // single owner for the plain-click drag hit-test. The 'both'
+                // headline gets its own key on the same owner: the ordinary
+                // key belongs to that member's own name in that display.
+                const _nameRect = {
                     x1: _wsOff.wx + _ldx + nameX,
                     y1: _wsOff.wy + _ldy + nameY,
                     x2: _wsOff.wx + _ldx + nameX + nameWidth,
                     y2: _wsOff.wy + _ldy + nameY + nameHeight,
                     viewMode: this.viewMode,
                 };
+                if (groupLabelPass) cfg._groupNameHitRect = _nameRect;
+                else cfg._screenNameHitRect = _nameRect;
             }
 
             // Clip to layer bounds so labels don't overflow the screen edge
@@ -6945,17 +7228,21 @@ class CanvasRenderer {
             // load, so re-dragging always starts from where the label
             // actually sits. Skipped while THIS layer's name is being dragged
             // (so we don't fight the live gesture) and in export.
-            const _isDraggingThisName = this.isDraggingScreenName
-                && window.app && window.app.currentLayer
-                && window.app.currentLayer.id === cfg.id;
+            const _isDraggingThisName = groupLabelPass
+                ? this.isDraggingGroupName
+                : (this.isDraggingScreenName
+                    && window.app && window.app.currentLayer
+                    && window.app.currentLayer.id === cfg.id);
             if (!this.exportMode && !_isDraggingThisName) {
                 // Stored offsets are in logical space; _appliedNameOffsetX is
                 // in visual space (mirror already applied), so convert X back.
+                // Healed onto whichever object the offsets were read from -
+                // the layer, or the group for the 'both' headline.
                 const _healX = this._mirror ? -_appliedNameOffsetX : _appliedNameOffsetX;
                 const _healY = _appliedNameOffsetY;
                 const _heal = (fx, fy) => {
-                    if (Math.abs((cfg[fx] || 0) - _healX) > 0.5) cfg[fx] = _healX;
-                    if (Math.abs((cfg[fy] || 0) - _healY) > 0.5) cfg[fy] = _healY;
+                    if (Math.abs((nameCfg[fx] || 0) - _healX) > 0.5) nameCfg[fx] = _healX;
+                    if (Math.abs((nameCfg[fy] || 0) - _healY) > 0.5) nameCfg[fy] = _healY;
                 };
                 if (this.viewMode === 'pixel-map') _heal('screenNameOffsetXPixelMap', 'screenNameOffsetYPixelMap');
                 else if (this.viewMode === 'cabinet-id') _heal('screenNameOffsetXCabinet', 'screenNameOffsetYCabinet');

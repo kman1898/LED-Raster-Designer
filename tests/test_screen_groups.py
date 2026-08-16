@@ -764,3 +764,53 @@ def test_validate_does_not_mutate_its_input():
     before = json.dumps(layers, sort_keys=True)
     app_module.validate_group_settings(layers)
     assert json.dumps(layers, sort_keys=True) == before
+
+
+# ── The NAMES switch (Screens / Group / Both) ─────────────────────────────
+# project['groupNameDisplay'] is a project-level view setting, and the group
+# headline's drag offsets live on the group object itself - both have to
+# survive every path the groups array survives.
+
+def test_name_display_survives_post_api_project(client):
+    project, gid, ids = _grouped_project(client)
+    project['groupNameDisplay'] = 'both'
+    assert client.post('/api/project', json=project).status_code == 200
+    assert _get_project(client)['groupNameDisplay'] == 'both'
+
+
+def test_name_display_survives_undo_and_a_file_load(client):
+    """Undo, redo and file load are all PUT /api/project - the funnel that
+    repairs the group model must hand the choice back untouched."""
+    project, gid, ids = _grouped_project(client)
+    project['groupNameDisplay'] = 'screens'
+    restored = _put(client, project)
+    assert restored['groupNameDisplay'] == 'screens'
+    on_disk = json.loads(json.dumps(_get_project(client)))
+    client.post('/api/project/new')
+    loaded = _put(client, _clean(on_disk))
+    assert loaded['groupNameDisplay'] == 'screens'
+
+
+def test_a_fresh_project_has_no_name_display_field(client):
+    """Absent means 'group', the pre-switch behaviour - a new project must
+    not pin the field so older builds keep reading the file untouched."""
+    client.post('/api/project/new')
+    assert 'groupNameDisplay' not in _get_project(client)
+
+
+def test_group_headline_offsets_ride_the_group_through_a_round_trip(client):
+    """The 'both' display's headline drag writes per-view offsets onto the
+    GROUP object; the integrity pass rewrites id and layer_ids and must not
+    shed the rest of the group dict."""
+    project, gid, ids = _grouped_project(client)
+    group = _group_of(project, gid)
+    group['screenNameOffsetXPixelMap'] = 120
+    group['screenNameOffsetYPixelMap'] = -35
+    restored = _put(client, project)
+    after = _group_of(restored, gid)
+    assert after['screenNameOffsetXPixelMap'] == 120
+    assert after['screenNameOffsetYPixelMap'] == -35
+    # ...and through the save route too.
+    assert client.post('/api/project', json=restored).status_code == 200
+    again = _group_of(_get_project(client), gid)
+    assert again['screenNameOffsetXPixelMap'] == 120

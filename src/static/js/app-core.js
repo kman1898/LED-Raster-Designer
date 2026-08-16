@@ -1707,6 +1707,9 @@ export class LEDRasterApp {
         // Sync the Front/Back perspective toggle buttons to the loaded
         // project's saved values.
         if (this.refreshPerspectiveButtons) this.refreshPerspectiveButtons();
+        // Same for the NAMES (Screens / Group / Both) switch, so undo and
+        // file open land the buttons on the project's stored choice.
+        if (this.refreshNameDisplayButtons) this.refreshNameDisplayButtons();
 
         // Load project notes
         const notesEl = document.getElementById('project-notes');
@@ -1971,9 +1974,48 @@ export class LEDRasterApp {
         });
     }
 
+    /**
+     * Wire the NAMES switch (Screens / Group / Both) for grouped screens.
+     * One project-level setting (project.groupNameDisplay): it names a
+     * drawing convention for every grouped wall, the way perspective names
+     * one for a whole canvas - not any single layer's toggle. The switch is
+     * mirrored beside each tab's Screen Name control (the same way the
+     * Border checkbox is mirrored across tabs), every copy driving the same
+     * field. 'group' is the default and the pre-switch behaviour.
+     */
+    setupNameDisplayToggles() {
+        document.querySelectorAll('.name-display-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const value = btn.getAttribute('data-name-display');
+                if (!value || !this.project) return;
+                const current = this.project.groupNameDisplay || 'group';
+                if (current === value) return;
+                this.project.groupNameDisplay = value;
+                this.refreshNameDisplayButtons();
+                this.saveProject();
+                this.saveState('Change Name Display');
+                if (window.canvasRenderer) window.canvasRenderer.render();
+                if (typeof sendClientLog === 'function') {
+                    sendClientLog('name_display_change', { value });
+                }
+            });
+        });
+        this.refreshNameDisplayButtons();
+    }
+
+    refreshNameDisplayButtons() {
+        if (!this.project) return;
+        const current = this.project.groupNameDisplay || 'group';
+        document.querySelectorAll('.name-display-btn').forEach(btn => {
+            btn.classList.toggle('active',
+                btn.getAttribute('data-name-display') === current);
+        });
+    }
+
     setupEventListeners() {
         this.setupPixelMapBulkActions();
         this.setupPerspectiveToggles();
+        this.setupNameDisplayToggles();
         // Project name editing
         const projectNameInput = document.getElementById('project-name');
         const projectNameWarning = document.getElementById('project-name-warning');

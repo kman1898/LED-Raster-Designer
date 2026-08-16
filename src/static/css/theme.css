@@ -181,11 +181,11 @@ input[type="radio"] { accent-color:var(--ps-accent) !important; }
 /* ---- segmented toggle groups ---- */
 /* v0.11.0: .text-style-btn (Bold/Italic/Underline) joined the group - it was
    the only toggle left hard-coded blue instead of following the accent. */
-.perspective-btn, .mapping-mode-btn, .flow-pattern-btn, .color-mode-btn,
+.perspective-btn, .name-display-btn, .mapping-mode-btn, .flow-pattern-btn, .color-mode-btn,
 .pref-flow-pattern-btn, .power-flow-pattern-btn, .text-style-btn {
   font-family:var(--font-ps) !important; background:linear-gradient(#3e3e3e,#343434) !important;
   color:var(--ps-dim) !important; border:1px solid var(--ps-dark) !important; box-shadow:inset 0 1px 0 #4d4d4d !important; }
-.perspective-btn.active, .mapping-mode-btn.active, .color-mode-btn.active,
+.perspective-btn.active, .name-display-btn.active, .mapping-mode-btn.active, .color-mode-btn.active,
 .flow-pattern-btn.active, .pref-flow-pattern-btn.active, .power-flow-pattern-btn.active,
 .text-style-btn.active {
   background:linear-gradient(var(--ps-accent-hi),var(--ps-accent)) !important; color:var(--ps-on-accent) !important;
