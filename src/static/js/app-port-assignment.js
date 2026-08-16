@@ -28,9 +28,10 @@ class _PortAssignment {
     initPortAssignmentPanel() {
         this._assignment = null;
         this._assignmentKeyRaw = '';
-        // Empty, not absent: getPortLabelText reads it on every frame from the
-        // first render, which happens long before this endpoint answers.
+        // Empty, not absent: getPortLabelText reads them on every frame from
+        // the first render, which happens long before this endpoint answers.
         this._processorPortLabels = {};
+        this._processorPortReturnLabels = {};
         this._occupancyRaw = '';
         // Which port has its chooser open, in either panel. Held here rather
         // than in the DOM because both panels are rebuilt wholesale on every
@@ -165,20 +166,35 @@ class _PortAssignment {
     // lookup's own miss is the fallback: an unassigned port, a card nobody
     // named, or a project with no processor at all all land on the layer's own
     // template with nothing extra to check.
+    //
+    // The return ends get a map of their own, built from the same resolution
+    // in the same pass. Two maps rather than one holding pairs, because the
+    // per-frame reader looks up exactly one end at a time and should never
+    // unpack an object to get it.
     _indexAssignmentLabels() {
         const map = {};
+        const returnMap = {};
         const res = this._assignment;
         ((res && res.screens) || []).forEach(scr => {
             const byPort = {};
+            const returnsByPort = {};
             let any = false;
+            let anyReturn = false;
             (scr.ports || []).forEach(port => {
-                if (!port.label) return;
-                byPort[port.number] = port.label;
-                any = true;
+                if (port.label) {
+                    byPort[port.number] = port.label;
+                    any = true;
+                }
+                if (port.returnLabel) {
+                    returnsByPort[port.number] = port.returnLabel;
+                    anyReturn = true;
+                }
             });
             if (any) map[String(scr.layerId)] = byPort;
+            if (anyReturn) returnMap[String(scr.layerId)] = returnsByPort;
         });
         this._processorPortLabels = map;
+        this._processorPortReturnLabels = returnMap;
     }
 
     // ── drawing ───────────────────────────────────────────────────────────

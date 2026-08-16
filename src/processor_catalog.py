@@ -279,6 +279,28 @@ def render_port_label(name, template, number):
     return text.replace('{name}', name or '').replace('#', str(number))
 
 
+def _stored_port_name(card, store, number):
+    names = (card or {}).get(store) or {}
+    value = names.get(str(number))
+    if value is None:
+        value = names.get(number)
+    value = (value or '').strip()
+    return value or None
+
+
+def _store_port_name(card, store, number, name):
+    names = card.setdefault(store, {})
+    text = (name or '').strip()
+    if text:
+        names[str(number)] = text
+    else:
+        names.pop(str(number), None)
+        names.pop(number, None)
+    if not names:
+        card.pop(store, None)
+    return text or None
+
+
 def port_name(card, number):
     """A name typed onto ONE port of one card, or None.
 
@@ -288,12 +310,7 @@ def port_name(card, number):
     name, it is the absence of one, and returns None so the generated label
     takes back over.
     """
-    names = (card or {}).get('portNames') or {}
-    value = names.get(str(number))
-    if value is None:
-        value = names.get(number)
-    value = (value or '').strip()
-    return value or None
+    return _stored_port_name(card, 'portNames', number)
 
 
 def set_port_name(card, number, name):
@@ -304,16 +321,30 @@ def set_port_name(card, number, name):
     strings would put them in the saved file of anyone who typed a name and
     thought better of it.
     """
-    names = card.setdefault('portNames', {})
-    text = (name or '').strip()
-    if text:
-        names[str(number)] = text
-    else:
-        names.pop(str(number), None)
-        names.pop(number, None)
-    if not names:
-        card.pop('portNames', None)
-    return text or None
+    return _store_port_name(card, 'portNames', number, name)
+
+
+def return_port_name(card, number):
+    """The name typed onto the RETURN end of one port, or None.
+
+    A redundant loop leaves a socket and comes back to it, so the return end is
+    the same port - which is why this lives beside portNames on the card and is
+    keyed the same way. It is a separate store rather than a suffix rule on the
+    primary because the whole point of typing one is that the house does NOT
+    call the return end <primary>R: the backup loom is often labelled off its
+    own series (BU-1 back for SR-1 out).
+    """
+    return _stored_port_name(card, 'returnPortNames', number)
+
+
+def set_return_port_name(card, number, name):
+    """Name one port's return end, or hand it back to <primary>R with a blank.
+
+    Same clearing rule as set_port_name, for the same reason: an untyped return
+    end is the normal state of every port, and it must leave nothing behind in
+    the saved file.
+    """
+    return _store_port_name(card, 'returnPortNames', number, name)
 
 
 def _label_owner(cvt, card, proc):
@@ -480,12 +511,29 @@ def resolve_card(card, proc):
         else:
             label = render_port_label(owner.get('name'),
                                       owner.get('portLabelTemplate'), numbered)
+        # THE RETURN END IS THE SAME SOCKET, RESOLVED HERE FOR THE SAME REASON
+        # THE PRIMARY IS: every reader - the panel row's placeholder, the
+        # assignment the canvas indexes - takes the answer rather than deriving
+        # one of its own. A name typed on the return end wins outright; with
+        # none typed the return is the primary with an R after it, which is
+        # what P1 / R1 said before a processor was naming anything. A port
+        # whose primary resolves to nothing has no derived return either - the
+        # screen's own R# template is still doing the work there.
+        manual_return = return_port_name(card, number)
+        if manual_return:
+            return_label = manual_return
+            return_source = 'manual'
+        else:
+            return_label = f'{label}R' if label else None
+            return_source = source
         port = {
             'number': number,
             'localNumber': local,
             'labelNumber': numbered,
             'label': label,
             'labelSource': source,
+            'returnLabel': return_label,
+            'returnLabelSource': return_source,
             'cvtId': cvt['id'] if cvt else None,
             'beyondCeiling': bool(ceiling is not None and number > ceiling),
         }
@@ -534,6 +582,8 @@ def resolve_card(card, proc):
         # them strings whether anyone wanted it or not.
         'portNames': {str(k): v for k, v in
                       (card.get('portNames') or {}).items() if v},
+        'returnPortNames': {str(k): v for k, v in
+                            (card.get('returnPortNames') or {}).items() if v},
         'fixed': bool(card.get('fixed')),
         'connector': device.get('connector', ''),
         'mode': cap['mode'],

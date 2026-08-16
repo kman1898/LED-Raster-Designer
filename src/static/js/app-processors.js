@@ -66,14 +66,26 @@ class _Processors {
         }
     }
 
-    _processorRequest(url, method, body) {
+    // `action` names the history entry a mutating call earns. Processor edits
+    // land on the server first and on this.project.processors only when the
+    // response comes back, so the snapshot is taken HERE, after
+    // _applyProcessorState has folded the new tree in - the same
+    // post-mutation snapshot every other action takes. Taken at the call
+    // site it would hold the OLD tree and redo could never re-apply the
+    // edit. Reads pass no action; a refused edit changed nothing and gets
+    // no entry, or Ctrl+Z would grow no-op steps.
+    _processorRequest(url, method, body, action) {
         return fetch(url, {
             method,
             headers: { 'Content-Type': 'application/json' },
             body: body === undefined ? undefined : JSON.stringify(body),
         })
             .then(r => r.json())
-            .then(data => this._applyProcessorState(data))
+            .then(data => {
+                const applied = !!(data && data.resolved);
+                this._applyProcessorState(data);
+                if (applied && action) this.saveState(action);
+            })
             .catch(err => sendClientLog('processor_request_failed',
                                         { url, method, error: String(err) }));
     }
@@ -114,7 +126,8 @@ class _Processors {
             if (!picker.value) return;
             sendClientLog('processor_add_clicked', { deviceId: picker.value });
             this._processorRequest('/api/processors', 'POST',
-                                   { deviceId: picker.value });
+                                   { deviceId: picker.value },
+                                   'Add Processor');
         });
         addRow.appendChild(picker);
         addRow.appendChild(addBtn);
@@ -211,7 +224,8 @@ class _Processors {
             proc.deviceName, proc.name, 'unnamed',
             `processor-name-${proc.id}`,
             (val) => this._processorRequest(
-                `/api/processors/${proc.id}`, 'PUT', { name: val })));
+                `/api/processors/${proc.id}`, 'PUT', { name: val },
+                'Rename Processor')));
         const del = document.createElement('button');
         del.className = 'btn';
         del.textContent = '×';
@@ -219,7 +233,8 @@ class _Processors {
         del.style.padding = '6px 10px';
         del.style.background = '#333';
         del.addEventListener('click', () => this._processorRequest(
-            `/api/processors/${proc.id}`, 'DELETE'));
+            `/api/processors/${proc.id}`, 'DELETE', undefined,
+            'Remove Processor'));
         head.appendChild(del);
         box.appendChild(head);
 
@@ -256,7 +271,8 @@ class _Processors {
             cb.checked = !!proc.redundancy;
             cb.dataset.lrdField = `processor-redundancy-${proc.id}`;
             cb.addEventListener('change', () => this._processorRequest(
-                `/api/processors/${proc.id}`, 'PUT', { redundancy: cb.checked }));
+                `/api/processors/${proc.id}`, 'PUT',
+                { redundancy: cb.checked }, 'Toggle Redundancy'));
             label.appendChild(cb);
             // A backup port consumes a port number; it is never a hidden extra
             // one, so turning this on can only take capacity away.
@@ -297,7 +313,7 @@ class _Processors {
             picker.dataset.lrdField = `processor-slot-${proc.id}-${slot.index}`;
             picker.addEventListener('change', () => this._processorRequest(
                 `/api/processors/${proc.id}/slots/${slot.index}`, 'PUT',
-                { deviceId: picker.value || null }));
+                { deviceId: picker.value || null }, 'Change Slot Card'));
             row.appendChild(num);
             row.appendChild(picker);
             wrap.appendChild(row);
@@ -320,13 +336,13 @@ class _Processors {
             `processor-card-name-${card.id}`,
             (val) => this._processorRequest(
                 `/api/processors/${proc.id}/cards/${card.id}`, 'PUT',
-                { name: val })));
+                { name: val }, 'Rename Card')));
         names.appendChild(this._buildTextField(
             'Label', card.portLabelTemplate, '{name}-#',
             `processor-card-template-${card.id}`,
             (val) => this._processorRequest(
                 `/api/processors/${proc.id}/cards/${card.id}`, 'PUT',
-                { portLabelTemplate: val })));
+                { portLabelTemplate: val }, 'Edit Card Label Template')));
         wrap.appendChild(names);
 
         // Only offered where the device actually has one. A mode here is a
@@ -356,7 +372,7 @@ class _Processors {
             });
             select.addEventListener('change', () => this._processorRequest(
                 `/api/processors/${proc.id}/cards/${card.id}`, 'PUT',
-                { mode: select.value || null }));
+                { mode: select.value || null }, 'Change Card Mode'));
             wrap.appendChild(select);
         }
 
@@ -391,7 +407,7 @@ class _Processors {
                 if (!picker.value) return;
                 this._processorRequest(
                     `/api/processors/${proc.id}/cards/${card.id}/cvts`, 'POST',
-                    { deviceId: picker.value });
+                    { deviceId: picker.value }, 'Add CVT');
             });
             if (fits.length) {
                 row.appendChild(picker);
@@ -481,13 +497,13 @@ class _Processors {
             `processor-cvt-name-${cvt.id}`,
             (val) => this._processorRequest(
                 `/api/processors/${proc.id}/cvts/${cvt.id}`, 'PUT',
-                { name: val })));
+                { name: val }, 'Rename CVT')));
         head.appendChild(this._buildTextField(
             'Label', cvt.portLabelTemplate, '{name}-#',
             `processor-cvt-template-${cvt.id}`,
             (val) => this._processorRequest(
                 `/api/processors/${proc.id}/cvts/${cvt.id}`, 'PUT',
-                { portLabelTemplate: val })));
+                { portLabelTemplate: val }, 'Edit CVT Label Template')));
         const del = document.createElement('button');
         del.className = 'btn';
         del.textContent = '×';
@@ -495,7 +511,8 @@ class _Processors {
         del.style.padding = '6px 10px';
         del.style.background = '#333';
         del.addEventListener('click', () => this._processorRequest(
-            `/api/processors/${proc.id}/cvts/${cvt.id}`, 'DELETE'));
+            `/api/processors/${proc.id}/cvts/${cvt.id}`, 'DELETE', undefined,
+            'Remove CVT'));
         head.appendChild(del);
         wrap.appendChild(head);
 
@@ -562,18 +579,64 @@ class _Processors {
         return list;
     }
 
+    // One of a port row's two name boxes, captioned the way the soca rows'
+    // fields are: an unlabeled box beside another unlabeled box reads as
+    // noise, and these two hold different ends of the same cable. The
+    // resolved label sits in the placeholder, so an empty box still reads as
+    // what that end is actually called.
+    _buildPortNameField(caption, fieldKey, value, placeholder, manual,
+                        titles, onCommit) {
+        const cell = document.createElement('div');
+        cell.style.flex = '1 1 70px';
+        cell.style.minWidth = '0';
+        const cap = document.createElement('label');
+        cap.style.display = 'block';
+        cap.style.fontSize = '10px';
+        cap.style.color = '#888';
+        cap.textContent = caption;
+        cell.appendChild(cap);
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = value || '';
+        input.placeholder = placeholder || 'unnamed';
+        input.title = manual ? titles.named : titles.unnamed;
+        input.dataset.lrdField = fieldKey;
+        input.style.padding = '0 3px';
+        input.style.background = 'transparent';
+        input.style.border = '1px solid transparent';
+        input.style.borderRadius = '3px';
+        input.style.color = manual ? '#e0c98a' : '#ccc';
+        input.style.fontFamily = 'monospace';
+        input.style.fontSize = '11px';
+        input.style.width = '100%';
+        input.style.minWidth = '0';
+        input.style.boxSizing = 'border-box';
+        input.addEventListener('focus', () => {
+            input.style.borderColor = '#3a3a3a';
+            input.style.background = '#0d0d0d';
+        });
+        input.addEventListener('blur', () => {
+            input.style.borderColor = 'transparent';
+            input.style.background = 'transparent';
+        });
+        input.addEventListener('change', () => onCommit(input.value.trim()));
+        cell.appendChild(input);
+        return cell;
+    }
+
     _buildPortRow(proc, card, port) {
         const wrap = document.createElement('div');
         const row = document.createElement('div');
         row.style.display = 'grid';
-        // Number, name, occupant, and the button that sets the occupant. The
-        // name is an input rather than text because a port is a socket someone
-        // has to be able to call what the house already calls it, and since
-        // the processor now beats a screen's own override for an assigned
-        // port, this box is the ONLY place left to do it. Making it a mode to
-        // find would strand every port that needs one.
-        row.style.gridTemplateColumns =
-            '22px minmax(0, 1fr) minmax(0, 1fr) auto';
+        // Number, occupant, and the button that sets the occupant on the
+        // first line; the two name boxes on their own line beneath. The
+        // names are inputs rather than text because a port is a socket
+        // someone has to be able to call what the house already calls it,
+        // and since the processor now beats a screen's own override for an
+        // assigned port, these boxes are the ONLY place left to do it.
+        // Making it a mode to find would strand every port that needs one.
+        row.style.gridTemplateColumns = '22px minmax(0, 1fr) auto';
         row.style.gap = '4px';
         row.style.alignItems = 'center';
         row.style.fontSize = '11px';
@@ -584,41 +647,52 @@ class _Processors {
         num.textContent = String(port.number);
         row.appendChild(num);
 
-        const name = document.createElement('input');
-        name.type = 'text';
-        name.value = (card.portNames || {})[String(port.number)] || '';
-        // The generated label sits in the placeholder, so an empty box still
-        // reads as what the port is actually called. No name anywhere upstream
-        // means no processor-derived label at all, and the screen's own
-        // template is still the thing doing the work - which is what "unnamed"
-        // has always meant here.
-        name.placeholder = port.label || 'unnamed';
-        name.title = port.labelSource === 'manual'
-            ? 'Named by hand. Clear the box to go back to the card’s template.'
-            : 'Name this port. It beats the card’s template for this port only.';
-        name.dataset.lrdField = `processor-port-name-${card.id}-${port.number}`;
-        name.style.padding = '0 3px';
-        name.style.background = 'transparent';
-        name.style.border = '1px solid transparent';
-        name.style.borderRadius = '3px';
-        name.style.color = port.labelSource === 'manual' ? '#e0c98a' : '#ccc';
-        name.style.fontFamily = 'monospace';
-        name.style.fontSize = '11px';
-        name.style.width = '100%';
-        name.style.minWidth = '0';
-        name.style.boxSizing = 'border-box';
-        name.addEventListener('focus', () => {
-            name.style.borderColor = '#3a3a3a';
-            name.style.background = '#0d0d0d';
-        });
-        name.addEventListener('blur', () => {
-            name.style.borderColor = 'transparent';
-            name.style.background = 'transparent';
-        });
-        name.addEventListener('change', () => this._processorRequest(
+        const rename = (body, action) => this._processorRequest(
             `/api/processors/${proc.id}/cards/${card.id}/ports/${port.number}`,
-            'PUT', { name: name.value.trim() }));
-        row.appendChild(name);
+            'PUT', body, action);
+
+        // Two ends of one socket, named side by side. The fields share a
+        // wrapping line of their own: two 70px boxes fit abreast at the
+        // panel's usual width and stack at its 180px clamp, exactly as the
+        // soca rows' captioned fields do. Full row width, not indented under
+        // the number column - the nested tree has already spent ~60px of the
+        // panel by here, and an indent is the difference between abreast and
+        // stacked at every width.
+        const names = document.createElement('div');
+        names.style.display = 'flex';
+        names.style.flexWrap = 'wrap';
+        names.style.gap = '4px';
+        names.style.margin = '0 0 6px 0';
+        names.appendChild(this._buildPortNameField(
+            'Name',
+            `processor-port-name-${card.id}-${port.number}`,
+            (card.portNames || {})[String(port.number)],
+            // No name anywhere upstream means no processor-derived label at
+            // all, and the screen's own template is still the thing doing
+            // the work - which is what "unnamed" has always meant here.
+            port.label,
+            port.labelSource === 'manual',
+            {
+                named: 'Named by hand. Clear the box to go back to the '
+                    + 'card’s template.',
+                unnamed: 'Name this port. It beats the card’s template for '
+                    + 'this port only.',
+            },
+            (val) => rename({ name: val }, 'Rename Processor Port')));
+        names.appendChild(this._buildPortNameField(
+            'Return',
+            `processor-port-return-${card.id}-${port.number}`,
+            (card.returnPortNames || {})[String(port.number)],
+            port.returnLabel,
+            port.returnLabelSource === 'manual',
+            {
+                named: 'Named by hand. Clear the box to go back to the '
+                    + 'primary’s name with an R after it.',
+                unnamed: 'Name this port’s redundancy run. Left blank it is '
+                    + 'the primary’s name with an R after it.',
+            },
+            (val) => rename({ returnName: val },
+                            'Rename Processor Port Return')));
 
         const who = document.createElement('div');
         who.style.overflow = 'hidden';
@@ -645,6 +719,7 @@ class _Processors {
         row.appendChild(who);
         row.appendChild(this._buildPortClaimControl(card, port));
         wrap.appendChild(row);
+        wrap.appendChild(names);
 
         // The chooser opens under its own row, where the ports either side of
         // it are still readable. Which socket is free is decided by looking at

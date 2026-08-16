@@ -2378,6 +2378,17 @@ class _Power {
         return (onProcessor && onProcessor[portNum]) || null;
     }
 
+    // The same question for the RETURN end of the same socket. A separate
+    // lookup rather than a suffix rule here, because the return label is now
+    // resolved where the primary is (resolve_card): a name typed on the
+    // return end wins, and only an untyped one derives <primary>R. Same
+    // per-frame budget as the primary: two object lookups, nothing resolved.
+    getProcessorPortReturnLabel(layer, portNum) {
+        const onProcessor = this._processorPortReturnLabels
+            && this._processorPortReturnLabels[String(layer && layer.id)];
+        return (onProcessor && onProcessor[portNum]) || null;
+    }
+
     // The one place a port's label is decided. The canvas, both label editors
     // and every export come through here, so a rule added here reaches all of
     // them at once - and a second path added anywhere else would print one
@@ -2397,17 +2408,27 @@ class _Power {
         // comes back to it, so the two ends print at opposite corners of the
         // wall and the drawing is the only thing saying which is which. Two
         // labels reading SR-1 make a backup run impossible to trace, which is
-        // the one job the return label has. It is the primary with an R after
-        // it - SR-1 out, SR-1R back - so the socket is still named once and the
-        // return is still the return, which is what P1 / R1 said before a
-        // processor was naming anything.
+        // the one job the return label has. The return end is nameable in the
+        // Processors panel the same way the primary is - the house's backup
+        // loom is often labelled off its own series, BU-1 back for SR-1 out -
+        // and a typed name arrives here through the return index. With none
+        // typed the return is the primary with an R after it - SR-1 out,
+        // SR-1R back - which is what P1 / R1 said before a processor was
+        // naming anything.
         //
-        // _processorPortLabels is a flat layerId -> portNum -> label lookup,
-        // rebuilt only when the assignment changes (see _indexAssignmentLabels
-        // in app-port-assignment.js). This runs for every port of every screen
+        // _processorPortLabels and _processorPortReturnLabels are flat
+        // layerId -> portNum -> label lookups, rebuilt only when the
+        // assignment changes (see _indexAssignmentLabels in
+        // app-port-assignment.js). This runs for every port of every screen
         // on every frame, so it must never resolve anything itself.
         const assigned = this.getProcessorPortLabel(layer, portNum);
-        if (assigned) return type === 'return' ? `${assigned}R` : assigned;
+        if (type === 'return') {
+            const assignedReturn = this.getProcessorPortReturnLabel(layer, portNum);
+            if (assignedReturn) return assignedReturn;
+            if (assigned) return `${assigned}R`;
+        } else if (assigned) {
+            return assigned;
+        }
 
         // No processor in the project, or a port that is not on one: exactly
         // what every project did before processors existed, override included.
@@ -2850,9 +2871,14 @@ class _Power {
             // panel. The boxes stay editable because what is in them is still
             // the fallback the moment the processor stops naming the port.
             const fromProcessor = this.getProcessorPortLabel(this.currentLayer, portNum);
+            // The return label the drawing will actually print - a name typed
+            // on the return end in the Processors panel, or the derived
+            // <primary>R. Asked of getPortLabelText so this note can never
+            // disagree with the canvas about what the return end says.
             const ownedNote = fromProcessor
                 ? `Port ${portNum} is on the processor, which names it `
-                  + `${fromProcessor} and its return ${fromProcessor}R. Rename `
+                  + `${fromProcessor} and its return `
+                  + `${this.getPortLabelText(this.currentLayer, portNum, 'return')}. Rename `
                   + `it in the Processors panel. What you type here is kept, `
                   + `and draws again only if this port stops being assigned.`
                 : '';

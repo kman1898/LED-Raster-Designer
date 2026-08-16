@@ -186,6 +186,11 @@ def update_card_port(processor_id, card_id, number):
     only override an assigned port has - the screen's own portLabelOverrides no
     longer reach one - so it is deliberately a plain PUT that any port row can
     make, not a mode anyone has to find.
+
+    `returnName` names the port's RETURN end the same way - the redundancy run
+    that leaves this socket and comes back to it. A blank hands it back to the
+    derived <primary>R. Either field alone is a valid PUT; a PUT carrying
+    neither would silently do nothing, so it is refused instead.
     """
     proc = _find_processor(processor_id)
     if not proc:
@@ -196,11 +201,17 @@ def update_card_port(processor_id, card_id, number):
     if number < 1:
         return jsonify({'error': 'Port numbers start at 1'}), 400
     data = request.json or {}
-    if 'name' not in data:
-        return jsonify({'error': 'name is required'}), 400
-    stored = catalog.set_port_name(card, number, data.get('name'))
-    log_event('processor_port_name', {'card': card_id, 'port': number,
-                                      'named': bool(stored)})
+    if 'name' not in data and 'returnName' not in data:
+        return jsonify({'error': 'name or returnName is required'}), 400
+    changed = {'card': card_id, 'port': number}
+    if 'name' in data:
+        stored = catalog.set_port_name(card, number, data.get('name'))
+        changed['named'] = bool(stored)
+    if 'returnName' in data:
+        stored = catalog.set_return_port_name(card, number,
+                                              data.get('returnName'))
+        changed['returnNamed'] = bool(stored)
+    log_event('processor_port_name', changed)
     return _state()
 
 

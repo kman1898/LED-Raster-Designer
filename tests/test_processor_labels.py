@@ -88,6 +88,12 @@ def name_port(client, proc_id, card_id, number, name):
         json={'name': name})
 
 
+def name_return(client, proc_id, card_id, number, name):
+    return client.put(
+        f'/api/processors/{proc_id}/cards/{card_id}/ports/{number}',
+        json={'returnName': name})
+
+
 def add_cvt(client, proc_id, card_id, device_id):
     resp = client.post(f'/api/processors/{proc_id}/cards/{card_id}/cvts',
                        json={'deviceId': device_id})
@@ -115,6 +121,12 @@ def labels(resolution, name):
     the screen's template."""
     scr = next(s for s in resolution['screens'] if s['layerId'] == name)
     return [p['label'] for p in scr['ports']]
+
+
+def return_labels(resolution, name):
+    """The other end of the same sockets: what the return bubbles print."""
+    scr = next(s for s in resolution['screens'] if s['layerId'] == name)
+    return [p['returnLabel'] for p in scr['ports']]
 
 
 def occupants(resolution, card_id, port):
@@ -426,15 +438,18 @@ def test_the_processor_is_consulted_before_any_per_layer_override():
     body = function_body(js('app-power.js'),
                          'getPortLabelText(layer, portNum, type) {')
     processor = body.index('getProcessorPortLabel')
-    returned = body.index('if (assigned) return')
+    returned = body.index('return assigned;')
     override = body.index('portLabelOverridesPrimary')
     template = body.index('portLabelTemplatePrimary')
     assert processor < returned < template, (
         'getPortLabelText reads the layer template before the processor')
     assert returned < override, (
         'a per-layer override is read before the processor has answered')
-    assert "if (assigned) return type === 'return' ? `${assigned}R` : assigned;" \
-        in body, ('the processor label is no longer returned outright')
+    # And the return end asks its own index before deriving <primary>R, so a
+    # name typed on the return end is not flattened back into the suffix rule.
+    assert body.index('getProcessorPortReturnLabel') \
+        < body.index('${assigned}R'), (
+        'the return end derives before consulting its typed name')
 
 
 def test_the_layer_template_is_still_the_fallback():
@@ -454,7 +469,8 @@ def test_the_label_lookup_never_resolves_anything_itself():
     walk of the resolution, would put the network or an O(screens x ports)
     scan inside the render loop."""
     for signature in ('getPortLabelText(layer, portNum, type) {',
-                      'getProcessorPortLabel(layer, portNum) {'):
+                      'getProcessorPortLabel(layer, portNum) {',
+                      'getProcessorPortReturnLabel(layer, portNum) {'):
         body = function_body(js('app-power.js'), signature)
         for banned in ('fetch(', 'refreshPortAssignment', 'getLayerPortsRequired',
                        '.forEach(', '.filter(', '.find('):
@@ -467,6 +483,9 @@ def test_the_lookup_is_built_once_when_the_assignment_changes():
     source = js('app-port-assignment.js')
     assert '_indexAssignmentLabels()' in source
     assert '_processorPortLabels = map;' in source
+    # The return ends ride the same pass over the same resolution - a second
+    # walk, or a second request, would be a second chance to disagree.
+    assert '_processorPortReturnLabels = returnMap;' in source
     assert '_applyAssignmentResolution()' in source
     # Every path that stores a resolution has to go through the one that
     # rebuilds the map, or the canvas draws last week's labels.
@@ -505,24 +524,29 @@ def test_the_port_row_is_an_input_keyed_for_the_focus_guard():
 NODE = shutil.which('node')
 
 
-def run_labels(assigned, layer, ports):
+def run_labels(assigned, layer, ports, returns=None):
     """The real getPortLabelText, lifted out of the file and run.
 
     There is no second implementation of the rule to assert against - the point
     of that method is that there is exactly one - and reading the source only
-    proves the branch is there, not what it prints. So the two methods are
-    taken verbatim, hung on a bare object with the same one field they read,
+    proves the branch is there, not what it prints. So the three methods are
+    taken verbatim, hung on a bare object with the same two fields they read,
     and asked. Anything that drifts inside them fails here.
+
+    `returns` is the return-end index, shaped exactly like `assigned`. Left
+    off, it is the empty map every project without a typed return name has.
     """
     source = js('app-power.js')
     methods = '\n'.join(
         function_body(source, signature) + '\n    }'
         for signature in ('getProcessorPortLabel(layer, portNum) {',
+                          'getProcessorPortReturnLabel(layer, portNum) {',
                           'getPortLabelText(layer, portNum, type) {'))
     script = (
         'class Probe {\n' + methods + '\n}\n'
         'const probe = new Probe();\n'
         f'probe._processorPortLabels = {json.dumps(assigned)};\n'
+        f'probe._processorPortReturnLabels = {json.dumps(returns or {})};\n'
         f'const layer = {json.dumps(layer)};\n'
         f'const out = {json.dumps(ports)}.map(n => ['
         "probe.getPortLabelText(layer, n, 'primary'), "
@@ -592,3 +616,156 @@ def test_port_names_are_read_whichever_way_the_key_arrives(number, stored):
     assert catalog.port_name(card, int(number)) == stored
     resolved = catalog.resolve_card(card, {'id': 'p1', 'name': ''})
     assert resolved['ports'][int(number) - 1]['label'] == stored
+
+
+# ── 7. Naming the return end itself ───────────────────────────────────────
+#
+# The derived <primary>R is right until the house's backup loom is labelled
+# off its own series - BU-1 back for SR-1 out - and then it is exactly wrong.
+# So the return end is nameable the way the primary is: typed on the port, on
+# the card, in the Processors panel. The ladder for an assigned port's return
+# is: the typed return name, else <primary>R, and the layer's own R# template
+# only ever reaches a port the processor is not naming - unchanged from
+# before this existed.
+
+def test_a_typed_return_name_reaches_the_resolution_the_canvas_reads(client):
+    """BU-1 back for SR-1 out. The primary is untouched, the neighbours keep
+    deriving, and it is the RESOLUTION that carries all of it - which is what
+    the canvas indexes, so this is the string the drawing prints."""
+    state = add_processor(client, 'novastar-h9')
+    pid = only(state)['id']
+    state = set_card(client, pid, 0, 'novastar-card-h-20xrj45')
+    card_id = first_card(only(state))['id']
+    name_card(client, pid, card_id, 'SR')
+    assert name_return(client, pid, card_id, 1, 'BU-1').status_code == 200
+
+    res = resolve(client, ('Main', 3))
+    assert labels(res, 'Main') == ['SR-1', 'SR-2', 'SR-3']
+    assert return_labels(res, 'Main') == ['BU-1', 'SR-2R', 'SR-3R']
+
+
+def test_an_untyped_return_end_is_still_the_primary_with_an_r(client):
+    """Today's default, unchanged: nothing typed means SR-1 out, SR-1R back -
+    including when the primary itself was named by hand."""
+    state = add_processor(client, 'novastar-h9')
+    pid = only(state)['id']
+    state = set_card(client, pid, 0, 'novastar-card-h-20xrj45')
+    card_id = first_card(only(state))['id']
+    name_card(client, pid, card_id, 'SR')
+    assert name_port(client, pid, card_id, 2, 'HOUSE-LEFT').status_code == 200
+
+    res = resolve(client, ('Main', 2))
+    assert return_labels(res, 'Main') == ['SR-1R', 'HOUSE-LEFTR']
+
+
+def test_a_port_with_no_primary_label_offers_no_derived_return(client):
+    """Seven ports onto a four-port machine: the three with no socket behind
+    them carry no return label either, so the layer's own R# template is still
+    the thing doing the work there - the regression bar, return-end edition."""
+    state = add_processor(client, 'novastar-vx400')
+    pid = only(state)['id']
+    assert client.put(f'/api/processors/{pid}',
+                      json={'name': 'FOH'}).status_code == 200
+
+    res = resolve(client, ('Main', 7))
+    assert return_labels(res, 'Main') == ['FOH-1R', 'FOH-2R', 'FOH-3R',
+                                          'FOH-4R', None, None, None]
+
+
+def test_a_return_name_round_trips_and_survives_save_and_reload(client):
+    state = add_processor(client, 'novastar-mx20')
+    pid = only(state)['id']
+    card_id = first_card(only(state))['id']
+    name_card(client, pid, card_id, 'SR')
+    resp = name_return(client, pid, card_id, 5, 'BU-5')
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    card = first_card(only(resp.get_json()))
+    assert card['returnPortNames'] == {'5': 'BU-5'}
+    assert card['ports'][4]['returnLabel'] == 'BU-5'
+    assert card['ports'][4]['returnLabelSource'] == 'manual'
+    assert card['ports'][4]['label'] == 'SR-5', (
+        'naming the return end renamed the primary')
+
+    saved = client.get('/api/project').get_json()
+    assert client.post('/api/project', json=saved).status_code == 200
+    assert client.put('/api/project', json=saved).status_code == 200
+
+    card = first_card(only(client.get('/api/processors').get_json()))
+    assert card['returnPortNames'] == {'5': 'BU-5'}
+    assert card['ports'][4]['returnLabel'] == 'BU-5'
+
+
+def test_clearing_a_return_name_leaves_nothing_behind(client):
+    """Same rule as the primary: blank is the absence of a name, the derived
+    label takes back over, and the saved file carries no empty map."""
+    state = add_processor(client, 'novastar-mx20')
+    pid = only(state)['id']
+    card_id = first_card(only(state))['id']
+    name_card(client, pid, card_id, 'SR')
+    assert name_return(client, pid, card_id, 2, 'BU-2').status_code == 200
+
+    resp = name_return(client, pid, card_id, 2, '  ')
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    card = first_card(only(resp.get_json()))
+    assert card['ports'][1]['returnLabel'] == 'SR-2R'
+    assert card['returnPortNames'] == {}
+
+    stored = client.get('/api/project').get_json()['processors'][0]
+    stored_card = stored['slots'][0]['card']
+    assert 'returnPortNames' not in stored_card, (
+        f'a cleared return name left something in the project: {stored_card}')
+
+
+def test_the_ports_put_takes_either_end_and_refuses_neither(client):
+    """One PUT, two fields. Either alone is a valid edit; both at once is one
+    edit; neither is a request that would silently do nothing, so it is
+    refused the way the bare PUT always was."""
+    state = add_processor(client, 'novastar-mx20')
+    pid = only(state)['id']
+    card_id = first_card(only(state))['id']
+    name_card(client, pid, card_id, 'SR')
+
+    url = f'/api/processors/{pid}/cards/{card_id}/ports/1'
+    assert client.put(url, json={}).status_code == 400
+    resp = client.put(url, json={'name': 'HL', 'returnName': 'HL-B'})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    port = first_card(only(resp.get_json()))['ports'][0]
+    assert (port['label'], port['returnLabel']) == ('HL', 'HL-B')
+    # Clearing the primary alone leaves the typed return standing: they are
+    # two names for two ends, not one name and a suffix.
+    resp = name_port(client, pid, card_id, 1, '')
+    port = first_card(only(resp.get_json()))['ports'][0]
+    assert (port['label'], port['returnLabel']) == ('SR-1', 'HL-B')
+
+
+@pytest.mark.skipif(NODE is None, reason='node is not on PATH')
+def test_a_typed_return_name_wins_on_the_canvas_index():
+    """The client's half of the ladder, run for real: the return index answers
+    before anything derives, so BU-1 prints where SR-1R used to."""
+    out = run_labels({'7': {'1': 'SR-1', '2': 'SR-2'}}, {'id': 7}, [1, 2],
+                     returns={'7': {'1': 'BU-1'}})
+    assert out == [['SR-1', 'BU-1'], ['SR-2', 'SR-2R']]
+
+
+@pytest.mark.skipif(NODE is None, reason='node is not on PATH')
+def test_an_empty_return_index_still_derives_from_the_primary():
+    """The fallback the derived branch has always been: an index built before
+    return names existed, or a project with none typed, prints exactly what it
+    printed before."""
+    out = run_labels({'7': {'1': 'SR-1'}}, {'id': 7}, [1, 3], returns={})
+    assert out == [['SR-1', 'SR-1R'], ['P3', 'R3']]
+
+
+def test_the_label_editor_names_the_actual_return_label():
+    """The ownedNote used to spell the return as ${fromProcessor}R by hand - a
+    second statement of the derivation, and the one place that would keep
+    saying SR-1R after someone typed BU-1. It asks getPortLabelText now, so it
+    can never disagree with the canvas about what the return end says."""
+    source = js('app-power.js')
+    assert '${fromProcessor}R' not in source, (
+        'the ownedNote still derives the return label by hand')
+    note = source.index('and its return ')
+    asks = source.index(
+        "getPortLabelText(this.currentLayer, portNum, 'return')", note)
+    assert asks - note < 200, (
+        'the ownedNote does not read the return label from getPortLabelText')

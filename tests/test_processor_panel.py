@@ -1057,3 +1057,197 @@ def test_the_panel_ships_no_declared_fields_into_the_field_sweep():
             f'{tag} declared in the Processors panel markup - the field sweep '
             f'would drive it at the selected layer')
     assert 'id="processor-list"' in panel
+
+
+# ── 7. The return end on the port row ─────────────────────────────────────
+#
+# A port row names both ends of its socket now: the primary, and the
+# redundancy run that leaves it and comes back. The rows are rebuilt
+# wholesale on every change and squeezed down to the panel's 180px clamp, so
+# what is pinned here is the machinery that keeps two fields usable there:
+# stable focus keys, captions, and the wrap that stacks them where they no
+# longer fit abreast.
+
+JS_DIR = os.path.join(os.path.dirname(__file__), '..', 'src', 'static', 'js')
+
+
+def js_source(filename):
+    with open(os.path.join(JS_DIR, filename), encoding='utf-8') as fh:
+        return fh.read()
+
+
+def test_the_port_row_offers_the_return_end_beside_the_primary():
+    """Both fields, each with its own stable focus key (the panel is rebuilt
+    under the user's fingers), each captioned (two unlabeled boxes holding
+    different ends of the same cable read as noise), sharing a line that
+    wraps rather than a grid that overflows the 180px clamp."""
+    source = js_source('app-processors.js')
+    assert 'processor-port-name-${card.id}-${port.number}' in source
+    assert 'processor-port-return-${card.id}-${port.number}' in source
+    assert '(card.returnPortNames || {})[String(port.number)]' in source
+    assert 'port.returnLabel' in source, (
+        'the return placeholder is not the resolved return label')
+    body = source[source.index('_buildPortRow(proc, card, port) {'):]
+    body = body[:body.index('\n    }')]
+    assert "names.style.flexWrap = 'wrap';" in body, (
+        'the name fields do not wrap at the narrow clamp')
+    assert "{ returnName: val }" in body
+    # The commit goes through the same PUT the primary uses - one route, one
+    # rule about what a port-name edit is.
+    assert body.count('/ports/${port.number}') == 1
+
+
+def test_processor_edits_take_post_mutation_history_snapshots():
+    """The undo contract: a processor edit lands in history AFTER the server
+    answers and the new tree is folded into this.project - the post-mutation
+    snapshot every other action takes - and a refused edit takes none. Both
+    ends of a port enter history under their own names, identically."""
+    source = js_source('app-processors.js')
+    assert 'if (applied && action) this.saveState(action);' in source
+    for action in ("'Add Processor'", "'Rename Processor'",
+                   "'Remove Processor'", "'Rename Card'",
+                   "'Rename Processor Port'",
+                   "'Rename Processor Port Return'"):
+        assert action in source, f'{action} takes no history snapshot'
+
+
+# ── 8. The row in a real browser, at both widths ──────────────────────────
+
+RESET_PROCESSORS_JS = """async () => {
+    const state = await (await fetch('/api/processors')).json();
+    for (const p of (state.processors || [])) {
+        await fetch(`/api/processors/${p.id}`, { method: 'DELETE' });
+    }
+    const add = await (await fetch('/api/processors', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceId: 'novastar-mx20' }),
+    })).json();
+    const proc = add.resolved[0];
+    const card = proc.slots.map(s => s.card).find(Boolean);
+    await fetch(`/api/processors/${proc.id}/cards/${card.id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'SR' }),
+    });
+    await window.app.refreshProcessors();
+    // Bracket the seed in history the way live edits are bracketed, so the
+    // undo test steps back to "processor present, port unnamed" rather than
+    // to a project from before the processor existed.
+    window.app.saveState('Seed Processors');
+    return { procId: proc.id, cardId: card.id };
+}"""
+
+SET_WIDTH_JS = """(width) => {
+    document.documentElement.style.setProperty('--lrd-data-w', width + 'px');
+}"""
+
+MEASURE_ROW_JS = """(args) => {
+    const sidebar = document.getElementById('data-sidebar');
+    const list = document.getElementById('processor-list');
+    const field = (kind) => document.querySelector(
+        `[data-lrd-field="processor-port-${kind}-${args.cardId}-1"]`);
+    const name = field('name');
+    const ret = field('return');
+    const vis = (el) => !!el && el.offsetWidth > 0 && el.offsetHeight > 0;
+    const limit = sidebar.getBoundingClientRect().right;
+    const inside = (el) => !!el
+        && el.getBoundingClientRect().right <= limit + 0.5;
+    return {
+        sidebarWidth: Math.round(sidebar.getBoundingClientRect().width),
+        nameVisible: vis(name),
+        returnVisible: vis(ret),
+        nameInside: inside(name),
+        returnInside: inside(ret),
+        namePlaceholder: name ? name.placeholder : null,
+        returnPlaceholder: ret ? ret.placeholder : null,
+        listClipped: list.scrollWidth > list.clientWidth,
+    };
+}"""
+
+
+@pytest.fixture(scope="module")
+def panel_page(e2e_server, pw_browser):
+    context = pw_browser.new_context()
+    context.add_init_script(
+        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+    pg = context.new_page()
+    pg.goto(e2e_server, wait_until='domcontentloaded')
+    pg.wait_for_timeout(2000)  # socket connect + app init
+    pg.locator('[data-mode="data-flow"]').click()
+    pg.wait_for_timeout(400)
+    yield pg
+    context.close()
+
+
+@pytest.mark.parametrize('width', [260, 180])
+def test_the_port_row_renders_both_fields(panel_page, width):
+    """At the panel's usual width and at its 180px clamp: both boxes in
+    layout, both placeholders carrying the RESOLVED label for their own end
+    (SR-1 out, SR-1R back), both inside the panel's right edge, and the port
+    list not scrolling sideways - scrollWidth over clientWidth is exactly the
+    off-the-panel overflow the clamp forbids. Scoped to the Processors rows:
+    the Port Assignment rows below them have their own, pre-existing overflow
+    at 180 that this feature neither caused nor fixes."""
+    pytest.importorskip("playwright.sync_api", reason="playwright not installed")
+    ids = panel_page.evaluate(RESET_PROCESSORS_JS)
+    panel_page.wait_for_timeout(600)
+    # The width change rides the panels' own transition, so it is set first
+    # and measured once the animation has landed.
+    panel_page.evaluate(SET_WIDTH_JS, width)
+    panel_page.wait_for_timeout(500)
+    out = panel_page.evaluate(MEASURE_ROW_JS,
+                              {'cardId': ids['cardId'], 'width': width})
+    assert out['sidebarWidth'] == width, out
+    assert out['nameVisible'] and out['returnVisible'], out
+    assert out['nameInside'] and out['returnInside'], out
+    assert out['namePlaceholder'] == 'SR-1', out
+    assert out['returnPlaceholder'] == 'SR-1R', out
+    assert not out['listClipped'], 'the port list scrolls sideways'
+
+
+def test_renaming_either_end_round_trips_through_undo(panel_page):
+    """The full circle, driven through the real input: the edit lands on the
+    server, earns its own named history entry, and undo/redo walk it back and
+    forward one end at a time - the return undone while the primary stands."""
+    pytest.importorskip("playwright.sync_api", reason="playwright not installed")
+    ids = panel_page.evaluate(RESET_PROCESSORS_JS)
+    panel_page.wait_for_timeout(600)
+
+    def commit(kind, value):
+        panel_page.evaluate("""(args) => {
+            const input = document.querySelector(
+                `[data-lrd-field="processor-port-${args.kind}-${args.cardId}-1"]`);
+            input.value = args.value;
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+        }""", {'kind': kind, 'cardId': ids['cardId'], 'value': value})
+        panel_page.wait_for_timeout(800)
+
+    def stored():
+        state = panel_page.evaluate(
+            "async () => await (await fetch('/api/processors')).json()")
+        card = next(c['card'] for c in state['processors'][0]['slots']
+                    if c.get('card'))
+        return (card.get('portNames') or {}).get('1'), \
+               (card.get('returnPortNames') or {}).get('1')
+
+    commit('name', 'HL')
+    commit('return', 'BU-1')
+    assert stored() == ('HL', 'BU-1')
+    actions = panel_page.evaluate(
+        "() => window.app.history.map(h => h.action).slice(-2)")
+    assert actions == ['Rename Processor Port', 'Rename Processor Port Return']
+
+    panel_page.evaluate("() => window.app.undo()")
+    panel_page.wait_for_timeout(1000)
+    assert stored() == ('HL', None), 'undo took the primary with the return'
+
+    panel_page.evaluate("() => window.app.undo()")
+    panel_page.wait_for_timeout(1000)
+    assert stored() == (None, None)
+
+    panel_page.evaluate("() => window.app.redo()")
+    panel_page.wait_for_timeout(1000)
+    assert stored() == ('HL', None)
+
+    panel_page.evaluate("() => window.app.redo()")
+    panel_page.wait_for_timeout(1000)
+    assert stored() == ('HL', 'BU-1')

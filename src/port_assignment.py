@@ -106,6 +106,11 @@ def cards_in(processors):
                 # onto ports that no box will ever hand out.
                 'shortfall': card.get('shortfall'),
                 'labels': {p['number']: p['label'] for p in card['ports']},
+                # Both ends of every socket, resolved once in resolve_card.
+                # The return rides beside the primary so the canvas indexes
+                # them from the same resolution instead of re-deriving one.
+                'returnLabels': {p['number']: p['returnLabel']
+                                 for p in card['ports']},
             })
     return out
 
@@ -296,6 +301,7 @@ def resolve(processors, screens, state=None):
                 ports.append({
                     'index': index, 'number': index + 1,
                     'cardId': None, 'port': None, 'label': None,
+                    'returnLabel': None,
                     'source': None, 'overlap': False, 'beyondCapacity': False,
                 })
                 continue
@@ -308,6 +314,8 @@ def resolve(processors, screens, state=None):
                 'cardName': _card_title(card) if card else spot['cardId'],
                 'port': spot['port'],
                 'label': (card or {}).get('labels', {}).get(spot['port']),
+                'returnLabel': (card or {}).get('returnLabels', {})
+                               .get(spot['port']),
                 'source': spot['source'],
                 'overlap': (spot['cardId'], spot['port']) in overlapping,
                 'beyondCapacity': bool(capacity and spot['port'] > capacity),
