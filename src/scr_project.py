@@ -1080,11 +1080,13 @@ def crossing_groups(project):
     renumbering below. Making it understand a crossing route is a separate job.
 
     So the gap is reported by name instead. The gate is transcribed from the JS
-    so the two cannot disagree about which projects it applies to: at least two
-    visible screen members sharing one canvas, every member the same cabinet
-    RESOLUTION, and no member hand-wired (one custom member takes the whole
-    group back to per-member routing). panelWatts is deliberately not checked -
-    it gates the POWER walk, and a .scr carries data routing only.
+    so the two cannot disagree about which projects it applies to: the group's
+    own "Route data as one screen" switch not turned off (routeDataAsOne is
+    absent or true), at least two visible screen members sharing one canvas,
+    every member the same cabinet RESOLUTION, and no member hand-wired (one
+    custom member takes the whole group back to per-member routing).
+    panelWatts is deliberately not checked - it gates the POWER walk, and a
+    .scr carries data routing only.
 
     Returns [(group, [layer, ...])] in project group order.
     """
@@ -1097,6 +1099,13 @@ def crossing_groups(project):
     out = []
     for group in groups:
         if not isinstance(group, dict):
+            continue
+        # "Route data as one screen", off: the user has told the app to route
+        # this group per member, so the app's port map and this file's agree
+        # and there is no gap to warn about. Absent means on - the switch
+        # shipped after groups did. Part of the transcribed gate: keep in step
+        # with _autoCrossMembers (src/static/js/app-screen-info.js).
+        if group.get('routeDataAsOne') is False:
             continue
         members = [by_id.get(lid) for lid in (group.get('layer_ids') or [])]
         members = [m for m in members

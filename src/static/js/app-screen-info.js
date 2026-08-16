@@ -481,9 +481,28 @@ class _ScreenInfo {
     // proves it across all eight patterns on a 1m + 0.5m wall); the gate is
     // deliberately stricter than the ordering can manage, because there is no
     // single port capacity or circuit load that describes two different panels.
-    _autoCrossMembers(layer, kind) {
+    //
+    // THE GROUP CAN DECLINE. "Route data as one screen" (group.routeDataAsOne,
+    // group menu) turns the DATA crossing off for one group - some walls are
+    // cabled per section on site regardless of what the panels would allow.
+    // The check sits here rather than in every reader because this is the one
+    // gate they all pass through: the walk, the counts, the arrows, the group
+    // roll-up and the peer's sidebar figure all revert together.
+    _autoCrossMembers(layer, kind, ignoreToggle = false) {
         if (!layer || (layer.type || 'screen') !== 'screen') return null;
         if (!layer.group_id) return null;
+        // "Route data as one screen" - the group's own switch on this walk.
+        // Absent is ON, so every group made before the switch existed keeps
+        // crossing; only a stored false takes the wall back to per-member
+        // routing, cabled exactly as ungrouped screens. DATA only: a circuit
+        // packs by load and the power gate below reads exactly as it did.
+        // `ignoreToggle` lets the group menu ask whether the wall COULD cross,
+        // so the switch can grey out where crossing is never on offer.
+        if (kind === 'data' && !ignoreToggle) {
+            const own = (typeof this.getGroupOfLayer === 'function')
+                ? this.getGroupOfLayer(layer) : null;
+            if (own && own.routeDataAsOne === false) return null;
+        }
         // A hidden member is not part of the wall this walk describes, and it
         // must not be the one holding the group's whole requirement - see
         // getGroupTotals, which skips hidden members outright.

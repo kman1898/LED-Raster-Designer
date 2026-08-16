@@ -1362,3 +1362,211 @@ def test_an_ungrouped_screen_is_never_served_by_a_peer(page):
         };
     """, grouped=False)
     assert result == {'data': False, 'power': False}, result
+
+
+# ═════════════════════════════════════════════════════════════════════════
+# 10. "Route data as one screen" - the group's switch on the crossing
+# ═════════════════════════════════════════════════════════════════════════
+#
+# A group of matching panels can now DECLINE the automatic data crossing
+# (group.routeDataAsOne = false, group menu): some walls are cabled per
+# section on site no matter what the panels would allow. Off means every
+# reader of the crossing reverts together - the walk, the counts, the arrows
+# and the sidebar - because the switch sits in the one gate they all pass
+# through (_autoCrossMembers). Power is untouched: the switch is data only.
+
+def test_route_as_one_off_stops_the_overlay_pass_drawing_across_the_seam(page):
+    """No crossing walk means no crossing arrows: the deferred overlay pass has
+    nothing to draw, and each member's own pass draws its own serpentine."""
+    result = _auto(page, """
+        window.app.project.groups[0].routeDataAsOne = false;
+        const out = ax.crossPassStrokes();
+        return {
+            points: out.points.length,
+            aPorts: window.app.calculatePortAssignments(a).reduce(
+                (m, x) => Math.max(m, x.port), 0),
+            bPorts: window.app.calculatePortAssignments(b).reduce(
+                (m, x) => Math.max(m, x.port), 0),
+        };
+    """)
+    assert result['points'] == 0, 'the overlay pass still drew across the seam'
+    assert result['aPorts'] == 2, result
+    assert result['bPorts'] == 2, result
+
+
+def test_route_as_one_off_gives_the_peer_its_sidebar_figure_back(page):
+    """The peer of a crossing group honestly reads 0; the member of a group
+    that cables per screen is not a peer and reads its own real figure."""
+    result = _run(page, AUTO_STACK, """
+        const app = window.app;
+        app.project.groups[0].routeDataAsOne = false;
+        const read = (layer) => {
+            app.currentLayer = layer;
+            app.updatePortCapacityDisplay();
+            return document.getElementById('ports-required').textContent;
+        };
+        return {
+            owner: read(a),
+            peer: read(b),
+            servedPeer: app.isServedByPeerRouting(b, 'data'),
+        };
+    """)
+    assert result['servedPeer'] is False, result
+    assert result['owner'] == '2', result
+    assert result['peer'] == '2', result
+
+
+# The rest drive the REAL app against the REAL server, because what they pin
+# is the trip: the switch has to survive the commit PUT, an undo, a duplicate
+# and a reload, and none of that is visible from a synthetic project swap.
+# Same pattern as test_audit_groups_ui; the module guard restores the server.
+
+ROUTE_LIFECYCLE_JS = r"""
+window.__rt = {
+  async fresh() {
+    await fetch('/api/project/new', { method: 'POST' });
+    const made = [];
+    for (let i = 0; i < 2; i++) {
+      const l = await (await fetch('/api/layer/add', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ name: 'S' + i, columns: 6, rows: 6,
+          cabinet_width: 128, cabinet_height: 128,
+          offset_x: 900, offset_y: i * 768 }),
+      })).json();
+      made.push(l.id);
+    }
+    const p = await (await fetch('/api/project')).json();
+    window.app.project = p;
+    window.app.currentLayer = p.layers.find(l => l.id === made[0]);
+    window.app.selectedLayerIds = new Set(made);
+    window.app.lastSelectedLayerId = made[0];
+    window.app.resetHistory('Initial State');
+    const gid = await window.app.groupSelectedLayers();
+    await this.settle();
+    return gid;
+  },
+  group(gid) {
+    return (window.app.project.groups || []).find(g => g.id === gid) || null;
+  },
+  flag(gid) {
+    const g = this.group(gid);
+    if (!g) return '<no group>';
+    return g.routeDataAsOne === undefined ? '<absent>' : g.routeDataAsOne;
+  },
+  async serverFlag(gid) {
+    const p = await (await fetch('/api/project')).json();
+    const g = (p.groups || []).find(x => x.id === gid);
+    if (!g) return '<no group>';
+    return g.routeDataAsOne === undefined ? '<absent>' : g.routeDataAsOne;
+  },
+  async settle(ms) { await new Promise(r => setTimeout(r, ms || 400)); },
+};
+"""
+
+
+def _rt(page, body):
+    page.evaluate(ROUTE_LIFECYCLE_JS)
+    return page.evaluate("async () => { const rt = window.__rt; %s }" % body)
+
+
+def test_route_switch_survives_the_commit_and_a_reload(page):
+    out = _rt(page, r"""
+        const gid = await rt.fresh();
+        const before = await rt.serverFlag(gid);
+        await window.app.toggleGroupRouteDataAsOne(gid);
+        const client = rt.flag(gid);
+        const server = await rt.serverFlag(gid);
+        const action = window.app.history[window.app.historyIndex].action;
+        // "save to file and open it again" - the PUT funnel every load uses
+        const blob = JSON.parse(JSON.stringify(window.app.project));
+        const reloaded = await (await fetch('/api/project', {
+            method: 'PUT', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(blob) })).json();
+        const g = (reloaded.groups || []).find(x => x.id === gid);
+        return { before, client, server, action,
+                 reloaded: g ? g.routeDataAsOne : '<no group>' };
+    """)
+    assert out['before'] == '<absent>', out
+    assert out['client'] is False, out
+    assert out['server'] is False, out
+    assert out['reloaded'] is False, out
+    assert out['action'] == 'Toggle Group Data Routing', out
+
+
+def test_route_switch_rides_undo_and_redo(page):
+    out = _rt(page, r"""
+        const gid = await rt.fresh();
+        await window.app.toggleGroupRouteDataAsOne(gid);
+        const off = rt.flag(gid);
+        window.app.undo(); await rt.settle();
+        const undone = rt.flag(gid);
+        window.app.redo(); await rt.settle();
+        const redone = rt.flag(gid);
+        window.app.undo(); await rt.settle();
+        const serverUndone = await rt.serverFlag(gid);
+        return { off, undone, redone, serverUndone };
+    """)
+    assert out['off'] is False, out
+    assert out['undone'] in ('<absent>', True), out
+    assert out['redone'] is False, out
+    assert out['serverUndone'] in ('<absent>', True), out
+
+
+def test_route_switch_copies_with_duplicate_group(page):
+    out = _rt(page, r"""
+        const gid = await rt.fresh();
+        await window.app.toggleGroupRouteDataAsOne(gid);
+        const copyGid = await window.app.duplicateGroup(gid);
+        await rt.settle();
+        return { copy: rt.flag(copyGid),
+                 server: await rt.serverFlag(copyGid),
+                 original: rt.flag(gid) };
+    """)
+    assert out['copy'] is False, out
+    assert out['server'] is False, out
+    assert out['original'] is False, out
+
+
+def test_route_switch_menu_item_checks_toggles_and_greys_out(page):
+    """Where the switch LIVES: the group's own menu, checked while the wall
+    routes as one, unchecked after, and greyed out - with the reason in the
+    tooltip - on a group whose members could never route as one anyway."""
+    out = _rt(page, r"""
+        const gid = await rt.fresh();
+        window.app.renderLayers();
+        await rt.settle(200);
+        const open = () => {
+            document.querySelector(
+                '.screen-group[data-group-id="' + gid + '"] .screen-group-menu-btn'
+            ).click();
+            return document.querySelector(
+                '.screen-group-menu-popup [data-action="route-as-one"]');
+        };
+        const item = open();
+        const first = { enabled: !item.disabled,
+                        label: item.textContent.trim(), hint: item.title };
+        item.click();
+        await rt.settle(700);
+        const stored = rt.flag(gid);
+        const again = open();
+        const second = { label: again.textContent.trim() };
+        again.click();
+        await rt.settle(700);
+        const restored = rt.flag(gid);
+        // Mixed resolution never crosses, so there is no choice to offer.
+        const g = rt.group(gid);
+        window.app.project.layers.find(
+            l => l.id === g.layer_ids[1]).cabinet_width = 64;
+        const mixed = open();
+        const third = { enabled: !mixed.disabled, hint: mixed.title };
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+        return { first, stored, second, restored, third };
+    """)
+    assert out['first']['enabled'] is True, out
+    assert out['first']['label'] == '✓ Route data as one screen', out
+    assert 'cables on its own' in out['first']['hint'], out
+    assert out['stored'] is False, out
+    assert out['second']['label'] == 'Route data as one screen', out
+    assert out['restored'] is True, out
+    assert out['third']['enabled'] is False, out
+    assert 'never route as one' in out['third']['hint'], out

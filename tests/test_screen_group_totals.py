@@ -945,6 +945,103 @@ def _ports_of(flat):
     return [out[n] for n in sorted(out)]
 
 
+# ── "Route data as one screen" - the group's own switch on the crossing ────
+#
+# Some walls are cabled per section on site no matter what the panels would
+# allow, so a group can turn the DATA crossing off (group.routeDataAsOne =
+# false, set from the group menu). Off means every member routes exactly as it
+# would ungrouped - the walk, the counts, the roll-up and the peer's sidebar
+# state all revert together, because the switch sits in the ONE gate they all
+# read (_autoCrossMembers). Absent means ON: every group saved before the
+# switch existed keeps today's crossing, byte for byte.
+
+ROUTE_ALONE_PAIR_JS = """(gt) => {
+    const a = gt.screen({ id: 1, name: 'Top', columns: 6, rows: 6,
+        flowPattern: 'tl-h', portMappingMode: 'organized' });
+    const b = gt.screen({ id: 2, name: 'Bottom', columns: 6, rows: 6,
+        offset_y: 768, flowPattern: 'tl-h', portMappingMode: 'organized' });
+    const g = gt.group([a, b]);
+    g.routeDataAsOne = false;
+    return [[a, b], g];
+}"""
+
+
+def test_route_as_one_off_routes_each_member_exactly_as_ungrouped(page):
+    """The same wall test_a_same_resolution_group_crosses_for_data crosses,
+    with the switch off: the maps and figures are the UNGROUPED ones, cabinet
+    for cabinet, and the peer routes its own ports again."""
+    r = _routes(page, ROUTE_ALONE_PAIR_JS)
+    g = r['grouped']
+    assert g['dataPlan'] is False
+    assert g['portMap'] == r['apart']['portMap']
+    assert g['ports'] == r['apart']['ports'] == [2, 2]
+    assert g['totalPorts'] == 4
+    assert g['portMap'][1] != [], 'the peer still routed nothing of its own'
+    assert not _crossing_runs(_ports_of(g['portMap'][0]), 1), (
+        'a port crossed with the switch off')
+
+
+def test_route_as_one_off_restores_the_peers_own_sidebar_figure(page):
+    """With the switch on, the peer is served by the owner's walk and honestly
+    reads 0; off, it reads its own real figure again - not a leftover 0."""
+    got = page.evaluate("""() => {
+        const gt = window.__gt;
+        const [layers, group] = (%s)(gt);
+        const read = () => gt.withProject(layers, [group], () => ({
+            served: window.app.isServedByPeerRouting(layers[1], 'data'),
+            ports: window.app.getLayerPortsRequired(layers[1]),
+        }));
+        const off = read();           // built with routeDataAsOne: false
+        delete group.routeDataAsOne;  // absent = on
+        const on = read();
+        return { on, off };
+    }""" % ROUTE_ALONE_PAIR_JS)
+    assert got['on'] == {'served': True, 'ports': 0}
+    assert got['off'] == {'served': False, 'ports': 2}
+
+
+ROUTE_ALONE_POWER_JS = """(gt) => {
+    const a = gt.screen({ id: 1, name: 'Top', columns: 6, rows: 4,
+        flowPattern: 'tl-h', portMappingMode: 'organized',
+        powerFlowPattern: 'tl-h', powerOrganized: true });
+    const b = gt.screen({ id: 2, name: 'Bottom', columns: 6, rows: 4,
+        offset_y: 512, flowPattern: 'tl-h', portMappingMode: 'organized',
+        powerFlowPattern: 'tl-h', powerOrganized: true });
+    const g = gt.group([a, b]);
+    g.routeDataAsOne = false;
+    return [[a, b], g];
+}"""
+
+
+def test_route_as_one_off_leaves_the_power_crossing_alone(page):
+    """DATA only. The switch is not a power switch: the same group still packs
+    its circuits as one wall while its data cables per member."""
+    r = _routes(page, ROUTE_ALONE_POWER_JS)
+    g = r['grouped']
+    assert g['dataPlan'] is False
+    assert g['powerPlan'] is True
+    assert g['ports'] == r['apart']['ports']
+    assert g['circuits'] == [3, 0]
+    assert _crossing_runs(g['powerMap'][0], 1), 'the power crossing was lost'
+
+
+def test_route_as_one_stored_true_crosses_exactly_as_absent(page):
+    """true and absent are the same state - only a stored false turns it off,
+    so no migration ever has to write the key."""
+    got = page.evaluate("""() => {
+        const gt = window.__gt;
+        const [layers, group] = (%s)(gt);
+        group.routeDataAsOne = true;
+        layers.forEach(l => { l.group_id = group.id; });
+        return gt.withProject(layers, [group], () => ({
+            plan: !!window.app.getAutoRoutePlan(layers[0], 'data'),
+            ports: layers.map(l => window.app.getLayerPortsRequired(l)),
+        }));
+    }""" % TALL_PAIR_JS)
+    assert got['plan'] is True
+    assert got['ports'] == [3, 0]
+
+
 # ── The regression bar: NO group, or a group of one ───────────────────────
 #
 # Every project that has no groups in it, and every group of one, must produce

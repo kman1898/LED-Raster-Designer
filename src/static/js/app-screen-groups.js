@@ -543,6 +543,33 @@ class _ScreenGroups {
         return true;
     }
 
+    // "Route data as one screen" - the group's switch on the automatic data
+    // crossing (_autoCrossMembers, app-screen-info.js). Off: each screen
+    // cables on its own, exactly as it would ungrouped. Stored on the GROUP
+    // rather than the members because it describes the wall's one combined
+    // route, and absent means on, so every group made before the switch
+    // existed keeps crossing. Data only - power keeps its own gate.
+    async toggleGroupRouteDataAsOne(groupId) {
+        const group = this.resolveGroup(groupId);
+        if (!group) return false;
+        group.routeDataAsOne = group.routeDataAsOne === false;
+        await this._commitGroupChange('Toggle Group Data Routing');
+        return true;
+    }
+
+    // Whether the members COULD route as one screen for data - the walk's own
+    // gate with the switch held open. Read by the group menu, so the switch
+    // greys out on a group where crossing is never on offer (mixed
+    // resolution, different canvases, a hand-wired member) instead of
+    // pretending there is a choice to make.
+    _groupCanRouteDataAsOne(group) {
+        const g = this.resolveGroup(group);
+        if (!g || typeof this._autoCrossMembers !== 'function') return false;
+        const member = this.getGroupMembers(g).find(l => l
+            && (l.type || 'screen') === 'screen' && l.visible !== false);
+        return !!(member && this._autoCrossMembers(member, 'data', true));
+    }
+
     // One lock for the wall, same "any unlocked => lock them all" rule
     // toggleLockOnSelected uses for a multi-selection.
     async toggleGroupLock(groupId) {
@@ -618,11 +645,15 @@ class _ScreenGroups {
         // loses the wiring with no error; wired, the copy is a real copy.
         this.remapCopiedLayerPaths(members.map((source, i) => ({ source, clone: clones[i] })));
         if (!Array.isArray(this.project.groups)) this.project.groups = [];
-        this.project.groups.push({
+        const copy = {
             id: newGroupId,
             name: this._nextDuplicateName(group.name),
             layer_ids: clones.map(c => c.id),
-        });
+        };
+        // The routing switch describes the wall, and the copy is the same
+        // wall again - so it cables the way the original does.
+        if ('routeDataAsOne' in group) copy.routeDataAsOne = group.routeDataAsOne;
+        this.project.groups.push(copy);
         this.currentLayer = clones[0];
         this.selectedLayerIds = new Set(clones.map(c => c.id));
         this.lastSelectedLayerId = clones[0].id;
@@ -1349,12 +1380,19 @@ class _ScreenGroups {
         const canAdd = selected.some(l => l.group_id !== group.id);
         const canRemove = selected.some(l => l.group_id === group.id);
         const locked = members.length > 0 && members.every(m => m.locked);
+        // The check reads the STORED state even on a group that cannot cross:
+        // disabled says "no choice here", the mark says what is remembered.
+        const routesAsOne = group.routeDataAsOne !== false;
+        const canRouteAsOne = this._groupCanRouteDataAsOne(group);
         const menu = document.createElement('div');
         menu.className = 'canvas-menu-popup screen-group-menu-popup';
         menu.innerHTML = `
             <button data-action="rename">Rename</button>
             <button data-action="duplicate">Duplicate Group</button>
             <button data-action="lock">${locked ? 'Unlock Group' : 'Lock Group'}</button>
+            <button data-action="route-as-one"${canRouteAsOne ? '' : ' disabled'} title="${canRouteAsOne
+                ? 'Off: each screen cables on its own'
+                : 'These screens never route as one - the cabinets differ, or a member is hand-wired'}">${routesAsOne ? '✓ ' : ''}Route data as one screen</button>
             <button data-action="add"${canAdd ? '' : ' disabled'}>Add Selected Screens</button>
             <button data-action="remove"${canRemove ? '' : ' disabled'}>Remove Selected Screens</button>
             <button data-action="ungroup">Ungroup</button>
@@ -1405,6 +1443,8 @@ class _ScreenGroups {
             this.duplicateGroup(group.id);
         } else if (action === 'lock') {
             this.toggleGroupLock(group.id);
+        } else if (action === 'route-as-one') {
+            this.toggleGroupRouteDataAsOne(group.id);
         } else if (action === 'add') {
             this.addSelectedToGroup(group.id);
         } else if (action === 'remove') {

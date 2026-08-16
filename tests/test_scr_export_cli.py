@@ -531,6 +531,38 @@ def test_the_crossing_warning_is_raised_once_per_group():
     assert len([w for w in warnings.items if 'Main Wall' in w]) == 1
 
 
+def test_route_as_one_off_takes_the_group_out_of_the_crossing_warning():
+    """The group's own "Route data as one screen" switch, off: the user has
+    told the APP to cable this group per member, so the app's port map and
+    this file's per-layer map agree - there is no gap to report."""
+    a = _layer('l1', 'c1', 4, 3)
+    b = _layer('l2', 'c1', 4, 3, oy=300)
+    group = _grouped([a, b])
+    group['routeDataAsOne'] = False
+    project = _project_with_groups([_canvas('c1', 'One')], [a, b], [group])
+
+    warnings = Warnings()
+    sections = build_sections(project, warnings)
+
+    assert not [w for w in warnings.items if 'Main Wall' in w], warnings.items
+    assert len(sections) == 1
+
+
+def test_route_as_one_stored_true_still_warns():
+    """Only a stored false is off - true and absent are the same state, the
+    same reading the JS gate makes."""
+    a = _layer('l1', 'c1', 4, 3)
+    b = _layer('l2', 'c1', 4, 3, oy=300)
+    group = _grouped([a, b])
+    group['routeDataAsOne'] = True
+    project = _project_with_groups([_canvas('c1', 'One')], [a, b], [group])
+
+    warnings = Warnings()
+    build_sections(project, warnings)
+
+    assert [w for w in warnings.items if 'Main Wall' in w], warnings.items
+
+
 def test_a_mixed_resolution_group_does_not_warn():
     """The app does not cross those either - each member keeps its own grid, so
     this file's per-layer routing IS the app's routing and there is nothing to
