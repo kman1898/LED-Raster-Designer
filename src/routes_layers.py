@@ -83,10 +83,15 @@ def add_layer():
         'powerSocaLengths', 'powerSocaPhaseOffset',
         'powerSocaPhasePos', 'powerBreakoutType', 'showSocaBrackets',
         'powerSocaDistro',
-        # Multi names ({socaIndex: 'SL1'}) and the stamp saying the per-multi
-        # stores above are keyed by the multi's stable index. The stamp has to
-        # travel with a duplicate or the copy would be rekeyed a second time.
-        'powerSocaNames', 'powerSocaKeying',
+        # Multi names ({socaIndex: 'SL1'}), the numbers pinned onto multis
+        # ({socaIndex: 3} - two multis pinned to one number on one distro are
+        # one physical soca), and the stamp saying the per-multi stores above
+        # are keyed by the multi's stable index. The stamp has to travel with
+        # a duplicate or the copy would be rekeyed a second time. (The client
+        # duplicate deliberately sends neither distro nor number, so a COPY
+        # never claims the original's slot - this listing is for full-layer
+        # POSTs, which must not drop the field on the floor.)
+        'powerSocaNames', 'powerSocaNumber', 'powerSocaKeying',
         # Power splitters (circuit sharing): {enabled, maxWays, manual}.
         # Same omission risk as the block above - a duplicate/paste posts the
         # whole layer, and a field missing here is gone on reload.
@@ -349,12 +354,16 @@ def update_layer(layer_id):
                 # manual merge/split groups on the floor.
                 'powerSplitters',
                 # Production suite: soca -> distro assignment
-                # ({socaIndex: 'd1'}), the names typed onto multis, and the
-                # stamp saying every per-multi store here is keyed by the
-                # multi's stable index rather than by its displayed number.
-                # Without the stamp on this list the rekey would run again on
-                # every reload and walk an S3-# screen's keys down past 1.
-                'powerSocaDistro', 'powerSocaNames', 'powerSocaKeying',
+                # ({socaIndex: 'd1'}), the names typed onto multis, the
+                # numbers pinned onto them ({socaIndex: 3} - the shared-box
+                # key: two multis pinned to one number on one distro are ONE
+                # physical soca), and the stamp saying every per-multi store
+                # here is keyed by the multi's stable index rather than by
+                # its displayed number. Without the stamp on this list the
+                # rekey would run again on every reload and walk an S3-#
+                # screen's keys down past 1.
+                'powerSocaDistro', 'powerSocaNames', 'powerSocaNumber',
+                'powerSocaKeying',
                 # v0.11.0: the gradient/panel-colour block was never on this
                 # list - not removed, never added (git log -S finds no commit
                 # that took it out). The client has always PUT these fields and

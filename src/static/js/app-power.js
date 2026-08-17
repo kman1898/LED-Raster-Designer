@@ -772,6 +772,81 @@ class _Power {
         this.updateLayers([layer], true, 'Assign Multi Distro');
     }
 
+    // Pin a multi to a NUMBER under its distro - the "which output of the
+    // box am I plugged into" choice. Auto (no entry) numbers exactly as
+    // always: per distro, layer order, dealing around every pinned slot.
+    //
+    // The pin is also how one PHYSICAL soca serves two screens: two multis
+    // pinned to the same (distro, number) ARE one box, and the second
+    // screen's circuits land on the box's next free tails - the shape the
+    // user used to build by hand-typing powerLabelOverrides (C2-3-4..6)
+    // onto a twin multi that the rollup then counted twice. There is no
+    // separate link to manage: picking the number joins, re-picking (or
+    // Auto, or another distro) separates.
+    setSocaNumber(layer, socaIndex, number) {
+        if (!layer) return;
+        // Always leave an object behind, never delete the property: an
+        // absent key is missing from the update payload and the server
+        // keeps whatever it had, so "back to Auto" would silently not clear.
+        const store = layer.powerSocaNumber || (layer.powerSocaNumber = {});
+        const n = parseInt(number, 10);
+        if (Number.isFinite(n) && n >= 1) store[socaIndex] = n;
+        else delete store[socaIndex];
+        // A pin renumbers the whole distro bucket (autos deal around it) and
+        // can merge or split a shared box, so every label can move.
+        this._circuitTailCache = null;
+        this.updateLayers([layer], true, 'Set Multi Number');
+    }
+
+    // The shared-box record for one multi, or null when it shares with
+    // nobody. Non-null only for a PINNED multi whose (distro, number) is
+    // claimed by at least one other multi - see _resolveSharedSocas for the
+    // fields. This is what the soca tiles, the rollup and the balancer read,
+    // so "is this one box or two" has exactly one answer.
+    getSocaShare(layer, socaIndex) {
+        if (!layer) return null;
+        const idx = Number(socaIndex);
+        if (!((layer.powerSocaDistro || {})[idx])) return null;
+        const n = parseInt((layer.powerSocaNumber || {})[idx], 10);
+        if (!Number.isFinite(n) || n < 1) return null;
+        const rec = this._powerNaming(layer).socas.get(idx);
+        return (rec && rec.share) || null;
+    }
+
+    // Every multi number in use on one distro, show-wide:
+    // number -> [{layerId, layerName, soca, legs, pinned}]. The number
+    // select prints this so a tech picking a slot can see who is already on
+    // it - picking an occupied number is the combine gesture, and it should
+    // read that way before the click, not after.
+    _distroMultiNumbers(distroId) {
+        const out = new Map();
+        if (!distroId) return out;
+        for (const l of ((this.project && this.project.layers) || [])) {
+            if ((l.type || 'screen') !== 'screen') continue;
+            for (const rec of this._powerNaming(l).socas.values()) {
+                if (rec.distroId !== distroId) continue;
+                const arr = out.get(rec.number) || [];
+                arr.push({ layerId: l.id, layerName: l.name, soca: rec.index,
+                           legs: rec.circuits.length, pinned: !!rec.pinned });
+                out.set(rec.number, arr);
+            }
+        }
+        return out;
+    }
+
+    // "4-6" for [4,5,6], "1-3, 5" for [1,2,3,5] - the way a tail set is
+    // said out loud on a tile face.
+    _fmtTails(tails) {
+        const t = (tails || []).slice().sort((a, b) => a - b);
+        if (!t.length) return '';
+        const runs = [[t[0], t[0]]];
+        for (let i = 1; i < t.length; i++) {
+            if (t[i] === runs[runs.length - 1][1] + 1) runs[runs.length - 1][1] = t[i];
+            else runs.push([t[i], t[i]]);
+        }
+        return runs.map(([a, b]) => a === b ? `${a}` : `${a}-${b}`).join(', ');
+    }
+
     // A multi named by hand. Per-MULTI, so unlike the bracket toggle and the
     // breakout type it never sweeps the selection (_socaPanelTargets): a name
     // belongs to one multi on one screen. Blank hands it back to the distro.
@@ -796,6 +871,7 @@ class _Power {
     _balanceTargets() {
         const out = [];
         const distros = this.getDistros();
+        const seenBoxes = new Set();
         for (const layer of (this.project.layers || [])) {
             if ((layer.type || 'screen') !== 'screen') continue;
             const assign = layer.powerSocaDistro || {};
@@ -803,6 +879,51 @@ class _Power {
             for (const s of this.getSocaPlan(layer)) {
                 const d = distros.find(x => x.id === assign[s.soca]);
                 if (!d || d.phase !== 3) continue;
+                const share = this.getSocaShare(layer, s.soca);
+                if (share) {
+                    // A shared box is ONE multi to the balancer: its
+                    // used-tail set spans every member, and moving tails
+                    // re-deals the whole box - member order (layer order),
+                    // ascending within each member, the same rule
+                    // _resolveSharedSocas states. Emitted once, at the
+                    // first member; a box already in clash or overflow has
+                    // no legal arrangement to search, so it is left alone
+                    // until the clash is resolved.
+                    if (seenBoxes.has(share.key)) continue;
+                    seenBoxes.add(share.key);
+                    if (share.clash || share.overflow) continue;
+                    const total = share.members.reduce((t, m) => t + m.legs, 0);
+                    if (total >= 6) continue;
+                    const members = share.members.map(m => {
+                        const ml = (this.project.layers || [])
+                            .find(l => l.id === m.layerId);
+                        return ml ? { layer: ml, soca: m.soca, legs: m.legs,
+                                      tails: m.tails.slice() } : null;
+                    }).filter(Boolean);
+                    if (members.length !== share.members.length) continue;
+                    // per-circuit amps and labels, member order - index k of
+                    // from/to below is the k-th circuit of this walk
+                    const legsDetail = members.flatMap(m =>
+                        (this.getSocaPlan(m.layer)
+                            .find(x => x.soca === m.soca) || { legs: [] }).legs);
+                    members.forEach(m => {
+                        const saved = (m.layer.powerSocaPhasePos || {})[m.soca];
+                        m.hadStore = Array.isArray(saved);
+                        m.savedStore = m.hadStore ? saved.slice() : null;
+                    });
+                    out.push({
+                        layer, soca: s.soca, name: s.name, distroId: d.id,
+                        legs: total, members,
+                        layerName: members.map(m => m.layer.name).join(' + '),
+                        positions: members.flatMap(m => m.tails)
+                            .sort((a, b) => a - b),
+                        fromFlat: members.flatMap(m => m.tails),
+                        amps: legsDetail.map(l => l.amps),
+                        labels: legsDetail.map(l => l.label),
+                        scheme: this.powerPhasingFor(d, circuitV).id
+                    });
+                    continue;
+                }
                 if (s.legs.length >= 6) continue;
                 out.push({
                     layer, soca: s.soca, name: s.name, distroId: d.id,
@@ -819,6 +940,20 @@ class _Power {
             }
         }
         return out;
+    }
+
+    // Deal a shared box's chosen tail SET across its members: ascending
+    // tails to members in member order, each member's slice ascending - the
+    // box-wide statement of the wall-order rule.
+    _dealBoxTails(members, tailSet) {
+        const sorted = tailSet.slice().sort((a, b) => a - b);
+        let off = 0;
+        for (const m of members) {
+            const store = m.layer.powerSocaPhasePos
+                || (m.layer.powerSocaPhasePos = {});
+            store[m.soca] = sorted.slice(off, off + m.legs);
+            off += m.legs;
+        }
     }
 
     // Worst imbalance across every 3-phase distro, which is what we minimise.
@@ -846,9 +981,13 @@ class _Power {
         const before = this._worstImbalance();
         if (!targets.length) return { before, after: before, targets: [], moves: [], searched: 0 };
 
-        const original = targets.map(t => t.positions.slice());
+        // For a shared box `positions` is the combined tail SET (ascending)
+        // and `fromFlat` the member-order walk of the same tails - the
+        // search moves the set, the moves report per circuit.
+        const original = targets.map(t => (t.fromFlat || t.positions).slice());
         const current = targets.map(t => t.positions.slice());
         const write = () => targets.forEach((t, i) => {
+            if (t.members) { this._dealBoxTails(t.members, current[i]); return; }
             const store = t.layer.powerSocaPhasePos || (t.layer.powerSocaPhasePos = {});
             store[t.soca] = current[i].slice();
         });
@@ -882,6 +1021,18 @@ class _Power {
         // may have been built against a candidate arrangement mid-search
         // (getSocaPlan labels every leg), so drop it with the candidates
         targets.forEach((t, i) => {
+            if (t.members) {
+                // members whose default was DEALT (no store) go back to
+                // having no store - writing the dealt tails would freeze an
+                // arrangement nobody chose
+                t.members.forEach(m => {
+                    const store = m.layer.powerSocaPhasePos
+                        || (m.layer.powerSocaPhasePos = {});
+                    if (m.hadStore) store[m.soca] = m.savedStore.slice();
+                    else delete store[m.soca];
+                });
+                return;
+            }
             const store = t.layer.powerSocaPhasePos || (t.layer.powerSocaPhasePos = {});
             if (original[i].every((p, k) => p === k + 1)) delete store[t.soca];
             else store[t.soca] = original[i].slice();
@@ -890,10 +1041,13 @@ class _Power {
 
         return {
             before, after: best, searched,
-            targets: targets.map(t => `${t.name} (${t.layer.name}, ${t.legs} circuits)`),
+            targets: targets.map(t => `${t.name} (${t.layerName || t.layer.name}, ${t.legs} circuits)`),
             moves: targets.map((t, i) => ({
-                layerId: t.layer.id, layerName: t.layer.name, soca: t.soca,
+                layerId: t.layer.id, layerName: t.layerName || t.layer.name,
+                soca: t.soca,
                 name: t.name, legs: t.legs,
+                members: t.members ? t.members.map(m => ({
+                    layerId: m.layer.id, soca: m.soca, legs: m.legs })) : null,
                 from: original[i], to: winner[i],
                 amps: t.amps, labels: t.labels
             })).filter(m => m.from.some((p, k) => p !== m.to[k]))
@@ -903,6 +1057,24 @@ class _Power {
     applyPhaseBalance(moves) {
         const touched = new Set();
         for (const m of moves || []) {
+            // A shared box's move re-deals the whole set: ascending tails to
+            // members in member order, each member's slice stored on its own
+            // layer - the same deal write() ran during the search.
+            if (m.members && m.members.length) {
+                const sorted = m.to.slice().sort((a, b) => a - b);
+                let off = 0;
+                for (const mem of m.members) {
+                    const layer = (this.project.layers || [])
+                        .find(l => l.id === mem.layerId);
+                    if (!layer) { off += mem.legs; continue; }
+                    const store = layer.powerSocaPhasePos
+                        || (layer.powerSocaPhasePos = {});
+                    store[mem.soca] = sorted.slice(off, off + mem.legs);
+                    off += mem.legs;
+                    touched.add(layer);
+                }
+                continue;
+            }
             const layer = (this.project.layers || []).find(l => l.id === m.layerId);
             if (!layer) continue;
             const store = layer.powerSocaPhasePos || (layer.powerSocaPhasePos = {});
@@ -1314,6 +1486,23 @@ class _Power {
             && new Set(saved).size === L) {
             return saved.slice().sort((a, b) => a - b);
         }
+        // A multi PINNED to a number can be sharing one physical box with a
+        // multi on another screen, and then its unstored default is not the
+        // natural 1..L - it is the box's NEXT FREE tails, dealt in
+        // _resolveSharedSocas with every member on the table. Read the dealt
+        // answer rather than re-deriving it here; a pin the naming pass has
+        // not resolved (mid-build, an orphan screen) falls through to the
+        // legacy default below.
+        if (layer && (layer.powerSocaDistro || {})[socaNum]) {
+            const pin = parseInt((layer.powerSocaNumber || {})[socaNum], 10);
+            if (Number.isFinite(pin) && pin >= 1) {
+                const rec = this._powerNaming(layer).socas.get(Number(socaNum));
+                if (rec && Array.isArray(rec.positions)
+                        && rec.positions.length === (Number(legsUsed) || 0)) {
+                    return rec.positions.slice();
+                }
+            }
+        }
         const off = this.socaPhaseOffset(layer, socaNum, L);
         return Array.from({ length: L }, (_, i) => i + 1 + off);
     }
@@ -1384,6 +1573,14 @@ class _Power {
         });
         const buckets = new Map(distros.map(d => [d.id, mk(d)]));
         const unassigned = mk(null);
+        // One feeds entry per PHYSICAL box: two multis pinned to the same
+        // (distro, number) are one soca serving two screens, so the second
+        // member folds into the first's row - watts summed, legs combined,
+        // both screens named. Counting each member as its own soca is
+        // exactly the phantom-multi arithmetic the pin exists to kill. The
+        // WATTS still add per member (the load is real twice over); only
+        // the enumeration merges.
+        const boxRows = new Map();      // share key -> the one feeds row
         for (const layer of this.project.layers || []) {
             if ((layer.type || 'screen') !== 'screen') continue;
             const plan = this.getSocaPlan(layer);
@@ -1392,7 +1589,17 @@ class _Power {
             const circuitV = parseFloat(layer.powerVoltage) || 0;
             for (const s of plan) {
                 const b = buckets.get(assign[s.soca]) || unassigned;
-                b.socas.push({ layer: layer.name, layerId: layer.id, soca: s.soca, name: s.name, watts: s.watts, legs: s.legs.length });
+                const share = this.getSocaShare(layer, s.soca);
+                const row = share && boxRows.get(share.key);
+                if (row) {
+                    row.layer += ' + ' + layer.name;
+                    row.watts += s.watts;
+                    row.legs += s.legs.length;
+                } else {
+                    const fresh = { layer: layer.name, layerId: layer.id, soca: s.soca, name: s.name, watts: s.watts, legs: s.legs.length };
+                    if (share) { fresh.shared = true; boxRows.set(share.key, fresh); }
+                    b.socas.push(fresh);
+                }
                 b.watts += s.watts;
                 // spread this multi's circuits across the phase legs
                 const d = b.distro;
@@ -1824,9 +2031,61 @@ class _Power {
                 const tileId = `soca-${layer.id}-${s.soca}`;
                 const openCls = this._tileOpenId(`soca-runs-${layer.id}`) === tileId
                     ? ' lrd-tile-open' : '';
+                // The multi's slot on its distro. Auto numbers exactly as
+                // always; picking a number pins it - and picking a number
+                // another screen's multi holds makes the two ONE PHYSICAL
+                // BOX, the second screen's circuits on the box's next free
+                // tails. The options say who holds each number, so sharing
+                // reads as sharing before the click.
+                const pin = parseInt((layer.powerSocaNumber || {})[s.soca], 10);
+                const hasPin = Number.isFinite(pin) && pin >= 1;
+                let numberField = '';
+                if (assigned) {
+                    const inUse = this._distroMultiNumbers(assigned);
+                    const maxN = Math.max(0, ...inUse.keys(),
+                                          hasPin ? pin : 0) + 1;
+                    const opts = [];
+                    for (let n = 1; n <= maxN; n++) {
+                        const others = (inUse.get(n) || []).filter(o =>
+                            !(o.layerId === layer.id && o.soca === s.soca));
+                        const text = others.length
+                            ? `${n} — with ${others.map(o => esc(o.layerName)).join(', ')}`
+                            : `${n}`;
+                        opts.push(`<option value="${n}" ${hasPin && pin === n ? 'selected' : ''}>${text}</option>`);
+                    }
+                    numberField = `
+                        <div style="flex:1 1 70px; min-width:0;">
+                            <label class="power-soca-field-label" style="font-weight:400; display:block; margin-bottom:2px;">No.</label>
+                            <select class="power-soca-number info-select" data-soca="${s.soca}" data-lrd-field="power-soca-number-${s.soca}" style="width:100%; min-width:0; box-sizing:border-box;" data-tooltip="Multi number, Which output of the distro this multi is. Auto numbers in layer order and deals around picked numbers. Pick the number another screen's multi already holds and the two are ONE physical soca — this screen's circuits land on its next free tails, and the labels follow.">
+                                <option value="">Auto${hasPin ? '' : ` (${s.number})`}</option>
+                                ${opts.join('')}
+                            </select>
+                        </div>`;
+                }
+                // A member of a shared box says so on its face: one box,
+                // named once, this screen on its own tails - never two
+                // multis coincidentally named alike. A tail claimed twice
+                // (or a box past its six tails) is a CLASH, worn the way a
+                // double-booked port tile wears it.
+                const share = this.getSocaShare(layer, s.soca);
+                const tails = s.legs.map(l => l.leg);
+                const shareClash = !!(share && (share.clash || share.overflow));
+                const face = share
+                    ? `${esc(s.name)} · tails ${this._fmtTails(tails)} · ${s.amps.toFixed(1)} A${shareClash ? ' · TAIL CLASH' : ''}`
+                    : `${esc(s.name)} · ${s.legs.length} leg${s.legs.length === 1 ? '' : 's'} · ${s.amps.toFixed(1)} A`;
+                const others = share ? share.members.filter(m =>
+                    !(m.layerId === layer.id && m.soca === s.soca)) : [];
+                const shareNote = share ? `
+                        <div style="flex:1 1 100%; font-size:10px; color:${shareClash ? '#e05050' : 'var(--ps-faint, #999)'};">
+                            One physical multi — ${share.members.map(m =>
+                                `${esc(m.layerName)} tails ${this._fmtTails(m.tails)}`).join(' · ')}${
+                            shareClash ? (share.overflow
+                                ? ' — more circuits than the six tails hold'
+                                : ` — tail${share.members.reduce((n, m) => n + m.clashTails.length, 0) === 1 ? '' : 's'} ${this._fmtTails(share.members.flatMap(m => m.clashTails))} claimed twice`) : ''}
+                        </div>` : '';
                 return `
-                <div class="power-soca-row lrd-tile${openCls}" data-lrd-tile="${tileId}" data-lrd-tile-box="soca-runs-${layer.id}">
-                    <label class="lrd-tile-face" style="font-weight:600;" data-tooltip="Multi, ${esc(s.name).replace(/"/g, '&quot;')} feeds ${s.legs.length} circuit${s.legs.length === 1 ? '' : 's'} at ${s.amps.toFixed(1)} A. Click to set its name, distro and home-run length.">${esc(s.name)} · ${s.legs.length} leg${s.legs.length === 1 ? '' : 's'} · ${s.amps.toFixed(1)} A</label>
+                <div class="power-soca-row lrd-tile${openCls}${shareClash ? ' lrd-tile-clash' : ''}" data-lrd-tile="${tileId}" data-lrd-tile-box="soca-runs-${layer.id}">
+                    <label class="lrd-tile-face" style="font-weight:600;" data-tooltip="Multi, ${esc(s.name).replace(/"/g, '&quot;')} feeds ${s.legs.length} circuit${s.legs.length === 1 ? '' : 's'} at ${s.amps.toFixed(1)} A${share ? ` as part of one shared box with ${others.map(m => esc(m.layerName)).join(', ')}` : ''}. Click to set its name, distro, number and home-run length.">${face}</label>
                     <div class="lrd-tile-body" style="display:flex; flex-wrap:wrap; gap:5px;">
                         <div style="flex:1 1 70px; min-width:0;">
                             <label class="power-soca-field-label" style="font-weight:400; display:block; margin-bottom:2px;">Name</label>
@@ -1839,10 +2098,12 @@ class _Power {
                                 ${this.getDistros().map(d => `<option value="${d.id}" ${assigned === d.id ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}
                             </select>
                         </div>
+                        ${numberField}
                         <div style="flex:1 1 70px; min-width:0;">
                             <label class="power-soca-field-label" style="font-weight:400; display:block; margin-bottom:2px;">Length</label>
                             <input type="text" class="power-soca-length" data-soca="${s.soca}" data-lrd-field="power-soca-length-${s.soca}" value="${(s.length || '').replace(/"/g, '&quot;')}" placeholder="e.g. 100ft" style="width:100%; min-width:0; box-sizing:border-box;">
                         </div>
+                        ${shareNote}
                     </div>
                 </div>`; }).join('')}
             </div>
@@ -1866,6 +2127,14 @@ class _Power {
         host.querySelectorAll('.power-soca-name').forEach(inp => {
             inp.addEventListener('change', () => {
                 this.setSocaName(layer, Number(inp.dataset.soca), inp.value);
+                this._restateNaming();
+            });
+        });
+        host.querySelectorAll('.power-soca-number').forEach(sel => {
+            sel.addEventListener('change', () => {
+                this.setSocaNumber(layer, Number(sel.dataset.soca), sel.value || null);
+                // A pin renumbers its whole distro bucket and can merge or
+                // split a shared box - every surface a name reaches restates.
                 this._restateNaming();
             });
         });
@@ -2517,7 +2786,7 @@ class _Power {
         let changed = false;
         for (const field of ['powerSocaDistro', 'powerSocaLengths',
                              'powerSocaPhasePos', 'powerSocaPhaseOffset',
-                             'powerSocaNames']) {
+                             'powerSocaNames', 'powerSocaNumber']) {
             const map = layer[field];
             if (!map || typeof map !== 'object') continue;
             const next = {};
@@ -2570,33 +2839,84 @@ class _Power {
         // A miss rebuilds the WHOLE show, not this layer: one screen's numbers
         // depend on every screen before it, so there is no such thing as
         // naming one of them on its own.
-        const seq = new Map();          // distro id ('' = unassigned) -> issued
-        for (const l of ((this.project && this.project.layers) || [])) {
-            if ((l.type || 'screen') !== 'screen') continue;
-            this._circuitTailCache.set(l, this._namingFor(l, seq));
+        const screens = ((this.project && this.project.layers) || [])
+            .filter(l => (l.type || 'screen') === 'screen');
+        // Every pinned number per distro, collected BEFORE any number is
+        // issued: auto numbering deals around a pin wherever it sits in
+        // layer order, the way auto port numbering deals around a pinned
+        // port. The circuit plans are kept and handed down so each screen
+        // is planned once per rebuild, not once per pass.
+        const pins = new Map();         // distro id -> Set(pinned numbers)
+        const circuitsBy = new Map();
+        for (const l of screens) {
+            const circuits = (typeof this.screenCircuits === 'function'
+                && this.screenCircuits(l)) || [];
+            circuitsBy.set(l, circuits);
+            const assign = l.powerSocaDistro || {};
+            const chosen = l.powerSocaNumber || {};
+            const count = Math.ceil(circuits.length / 6);
+            for (let idx = 1; idx <= count; idx++) {
+                // A pin means nothing off a distro: the number is the slot on
+                // a physical box, and with no box named there is no slot.
+                const d = assign[idx];
+                const n = parseInt(chosen[idx], 10);
+                if (!d || !Number.isFinite(n) || n < 1) continue;
+                const set = pins.get(d) || new Set();
+                set.add(n);
+                pins.set(d, set);
+            }
         }
+        const seq = new Map();          // distro id ('' = unassigned) -> issued
+        for (const l of screens) {
+            this._circuitTailCache.set(l,
+                this._namingFor(l, seq, pins, circuitsBy.get(l)));
+        }
+        // Second pass, once every multi has its number: two multis pinned to
+        // one (distro, number) are ONE physical box, and a box's tails can
+        // only be dealt with every member on the table.
+        this._resolveSharedSocas(screens);
         entry = this._circuitTailCache.get(layer);
         if (!entry) {
             // A screen no project holds - a preset preview, a paste in
             // flight. Number it on its own rather than leave it nameless.
-            entry = this._namingFor(layer, new Map());
+            // A pin on such a screen has no show to share with, so it
+            // resolves standalone: stored tails or the natural 1..L.
+            entry = this._namingFor(layer, new Map(), new Map());
+            for (const rec of entry.socas.values()) {
+                if (!rec.pinned) continue;
+                rec.positions = this.socaCircuitPositions(
+                    // read the STORE only - rec.positions is still null, so
+                    // the pinned branch below cannot answer yet
+                    { powerSocaPhasePos: layer.powerSocaPhasePos },
+                    rec.index, rec.circuits.length);
+                rec.moved = !rec.positions.every((p, i) => p === i + 1);
+                rec.circuits.forEach((num, i) => entry.slots.set(num, {
+                    multi: rec.index, number: rec.number, name: rec.name,
+                    tail: rec.positions[i], moved: rec.moved,
+                }));
+            }
             this._circuitTailCache.set(layer, entry);
         }
         return entry;
     }
 
     // One screen's share of the naming index, taking its numbers from the
-    // running per-distro sequence the caller carries across screens.
-    _namingFor(layer, seq) {
+    // running per-distro sequence the caller carries across screens - and
+    // dealing those numbers around `pins`, the show-wide set of hand-picked
+    // slots per distro. A pinned multi takes exactly the number picked;
+    // its tails wait for _resolveSharedSocas, which knows whether the pin
+    // shares its box.
+    _namingFor(layer, seq, pins, circuitsIn) {
         const tpl = this._powerTemplateParts(layer);
         const socas = new Map();        // socaIndex -> {number, name, ...}
         const slots = new Map();        // circuit num -> {multi, tail, moved}
         if (!layer || typeof this.screenCircuits !== 'function') {
             return { socas, slots, tpl };
         }
-        const circuits = this.screenCircuits(layer) || [];
+        const circuits = circuitsIn || this.screenCircuits(layer) || [];
         const assign = layer.powerSocaDistro || {};
         const named = layer.powerSocaNames || {};
+        const chosen = layer.powerSocaNumber || {};
         const distros = this.getDistros();
         const perSoca = new Map();      // socaIndex -> [circuit num], plan order
         circuits.forEach((c, ci) => {
@@ -2611,25 +2931,131 @@ class _Power {
             // the same one getDistroLoads books its watts to - so nothing on
             // the drawing goes blank waiting for a distro.
             const bucket = distroId || '';
-            const number = (seq.get(bucket) || 0) + 1;
-            seq.set(bucket, number);
+            const pin = distroId ? parseInt(chosen[idx], 10) : NaN;
+            const pinned = Number.isFinite(pin) && pin >= 1;
+            let number;
+            if (pinned) {
+                number = pin;
+            } else {
+                // Next auto number, skipping every slot a pin claimed - a
+                // pin owns its number outright, wherever the pinned screen
+                // sits in layer order. With no pins this is the plain
+                // sequence it has always been.
+                const taken = (pins && pins.get(bucket)) || null;
+                let n = seq.get(bucket) || 0;
+                do { n += 1; } while (taken && taken.has(n));
+                seq.set(bucket, n);
+                number = n;
+            }
             const distro = distroId ? distros.find(d => d.id === distroId) : null;
             const hand = String(named[idx] || '').trim();
             const name = hand
                 || (distro && String(distro.name || '').trim()
                     ? this._deriveMultiName(String(distro.name).trim(), number, tpl) : '')
                 || (tpl.ok ? this._deriveMultiName(tpl.prefix, number, tpl) : '');
+            if (pinned) {
+                // Tails deferred: whether this pin shares its (distro,
+                // number) - and therefore which tails are free - is only
+                // knowable once every screen is numbered. The slots are
+                // stamped in _resolveSharedSocas with the rest.
+                socas.set(idx, {
+                    index: idx, number, name, distroId, hand: !!hand,
+                    pinned: true, circuits: nums.slice(),
+                    positions: null, moved: false, share: null,
+                });
+                continue;
+            }
             const pos = this.socaCircuitPositions(layer, idx, nums.length);
             const moved = !pos.every((p, i) => p === i + 1);
             socas.set(idx, {
                 index: idx, number, name, distroId, hand: !!hand,
-                circuits: nums.slice(), positions: pos, moved,
+                pinned: false, circuits: nums.slice(), positions: pos, moved,
+                share: null,
             });
             nums.forEach((num, i) => slots.set(num, {
                 multi: idx, number, name, tail: pos[i], moved,
             }));
         }
         return { socas, slots, tpl };
+    }
+
+    // Deal each shared box's six tails across its members, and say out loud
+    // when they do not fit.
+    //
+    // Member order is PROJECT LAYER ORDER (soca index within a screen) -
+    // the same bottom-up walk that numbers the multis - so the earlier
+    // screen owns the lower tails and the wall reads on in order across the
+    // seam. Within its slice every member's circuits ascend in wall order,
+    // the same rule a single screen has always followed.
+    //
+    // Per member: a valid stored tail set (phase balancing, a hand move) is
+    // the user's arrangement and is NEVER rearranged - if it lands on a
+    // tail an earlier member holds, that is a CLASH, reported on the tiles
+    // the way port assignment reports an occupied socket. An unstored
+    // member takes the box's next free tails. A box asked for more than 6
+    // legs runs off the fan: the extra circuits take tails 7, 8, ... and
+    // the box reports the overflow - a soca has six tails, and pretending
+    // otherwise would hide the one fact a tech needs.
+    _resolveSharedSocas(screens) {
+        const boxes = new Map();        // 'distroId:number' -> [{layer, entry, rec}]
+        for (const l of screens) {
+            const entry = this._circuitTailCache.get(l);
+            if (!entry) continue;
+            for (const rec of entry.socas.values()) {
+                if (!rec.pinned) continue;
+                const key = `${rec.distroId}:${rec.number}`;
+                const arr = boxes.get(key) || [];
+                arr.push({ layer: l, entry, rec });
+                boxes.set(key, arr);
+            }
+        }
+        for (const [key, members] of boxes) {
+            const taken = new Set();
+            let clash = false, overflow = false;
+            for (const m of members) {
+                const L = m.rec.circuits.length;
+                const saved = ((m.layer.powerSocaPhasePos) || {})[m.rec.index];
+                const valid = Array.isArray(saved) && saved.length === L
+                    && saved.every(p => Number.isInteger(p) && p >= 1 && p <= 6)
+                    && new Set(saved).size === L;
+                let pos;
+                if (valid) {
+                    pos = saved.slice().sort((a, b) => a - b);
+                    m.rec.clashTails = pos.filter(p => taken.has(p));
+                } else {
+                    pos = [];
+                    let t = 1;
+                    while (pos.length < L) {
+                        if (!taken.has(t)) pos.push(t);
+                        t += 1;
+                    }
+                    m.rec.clashTails = [];
+                }
+                m.rec.overTails = pos.filter(p => p > 6);
+                pos.forEach(p => taken.add(p));
+                m.rec.positions = pos;
+                m.rec.moved = !pos.every((p, i) => p === i + 1);
+                if (m.rec.clashTails.length) clash = true;
+                if (m.rec.overTails.length) overflow = true;
+            }
+            for (const m of members) {
+                m.rec.share = members.length > 1 ? {
+                    key, number: m.rec.number, distroId: m.rec.distroId,
+                    clash, overflow,
+                    members: members.map(x => ({
+                        layerId: x.layer.id, layerName: x.layer.name,
+                        soca: x.rec.index, legs: x.rec.circuits.length,
+                        tails: x.rec.positions.slice(),
+                        clashTails: x.rec.clashTails.slice(),
+                        overTails: x.rec.overTails.slice(),
+                    })),
+                } : null;
+                m.rec.circuits.forEach((num, i) => m.entry.slots.set(num, {
+                    multi: m.rec.index, number: m.rec.number, name: m.rec.name,
+                    tail: m.rec.positions[i], moved: m.rec.moved,
+                }));
+            }
+        }
     }
 
     // Which multi and which PHYSICAL TAIL of its 6-way fan a circuit lands
