@@ -1173,6 +1173,29 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
    in this head is a real editor and keeps real text selection */
 .lrd-sec-click input { user-select: text; -webkit-user-select: text; }
 
+/* A distro row is a card (the register the processor cards wear), so the
+   boundary between distros is a drawn edge rather than a guessed gap - the
+   old rows ran together as one column of bars. Each folds through the same
+   head/body machinery; folded, the name field and the ✕ swap for the glance
+   line (.lrd-distro-glance: name · rating · load% · imbalance · multis).
+   The live pair sits INSIDE the head's title label - the arrow anchors
+   there too - so these selectors reach one level deeper than the processor
+   card's direct children. */
+.lrd-distro-card {
+    border: 1px solid #333;
+    border-radius: 4px;
+    padding: 8px;
+    background: #111;
+    margin-bottom: 8px;
+}
+.lrd-distro-glance { display: none; }
+.lrd-distro-card.lrd-sec-collapsed .lrd-sec-head .lrd-distro-glance {
+    display: inline;
+}
+.lrd-distro-card.lrd-sec-collapsed .lrd-sec-head .lrd-distro-live {
+    display: none;
+}
+
 /* Tiles (app-core.js _wireTiles): a port or a multi drawn as one dense cell
    of a wrapping grid, its editor folded inside it. Clicking the face opens
    the editor IN the tile - the tile takes the row's full width and the

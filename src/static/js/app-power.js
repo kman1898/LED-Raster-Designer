@@ -550,6 +550,143 @@ class _Power {
         return this.getLayerCircuitsRequired(layer, auto) || 0;
     }
 
+    // ---- multi splits --------------------------------------------------------
+    //
+    // How a screen's circuits group into multis used to be pure arithmetic -
+    // floor(ordinal / 6) - which is exactly why the reference show could not
+    // land "the 2 remaining circuits" on another box without hand-typed
+    // labels: the remainder was welded to its 6-block. A SPLIT breaks one
+    // multi at a user-chosen circuit boundary, and each resulting part is a
+    // multi in its own right - its own tile, its own (distro, number), so a
+    // 2-circuit tail can pin onto another box's free tails through the
+    // ordinary shared-soca gesture.
+    //
+    // The store is `layer.powerSocaSplits`: an array of 1-based circuit
+    // ordinals (position in the plan's circuit order, splitter merges
+    // already applied) after which a multi ends early. Boundaries compose
+    // with the fixed 6-grid rather than re-wrapping it: 14 circuits with a
+    // break after 2 read [1-2][3-6][7-12][13-14], so every multi AFTER the
+    // split keeps the span it always had and only the indexes step. No
+    // stored splits = the exact floor(/6) segmentation, byte for byte.
+
+    // Normalized read: distinct interior ordinals, ascending. Points at or
+    // past the end of the plan (the wall shrank) are ignored, not deleted -
+    // the same degrade-on-read rule the tail stores follow.
+    _socaSplitPoints(layer, count) {
+        const raw = (layer && layer.powerSocaSplits) || [];
+        if (!Array.isArray(raw)) return [];
+        return [...new Set(raw.map(n => parseInt(n, 10))
+            .filter(n => Number.isFinite(n) && n >= 1
+                && (count == null || n < count)))]
+            .sort((a, b) => a - b);
+    }
+
+    // The plan's multis as contiguous ordinal runs: [{index, start, end,
+    // userEnd}], 1-based inclusive. Boundaries are the fixed 6-grid plus
+    // every stored split point; `userEnd` marks a part whose END is a
+    // stored point - the boundary the Un-split control removes.
+    _socaSegments(layer, count) {
+        const n = Math.max(0, Number(count) || 0);
+        if (!n) return [];
+        const stored = new Set(this._socaSplitPoints(layer, n));
+        const segs = [];
+        let start = 1;
+        for (let i = 1; i <= n; i++) {
+            if (i === n || i % 6 === 0 || stored.has(i)) {
+                segs.push({ index: segs.length + 1, start, end: i,
+                            userEnd: stored.has(i) });
+                start = i + 1;
+            }
+        }
+        return segs;
+    }
+
+    // ordinal (1-based) -> soca index, flat for the per-circuit walks.
+    _socaIndexByOrdinal(segs) {
+        const idx = [];
+        segs.forEach(s => {
+            for (let i = s.start; i <= s.end; i++) idx[i] = s.index;
+        });
+        return idx;
+    }
+
+    // How many multis `count` circuits make on this screen - the split-aware
+    // replacement for ceil(count / 6), shared with the canvas info line.
+    socaCountFor(layer, count) {
+        return this._socaSegments(layer, count).length;
+    }
+
+    // Insert (delta +1) or remove (delta -1) one multi's slot at `at` in
+    // every per-multi store, the way an array splice would: a split gives
+    // the new second part a clean slate and every later multi keeps its
+    // name, distro, number, length and tails under its stepped index.
+    // Removal drops slot `at`'s own entries with it.
+    _spliceSocaStores(layer, at, delta) {
+        for (const field of ['powerSocaDistro', 'powerSocaLengths',
+                             'powerSocaPhasePos', 'powerSocaPhaseOffset',
+                             'powerSocaNames', 'powerSocaNumber']) {
+            const map = layer[field];
+            if (!map || typeof map !== 'object') continue;
+            const next = {};
+            for (const key of Object.keys(map)) {
+                const n = parseInt(key, 10);
+                // Not a multi index, so not ours to move - carried across,
+                // same rule as migrateSocaKeying.
+                if (!Number.isFinite(n)) { next[key] = map[key]; continue; }
+                if (delta > 0) next[n >= at ? n + 1 : n] = map[key];
+                else if (n === at) continue;
+                else next[n > at ? n - 1 : n] = map[key];
+            }
+            layer[field] = next;
+        }
+    }
+
+    // Break multi `socaIndex` after its `afterLeg`-th circuit (1..legs-1).
+    // The first part keeps the multi's identity - name, distro, number,
+    // length - and the second starts unassigned; its stored tail set is
+    // dropped because the arrangement covered circuits the part no longer
+    // has. Contiguous only: a boundary, never a reshuffle.
+    splitSocaAfter(layer, socaIndex, afterLeg) {
+        if (!layer) return false;
+        const count = this.screenCircuits(layer).length;
+        const segs = this._socaSegments(layer, count);
+        const seg = segs.find(s => s.index === Number(socaIndex));
+        const cut = parseInt(afterLeg, 10);
+        if (!seg || !Number.isFinite(cut) || cut < 1
+                || cut >= seg.end - seg.start + 1) return false;
+        const boundary = seg.start + cut - 1;
+        const points = this._socaSplitPoints(layer, count);
+        if (points.includes(boundary)) return false;
+        layer.powerSocaSplits = [...points, boundary].sort((a, b) => a - b);
+        this._spliceSocaStores(layer, Number(socaIndex) + 1, +1);
+        delete (layer.powerSocaPhasePos || {})[socaIndex];
+        delete (layer.powerSocaPhaseOffset || {})[socaIndex];
+        this._circuitTailCache = null;
+        this.updateLayers([layer], true, 'Split Multi');
+        return true;
+    }
+
+    // Remove the stored boundary at the end of part `socaIndex`: the part
+    // and its successor fall back into one natural block. The successor's
+    // stores go with its identity; the surviving multi keeps the first
+    // part's. Always safe - segmentation re-runs on the 6-grid, so a 6+2
+    // that came from a split simply becomes a natural 6+2.
+    unsplitSocaAfter(layer, socaIndex) {
+        if (!layer) return false;
+        const count = this.screenCircuits(layer).length;
+        const seg = this._socaSegments(layer, count)
+            .find(s => s.index === Number(socaIndex));
+        if (!seg || !seg.userEnd) return false;
+        layer.powerSocaSplits = this._socaSplitPoints(layer, count)
+            .filter(p => p !== seg.end);
+        this._spliceSocaStores(layer, Number(socaIndex) + 1, -1);
+        delete (layer.powerSocaPhasePos || {})[socaIndex];
+        delete (layer.powerSocaPhaseOffset || {})[socaIndex];
+        this._circuitTailCache = null;
+        this.updateLayers([layer], true, 'Un-split Multi');
+        return true;
+    }
+
     getSocaPlan(layer) {
         if (!layer) return [];
         const circuits = this.screenCircuits(layer);   // [{num, panels}] in circuit order
@@ -563,9 +700,13 @@ class _Power {
         // own template - see _powerNaming for why they cannot be.
         const nm = this._powerNaming(layer);
         const socas = new Map();
+        // Which multi each circuit belongs to comes from the split-aware
+        // segmentation, not floor(/6) - identical while no split is stored.
+        const segs = this._socaSegments(layer, circuits.length);
+        const idxOf = this._socaIndexByOrdinal(segs);
         circuits.forEach((c, ci) => {
-            const n = Math.floor(ci / 6) + 1;
-            const leg = (ci % 6) + 1;
+            const n = idxOf[ci + 1];
+            const leg = ci + 2 - segs[n - 1].start;
             // A cross-member circuit carries cabinets from a PEER layer, and
             // those cabinets draw the peer's wattage, not the owner's -
             // screenCircuits hands back `layers` index-aligned with `panels`
@@ -834,6 +975,31 @@ class _Power {
         return out;
     }
 
+    // Other multis on this multi's distro that DISPLAY the same name while
+    // sitting on a DIFFERENT number. Same name on the same number IS the
+    // shared-box gesture; the same name across two numbers is two labels
+    // claiming one box on paper while the patch says two boxes - never
+    // intentional now that sharing is a pin. Flagged on the tiles, never
+    // blocked: the fix is either pinning both to one number (one box) or
+    // renaming one (two boxes), and that is the user's call.
+    _socaNameCollisions(layer, socaIndex) {
+        if (!layer) return [];
+        const rec = this._powerNaming(layer).socas.get(Number(socaIndex));
+        if (!rec || !rec.distroId || !rec.name) return [];
+        const out = [];
+        for (const l of ((this.project && this.project.layers) || [])) {
+            if ((l.type || 'screen') !== 'screen') continue;
+            for (const other of this._powerNaming(l).socas.values()) {
+                if (l.id === layer.id && other.index === rec.index) continue;
+                if (other.distroId !== rec.distroId) continue;
+                if (other.number === rec.number) continue;
+                if (String(other.name) !== String(rec.name)) continue;
+                out.push({ layerName: l.name, number: other.number });
+            }
+        }
+        return out;
+    }
+
     // "4-6" for [4,5,6], "1-3, 5" for [1,2,3,5] - the way a tail set is
     // said out loud on a tile face.
     _fmtTails(tails) {
@@ -862,13 +1028,19 @@ class _Power {
         this.updateLayers([layer], true, 'Rename Multi');
     }
 
-    // Every PARTLY-FILLED multi in the show that lands on a 3-phase distro,
-    // with the tail set it currently occupies. The unit of balancing is the
-    // multi, so this is what the balancer searches over. Full multis are
-    // excluded: under the wall-order rule the only lever is WHICH tails a
-    // multi uses, and a 6-circuit multi uses all six - there is nothing to
-    // choose.
-    _balanceTargets() {
+    // Every PARTLY-FILLED multi that lands on a 3-phase distro, with the
+    // tail set it currently occupies. The unit of balancing is the multi,
+    // so this is what the balancer searches over. Full multis are excluded:
+    // under the wall-order rule the only lever is WHICH tails a multi uses,
+    // and a 6-circuit multi uses all six - there is nothing to choose.
+    //
+    // `distroId` scopes the walk to one distro. Balancing is per distro now
+    // (each Balance button lives on its distro's row): legs never interact
+    // across services, so a show-wide pass was only ever N independent
+    // problems solved at once - and it moved multis on distros the user was
+    // not looking at. No argument keeps the show-wide walk for the callers
+    // that genuinely want every distro (clearPhaseBalance's preview, tests).
+    _balanceTargets(distroId) {
         const out = [];
         const distros = this.getDistros();
         const seenBoxes = new Set();
@@ -879,6 +1051,7 @@ class _Power {
             for (const s of this.getSocaPlan(layer)) {
                 const d = distros.find(x => x.id === assign[s.soca]);
                 if (!d || d.phase !== 3) continue;
+                if (distroId && d.id !== distroId) continue;
                 const share = this.getSocaShare(layer, s.soca);
                 if (share) {
                     // A shared box is ONE multi to the balancer: its
@@ -942,6 +1115,68 @@ class _Power {
         return out;
     }
 
+    // Why nothing on this distro is movable, said in the balancer's own
+    // terms. The reference show pressed Balance and read silence: the DJ
+    // booths' three multis were assigned to C2 but the grouped wall's auto
+    // plan errors out, so the multis do not EXIST - and the dialog computed
+    // to a no-op without saying why. Every reason a multi is passed over is
+    // collected here so the no-targets dialog can state them instead:
+    //   full     6-circuit multis (and full shared boxes) - nothing to choose
+    //   clashed  shared boxes left alone until their tail clash/overflow is
+    //            resolved
+    //   phantom  screens whose powerSocaDistro names this distro for a multi
+    //            the current circuit plan does not produce - an empty plan
+    //            (power error, peer-served member) or one that shrank
+    _balanceBlockers(distroId) {
+        const out = { full: [], clashed: [], phantom: [] };
+        if (!distroId) return out;
+        const seenBoxes = new Set();
+        for (const layer of (this.project.layers || [])) {
+            if ((layer.type || 'screen') !== 'screen') continue;
+            const assign = layer.powerSocaDistro || {};
+            const plan = this.getSocaPlan(layer);
+            for (const s of plan) {
+                if (assign[s.soca] !== distroId) continue;
+                const share = this.getSocaShare(layer, s.soca);
+                if (share) {
+                    if (seenBoxes.has(share.key)) continue;
+                    seenBoxes.add(share.key);
+                    // deduped: a box whose members are two multis of ONE
+                    // screen should not name the screen twice
+                    const names = [...new Set(share.members
+                        .map(m => m.layerName))].join(' + ');
+                    if (share.clash || share.overflow) {
+                        out.clashed.push({ name: s.name, layers: names,
+                            overflow: !!share.overflow });
+                    } else if (share.members.reduce((t, m) => t + m.legs, 0) >= 6) {
+                        out.full.push({ name: s.name, layers: names });
+                    }
+                    continue;
+                }
+                if (s.legs.length >= 6) {
+                    out.full.push({ name: s.name, layers: layer.name });
+                }
+            }
+            // Assignments pointing past the plan: the multi the user set up
+            // is not in the drawing any more. Say so - this is exactly the
+            // state that reads as "balancing won't calculate".
+            const have = new Set(plan.map(s => s.soca));
+            const missing = Object.keys(assign)
+                .filter(k => assign[k] === distroId
+                    && !have.has(parseInt(k, 10)));
+            if (missing.length) {
+                out.phantom.push({
+                    layers: layer.name, count: missing.length,
+                    reason: plan.length
+                        ? 'the circuit plan no longer reaches that multi'
+                        : (this._socaPlanEmptyReason(layer)
+                            || 'the screen routes no circuits'),
+                });
+            }
+        }
+        return out;
+    }
+
     // Deal a shared box's chosen tail SET across its members: ascending
     // tails to members in member order, each member's slice ascending - the
     // box-wide statement of the wall-order rule.
@@ -956,10 +1191,11 @@ class _Power {
         }
     }
 
-    // Worst imbalance across every 3-phase distro, which is what we minimise.
-    _worstImbalance() {
+    // Worst imbalance, which is what we minimise - across every 3-phase
+    // distro show-wide, or over the one distro a scoped balance is working.
+    _worstImbalance(distroId) {
         return this.getDistroLoads()
-            .filter(b => b.id && b.legs)
+            .filter(b => b.id && b.legs && (!distroId || b.id === distroId))
             .reduce((m, b) => Math.max(m, b.imbalancePct), 0);
     }
 
@@ -976,9 +1212,13 @@ class _Power {
     // over the last few percent of imbalance.
     //
     // Nothing is persisted; the project is restored before returning.
-    suggestPhaseBalance() {
-        const targets = this._balanceTargets();
-        const before = this._worstImbalance();
+    //
+    // `distroId` scopes both the targets and the figure being minimised to
+    // one distro - the per-distro Balance button's path. Unscoped remains
+    // the show-wide search it always was.
+    suggestPhaseBalance(distroId) {
+        const targets = this._balanceTargets(distroId);
+        const before = this._worstImbalance(distroId);
         if (!targets.length) return { before, after: before, targets: [], moves: [], searched: 0 };
 
         // For a shared box `positions` is the combined tail SET (ascending)
@@ -992,7 +1232,7 @@ class _Power {
             store[t.soca] = current[i].slice();
         });
         let searched = 0;
-        const score = () => { write(); searched += 1; return this._worstImbalance(); };
+        const score = () => { write(); searched += 1; return this._worstImbalance(distroId); };
 
         let best = score();
         for (let pass = 0; pass < 40; pass++) {
@@ -1090,16 +1330,40 @@ class _Power {
     // Show what the balancer found and let the user accept or decline it.
     // Advisory by design: this moves a multi to a different set of breakers
     // on paper, and somebody still has to plug it in that way.
-    showBalanceDialog() {
-        const r = this.suggestPhaseBalance();
+    //
+    // Scoped to one distro when `distroId` is given - the per-distro
+    // Balance button's dialog reports that distro's before/after and moves
+    // only its multis. With nothing movable it STATES why (full multis,
+    // clashed boxes, assignments the plan no longer produces) rather than
+    // computing silently to a no-op: the reference show read that silence
+    // as "balancing won't calculate".
+    showBalanceDialog(distroId) {
+        const r = this.suggestPhaseBalance(distroId);
         const ID = 'balance-modal';
         document.getElementById(ID)?.remove();
         const esc = (s) => this._esc ? this._esc(s) : s;
         const gain = r.before - r.after;
-        const body = !r.targets.length
-            ? `<p style="margin:0; color:#a6b0bb;">Every multi on a three-phase distro is full, so the legs are already
+        const distro = distroId
+            ? this.getDistros().find(d => d.id === distroId) : null;
+        let noTargets = `<p style="margin:0; color:#a6b0bb;">Every multi on a three-phase distro is full, so the legs are already
                as even as the pattern allows. Imbalance comes from partly-filled
-               multis — there are none here.</p>`
+               multis — there are none here.</p>`;
+        if (distroId) {
+            const b = this._balanceBlockers(distroId);
+            const lines = [];
+            if (b.full.length) lines.push(
+                `${b.full.map(f => esc(f.name)).join(', ')} ${b.full.length === 1 ? 'is' : 'are'} full — a 6-circuit multi balances itself, there is nothing to choose.`);
+            b.clashed.forEach(c => lines.push(
+                `${esc(c.name)} (${esc(c.layers)}) is a shared box ${c.overflow
+                    ? 'with more circuits than its six tails hold'
+                    : 'with a tail claimed twice'} — resolve the clash first.`));
+            b.phantom.forEach(p => lines.push(
+                `${esc(p.layers)} assigns ${p.count === 1 ? 'a multi' : p.count + ' multis'} to this distro but ${esc(p.reason)}`));
+            noTargets = `<p style="margin:0 0 6px; color:#a6b0bb;">Nothing on this distro can move${lines.length ? ':' : ' — no partly-filled multi lands on it.'}</p>`
+                + lines.map(l => `<div style="color:#a6b0bb; margin:0 0 4px; padding-left:10px;">· ${l}</div>`).join('');
+        }
+        const body = !r.targets.length
+            ? noTargets
             : !r.moves.length
             ? `<p style="margin:0; color:#a6b0bb;">Checked ${r.searched} arrangement${r.searched === 1 ? '' : 's'} of
                ${r.targets.length} partly-filled multi${r.targets.length === 1 ? '' : 's'} and could not beat the current
@@ -1138,7 +1402,7 @@ class _Power {
         el.innerHTML = `
 <div class="modal-content" style="background:#252525; border-radius:8px; padding:0; width:540px; max-width:94vw; margin:80px auto; border:1px solid #3a3a3a; overflow:hidden;">
   <div style="display:flex; align-items:center; justify-content:space-between; padding:14px 20px; border-bottom:1px solid #3a3a3a;">
-    <h2 style="margin:0; font-size:15px; letter-spacing:0.5px;">BALANCE PHASE LEGS</h2>
+    <h2 style="margin:0; font-size:15px; letter-spacing:0.5px;">BALANCE PHASE LEGS${distro ? ` — ${esc(distro.name).toUpperCase()}` : ''}</h2>
     <button class="btn btn-secondary balance-close" style="padding:4px 12px;">✕</button>
   </div>
   <div style="padding:16px 20px; font-size:12px; line-height:1.55;">${body}</div>
@@ -1167,7 +1431,9 @@ class _Power {
         };
         const resetBtn = el.querySelector('.balance-reset');
         if (resetBtn) resetBtn.addEventListener('click', () => {
-            this.clearPhaseBalance();
+            // A scoped dialog resets only its own distro's multis - the
+            // other services' arrangements are not this button's to drop.
+            this.clearPhaseBalance(distroId);
             el.remove();
             refreshAll();
         });
@@ -1551,10 +1817,24 @@ class _Power {
         this.updateLayers([layer], true, 'Set Breaker Offset');
     }
 
-    // Drop every multi back to its natural breaker position.
-    clearPhaseBalance() {
+    // Drop every multi back to its natural breaker position - show-wide, or
+    // only the multis assigned to one distro when `distroId` is given (the
+    // scoped balance dialog's reset).
+    clearPhaseBalance(distroId) {
         const screens = (this.project.layers || []).filter(l => (l.type || 'screen') === 'screen');
-        screens.forEach(l => { l.powerSocaPhaseOffset = {}; l.powerSocaPhasePos = {}; });
+        if (!distroId) {
+            screens.forEach(l => { l.powerSocaPhaseOffset = {}; l.powerSocaPhasePos = {}; });
+        } else {
+            screens.forEach(l => {
+                const assign = l.powerSocaDistro || {};
+                for (const store of [l.powerSocaPhaseOffset, l.powerSocaPhasePos]) {
+                    if (!store) continue;
+                    for (const k of Object.keys(store)) {
+                        if (assign[k] === distroId) delete store[k];
+                    }
+                }
+            });
+        }
         this._circuitTailCache = null;
         if (screens.length) this.updateLayers(screens, true, 'Reset Phase Offsets');
         return screens.length;
@@ -1730,10 +2010,13 @@ class _Power {
                  the group wraps in turn once even it runs out of room. The
                  heading takes the slack instead of a spacer span, so a wrapped
                  line has nothing stretched across it. -->
+            <!-- Balance moved onto each distro's own row: legs never
+                 interact across services, so a show-wide button was N
+                 independent problems behind one control - and it moved
+                 multis on distros the user was not looking at. -->
             <div class="lrd-sec-head" data-lrd-sec="power-distros" style="display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:6px;">
                 <label style="font-weight:600; flex:1 1 auto;" data-tooltip="Power distros, Project-level power sources. Assign each multi to one and the load rolls up here across every screen.">Power Distros</label>
                 <div style="display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; margin-left:auto;">
-                    <button id="power-distro-balance" data-lrd-field="power-distro-balance" class="btn btn-secondary" style="padding:2px 10px; white-space:nowrap;" data-tooltip="Balance legs, Searches which set of six breakers each partly-filled multi should land on. A full multi balances itself, so only short ones move. Nothing changes until you accept it.">Balance</button>
                     <button id="power-distro-add" data-lrd-field="power-distro-add" class="btn btn-secondary" style="padding:2px 10px; white-space:nowrap;">+ Add</button>
                 </div>
             </div>
@@ -1775,21 +2058,45 @@ class _Power {
                     }
                     phasingOptions = offered.map(sc => `<option value="${sc.id}" ${ph.explicit && ph.scheme.id === sc.id ? 'selected' : ''}>${sc.name}</option>`).join('');
                 }
-                return `<div class="power-distro-row" data-id="${d.id || ''}" style="margin-bottom:12px;">
+                // The folded face: everything a glance needs, red only when
+                // something is wrong (the .value-normal doctrine).
+                const glanceBad = d.over || (d.legs && d.legs.over);
+                const glance = [
+                    `${d.ratingA} A`,
+                    `${Math.round(d.pct)}%${d.over ? ' OVER' : ''}`,
+                    d.legs ? (d.imbalancePct > 1 ? `±${Math.round(d.imbalancePct)}%` : 'even') : null,
+                    `${d.socas.length} multi${d.socas.length === 1 ? '' : 's'}`,
+                ].filter(Boolean).join(' · ');
+                return `<div class="power-distro-row lrd-distro-card" data-id="${d.id || ''}">
                     ${d.id ? `
-                    <div style="display:flex; gap:5px; align-items:center; margin-bottom:4px;">
-                        <input type="text" class="distro-name" data-lrd-field="distro-name-${d.id}" value="${esc(d.name).replace(/"/g, '&quot;')}" style="flex:1; min-width:60px;" data-tooltip="Name this power source.">
-                        <button class="btn btn-secondary distro-del" data-lrd-field="distro-del-${d.id}" style="padding:1px 7px; flex:none;">✕</button>
+                    <!-- The head is the fold handle (same machinery the
+                         processor cards ride): arrow click or head
+                         double-click folds, state persists per distro id.
+                         Folded, the name field and the ✕ give way to the
+                         glance line; Balance stays out of the live class on
+                         purpose - it is the row's one action and works
+                         folded or open. -->
+                    <div class="lrd-sec-head" data-lrd-sec="power-distro-${d.id}" style="display:flex; flex-wrap:wrap; gap:5px; align-items:center;">
+                        <label style="flex:1 1 auto; min-width:0; display:flex; gap:5px; align-items:center; font-weight:600;">
+                            <input type="text" class="distro-name lrd-distro-live" data-lrd-field="distro-name-${d.id}" value="${esc(d.name).replace(/"/g, '&quot;')}" style="flex:1; min-width:60px;" data-tooltip="Name this power source.">
+                            <span class="lrd-distro-glance" style="font-size:11px; min-width:0; color:${glanceBad ? '#e05050' : 'var(--ps-dim, #b8b8b8)'};"><strong style="color:${glanceBad ? '#e05050' : 'var(--ps-text, #e0e0e0)'};">${esc(d.name)}</strong> · ${glance}</span>
+                        </label>
+                        ${d.phase === 3 ? `<button class="btn btn-secondary distro-balance" data-lrd-field="distro-balance-${d.id}" style="padding:1px 8px; flex:none; white-space:nowrap;" data-tooltip="Balance legs, Searches which set of six breakers each partly-filled multi on THIS distro should land on. A full multi balances itself, so only short ones move. Nothing changes until you accept it.">Balance</button>` : ''}
+                        <button class="btn btn-secondary distro-del lrd-distro-live" data-lrd-field="distro-del-${d.id}" style="padding:1px 7px; flex:none;">✕</button>
                     </div>
+                    <div class="lrd-sec-body">
                     <!-- Same wrap, same reason as the heading above. Voltage
                          and phase travel as one group so they drop to the
                          second line together rather than one at a time, and
                          the group's flex-basis is short enough that the whole
-                         row still fits on one line at the 260px default. -->
+                         row still fits on one line at the 260px default -
+                         now INSIDE the card's padding, which is why the
+                         basis is tighter than it was when the row ran to
+                         the sidebar's own edge. -->
                     <div style="display:flex; flex-wrap:wrap; gap:5px; align-items:center; margin-bottom:4px;">
                         <input type="number" class="distro-rating" data-lrd-field="distro-rating-${d.id}" value="${d.ratingA}" min="1" style="width:56px;" data-tooltip="Rating, Service rating in amps.">
                         <span style="font-size:10px; color:var(--ps-faint, #999);">A</span>
-                        <div style="display:flex; gap:5px; align-items:center; flex:1 1 110px; min-width:0;">
+                        <div style="display:flex; gap:5px; align-items:center; flex:1 1 90px; min-width:0;">
                             <select class="distro-voltage info-select" data-lrd-field="distro-voltage-${d.id}" style="width:70px; min-width:0;">
                                 ${[110, 120, 208, 220, 230, 240, 400, 415].map(v => `<option value="${v}" ${d.voltage === v ? 'selected' : ''}>${v}V</option>`).join('')}
                             </select>
@@ -1865,7 +2172,7 @@ class _Power {
                         </div>
                     </div>` : ''}
                     <div style="font-size:10px; color:var(--ps-faint, #909090); margin-top:3px;">${feeds}</div>
-                </div>`;
+                ${d.id ? '</div>' : ''}</div>`;
             }).join('') : '<div style="font-size:11px; color:var(--ps-faint, #888); padding:4px 0;">No distros yet — add one, then assign multis to it.</div>'}
             </div>`;
         if (typeof this._wireSectionCollapse === 'function') this._wireSectionCollapse(host);
@@ -1882,8 +2189,6 @@ class _Power {
             }
             this._restateNaming();
         });
-        const bal = host.querySelector('#power-distro-balance');
-        if (bal) bal.addEventListener('click', () => this.showBalanceDialog());
         host.querySelectorAll('.power-distro-row').forEach(row => {
             const id = row.dataset.id;
             if (!id) return;
@@ -1907,9 +2212,18 @@ class _Power {
             if (loc) loc.addEventListener('change', () => patch({ location: loc.value }));
             const phHelp = row.querySelector('.distro-phasing-help');
             if (phHelp) phHelp.addEventListener('click', () => this.showPhasingHelp());
+            const bal = row.querySelector('.distro-balance');
+            if (bal) bal.addEventListener('click', () =>
+                this.showBalanceDialog(id));
             const del = row.querySelector('.distro-del');
             if (del) del.addEventListener('click', () => {
                 this.removeDistro(id);
+                // The distro is gone and its id never comes back, so its
+                // fold key goes with it - same as a removed processor's.
+                try {
+                    localStorage.removeItem(
+                        `ledRasterPanelCollapsed_power-distro-${id}`);
+                } catch (_) { /* blocked storage never held the key */ }
                 this._restateNaming();
             });
         });
@@ -2010,7 +2324,9 @@ class _Power {
                 </select>
             </div>
             <div class="lrd-tile-grid lrd-tile-grid-wide" style="margin:6px 0;">
-            ${plan.map(s => {
+            ${(() => { const segsAll = this._socaSegments(
+                layer, this.screenCircuits(layer).length); return plan.map(s => {
+                const seg = segsAll.find(x => x.index === s.soca) || null;
                 const assigned = (layer.powerSocaDistro || {})[s.soca] || '';
                 const esc = (t) => this._esc ? this._esc(t) : t;
                 const hand = ((layer.powerSocaNames || {})[s.soca] || '');
@@ -2070,13 +2386,17 @@ class _Power {
                 const share = this.getSocaShare(layer, s.soca);
                 const tails = s.legs.map(l => l.leg);
                 const shareClash = !!(share && (share.clash || share.overflow));
-                const face = share
+                // Two multis on this distro wearing one name on two numbers:
+                // the tile says so - a label problem, not a block.
+                const collisions = this._socaNameCollisions(layer, s.soca);
+                const face = (share
                     ? `${esc(s.name)} · tails ${this._fmtTails(tails)} · ${s.amps.toFixed(1)} A${shareClash ? ' · TAIL CLASH' : ''}`
-                    : `${esc(s.name)} · ${s.legs.length} leg${s.legs.length === 1 ? '' : 's'} · ${s.amps.toFixed(1)} A`;
+                    : `${esc(s.name)} · ${s.legs.length} leg${s.legs.length === 1 ? '' : 's'} · ${s.amps.toFixed(1)} A`)
+                    + (collisions.length ? ' · SAME NAME' : '');
                 const others = share ? share.members.filter(m =>
                     !(m.layerId === layer.id && m.soca === s.soca)) : [];
                 const shareNote = share ? `
-                        <div style="flex:1 1 100%; font-size:10px; color:${shareClash ? '#e05050' : 'var(--ps-faint, #999)'};">
+                        <div class="power-soca-share-note" style="flex:1 1 100%; font-size:10px; color:${shareClash ? '#e05050' : 'var(--ps-faint, #999)'};">
                             One physical multi — ${share.members.map(m =>
                                 `${esc(m.layerName)} tails ${this._fmtTails(m.tails)}`).join(' · ')}${
                             shareClash ? (share.overflow
@@ -2103,9 +2423,22 @@ class _Power {
                             <label class="power-soca-field-label" style="font-weight:400; display:block; margin-bottom:2px;">Length</label>
                             <input type="text" class="power-soca-length" data-soca="${s.soca}" data-lrd-field="power-soca-length-${s.soca}" value="${(s.length || '').replace(/"/g, '&quot;')}" placeholder="e.g. 100ft" style="width:100%; min-width:0; box-sizing:border-box;">
                         </div>
+                        ${s.legs.length > 1 || (seg && seg.userEnd) ? `
+                        <div style="flex:1 1 100%; display:flex; gap:5px; align-items:center;">
+                            ${s.legs.length > 1 ? `
+                            <select class="power-soca-split info-select" data-soca="${s.soca}" data-lrd-field="power-soca-split-${s.soca}" style="flex:1 1 auto; min-width:0;" data-tooltip="Split multi, Break this multi after a chosen circuit. Each part is a multi of its own — its own distro and number — so a short remainder can join another box's free tails.">
+                                <option value="">Split…</option>
+                                ${s.legs.slice(0, -1).map((l, i) => `<option value="${i + 1}">after ${esc(l.label)}</option>`).join('')}
+                            </select>` : ''}
+                            ${seg && seg.userEnd ? `<button class="btn btn-secondary power-soca-unsplit" data-soca="${s.soca}" data-lrd-field="power-soca-unsplit-${s.soca}" style="padding:2px 10px; flex:none;" data-tooltip="Un-split, Rejoin this multi with the next — the split boundary goes away and the circuits fall back into natural blocks of six.">Un-split</button>` : ''}
+                        </div>` : ''}
+                        ${collisions.length ? `
+                        <div class="power-soca-name-note" style="flex:1 1 100%; font-size:10px; color:#d8a13c;">
+                            also named ${esc(s.name)} on this distro — ${collisions.map(c => `${esc(c.layerName)} at No. ${c.number}`).join(', ')}. Same box? Pin both to No. ${Math.min(s.number, ...collisions.map(c => c.number))}.
+                        </div>` : ''}
                         ${shareNote}
                     </div>
-                </div>`; }).join('')}
+                </div>`; }).join(''); })()}
             </div>
             <div class="info-row checkbox-row" data-tooltip="Soca Brackets, Draw a bracket over each multi's span on the power map with its name and home-run length.">
                 <!-- OFF unless explicitly ticked (=== true, matching the
@@ -2135,6 +2468,22 @@ class _Power {
                 this.setSocaNumber(layer, Number(sel.dataset.soca), sel.value || null);
                 // A pin renumbers its whole distro bucket and can merge or
                 // split a shared box - every surface a name reaches restates.
+                this._restateNaming();
+            });
+        });
+        host.querySelectorAll('.power-soca-split').forEach(sel => {
+            sel.addEventListener('change', () => {
+                if (!sel.value) return;
+                this.splitSocaAfter(layer, Number(sel.dataset.soca),
+                                    Number(sel.value));
+                // A split makes a new multi, renumbers the bucket and moves
+                // every label after the boundary - full restate.
+                this._restateNaming();
+            });
+        });
+        host.querySelectorAll('.power-soca-unsplit').forEach(btn => {
+            btn.addEventListener('click', () => {
+                this.unsplitSocaAfter(layer, Number(btn.dataset.soca));
                 this._restateNaming();
             });
         });
@@ -2854,7 +3203,7 @@ class _Power {
             circuitsBy.set(l, circuits);
             const assign = l.powerSocaDistro || {};
             const chosen = l.powerSocaNumber || {};
-            const count = Math.ceil(circuits.length / 6);
+            const count = this._socaSegments(l, circuits.length).length;
             for (let idx = 1; idx <= count; idx++) {
                 // A pin means nothing off a distro: the number is the slot on
                 // a physical box, and with no box named there is no slot.
@@ -2919,8 +3268,12 @@ class _Power {
         const chosen = layer.powerSocaNumber || {};
         const distros = this.getDistros();
         const perSoca = new Map();      // socaIndex -> [circuit num], plan order
+        // Same split-aware segmentation as getSocaPlan - the naming index
+        // and the plan must never disagree on what a multi is.
+        const idxOf = this._socaIndexByOrdinal(
+            this._socaSegments(layer, circuits.length));
         circuits.forEach((c, ci) => {
-            const idx = Math.floor(ci / 6) + 1;
+            const idx = idxOf[ci + 1];
             const arr = perSoca.get(idx) || [];
             arr.push(c.num);
             perSoca.set(idx, arr);

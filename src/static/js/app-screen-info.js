@@ -1408,6 +1408,7 @@ class _ScreenInfo {
                     powerSocaDistro: this.currentLayer.powerSocaDistro,
                     powerSocaNames: this.currentLayer.powerSocaNames,
                     powerSocaNumber: this.currentLayer.powerSocaNumber,
+                    powerSocaSplits: this.currentLayer.powerSocaSplits,
                     powerSocaKeying: this.currentLayer.powerSocaKeying,
                     powerBreakoutType: this.currentLayer.powerBreakoutType,
                     showSocaBrackets: this.currentLayer.showSocaBrackets,
@@ -1557,10 +1558,12 @@ class _ScreenInfo {
                 'powerSocaPhasePos', 'powerSocaDistro', 'powerBreakoutType',
                 'showSocaBrackets', 'powerSplitters',
                 // The names typed onto multis, the numbers pinned onto them
-                // (the shared-box key), and the stamp saying the stores
-                // above are keyed by the multi's stable index. Drop the
-                // stamp here and the rekey runs a second time on reload.
-                'powerSocaNames', 'powerSocaNumber', 'powerSocaKeying'
+                // (the shared-box key), the circuit boundaries a multi was
+                // split at, and the stamp saying the stores above are keyed
+                // by the multi's stable index. Drop the stamp here and the
+                // rekey runs a second time on reload.
+                'powerSocaNames', 'powerSocaNumber', 'powerSocaSplits',
+                'powerSocaKeying'
             ];
 
             return fetch(`/api/layer/${layer.id}`, {

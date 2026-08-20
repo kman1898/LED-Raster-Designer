@@ -258,6 +258,24 @@ WRITE_PATHS = [
      """(ids) => { window.app.clearPhaseBalance(); }""",
      """(ids) => { const l = window.app.project.layers.find(x => x.id === ids[0]);
         return JSON.stringify(l.powerSocaPhasePos || {}); }"""),
+    ("Split Multi",
+     None,
+     """(ids) => { const app = window.app;
+        const l = app.project.layers.find(x => x.id === ids[0]);
+        app.splitSocaAfter(l, 1, 2); }""",
+     """(ids) => { const l = window.app.project.layers.find(x => x.id === ids[0]);
+        return JSON.stringify([l.powerSocaSplits || [], l.powerSocaDistro || {}]); }"""),
+    ("Un-split Multi",
+     # Seed through the recording splitter, so the un-split under test
+     # undoes back to a split state history actually holds.
+     """(ids) => { const app = window.app;
+        const l = app.project.layers.find(x => x.id === ids[0]);
+        app.splitSocaAfter(l, 1, 2); }""",
+     """(ids) => { const app = window.app;
+        const l = app.project.layers.find(x => x.id === ids[0]);
+        app.unsplitSocaAfter(l, 1); }""",
+     """(ids) => { const l = window.app.project.layers.find(x => x.id === ids[0]);
+        return JSON.stringify(l.powerSocaSplits || []); }"""),
     ("Add Distro",
      None,
      """(ids) => { window.app.addDistro({ name: 'CAMLOK A' }); }""",

@@ -1515,3 +1515,203 @@ def test_the_separated_name_reaches_panel_feeds_and_editor(page):
     assert out['placeholder'] == 'DISTRO 1-1'
     assert ['DISTRO 1-1', 'DISTRO 1-2'] in out['feeds'], out['feeds']
     assert out['editorLabel'] == 'DISTRO 1-2-1'
+
+
+# ── per-distro balance: each distro's row carries its own button ──────────
+#
+# Legs never interact across services, so the show-wide Balance was N
+# independent problems behind one control - and it moved multis on distros
+# the user was not looking at. The button lives on the distro's row now,
+# the search and the dialog scope to that distro, and a no-op SAYS why.
+
+BALANCE_SCOPE_JS = """(distroId) => {
+    const ph = window.__ph;
+    // E1 carries a full multi and a partial one; E2 its own partial one.
+    const A = ph.col5(61, 'WallA', 4, { powerSocaDistro: { 1: 'e1' } });
+    const F = ph.col5(62, 'WallF', 6, { offset_x: 2000,
+        powerSocaDistro: { 1: 'e1' } });
+    const B = ph.col5(63, 'WallB', 4, { offset_x: 4000,
+        powerSocaDistro: { 1: 'e2' } });
+    return ph.withProject({
+        layers: [A, F, B],
+        distros: [ph.box('e1', 'E1'), ph.box('e2', 'E2')],
+    }, () => {
+        window.app._circuitTailCache = null;
+        const r = window.app.suggestPhaseBalance(distroId);
+        return { targets: r.targets, moves: r.moves.map(m => m.name),
+                 before: r.before, after: r.after };
+    });
+}"""
+
+
+def test_balance_scopes_targets_to_one_distro(page):
+    """suggestPhaseBalance('e1') searches only E1's partly-filled multis -
+    the full one is skipped, and E2's multi never appears in targets or
+    moves. Scoping to e2 mirrors it. No argument keeps the show-wide walk."""
+    e1 = page.evaluate(BALANCE_SCOPE_JS, 'e1')
+    assert e1['targets'] == ['E1-1 (WallA, 4 circuits)'], e1
+    assert all('E2' not in m for m in e1['moves']), e1
+
+    e2 = page.evaluate(BALANCE_SCOPE_JS, 'e2')
+    assert e2['targets'] == ['E2-1 (WallB, 4 circuits)'], e2
+
+    both = page.evaluate(BALANCE_SCOPE_JS, None)
+    assert len(both['targets']) == 2, both
+
+
+def test_the_balance_button_is_per_distro_now(page):
+    """No show-wide #power-distro-balance survives; every 3-phase distro row
+    carries its own .distro-balance and a single-phase distro gets none -
+    there are no legs to balance on one phase."""
+    out = page.evaluate("""() => {
+        const ph = window.__ph;
+        const A = ph.col5(64, 'WallA', 4, { powerSocaDistro: { 1: 'e1' } });
+        const result = ph.withProject({
+            layers: [A],
+            distros: [ph.box('e1', 'E1'),
+                      { id: 'e3', name: 'EDISON', ratingA: 100,
+                        voltage: 120, phase: 1 }],
+        }, () => {
+            window.app.refreshDistroPanel();
+            const rows = [...document.querySelectorAll(
+                '#power-distros .power-distro-row')];
+            return {
+                showWide: !!document.getElementById('power-distro-balance'),
+                perRow: rows.map(r => ({ id: r.dataset.id,
+                    balance: !!r.querySelector('.distro-balance') })),
+            };
+        });
+        window.app.refreshDistroPanel();
+        return result;
+    }""")
+    assert out['showWide'] is False, 'the show-wide button is gone'
+    byId = {r['id']: r['balance'] for r in out['perRow']}
+    assert byId['e1'] is True, out
+    assert byId['e3'] is False, 'a single-phase distro has no legs to balance'
+
+
+def test_scoped_dialog_reports_that_distro(page):
+    """The dialog a distro's own Balance opens carries the distro's name and
+    proposes moves only for its multis."""
+    out = page.evaluate("""() => {
+        const ph = window.__ph;
+        const A = ph.col5(65, 'WallA', 4, { powerSocaDistro: { 1: 'e1' } });
+        const B = ph.col5(66, 'WallB', 4, { offset_x: 4000,
+            powerSocaDistro: { 1: 'e2' } });
+        return ph.withProject({
+            layers: [A, B],
+            distros: [ph.box('e1', 'E1'), ph.box('e2', 'E2')],
+        }, () => {
+            window.app._circuitTailCache = null;
+            window.app.showBalanceDialog('e1');
+            const el = document.getElementById('balance-modal');
+            const text = el ? el.innerText : '';
+            if (el) el.remove();
+            return { text };
+        });
+    }""")
+    assert 'E1' in out['text'], out
+    assert 'WallB' not in out['text'], "the other distro's multis stay out"
+
+
+def test_a_scoped_no_op_states_why_nothing_is_movable(page):
+    """The reference show pressed Balance and read silence: the DJ booths'
+    multis were assigned to the distro but the plan produces none of them.
+    A scoped dialog with no targets now states every reason - full multis,
+    and assignments the circuit plan no longer reaches."""
+    out = page.evaluate("""() => {
+        const ph = window.__ph;
+        // one FULL multi, plus an assignment pointing at a multi the plan
+        // does not produce (the phantom the DJ booths hit)
+        const F = ph.col5(67, 'WallF', 6, {
+            powerSocaDistro: { 1: 'e1', 9: 'e1' } });
+        return ph.withProject({
+            layers: [F], distros: [ph.box('e1', 'E1')],
+        }, () => {
+            window.app._circuitTailCache = null;
+            window.app.showBalanceDialog('e1');
+            const el = document.getElementById('balance-modal');
+            const text = el ? el.innerText : '';
+            if (el) el.remove();
+            return { text };
+        });
+    }""")
+    assert 'Nothing on this distro can move' in out['text'], out
+    assert 'full' in out['text'], out
+    assert 'WallF' in out['text'], out
+    assert 'no longer reaches' in out['text'], out
+
+
+# ── distro rows are cards that fold to a glance line ──────────────────────
+
+DISTRO_FOLD_JS = """(cfg) => {
+    const ph = window.__ph;
+    const A = ph.col5(68, 'WallA', 4, { powerSocaDistro: { 1: 'e1' } });
+    const result = ph.withProject({
+        layers: [A], distros: [ph.box('e1', 'E1')],
+    }, () => {
+        const app = window.app;
+        app._circuitTailCache = null;
+        app.refreshDistroPanel();
+        const row = document.querySelector(
+            '#power-distros .power-distro-row[data-id="e1"]');
+        const head = row.querySelector('.lrd-sec-head');
+        const shown = el => !!el && getComputedStyle(el).display !== 'none';
+        const state = () => ({
+            folded: row.classList.contains('lrd-sec-collapsed'),
+            glance: shown(row.querySelector('.lrd-distro-glance')),
+            glanceText: (row.querySelector('.lrd-distro-glance') || {})
+                .textContent || '',
+            nameInput: shown(row.querySelector('.distro-name')),
+            del: shown(row.querySelector('.distro-del')),
+            balance: shown(row.querySelector('.distro-balance')),
+            body: shown(row.querySelector('.lrd-sec-body')),
+            key: localStorage.getItem('ledRasterPanelCollapsed_power-distro-e1'),
+        });
+        const open = state();
+        row.querySelector('.lrd-sec-head .lrd-sec-arrow').click();
+        const folded = state();
+        let rebuilt = null;
+        if (cfg && cfg.rebuild) {
+            app.refreshDistroPanel();
+            const row2 = document.querySelector(
+                '#power-distros .power-distro-row[data-id="e1"]');
+            rebuilt = { folded: row2.classList.contains('lrd-sec-collapsed') };
+            const btn = row2.querySelector('.lrd-sec-head .lrd-sec-arrow');
+            if (btn) btn.click();   // leave it open for whoever renders next
+        } else {
+            row.querySelector('.lrd-sec-head .lrd-sec-arrow').click();
+        }
+        return { open, folded, rebuilt };
+    });
+    try { localStorage.removeItem('ledRasterPanelCollapsed_power-distro-e1'); }
+    catch (e) {}
+    window.app.refreshDistroPanel();
+    return result;
+}"""
+
+
+def test_distro_rows_fold_to_a_glance_line(page):
+    """Open, the row is its editors; folded, the name field and the ✕ give
+    way to the glance line - name, rating, load, imbalance, multi count -
+    and Balance stays reachable in both states."""
+    out = page.evaluate(DISTRO_FOLD_JS, {})
+    assert out['open']['folded'] is False
+    assert out['open']['glance'] is False and out['open']['nameInput'] is True
+    assert out['open']['body'] is True and out['open']['balance'] is True
+
+    f = out['folded']
+    assert f['folded'] is True and f['body'] is False
+    assert f['glance'] is True, 'the folded face is the glance line'
+    assert f['nameInput'] is False and f['del'] is False
+    assert f['balance'] is True, 'Balance works on a folded distro'
+    for piece in ('E1', '400 A', '%', 'multi'):
+        assert piece in f['glanceText'], (piece, f['glanceText'])
+
+
+def test_distro_fold_persists_and_survives_a_rebuild(page):
+    """The fold writes its ledRasterPanelCollapsed_power-distro-<id> key and
+    a full panel rebuild re-reads it, exactly like the processor cards."""
+    out = page.evaluate(DISTRO_FOLD_JS, {'rebuild': True})
+    assert out['folded']['key'] == '1', out['folded']
+    assert out['rebuilt']['folded'] is True, 'the rebuild dropped the fold'

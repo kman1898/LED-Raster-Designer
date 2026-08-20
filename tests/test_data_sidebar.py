@@ -618,7 +618,9 @@ def test_editing_a_distro_name_and_tabbing_keeps_focus_in_a_real_control(page):
 
     distro_id = page.evaluate("() => window.app.getDistros()[0].id")
     name_key = f'distro-name-{distro_id}'
-    del_key = f'distro-del-{distro_id}'
+    # Tab's next stop after the name: the row's own Balance button - the
+    # per-distro balance sits between the name and the ✕ on a 3-phase row.
+    del_key = f'distro-balance-{distro_id}'
 
     stamped = page.evaluate(
         """() => {
@@ -646,7 +648,7 @@ def test_editing_a_distro_name_and_tabbing_keeps_focus_in_a_real_control(page):
     assert not after['isBody'], (
         f"focus fell to <body> after the distro rebuild: {after}")
     assert after['key'] == del_key, (
-        f"focus is not back on the row's ✕ button: {after}")
+        f"focus is not back on the row's Balance button: {after}")
     assert after['inPowerPanel'], (
         f"focus is outside the Power panel, so the control it landed on is not "
         f"the moved editor's: {after}")
@@ -874,7 +876,9 @@ def test_section_collapse_is_independent_of_the_sidebar_collapse(page):
     open_view(page, 'power')
     page.evaluate(POWER_SEED_JS)
     page.wait_for_timeout(600)
-    page.locator('#power-distros .lrd-sec-arrow').click()
+    # the distro CARDS carry arrows of their own now, so address the
+    # panel section's OWN head - the host's direct child
+    page.locator('#power-distros > .lrd-sec-head .lrd-sec-arrow').click()
     page.wait_for_timeout(100)
     assert page.evaluate(POWER_BLOCK_JS, 'power-distros')['collapsed'] is True
     set_panel_collapsed(page, 'power', True)
@@ -887,7 +891,9 @@ def test_section_collapse_is_independent_of_the_sidebar_collapse(page):
         sidebar: localStorage.getItem('ledRasterSidebarCollapsed_power'),
     })""")
     assert keys['section'] == '1' and keys['sidebar'] == '0', keys
-    page.locator('#power-distros .lrd-sec-arrow').click()
+    # the distro CARDS carry arrows of their own now, so address the
+    # panel section's OWN head - the host's direct child
+    page.locator('#power-distros > .lrd-sec-head .lrd-sec-arrow').click()
     page.wait_for_timeout(100)
     assert page.evaluate(POWER_BLOCK_JS, 'power-distros')['collapsed'] is False
 

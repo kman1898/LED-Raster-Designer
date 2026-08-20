@@ -92,6 +92,10 @@ def add_layer():
         # never claims the original's slot - this listing is for full-layer
         # POSTs, which must not drop the field on the floor.)
         'powerSocaNames', 'powerSocaNumber', 'powerSocaKeying',
+        # The circuit boundaries a multi was split at ([ordinal, ...]) -
+        # geometry of the screen's own plan, so a duplicate carries it the
+        # way it carries splitters, even though the copy claims no slot.
+        'powerSocaSplits',
         # Power splitters (circuit sharing): {enabled, maxWays, manual}.
         # Same omission risk as the block above - a duplicate/paste posts the
         # whole layer, and a field missing here is gone on reload.
@@ -364,6 +368,10 @@ def update_layer(layer_id):
                 # screen's keys down past 1.
                 'powerSocaDistro', 'powerSocaNames', 'powerSocaNumber',
                 'powerSocaKeying',
+                # The circuit boundaries a multi was split at. Must be
+                # listed or every per-layer PUT drops a split on the floor
+                # and the parts weld back into one multi on reload.
+                'powerSocaSplits',
                 # v0.11.0: the gradient/panel-colour block was never on this
                 # list - not removed, never added (git log -S finds no commit
                 # that took it out). The client has always PUT these fields and

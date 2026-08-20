@@ -6966,7 +6966,13 @@ class CanvasRenderer {
                 const totalWatts = panelWatts * equivalentPanels;
                 const amps1 = voltage > 0 ? (totalWatts / voltage) : 0;
                 const amps3 = voltage > 0 ? (totalWatts / (voltage * 1.73)) : 0;
-                const multis = circuits > 0 ? Math.ceil(circuits / 6) : 0;
+                // Split-aware: a multi broken at a chosen boundary is two
+                // multis, and this line must agree with the soca panel.
+                const multis = circuits > 0
+                    ? (typeof window.app.socaCountFor === 'function'
+                        ? window.app.socaCountFor(layer, circuits)
+                        : Math.ceil(circuits / 6))
+                    : 0;
                 centerLines.push(`${multis} Multi, ${circuits} Circuits | ${amps1.toFixed(2)}A 1φ / ${amps3.toFixed(2)}A 3φ`);
             }
         }
