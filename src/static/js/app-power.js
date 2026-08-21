@@ -657,12 +657,21 @@ class _Power {
         const boundary = seg.start + cut - 1;
         const points = this._socaSplitPoints(layer, count);
         if (points.includes(boundary)) return false;
+        // The first part keeps the pin but sheds circuits, so it re-deals
+        // its tails on the box - and if that box is shared, the OTHER
+        // members' rendered tails must be held first or the re-deal could
+        // slide them (stamped before any store moves, while the naming
+        // cache still shows the pre-split wall).
+        const stamped = this._materializeSocaBox(
+            (layer.powerSocaDistro || {})[socaIndex],
+            (layer.powerSocaNumber || {})[socaIndex], layer, socaIndex);
         layer.powerSocaSplits = [...points, boundary].sort((a, b) => a - b);
         this._spliceSocaStores(layer, Number(socaIndex) + 1, +1);
         delete (layer.powerSocaPhasePos || {})[socaIndex];
         delete (layer.powerSocaPhaseOffset || {})[socaIndex];
         this._circuitTailCache = null;
-        this.updateLayers([layer], true, 'Split Multi');
+        this.updateLayers([...new Set([layer, ...stamped])], true,
+                          'Split Multi');
         return true;
     }
 
@@ -677,13 +686,20 @@ class _Power {
         const seg = this._socaSegments(layer, count)
             .find(s => s.index === Number(socaIndex));
         if (!seg || !seg.userEnd) return false;
+        // The welded multi keeps the first part's pin with MORE circuits,
+        // so it re-deals on its box exactly like a split part does - the
+        // other members of a shared box hold their rendered tails first.
+        const stamped = this._materializeSocaBox(
+            (layer.powerSocaDistro || {})[socaIndex],
+            (layer.powerSocaNumber || {})[socaIndex], layer, socaIndex);
         layer.powerSocaSplits = this._socaSplitPoints(layer, count)
             .filter(p => p !== seg.end);
         this._spliceSocaStores(layer, Number(socaIndex) + 1, -1);
         delete (layer.powerSocaPhasePos || {})[socaIndex];
         delete (layer.powerSocaPhaseOffset || {})[socaIndex];
         this._circuitTailCache = null;
-        this.updateLayers([layer], true, 'Un-split Multi');
+        this.updateLayers([...new Set([layer, ...stamped])], true,
+                          'Un-split Multi');
         return true;
     }
 
@@ -905,12 +921,21 @@ class _Power {
     setSocaDistro(layer, socaIndex, distroId) {
         if (!layer) return;
         const map = layer.powerSocaDistro || (layer.powerSocaDistro = {});
+        // A multi that carries its pin onto another distro can land on an
+        // occupied box there - the same join as pinning, spelled as an
+        // assignment - so the incumbents on the target box hold their
+        // rendered tails the same way.
+        const pin = parseInt((layer.powerSocaNumber || {})[socaIndex], 10);
+        const stamped = (distroId && Number.isFinite(pin) && pin >= 1)
+            ? this._materializeSocaBox(distroId, pin, layer, socaIndex)
+            : [];
         if (distroId) map[socaIndex] = distroId; else delete map[socaIndex];
         // Assignment renumbers both buckets it touches, so every label on the
         // show can move. Stale labels for a frame is a bug this has already
         // been bitten by once.
         this._circuitTailCache = null;
-        this.updateLayers([layer], true, 'Assign Multi Distro');
+        this.updateLayers([...new Set([layer, ...stamped])], true,
+                          'Assign Multi Distro');
     }
 
     // Pin a multi to a NUMBER under its distro - the "which output of the
@@ -931,12 +956,21 @@ class _Power {
         // keeps whatever it had, so "back to Auto" would silently not clear.
         const store = layer.powerSocaNumber || (layer.powerSocaNumber = {});
         const n = parseInt(number, 10);
+        // Landing on an occupied box is the JOIN, and the incumbents keep
+        // the tails they were rendering: stamp them before the pin so the
+        // joiner deals into what is genuinely free. Un-pinning (Auto) is
+        // the leave - nobody's tails move, so there is nothing to stamp.
+        const stamped = (Number.isFinite(n) && n >= 1)
+            ? this._materializeSocaBox(
+                (layer.powerSocaDistro || {})[socaIndex], n, layer, socaIndex)
+            : [];
         if (Number.isFinite(n) && n >= 1) store[socaIndex] = n;
         else delete store[socaIndex];
         // A pin renumbers the whole distro bucket (autos deal around it) and
         // can merge or split a shared box, so every label can move.
         this._circuitTailCache = null;
-        this.updateLayers([layer], true, 'Set Multi Number');
+        this.updateLayers([...new Set([layer, ...stamped])], true,
+                          'Set Multi Number');
     }
 
     // The shared-box record for one multi, or null when it shares with
@@ -952,6 +986,46 @@ class _Power {
         if (!Number.isFinite(n) || n < 1) return null;
         const rec = this._powerNaming(layer).socas.get(idx);
         return (rec && rec.share) || null;
+    }
+
+    // What was SHOWING becomes HELD - the pin philosophy applied to tails.
+    // Called by every gesture that lands a multi on box (distroId, number)
+    // - a pin, a re-assignment carrying a pin, a split or un-split of a
+    // member - BEFORE the gesture mutates anything, while "current tails"
+    // still means what the wall shows today. Each multi already on the box
+    // (the incumbents) gets its rendered tails stamped into its own
+    // powerSocaPhasePos, so the joiner deals into the tails that are
+    // actually free and never renumbers a wall someone may have already
+    // cabled. A member that already holds a stored set is already law and
+    // is left alone; a rendering the fan cannot hold (an overflowed box)
+    // is not an arrangement worth freezing. Returns the layers stamped so
+    // the caller's updateLayers carries them - the incumbents can live on
+    // other screens than the joiner.
+    _materializeSocaBox(distroId, number, exceptLayer, exceptSoca) {
+        const touched = [];
+        const n = parseInt(number, 10);
+        if (!distroId || !Number.isFinite(n) || n < 1) return touched;
+        for (const l of ((this.project && this.project.layers) || [])) {
+            if ((l.type || 'screen') !== 'screen') continue;
+            for (const rec of this._powerNaming(l).socas.values()) {
+                // Only a PIN holds a slot against the joiner: an auto at
+                // this number re-deals around the new pin and keeps its
+                // own box, so it has nothing to defend.
+                if (!rec.pinned) continue;
+                if (rec.distroId !== distroId || rec.number !== n) continue;
+                if (l === exceptLayer && rec.index === Number(exceptSoca)) continue;
+                const store = l.powerSocaPhasePos || (l.powerSocaPhasePos = {});
+                if (Array.isArray(store[rec.index])) continue;
+                const L = rec.circuits.length;
+                const pos = rec.positions;
+                if (!Array.isArray(pos) || pos.length !== L) continue;
+                if (!pos.every(p => Number.isInteger(p) && p >= 1 && p <= 6)
+                    || new Set(pos).size !== L) continue;
+                store[rec.index] = pos.slice();
+                touched.push(l);
+            }
+        }
+        return touched;
     }
 
     // Every multi number in use on one distro, show-wide:
@@ -1776,7 +1850,11 @@ class _Power {
     // Positions must be a set of distinct 1-6 values, one per used circuit -
     // two circuits cannot share a tail. Only the SET matters (wall-order
     // rule): stored sorted ascending, and a permutation of 1..L is the
-    // natural arrangement.
+    // natural arrangement - but only on a multi that owns its whole box.
+    // On a SHARED box tails 1..L are one specific claim among six, not a
+    // default: dropping the store there hands the member back to the deal,
+    // and the deal answers by layer order - which is exactly how "put me
+    // back on 1-4" once evaporated and let the joiner keep tail 1.
     setSocaCircuitPositions(layer, socaNum, positions, legsUsed) {
         if (!layer) return false;
         const L = Math.max(0, Math.min(6, Number(legsUsed) || 0));
@@ -1787,7 +1865,11 @@ class _Power {
         const store = layer.powerSocaPhasePos || (layer.powerSocaPhasePos = {});
         const sorted = positions.slice().sort((a, b) => a - b);
         const natural = sorted.every((p, i) => p === i + 1);
-        if (natural) delete store[socaNum]; else store[socaNum] = sorted;
+        if (natural && !this.getSocaShare(layer, socaNum)) {
+            delete store[socaNum];
+        } else {
+            store[socaNum] = sorted;
+        }
         this._circuitTailCache = null;
         this.updateLayers([layer], true, 'Move Circuit Tails');
         return true;
@@ -3341,14 +3423,17 @@ class _Power {
     // seam. Within its slice every member's circuits ascend in wall order,
     // the same rule a single screen has always followed.
     //
-    // Per member: a valid stored tail set (phase balancing, a hand move) is
-    // the user's arrangement and is NEVER rearranged - if it lands on a
-    // tail an earlier member holds, that is a CLASH, reported on the tiles
-    // the way port assignment reports an occupied socket. An unstored
-    // member takes the box's next free tails. A box asked for more than 6
-    // legs runs off the fan: the extra circuits take tails 7, 8, ... and
-    // the box reports the overflow - a soca has six tails, and pretending
-    // otherwise would hide the one fact a tech needs.
+    // Per member: a valid stored tail set (phase balancing, a hand move, a
+    // join stamping the incumbents) is the user's arrangement and is NEVER
+    // rearranged - stored sets claim their tails FIRST, so an unstored
+    // member deals into the tails no stored set holds, wherever either
+    // member sits in layer order. Two stored sets landing on one tail is a
+    // CLASH, reported on the tiles the way port assignment reports an
+    // occupied socket - both print verbatim, nothing is rearranged. Layer
+    // order decides tails only among the unstored members. A box asked for
+    // more than 6 legs runs off the fan: the extra circuits take tails
+    // 7, 8, ... and the box reports the overflow - a soca has six tails,
+    // and pretending otherwise would hide the one fact a tech needs.
     _resolveSharedSocas(screens) {
         const boxes = new Map();        // 'distroId:number' -> [{layer, entry, rec}]
         for (const l of screens) {
@@ -3365,29 +3450,42 @@ class _Power {
         for (const [key, members] of boxes) {
             const taken = new Set();
             let clash = false, overflow = false;
+            // Pass 1: every stored set takes exactly its tails. Doing this
+            // before ANY dealing is what makes a stored set law: an
+            // unstored member earlier in layer order can no longer sit
+            // down on tails a later member's paperwork already claims.
+            const dealt = [];
             for (const m of members) {
                 const L = m.rec.circuits.length;
                 const saved = ((m.layer.powerSocaPhasePos) || {})[m.rec.index];
                 const valid = Array.isArray(saved) && saved.length === L
                     && saved.every(p => Number.isInteger(p) && p >= 1 && p <= 6)
                     && new Set(saved).size === L;
-                let pos;
-                if (valid) {
-                    pos = saved.slice().sort((a, b) => a - b);
-                    m.rec.clashTails = pos.filter(p => taken.has(p));
-                } else {
-                    pos = [];
-                    let t = 1;
-                    while (pos.length < L) {
-                        if (!taken.has(t)) pos.push(t);
-                        t += 1;
-                    }
-                    m.rec.clashTails = [];
-                }
+                if (!valid) { dealt.push(m); continue; }
+                const pos = saved.slice().sort((a, b) => a - b);
+                m.rec.clashTails = pos.filter(p => taken.has(p));
                 m.rec.overTails = pos.filter(p => p > 6);
                 pos.forEach(p => taken.add(p));
                 m.rec.positions = pos;
-                m.rec.moved = !pos.every((p, i) => p === i + 1);
+            }
+            // Pass 2: the unstored members take the box's free tails in
+            // member (layer) order - the initial construction of a box in
+            // one gesture, and the only place layer order breaks a tie.
+            for (const m of dealt) {
+                const L = m.rec.circuits.length;
+                const pos = [];
+                let t = 1;
+                while (pos.length < L) {
+                    if (!taken.has(t)) pos.push(t);
+                    t += 1;
+                }
+                m.rec.clashTails = [];
+                m.rec.overTails = pos.filter(p => p > 6);
+                pos.forEach(p => taken.add(p));
+                m.rec.positions = pos;
+            }
+            for (const m of members) {
+                m.rec.moved = !m.rec.positions.every((p, i) => p === i + 1);
                 if (m.rec.clashTails.length) clash = true;
                 if (m.rec.overTails.length) overflow = true;
             }

@@ -15,10 +15,15 @@ The model under test:
     exactly as always - per distro, layer order - dealing AROUND pins.
   - Two multis pinned to the same (distro, number) ARE one physical soca.
     The tuple is the join key; there is no separate link to manage.
-  - Member order is project layer order. An unstored member lands on the
-    box's next free tails; a stored tail set (balance, hand move) is never
-    rearranged - if it collides, that is a CLASH, said out loud (tile face,
+  - A stored tail set (balance, hand move, a join stamping incumbents) is
+    LAW: it claims exactly its tails in any box, before any dealing, and
+    is never rearranged. An unstored member lands on the box's remaining
+    free tails; layer order decides only among unstored members. Two
+    STORED sets on one tail is a CLASH, said out loud (tile face,
     lrd-tile-clash) the way port assignment reports an occupied socket.
+    Joining an occupied box stamps the incumbents' rendered tails into
+    their own stores first - what was showing becomes held - so a joiner
+    never renumbers a wall someone may have already cabled.
     More than six legs on one box is an overflow clash: a soca has six
     tails, and the extras number 7, 8, ... so the wrongness is visible.
   - Labels flow through the ONE authority: <box name>-<true tail>, so the
@@ -112,6 +117,29 @@ window.__sh = {
         const B = this.screen({ id: 2, name: 'CEN SL STRIP', offset_x: 1000,
             powerSocaDistro: { 1: 'd1' }, powerSocaNumber: { 1: 3 } });
         return { A, B, project: { layers: [A, B], distros: [this.distro()] } };
+    },
+    // The reference show's C1 distro, shapes only: a 3-circuit strip split
+    // after its 1st circuit sits ABOVE two 4-circuit walls in layer order,
+    // part A pinned onto OFF SR US's box (No. 2), part B onto CEN SR US's
+    // (No. 3). `o.strip/o.off/o.cen` override per screen - the tests vary
+    // the stores and the pins, never the wall.
+    c1(o) {
+        o = o || {};
+        const STRIP = this.screen(Object.assign({ id: 61,
+            name: 'ON SR STRIP', columns: 3, powerSocaSplits: [1],
+            powerSocaDistro: { 1: 'd1', 2: 'd1' },
+            powerSocaNumber: { 1: 2, 2: 3 } }, o.strip || {}));
+        const OFF = this.screen(Object.assign({ id: 62, name: 'OFF SR US',
+            columns: 4, offset_x: 1000,
+            powerSocaDistro: { 1: 'd1' },
+            powerSocaNumber: { 1: 2 } }, o.off || {}));
+        const CEN = this.screen(Object.assign({ id: 63, name: 'CEN SR US',
+            columns: 4, offset_x: 2000,
+            powerSocaDistro: { 1: 'd1' },
+            powerSocaNumber: { 1: 3 } }, o.cen || {}));
+        return { STRIP, OFF, CEN,
+                 project: { layers: [STRIP, OFF, CEN],
+                            distros: [this.distro('C1')] } };
     },
     withProject(project, fn) {
         const saved = window.app.project;
@@ -222,14 +250,14 @@ def test_auto_numbering_deals_around_pins(page):
 # ── 3. clashes: stored tails are never rearranged; six tails is physics ───
 
 def test_stored_tail_collision_reports_a_clash_verbatim(page):
-    """A member whose STORED tails land on tails an earlier member holds is
-    a clash: both keep their tails (the duplicate labels stay visible),
-    and the share record says which tails are claimed twice - nothing is
-    silently rearranged."""
+    """TWO stored tail sets landing on the same tails is a clash: both keep
+    their tails (the duplicate labels stay visible), and the share record
+    says which tails are claimed twice - nothing is silently rearranged."""
     out = page.evaluate("""() => {
         const sh = window.__sh;
         const A = sh.screen({ id: 1, name: 'First',
-            powerSocaDistro: { 1: 'd1' }, powerSocaNumber: { 1: 1 } });
+            powerSocaDistro: { 1: 'd1' }, powerSocaNumber: { 1: 1 },
+            powerSocaPhasePos: { 1: [1, 2, 3] } });
         const B = sh.screen({ id: 2, name: 'Second', offset_x: 1000,
             powerSocaDistro: { 1: 'd1' }, powerSocaNumber: { 1: 1 },
             powerSocaPhasePos: { 1: [1, 2, 3] } });
@@ -244,6 +272,31 @@ def test_stored_tail_collision_reports_a_clash_verbatim(page):
     share = out['share']
     assert share['clash'] and not share['overflow']
     assert share['members'][1]['clashTails'] == [1, 2, 3]
+
+
+def test_unstored_member_deals_around_a_stored_set(page):
+    """A stored tail set is LAW wherever its member sits in layer order: the
+    EARLIER, unstored member deals into the tails the stored set leaves
+    free instead of sitting down on them - no clash, nothing rearranged."""
+    out = page.evaluate("""() => {
+        const sh = window.__sh;
+        const A = sh.screen({ id: 1, name: 'First',
+            powerSocaDistro: { 1: 'd1' }, powerSocaNumber: { 1: 1 } });
+        const B = sh.screen({ id: 2, name: 'Second', offset_x: 1000,
+            powerSocaDistro: { 1: 'd1' }, powerSocaNumber: { 1: 1 },
+            powerSocaPhasePos: { 1: [1, 2, 3] } });
+        return sh.withProject(
+            { layers: [A, B], distros: [sh.distro()] },
+            () => ({ a: sh.labelsOf(A), b: sh.labelsOf(B),
+                     share: sh.shareOf(A, 1) }));
+    }""")
+    assert out['b'] == ['C2-1-1', 'C2-1-2', 'C2-1-3'], \
+        'the stored set renders on exactly its tails'
+    assert out['a'] == ['C2-1-4', 'C2-1-5', 'C2-1-6'], \
+        'the unstored member takes the free tails, layer order or not'
+    share = out['share']
+    assert not share['clash'] and not share['overflow']
+    assert [m['tails'] for m in share['members']] == [[4, 5, 6], [1, 2, 3]]
 
 
 def test_more_than_six_legs_reports_overflow(page):
@@ -456,7 +509,12 @@ SHOW_TILES_JS = """(cfg) => {
     const sh = window.__sh;
     const app = window.app;
     const { A, B, project } = sh.ncmf();
-    if (cfg && cfg.clash) B.powerSocaPhasePos = { 1: [1, 2, 3] };
+    // a clash needs TWO stored sets on one tail - a lone stored set is law
+    // and the unstored member simply deals around it
+    if (cfg && cfg.clash) {
+        A.powerSocaPhasePos = { 1: [1, 2, 3] };
+        B.powerSocaPhasePos = { 1: [1, 2, 3] };
+    }
     return sh.withProject(project, () => {
         const savedLayer = app.currentLayer;
         try {
@@ -887,3 +945,305 @@ def test_same_name_on_two_numbers_flags_the_tile_and_the_join_clears_it(page):
     assert 'SAME NAME' not in joined['face'], joined
     assert joined['note'] is False, joined
     assert joined['share'] is True, 'pinned to one number they are one box'
+
+
+# ── 12. stored tails are law; joining materializes the incumbents ─────────
+#
+# The reference show's C1 distro found the two holes in the first cut of
+# the model: the strip's pinned parts resolved FIRST (layer order), took
+# tail 1 of each box and slid the walls already cabled onto tails 2-5 -
+# silent renumbering - and "put me back on 1-4" evaporated because tails
+# 1..N were normalized away as the natural arrangement even on a shared
+# box, where they are one specific claim among six. These tests pin the
+# repaired semantics on the same shapes.
+
+def test_stored_sets_are_law_and_the_joiner_takes_the_free_tails(page):
+    """The acceptance arrangement, from stores alone: OFF SR US holds
+    1-4 on box 2 and CEN SR US holds 1-4 on box 3 by stored tail set; the
+    strip's unstored parts - EARLIER in layer order - take each box's free
+    tails. Box 2 reads OFF 1-4 + strip 5, box 3 reads CEN 1-4 + strip 5-6,
+    no clash anywhere."""
+    out = page.evaluate("""() => {
+        const sh = window.__sh;
+        const { STRIP, OFF, CEN, project } = sh.c1({
+            off: { powerSocaPhasePos: { 1: [1, 2, 3, 4] } },
+            cen: { powerSocaPhasePos: { 1: [1, 2, 3, 4] } },
+        });
+        return sh.withProject(project, () => ({
+            strip: sh.labelsOf(STRIP), off: sh.labelsOf(OFF),
+            cen: sh.labelsOf(CEN),
+            share2: sh.shareOf(OFF, 1), share3: sh.shareOf(CEN, 1),
+        }));
+    }""")
+    assert out['off'] == ['C1-2-1', 'C1-2-2', 'C1-2-3', 'C1-2-4']
+    assert out['cen'] == ['C1-3-1', 'C1-3-2', 'C1-3-3', 'C1-3-4']
+    assert out['strip'] == ['C1-2-5', 'C1-3-5', 'C1-3-6'], \
+        'the joiner lands on the free tails, wherever it sits in layer order'
+    for k in ('share2', 'share3'):
+        share = out[k]
+        assert share and not share['clash'] and not share['overflow'], out[k]
+    assert [m['tails'] for m in out['share2']['members']] == [[5], [1, 2, 3, 4]]
+    assert [m['tails'] for m in out['share3']['members']] == [[5, 6], [1, 2, 3, 4]]
+
+
+def test_pinning_onto_an_occupied_box_stamps_the_incumbents_tails(page):
+    """The join materializes what was showing: OFF SR US renders 1-4 alone
+    on box 2, and the moment the strip's part pins onto that box, those
+    tails become OFF's own stored set - so the joiner deals into tail 5
+    and the incumbent's labels never move. The stamped layer rides the
+    same updateLayers write as the pin."""
+    out = page.evaluate("""() => {
+        const sh = window.__sh;
+        const app = window.app;
+        const { STRIP, OFF, project } = sh.c1({
+            strip: { powerSocaNumber: {} } });
+        return sh.withProject(project, () => {
+            const calls = [];
+            const orig = app.updateLayers;
+            app.updateLayers = (layers, save, action) =>
+                calls.push({ names: layers.map(l => l.name).sort(),
+                             save, action });
+            try {
+                app._circuitTailCache = null;
+                app.setSocaNumber(STRIP, 1, '2');
+            } finally { app.updateLayers = orig; }
+            return {
+                calls,
+                offStore: (OFF.powerSocaPhasePos || {})[1] || null,
+                off: sh.labelsOf(OFF), strip: sh.labelsOf(STRIP),
+            };
+        });
+    }""")
+    assert out['offStore'] == [1, 2, 3, 4], \
+        'what the incumbent was showing becomes held'
+    assert out['off'] == ['C1-2-1', 'C1-2-2', 'C1-2-3', 'C1-2-4'], \
+        'the incumbent keeps the tails it was rendering'
+    assert out['strip'][0] == 'C1-2-5', 'the joiner takes the free tail'
+    assert out['calls'] == [{
+        'names': ['OFF SR US', 'ON SR STRIP'],
+        'save': True, 'action': 'Set Multi Number',
+    }], 'the stamp persists in the same undoable write as the pin'
+
+
+def test_the_full_split_and_join_gesture_lands_without_moving_anyone(page):
+    """The reference gesture end to end on live setters: split the strip
+    after circuit 1, pin part A onto OFF's box, assign and pin part B onto
+    CEN's box. Both incumbents' tails are stamped at each join, and the
+    final render is the acceptance arrangement on both boxes."""
+    out = page.evaluate("""() => {
+        const sh = window.__sh;
+        const app = window.app;
+        const { STRIP, OFF, CEN, project } = sh.c1({
+            strip: { powerSocaSplits: undefined,
+                     powerSocaDistro: { 1: 'd1' }, powerSocaNumber: {} } });
+        return sh.withProject(project, () => {
+            const orig = app.updateLayers;
+            app.updateLayers = () => {};
+            try {
+                app._circuitTailCache = null;
+                app.splitSocaAfter(STRIP, 1, 1);
+                app._circuitTailCache = null;
+                app.setSocaNumber(STRIP, 1, '2');
+                app._circuitTailCache = null;
+                app.setSocaDistro(STRIP, 2, 'd1');
+                app._circuitTailCache = null;
+                app.setSocaNumber(STRIP, 2, '3');
+            } finally { app.updateLayers = orig; }
+            return {
+                offStore: (OFF.powerSocaPhasePos || {})[1] || null,
+                cenStore: (CEN.powerSocaPhasePos || {})[1] || null,
+                strip: sh.labelsOf(STRIP), off: sh.labelsOf(OFF),
+                cen: sh.labelsOf(CEN),
+            };
+        });
+    }""")
+    assert out['offStore'] == [1, 2, 3, 4]
+    assert out['cenStore'] == [1, 2, 3, 4]
+    assert out['off'] == ['C1-2-1', 'C1-2-2', 'C1-2-3', 'C1-2-4']
+    assert out['cen'] == ['C1-3-1', 'C1-3-2', 'C1-3-3', 'C1-3-4']
+    assert out['strip'] == ['C1-2-5', 'C1-3-5', 'C1-3-6']
+
+
+def test_a_tail_restore_of_one_to_n_persists_on_a_shared_box(page):
+    """The exact repair the user typed against the bug: with the strip's
+    part sitting on tail 1 and the wall slid to 2-5, "put OFF SR US back
+    on 1-4" is a REAL claim on a shared box - stored, honored, and the
+    joiner moves to the free tail - never normalized away as the natural
+    arrangement."""
+    out = page.evaluate("""() => {
+        const sh = window.__sh;
+        const app = window.app;
+        const { STRIP, OFF, CEN, project } = sh.c1();
+        return sh.withProject(project, () => {
+            const before = {
+                strip: sh.labelsOf(STRIP), off: sh.labelsOf(OFF) };
+            const orig = app.updateLayers;
+            app.updateLayers = () => {};
+            let ok1, ok2;
+            try {
+                app._circuitTailCache = null;
+                ok1 = app.setSocaCircuitPositions(OFF, 1, [1, 2, 3, 4], 4);
+                app._circuitTailCache = null;
+                ok2 = app.setSocaCircuitPositions(CEN, 1, [1, 2, 3, 4], 4);
+            } finally { app.updateLayers = orig; }
+            return {
+                before, ok1, ok2,
+                offStore: (OFF.powerSocaPhasePos || {})[1] || null,
+                cenStore: (CEN.powerSocaPhasePos || {})[1] || null,
+                strip: sh.labelsOf(STRIP), off: sh.labelsOf(OFF),
+                cen: sh.labelsOf(CEN),
+            };
+        });
+    }""")
+    # the bugged arrangement this repairs: joiner on tail 1, wall slid
+    assert out['before']['strip'][0] == 'C1-2-1'
+    assert out['before']['off'] == ['C1-2-2', 'C1-2-3', 'C1-2-4', 'C1-2-5']
+    assert out['ok1'] and out['ok2']
+    assert out['offStore'] == [1, 2, 3, 4], \
+        'tails 1..N on a shared box are a claim, not a default - stored'
+    assert out['cenStore'] == [1, 2, 3, 4]
+    assert out['off'] == ['C1-2-1', 'C1-2-2', 'C1-2-3', 'C1-2-4']
+    assert out['cen'] == ['C1-3-1', 'C1-3-2', 'C1-3-3', 'C1-3-4']
+    assert out['strip'] == ['C1-2-5', 'C1-3-5', 'C1-3-6']
+
+
+def test_a_natural_set_still_normalizes_on_a_solo_multi(page):
+    """On a multi that owns its whole box, tails 1..N remain the natural
+    arrangement: storing them deletes the entry exactly as before - the
+    shared-box exception never leaks into solo behavior."""
+    out = page.evaluate("""() => {
+        const sh = window.__sh;
+        const app = window.app;
+        const S = sh.screen({ id: 71, name: 'Solo',
+            powerSocaDistro: { 1: 'd1' }, powerSocaNumber: { 1: 1 } });
+        return sh.withProject({ layers: [S], distros: [sh.distro()] }, () => {
+            const orig = app.updateLayers;
+            app.updateLayers = () => {};
+            try {
+                app._circuitTailCache = null;
+                app.setSocaCircuitPositions(S, 1, [2, 3, 5], 3);
+                const moved = ((S.powerSocaPhasePos || {})[1] || null);
+                app._circuitTailCache = null;
+                app.setSocaCircuitPositions(S, 1, [1, 2, 3], 3);
+                const natural = (S.powerSocaPhasePos || {})[1] || null;
+                return { moved, natural };
+            } finally { app.updateLayers = orig; }
+        });
+    }""")
+    assert out['moved'] == [2, 3, 5]
+    assert out['natural'] is None, 'solo 1..N normalizes away, as always'
+
+
+def test_a_leaving_member_keeps_its_stored_set(page):
+    """Separation keeps the paperwork: OFF SR US leaves box 2 (back to
+    Auto) carrying its stored tails 2-5, which keep rendering on its own
+    box; the remaining member's store is untouched and it deals the now
+    free tails."""
+    out = page.evaluate("""() => {
+        const sh = window.__sh;
+        const app = window.app;
+        const { STRIP, OFF, project } = sh.c1({
+            off: { powerSocaPhasePos: { 1: [2, 3, 4, 5] } } });
+        return sh.withProject(project, () => {
+            const orig = app.updateLayers;
+            app.updateLayers = () => {};
+            try {
+                app._circuitTailCache = null;
+                app.setSocaNumber(OFF, 1, null);
+            } finally { app.updateLayers = orig; }
+            return {
+                offStore: (OFF.powerSocaPhasePos || {})[1] || null,
+                stripStore: (STRIP.powerSocaPhasePos || {})[1] || null,
+                off: sh.labelsOf(OFF), strip: sh.labelsOf(STRIP),
+                share: sh.shareOf(STRIP, 1),
+            };
+        });
+    }""")
+    assert out['offStore'] == [2, 3, 4, 5], \
+        'its tails are its paperwork - they leave with it'
+    assert out['stripStore'] is None, 'the remaining member is untouched'
+    # OFF now solo on its auto number (1 - the pins on 2 and 3 are dealt
+    # around), still on its stored tails
+    assert out['off'] == ['C1-1-2', 'C1-1-3', 'C1-1-4', 'C1-1-5']
+    assert out['strip'][0] == 'C1-2-1', \
+        'the sole remaining member deals the free tails'
+    assert out['share'] is None
+
+
+def test_layer_order_breaks_ties_only_among_unstored_members(page):
+    """Three members on one box: the stored set claims its tails first;
+    the two unstored members deal the remaining free tails in layer order.
+    (All-unstored boxes keep their layer-order deal byte for byte - the
+    NCMF acceptance test above pins that capture.)"""
+    out = page.evaluate("""() => {
+        const sh = window.__sh;
+        const A = sh.screen({ id: 72, name: 'UnstoredA', columns: 1,
+            powerSocaDistro: { 1: 'd1' }, powerSocaNumber: { 1: 1 } });
+        const B = sh.screen({ id: 73, name: 'StoredB', columns: 2,
+            offset_x: 600,
+            powerSocaDistro: { 1: 'd1' }, powerSocaNumber: { 1: 1 },
+            powerSocaPhasePos: { 1: [2, 3] } });
+        const C = sh.screen({ id: 74, name: 'UnstoredC', columns: 2,
+            offset_x: 1200,
+            powerSocaDistro: { 1: 'd1' }, powerSocaNumber: { 1: 1 } });
+        return sh.withProject(
+            { layers: [A, B, C], distros: [sh.distro()] },
+            () => ({ share: sh.shareOf(A, 1) }));
+    }""")
+    share = out['share']
+    assert not share['clash'] and not share['overflow']
+    assert [(m['layerName'], m['tails']) for m in share['members']] == [
+        ('UnstoredA', [1]), ('StoredB', [2, 3]), ('UnstoredC', [4, 5])], \
+        'stored claims first; the unstored deal around it in layer order'
+
+
+def test_balance_apply_sticks_on_a_shared_box_with_stored_members(page):
+    """Balance on the post-join state (incumbent stored, joiner stored by a
+    previous apply): suggest persists nothing, apply writes every member's
+    slice, and the arrangement RENDERS - the stores survive the resolve
+    instead of being re-dealt."""
+    out = page.evaluate("""() => {
+        const sh = window.__sh;
+        const app = window.app;
+        const { STRIP, OFF, CEN, project } = sh.c1({
+            off: { powerSocaPhasePos: { 1: [1, 2, 3, 4] } },
+            cen: { powerSocaPhasePos: { 1: [1, 2, 3, 4] } },
+        });
+        return sh.withProject(project, () => {
+            app._circuitTailCache = null;
+            const r = app.suggestPhaseBalance('d1');
+            const afterSuggest = {
+                off: ((OFF.powerSocaPhasePos || {})[1] || []).slice(),
+                strip: (STRIP.powerSocaPhasePos || {})[1] || null,
+            };
+            const orig = app.updateLayers;
+            app.updateLayers = () => {};
+            try {
+                // member order on box d1:2 is layer order: the strip's
+                // part (1 leg), then OFF (4 legs) - the deal gives the
+                // strip tail 2 and OFF tails 3-6
+                app.applyPhaseBalance([{
+                    layerId: 61, soca: 1, name: 'C1-2',
+                    members: [{ layerId: 61, soca: 1, legs: 1 },
+                              { layerId: 62, soca: 1, legs: 4 }],
+                    from: [5, 1, 2, 3, 4], to: [2, 3, 4, 5, 6],
+                }]);
+            } finally { app.updateLayers = orig; }
+            return {
+                afterSuggest,
+                stripStore: (STRIP.powerSocaPhasePos || {})[1] || null,
+                offStore: (OFF.powerSocaPhasePos || {})[1] || null,
+                strip: sh.labelsOf(STRIP), off: sh.labelsOf(OFF),
+                share: sh.shareOf(OFF, 1),
+            };
+        });
+    }""")
+    assert out['afterSuggest']['off'] == [1, 2, 3, 4], \
+        'suggest only suggests - the stored set survives the search'
+    assert out['afterSuggest']['strip'] is None
+    assert out['stripStore'] == [2]
+    assert out['offStore'] == [3, 4, 5, 6]
+    assert out['strip'][0] == 'C1-2-2'
+    assert out['off'] == ['C1-2-3', 'C1-2-4', 'C1-2-5', 'C1-2-6'], \
+        'the applied arrangement sticks and renders'
+    assert not out['share']['clash'] and not out['share']['overflow']
