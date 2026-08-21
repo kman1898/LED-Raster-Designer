@@ -1195,6 +1195,18 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 .lrd-distro-card.lrd-sec-collapsed .lrd-sec-head .lrd-distro-live {
     display: none;
 }
+/* The glance line's numbers, drawn: folded, the head keeps the load bar and
+   the three per-leg minis under the text line, because a list of folded
+   distros should still read as levels and balance. The block sits in the
+   head (the body is what the fold hides) and takes the head's full width -
+   flex-basis 100% drops it below the title row in the head's wrap flow.
+   Same hide-never-detach rule as the glance text above it. */
+.lrd-distro-glance-bars { display: none; }
+.lrd-distro-card.lrd-sec-collapsed .lrd-sec-head .lrd-distro-glance-bars {
+    display: block;
+    flex: 1 1 100%;
+    min-width: 0;
+}
 
 /* Tiles (app-core.js _wireTiles): a port or a multi drawn as one dense cell
    of a wrapping grid, its editor folded inside it. Clicking the face opens

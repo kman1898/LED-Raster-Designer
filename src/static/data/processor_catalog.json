@@ -16,6 +16,7 @@
       "family": "novastar-mx",
       "trunks": 4,
       "portsPerTrunk": 10,
+      "trunkRate": "10G",
       "ports": {
         "defaultMode": "40-port",
         "modes": [
@@ -34,6 +35,7 @@
       "family": "novastar-mx",
       "trunks": 2,
       "portsPerTrunk": 10,
+      "trunkRate": "10G",
       "trunkDelivery": "copy",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 10}]},
       "note": "2x 10G OPT at 10.3125 Gbps: OPT 1 transmits Ethernet ports 1-10 and OPT 2 is its copy channel, so both carry the unit's own copper and a box on either adds no ports."
@@ -47,6 +49,7 @@
       "family": "novastar-mx",
       "trunks": 2,
       "portsPerTrunk": 6,
+      "trunkRate": "10G",
       "trunkDelivery": "copy",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 6}]},
       "note": "2x 10G OPT: OPT 1 transmits Ethernet ports 1-6 and OPT 2 is its copy channel - the unit's own six ports again, never more."
@@ -69,7 +72,7 @@
       "form": "all-in-one",
       "family": "novastar-cx",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 6}]},
-      "note": "5GBASE-T. Its one optical port is 40Gbps with no documented carriage - not the 10G the CVT line hangs off, so no box attaches."
+      "note": "5GBASE-T. Its one optical port is 40Gbps - a rate the CVT8-5G takes - but no sheet states what the OPT carries, so no box hangs off it until that is settled. Same shape as the KU20."
     },
     {
       "id": "novastar-cx80-pro",
@@ -78,8 +81,12 @@
       "kind": "processor",
       "form": "all-in-one",
       "family": "novastar-cx",
+      "trunks": 2,
+      "portsPerTrunk": 8,
+      "trunkRate": "40G",
+      "trunkDelivery": "copy",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16}]},
-      "note": "5GBASE-T. 2x 40Gbps optical ports - OPT 1 corresponds to Ethernet 1-8 and OPT 2 to 9-16, each equal to 8x 5Gbps ports - but 40G is not the 10G the CVT line hangs off, so no box attaches."
+      "note": "5GBASE-T. 2x 40Gbps optical ports carrying the unit's own copper - OPT 1 corresponds to Ethernet 1-8 and OPT 2 to 9-16, each equal to 8x 5Gbps ports. 40G trunks take the CVT8-5G and only the CVT8-5G."
     },
     {
       "id": "novastar-vx400",
@@ -100,6 +107,7 @@
       "family": "novastar-vx",
       "trunks": 2,
       "portsPerTrunk": 4,
+      "trunkRate": "10G",
       "trunkDelivery": "copy",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 4}]},
       "note": "Max 2.6 million px, 650,000 px per port on 8-bit. 2x 10G OPT carrying the unit's own four ports: in Output mode OPT 1 sends them and OPT 2 copies or backs them up; in the input modes the OPTs are video in / loop out instead. The port count is 4 in every mode, and a box adds none."
@@ -113,6 +121,7 @@
       "family": "novastar-vx",
       "trunks": 1,
       "portsPerTrunk": 6,
+      "trunkRate": "10G",
       "trunkDelivery": "copy",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 6}]},
       "note": "Max 3.9 million px; its sheet states no per-port figure. OPT 1 is a documented 10G output copying the six Ethernet ports, so one box can take the same six out on fiber. OPT 2 also copies/backs them up but its sheet names no rate for it, so it is not counted as a trunk."
@@ -126,6 +135,7 @@
       "family": "novastar-vx",
       "trunks": 2,
       "portsPerTrunk": 6,
+      "trunkRate": "10G",
       "trunkDelivery": "copy",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 6}]},
       "note": "Max 3.9 million px, 650,000 px per port on 8-bit. 2x 10G OPT carrying the unit's own six ports (Output mode: OPT 1 sends, OPT 2 copies or backs up; input modes repurpose them). The port count is 6 in every mode."
@@ -139,6 +149,7 @@
       "family": "novastar-vx",
       "trunks": 1,
       "portsPerTrunk": 10,
+      "trunkRate": "10G",
       "trunkDelivery": "copy",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 10}]},
       "note": "Max 6.5 million px; its sheet states no per-port figure. OPT 1 is a documented 10G output copying the ten Ethernet ports. OPT 2 also copies/backs them up but its sheet names no rate for it, so it is not counted as a trunk."
@@ -152,6 +163,7 @@
       "family": "novastar-vx",
       "trunks": 2,
       "portsPerTrunk": 10,
+      "trunkRate": "10G",
       "trunkDelivery": "copy",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 10}]},
       "note": "Max 6.5 million px, 650,000 px per port on 8-bit. 2x 10G OPT carrying the unit's own ten ports (Output mode: OPT 1 sends, OPT 2 copies or backs up; input modes repurpose them). The port count is 10 in every mode."
@@ -165,6 +177,7 @@
       "family": "novastar-vx",
       "trunks": 4,
       "portsPerTrunk": 10,
+      "trunkRate": "10G",
       "trunkDelivery": "copy",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 20}]},
       "note": "4x 10G OPT carrying the unit's own twenty copper ports: OPT 1/2 send Ethernet 1-10 / 11-20 and OPT 3/4 copy or back them up, so no box adds a port. OPT 1/2 are self-adaptive and become video INPUTS in the input+output working modes, leaving only OPT 3/4 as outputs; the port count is 20 in every mode."
@@ -205,6 +218,7 @@
       "family": "novastar-mctrl",
       "trunks": 4,
       "portsPerTrunk": 8,
+      "trunkRate": "10G",
       "trunkDelivery": "copy",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16}]},
       "note": "16x Neutrik Gigabit Ethernet on the unit. 4x 10G OPT carry them again - OPT1 transmits Ethernet 1-8, OPT2 transmits 9-16, OPT3/4 are their duplicate channels - so a box on any OPT is another place to plug into the same sixteen."
@@ -218,6 +232,7 @@
       "family": "novastar-mctrl",
       "trunks": 2,
       "portsPerTrunk": 6,
+      "trunkRate": "10G",
       "trunkDelivery": "copy",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 6}]},
       "note": "2x 10G OPT: OPT1 corresponds to all 6 Gigabit Ethernet ports and OPT2 is its backup, each optical port equal to 6 Gigabit ports - the unit's own six again. In fiber converter mode the OPTs become inputs; the port count is 6 either way."
@@ -241,6 +256,7 @@
       "family": "novastar-mctrl",
       "trunks": 2,
       "portsPerTrunk": 8,
+      "trunkRate": "10G",
       "trunkDelivery": "copy",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 8}]},
       "note": "8x RJ45 Gigabit Ethernet, 650,000 px per port on 8-bit and 325,000 on 10-bit; loads up to 3840x1080@60Hz. Supports port and screen rotation (10-bit input does not rotate). 2x 10G OPT carry the same eight ports - OPT 1 copies Ethernet 1-8 and OPT 2 is the copy channel of OPT 1 - so a box adds nothing."
@@ -294,6 +310,7 @@
       "family": "novastar-novapro",
       "trunks": 4,
       "portsPerTrunk": 8,
+      "trunkRate": "10G",
       "trunkDelivery": "copy",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16}]},
       "note": "16x Neutrik Gigabit Ethernet out, max 10,400,000 px. The four 10G OPTs add no ports - OPT 1/2 carry Ethernet 1-8 / 9-16 and OPT 3/4 are their copy/hot backup channels - so a box on any OPT is another place to plug into ports the back of the unit already has. Its spec publishes no per-port pixel figure; the Jr's numbers are the Jr's."
@@ -307,6 +324,7 @@
       "family": "novastar-novapro",
       "trunks": 4,
       "portsPerTrunk": 8,
+      "trunkRate": "10G",
       "trunkDelivery": "copy",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16}]},
       "note": "16x Neutrik Gigabit Ethernet out, max 10,400,000 px - per port 650,000 px on an 8-bit source, 320,000 on 10/12-bit. Same OPT shape as the NovaPro UHD: OPT 1/2 transmit Ethernet 1-8 / 9-16 and OPT 3/4 are their copy/hot backup, available when all four OPTs are used for output. The OPTs add no ports."
@@ -427,6 +445,7 @@
       "connector": "rj45",
       "trunks": 2,
       "portsPerTrunk": 8,
+      "trunkRate": "10G",
       "trunkDelivery": "copy",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16}]},
       "note": "The OPT ports copy Ethernet 1-8 / 9-16, so they add no ports - a breakout box on OPT 1 is another place to plug into ports 1-8, not eight more ports. Both deliveries are real and both get used: patch the copper on the card, or take the same ports out at a box across the room. Counted as an RJ45 sending card against the H9 Enhanced limit; no document says which side of that split a mixed card falls on."
@@ -440,6 +459,7 @@
       "connector": "fiber",
       "trunks": 4,
       "portsPerTrunk": 8,
+      "trunkRate": "10G",
       "ports": {
         "defaultMode": "independent",
         "modes": [
@@ -458,6 +478,7 @@
       "connector": "fiber",
       "trunks": 4,
       "portsPerTrunk": 10,
+      "trunkRate": "10G",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 40}]},
       "note": "EIGHT 10G connectors but still four primaries - OPT 5-8 back up OPT 1-4 - and one OPT = 10 Ethernet ports. 4 x 10 = 40. Counting connectors gets this wrong in both directions: not 8, not 80. Max 26,000,000 px. Needs NovaLCT 5.8.0 or above."
     },
@@ -470,6 +491,7 @@
       "connector": "fiber",
       "trunks": 4,
       "portsPerTrunk": 10,
+      "trunkRate": "10G",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 40}]},
       "note": "64B/66B, 10 ports per fiber."
     },
@@ -482,8 +504,9 @@
       "connector": "fiber",
       "trunks": 1,
       "portsPerTrunk": 8,
+      "trunkRate": "40G",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 8}]},
-      "note": "The 40G card gives 8, not 40 - the fiber-to-logical ratio follows the line rate, never the connector."
+      "note": "The 40G card gives 8, not 40 - the fiber-to-logical ratio follows the line rate, never the connector. Its 40G trunk takes the CVT8-5G and only the CVT8-5G."
     },
 
     {
@@ -493,6 +516,7 @@
       "kind": "cvt",
       "family": "novastar",
       "trunksIn": 2,
+      "trunkRate": "10G",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16}]},
       "capAtTrunk": true,
       "note": "16x Neutrik etherCON out on 2 OPT in. Its four LC connectors are TWO optical ports - LC is duplex - and counting them as four would double the box. Two OPTs at 8 per trunk is exactly its 16, so behind an H_4xfiber it delivers the lot; one box also takes both OPTs of an H_16xRJ45+2xfiber and delivers all 16 there, where CVT10s need two boxes."
@@ -505,6 +529,7 @@
       "kind": "cvt",
       "family": "novastar",
       "trunksIn": 1,
+      "trunkRate": "10G",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 10}]},
       "capAtTrunk": true,
       "note": "10 ports on a 10.3125 Gbps 64B/66B trunk, 8 on an 8B/10B one - the box fans out whatever the trunk carries, so its real count is capped by the card's ports per fiber."
@@ -517,6 +542,7 @@
       "kind": "cvt",
       "family": "novastar",
       "trunksIn": 1,
+      "trunkRate": "10G",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 10}]},
       "capAtTrunk": true,
       "note": "Same figures as the CVT10: 1 OPT in, 10 ports on a 10.3125 Gbps 64B/66B trunk and only the first 8 from a 10G 8B/10B source."
@@ -529,9 +555,10 @@
       "kind": "cvt",
       "family": "novastar",
       "trunksIn": 1,
+      "trunkRate": "40G",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 8}]},
       "capAtTrunk": true,
-      "note": "8x 5GBASE-T out on 1x 40G in. The 5G rate is what a port carries, not how many there are."
+      "note": "8x 5GBASE-T out on 1x 40G in. The 5G rate is what a port carries, not how many there are. The box for 40G fiber, and only for 40G fiber - it does not hang off a 10G OPT, and the 10G boxes do not hang off a 40G one."
     },
 
     {

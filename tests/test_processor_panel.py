@@ -181,16 +181,22 @@ def test_the_novapro_uhds_opts_copy_their_own_copper():
             f'port-halving redundancy mode')
 
 
-# ── 1b. Matt's CVT rule: a documented 10G OPT output takes a breakout box ──
+# ── 1b. Matt's CVT rules: attachment is rate-matched, per documented rate ──
 #
-# The rule arrived verbatim: "anything that has opt fiber 10g ports needs cvt
-# support" - and the 10G qualifier is load-bearing, not decoration. A device
-# whose fiber is another rate (NovaPro HD, 1G per Matt; the CX Pros, 40G) or
-# whose sheet states no rate at all (VX400) gets NO trunks, however plausible
-# 10G would be. Every entry below was swept against the device's own current
-# spec sheet, and the quotes live in docs/processor-port-table.md.
+# Two rulings, both verbatim. The first: "anything that has opt fiber 10g
+# ports needs cvt support" - and the 10G qualifier is load-bearing, not
+# decoration. The second (2026-08-21): "40g fiber ports only worjks with cvt
+# 8 f5 boxes" - a 40G OPT takes the CVT8-5G and ONLY the CVT8-5G, which cuts
+# both ways: the 10G boxes stay off 40G trunks, and the CVT8-5G stays off
+# 10G ones. A device whose fiber is another rate (NovaPro HD, 1G per Matt)
+# or whose sheet states no rate at all (VX400) gets NO trunks, however
+# plausible a rate would be - and a documented rate with UNDOCUMENTED
+# carriage (KU20 at 10G, CX40 Pro at 40G) still refuses, because there is no
+# portsPerTrunk to give the block model. Every entry below was swept against
+# the device's own current spec sheet, and the quotes live in
+# docs/processor-port-table.md.
 #
-# This list is exhaustive on purpose: the exact-set test underneath fails
+# These lists are exhaustive on purpose: the exact-set test underneath fails
 # both when a swept device loses its trunks AND when any NovaStar device
 # grows trunks nobody documented.
 NOVASTAR_10G_TRUNKS = [
@@ -216,8 +222,20 @@ NOVASTAR_10G_TRUNKS = [
     ('novastar-card-h-4xfiber', 4, 8, 'distinct'),
     ('novastar-card-h-4xfiber-enhanced', 4, 10, 'distinct'),
     ('novastar-card-mx-4x10g', 4, 10, 'distinct'),
-    # Pre-dates the 10G ruling: a 40G trunk, in the catalog from the first
-    # research pass with its own documented 8-per-fiber figure. Kept as is.
+]
+
+# The 40G roster, under the 2026-08-21 ruling. Same sweep standard as the
+# 10G list: a trunk only where the device's own sheet documents what the
+# fiber carries. The CX80 Pro's sheet does, verbatim - "1 corresponds to
+# Ethernet ports 1~8. 2 corresponds to Ethernet ports 9~16." - which is the
+# H_16xRJ45+2xfiber shape: OPTs carrying the unit's own copper, so copy
+# delivery. The 1x40G card was in the catalog from the first research pass
+# with its own documented 8-per-fiber figure. The CX40 Pro is NOT here: its
+# sheet states the 40G rate and nothing about carriage, so it stays refused
+# the same way the KU20 does at 10G.
+NOVASTAR_40G_TRUNKS = [
+    # device, trunks, ports per trunk, delivery
+    ('novastar-cx80-pro', 2, 8, 'copy'),
     ('novastar-card-mx-1x40g', 1, 8, 'distinct'),
 ]
 
@@ -230,24 +248,106 @@ def test_a_documented_10g_opt_device_accepts_a_box(device_id, trunks,
     assert device['trunks'] == trunks, device_id
     assert device['portsPerTrunk'] == per_trunk, device_id
     assert device.get('trunkDelivery', 'distinct') == delivery, device_id
+    assert device['trunkRate'] == '10G', device_id
     card = catalog.new_card(device_id, 'sweep', fixed=True)
     ok, why = catalog.can_add_cvt(card, 'novastar-cvt10')
     assert ok, f'{device_id} refuses a box despite documented 10G OPTs: {why}'
+    # The rate rule's other edge: the 40G box does not hang off a 10G OPT.
+    ok, why = catalog.can_add_cvt(card, 'novastar-cvt8-5g')
+    assert not ok, f'{device_id} took a CVT8-5G onto a 10G trunk'
+    assert '40G' in why and '10G' in why, why
+
+
+@pytest.mark.parametrize('device_id,trunks,per_trunk,delivery',
+                         NOVASTAR_40G_TRUNKS)
+def test_a_documented_40g_opt_device_takes_only_the_cvt8_5g(device_id, trunks,
+                                                            per_trunk,
+                                                            delivery):
+    """The ruling, cut both ways on every 40G device: the CVT8-5G attaches,
+    and each box of the 10G line - CVT10, CVT10 Pro, CVT4K-S - is refused
+    with the rate named in the reason."""
+    device = catalog.get_device(device_id)
+    assert device['trunks'] == trunks, device_id
+    assert device['portsPerTrunk'] == per_trunk, device_id
+    assert device.get('trunkDelivery', 'distinct') == delivery, device_id
+    assert device['trunkRate'] == '40G', device_id
+    card = catalog.new_card(device_id, 'sweep', fixed=True)
+    ok, why = catalog.can_add_cvt(card, 'novastar-cvt8-5g')
+    assert ok, f'{device_id} refuses the CVT8-5G: {why}'
+    for box in ('novastar-cvt10', 'novastar-cvt10-pro', 'novastar-cvt4k-s'):
+        ok, why = catalog.can_add_cvt(card, box)
+        assert not ok, f'{device_id} took {box} onto a 40G trunk'
+        assert '40G' in why and '10G' in why, why
 
 
 def test_no_novastar_device_carries_trunks_the_sweep_did_not_grant():
     """Both directions at once. Trunks lost: a swept device dropped off the
-    list silently. Trunks grown: someone gave a device CVT support without a
-    documented 10G OPT behind it - the KU20 (10G but undocumented carriage),
-    the CX Pros (40G), the VX400 (no rate stated), the NovaPro HD (1G per
-    Matt) and every copper-only sender must stay boxless until a sheet or a
-    ruling from Matt says otherwise."""
-    pinned = {device_id for device_id, *_ in NOVASTAR_10G_TRUNKS}
+    lists silently. Trunks grown: someone gave a device CVT support without
+    a documented OPT rate AND documented carriage behind it - the KU20 (10G,
+    carriage unstated), the CX40 Pro (40G, carriage unstated), the VX400 (no
+    rate stated), the NovaPro HD (1G per Matt) and every copper-only sender
+    must stay boxless until a sheet or a ruling from Matt says otherwise."""
+    pinned = {device_id for device_id, *_ in
+              NOVASTAR_10G_TRUNKS + NOVASTAR_40G_TRUNKS}
     actual = {d['id'] for d in catalog.load_catalog()['devices']
               if d.get('vendor') == 'NovaStar' and d.get('trunks')}
     assert actual == pinned, (
         f'grew trunks: {sorted(actual - pinned)}; '
         f'lost trunks: {sorted(pinned - actual)}')
+
+
+def test_the_cx40_pro_stays_refused_for_carriage_not_rate(client):
+    """The CX40 Pro's sheet states its OPT is 40Gbps - a rate the CVT8-5G
+    takes - and states nothing about what the OPT carries, so it refuses a
+    box exactly the way the KU20 does at 10G: no portsPerTrunk to give the
+    block model, no trunks until a sheet or Matt settles the carriage. The
+    ruling changed WHY it refuses, not whether."""
+    device = catalog.get_device('novastar-cx40-pro')
+    assert 'trunks' not in device, (
+        'the CX40 Pro grew trunks; its 40G carriage is still undocumented')
+    assert 'carries' in device['note'], (
+        'the note lost the reason no box hangs off this device')
+    state = add_processor(client, 'novastar-cx40-pro')
+    proc = only(state)
+    pid, card_id = proc['id'], first_card(proc)['id']
+    resp = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
+                       json={'deviceId': 'novastar-cvt8-5g'})
+    assert resp.status_code == 400, 'a box went onto undocumented carriage'
+
+
+def test_the_ku20_stays_refused_even_by_the_40g_box(client):
+    """The KU20's carriage is still unruled, and no new box changes that: a
+    CVT8-5G would not even rate-match its 10G OPT, and the CVT10 that would
+    is refused for the carriage, same as before the 40G ruling."""
+    device = catalog.get_device('novastar-ku20')
+    assert 'trunks' not in device, 'the KU20 grew trunks without a ruling'
+    card = catalog.new_card('novastar-ku20', 'sweep', fixed=True)
+    for box in ('novastar-cvt10', 'novastar-cvt8-5g'):
+        ok, _why = catalog.can_add_cvt(card, box)
+        assert not ok, f'the KU20 accepted {box} with carriage unruled'
+
+
+def test_the_cx80_pro_takes_the_cvt8_5g_end_to_end(client):
+    """The whole path on the device the ruling unlocked: a CVT8-5G lands on
+    a CX80 Pro and delivers ports 1-8 of the unit's own sixteen (copy
+    delivery - the OPTs carry the copper, a box adds nothing), and a CVT10
+    is refused by the route with the rates in the reason."""
+    state = add_processor(client, 'novastar-cx80-pro')
+    pid = only(state)['id']
+    card_id = first_card(only(state))['id']
+    resp = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
+                       json={'deviceId': 'novastar-cvt10', 'pair': False})
+    assert resp.status_code == 400, 'a 10G box went onto the 40G OPTs'
+    assert '40G' in resp.get_json()['error']
+    state = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
+                        json={'deviceId': 'novastar-cvt8-5g',
+                              'pair': False}).get_json()
+    card = first_card(only(state))
+    assert card['trunkRate'] == '40G'
+    box = card['cvts'][0]
+    assert (box['firstPort'], box['portCount']) == (1, 8)
+    assert card['ceiling'] == 16 and card['defined'] == 16
+    assert card['trunksCopyOwnPorts'] is True
 
 
 def test_the_novapro_hds_fiber_takes_no_box(client):

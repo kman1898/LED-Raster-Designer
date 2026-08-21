@@ -2149,6 +2149,25 @@ class _Power {
                     d.legs ? (d.imbalancePct > 1 ? `±${Math.round(d.imbalancePct)}%` : 'even') : null,
                     `${d.socas.length} multi${d.socas.length === 1 ? '' : 's'}`,
                 ].filter(Boolean).join(' · ');
+                // The glance line's numbers, drawn: the fold keeps the load
+                // bar and the per-leg minis so a folded LIST still reads as
+                // levels and balance, not just figures. Same .rack-bar
+                // markup, same over/alarm rules as the open body below -
+                // one bar implementation, two places it shows. Kept to two
+                // short rows so a fold stays a fold.
+                const legTone = d.legs
+                    ? (d.imbalancePct > 20 ? '#e05050' : d.imbalancePct > 10 ? '#d8a13c' : 'var(--ps-dim, #b8b8b8)')
+                    : '';
+                const glanceBars = `<div class="lrd-distro-glance-bars">
+                    <div class="rack-bar"><div class="rack-bar-fill${d.over ? ' over' : ''}" style="width:${Math.min(100, Math.round(d.pct))}%"></div></div>
+                    ${d.legs ? `<div style="display:flex; gap:3px; margin-top:2px; align-items:flex-end; font-size:9px; color:${legTone};">
+                        ${['X', 'Y', 'Z'].map(k => `<div style="flex:1; min-width:0;">
+                            <div style="text-align:center; white-space:nowrap;">${k} ${d.legs[k].amps.toFixed(0)}A</div>
+                            <div class="rack-bar"><div class="rack-bar-fill${d.legs[k].pct > 100 ? ' over' : ''}" style="width:${Math.min(100, Math.round(d.legs[k].pct))}%"></div></div>
+                        </div>`).join('')}
+                        <span style="white-space:nowrap;">${d.imbalancePct > 1 ? `±${Math.round(d.imbalancePct)}%` : 'even'}</span>
+                    </div>` : ''}
+                </div>`;
                 return `<div class="power-distro-row lrd-distro-card" data-id="${d.id || ''}">
                     ${d.id ? `
                     <!-- The head is the fold handle (same machinery the
@@ -2165,6 +2184,7 @@ class _Power {
                         </label>
                         ${d.phase === 3 ? `<button class="btn btn-secondary distro-balance" data-lrd-field="distro-balance-${d.id}" style="padding:1px 8px; flex:none; white-space:nowrap;" data-tooltip="Balance legs, Searches which set of six breakers each partly-filled multi on THIS distro should land on. A full multi balances itself, so only short ones move. Nothing changes until you accept it.">Balance</button>` : ''}
                         <button class="btn btn-secondary distro-del lrd-distro-live" data-lrd-field="distro-del-${d.id}" style="padding:1px 7px; flex:none;">✕</button>
+                        ${glanceBars}
                     </div>
                     <div class="lrd-sec-body">
                     <!-- Same wrap, same reason as the heading above. Voltage

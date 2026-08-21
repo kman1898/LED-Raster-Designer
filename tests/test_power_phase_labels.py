@@ -1715,3 +1715,99 @@ def test_distro_fold_persists_and_survives_a_rebuild(page):
     out = page.evaluate(DISTRO_FOLD_JS, {'rebuild': True})
     assert out['folded']['key'] == '1', out['folded']
     assert out['rebuilt']['folded'] is True, 'the rebuild dropped the fold'
+
+
+# The glance line's numbers, drawn: the folded face keeps the load bar and
+# the three per-leg minis (amps over each, the ± beside them), so a list of
+# folded distros still reads as levels and balance. Same .rack-bar markup
+# the open body draws - one bar implementation, two places it shows.
+DISTRO_FOLD_BARS_JS = """(cfg) => {
+    const ph = window.__ph;
+    const A = ph.col5(69, 'WallA', 4, { powerSocaDistro: { 1: 'e1' } });
+    const distro = Object.assign(ph.box('e1', 'E1'), cfg.distro || {});
+    const result = ph.withProject({
+        layers: [A], distros: [distro],
+    }, () => {
+        const app = window.app;
+        app._circuitTailCache = null;
+        app.refreshDistroPanel();
+        const host = document.getElementById('power-distros');
+        const row = document.querySelector(
+            '#power-distros .power-distro-row[data-id="e1"]');
+        const shown = el => !!el && getComputedStyle(el).display !== 'none';
+        const state = () => {
+            const bars = row.querySelector('.lrd-distro-glance-bars');
+            return {
+                barsShown: shown(bars),
+                barCount: bars
+                    ? bars.querySelectorAll('.rack-bar').length : 0,
+                overCount: bars
+                    ? bars.querySelectorAll('.rack-bar-fill.over').length : 0,
+                barsText: bars ? bars.innerText : '',
+                balance: shown(row.querySelector('.distro-balance')),
+                height: row.offsetHeight,
+            };
+        };
+        const open = state();
+        row.querySelector('.lrd-sec-head .lrd-sec-arrow').click();
+        const folded = state();
+        let clamped = null;
+        if (cfg.clampPx) {
+            const was = host.style.width;
+            host.style.width = cfg.clampPx + 'px';
+            clamped = {
+                rowFits: row.scrollWidth <= row.clientWidth,
+                hostFits: host.scrollWidth <= host.clientWidth,
+            };
+            host.style.width = was;
+        }
+        row.querySelector('.lrd-sec-head .lrd-sec-arrow').click();
+        return { open, folded, clamped };
+    });
+    try { localStorage.removeItem('ledRasterPanelCollapsed_power-distro-e1'); }
+    catch (e) {}
+    window.app.refreshDistroPanel();
+    return result;
+}"""
+
+
+def test_a_folded_distro_still_shows_levels_and_balance(page):
+    """The user's ask, verbatim: "i would also like to be able to see the
+    power levels and balance when the distro is minimized". Folded, the face
+    carries the load bar plus the three per-leg minis with their amps and
+    the ± figure; open, the block stays hidden because the body already
+    draws the full set. The fold stays a fold - a couple of short rows, not
+    the whole body."""
+    out = page.evaluate(DISTRO_FOLD_BARS_JS, {})
+    assert out['open']['barsShown'] is False, 'open, the body owns the bars'
+    f = out['folded']
+    assert f['barsShown'] is True, 'the folded face lost its bars'
+    assert f['barCount'] == 4, 'one load bar plus three leg minis'
+    assert f['overCount'] == 0, 'a healthy distro reddens nothing'
+    for piece in ('X ', 'Y ', 'Z ', 'A'):
+        assert piece in f['barsText'], (piece, f['barsText'])
+    # ±% (or "even" when the legs agree) rides with the minis, so balance is
+    # readable off the fold, not just load.
+    assert ('±' in f['barsText']) or ('even' in f['barsText']), f['barsText']
+    assert f['balance'] is True, 'Balance still works on a folded distro'
+    # Folded cards must still scan as a list: the bars add two short rows,
+    # nothing like the open body's height.
+    assert f['height'] < 120, f
+
+
+def test_a_folded_overloaded_distro_reddens_its_bars(page):
+    """The over case wears the same alarm folded as open: the load bar's
+    fill takes .over (the red gradient) when the distro is past its rating,
+    and the leg minis redden where a leg is past its share."""
+    out = page.evaluate(DISTRO_FOLD_BARS_JS, {'distro': {'ratingA': 4}})
+    f = out['folded']
+    assert f['barsShown'] is True
+    assert f['overCount'] >= 1, 'an over-capacity distro folded to green bars'
+
+
+def test_folded_bars_fit_the_narrow_clamp(page):
+    """At the 180px clamp the folded card wraps rather than clipping - the
+    same standard the processor cards' folded line meets."""
+    out = page.evaluate(DISTRO_FOLD_BARS_JS, {'clampPx': 180})
+    assert out['clamped']['rowFits'], 'the folded card clips sideways at 180px'
+    assert out['clamped']['hostFits'], 'the distro list scrolls sideways at 180px'
