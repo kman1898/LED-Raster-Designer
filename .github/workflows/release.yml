@@ -403,7 +403,12 @@ jobs:
           # publish, which led to releases piling up as drafts and the
           # /releases/latest page pointing at an old version.
           draft: false
-          make_latest: true
+          # A -beta tag publishes as a PRERELEASE and never becomes
+          # "latest": the README download link and the in-app update check
+          # both resolve /releases/latest, and a beta shared for testing
+          # must not be what every user is steered to.
+          prerelease: ${{ contains(github.ref_name, '-beta') }}
+          make_latest: ${{ contains(github.ref_name, '-beta') && 'false' || 'true' }}
           # Was generate_release_notes: true, which builds the body from the
           # COMMIT LIST and threw away the notes written for users. The body
           # now comes from RELEASE_NOTES.md, generated above from VERSION.txt.
