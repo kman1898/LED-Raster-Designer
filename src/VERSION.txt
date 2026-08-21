@@ -6,47 +6,74 @@ v0.12.0 - August 21, 2026 (BETA)
 
 POWER DISTRIBUTION
 
-- Distros: project-level power distros with rating, voltage and phase.
-  Load rolls up circuits -> multi -> distro; 3-phase per-leg currents are
-  phasor sums with NEMA-style imbalance.
-- Multis (socas): circuits fold into 6-circuit multis with per-leg tiles,
-  watts, amps and home-run lengths. Breakout types drive the gear list.
-- Shared multis: assigning a multi to a distro also picks WHICH number on
-  that distro; two screens on one number are one physical soca. A joining
-  screen lands on the box's free tails and incumbents hold their tails.
-- Splits: a screen's circuits can split across multis at a chosen
-  boundary; each part assigns its own distro and number.
-- Phase balancing per distro: each 3-phase distro row carries its own
-  Balance. Balancing chooses which tails are in use, never their order;
-  labels name the true physical tail. A balance with nothing to move says
-  why, box by box.
-- Splitters: adjacent short runs gang onto one circuit through
-  2fer/3fer/4fer Y-cables; manual merge and split. Default off.
-- Labels come from the distro: distro name -> multi name -> circuit, with
-  per-multi renames and per-circuit overrides. Overrides never move.
+- NEW: Distros. Project-level power distros with their own rating, voltage
+  and phase. Load rolls up circuit -> multi -> distro; three-phase per-leg
+  currents are phasor sums, and imbalance reads the way a genset spec means
+  it.
 
-DATA
+- NEW: Multis (socas). Circuits fold into 6-circuit multis with per-leg
+  tiles, watts and amps, home-run lengths, and breakout types that drive
+  the gear list. Soca brackets can draw over the wall (off by default).
 
-- Processors: full device tree (processor -> card -> breakout box ->
-  ports) with a 47-device catalog. Ports auto-number onto cards per
-  screen; move one port or a whole block; assignment works from either
-  the screen or the processor side.
-- Port labels come from the processor; redundancy ports name separately
-  with their own template. Brompton redundancy pairs adjacent (A backs
-  up B) automatically; NovaStar defaults to a primary+backup box pair.
-- Groups of matching screens route as one screen (serpentine crosses the
-  seam, ports count from the combined walk); per-group opt-out toggle.
+- NEW: Shared multis. Assigning a multi to a distro also picks WHICH
+  number on that distro, and two screens on one number are one physical
+  soca: the joiner lands on the box's free tails, the labels derive
+  automatically, and the distro counts the box once.
 
-UI
+- NEW: Splits. A screen's circuits can split at a chosen boundary, and
+  each part assigns its own distro and number - six circuits on one box
+  and the two left over joining another.
 
-- Power sidebar on the Power tab, Signal sidebar on the Data tab; both
-  drag to resize, collapse, and remember their state.
-- Ports and multis render as compact tiles that open in place.
-- Processors and distros fold to one-line summaries; every panel header
-  collapses. Undo covers every action, including project-level edits.
-- Group name overlay: screens, group, or both.
+- NEW: Balance, per distro. Every three-phase distro carries its own
+  Balance button. Balancing chooses which tails of a multi are in use,
+  never their order, so the wall always reads in order; labels name the
+  true physical tail. A balance with nothing to move says why, box by box.
 
-SCR export is parked in this build; the file layer and CLI remain.
+- NEW: Splitters. Adjacent short runs gang onto one circuit through
+  2fer/3fer/4fer Y-cables, with manual merge and split. Off by default;
+  existing drawings are unchanged.
+
+- NEW: Labels come from the distro. Distro name -> multi name -> circuit
+  label, with per-multi renames and per-circuit overrides. An override is
+  your text and never moves.
+
+DATA AND PROCESSORS
+
+- NEW: Processors. A full device tree - processor, card, breakout box,
+  ports - from a 47-device catalog. Ports number onto cards automatically
+  per screen; move one port or a whole block; assign from the screen or
+  from the processor side, and conflicts are offered, never silently
+  rearranged.
+
+- NEW: Port labels come from the processor. Name a card SR and its ports
+  read SR-1, SR-2; redundancy ports name separately, with their own
+  template. Brompton redundancy pairs adjacent outputs automatically;
+  NovaStar defaults to a primary box and a backup box.
+
+- NEW: A group of matching screens routes as one screen. The serpentine
+  crosses the seam and ports count from the combined walk, which can need
+  fewer ports than the screens did separately. A per-group toggle turns
+  it off.
+
+LOOK AND FEEL
+
+- NEW: A Power sidebar on the Power tab and a Signal sidebar on the Data
+  tab. Both drag to resize, collapse, and remember where you left them.
+
+- NEW: Ports and multis render as compact tiles that open in place -
+  click a tile and its controls unfold right there.
+
+- NEW: Processors and distros fold to one-line summaries, and every
+  panel header collapses: click the arrow or double-click the header.
+
+- NEW: Group names on the drawing - screen names, the group's name, or
+  both at once.
+
+- CHANGE: Undo covers every action, including distro and processor edits
+  that never entered history before.
+
+- CHANGE: SCR export is parked in this build while data and power are the
+  focus. The file layer and command-line export remain.
 
 v0.11.2 - August 11, 2026
 ----------------------------
