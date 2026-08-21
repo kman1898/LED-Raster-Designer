@@ -81,6 +81,8 @@ SETTLED_CEILINGS = [
     ('novastar-cx80-pro', 16),
     ('novastar-vx400', 4),
     ('novastar-mctrl4k', 16),
+    ('novastar-novapro-uhd', 16),
+    ('novastar-novapro-uhd-jr', 16),
     ('novastar-card-h-20xrj45', 20),
     ('novastar-card-h-16xrj45-2xfiber', 16),
     ('novastar-card-h-4xfiber', 32),
@@ -142,6 +144,30 @@ def test_every_settled_ceiling_is_still_the_number_in_the_source_table():
         assert str(expected) in found, (
             f'{device["name"]}: catalog says {expected}, the table row says '
             f'{cells[3]!r}')
+
+
+def test_the_novapro_uhds_opts_copy_their_own_copper():
+    """Both NovaPro UHDs are the H_16xRJ45+2xfiber shape, not the H_4xfiber
+    one: 16 copper ports on the unit, and every OPT carries ports the copper
+    already has. Their spec sheets state the layout verbatim - OPT 1/2 transmit
+    Ethernet 1-8 / 9-16, OPT 3/4 are their copy/hot backup - which is exactly
+    what copy delivery with four trunks at 8 per trunk produces. No documented
+    OPT mode adds a port, so unlike the MX40 Pro there is no mode switch."""
+    for device_id in ('novastar-novapro-uhd', 'novastar-novapro-uhd-jr'):
+        device = catalog.get_device(device_id)
+        assert device['form'] == 'all-in-one', device_id
+        assert device['trunkDelivery'] == 'copy', (
+            f'{device_id}: its OPTs carry the copper it already has; distinct '
+            f'delivery would count the same sixteen ports twice')
+        assert device['trunks'] == 4
+        assert device['portsPerTrunk'] == 8
+        modes = device['ports']['modes']
+        assert len(modes) == 1, (
+            f'{device_id} grew a mode switch nobody documented: {modes}')
+        assert catalog.port_capacity(device_id)['count'] == 16
+        assert 'redundancy' not in device, (
+            f'{device_id}: OPT 3/4 backing up OPT 1/2 is fixed wiring, not a '
+            f'port-halving redundancy mode')
 
 
 def test_a_device_the_table_could_not_settle_declares_itself_unknown():

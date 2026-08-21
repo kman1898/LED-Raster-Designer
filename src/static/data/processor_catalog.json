@@ -165,6 +165,32 @@
       "family": "novastar-mctrl",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 4}]}
     },
+    {
+      "id": "novastar-novapro-uhd",
+      "vendor": "NovaStar",
+      "name": "NovaPro UHD",
+      "kind": "processor",
+      "form": "all-in-one",
+      "family": "novastar-novapro",
+      "trunks": 4,
+      "portsPerTrunk": 8,
+      "trunkDelivery": "copy",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16}]},
+      "note": "16x Neutrik Gigabit Ethernet out, max 10,400,000 px. The four 10G OPTs add no ports - OPT 1/2 carry Ethernet 1-8 / 9-16 and OPT 3/4 are their copy/hot backup channels - so a box on any OPT is another place to plug into ports the back of the unit already has. Its spec publishes no per-port pixel figure; the Jr's numbers are the Jr's."
+    },
+    {
+      "id": "novastar-novapro-uhd-jr",
+      "vendor": "NovaStar",
+      "name": "NovaPro UHD Jr",
+      "kind": "processor",
+      "form": "all-in-one",
+      "family": "novastar-novapro",
+      "trunks": 4,
+      "portsPerTrunk": 8,
+      "trunkDelivery": "copy",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16}]},
+      "note": "16x Neutrik Gigabit Ethernet out, max 10,400,000 px - per port 650,000 px on an 8-bit source, 320,000 on 10/12-bit. Same OPT shape as the NovaPro UHD: OPT 1/2 transmit Ethernet 1-8 / 9-16 and OPT 3/4 are their copy/hot backup, available when all four OPTs are used for output. The OPTs add no ports."
+    },
 
     {
       "id": "novastar-h2",
