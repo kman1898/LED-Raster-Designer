@@ -45,6 +45,13 @@ DATA AND PROCESSORS
   from the processor side, and conflicts are offered, never silently
   rearranged.
 
+- NEW: The NovaStar catalog grows to 45 devices: NovaPro UHD and UHD Jr,
+  MCTRL R5, MCTRL700, MCTRL600, MCTRL300, MSD300, NovaPro HD, and every
+  current VX Pro model as its own entry - each figure from the device's
+  own specification, and fields the sheet does not publish are shown as
+  unknown rather than guessed. Any device whose sheet documents 10G OPT
+  fiber accepts a breakout box; fiber at other rates does not.
+
 - NEW: Port labels come from the processor. Name a card SR and its ports
   read SR-1, SR-2; redundancy ports name separately, with their own
   template. Brompton redundancy pairs adjacent outputs automatically;
