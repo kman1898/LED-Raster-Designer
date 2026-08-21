@@ -549,9 +549,15 @@ class _Processors {
             row.style.marginTop = '6px';
             // A box can take more than one trunk - a CVT4K-S is two - so what
             // is offerable is what FITS in the trunks left, not simply
-            // anything while one remains.
+            // anything while one remains. And the trunk's line rate is part
+            // of the metal too: a 40G OPT takes the CVT8-5G and nothing
+            // else, and the 10G boxes stay off it - so where both rates are
+            // documented, only the matching boxes are offered. The server
+            // refuses the same mismatch; the picker just stops asking.
             const fits = this._processorDevices('cvt')
-                .filter(d => (d.trunksIn || 1) <= card.trunksFree);
+                .filter(d => (d.trunksIn || 1) <= card.trunksFree)
+                .filter(d => !d.trunkRate || !card.trunkRate
+                             || d.trunkRate === card.trunkRate);
             const picker = this._buildDeviceSelect(fits, '',
                                                    'Add a breakout box...');
             picker.dataset.lrdField = `processor-cvt-add-${card.id}`;

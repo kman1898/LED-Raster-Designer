@@ -227,6 +227,19 @@ def can_add_cvt(card, device_id):
     box = get_device(device_id)
     if not box:
         return False, f'Unknown device: {device_id}'
+    # THE TRUNK'S LINE RATE IS PART OF THE METAL, the same way the trunk
+    # count is. The user's ruling, verbatim: "40g fiber ports only worjks
+    # with cvt 8 f5 boxes" - a 40G OPT takes the CVT8-5G and nothing else,
+    # and the CVT8-5G takes a 40G trunk and nothing else, so attachment is
+    # rate-matched wherever BOTH rates are documented. Where either side's
+    # sheet states no rate, nothing is refused on a rate nobody wrote down -
+    # the same no-inference rule the port ceilings live by.
+    card_rate = device.get('trunkRate')
+    box_rate = box.get('trunkRate')
+    if card_rate and box_rate and card_rate != box_rate:
+        return False, (f'{box.get("name", device_id)} hangs off a {box_rate} '
+                       f'trunk and the OPTs on {name} are {card_rate} - the '
+                       f'rates must match.')
     need = trunks_in(box)
     free = trunks - trunks_used(card)
     if need > free:
@@ -252,6 +265,11 @@ def _fills_the_card(card_device, ceiling):
     out = []
     for box in devices('cvt'):
         if box.get('vendor') != card_device.get('vendor'):
+            continue
+        # Never name a box the rate rule refuses: a CVT8-5G's 8-out would
+        # arithmetically fill a plain H_4xfiber, and it does not go there.
+        rate, box_rate = card_device.get('trunkRate'), box.get('trunkRate')
+        if rate and box_rate and rate != box_rate:
             continue
         takes = trunks_in(box)
         each = _cvt_port_count(box, card_device)
@@ -759,6 +777,10 @@ def resolve_card(card, proc):
         'ceilingReason': cap['reason'],
         'trunks': device.get('trunks'),
         'portsPerTrunk': device.get('portsPerTrunk'),
+        # The trunks' line rate, where the sheet states one. The panel's box
+        # picker filters on it the same way the server refuses on it - a
+        # 40G OPT offers only the 40G box, and vice versa.
+        'trunkRate': device.get('trunkRate'),
         # Whether hanging a box on a trunk gets you ports you did not already
         # have. On an H_16xRJ45+2xfiber it does not: the OPTs copy Ethernet
         # 1-8 and 9-16, so a box there is somewhere else to plug into the same
