@@ -24,6 +24,10 @@ POWER DISTRIBUTION
   each part assigns its own distro and number - six circuits on one box
   and the two left over joining another.
 
+- NEW: A folded distro still shows its load - the load bar and the three
+  per-leg bars with amps and imbalance sit on the folded face, red when
+  over, so a rack of folded distros reads like a meter bridge.
+
 - NEW: Balance, per distro. Every three-phase distro carries its own
   Balance button. Balancing chooses which tails of a multi are in use,
   never their order, so the wall always reads in order; labels name the
@@ -49,8 +53,10 @@ DATA AND PROCESSORS
   MCTRL R5, MCTRL700, MCTRL600, MCTRL300, MSD300, NovaPro HD, and every
   current VX Pro model as its own entry - each figure from the device's
   own specification, and fields the sheet does not publish are shown as
-  unknown rather than guessed. Any device whose sheet documents 10G OPT
-  fiber accepts a breakout box; fiber at other rates does not.
+  unknown rather than guessed. Breakout boxes are rate-matched:
+  10G OPT fiber takes the 10G CVT line, 40G fiber takes the CVT8-5G and
+  only the CVT8-5G, and a device whose sheet states no rate takes nothing
+  on inference.
 
 - NEW: Port labels come from the processor. Name a card SR and its ports
   read SR-1, SR-2; redundancy ports name separately, with their own
