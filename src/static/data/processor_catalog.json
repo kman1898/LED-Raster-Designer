@@ -32,8 +32,11 @@
       "kind": "processor",
       "form": "all-in-one",
       "family": "novastar-mx",
+      "trunks": 2,
+      "portsPerTrunk": 10,
+      "trunkDelivery": "copy",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 10}]},
-      "note": "Fiber is copy only."
+      "note": "2x 10G OPT at 10.3125 Gbps: OPT 1 transmits Ethernet ports 1-10 and OPT 2 is its copy channel, so both carry the unit's own copper and a box on either adds no ports."
     },
     {
       "id": "novastar-mx20",
@@ -42,7 +45,11 @@
       "kind": "processor",
       "form": "all-in-one",
       "family": "novastar-mx",
-      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 6}]}
+      "trunks": 2,
+      "portsPerTrunk": 6,
+      "trunkDelivery": "copy",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 6}]},
+      "note": "2x 10G OPT: OPT 1 transmits Ethernet ports 1-6 and OPT 2 is its copy channel - the unit's own six ports again, never more."
     },
     {
       "id": "novastar-ku20",
@@ -51,7 +58,8 @@
       "kind": "processor",
       "form": "all-in-one",
       "family": "novastar-mx",
-      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 6}]}
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 6}]},
+      "note": "1x 10G OPT output is documented, but no sheet states what it carries - no port mapping, no copy statement - so no box hangs off it until that is settled."
     },
     {
       "id": "novastar-cx40-pro",
@@ -61,7 +69,7 @@
       "form": "all-in-one",
       "family": "novastar-cx",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 6}]},
-      "note": "5GBASE-T."
+      "note": "5GBASE-T. Its one optical port is 40Gbps with no documented carriage - not the 10G the CVT line hangs off, so no box attaches."
     },
     {
       "id": "novastar-cx80-pro",
@@ -71,17 +79,30 @@
       "form": "all-in-one",
       "family": "novastar-cx",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16}]},
-      "note": "5GBASE-T."
+      "note": "5GBASE-T. 2x 40Gbps optical ports - OPT 1 corresponds to Ethernet 1-8 and OPT 2 to 9-16, each equal to 8x 5Gbps ports - but 40G is not the 10G the CVT line hangs off, so no box attaches."
     },
     {
       "id": "novastar-vx400",
       "vendor": "NovaStar",
-      "name": "VX400 / VX400 Pro",
+      "name": "VX400",
       "kind": "processor",
       "form": "all-in-one",
       "family": "novastar-vx",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 4}]},
-      "note": "Confirmed against the hardware. One dealer page claiming 6 is wrong."
+      "note": "Confirmed against the hardware; one dealer page claiming 6 is wrong. Max 2.6 million px; its sheet states no per-port figure. Two fiber outputs copy / back up the four Ethernet ports, but the sheet states NO optical rate, so under the 10G rule no box hangs off it."
+    },
+    {
+      "id": "novastar-vx400-pro",
+      "vendor": "NovaStar",
+      "name": "VX400 Pro",
+      "kind": "processor",
+      "form": "all-in-one",
+      "family": "novastar-vx",
+      "trunks": 2,
+      "portsPerTrunk": 4,
+      "trunkDelivery": "copy",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 4}]},
+      "note": "Max 2.6 million px, 650,000 px per port on 8-bit. 2x 10G OPT carrying the unit's own four ports: in Output mode OPT 1 sends them and OPT 2 copies or backs them up; in the input modes the OPTs are video in / loop out instead. The port count is 4 in every mode, and a box adds none."
     },
     {
       "id": "novastar-vx600",
@@ -90,16 +111,50 @@
       "kind": "processor",
       "form": "all-in-one",
       "family": "novastar-vx",
-      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 6}]}
+      "trunks": 1,
+      "portsPerTrunk": 6,
+      "trunkDelivery": "copy",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 6}]},
+      "note": "Max 3.9 million px; its sheet states no per-port figure. OPT 1 is a documented 10G output copying the six Ethernet ports, so one box can take the same six out on fiber. OPT 2 also copies/backs them up but its sheet names no rate for it, so it is not counted as a trunk."
+    },
+    {
+      "id": "novastar-vx600-pro",
+      "vendor": "NovaStar",
+      "name": "VX600 Pro",
+      "kind": "processor",
+      "form": "all-in-one",
+      "family": "novastar-vx",
+      "trunks": 2,
+      "portsPerTrunk": 6,
+      "trunkDelivery": "copy",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 6}]},
+      "note": "Max 3.9 million px, 650,000 px per port on 8-bit. 2x 10G OPT carrying the unit's own six ports (Output mode: OPT 1 sends, OPT 2 copies or backs up; input modes repurpose them). The port count is 6 in every mode."
     },
     {
       "id": "novastar-vx1000",
       "vendor": "NovaStar",
-      "name": "VX1000 / VX1000 Pro",
+      "name": "VX1000",
       "kind": "processor",
       "form": "all-in-one",
       "family": "novastar-vx",
-      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 10}]}
+      "trunks": 1,
+      "portsPerTrunk": 10,
+      "trunkDelivery": "copy",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 10}]},
+      "note": "Max 6.5 million px; its sheet states no per-port figure. OPT 1 is a documented 10G output copying the ten Ethernet ports. OPT 2 also copies/backs them up but its sheet names no rate for it, so it is not counted as a trunk."
+    },
+    {
+      "id": "novastar-vx1000-pro",
+      "vendor": "NovaStar",
+      "name": "VX1000 Pro",
+      "kind": "processor",
+      "form": "all-in-one",
+      "family": "novastar-vx",
+      "trunks": 2,
+      "portsPerTrunk": 10,
+      "trunkDelivery": "copy",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 10}]},
+      "note": "Max 6.5 million px, 650,000 px per port on 8-bit. 2x 10G OPT carrying the unit's own ten ports (Output mode: OPT 1 sends, OPT 2 copies or backs up; input modes repurpose them). The port count is 10 in every mode."
     },
     {
       "id": "novastar-vx2000-pro",
@@ -108,7 +163,11 @@
       "kind": "processor",
       "form": "all-in-one",
       "family": "novastar-vx",
-      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 20}]}
+      "trunks": 4,
+      "portsPerTrunk": 10,
+      "trunkDelivery": "copy",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 20}]},
+      "note": "4x 10G OPT carrying the unit's own twenty copper ports: OPT 1/2 send Ethernet 1-10 / 11-20 and OPT 3/4 copy or back them up, so no box adds a port. OPT 1/2 are self-adaptive and become video INPUTS in the input+output working modes, leaving only OPT 3/4 as outputs; the port count is 20 in every mode."
     },
     {
       "id": "novastar-vx16s",
@@ -144,8 +203,11 @@
       "kind": "processor",
       "form": "sender",
       "family": "novastar-mctrl",
+      "trunks": 4,
+      "portsPerTrunk": 8,
+      "trunkDelivery": "copy",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16}]},
-      "note": "OPT3/4 duplicate."
+      "note": "16x Neutrik Gigabit Ethernet on the unit. 4x 10G OPT carry them again - OPT1 transmits Ethernet 1-8, OPT2 transmits 9-16, OPT3/4 are their duplicate channels - so a box on any OPT is another place to plug into the same sixteen."
     },
     {
       "id": "novastar-mctrl660-pro",
@@ -154,7 +216,11 @@
       "kind": "processor",
       "form": "sender",
       "family": "novastar-mctrl",
-      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 6}]}
+      "trunks": 2,
+      "portsPerTrunk": 6,
+      "trunkDelivery": "copy",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 6}]},
+      "note": "2x 10G OPT: OPT1 corresponds to all 6 Gigabit Ethernet ports and OPT2 is its backup, each optical port equal to 6 Gigabit ports - the unit's own six again. In fiber converter mode the OPTs become inputs; the port count is 6 either way."
     },
     {
       "id": "novastar-mctrl660",
@@ -163,7 +229,97 @@
       "kind": "processor",
       "form": "sender",
       "family": "novastar-mctrl",
-      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 4}]}
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 4}]},
+      "note": "Copper only: 4x RJ45 Gigabit Ethernet, 650,000 px per port. Its HDMI OUT / DVI OUT are video cascade connectors, not fiber - no box hangs off it."
+    },
+    {
+      "id": "novastar-mctrl-r5",
+      "vendor": "NovaStar",
+      "name": "MCTRL R5",
+      "kind": "processor",
+      "form": "sender",
+      "family": "novastar-mctrl",
+      "trunks": 2,
+      "portsPerTrunk": 8,
+      "trunkDelivery": "copy",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 8}]},
+      "note": "8x RJ45 Gigabit Ethernet, 650,000 px per port on 8-bit and 325,000 on 10-bit; loads up to 3840x1080@60Hz. Supports port and screen rotation (10-bit input does not rotate). 2x 10G OPT carry the same eight ports - OPT 1 copies Ethernet 1-8 and OPT 2 is the copy channel of OPT 1 - so a box adds nothing."
+    },
+    {
+      "id": "novastar-mctrl700",
+      "vendor": "NovaStar",
+      "name": "MCTRL700",
+      "kind": "processor",
+      "form": "sender",
+      "family": "novastar-mctrl",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 6}]},
+      "note": "6x RJ45 Gigabit Ethernet, 650,000 px per port; loads up to 1920x1200@60Hz. No optical ports at all, so nothing hangs off it."
+    },
+    {
+      "id": "novastar-mctrl600",
+      "vendor": "NovaStar",
+      "name": "MCTRL600",
+      "kind": "processor",
+      "form": "sender",
+      "family": "novastar-mctrl",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 4}]},
+      "note": "4x RJ45 Gigabit Ethernet, 650,000 px per port; input up to 1920x1200@60Hz. No optical ports. Its sheet states no device total - 4 x 650k is arithmetic, so none is claimed."
+    },
+    {
+      "id": "novastar-mctrl300",
+      "vendor": "NovaStar",
+      "name": "MCTRL300",
+      "kind": "processor",
+      "form": "sender",
+      "family": "novastar-mctrl",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 2}]},
+      "note": "2x RJ45 Gigabit Ethernet, 650,000 px per port; input up to 1920x1200@60Hz. No optical ports, no stated device total."
+    },
+    {
+      "id": "novastar-msd300",
+      "vendor": "NovaStar",
+      "name": "MSD300",
+      "kind": "processor",
+      "form": "sender",
+      "family": "novastar-mctrl",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 2}]},
+      "note": "Sending card that installs in a PC rather than a boxed controller; cascades over UART like the MCTRL300. Its own sheet: 2x RJ45 Gigabit Ethernet, 650,000 px per port, input up to 1920x1200@60Hz. No optical ports, no stated device total. The MSD300-1 is a different product with its own sheet and is not this entry."
+    },
+    {
+      "id": "novastar-novapro-uhd",
+      "vendor": "NovaStar",
+      "name": "NovaPro UHD",
+      "kind": "processor",
+      "form": "all-in-one",
+      "family": "novastar-novapro",
+      "trunks": 4,
+      "portsPerTrunk": 8,
+      "trunkDelivery": "copy",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16}]},
+      "note": "16x Neutrik Gigabit Ethernet out, max 10,400,000 px. The four 10G OPTs add no ports - OPT 1/2 carry Ethernet 1-8 / 9-16 and OPT 3/4 are their copy/hot backup channels - so a box on any OPT is another place to plug into ports the back of the unit already has. Its spec publishes no per-port pixel figure; the Jr's numbers are the Jr's."
+    },
+    {
+      "id": "novastar-novapro-uhd-jr",
+      "vendor": "NovaStar",
+      "name": "NovaPro UHD Jr",
+      "kind": "processor",
+      "form": "all-in-one",
+      "family": "novastar-novapro",
+      "trunks": 4,
+      "portsPerTrunk": 8,
+      "trunkDelivery": "copy",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16}]},
+      "note": "16x Neutrik Gigabit Ethernet out, max 10,400,000 px - per port 650,000 px on an 8-bit source, 320,000 on 10/12-bit. Same OPT shape as the NovaPro UHD: OPT 1/2 transmit Ethernet 1-8 / 9-16 and OPT 3/4 are their copy/hot backup, available when all four OPTs are used for output. The OPTs add no ports."
+    },
+    {
+      "id": "novastar-novapro-hd",
+      "vendor": "NovaStar",
+      "name": "NovaPro HD",
+      "kind": "processor",
+      "form": "all-in-one",
+      "family": "novastar-novapro",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 4}]},
+      "note": "4x Gigabit Ethernet LED outputs; max 3840 px wide, 1920 px high - its sheets publish no total or per-port pixel figure, so none is claimed. It also has 4 optical fiber outputs no document maps to any port; they are 1G per Matt and useless with the CVT line, which is why no box hangs off this device."
     },
 
     {
