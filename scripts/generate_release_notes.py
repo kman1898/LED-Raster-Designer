@@ -229,6 +229,11 @@ def main():
 
     if args.tag:
         want = args.tag.lstrip("v")
+        # A prerelease tag ships its base version's notes: v0.12.0-beta.1 IS
+        # v0.12.0, offered early - there is no separate beta changelog to
+        # ship, so only the base version has to match. A different base
+        # (0.12.1 on a 0.12.0 entry) still refuses.
+        want = want.split("-", 1)[0]
         if want != version:
             sys.exit(
                 f"REFUSING TO BUILD NOTES: tag is v{want} but the top entry in "

@@ -59,6 +59,17 @@ def test_accepts_the_matching_tag(tmp_path):
         assert out.read_text().startswith(f"# LED Raster Designer v{version}")
 
 
+def test_a_prerelease_tag_ships_its_base_versions_notes(tmp_path):
+    """v0.12.0-beta.1 IS v0.12.0, offered early - there is no separate beta
+    changelog to ship, so only the base version has to match. A different
+    BASE still refuses (the guard's whole point), which the wrong-tag test
+    above already pins with a version no entry carries."""
+    version = top_version()
+    proc, out = run(tmp_path, "--tag", f"v{version}-beta.1")
+    assert proc.returncode == 0, proc.stderr
+    assert out.read_text().startswith(f"# LED Raster Designer v{version}")
+
+
 def test_refuses_a_version_file_with_no_entries(tmp_path):
     empty = tmp_path / "VERSION.txt"
     empty.write_text("LED RASTER DESIGNER - VERSION HISTORY\n===\n\n")
