@@ -80,9 +80,20 @@ SETTLED_CEILINGS = [
     ('novastar-mx30', 10),
     ('novastar-cx80-pro', 16),
     ('novastar-vx400', 4),
+    ('novastar-vx400-pro', 4),
+    ('novastar-vx600', 6),
+    ('novastar-vx600-pro', 6),
+    ('novastar-vx1000', 10),
+    ('novastar-vx1000-pro', 10),
     ('novastar-mctrl4k', 16),
+    ('novastar-mctrl-r5', 8),
+    ('novastar-mctrl700', 6),
+    ('novastar-mctrl600', 4),
+    ('novastar-mctrl300', 2),
+    ('novastar-msd300', 2),
     ('novastar-novapro-uhd', 16),
     ('novastar-novapro-uhd-jr', 16),
+    ('novastar-novapro-hd', 4),
     ('novastar-card-h-20xrj45', 20),
     ('novastar-card-h-16xrj45-2xfiber', 16),
     ('novastar-card-h-4xfiber', 32),
@@ -168,6 +179,180 @@ def test_the_novapro_uhds_opts_copy_their_own_copper():
         assert 'redundancy' not in device, (
             f'{device_id}: OPT 3/4 backing up OPT 1/2 is fixed wiring, not a '
             f'port-halving redundancy mode')
+
+
+# ── 1b. Matt's CVT rule: a documented 10G OPT output takes a breakout box ──
+#
+# The rule arrived verbatim: "anything that has opt fiber 10g ports needs cvt
+# support" - and the 10G qualifier is load-bearing, not decoration. A device
+# whose fiber is another rate (NovaPro HD, 1G per Matt; the CX Pros, 40G) or
+# whose sheet states no rate at all (VX400) gets NO trunks, however plausible
+# 10G would be. Every entry below was swept against the device's own current
+# spec sheet, and the quotes live in docs/processor-port-table.md.
+#
+# This list is exhaustive on purpose: the exact-set test underneath fails
+# both when a swept device loses its trunks AND when any NovaStar device
+# grows trunks nobody documented.
+NOVASTAR_10G_TRUNKS = [
+    # device, trunks, ports per trunk, delivery
+    ('novastar-mx40-pro', 4, 10, 'distinct'),
+    ('novastar-mx30', 2, 10, 'copy'),
+    ('novastar-mx20', 2, 6, 'copy'),
+    ('novastar-vx400-pro', 2, 4, 'copy'),
+    # VX600 / VX1000 non-Pro: OPT 1 is a documented 10G output copying the
+    # copper; OPT 2 copies too but its sheet names NO rate for it, so it is
+    # not a trunk - one ruling from Matt away from 2.
+    ('novastar-vx600', 1, 6, 'copy'),
+    ('novastar-vx600-pro', 2, 6, 'copy'),
+    ('novastar-vx1000', 1, 10, 'copy'),
+    ('novastar-vx1000-pro', 2, 10, 'copy'),
+    ('novastar-vx2000-pro', 4, 10, 'copy'),
+    ('novastar-mctrl4k', 4, 8, 'copy'),
+    ('novastar-mctrl660-pro', 2, 6, 'copy'),
+    ('novastar-mctrl-r5', 2, 8, 'copy'),
+    ('novastar-novapro-uhd', 4, 8, 'copy'),
+    ('novastar-novapro-uhd-jr', 4, 8, 'copy'),
+    ('novastar-card-h-16xrj45-2xfiber', 2, 8, 'copy'),
+    ('novastar-card-h-4xfiber', 4, 8, 'distinct'),
+    ('novastar-card-h-4xfiber-enhanced', 4, 10, 'distinct'),
+    ('novastar-card-mx-4x10g', 4, 10, 'distinct'),
+    # Pre-dates the 10G ruling: a 40G trunk, in the catalog from the first
+    # research pass with its own documented 8-per-fiber figure. Kept as is.
+    ('novastar-card-mx-1x40g', 1, 8, 'distinct'),
+]
+
+
+@pytest.mark.parametrize('device_id,trunks,per_trunk,delivery',
+                         NOVASTAR_10G_TRUNKS)
+def test_a_documented_10g_opt_device_accepts_a_box(device_id, trunks,
+                                                   per_trunk, delivery):
+    device = catalog.get_device(device_id)
+    assert device['trunks'] == trunks, device_id
+    assert device['portsPerTrunk'] == per_trunk, device_id
+    assert device.get('trunkDelivery', 'distinct') == delivery, device_id
+    card = catalog.new_card(device_id, 'sweep', fixed=True)
+    ok, why = catalog.can_add_cvt(card, 'novastar-cvt10')
+    assert ok, f'{device_id} refuses a box despite documented 10G OPTs: {why}'
+
+
+def test_no_novastar_device_carries_trunks_the_sweep_did_not_grant():
+    """Both directions at once. Trunks lost: a swept device dropped off the
+    list silently. Trunks grown: someone gave a device CVT support without a
+    documented 10G OPT behind it - the KU20 (10G but undocumented carriage),
+    the CX Pros (40G), the VX400 (no rate stated), the NovaPro HD (1G per
+    Matt) and every copper-only sender must stay boxless until a sheet or a
+    ruling from Matt says otherwise."""
+    pinned = {device_id for device_id, *_ in NOVASTAR_10G_TRUNKS}
+    actual = {d['id'] for d in catalog.load_catalog()['devices']
+              if d.get('vendor') == 'NovaStar' and d.get('trunks')}
+    assert actual == pinned, (
+        f'grew trunks: {sorted(actual - pinned)}; '
+        f'lost trunks: {sorted(pinned - actual)}')
+
+
+def test_the_novapro_hds_fiber_takes_no_box(client):
+    """The HD has four real optical outputs and still gets no trunks: no
+    sheet maps them to any port or states a rate, and Matt settled the rate
+    the sheets left open - "pro HD's are out for opt's they are 1g and
+    useless with the cvts". His statement is the recorded source, the same
+    way the Brompton pairing rule arrived, and 1G fails the 10G rule."""
+    device = catalog.get_device('novastar-novapro-hd')
+    assert 'trunks' not in device, (
+        'the NovaPro HD grew trunks; its OPTs are 1G per Matt')
+    assert '1G' in device['note'], (
+        'the note lost the reason no box hangs off this device')
+    state = add_processor(client, 'novastar-novapro-hd')
+    proc = only(state)
+    assert proc['ceiling'] == 4
+    pid, card_id = proc['id'], first_card(proc)['id']
+    resp = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
+                       json={'deviceId': 'novastar-cvt10'})
+    assert resp.status_code == 400, 'a box went onto the 1G fiber'
+
+
+def test_the_vx_pairs_are_split_and_each_side_keeps_its_own_sheet():
+    """VX400/600/1000 and their Pros are different processors (Matt), so six
+    entries, each carrying only its own sheet's fields. The split must not
+    leak figures across a pair: the Pros document 2x 10G OPT and 650k per
+    port; the non-Pros document no per-port figure, and their second OPT -
+    or, on the VX400, both OPTs - carries no stated rate."""
+    for plain_id, pro_id in (('novastar-vx400', 'novastar-vx400-pro'),
+                             ('novastar-vx600', 'novastar-vx600-pro'),
+                             ('novastar-vx1000', 'novastar-vx1000-pro')):
+        plain, pro = catalog.get_device(plain_id), catalog.get_device(pro_id)
+        assert plain and pro, f'{plain_id} / {pro_id} not both in the catalog'
+        assert '/' not in plain['name'] and '/' not in pro['name'], (
+            'a folded name survived the split')
+        assert pro['trunks'] == 2, pro_id
+        assert pro['trunkDelivery'] == 'copy', pro_id
+        assert catalog.port_capacity(plain_id)['count'] == \
+            catalog.port_capacity(pro_id)['count'], (
+            'the pair disagrees on the one figure the sheets agree on')
+    assert 'trunks' not in catalog.get_device('novastar-vx400'), (
+        'the VX400 grew trunks; its sheet states no optical rate at all')
+
+
+def test_a_single_trunk_vx_delivers_its_whole_copper_once(client):
+    """VX1000: OPT 1 is the documented 10G output and it copies all ten
+    Ethernet ports, so ONE box takes the whole unit out on fiber - and there
+    is no second trunk for another. The card stays ten ports throughout."""
+    state = add_processor(client, 'novastar-vx1000')
+    pid = only(state)['id']
+    card_id = first_card(only(state))['id']
+    state = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
+                        json={'deviceId': 'novastar-cvt10',
+                              'pair': False}).get_json()
+    card = first_card(only(state))
+    box = card['cvts'][0]
+    assert (box['firstPort'], box['portCount']) == (1, 10)
+    assert card['ceiling'] == 10 and card['defined'] == 10
+    assert card['trunksCopyOwnPorts'] is True
+    resp = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
+                       json={'deviceId': 'novastar-cvt10'})
+    assert resp.status_code == 400, 'a second box went onto a 1-trunk device'
+
+
+def test_the_mctrl_r5s_opts_are_two_copies_of_the_same_eight(client):
+    """The R5's sheet: OPT 1 copies Ethernet 1-8, and OPT 2 is the copy
+    channel of OPT 1 - a copy OF A COPY, so both trunks carry the same block
+    and the second box duplicates the first. Eight ports before the boxes,
+    eight after both."""
+    device = catalog.get_device('novastar-mctrl-r5')
+    assert (device['trunks'], device['portsPerTrunk']) == (2, 8)
+    assert device['trunkDelivery'] == 'copy'
+    assert len(device['ports']['modes']) == 1, (
+        'the R5 grew a mode switch nobody documented')
+    state = add_processor(client, 'novastar-mctrl-r5')
+    pid = only(state)['id']
+    card_id = first_card(only(state))['id']
+    for _ in range(2):
+        state = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
+                            json={'deviceId': 'novastar-cvt10',
+                                  'pair': False}).get_json()
+    card = first_card(only(state))
+    assert card['ceiling'] == 8 and card['defined'] == 8
+    assert [c['firstPort'] for c in card['cvts']] == [1, 1]
+    assert [c['portCount'] for c in card['cvts']] == [8, 8]
+    assert card['cvts'][1]['duplicateOf'] == card['cvts'][0]['id']
+
+
+def test_the_legacy_senders_are_copper_only_and_say_so(client):
+    """MCTRL700, MCTRL600, MCTRL300 and the MSD300 sending card: RJ45 out,
+    no optical anywhere on their sheets, so no trunks and a refused box.
+    None of their sheets states a device total either - 4 x 650k is
+    arithmetic - so no entry claims one, and each ceiling is the sheet's own
+    port count, not a sibling's (600 is 4 and 300 is 2; related products,
+    separately documented)."""
+    for device_id, expected in (('novastar-mctrl700', 6),
+                                ('novastar-mctrl600', 4),
+                                ('novastar-mctrl300', 2),
+                                ('novastar-msd300', 2)):
+        device = catalog.get_device(device_id)
+        assert 'trunks' not in device, f'{device_id} grew trunks'
+        assert catalog.port_capacity(device_id)['count'] == expected
+        card = catalog.new_card(device_id, 'legacy', fixed=True)
+        ok, why = catalog.can_add_cvt(card, 'novastar-cvt10')
+        assert not ok, f'{device_id} accepted a box with no fiber to carry it'
 
 
 def test_a_device_the_table_could_not_settle_declares_itself_unknown():
