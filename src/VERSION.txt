@@ -63,6 +63,11 @@ DATA AND PROCESSORS
   template. Brompton redundancy pairs adjacent outputs automatically;
   NovaStar defaults to a primary box and a backup box.
 
+- CHANGE: The redundant end of a processor-named port follows the app's
+  own convention: P is primary, R is redundant. A card named P1 derives
+  P1-1 and R1-1, not P1-1R. Names that do not start with a P prefix keep
+  the R suffix they had.
+
 - NEW: A group of matching screens routes as one screen. The serpentine
   crosses the seam and ports count from the combined walk, which can need
   fewer ports than the screens did separately. A per-group toggle turns
