@@ -378,6 +378,42 @@ def render_port_label(name, template, number):
     return text.replace('{name}', name or '').replace('#', str(number))
 
 
+def derive_return_label(label):
+    """The return end's name when nobody typed one: the primary with its
+    leading P turned into an R, else the primary with an R after it.
+
+    P is primary and R is redundant - that is what the screen's own templates
+    say (P# out, R# back), and a card named P1 has to read the same way: P1-1
+    out, R1-1 back. P1-1R is two statements of "primary" wrapped round one of
+    "redundant", and it is not what anyone on a loom calls the backup. Case
+    follows the name (p1-1 back as r1-1) because the label is the name as the
+    hand typed it, not a normalised copy.
+
+    The P is a prefix only when what follows it is not a letter - a digit
+    (P1-1), a separator (P-1), or nothing at all (P). A P that begins a word
+    - PORT-3, PANEL-2, Px - is the first letter of a name, not a mark of
+    "primary", and there is nothing to swap. Those, and every primary with
+    no P at all - SR-1, HOUSE-LEFT - keep the R after them, so a drawing
+    already issued with SR-1R on it prints SR-1R again. Whether those want
+    a rule of their own is an open question, not one to answer by inventing
+    it here.
+
+    This is the one statement of the rule. The client has a copy for the
+    panel's placeholders and for the frame loop, and a test holds the two
+    byte-for-byte - which is why "letter" is spelt out as ASCII here rather
+    than asked of str.isalpha(), whose answer the client could not match."""
+    if not label:
+        return None
+    second = label[1:2]
+    word = ('a' <= second <= 'z') or ('A' <= second <= 'Z')
+    if not word:
+        if label[0] == 'P':
+            return 'R' + label[1:]
+        if label[0] == 'p':
+            return 'r' + label[1:]
+    return f'{label}R'
+
+
 def typed_port_label_template(node):
     """The label template somebody CHOSE, or '' - what the panel's Label box
     shows as a value, with the default left to its placeholder.
@@ -445,14 +481,15 @@ def return_port_name(card, number):
     the same port - which is why this lives beside portNames on the card and is
     keyed the same way. It is a separate store rather than a suffix rule on the
     primary because the whole point of typing one is that the house does NOT
-    call the return end <primary>R: the backup loom is often labelled off its
-    own series (BU-1 back for SR-1 out).
+    call the return end what derive_return_label says: the backup loom is
+    often labelled off its own series (BU-1 back for SR-1 out).
     """
     return _stored_port_name(card, 'returnPortNames', number)
 
 
 def set_return_port_name(card, number, name):
-    """Name one port's return end, or hand it back to <primary>R with a blank.
+    """Name one port's return end, or hand it back to the derived return
+    (derive_return_label) with a blank.
 
     Same clearing rule as set_port_name, for the same reason: an untyped return
     end is the normal state of every port, and it must leave nothing behind in
@@ -676,8 +713,10 @@ def resolve_card(card, proc):
         #      "template spot for naming all backups the same way we do for
         #      primary", read off the same owner the primary reads, because
         #      the backup loom is labelled off the same box the primary is;
-        #   3. the primary with an R after it, which is what P1 / R1 said
-        #      before a processor was naming anything;
+        #   3. the derived return (derive_return_label): the primary's
+        #      leading P turned into an R - P1-1 out, R1-1 back - which is
+        #      what P1 / R1 said before a processor was naming anything;
+        #      a primary with no P to swap takes an R after it (SR-1R);
         #   4. nothing - an unassigned port, or a card nobody named, leaves
         #      the screen's own R# template doing the work exactly as before.
         manual_return = return_port_name(card, number)
@@ -700,7 +739,7 @@ def resolve_card(card, proc):
                                              numbered)
             return_source = 'template'
         else:
-            return_label = f'{label}R' if label else None
+            return_label = derive_return_label(label)
             return_source = source
         port = {
             'number': number,
@@ -757,8 +796,8 @@ def resolve_card(card, proc):
         # typed_port_label_template.
         'portLabelTemplate': typed_port_label_template(card),
         # The backup side's template. No default: absent means rung 3 of the
-        # return ladder - <primary>R - is doing the work, and the panel's
-        # placeholder says so.
+        # return ladder - derive_return_label - is doing the work, and the
+        # panel's placeholder says so.
         'returnLabelTemplate': card.get('returnLabelTemplate') or '',
         # Sent back as typed, so the panel's per-port boxes show what is in
         # them rather than only the label they produced. Keys are strings for

@@ -221,6 +221,19 @@ class _Processors {
         return wrap;
     }
 
+    // What the Return template box falls back to when left blank, as the
+    // rule would print it with # standing for the port number: the primary
+    // template rendered with the name the ports actually take, then put
+    // through deriveReturnLabel - R1-# for P1, SR-#R for SR, PORT-#R for
+    // PORT. With no name anywhere upstream no port derives a label at all,
+    // so the template is shown as written ({name}-#R), which is what the
+    // rule makes of a primary with no P-prefix.
+    _derivedReturnPlaceholder(template, name) {
+        const primary = (template || '{name}-#')
+            .replace('{name}', (name || '').trim() || '{name}');
+        return this.deriveReturnLabel(primary);
+    }
+
     _buildCapacityRow(used, ceiling, known, reason) {
         const row = document.createElement('div');
         row.style.fontSize = '11px';
@@ -481,12 +494,16 @@ class _Processors {
                 `/api/processors/${proc.id}/cards/${card.id}`, 'PUT',
                 { portLabelTemplate: val }, 'Edit Card Label Template')));
         // The placeholder is the rung below this one on the return ladder:
-        // left blank, every return end is the primary with an R after it, so
-        // an empty box still reads as what the backups are actually called.
-        // A name typed on ONE port's return end still beats the template.
+        // left blank, every return end derives from its primary, so an empty
+        // box still reads as what the backups are actually called - R1-# for
+        // a card named P1, SR-#R for one named SR. Rendered off the name the
+        // primary actually takes (the card's, or the processor's on loan),
+        // because the rule turns on that name's first letter. A name typed
+        // on ONE port's return end still beats the template.
         names.appendChild(this._buildTextField(
             'Return', card.returnLabelTemplate,
-            `${card.portLabelTemplate || '{name}-#'}R`,
+            this._derivedReturnPlaceholder(card.portLabelTemplate,
+                                           card.name || proc.name),
             `processor-card-return-template-${card.id}`,
             (val) => this._processorRequest(
                 `/api/processors/${proc.id}/cards/${card.id}`, 'PUT',
@@ -673,7 +690,8 @@ class _Processors {
         // gets the same return-side template spot the card has.
         head.appendChild(this._buildTextField(
             'Return', cvt.returnLabelTemplate,
-            `${cvt.portLabelTemplate || '{name}-#'}R`,
+            this._derivedReturnPlaceholder(cvt.portLabelTemplate,
+                                           cvt.name || card.name || proc.name),
             `processor-cvt-return-template-${cvt.id}`,
             (val) => this._processorRequest(
                 `/api/processors/${proc.id}/cvts/${cvt.id}`, 'PUT',
@@ -964,9 +982,10 @@ class _Processors {
             port.returnLabelSource === 'manual',
             {
                 named: 'Named by hand. Clear the box to go back to the '
-                    + 'primary’s name with an R after it.',
+                    + 'name derived from the primary (R1-1 for P1-1).',
                 unnamed: 'Name this port’s redundancy run. Left blank it is '
-                    + 'the primary’s name with an R after it.',
+                    + 'derived from the primary: its leading P becomes R '
+                    + '(R1-1 for P1-1), any other name takes an R after it.',
             },
             (val) => rename({ returnName: val },
                             'Rename Processor Port Return')));
