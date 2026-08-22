@@ -3118,12 +3118,44 @@ class _Power {
     // The same question for the RETURN end of the same socket. A separate
     // lookup rather than a suffix rule here, because the return label is now
     // resolved where the primary is (resolve_card): a name typed on the
-    // return end wins, and only an untyped one derives <primary>R. Same
-    // per-frame budget as the primary: two object lookups, nothing resolved.
+    // return end wins, and only an untyped one derives from the primary
+    // (deriveReturnLabel). Same per-frame budget as the primary: two object
+    // lookups, nothing resolved.
     getProcessorPortReturnLabel(layer, portNum) {
         const onProcessor = this._processorPortReturnLabels
             && this._processorPortReturnLabels[String(layer && layer.id)];
         return (onProcessor && onProcessor[portNum]) || null;
+    }
+
+    // The return end's name when nobody typed one: the primary with its
+    // leading P turned into an R, else the primary with an R after it.
+    //
+    // P is primary and R is redundant - that is what the screen's own
+    // templates say (P# out, R# back), and a card named P1 has to read the
+    // same way: P1-1 out, R1-1 back, never P1-1R. Case follows the name
+    // (p1-1 back as r1-1). The P is a prefix only when what follows it is
+    // not a letter - a digit (P1-1), a separator (P-1), or nothing (P); a P
+    // that begins a word (PORT-3, PANEL-2, Px) is the first letter of a
+    // name and there is nothing to swap. Those, and every primary with no
+    // P at all - SR-1, HOUSE-LEFT - keep the R after them, so a drawing
+    // already issued with SR-1R prints SR-1R again.
+    //
+    // The server states this rule in derive_return_label (processor_catalog)
+    // and every resolved port arrives with its return already derived; this
+    // copy exists for the Processors panel's placeholders, which advertise
+    // the rule before a port has a label, and as the frame loop's fallback
+    // for an index with no return entry. A test holds the two byte-for-byte.
+    deriveReturnLabel(primary) {
+        if (!primary) return null;
+        const first = primary.charAt(0);
+        // ASCII letters only, spelt the same way the server spells it, so
+        // the two copies cannot disagree over what counts as a letter.
+        const word = /^[A-Za-z]/.test(primary.slice(1, 2));
+        if (!word) {
+            if (first === 'P') return `R${primary.slice(1)}`;
+            if (first === 'p') return `r${primary.slice(1)}`;
+        }
+        return `${primary}R`;
     }
 
     // The one place a port's label is decided. The canvas, both label editors
@@ -3149,9 +3181,10 @@ class _Power {
         // Processors panel the same way the primary is - the house's backup
         // loom is often labelled off its own series, BU-1 back for SR-1 out -
         // and a typed name arrives here through the return index. With none
-        // typed the return is the primary with an R after it - SR-1 out,
-        // SR-1R back - which is what P1 / R1 said before a processor was
-        // naming anything.
+        // typed the return is derived from the primary (deriveReturnLabel):
+        // P1-1 out, R1-1 back - which is what P1 / R1 said before a
+        // processor was naming anything - and SR-1 out, SR-1R back where
+        // there is no P to swap.
         //
         // _processorPortLabels and _processorPortReturnLabels are flat
         // layerId -> portNum -> label lookups, rebuilt only when the
@@ -3162,7 +3195,7 @@ class _Power {
         if (type === 'return') {
             const assignedReturn = this.getProcessorPortReturnLabel(layer, portNum);
             if (assignedReturn) return assignedReturn;
-            if (assigned) return `${assigned}R`;
+            if (assigned) return this.deriveReturnLabel(assigned);
         } else if (assigned) {
             return assigned;
         }
@@ -3787,8 +3820,9 @@ class _Power {
             const fromProcessor = this.getProcessorPortLabel(this.currentLayer, portNum);
             // The return label the drawing will actually print - a name typed
             // on the return end in the Processors panel, or the derived
-            // <primary>R. Asked of getPortLabelText so this note can never
-            // disagree with the canvas about what the return end says.
+            // return (R1-1 for P1-1). Asked of getPortLabelText so this note
+            // can never disagree with the canvas about what the return end
+            // says.
             const ownedNote = fromProcessor
                 ? `Port ${portNum} is on the processor, which names it `
                   + `${fromProcessor} and its return `

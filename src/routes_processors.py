@@ -176,8 +176,8 @@ def update_card(processor_id, card_id):
     changed = _apply(card, data, ('name', 'portLabelTemplate',
                                   'returnLabelTemplate', 'mode'))
     # A blank template is the ABSENCE of one, on either side. The primary
-    # falls back to the built-in {name}-#, the return to <primary>R - rung
-    # two of its ladder stepping aside. Deleted rather than stored empty,
+    # falls back to the built-in {name}-#, the return to the derived return
+    # (derive_return_label) - rung two of its ladder stepping aside. Deleted rather than stored empty,
     # the same as a cleared port name: an untemplated card is the normal
     # state of every card and must leave nothing behind in the saved file.
     for key in ('portLabelTemplate', 'returnLabelTemplate'):
@@ -201,7 +201,8 @@ def update_card_port(processor_id, card_id, number):
 
     `returnName` names the port's RETURN end the same way - the redundancy run
     that leaves this socket and comes back to it. A blank hands it back to the
-    derived <primary>R. Either field alone is a valid PUT; a PUT carrying
+    derived return (derive_return_label: P1-1 back as R1-1, SR-1 back as
+    SR-1R). Either field alone is a valid PUT; a PUT carrying
     neither would silently do nothing, so it is refused instead.
     """
     proc = _find_processor(processor_id)

@@ -20,9 +20,11 @@ Everything below is that rule and the two things it must not break:
   belongs - it survives the wall in front of it being renumbered or deleted.
 * THE RETURN END IS STILL TELLABLE FROM THE PRIMARY. Both ends of a redundant
   loop are the same socket, but they print at opposite corners of the wall and
-  the drawing is the only thing saying which is which. The return is the
-  primary with an R after it - SR-1 out, SR-1R back - which is what P1 / R1
-  said before a processor was naming anything.
+  the drawing is the only thing saying which is which. The return is derived
+  from the primary: P is primary and R is redundant, so a leading P becomes
+  an R - P1-1 out, R1-1 back, which is what P1 / R1 said before a processor
+  was naming anything - and a name with no P to swap takes an R after it
+  (SR-1 out, SR-1R back). derive_return_label is the one statement of it.
 
 The label rules themselves live in processor_catalog.py and are asserted here
 through the API, never as they were sent: this codebase drops unlisted fields
@@ -445,10 +447,10 @@ def test_the_processor_is_consulted_before_any_per_layer_override():
         'getPortLabelText reads the layer template before the processor')
     assert returned < override, (
         'a per-layer override is read before the processor has answered')
-    # And the return end asks its own index before deriving <primary>R, so a
-    # name typed on the return end is not flattened back into the suffix rule.
+    # And the return end asks its own index before deriving from the primary,
+    # so a name typed on the return end is not flattened back into the rule.
     assert body.index('getProcessorPortReturnLabel') \
-        < body.index('${assigned}R'), (
+        < body.index('this.deriveReturnLabel(assigned)'), (
         'the return end derives before consulting its typed name')
 
 
@@ -541,6 +543,7 @@ def run_labels(assigned, layer, ports, returns=None):
         function_body(source, signature) + '\n    }'
         for signature in ('getProcessorPortLabel(layer, portNum) {',
                           'getProcessorPortReturnLabel(layer, portNum) {',
+                          'deriveReturnLabel(primary) {',
                           'getPortLabelText(layer, portNum, type) {'))
     script = (
         'class Probe {\n' + methods + '\n}\n'
@@ -563,9 +566,23 @@ def test_the_return_label_is_derived_inside_the_assigned_branch():
     return is the layer's own R# template and always has been."""
     body = function_body(js('app-power.js'),
                          'getPortLabelText(layer, portNum, type) {')
-    assert body.index('${assigned}R') \
+    assert body.index('this.deriveReturnLabel(assigned)') \
         < body.index("layer.portLabelTemplateReturn || 'R#'"), (
-        'the return suffix escaped the assigned branch')
+        'the derived return escaped the assigned branch')
+
+
+@pytest.mark.skipif(NODE is None, reason='node is not on PATH')
+def test_a_p_named_port_returns_as_r_on_the_canvas_index():
+    """P1-1 out, R1-1 back. P is primary and R is redundant on every screen
+    template this app ships, so P1-1R - "primary, primary, redundant" - was
+    never what the backup run is called. The leading P is the one swapped;
+    the rest of the name, case included, is left exactly as typed."""
+    out = run_labels({'7': {'1': 'P1-1', '2': 'p1-2', '3': 'PORT-3'}},
+                     {'id': 7}, [1, 2, 3], returns={})
+    assert out == [['P1-1', 'R1-1'], ['p1-2', 'r1-2'], ['PORT-3', 'PORT-3R']], (
+        'a P-prefix - a P followed by a digit, a separator or nothing - is '
+        'swapped for an R; the P that begins the word PORT is the first '
+        'letter of a name, not a prefix, so PORT-3 takes the R after it')
 
 
 @pytest.mark.skipif(NODE is None, reason='node is not on PATH')
@@ -573,6 +590,9 @@ def test_an_assigned_ports_return_label_is_not_its_primary():
     """The bug this fixes: both ends printed SR-1, so a backup run could not be
     traced on the drawing that was meant to trace it."""
     out = run_labels({'7': {'1': 'SR-1', '2': 'HOUSE-LEFT'}}, {'id': 7}, [1, 2])
+    # Neither name begins with P, so there is nothing to swap for an R and
+    # the R goes after the name. That is the rule today; whether those names
+    # want one of their own has not been decided, so it is pinned as is.
     assert out == [['SR-1', 'SR-1R'], ['HOUSE-LEFT', 'HOUSE-LEFTR']]
     for primary, backup in out:
         assert primary != backup
@@ -620,13 +640,13 @@ def test_port_names_are_read_whichever_way_the_key_arrives(number, stored):
 
 # ── 7. Naming the return end itself ───────────────────────────────────────
 #
-# The derived <primary>R is right until the house's backup loom is labelled
-# off its own series - BU-1 back for SR-1 out - and then it is exactly wrong.
-# So the return end is nameable the way the primary is: typed on the port, on
+# The derived return is right until the house's backup loom is labelled off
+# its own series - BU-1 back for SR-1 out - and then it is exactly wrong. So
+# the return end is nameable the way the primary is: typed on the port, on
 # the card, in the Processors panel. The ladder for an assigned port's return
-# is: the typed return name, else <primary>R, and the layer's own R# template
-# only ever reaches a port the processor is not naming - unchanged from
-# before this existed.
+# is: the typed return name, else the derived return, and the layer's own R#
+# template only ever reaches a port the processor is not naming - unchanged
+# from before this existed.
 
 def test_a_typed_return_name_reaches_the_resolution_the_canvas_reads(client):
     """BU-1 back for SR-1 out. The primary is untouched, the neighbours keep
@@ -645,8 +665,9 @@ def test_a_typed_return_name_reaches_the_resolution_the_canvas_reads(client):
 
 
 def test_an_untyped_return_end_is_still_the_primary_with_an_r(client):
-    """Today's default, unchanged: nothing typed means SR-1 out, SR-1R back -
-    including when the primary itself was named by hand."""
+    """The no-P-to-swap half of the rule, unchanged: nothing typed means
+    SR-1 out, SR-1R back - including when the primary itself was named by
+    hand."""
     state = add_processor(client, 'novastar-h9')
     pid = only(state)['id']
     state = set_card(client, pid, 0, 'novastar-card-h-20xrj45')
@@ -670,6 +691,105 @@ def test_a_port_with_no_primary_label_offers_no_derived_return(client):
     res = resolve(client, ('Main', 7))
     assert return_labels(res, 'Main') == ['FOH-1R', 'FOH-2R', 'FOH-3R',
                                           'FOH-4R', None, None, None]
+
+
+def test_a_card_named_p1_returns_as_r1(client):
+    """The rule the screen templates already state, reaching a processor's
+    ports: P1-1 out, R1-1 back. Both halves arrive through the resolution
+    the canvas indexes - the primary untouched, the return with its leading
+    P swapped for an R - and the unassigned port past the card keeps the
+    screen's own R# template, which is the client's cue (None)."""
+    state = add_processor(client, 'novastar-vx400')
+    pid = only(state)['id']
+    card_id = first_card(only(state))['id']
+    name_card(client, pid, card_id, 'P1')
+
+    res = resolve(client, ('Main', 5))
+    assert labels(res, 'Main') == ['P1-1', 'P1-2', 'P1-3', 'P1-4', None]
+    assert return_labels(res, 'Main') == ['R1-1', 'R1-2', 'R1-3', 'R1-4',
+                                          None], (
+        'a card named P1 must send its returns as R1-#: P is primary and R '
+        'is redundant, so P1-1R says primary twice')
+
+
+def test_the_derived_return_keeps_the_case_the_name_was_typed_in(client):
+    """p1-1 back as r1-1. The label is the name as the hand typed it; the
+    rule swaps the letter, it does not normalise the name around it."""
+    state = add_processor(client, 'novastar-vx400')
+    pid = only(state)['id']
+    card_id = first_card(only(state))['id']
+    name_card(client, pid, card_id, 'p1')
+
+    res = resolve(client, ('Main', 2))
+    assert labels(res, 'Main') == ['p1-1', 'p1-2']
+    assert return_labels(res, 'Main') == ['r1-1', 'r1-2']
+
+
+def test_a_typed_name_and_a_template_still_beat_the_derived_return_on_a_p_card(client):
+    """The rungs above the derivation are untouched by it: on a card named
+    P1 a return template names every backup, a name typed on one port's
+    return end beats the template, and only the rung below either derives."""
+    state = add_processor(client, 'novastar-vx400')
+    pid = only(state)['id']
+    card_id = first_card(only(state))['id']
+    name_card(client, pid, card_id, 'P1')
+    assert name_return(client, pid, card_id, 1, 'HOUSE-RTN').status_code == 200
+
+    res = resolve(client, ('Main', 3))
+    assert return_labels(res, 'Main') == ['HOUSE-RTN', 'R1-2', 'R1-3']
+
+    set_return_template(client, pid, card_id, 'BU-#')
+    res = resolve(client, ('Main', 3))
+    assert return_labels(res, 'Main') == ['HOUSE-RTN', 'BU-2', 'BU-3']
+
+    set_return_template(client, pid, card_id, '')
+    res = resolve(client, ('Main', 3))
+    assert return_labels(res, 'Main') == ['HOUSE-RTN', 'R1-2', 'R1-3']
+
+
+@pytest.mark.parametrize('label,expected', [
+    ('P1-1', 'R1-1'),
+    ('p1-1', 'r1-1'),
+    ('P3', 'R3'),
+    ('P-1', 'R-1'),
+    ('P', 'R'),
+    ('P1x', 'R1x'),
+    ('PORT-7', 'PORT-7R'),
+    ('PANEL-2', 'PANEL-2R'),
+    ('Px', 'PxR'),
+    ('SR-1', 'SR-1R'),
+    ('HOUSE-LEFT', 'HOUSE-LEFTR'),
+    ('', None),
+    (None, None),
+])
+def test_derive_return_label_is_the_one_statement_of_the_rule(label, expected):
+    assert catalog.derive_return_label(label) == expected
+
+
+@pytest.mark.skipif(NODE is None, reason='node is not on PATH')
+def test_the_client_copy_of_the_rule_matches_the_server_byte_for_byte():
+    """Two statements of one rule, held together. The server derives every
+    resolved port's return (derive_return_label); the client has its own
+    copy for the panel's placeholders and the frame loop's fallback
+    (deriveReturnLabel). The drawing reads the server's; the placeholder
+    reads the client's; a port whose two answers differed would advertise
+    one label and print another."""
+    inputs = ['P1-1', 'p1-1', 'P3', 'PORT-3', 'PANEL-2', 'P-1', 'P', 'p',
+              'Px', 'P1x', 'PORT-7', 'SR-1', 'HOUSE-LEFT', 'R1', 'r1', '1P',
+              ' P1', 'P_1', 'P.1', 'pX', '', None]
+    body = function_body(js('app-power.js'), 'deriveReturnLabel(primary) {')
+    script = (
+        'class Probe {\n' + body + '\n    }\n}\n'
+        f'const out = {json.dumps(inputs)}.map('
+        'p => new Probe().deriveReturnLabel(p));\n'
+        'console.log(JSON.stringify(out));\n')
+    done = subprocess.run([NODE, '-e', script], capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    on_client = json.loads(done.stdout)
+    on_server = [catalog.derive_return_label(p) for p in inputs]
+    assert on_client == on_server, (
+        'deriveReturnLabel (app-power.js) and derive_return_label '
+        '(processor_catalog.py) disagree')
 
 
 def test_a_return_name_round_trips_and_survives_save_and_reload(client):
@@ -779,7 +899,7 @@ def test_the_label_editor_names_the_actual_return_label():
 #
 #   1. a name typed on ONE port's return end;
 #   2. the return template on the device naming the port;
-#   3. the primary with an R after it - the default, unchanged;
+#   3. the derived return - P1-1 back as R1-1, SR-1 back as SR-1R;
 #   4. nothing, leaving the screen's own R# template in charge.
 #
 # All of it resolves in resolve_card and rides returnLabels through the
@@ -983,8 +1103,15 @@ def test_the_template_fields_are_keyed_and_named_for_history():
     assert 'processor-cvt-return-template-${cvt.id}' in source
     assert "'Edit Card Return Label Template'" in source
     assert "'Edit Breakout Box Return Label Template'" in source
-    # The placeholder states the rung below: primary template plus R.
-    assert "${card.portLabelTemplate || '{name}-#'}R" in source
+    # The placeholder states the rung below - the derived return, rendered
+    # off the name the ports actually take, so it reads R1-# for a card
+    # named P1 rather than advertising a P1-#R nobody's loom is called.
+    assert 'this._derivedReturnPlaceholder(card.portLabelTemplate,' in source
+    assert 'this._derivedReturnPlaceholder(cvt.portLabelTemplate,' in source
+    assert "${card.portLabelTemplate || '{name}-#'}R" not in source, (
+        'the card placeholder still advertises the old <primary>R rule')
+    assert "${cvt.portLabelTemplate || '{name}-#'}R" not in source, (
+        'the box placeholder still advertises the old <primary>R rule')
     # The primary Label boxes hold the same shape: the value is the resolved
     # portLabelTemplate - which the server sends as '' unless somebody typed
     # one, so the default lives in the placeholder beside it, never as text
@@ -993,3 +1120,33 @@ def test_the_template_fields_are_keyed_and_named_for_history():
     assert "'Label', cvt.portLabelTemplate, '{name}-#'" in source
     assert "'Edit Card Label Template'" in source
     assert "'Edit Breakout Box Label Template'" in source
+
+
+@pytest.mark.skipif(NODE is None, reason='node is not on PATH')
+@pytest.mark.parametrize('template,name,expected', [
+    (None, 'P1', 'R1-#'),
+    ('', 'SR', 'SR-#R'),
+    ('{name}-#', 'p2', 'r2-#'),
+    ('PORT {name} #', 'A', 'PORT A #R'),
+    (None, '', '{name}-#R'),
+    (None, None, '{name}-#R'),
+])
+def test_the_template_placeholder_is_the_rule_applied_to_the_real_name(
+        template, name, expected):
+    """The Return template box's placeholder is the rule, not a picture of
+    it: the primary template rendered with the name the ports take, through
+    the same deriveReturnLabel the frame loop uses. With no name anywhere
+    there is no derived label, and the template is shown as written."""
+    methods = '\n'.join(
+        function_body(source, signature) + '\n    }'
+        for source, signature in (
+            (js('app-power.js'), 'deriveReturnLabel(primary) {'),
+            (js('app-processors.js'),
+             '_derivedReturnPlaceholder(template, name) {')))
+    script = (
+        'class Probe {\n' + methods + '\n}\n'
+        f'console.log(JSON.stringify(new Probe()._derivedReturnPlaceholder('
+        f'{json.dumps(template)}, {json.dumps(name)})));\n')
+    done = subprocess.run([NODE, '-e', script], capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    assert json.loads(done.stdout) == expected

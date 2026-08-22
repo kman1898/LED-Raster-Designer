@@ -269,7 +269,70 @@ def test_the_open_editor_holds_the_same_controls_the_row_had(panel_page):
     assert out['name'] and out['ret'] and out['set'], (
         f'the open editor is missing controls the row had: {out}')
     assert out['namePlaceholder'] == 'SR-1', out
+    # SR has no leading P to swap for an R, so its return keeps the R after
+    # it - the half of the rule a drawing already issued was printed with.
     assert out['retPlaceholder'] == 'SR-1R', out
+
+
+RENAME_CARD_JS = """async (args) => {
+    await fetch(`/api/processors/${args.procId}/cards/${args.cardId}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: args.name }),
+    });
+    await window.app.refreshProcessors();
+}"""
+
+
+def test_a_card_named_p1_shows_r1_everywhere_the_return_is_advertised(panel_page):
+    """P is primary and R is redundant, so P1-1 goes out and R1-1 comes
+    back - never P1-1R. Every surface that states the return for an untyped
+    port is read after the rename: the port's own Return placeholder (the
+    server's derivation), the card's Return template placeholder (the
+    client's copy, rendered off the real name), and the screen label
+    editor's note, which asks getPortLabelText for what the drawing prints.
+    """
+    ids = seed(panel_page)
+    panel_page.evaluate(RENAME_CARD_JS, dict(ids, name='P1'))
+    panel_page.wait_for_timeout(600)
+    assert panel_page.evaluate(CLICK_FACE_JS, f"port-{ids['cardId']}-1")
+    out = panel_page.evaluate("""(args) => {
+        const tile = document.querySelector(
+            `[data-lrd-tile="port-${args.cardId}-1"]`);
+        const field = (kind) => tile.querySelector(
+            `[data-lrd-field="processor-port-${kind}-${args.cardId}-1"]`);
+        const template = document.querySelector(
+            `[data-lrd-field="processor-card-return-template-${args.cardId}"]`);
+        // The screen label editor, brought up for the screen on port 1 the
+        // way the Data sidebar would bring it up.
+        const app = window.app;
+        const screen = app.project.layers.find(
+            l => (l.type || 'screen') === 'screen');
+        app.currentLayer = screen;
+        app.updatePortCapacityDisplay();
+        app.updatePortLabelEditor();
+        const primary = document.querySelector('[data-lrd-field="port-primary-1"]');
+        const ret = document.querySelector('[data-lrd-field="port-return-1"]');
+        return {
+            namePlaceholder: field('name') ? field('name').placeholder : null,
+            retPlaceholder: field('return') ? field('return').placeholder : null,
+            templatePlaceholder: template ? template.placeholder : null,
+            onProcessor: app.getProcessorPortLabel(screen, 1),
+            editorReturn: ret ? ret.placeholder : null,
+            note: primary ? primary.title : null,
+        };
+    }""", {'cardId': ids['cardId']})
+    assert out['namePlaceholder'] == 'P1-1', out
+    assert out['retPlaceholder'] == 'R1-1', (
+        f'the port tile still advertises the old <primary>R return: {out}')
+    assert out['templatePlaceholder'] == 'R1-#', (
+        f'the Return template placeholder still advertises {{name}}-#R: {out}')
+    # The seeded screen sits on port 1, so its editor row is owned by the
+    # processor and its note names the return the drawing prints.
+    assert out['onProcessor'] == 'P1-1', out
+    assert out['editorReturn'] == 'R1-1', out
+    assert 'its return R1-1.' in (out['note'] or ''), (
+        f'the label editor note does not name R1-1: {out}')
+    assert 'P1-1R' not in (out['note'] or ''), out
 
 
 def test_edits_through_the_open_editor_round_trip_with_the_same_actions(panel_page):
