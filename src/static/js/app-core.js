@@ -87,6 +87,11 @@ export class LEDRasterApp {
             if (typeof this.initPortAssignmentPanel === 'function') {
                 try { this.initPortAssignmentPanel(); } catch (_) {}
             }
+            // The hardware dock draws the same processor and distro state
+            // the panels do, so it initialises alongside them.
+            if (typeof this.initHardwareDock === 'function') {
+                try { this.initHardwareDock(); } catch (_) {}
+            }
             sendClientLog('app_init', { ua: navigator.userAgent });
             // Background-check upstream panel catalog after the rest of boot
             // settles so we don't slow first paint. Failure is silent.
@@ -440,23 +445,33 @@ export class LEDRasterApp {
      * its view must not silently re-expand it on the way back.
      */
     updateViewSidebars(mode) {
+        // `modes` rather than one mode: the hardware dock belongs to BOTH
+        // hardware views - it holds whichever view's hardware is assignable
+        // by drag - while each sidebar still belongs to exactly one.
         const panels = [
-            { sidebarId: 'data-sidebar', toggleId: 'data-sidebar-toggle', mode: 'data-flow' },
-            { sidebarId: 'power-sidebar', toggleId: 'power-sidebar-toggle', mode: 'power' },
+            { sidebarId: 'data-sidebar', toggleId: 'data-sidebar-toggle', modes: ['data-flow'] },
+            { sidebarId: 'power-sidebar', toggleId: 'power-sidebar-toggle', modes: ['power'] },
+            { sidebarId: 'hardware-dock', toggleId: null, modes: ['data-flow', 'power'] },
         ];
         let touched = false;
-        panels.forEach(({ sidebarId, toggleId, mode: owns }) => {
+        panels.forEach(({ sidebarId, toggleId, modes }) => {
             const sidebar = document.getElementById(sidebarId);
             if (!sidebar) return;
             touched = true;
-            const btn = document.getElementById(toggleId);
-            const visible = mode === owns;
+            const btn = toggleId ? document.getElementById(toggleId) : null;
+            const visible = modes.includes(mode);
             sidebar.classList.toggle('view-hidden', !visible);
             if (btn) btn.classList.toggle('view-hidden', !visible);
         });
+        // The dock's CONTENT is per-view too - processors in Data, distros
+        // in Power - so entering either view redraws it for that view.
+        if (typeof this.renderHardwareDock === 'function') {
+            try { this.renderHardwareDock(); } catch (_) {}
+        }
         if (!touched) return;
         // A whole flex column appearing or disappearing changes the width the
-        // canvas has to fill, and moves every toggle.
+        // canvas has to fill, and moves every toggle - and the dock changes
+        // the HEIGHT the canvas has to fill the same way.
         this.settleLayout();
     }
 

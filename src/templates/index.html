@@ -1774,6 +1774,18 @@
                 <div id="canvas-wrapper">
                     <canvas id="main-canvas"></canvas>
                 </div>
+                <!-- The hardware dock: the tray the Data and Power views'
+                     hardware sits in, dragged from here onto the canvas to
+                     assign. Ships view-hidden like the middle sidebars so the
+                     three non-hardware views see no flash on first paint;
+                     updateViewSidebars shows it per view. It folds by the
+                     standard section machinery (lrd-sec-head/-body). -->
+                <div id="hardware-dock" class="view-hidden" data-tooltip="Hardware, The view's processors or distros. Drag a port, card, box, multi slot or distro onto the canvas to assign; drag an assigned port or slot back here to release it.">
+                    <div class="lrd-sec-head" data-lrd-sec="hardware-dock" style="font-weight: 600; display: block; padding: 3px 8px;">
+                        <label>Hardware</label>
+                    </div>
+                    <div class="lrd-sec-body" id="hardware-dock-body"></div>
+                </div>
             </div>
         </div>
 

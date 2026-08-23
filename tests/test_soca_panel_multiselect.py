@@ -420,7 +420,9 @@ def test_the_multi_rows_carry_field_labels(page):
     }""")
     assert out['rows'] > 0, "the soca panel built no multi rows"
     for labels in out['labels']:
-        assert labels == ['Name', 'Distro', 'Length'], (
+        # Distro left the row when assignment moved to the hardware dock's
+        # drag; the remaining editors keep their captions.
+        assert labels == ['Name', 'Length'], (
             f"every field in a multi row carries its caption: {out['labels']}")
     for head, name in zip(out['headings'], out['planNames']):
         assert head.startswith(f'{name} ·'), (

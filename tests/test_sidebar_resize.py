@@ -425,6 +425,29 @@ STRAYS_JS = """() => {
             });
         });
     });
+    // The hardware dock is the horizontal member of the same family: in its
+    // views it must sit flush under the canvas wrapper and inside the canvas
+    // column, and out of them it must be out of layout entirely - a tray
+    // floating over the canvas is the same class of bug as a stranded
+    // toggle, and the four panel rows above would never see it.
+    const dock = document.getElementById('hardware-dock');
+    if (dock && shown(dock)) {
+        const wrap = document.getElementById('canvas-wrapper')
+            .getBoundingClientRect();
+        const r = dock.getBoundingClientRect();
+        const drift = Math.abs(r.top - wrap.bottom);
+        if (drift > 8) {
+            strays.push({ kind: 'dock', key: 'hardware', drift: Math.round(drift),
+                          at: Math.round(r.top), edge: Math.round(wrap.bottom),
+                          intoCanvas: Math.round(wrap.bottom - r.top) });
+        }
+        if (r.left < canvas.left - 0.5 || r.right > canvas.right + 0.5) {
+            strays.push({ kind: 'dock-width', key: 'hardware',
+                          at: Math.round(r.left),
+                          edge: Math.round(canvas.left),
+                          intoCanvas: Math.round(canvas.right - r.right) });
+        }
+    }
     return strays;
 }"""
 

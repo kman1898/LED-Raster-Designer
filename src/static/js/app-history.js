@@ -206,7 +206,7 @@ class _History {
     _refreshPowerPanelsAfterRestore() {
         this._circuitTailCache = null;
         ['refreshDistroPanel', 'refreshSocaRuns', 'refreshSplitterPanel',
-            'updatePowerLabelEditor'].forEach(fn => {
+            'updatePowerLabelEditor', 'renderHardwareDock'].forEach(fn => {
             if (typeof this[fn] === 'function') {
                 try { this[fn](); } catch (_) { /* host absent outside Power */ }
             }

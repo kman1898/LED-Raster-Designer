@@ -1166,18 +1166,19 @@ def function_body(source, signature):
     return source[start:source.index('\n    }', start)]
 
 
-def test_both_panels_place_a_port_through_the_one_request():
+def test_both_surfaces_place_a_port_through_the_one_request():
     """Two request builders would be two sets of rules about what may land on
     an occupied socket, and they would disagree the first time one was
-    changed."""
+    changed. The second surface is the hardware dock now - its port-onto-run
+    drop is the same placement the screen-side mover sends."""
     panel = js('app-port-assignment.js')
-    processors = js('app-processors.js')
+    dock = js('app-dock.js')
     assert panel.count("'/api/port-assignments/place'") == 1
     assert '_placePort(spot, confirmed) {' in panel
-    assert 'this._placePort(' in processors, (
-        'the Processors panel does not use the shared placement')
-    assert '/api/port-assignments/place' not in processors, (
-        'the Processors panel built its own placement request')
+    assert 'this._placePort(' in dock, (
+        'the hardware dock does not use the shared placement')
+    assert '/api/port-assignments/place' not in dock, (
+        'the hardware dock built its own placement request')
 
 
 def test_a_placement_asks_before_it_lands_on_somebody():
@@ -1190,25 +1191,25 @@ def test_a_placement_asks_before_it_lands_on_somebody():
     assert 'this._placePort(spot, true);' in body
 
 
-def test_both_choosers_are_keyed_for_the_focus_guard():
-    """Both panels are rebuilt wholesale whenever anything re-resolves, so a
+def test_the_mover_is_keyed_for_the_focus_guard():
+    """The panel is rebuilt wholesale whenever anything re-resolves, so a
     control with no stable key is destroyed under the user's fingers - the same
-    bug the port label editor had, fixed by the same _preserveEditorFocus."""
+    bug the port label editor had, fixed by the same _preserveEditorFocus.
+    (The processor-side chooser is gone: pointing a socket at a screen is the
+    hardware dock's drag, which holds no half-made state in a field.)"""
     panel = js('app-port-assignment.js')
     assert 'port-move-card-${scr.layerId}-${port.index}' in panel
     assert 'port-move-port-${scr.layerId}-${port.index}' in panel
-    processors = js('app-processors.js')
-    assert 'processor-port-assign-${card.id}-${port.number}' in processors
+    assert 'processor-port-assign-' not in js('app-processors.js'), (
+        'the stripped chooser is back in the Processors panel')
 
 
 def test_a_half_made_choice_is_not_held_in_the_dom():
-    """Either panel can be rebuilt by a screen being resized on the other side
-    of the app, so which port has its chooser open lives on the app rather than
+    """The panel can be rebuilt by a screen being resized on the other side
+    of the app, so which port has its mover open lives on the app rather than
     in the markup that is about to be thrown away."""
     panel = js('app-port-assignment.js')
     assert 'this._movingPort = null;' in panel
-    assert 'this._assigningPort = null;' in panel
-    assert 'this._assigningPort = null;' in js('app-processors.js')
 
 
 def test_the_backup_template_rides_the_return_labels_here_too(one_card):

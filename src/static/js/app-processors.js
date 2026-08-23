@@ -132,21 +132,6 @@ class _Processors {
         if (typeof this._wireTiles === 'function') {
             this._wireTiles(list);
         }
-        // The set/place chooser acts into a port tile. Opened under a folded
-        // processor it would sit display:none and the click would look like
-        // nothing happened - the stated rule for anything that acts into a
-        // hidden place is that the place opens first, same as the distro
-        // list's + Add. The build has already opened the TILE itself
-        // (_buildPortTile records the aim in _openTiles); this walk opens
-        // the processor above it.
-        if (this._assigningPort
-                && typeof this._expandSectionsFor === 'function') {
-            const open = list.querySelector(
-                '[data-lrd-field="processor-port-assign-'
-                + `${this._assigningPort.cardId}-${this._assigningPort.port}"]`);
-            if (open) this._expandSectionsFor(open);
-        }
-
         const picker = this._buildDeviceSelect(
             this._processorDevices('processor'), '', 'Add a processor...');
         picker.dataset.lrdField = 'processor-add-device';
@@ -861,16 +846,6 @@ class _Processors {
         body.classList.add('lrd-tile-body');
         tile.appendChild(body);
 
-        // The set/place flow acts into this editor, and a chooser opened
-        // inside a closed tile would sit display:none and read as a dead
-        // click - so aiming here IS opening here, recorded in the same
-        // store a click writes, or the next rebuild would close it again.
-        const aiming = this._assigningPort;
-        if (aiming && aiming.cardId === card.id
-                && aiming.port === port.number) {
-            if (!this._openTiles) this._openTiles = {};
-            this._openTiles[tile.dataset.lrdTileBox] = tile.dataset.lrdTile;
-        }
         if (this._tileOpenId(tile.dataset.lrdTileBox)
                 === tile.dataset.lrdTile) {
             tile.classList.add('lrd-tile-open');
@@ -925,7 +900,8 @@ class _Processors {
     }
 
     // The open tile's editor: the two name boxes on a wrapping line, then
-    // the occupancy detail with the button that sets the occupant.
+    // the occupancy detail. Naming and reading only - putting a screen ON
+    // the socket is the hardware dock's drag, not a control in this panel.
     _buildPortRow(proc, card, port) {
         const wrap = document.createElement('div');
         const row = document.createElement('div');
@@ -1016,131 +992,11 @@ class _Processors {
                 : `${occupants[0].name}, its port ${occupants[0].number}`;
         }
         row.appendChild(who);
-        row.appendChild(this._buildPortClaimControl(card, port));
         wrap.appendChild(names);
         wrap.appendChild(row);
-
-        // The chooser opens inside its own tile, where the tiles either side
-        // of it are still readable. Which socket is free is decided by
-        // looking at the neighbours, and a dialog over the top hides them.
-        const open = this._assigningPort;
-        if (open && open.cardId === card.id && open.port === port.number) {
-            wrap.appendChild(this._buildPortClaimPicker(card, port));
-        }
         return wrap;
     }
 
-    // Point at a socket and say what plugs into it.
-    //
-    // The Port Assignment panel asks the same question from the screen's end -
-    // "where did my ports go" - and that was the only end it could be answered
-    // from. Anyone holding a patch sheet reads it the other way round: this
-    // socket, that wall. It posts the same request the screen-side move does,
-    // because it is the same decision written from the far end of one cable.
-    _buildPortClaimControl(card, port) {
-        const btn = document.createElement('button');
-        btn.className = 'btn';
-        btn.style.padding = '0 5px';
-        btn.style.fontSize = '10px';
-        btn.style.background = '#2a2a2a';
-        const open = !!(this._assigningPort
-            && this._assigningPort.cardId === card.id
-            && this._assigningPort.port === port.number);
-        btn.textContent = open ? 'close' : 'set';
-        const screens = (this._assignment && this._assignment.screens) || [];
-        btn.disabled = !screens.length;
-        btn.title = screens.length
-            ? 'Put a screen’s port on this one. It is held here afterwards, '
-              + 'the same as pinning it from the Port Assignment panel.'
-            : 'No screen in this project needs a port yet.';
-        btn.addEventListener('click', () => {
-            this._assigningPort = open
-                ? null : { cardId: card.id, port: port.number };
-            this.renderProcessorPanel();
-        });
-        return btn;
-    }
-
-    _buildPortClaimPicker(card, port) {
-        const box = document.createElement('div');
-        box.style.margin = '2px 0 4px 0';
-        box.style.padding = '6px';
-        box.style.border = '1px solid #333';
-        box.style.borderRadius = '4px';
-        box.style.background = '#111';
-        box.style.display = 'grid';
-        box.style.gap = '4px';
-
-        // One control, grouped by screen: picking the screen and picking which
-        // of its ports is one decision, and two selects in a 260px sidebar
-        // would be two-thirds chrome. Same reason the device picker groups by
-        // vendor rather than asking for the vendor first.
-        const choices = [];
-        const select = document.createElement('select');
-        select.style.fontSize = '10px';
-        select.style.width = '100%';
-        select.dataset.lrdField =
-            `processor-port-assign-${card.id}-${port.number}`;
-        ((this._assignment && this._assignment.screens) || []).forEach(scr => {
-            const group = document.createElement('optgroup');
-            group.label = scr.name;
-            (scr.ports || []).forEach(p => {
-                const opt = document.createElement('option');
-                opt.value = String(choices.length);
-                choices.push({ layerId: scr.layerId, index: p.index });
-                // Where each port sits now, so nobody has to read the other
-                // panel to find out what this would take away from. The
-                // derived label already carries the card's name - it is built
-                // out of it - so naming the card in front of it would read
-                // "SR SR-1"; the card is only spelt out where nothing named
-                // the port at all.
-                opt.textContent = `p${p.number} - ` + (p.cardId
-                    ? `on ${p.label || `${p.cardName} port ${p.port}`}`
-                    : 'no card');
-                if (p.cardId === card.id && p.port === port.number) {
-                    opt.selected = true;
-                }
-                group.appendChild(opt);
-            });
-            select.appendChild(group);
-        });
-        box.appendChild(select);
-
-        const buttons = document.createElement('div');
-        buttons.style.display = 'flex';
-        buttons.style.gap = '4px';
-        const go = document.createElement('button');
-        go.className = 'btn';
-        go.style.padding = '2px 8px';
-        go.style.fontSize = '10px';
-        go.textContent = 'Place';
-        go.addEventListener('click', () => {
-            const pick = choices[parseInt(select.value, 10)];
-            // Closed before the request rather than after it: a placement onto
-            // an occupied socket comes back as a question, and a chooser still
-            // sitting open behind the answer reads as though nothing was sent.
-            this._assigningPort = null;
-            this.renderProcessorPanel();
-            if (pick) {
-                this._placePort({ layerId: pick.layerId, index: pick.index,
-                                  cardId: card.id, port: port.number });
-            }
-        });
-        const cancel = document.createElement('button');
-        cancel.className = 'btn';
-        cancel.style.padding = '2px 8px';
-        cancel.style.fontSize = '10px';
-        cancel.style.background = '#2a2a2a';
-        cancel.textContent = 'Cancel';
-        cancel.addEventListener('click', () => {
-            this._assigningPort = null;
-            this.renderProcessorPanel();
-        });
-        buttons.appendChild(go);
-        buttons.appendChild(cancel);
-        box.appendChild(buttons);
-        return box;
-    }
 }
 
 for (const k of Object.getOwnPropertyNames(_Processors.prototype)) {

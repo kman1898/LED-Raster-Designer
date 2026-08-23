@@ -435,3 +435,23 @@ select, .info-select {
 .layer-btn:disabled, .layer-btn:disabled:hover {
   color:#5a5a5a !important; opacity:0.45 !important; cursor:default !important; }
 .layer-item.active .layer-btn:disabled { color:rgba(255,255,255,0.55) !important; }
+
+/* ---- hardware dock (the tray under the canvas) ---- */
+/* Same strip chrome as #canvas-controls / #status-bar, seam on its own top
+   edge: the canvas above stays borderless and the status bar below keeps its
+   border-top, so the dock owns exactly one line. */
+#hardware-dock { background:linear-gradient(#333,#2c2c2c) !important; border-top:1px solid var(--ps-dark) !important;
+  box-shadow:inset 0 1px 0 #424242 !important; }
+#hardware-dock-body { background:var(--ps-panel-2) !important; }
+/* Drag feedback lives here, not in style.css: theme.css's !important tile
+   rules silently killed the layer list's drag indicators once already
+   (see the note above .layer-item.drag-over-top). */
+#hw-dock-ghost { position:fixed; z-index:200; pointer-events:none;
+  background:var(--ps-panel) !important; color:var(--ps-text) !important;
+  border:1px solid var(--ps-accent) !important; border-radius:3px;
+  padding:2px 8px; font-size:11px; font-family:monospace; opacity:0.88;
+  box-shadow:0 2px 8px rgba(0,0,0,0.5); }
+.hw-dock-dragging { opacity:0.4 !important; }
+/* the tray lit as the live target of a drag-back (release the assignment) */
+#hardware-dock.hw-dock-drop-target #hardware-dock-body {
+  outline:2px dashed var(--ps-accent); outline-offset:-2px; }

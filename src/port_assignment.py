@@ -790,7 +790,7 @@ def _fits(card, start, size, taken):
 
 
 def move_block(processors, screens, state, layer_id, card_id=None,
-               start_port=None):
+               start_port=None, first_port=None, last_port=None):
     """Move a screen's WHOLE set of ports to the next free block.
 
     Whole set, in the same relative order, or not at all. A screen is cabled as
@@ -802,6 +802,12 @@ def move_block(processors, screens, state, layer_id, card_id=None,
     pins would mean moving only the auto ports and tearing the run in two,
     which defeats the purpose of the move. Other screens' pins are never
     touched - they are obstacles the block has to clear.
+
+    `first_port`/`last_port` bound the search to one window of the card - a
+    breakout box is a contiguous span of card ports, so "move onto that box"
+    is this move with the box's span as the window. Only meaningful with a
+    card_id; the block must land wholly inside the window, because a run that
+    half-leaves the box is not on the box.
     """
     layer_id = str(layer_id)
     cards = cards_in(processors)
@@ -847,15 +853,29 @@ def move_block(processors, screens, state, layer_id, card_id=None,
         pivot = order.index(current_card) if current_card in order else 0
         search = order[pivot:] + order[:pivot]
 
+    # A window narrows the scan to the box's span of card ports; outside it
+    # the loop below simply never starts a block.
+    lo = int(first_port) if first_port is not None else None
+    hi = int(last_port) if last_port is not None else None
+
     for position, cid in enumerate(search):
         card = by_id[cid]
         lowest = current_start + 1 if (position == 0 and cid == current_card
                                        and not card_id) else 1
+        if lo is not None:
+            lowest = max(lowest, lo)
         capacity = card['capacity'] or 0
-        for start in range(lowest, capacity - size + 2):
+        highest = capacity - size + 1
+        if hi is not None:
+            highest = min(highest, hi - size + 1)
+        for start in range(lowest, highest + 1):
             if _fits(card, start, size, taken):
                 return _pin_block(state, layer_id, cid, start, size), None
 
+    if lo is not None or hi is not None:
+        return None, (f'No run of {size} consecutive free ports between ports '
+                      f'{lo or 1}-{hi or "end"} on that card. Free up a run, '
+                      f'or place the ports by hand.')
     return None, (f'No card has {size} consecutive free ports. Free up a run, '
                   f'or place the ports by hand.')
 
@@ -867,7 +887,8 @@ def _pin_block(state, layer_id, card_id, start, size):
     return {'cardId': card_id, 'startPort': start, 'ports': size}
 
 
-def place_overflow(processors, screens, state, layer_id, card_id):
+def place_overflow(processors, screens, state, layer_id, card_id,
+                   first_port=None, last_port=None):
     """Put the ports that did not fit onto a different card.
 
     One of the two paths by which a screen's ports end up on two cards - the
@@ -876,6 +897,10 @@ def place_overflow(processors, screens, state, layer_id, card_id):
     is a real thing someone builds. `.scr` stores the sending card per CABINET,
     so the format has no objection either; it is only the app that must not do
     it unasked.
+
+    `first_port`/`last_port` bound the fill to one window of the card: a
+    breakout box is a contiguous span of card ports, so "fill onto that box"
+    is this fill with the box's span as the window.
     """
     layer_id = str(layer_id)
     by_id = {c['cardId']: c for c in cards_in(processors)}
@@ -895,9 +920,15 @@ def place_overflow(processors, screens, state, layer_id, card_id):
     # The overflow keeps its own order and is packed from the card's lowest
     # free port, so ports 17-20 of a wall read as a block on the new card
     # rather than being scattered through its gaps.
-    free = [n for n in range(1, (card['capacity'] or 0) + 1)
+    lo = max(1, int(first_port)) if first_port is not None else 1
+    hi = min((card['capacity'] or 0), int(last_port)) \
+        if last_port is not None else (card['capacity'] or 0)
+    free = [n for n in range(lo, hi + 1)
             if (card['cardId'], n) not in taken]
     if not free:
+        if first_port is not None or last_port is not None:
+            return None, (f'No free ports between {lo} and {hi} on '
+                          f'{_card_title(card)}.')
         return None, f'{_card_title(card)} has no free ports.'
 
     moved = []

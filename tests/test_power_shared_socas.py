@@ -523,13 +523,15 @@ SHOW_TILES_JS = """(cfg) => {
             app.refreshSocaRuns();
             const txt = el => el ? el.textContent.replace(/\\s+/g, ' ').trim() : null;
             const tile = document.querySelector('#power-soca-runs .power-soca-row');
-            const sel = tile.querySelector('.power-soca-number');
             return {
                 face: txt(tile.querySelector('.lrd-tile-face')),
                 clashClass: tile.classList.contains('lrd-tile-clash'),
                 note: txt(tile.querySelector('.power-soca-share-note')),
-                options: sel ? [...sel.options].map(o => o.textContent.trim()) : null,
-                selected: sel ? sel.value : null,
+                // the Distro/No. selects are gone (assignment is the dock's
+                // drag); a read-only line states the slot instead
+                where: txt(tile.querySelector('.power-soca-where')),
+                numberSelect: !!tile.querySelector('.power-soca-number'),
+                distroSelect: !!tile.querySelector('.power-soca-distro'),
             };
         } finally {
             app.currentLayer = savedLayer;
@@ -541,16 +543,19 @@ SHOW_TILES_JS = """(cfg) => {
 def test_tile_face_reads_one_box_not_two_multis(page):
     """The joined tile's face carries the shared name and THIS screen's
     tails - a tech glancing at the panel sees one box - and the body names
-    every member with its tails. The number select annotates the occupied
-    slot with who holds it, so picking it reads as the join."""
+    every member with its tails. The slot itself is stated read-only (the
+    old No. select is gone: picking a slot is the hardware dock's drag, and
+    the dock's chip is what names who already holds it)."""
     out = page.evaluate(SHOW_TILES_JS, {})
     assert out['face'] == 'C2-3 · tails 4-6 · 15.0 A'
     assert not out['clashClass']
     assert out['note'] == ('One physical multi — ON SL STRIP tails 1-3 · '
                            'CEN SL STRIP tails 4-6')
-    assert out['selected'] == '3'
-    assert out['options'][0] == 'Auto'
-    assert '3 — with ON SL STRIP' in out['options']
+    assert not out['numberSelect'] and not out['distroSelect'], (
+        f'a stripped assignment select is still in the tile: {out}')
+    assert out['where'] and out['where'].startswith('On ') \
+        and out['where'].endswith('No. 3'), (
+        f'the read-only line does not state the slot: {out}')
 
 
 def test_tile_wears_the_clash(page):

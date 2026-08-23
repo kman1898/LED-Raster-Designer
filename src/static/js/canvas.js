@@ -3097,6 +3097,40 @@ class CanvasRenderer {
         return null;
     }
 
+    // The hardware dock's live drop highlight, drawn UNDER a run's own lines
+    // from inside the pass that draws them - so it inherits every transform
+    // the run itself gets (canvas workspace, mirror, rotation, cross-member
+    // shims) instead of re-deriving them and disagreeing on the wall that
+    // matters. `num` is the port number in Data view and the circuit number
+    // in Power view; a screen-wide target lights every run of the screen.
+    _dockRunUnderlay(panels, layer, num) {
+        const t = window.app && window.app._dockDropTarget;
+        if (!t || t.layerId !== layer.id) return;
+        if (t.kind === 'run' && t.num !== num) return;
+        if (t.kind !== 'run' && t.kind !== 'screen') return;
+        if (!panels || !panels.length) return;
+        this.ctx.save();
+        this.ctx.strokeStyle = 'rgba(120, 180, 255, 0.55)';
+        this.ctx.lineWidth = Math.max(10, 14 / Math.max(this.zoom, 0.01));
+        this.ctx.lineCap = 'round';
+        this.ctx.lineJoin = 'round';
+        this.ctx.beginPath();
+        panels.forEach((p, i) => {
+            const x = p.x + p.width / 2;
+            const y = p.y + p.height / 2;
+            if (i === 0) this.ctx.moveTo(x, y);
+            else this.ctx.lineTo(x, y);
+        });
+        if (panels.length === 1) {
+            // a one-panel run has no line to widen; ring the panel instead
+            const p = panels[0];
+            this.ctx.arc(p.x + p.width / 2, p.y + p.height / 2,
+                         Math.min(p.width, p.height) * 0.4, 0, Math.PI * 2);
+        }
+        this.ctx.stroke();
+        this.ctx.restore();
+    }
+
     getPanelAt(worldX, worldY) {
         if (!window.app || !window.app.project) return null;
         for (let i = window.app.project.layers.length - 1; i >= 0; i--) {
@@ -5244,7 +5278,10 @@ class CanvasRenderer {
         const drawPort = (portPanels, portNum, loadPanels) => {
             if (portPanels.length === 0) return;
             const scoredPanels = (loadPanels === undefined) ? portPanels : loadPanels;
-            
+
+            // dock drag: the run under the cursor lights up before its lines
+            this._dockRunUnderlay(portPanels, layer, portNum);
+
             const currentLineColor = useRandomColors ? randomColors[(portNum - 1) % randomColors.length] : lineColor;
             this.ctx.strokeStyle = currentLineColor;
             this.ctx.lineWidth = lineWidth;
@@ -5776,6 +5813,9 @@ class CanvasRenderer {
                     this._deferCrossMemberPath(layer, path);
                     return;
                 }
+                // dock drag: colour-coded view draws no daisy, so the
+                // underlay is the whole of the run highlight here
+                this._dockRunUnderlay(circuitPanels, layer, circuitNum);
                 drawCircuitLabel(circuitPanels[0], circuitPanels[1], circuitNum);
             });
             this.ctx.restore();
@@ -5833,6 +5873,8 @@ class CanvasRenderer {
 
         const drawCircuit = (circuitPanels, circuitNum) => {
             if (circuitPanels.length === 0) return;
+            // dock drag: the circuit under the cursor lights up first
+            this._dockRunUnderlay(circuitPanels, layer, circuitNum);
             const currentLineColor = useRandomColors ? randomColors[(circuitNum - 1) % randomColors.length] : lineColor;
             drawDaisyLines(circuitPanels, currentLineColor);
             drawCircuitLabel(circuitPanels[0], circuitPanels[1], circuitNum);
@@ -5849,6 +5891,8 @@ class CanvasRenderer {
         const drawCircuitBranches = (branches, circuitNum) => {
             const live = (branches || []).filter(b => b && b.length > 0);
             if (!live.length) return;
+            // dock drag: every branch of the circuit lights together
+            live.forEach(b => this._dockRunUnderlay(b, layer, circuitNum));
             const currentLineColor = useRandomColors ? randomColors[(circuitNum - 1) % randomColors.length] : lineColor;
             live.forEach(b => drawDaisyLines(b, currentLineColor));
             if (live.length === 1) {

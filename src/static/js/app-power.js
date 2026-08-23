@@ -2278,6 +2278,11 @@ class _Power {
             }).join('') : '<div style="font-size:11px; color:var(--ps-faint, #888); padding:4px 0;">No distros yet — add one, then assign multis to it.</div>'}
             </div>`;
         if (typeof this._wireSectionCollapse === 'function') this._wireSectionCollapse(host);
+        // The dock lists the same distros; a rename, a new one or a removal
+        // must reach the tray in the same paint as the panel.
+        if (typeof this.renderHardwareDock === 'function') {
+            this.renderHardwareDock();
+        }
 
         const add = host.querySelector('#power-distro-add');
         if (add) add.addEventListener('click', () => {
@@ -2351,6 +2356,9 @@ class _Power {
             this.refreshSplitterPanel();
             this.refreshDistroPanel();
             this.updatePowerLabelEditor && this.updatePowerLabelEditor();
+            // The dock's slot chips read the same naming index; a renumber
+            // moves their occupants and free tails with it.
+            this.renderHardwareDock && this.renderHardwareDock();
         });
     }
 
@@ -2449,37 +2457,13 @@ class _Power {
                 const tileId = `soca-${layer.id}-${s.soca}`;
                 const openCls = this._tileOpenId(`soca-runs-${layer.id}`) === tileId
                     ? ' lrd-tile-open' : '';
-                // The multi's slot on its distro. Auto numbers exactly as
-                // always; picking a number pins it - and picking a number
-                // another screen's multi holds makes the two ONE PHYSICAL
-                // BOX, the second screen's circuits on the box's next free
-                // tails. The options say who holds each number, so sharing
-                // reads as sharing before the click.
+                // Which slot of which distro this multi sits on is READ here
+                // and CHANGED on the hardware dock: drag a distro's slot chip
+                // onto the circuit (an occupied slot is the join gesture, the
+                // chip says who holds it), drag the chip back to unassign.
+                // The face line below carries the assignment for the glance.
                 const pin = parseInt((layer.powerSocaNumber || {})[s.soca], 10);
                 const hasPin = Number.isFinite(pin) && pin >= 1;
-                let numberField = '';
-                if (assigned) {
-                    const inUse = this._distroMultiNumbers(assigned);
-                    const maxN = Math.max(0, ...inUse.keys(),
-                                          hasPin ? pin : 0) + 1;
-                    const opts = [];
-                    for (let n = 1; n <= maxN; n++) {
-                        const others = (inUse.get(n) || []).filter(o =>
-                            !(o.layerId === layer.id && o.soca === s.soca));
-                        const text = others.length
-                            ? `${n} — with ${others.map(o => esc(o.layerName)).join(', ')}`
-                            : `${n}`;
-                        opts.push(`<option value="${n}" ${hasPin && pin === n ? 'selected' : ''}>${text}</option>`);
-                    }
-                    numberField = `
-                        <div style="flex:1 1 70px; min-width:0;">
-                            <label class="power-soca-field-label" style="font-weight:400; display:block; margin-bottom:2px;">No.</label>
-                            <select class="power-soca-number info-select" data-soca="${s.soca}" data-lrd-field="power-soca-number-${s.soca}" style="width:100%; min-width:0; box-sizing:border-box;" data-tooltip="Multi number, Which output of the distro this multi is. Auto numbers in layer order and deals around picked numbers. Pick the number another screen's multi already holds and the two are ONE physical soca — this screen's circuits land on its next free tails, and the labels follow.">
-                                <option value="">Auto${hasPin ? '' : ` (${s.number})`}</option>
-                                ${opts.join('')}
-                            </select>
-                        </div>`;
-                }
                 // A member of a shared box says so on its face: one box,
                 // named once, this screen on its own tails - never two
                 // multis coincidentally named alike. A tail claimed twice
@@ -2507,20 +2491,21 @@ class _Power {
                         </div>` : '';
                 return `
                 <div class="power-soca-row lrd-tile${openCls}${shareClash ? ' lrd-tile-clash' : ''}" data-lrd-tile="${tileId}" data-lrd-tile-box="soca-runs-${layer.id}">
-                    <label class="lrd-tile-face" style="font-weight:600;" data-tooltip="Multi, ${esc(s.name).replace(/"/g, '&quot;')} feeds ${s.legs.length} circuit${s.legs.length === 1 ? '' : 's'} at ${s.amps.toFixed(1)} A${share ? ` as part of one shared box with ${others.map(m => esc(m.layerName)).join(', ')}` : ''}. Click to set its name, distro, number and home-run length.">${face}</label>
+                    <label class="lrd-tile-face" style="font-weight:600;" data-tooltip="Multi, ${esc(s.name).replace(/"/g, '&quot;')} feeds ${s.legs.length} circuit${s.legs.length === 1 ? '' : 's'} at ${s.amps.toFixed(1)} A${share ? ` as part of one shared box with ${others.map(m => esc(m.layerName)).join(', ')}` : ''}. Click to set its name and home-run length; assign its distro by dragging a slot from the Hardware tray onto a circuit.">${face}</label>
                     <div class="lrd-tile-body" style="display:flex; flex-wrap:wrap; gap:5px;">
                         <div style="flex:1 1 70px; min-width:0;">
                             <label class="power-soca-field-label" style="font-weight:400; display:block; margin-bottom:2px;">Name</label>
                             <input type="text" class="power-soca-name" data-soca="${s.soca}" data-lrd-field="power-soca-name-${s.soca}" value="${esc(hand).replace(/"/g, '&quot;')}" placeholder="${esc(s.name).replace(/"/g, '&quot;')}" style="width:100%; min-width:0; box-sizing:border-box;" data-tooltip="Multi name, Name this multi by hand. Leave it blank and it follows its distro — multis on a distro named SL are SL1, SL2 — so renaming the distro renames them all. A name typed here stops following.">
                         </div>
-                        <div style="flex:1 1 90px; min-width:0;">
-                            <label class="power-soca-field-label" style="font-weight:400; display:block; margin-bottom:2px;">Distro</label>
-                            <select class="power-soca-distro info-select" data-soca="${s.soca}" data-lrd-field="power-soca-distro-${s.soca}" style="width:100%; min-width:0; box-sizing:border-box;" data-tooltip="Distro, Which power source this multi lands on. Load rolls up per distro across every screen, and the multi takes its number from that distro.">
-                                <option value="">— distro —</option>
-                                ${this.getDistros().map(d => `<option value="${d.id}" ${assigned === d.id ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}
-                            </select>
+                        <div class="power-soca-where" style="flex:1 1 100%; font-size:10px; color:var(--ps-faint, #999);" data-tooltip="Distro, Which power source this multi lands on - read-only here. Assign by dragging a slot from the Hardware tray onto one of this multi's circuits; drag the slot back onto the tray to unassign.">
+                            ${(() => {
+                                const d = assigned
+                                    ? this.getDistros().find(x => x.id === assigned) : null;
+                                if (!d) return 'No distro — drag one from the Hardware tray.';
+                                return `On ${esc(d.name)} No. ${s.number}`
+                                    + (hasPin ? '' : ' (auto)');
+                            })()}
                         </div>
-                        ${numberField}
                         <div style="flex:1 1 70px; min-width:0;">
                             <label class="power-soca-field-label" style="font-weight:400; display:block; margin-bottom:2px;">Length</label>
                             <input type="text" class="power-soca-length" data-soca="${s.soca}" data-lrd-field="power-soca-length-${s.soca}" value="${(s.length || '').replace(/"/g, '&quot;')}" placeholder="e.g. 100ft" style="width:100%; min-width:0; box-sizing:border-box;">
@@ -2565,14 +2550,6 @@ class _Power {
                 this._restateNaming();
             });
         });
-        host.querySelectorAll('.power-soca-number').forEach(sel => {
-            sel.addEventListener('change', () => {
-                this.setSocaNumber(layer, Number(sel.dataset.soca), sel.value || null);
-                // A pin renumbers its whole distro bucket and can merge or
-                // split a shared box - every surface a name reaches restates.
-                this._restateNaming();
-            });
-        });
         host.querySelectorAll('.power-soca-split').forEach(sel => {
             sel.addEventListener('change', () => {
                 if (!sel.value) return;
@@ -2586,17 +2563,6 @@ class _Power {
         host.querySelectorAll('.power-soca-unsplit').forEach(btn => {
             btn.addEventListener('click', () => {
                 this.unsplitSocaAfter(layer, Number(btn.dataset.soca));
-                this._restateNaming();
-            });
-        });
-        host.querySelectorAll('.power-soca-distro').forEach(sel => {
-            sel.addEventListener('change', () => {
-                this.setSocaDistro(layer, Number(sel.dataset.soca), sel.value || null);
-                // The distro panel is still the next host after this one -
-                // soca, splitters, distros kept their order when they moved
-                // into the Power panel - so tabbing on from a soca row walks
-                // into the very thing this would wipe. _restateNaming defers
-                // past the gesture for it.
                 this._restateNaming();
             });
         });

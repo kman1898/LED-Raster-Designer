@@ -64,6 +64,187 @@ def test_a_chosen_path_comes_back_ok():
     assert status == 'ok'
 
 
+# ── a NON-ZERO exit can still be a cancel ─────────────────────────────────
+#
+# Reported on macOS after the status split shipped: Cancel on the export
+# dialog still dropped the files into Downloads. The app log said why -
+#
+#   native_dialog_command_failed  {"cmd": "osascript", "returncode": 1,
+#      "stderr": "15:85: execution error: User canceled. (-128)"}
+#   native_dialog_save_file_no_path {"status": "unavailable"}
+#   save_blob_browser_download
+#
+# - osascript reports a dismissed dialog as a FAILED run, so "exit 0 with no
+# path" never fired and every Cancel was classed as a broken dialog. Both
+# dialogs were affected; picking a folder always worked.
+#
+# The signature per helper, which is what these tests pin:
+#   osascript   exit 1, AppleScript error -128 on stderr
+#   zenity      exit 1, nothing said on either stream
+#   powershell  exit 0, nothing on stdout (the scripts only Write-Output on
+#               DialogResult::OK) - the older branch, still covered above
+
+def _finished(returncode=0, stdout='', stderr=''):
+    """A stand-in for what subprocess.run hands back. Mocked rather than
+    driven for real: these cases need a dialog somebody actually clicks."""
+    return subprocess.CompletedProcess(
+        args=['helper'], returncode=returncode, stdout=stdout, stderr=stderr)
+
+
+def _run_with(monkeypatch, cmd, **outcome):
+    monkeypatch.setattr(rd.subprocess, 'run',
+                        lambda *a, **k: _finished(**outcome))
+    return rd._run_dialog_command(cmd, 'probe')
+
+
+def test_an_osascript_cancel_is_a_cancel_not_a_broken_dialog(monkeypatch):
+    """The reported bug, verbatim from the log."""
+    path, status = _run_with(
+        monkeypatch, ['osascript', '-e', 'choose folder'],
+        returncode=1, stderr='15:63: execution error: User canceled. (-128)')
+    assert path is None
+    assert status == 'cancelled', (
+        'a cancelled export must save nothing - classing this as unavailable '
+        'is what sent the files to Downloads')
+
+
+@pytest.mark.parametrize('stderr', [
+    '6:29: execution error: Usuario ha cancelado. (-128)',
+    '6:29: execution error: L’utilisateur a annulé. (-128)',
+    '6:29: execution error: ユーザーが取り消しました。 (-128)',
+])
+def test_a_cancel_on_a_non_english_system_is_still_a_cancel(monkeypatch, stderr):
+    """THE reason this matches the error number and not the sentence.
+
+    osascript localises the message beside the code but never the code, so
+    matching "User canceled" would have left every non-English machine with
+    the original bug and no sign of it in an English-language log.
+    """
+    path, status = _run_with(monkeypatch, ['osascript', '-e', 'x'],
+                             returncode=1, stderr=stderr)
+    assert status == 'cancelled', stderr
+
+
+@pytest.mark.parametrize('stderr', [
+    # A script that will not compile - same exit code, different number.
+    "12:26: syntax error: A parameter name can't go after this property. (-2740)",
+    # TCC refusing the automation prompt. The dialog genuinely never opened,
+    # so the export must still fall back rather than be thrown away.
+    '0:0: execution error: Not authorized to send Apple events. (-1743)',
+    'osascript: no such file or directory',
+])
+def test_a_real_osascript_failure_is_still_unavailable(monkeypatch, stderr):
+    """The opposite bug, and the worse one: treat every non-zero exit as a
+    cancel and a genuinely broken dialog silently loses the export."""
+    path, status = _run_with(monkeypatch, ['osascript', '-e', 'x'],
+                             returncode=1, stderr=stderr)
+    assert status == 'unavailable', stderr
+
+
+def test_the_cancel_code_is_matched_whole(monkeypatch):
+    """-1288 is not -128. Loose matching would turn an unrelated failure into
+    a cancel and lose the export."""
+    path, status = _run_with(monkeypatch, ['osascript', '-e', 'x'],
+                             returncode=1,
+                             stderr='1:2: execution error: something (-1288)')
+    assert status == 'unavailable'
+
+
+def test_a_zenity_cancel_is_a_cancel(monkeypatch):
+    """zenity documents exit 1 for "cancel, or no file selected", and says
+    nothing on either stream when that is what happened."""
+    path, status = _run_with(monkeypatch,
+                             ['zenity', '--file-selection', '--directory'],
+                             returncode=1)
+    assert path is None
+    assert status == 'cancelled'
+
+
+def test_a_zenity_that_cannot_open_a_display_is_unavailable(monkeypatch):
+    """zenity exits 1 for this too - so exit code alone cannot decide it. A
+    cancel is silent; a failure explains itself, and that is the difference."""
+    path, status = _run_with(monkeypatch, ['zenity', '--file-selection'],
+                             returncode=1,
+                             stderr='Unable to init server: Could not connect: '
+                                    'Connection refused')
+    assert status == 'unavailable'
+
+
+def test_a_zenity_crash_is_unavailable(monkeypatch):
+    path, status = _run_with(monkeypatch, ['zenity', '--file-selection'],
+                             returncode=139)
+    assert status == 'unavailable'
+
+
+def test_a_windows_cancel_arrives_as_a_clean_exit_with_no_path(monkeypatch):
+    """The PowerShell scripts only Write-Output on DialogResult::OK, so a
+    Cancel is exit 0 and an empty stdout. Asserted so the platform that
+    already worked keeps working."""
+    path, status = _run_with(monkeypatch, ['powershell', '-NoProfile', '-STA',
+                                           '-Command', '...'],
+                             returncode=0, stdout='   \n')
+    assert path is None
+    assert status == 'cancelled'
+
+
+def test_a_powershell_that_threw_is_unavailable(monkeypatch):
+    """No catch in the script, so an exception escapes and PowerShell exits
+    non-zero. That is a dialog that never opened - fall back, do not discard."""
+    path, status = _run_with(monkeypatch, ['powershell.exe', '-Command', '...'],
+                             returncode=1,
+                             stderr='New-Object : Cannot find type '
+                                    '[System.Windows.Forms.SaveFileDialog]')
+    assert status == 'unavailable'
+
+
+# ── the log has to tell the two apart at a glance ─────────────────────────
+
+def _events(monkeypatch):
+    seen = []
+    monkeypatch.setattr(rd, 'log_event',
+                        lambda name, payload=None: seen.append(name))
+    return seen
+
+
+def test_a_cancel_is_logged_as_a_cancel(monkeypatch):
+    """It was logged as native_dialog_command_failed, which is what made this
+    read as a broken dialog for as long as it did."""
+    seen = _events(monkeypatch)
+    _run_with(monkeypatch, ['osascript', '-e', 'x'], returncode=1,
+              stderr='15:85: execution error: User canceled. (-128)')
+    assert 'native_dialog_cancelled' in seen
+    assert 'native_dialog_command_failed' not in seen
+
+
+def test_a_failure_is_still_logged_as_a_failure(monkeypatch):
+    seen = _events(monkeypatch)
+    _run_with(monkeypatch, ['osascript', '-e', 'x'], returncode=1,
+              stderr='0:0: execution error: Not authorized. (-1743)')
+    assert 'native_dialog_command_failed' in seen
+    assert 'native_dialog_cancelled' not in seen
+
+
+# ── and it reaches the client, which is the only thing that matters ───────
+
+@pytest.mark.parametrize('route', [
+    '/api/native-dialog/save-file',
+    '/api/native-dialog/select-directory',
+])
+def test_an_osascript_cancel_reaches_the_browser_as_a_cancel(
+        client, monkeypatch, route):
+    """End to end from the subprocess result to the JSON the export code
+    branches on: {cancelled:true} makes it show "Export cancelled - nothing
+    was saved", {unavailable:true} makes it download to Downloads instead."""
+    monkeypatch.setattr(rd.platform, 'system', lambda: 'Darwin')
+    monkeypatch.setattr(rd.subprocess, 'run', lambda *a, **k: _finished(
+        returncode=1,
+        stderr='15:85: execution error: User canceled. (-128)'))
+    body = client.post(route, json={'suggested_name': 'Show.png'}).get_json()
+    assert body['ok'] is False
+    assert body['cancelled'] is True
+    assert body['unavailable'] is False
+
+
 # ── the routes pass that distinction to the client ────────────────────────
 
 @pytest.fixture

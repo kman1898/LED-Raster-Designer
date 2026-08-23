@@ -20,8 +20,9 @@ What is pinned here:
     included - reflow, never a sideways scroll
   * a focus restore into a closed tile opens the tile (the fold rule, one
     register down)
-  * the set/place flow opens the tile it aims at, and an open tile survives
-    the panel's wholesale rebuild by id
+  * the panel tiles NAME and READ; putting a screen on a socket is the
+    hardware dock's drag, so the editor offers no set/place control and the
+    dock offers a draggable twin of every tile
   * a folded processor hides its tiles; unfolding hands them back as left
 
 Run locally:
@@ -245,9 +246,10 @@ def test_a_click_opens_the_editor_in_the_tile_and_only_one_at_a_time(panel_page)
     assert not s2['open'] and s2['ariaExpanded'] == 'false', s2
 
 
-def test_the_open_editor_holds_the_same_controls_the_row_had(panel_page):
-    """Same fields, same keys: Name, Return, the set control and the
-    occupancy detail - presentation moved, nothing renamed."""
+def test_the_open_editor_holds_the_naming_controls_and_no_assigner(panel_page):
+    """Same naming fields, same keys: Name, Return and the occupancy detail.
+    The set/place control is deliberately GONE - assignment is the hardware
+    dock's drag now, and a second control would be a second set of rules."""
     ids = seed(panel_page)
     assert panel_page.evaluate(CLICK_FACE_JS, f"port-{ids['cardId']}-1")
     out = panel_page.evaluate("""(args) => {
@@ -256,18 +258,22 @@ def test_the_open_editor_holds_the_same_controls_the_row_had(panel_page):
         const vis = (el) => !!el && el.getClientRects().length > 0;
         const field = (kind) => tile.querySelector(
             `[data-lrd-field="processor-port-${kind}-${args.cardId}-1"]`);
-        const btn = [...tile.querySelectorAll('button')]
+        const setBtn = [...tile.querySelectorAll('button')]
             .find(b => b.textContent === 'set' || b.textContent === 'close');
         return {
             name: vis(field('name')),
             ret: vis(field('return')),
-            set: vis(btn),
+            set: !!setBtn,
+            picker: !!document.querySelector(
+                `[data-lrd-field^="processor-port-assign-"]`),
             namePlaceholder: field('name') ? field('name').placeholder : null,
             retPlaceholder: field('return') ? field('return').placeholder : null,
         };
     }""", {'cardId': ids['cardId']})
-    assert out['name'] and out['ret'] and out['set'], (
-        f'the open editor is missing controls the row had: {out}')
+    assert out['name'] and out['ret'], (
+        f'the open editor is missing the naming fields: {out}')
+    assert not out['set'] and not out['picker'], (
+        f'a stripped assignment control is still in the panel: {out}')
     assert out['namePlaceholder'] == 'SR-1', out
     # SR has no leading P to swap for an R, so its return keeps the R after
     # it - the half of the rule a drawing already issued was printed with.
@@ -541,40 +547,34 @@ def test_a_focus_restore_into_a_closed_tile_opens_it(panel_page):
     assert out['survives'], f'the auto-opening did not survive a rebuild: {out}'
 
 
-def test_the_set_place_flow_opens_the_tile_it_aims_at(panel_page):
-    """The chooser acts into a port's editor; aimed at a closed tile under a
-    folded processor, the whole chain opens - processor unfolds, tile opens,
-    chooser painted - or the gesture reads as nothing happening."""
+def test_assignment_moved_to_the_dock_and_the_dock_mirrors_the_tiles(panel_page):
+    """The set/place chooser is gone from the panel - aiming a socket at a
+    screen is the hardware dock's drag. The dock carries a draggable twin of
+    every port tile (same number, same occupant story, focusable), and no
+    assignment field of the old flow survives anywhere in the panel."""
     ids = seed(panel_page)
-    # fold the processor so both links of the chain are exercised
-    panel_page.evaluate("""(procId) => {
-        const box = document.querySelector(
-            `[data-lrd-sec-id="processor-${procId}"]`);
-        window.app._setSectionCollapsed(box, true);
-    }""", ids['procId'])
     out = panel_page.evaluate("""(args) => {
-        const app = window.app;
-        app._assigningPort = { cardId: args.cardId, port: 5 };
-        app.renderProcessorPanel();
-        const tile = document.querySelector(
-            `[data-lrd-tile="port-${args.cardId}-5"]`);
-        const picker = document.querySelector(
-            `[data-lrd-field="processor-port-assign-${args.cardId}-5"]`);
-        const box = document.querySelector(
-            `[data-lrd-sec-id="processor-${args.procId}"]`);
-        const body = box.querySelector(':scope > .lrd-sec-body');
-        const result = {
-            unfolded: getComputedStyle(body).display !== 'none',
-            tileOpen: tile.classList.contains('lrd-tile-open'),
-            pickerPainted: !!picker && picker.getClientRects().length > 0,
+        const list = document.getElementById('processor-list');
+        const dockTile = document.querySelector(
+            `[data-hwdock="port-${args.cardId}-5"]`);
+        return {
+            pickerAnywhere: !!document.querySelector(
+                '[data-lrd-field^="processor-port-assign-"]'),
+            setButtons: [...list.querySelectorAll('button')]
+                .filter(b => b.textContent === 'set').length,
+            dockTile: !!dockTile,
+            dockTileFocusable: dockTile ? dockTile.tabIndex === 0 : null,
+            dockTiles: document.querySelectorAll(
+                `#hardware-dock [data-hwdock^="port-${args.cardId}-"]`).length,
         };
-        app._assigningPort = null;           // leave the panel as found
-        app.renderProcessorPanel();
-        return result;
-    }""", {'cardId': ids['cardId'], 'procId': ids['procId']})
-    assert out['unfolded'], f'the aim left the processor folded: {out}'
-    assert out['tileOpen'], f'the aim did not open the port tile: {out}'
-    assert out['pickerPainted'], f'the chooser itself is not drawn: {out}'
+    }""", {'cardId': ids['cardId']})
+    assert not out['pickerAnywhere'], f'the old chooser survives: {out}'
+    assert out['setButtons'] == 0, f'a set button survives in the panel: {out}'
+    assert out['dockTile'], f'the dock has no twin for port 5: {out}'
+    assert out['dockTileFocusable'], (
+        f'the dock tile fell out of the tab ring: {out}')
+    # the MX20's six ports all have dock twins
+    assert out['dockTiles'] == 6, out
 
 
 def test_a_folded_processor_hides_its_tiles_and_hands_them_back(panel_page):
@@ -677,12 +677,18 @@ def test_a_multi_tile_carries_the_heading_data_and_opens_in_place(power_page):
         const vis = (el) => !!el && el.getClientRects().length > 0;
         return {
             name: vis(tile.querySelector('.power-soca-name')),
-            distro: vis(tile.querySelector('.power-soca-distro')),
+            // The Distro and No. selects are gone - assigning is the
+            // hardware dock's drag - and a read-only line states where the
+            // multi sits instead.
+            distroSelect: !!tile.querySelector('.power-soca-distro'),
+            numberSelect: !!tile.querySelector('.power-soca-number'),
+            where: vis(tile.querySelector('.power-soca-where')),
             length: vis(tile.querySelector('.power-soca-length')),
         };
     }""", tid)
-    assert fields == {'name': True, 'distro': True, 'length': True}, (
-        f'the open multi editor is missing its fields: {fields}')
+    assert fields == {'name': True, 'distroSelect': False,
+                      'numberSelect': False, 'where': True, 'length': True}, (
+        f'the open multi editor has the wrong controls: {fields}')
 
     # the panel-level controls stay panel-level - they are per-screen
     for panel_ctrl in ('#power-breakout-type', '#show-soca-brackets'):
@@ -696,8 +702,9 @@ def test_a_multi_tile_carries_the_heading_data_and_opens_in_place(power_page):
 
 
 def test_multi_edits_round_trip_with_the_same_actions(power_page):
-    """Name, distro and length through the open editor: same setters, same
-    history actions as the rows - and the name walks back through undo."""
+    """Name and length through the open editor, the distro through the
+    dock's drop path: same setters, same history actions as the old rows -
+    and the length walks back through undo."""
     page, seeded = power_page
     tid = f"soca-{seeded['layerId']}-1"
     assert page.evaluate(CLICK_FACE_JS, tid)
@@ -716,14 +723,16 @@ def test_multi_edits_round_trip_with_the_same_actions(power_page):
             l => l.id === layerId).powerSocaNames || {})['1']""",
         seeded['layerId']) == 'HOUSE'
 
+    # The distro lands by the dock's drop: a whole distro dropped on the
+    # screen fills its unassigned multis - the same setSocaDistro the old
+    # select fired, the same history action.
     picked = page.evaluate("""(layerId) => {
-        const sel = document.querySelector(
-            `[data-lrd-tile="soca-${layerId}-1"] .power-soca-distro`);
-        const v = [...sel.options].map(o => o.value).find(x => x);
-        if (!v) return null;
-        sel.value = v;
-        sel.dispatchEvent(new Event('change', { bubbles: true }));
-        return v;
+        const app = window.app;
+        const d = app.getDistros()[0];
+        if (!d) return null;
+        app._dockPerformDrop({ type: 'distro', distroId: d.id },
+                             { kind: 'screen', layerId });
+        return d.id;
     }""", seeded['layerId'])
     assert picked, 'no distro to land the multi on'
     page.wait_for_timeout(600)

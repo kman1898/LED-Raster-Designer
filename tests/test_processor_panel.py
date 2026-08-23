@@ -1530,6 +1530,40 @@ def test_processor_edits_take_post_mutation_history_snapshots():
 
 # ── 8. The row in a real browser, at both widths ──────────────────────────
 
+# The browser section asserts against the layer the e2e server seeds at ITS
+# first boot - a screen literally named Screen1. But when an earlier browser
+# module already started that server, this module's own Flask-client tests
+# have reset app_module.current_project by the time panel_page opens, and the
+# served project holds TestScreen or nothing. So the fixture rebuilds the
+# project it asserts against through the real endpoints - the RESET_JS idiom
+# test_data_sidebar.py documents - rather than trusting boot order.
+RESET_LAYERS_JS = """async () => {
+    const project = await (await fetch('/api/project')).json();
+    project.layers = [];
+    project.groups = [];
+    await fetch('/api/project', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(project),
+    });
+    await fetch('/api/layer/add', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Screen1', columns: 4, rows: 3,
+                               cabinet_width: 128, cabinet_height: 128 }),
+    });
+    window.app.project = await (await fetch('/api/project')).json();
+    const screen = window.app.project.layers.find(
+        l => (l.type || 'screen') === 'screen');
+    window.app.currentLayer = screen;
+    window.app.selectedLayerIds = new Set([screen.id]);
+    window.app.lastSelectedLayerId = screen.id;
+    window.app.renderLayers();
+    window.app.loadLayerToInputs(screen);
+    window.app.updatePortCapacityDisplay();
+    if (window.canvasRenderer) window.canvasRenderer.render();
+    return screen.id;
+}"""
+
+
 RESET_PROCESSORS_JS = """async () => {
     const state = await (await fetch('/api/processors')).json();
     for (const p of (state.processors || [])) {
@@ -1604,6 +1638,8 @@ def panel_page(e2e_server, pw_browser, server_project_guard):
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
     pg.wait_for_timeout(2000)  # socket connect + app init
+    assert pg.evaluate(RESET_LAYERS_JS), "test project was not created"
+    pg.wait_for_timeout(600)
     pg.locator('[data-mode="data-flow"]').click()
     pg.wait_for_timeout(400)
     yield pg
@@ -2623,11 +2659,11 @@ def test_focus_restore_into_a_folded_processor_unfolds_it(panel_page):
     assert out['stored'] == '0', f'the auto-expansion did not persist: {out}'
 
 
-def test_the_port_chooser_reveal_unfolds_its_processor(panel_page):
-    """The set/place chooser opens under a port row; under a folded
-    processor it would open display:none and the gesture would look like
-    nothing happened. The render that reveals it unfolds the machine
-    first."""
+def test_a_folded_processor_still_offers_its_ports_on_the_dock(panel_page):
+    """The set/place chooser is gone - assignment is the hardware dock's
+    drag - so folding a processor in the PANEL must not take the assignment
+    surface away: the dock's tiles for that card stay drawn and draggable
+    regardless of the panel's fold, and no chooser field survives."""
     pytest.importorskip("playwright.sync_api", reason="playwright not installed")
     ids = seed_fold(panel_page)
     proc_arrow(panel_page, ids['sx']).click()
@@ -2635,24 +2671,18 @@ def test_the_port_chooser_reveal_unfolds_its_processor(panel_page):
     assert fold_state(panel_page, ids['sx'])['collapsed'] is True
 
     out = panel_page.evaluate("""(args) => {
-        const app = window.app;
-        app._assigningPort = { cardId: args.sxCard, port: 1 };
-        app.renderProcessorPanel();
-        const picker = document.querySelector(
-            `[data-lrd-field="processor-port-assign-${args.sxCard}-1"]`);
-        const box = document.querySelector(
-            `[data-lrd-sec-id="processor-${args.sx}"]`);
-        const body = box.querySelector(':scope > .lrd-sec-body');
-        const result = {
-            expanded: getComputedStyle(body).display !== 'none',
-            pickerPainted: !!picker && picker.getClientRects().length > 0,
+        const dockTile = document.querySelector(
+            `#hardware-dock [data-hwdock="port-${args.sxCard}-1"]`);
+        return {
+            pickerAnywhere: !!document.querySelector(
+                '[data-lrd-field^="processor-port-assign-"]'),
+            dockTilePainted: !!dockTile
+                && dockTile.getClientRects().length > 0,
         };
-        app._assigningPort = null;             // leave the panel as found
-        app.renderProcessorPanel();
-        return result;
     }""", {'sx': ids['sx'], 'sxCard': ids['sxCard']})
-    assert out['expanded'], f'the chooser opened into a folded card: {out}'
-    assert out['pickerPainted'], f'the chooser itself is not drawn: {out}'
+    assert not out['pickerAnywhere'], f'the old chooser survives: {out}'
+    assert out['dockTilePainted'], (
+        f'folding the panel hid the dock\'s assignment surface: {out}')
 
 
 def test_the_panel_fold_hides_all_and_gives_each_card_back_its_state(panel_page):

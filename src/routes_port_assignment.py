@@ -210,11 +210,17 @@ def move_block():
     if layer_id is None:
         return jsonify({'error': 'layerId is required'}), 400
     start = data.get('startPort')
+    first = data.get('firstPort')
+    last = data.get('lastPort')
     state = _working()
     moved, error = assignment.move_block(
         _processors(), _screens(), state, layer_id,
         card_id=data.get('cardId'),
-        start_port=None if start is None else int(start))
+        start_port=None if start is None else int(start),
+        # A breakout box is a span of card ports; the dock sends the span so
+        # "drop the box on a screen" lands the run on the box and nowhere else.
+        first_port=None if first is None else int(first),
+        last_port=None if last is None else int(last))
     if error:
         return jsonify({'error': error}), 409
     log_event('port_assignment_move_block', {'layer': layer_id, 'to': moved})
@@ -228,9 +234,14 @@ def place_overflow():
     card_id = data.get('cardId')
     if layer_id is None or not card_id:
         return jsonify({'error': 'layerId and cardId are required'}), 400
+    first = data.get('firstPort')
+    last = data.get('lastPort')
     state = _working()
     moved, error = assignment.place_overflow(
-        _processors(), _screens(), state, layer_id, card_id)
+        _processors(), _screens(), state, layer_id, card_id,
+        # Same box-span window move-block carries; see that route.
+        first_port=None if first is None else int(first),
+        last_port=None if last is None else int(last))
     if error:
         return jsonify({'error': error}), 409
     log_event('port_assignment_overflow', {'layer': layer_id, 'card': card_id,

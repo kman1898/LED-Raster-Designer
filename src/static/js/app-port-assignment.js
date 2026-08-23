@@ -33,12 +33,12 @@ class _PortAssignment {
         this._processorPortLabels = {};
         this._processorPortReturnLabels = {};
         this._occupancyRaw = '';
-        // Which port has its chooser open, in either panel. Held here rather
-        // than in the DOM because both panels are rebuilt wholesale on every
-        // resolution and a half-made choice would be thrown away by a screen
-        // being resized on the other side of the app.
+        // Which port has its mover open. Held here rather than in the DOM
+        // because the panel is rebuilt wholesale on every resolution and a
+        // half-made choice would be thrown away by a screen being resized on
+        // the other side of the app. (The processor-side set/place chooser is
+        // gone: pointing a socket at a screen is the dock's drag now.)
         this._movingPort = null;
-        this._assigningPort = null;
         this._assignmentError = null;
         this._assignmentNote = null;
         this.refreshPortAssignment();
@@ -52,6 +52,12 @@ class _PortAssignment {
         return JSON.stringify([
             (this.project && this.project.processors) || [],
             screens || this._assignmentScreens(),
+            // The stored pins are part of the picture too: undo/redo swaps
+            // the whole project - pins included - under an unchanged set of
+            // processors and screens, and without this term updateUI's
+            // compare would skip the re-resolve and the panel would keep
+            // narrating the pre-undo numbering.
+            (this.project && this.project.port_assignments) || null,
         ]);
     }
 
@@ -85,7 +91,13 @@ class _PortAssignment {
     // rather than a fact ("Side port 2 is already there") and the answer is a
     // person, not a retry - and the alternative was a second request path that
     // did not go through _applyAssignmentResolution on the way back.
-    _assignmentRequest(url, method, body, onRefused) {
+    //
+    // `action` names the history entry a MUTATING call earns, the same
+    // post-mutation snapshot _processorRequest takes: the new state has
+    // already been folded into this.project by the time it runs, so redo can
+    // re-apply it. Reads pass no action, and a refused edit changed nothing
+    // and earns no entry - Ctrl+Z must never grow no-op steps.
+    _assignmentRequest(url, method, body, onRefused, action) {
         const payload = Object.assign({ screens: this._assignmentScreens() },
                                       body || {});
         return fetch(url, {
@@ -119,6 +131,9 @@ class _PortAssignment {
                     this.project.port_assignments = data.state;
                 }
                 this._applyAssignmentResolution();
+                if (action && typeof this.saveState === 'function') {
+                    this.saveState(action);
+                }
             })
             .catch(err => sendClientLog('port_assignment_request_failed',
                                         { url, method, error: String(err) }));
@@ -152,6 +167,11 @@ class _PortAssignment {
         // Nothing else redraws the canvas on this path - the panel's own
         // render only touches the sidebar.
         if (window.canvasRenderer) window.canvasRenderer.render();
+        // The dock's port tiles are a picture of the same occupancy the
+        // Processors panel reads, so a new resolution redraws them too.
+        if (typeof this.renderHardwareDock === 'function') {
+            this.renderHardwareDock();
+        }
     }
 
     // Flatten the resolution into layerId -> portNumber -> label, once.
@@ -301,20 +321,32 @@ class _PortAssignment {
     _takeOffer(offer) {
         sendClientLog('port_assignment_offer_taken', offer);
         if (offer.action === 'move-block') {
-            this._assignmentRequest('/api/port-assignments/move-block', 'POST',
-                                    { layerId: offer.layerId,
-                                      cardId: offer.cardId || undefined });
+            return this._assignmentRequest(
+                '/api/port-assignments/move-block', 'POST',
+                { layerId: offer.layerId,
+                  cardId: offer.cardId || undefined,
+                  // The dock's box drops bound the move to the box's span of
+                  // card ports; panel offers never carry a window.
+                  firstPort: offer.firstPort || undefined,
+                  lastPort: offer.lastPort || undefined },
+                null, 'Move Port Block');
         } else if (offer.action === 'place-overflow') {
-            this._assignmentRequest('/api/port-assignments/place-overflow',
-                                    'POST', { layerId: offer.layerId,
-                                              cardId: offer.cardId });
+            return this._assignmentRequest(
+                '/api/port-assignments/place-overflow',
+                'POST', { layerId: offer.layerId,
+                          cardId: offer.cardId,
+                          firstPort: offer.firstPort || undefined,
+                          lastPort: offer.lastPort || undefined },
+                null, 'Fill Ports In Order');
         } else if (offer.action === 'release') {
-            this._assignmentRequest('/api/port-assignments/unpin', 'POST',
-                                    { layerId: offer.layerId,
-                                      index: offer.index });
+            return this._assignmentRequest(
+                '/api/port-assignments/unpin', 'POST',
+                { layerId: offer.layerId, index: offer.index },
+                null, 'Release Ports');
         } else if (offer.action === 'auto-on') {
-            this._assignmentRequest('/api/port-assignments', 'PUT',
-                                    { auto: true });
+            return this._assignmentRequest('/api/port-assignments', 'PUT',
+                                           { auto: true }, null,
+                                           'Toggle Auto Numbering');
         }
     }
 
@@ -348,7 +380,7 @@ class _PortAssignment {
                     this.renderPortAssignmentPanel();
                 }
                 return true;
-            });
+            }, 'Place Port');
     }
 
     _buildAssignmentScreen(scr, res) {
@@ -490,7 +522,8 @@ class _PortAssignment {
             act.title = 'Hand this port back to auto-numbering';
             act.addEventListener('click', () => this._assignmentRequest(
                 '/api/port-assignments/unpin', 'POST',
-                { layerId: scr.layerId, index: port.index }));
+                { layerId: scr.layerId, index: port.index },
+                null, 'Release Port'));
             row.appendChild(act);
         } else {
             row.appendChild(this._buildPinControl(scr, port, res));
@@ -683,7 +716,8 @@ class _PortAssignment {
               // Pinning a port that already has a number holds THAT number.
               // The common case is not "move this", it is "the numbering is
               // right, stop it moving when the next screen arrives".
-              port: (port.cardId === cardId && port.port) || undefined });
+              port: (port.cardId === cardId && port.port) || undefined },
+            null, 'Pin Port');
 
         if (cards.length < 2) {
             const act = document.createElement('button');
@@ -774,7 +808,8 @@ class _PortAssignment {
         cb.checked = !!res.auto;
         cb.dataset.lrdField = 'port-assignment-auto';
         cb.addEventListener('change', () => this._assignmentRequest(
-            '/api/port-assignments', 'PUT', { auto: cb.checked }));
+            '/api/port-assignments', 'PUT', { auto: cb.checked },
+            null, 'Toggle Auto Numbering'));
         toggle.appendChild(cb);
         toggle.appendChild(document.createTextNode(
             'Number unpinned ports automatically'));

@@ -1261,3 +1261,56 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
    badge. A clash keeps the issue boxes' red ground. */
 .lrd-tile-occupied { background: #1e1e1e; border-color: #4a4a4a; }
 .lrd-tile-clash { background: #1a1010; border-color: #3a2a28; }
+
+/* ── Hardware dock ─────────────────────────────────────────────────────────
+   The tray under the canvas (app-dock.js). A flex child of #canvas-container
+   after #canvas-wrapper, so it steals height from the canvas purely by being
+   in the column - no height arithmetic anywhere, the same rule the sidebars
+   follow for width. Out of its views it leaves layout entirely
+   (.view-hidden), the middle sidebars' doctrine: anyone who never opens Data
+   or Power sees no change at all. */
+#hardware-dock { flex: 0 0 auto; border-top: 1px solid #131313; }
+#hardware-dock.view-hidden { display: none; }
+/* The body scrolls VERTICALLY inside a capped height rather than growing the
+   tray without bound - the canvas is the star of this column. Sideways it
+   reflows (the tile grid's own rule), never scrolls. */
+#hardware-dock-body {
+    max-height: 150px; overflow-y: auto; overflow-x: hidden;
+    padding: 6px 8px;
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start;
+}
+#hardware-dock .lrd-sec-head { font-size: 11px; }
+.hw-dock-note { font-size: 11px; color: #888; padding: 2px 0; }
+/* Units GROW along the tray: this is a horizontal strip under a wide canvas,
+   so a 40-port card spreads into a wide shallow grid rather than stacking
+   twenty rows deep and scrolling out of its own body. */
+.hw-dock-proc {
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start;
+    flex: 1 1 300px; min-width: 0;
+}
+.hw-dock-proc-name {
+    flex: 1 1 100%; font-size: 10px; color: #888;
+    text-transform: uppercase; letter-spacing: 0.4px;
+}
+.hw-dock-unit {
+    border: 1px solid #262626; border-radius: 3px; background: #0d0d0d;
+    padding: 4px 6px; flex: 1 1 240px; min-width: 170px; max-width: 100%;
+}
+.hw-dock-head-row {
+    display: flex; align-items: baseline; gap: 6px; cursor: grab;
+    padding: 1px 2px; border-radius: 3px;
+}
+.hw-dock-head-row:active { cursor: grabbing; }
+.hw-dock-grip { color: #555; font-size: 10px; letter-spacing: -1px; }
+.hw-dock-unit-name {
+    font-size: 11px; color: #ccc; font-family: monospace;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    min-width: 0;
+}
+.hw-dock-unit-info { font-size: 10px; color: #666; font-family: monospace; margin-left: auto; }
+.hw-dock-box { margin-top: 4px; padding-left: 6px; border-left: 2px solid #2a2a2a; }
+.hw-dock-grid { margin-top: 4px; }
+/* Dock tiles are drag handles, not folding editors: the face is the whole
+   tile and the cursor says so. */
+.hw-dock-tile > .lrd-tile-face { cursor: grab; }
+.hw-dock-tile > .lrd-tile-face:active { cursor: grabbing; }
