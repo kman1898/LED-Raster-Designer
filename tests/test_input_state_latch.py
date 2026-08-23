@@ -34,6 +34,13 @@ BOTH grammars (relative required a unit, absolute required a full date) and
 came back null, flagging the field invalid. Bare numbers now read as minutes;
 every explicit form is unchanged.
 
+Follow-up, same thread: "maybe we add a drop down for seconds min hours
+etc?" — the fields are now a number input plus a unit dropdown (Sec / Min /
+Hours / Days, default Min). The Date… unit swaps the field back to free
+text through the same parseLogFilterTime grammar, so the absolute-date and
+today/yesterday forms stay reachable. The parser itself is untouched; the
+pins above still hold.
+
 Run locally:
     python -m pytest tests/test_input_state_latch.py -v --browser chromium
 """
@@ -359,4 +366,132 @@ def test_since_field_hint_names_the_default_unit(page):
     }""")
     blob = (hint['placeholder'] + ' ' + hint['title']).lower()
     assert 'minute' in blob, \
-        f"since-field hint does not say bare numbers are minutes: {hint}"
+        f"since-field hint does not say the default unit is minutes: {hint}"
+
+
+# ── logs filter UI: number + unit dropdown ────────────────────────────────
+
+_LOGS_FILTER_RESET_JS = """() => {
+    const app = window.app;
+    for (const id of ['logs-since', 'logs-until']) {
+        const inp = document.getElementById(id);
+        const sel = document.getElementById(id + '-unit');
+        if (inp) inp.value = '';
+        if (sel) sel.value = 'min';
+        app._syncLogFilterFieldMode(id);
+    }
+    app.closeLogsModal();
+}"""
+
+
+def _open_logs_modal(page):
+    page.evaluate("() => window.app.openLogsModal()")
+    page.wait_for_timeout(300)
+
+
+def test_logs_filter_unit_dropdowns_default_to_minutes(page):
+    res = page.evaluate("""() => ({
+        sinceUnit: document.getElementById('logs-since-unit').value,
+        untilUnit: document.getElementById('logs-until-unit').value,
+        sinceType: document.getElementById('logs-since').type,
+        untilType: document.getElementById('logs-until').type,
+    })""")
+    assert res['sinceUnit'] == 'min', res
+    assert res['untilUnit'] == 'min', res
+    # Both fields start as number boxes, not free text.
+    assert res['sinceType'] == 'number', res
+    assert res['untilType'] == 'number', res
+
+
+def test_logs_filter_number_plus_unit_drives_the_request(page):
+    """2 + Hours must reach the server as since ~= now - 2h, and switching
+    the unit to Sec must immediately re-filter with since ~= now - 2s."""
+    from urllib.parse import urlparse, parse_qs
+
+    _open_logs_modal(page)
+    try:
+        with page.expect_request(
+                lambda r: '/api/logs' in r.url and 'since=' in r.url) as req:
+            page.evaluate("""() => {
+                const inp = document.getElementById('logs-since');
+                const sel = document.getElementById('logs-since-unit');
+                inp.value = '2';
+                sel.value = 'h';
+                sel.dispatchEvent(new Event('change'));
+            }""")
+        since = int(parse_qs(urlparse(req.value.url).query)['since'][0])
+        now_ms = page.evaluate("() => Date.now()")
+        expect = now_ms - 2 * 3600 * 1000
+        assert abs(since - expect) < 5000, \
+            f"2 Hours sent since={since}, expected ~{expect}"
+
+        # Unit switch alone (number untouched) re-filters with the new unit.
+        with page.expect_request(
+                lambda r: '/api/logs' in r.url and 'since=' in r.url) as req2:
+            page.evaluate("""() => {
+                const sel = document.getElementById('logs-since-unit');
+                sel.value = 's';
+                sel.dispatchEvent(new Event('change'));
+            }""")
+        since2 = int(parse_qs(urlparse(req2.value.url).query)['since'][0])
+        now_ms = page.evaluate("() => Date.now()")
+        assert abs(since2 - (now_ms - 2 * 1000)) < 5000, \
+            f"unit switch to Sec sent since={since2}, expected ~now-2s"
+    finally:
+        page.evaluate(_LOGS_FILTER_RESET_JS)
+
+
+def test_logs_filter_accepts_decimals(page):
+    res = page.evaluate("""() => {
+        const app = window.app;
+        const inp = document.getElementById('logs-since');
+        const sel = document.getElementById('logs-since-unit');
+        sel.value = 'min';
+        app._syncLogFilterFieldMode('logs-since');
+        inp.value = '1.5';
+        const b = app._logFilterBounds();
+        inp.value = '';
+        return { now: Date.now(), sinceMs: b.sinceMs, valid: b.valid };
+    }""")
+    assert res['valid'] is True
+    assert res['sinceMs'] is not None, "1.5 min did not parse"
+    expect = res['now'] - 90 * 1000
+    assert abs(res['sinceMs'] - expect) < 2000, \
+        f"1.5 Min: got {res['sinceMs']}, expected ~{expect}"
+
+
+def test_logs_filter_date_mode_keeps_absolute_grammar(page):
+    """Choosing Date… turns the field into the old free-text parse: absolute
+    dates (and today/yesterday) stay reachable, and switching back restores
+    the number box."""
+    _open_logs_modal(page)
+    try:
+        res = page.evaluate("""() => {
+            const app = window.app;
+            const inp = document.getElementById('logs-since');
+            const sel = document.getElementById('logs-since-unit');
+            sel.value = 'date';
+            sel.dispatchEvent(new Event('change'));
+            const dateType = inp.type;
+            inp.value = '2026-07-25 20:14';
+            const abs = app._logFilterBounds();
+            inp.value = 'yesterday';
+            const word = app._logFilterBounds();
+            inp.value = '';
+            sel.value = 'min';
+            sel.dispatchEvent(new Event('change'));
+            return {
+                dateType,
+                absSinceMs: abs.sinceMs,
+                absExpect: new Date(2026, 6, 25, 20, 14, 0, 0).getTime(),
+                wordValid: word.valid && word.sinceMs !== null,
+                restoredType: inp.type,
+            };
+        }""")
+        assert res['dateType'] == 'text', res
+        assert res['absSinceMs'] == res['absExpect'], \
+            f"Date… absolute parse: got {res['absSinceMs']}, expected {res['absExpect']}"
+        assert res['wordValid'] is True, "Date… mode lost 'yesterday'"
+        assert res['restoredType'] == 'number', res
+    finally:
+        page.evaluate(_LOGS_FILTER_RESET_JS)

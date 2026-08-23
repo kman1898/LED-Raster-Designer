@@ -2293,14 +2293,32 @@
             </div>
             <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap;">
                 <label style="color: #ccc; font-size: 12px;">From:
-                    <input id="logs-since" type="text" placeholder="e.g. 10 = 10 minutes ago"
-                           title="Start of range, included. A bare number is minutes ago (10 = 10 minutes ago). Also relative (10 min ago, 2h ago, 30s ago, 1d ago), now / today / yesterday, or absolute (YYYY-MM-DD, or YYYY-MM-DD HH:MM:SS). A date with no time starts at 00:00:00. Blank = no start bound."
-                           style="background: #1a1a1a; border: 1px solid #333; color: #fff; padding: 4px 6px; border-radius: 4px; margin-left: 4px; width: 180px; font-family: inherit; font-size: 12px;">
+                    <input id="logs-since" type="number" step="any" min="0" placeholder="10"
+                           title="Start of range, included — this many minutes ago. Pick a unit next to it, or Date… to type an absolute date. Blank = no start bound."
+                           style="background: #1a1a1a; border: 1px solid #333; color: #fff; padding: 4px 6px; border-radius: 4px; margin-left: 4px; width: 70px; font-family: inherit; font-size: 12px;">
+                    <select id="logs-since-unit"
+                            title="Unit for the From number. Date… switches the field to an absolute date (YYYY-MM-DD HH:MM), today, or yesterday."
+                            style="background: #1a1a1a; border: 1px solid #333; color: #fff; padding: 4px; border-radius: 4px;">
+                        <option value="s">Sec</option>
+                        <option value="min" selected>Min</option>
+                        <option value="h">Hours</option>
+                        <option value="d">Days</option>
+                        <option value="date">Date…</option>
+                    </select>
                 </label>
                 <label style="color: #ccc; font-size: 12px;">To:
-                    <input id="logs-until" type="text" placeholder="e.g. 5 = 5 minutes ago (blank = now)"
-                           title="End of range, included. Same formats as From: a bare number is minutes ago. A date with no time covers that whole day; HH:MM covers that whole minute. Blank = no end bound."
-                           style="background: #1a1a1a; border: 1px solid #333; color: #fff; padding: 4px 6px; border-radius: 4px; margin-left: 4px; width: 200px; font-family: inherit; font-size: 12px;">
+                    <input id="logs-until" type="number" step="any" min="0" placeholder="5"
+                           title="End of range, included — this many minutes ago. Same units as From. Blank = now."
+                           style="background: #1a1a1a; border: 1px solid #333; color: #fff; padding: 4px 6px; border-radius: 4px; margin-left: 4px; width: 70px; font-family: inherit; font-size: 12px;">
+                    <select id="logs-until-unit"
+                            title="Unit for the To number. Date… switches the field to an absolute date; a date with no time covers that whole day."
+                            style="background: #1a1a1a; border: 1px solid #333; color: #fff; padding: 4px; border-radius: 4px;">
+                        <option value="s">Sec</option>
+                        <option value="min" selected>Min</option>
+                        <option value="h">Hours</option>
+                        <option value="d">Days</option>
+                        <option value="date">Date…</option>
+                    </select>
                 </label>
                 <button id="logs-filter-clear" class="btn" style="background: #3a3a3a; padding: 4px 10px; font-size: 12px;">Clear filter</button>
                 <span id="logs-filter-status" style="color: #888; font-size: 11px;"></span>

@@ -39,6 +39,8 @@ class _LogsRecent {
         const wrapCb = document.getElementById('logs-wrap');
         const sinceInput = document.getElementById('logs-since');
         const untilInput = document.getElementById('logs-until');
+        const sinceUnit = document.getElementById('logs-since-unit');
+        const untilUnit = document.getElementById('logs-until-unit');
         const filterClearBtn = document.getElementById('logs-filter-clear');
         const pre = document.getElementById('logs-content');
 
@@ -78,10 +80,25 @@ class _LogsRecent {
             untilInput.addEventListener('input', applyFilter);
             untilInput.addEventListener('change', applyFilterNow);
         }
+        // Unit dropdowns: switching a unit re-shapes the field (number vs
+        // Date… free text) and re-filters immediately - the number in the
+        // box means something different now.
+        if (sinceUnit) sinceUnit.addEventListener('change', () => {
+            this._syncLogFilterFieldMode('logs-since');
+            applyFilterNow();
+        });
+        if (untilUnit) untilUnit.addEventListener('change', () => {
+            this._syncLogFilterFieldMode('logs-until');
+            applyFilterNow();
+        });
         if (filterClearBtn) {
             filterClearBtn.addEventListener('click', () => {
                 if (sinceInput) sinceInput.value = '';
                 if (untilInput) untilInput.value = '';
+                if (sinceUnit) sinceUnit.value = 'min';
+                if (untilUnit) untilUnit.value = 'min';
+                this._syncLogFilterFieldMode('logs-since');
+                this._syncLogFilterFieldMode('logs-until');
                 applyFilterNow();
             });
         }
@@ -99,7 +116,11 @@ class _LogsRecent {
         }
     }
 
-    // Parse one filter field into an epoch-ms bound. Accepts relative
+    // Parse one filter TEXT into an epoch-ms bound. The UI now feeds this
+    // either a composed "<n> <unit>" from the number + unit dropdown, or
+    // the raw text of a field in Date… mode; the full grammar stays so
+    // both paths (and anything pasted into Date… mode) keep working.
+    // Accepts relative
     // ("10 min ago", "2h ago", "30s", "1d ago"), the words now / today /
     // yesterday, and absolute "YYYY-MM-DD[ HH:MM[:SS]]".
     // v0.11.x: a bare number means MINUTES ("1" = 1 min ago). It used to
@@ -190,23 +211,71 @@ class _LogsRecent {
         return new Date(+p[1], +p[2] - 1, +p[3], +p[4], +p[5], +p[6]).getTime();
     }
 
+    // v0.11.x: the From/To fields are a number plus a unit dropdown
+    // (Sec / Min / Hours / Days, default Min) - no typing conventions to
+    // learn. The Date… unit swaps the field to free text and hands it to
+    // parseLogFilterTime unchanged, so the old grammar (absolute
+    // "YYYY-MM-DD[ HH:MM[:SS]]", now / today / yesterday, "2h ago")
+    // survives behind an explicit choice instead of being removed.
+
+    _logFilterUnit(inputId) {
+        const sel = document.getElementById(inputId + '-unit');
+        return (sel && sel.value) || 'min';
+    }
+
+    // Read one field (input + unit) into epoch ms. Returns { text, ms };
+    // ms is null for blank or unparseable input. The number path composes
+    // "<n> <unit>" and reuses parseLogFilterTime, so the dropdown and the
+    // Date… text path can never disagree about the arithmetic.
+    _readLogFilterField(inputId, bound) {
+        const input = document.getElementById(inputId);
+        const text = ((input && input.value) || '').trim();
+        if (!text) return { text: '', ms: null };
+        const unit = this._logFilterUnit(inputId);
+        if (unit === 'date') return { text, ms: this.parseLogFilterTime(text, bound) };
+        return { text, ms: this.parseLogFilterTime(text + ' ' + unit, bound) };
+    }
+
+    // Re-shape a filter input to match its unit: a number box for the time
+    // units, the old free-text box for Date…. Placeholder/title follow so
+    // the hint always describes what the field currently accepts.
+    _syncLogFilterFieldMode(inputId) {
+        const input = document.getElementById(inputId);
+        if (!input) return;
+        const from = inputId === 'logs-since';
+        if (this._logFilterUnit(inputId) === 'date') {
+            input.type = 'text';
+            input.style.width = '160px';
+            input.placeholder = 'YYYY-MM-DD HH:MM';
+            input.title = from
+                ? 'Start of range, included. YYYY-MM-DD, YYYY-MM-DD HH:MM[:SS], today, yesterday, or now. A date with no time starts at 00:00:00. Blank = no start bound.'
+                : 'End of range, included. YYYY-MM-DD covers that whole day; HH:MM covers that whole minute. Also today / yesterday / now. Blank = now.';
+        } else {
+            const word = { s: 'seconds', min: 'minutes', h: 'hours', d: 'days' }[this._logFilterUnit(inputId)] || 'minutes';
+            input.type = 'number';
+            input.step = 'any';
+            input.min = '0';
+            input.style.width = '70px';
+            input.placeholder = from ? '10' : '5';
+            input.title = from
+                ? `Start of range, included — this many ${word} ago. Pick a unit next to it, or Date… to type an absolute date. Blank = no start bound.`
+                : `End of range, included — this many ${word} ago. Same units as From. Blank = now.`;
+        }
+    }
+
     // v0.10.8: single reader for both fields, so the fetch query and the
     // client-side pass can never disagree about the window.
     _logFilterBounds() {
-        const sinceInput = document.getElementById('logs-since');
-        const untilInput = document.getElementById('logs-until');
-        const sinceText = ((sinceInput && sinceInput.value) || '').trim();
-        const untilText = ((untilInput && untilInput.value) || '').trim();
-        const sinceMs = sinceText ? this.parseLogFilterTime(sinceText, 'start') : null;
-        const untilMs = untilText ? this.parseLogFilterTime(untilText, 'end') : null;
+        const since = this._readLogFilterField('logs-since', 'start');
+        const until = this._readLogFilterField('logs-until', 'end');
         const bad = [];
-        if (sinceText && sinceMs === null) bad.push('From');
-        if (untilText && untilMs === null) bad.push('To');
+        if (since.text && since.ms === null) bad.push('From');
+        if (until.text && until.ms === null) bad.push('To');
         return {
-            sinceMs,
-            untilMs,
+            sinceMs: since.ms,
+            untilMs: until.ms,
             bad,
-            hasText: !!(sinceText || untilText),
+            hasText: !!(since.text || until.text),
             valid: bad.length === 0
         };
     }
