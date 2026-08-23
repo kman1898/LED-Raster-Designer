@@ -102,6 +102,14 @@ class _LogsRecent {
     // Parse one filter field into an epoch-ms bound. Accepts relative
     // ("10 min ago", "2h ago", "30s", "1d ago"), the words now / today /
     // yesterday, and absolute "YYYY-MM-DD[ HH:MM[:SS]]".
+    // v0.11.x: a bare number means MINUTES ("1" = 1 min ago). It used to
+    // fall through both grammars (relative required a unit, absolute a full
+    // date) and flag the field invalid, forcing "1 m" for the most common
+    // filter of all. Minutes is the unit the log window is actually read
+    // in, and the tradeoff is tiny: a year being typed toward an absolute
+    // date ("2026") now transiently reads as ~1.4 days of minutes instead
+    // of transiently invalid - benign either way, and the keystroke path is
+    // debounced. The first "-" makes it invalid-until-complete as before.
     // `bound` is 'start' or 'end'. v0.10.8: an absolute value is snapped to the
     // precision the user actually typed so BOTH ends of the range are
     // inclusive - "To: 2026-07-25" means through 23:59:59.999 that day, and
@@ -124,14 +132,15 @@ class _LogsRecent {
                 ? new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999).getTime()
                 : new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0).getTime();
         }
-        // Relative: "<n> <unit> ago" or just "<n><unit>" / "<n> <unit>"
+        // Relative: "<n> <unit> ago" or just "<n><unit>" / "<n> <unit>",
+        // with the unit optional - a bare number defaults to minutes.
         const relMatch = lower
             .replace(/\s+ago\s*$/, '')  // strip trailing "ago"
             .trim()
-            .match(/^(\d+(?:\.\d+)?)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)$/);
+            .match(/^(\d+(?:\.\d+)?)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)?$/);
         if (relMatch) {
             const n = parseFloat(relMatch[1]);
-            const unit = relMatch[2];
+            const unit = relMatch[2] || 'min';
             let ms;
             if (/^s(ec(ond)?s?)?$/.test(unit)) ms = n * 1000;
             else if (/^m(in(ute)?s?)?$/.test(unit)) ms = n * 60 * 1000;

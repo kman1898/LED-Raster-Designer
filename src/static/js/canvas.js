@@ -127,32 +127,32 @@ class CanvasRenderer {
     setupEventListeners() {
         this.canvas.addEventListener('mousedown', this.handleMouseDown.bind(this));
         this.canvas.addEventListener('mousemove', this.handleMouseMove.bind(this));
-        this.canvas.addEventListener('mouseup', this.handleMouseUp.bind(this));
+        // mouseup listens on the WINDOW, not the canvas. A drag that starts
+        // on the canvas routinely ends over the sidebar, a toolbar, or
+        // outside the browser window entirely; a canvas-scoped listener
+        // never heard that release, so whichever flag the mousedown had
+        // armed (space/middle pan, shift layer drag, shift screen-name
+        // drag, alt paint, canvas drag, the marquees) stayed latched, and
+        // the next time the cursor crossed the raster mousemove resumed the
+        // drag with no button held. Every branch of handleMouseUp is gated
+        // on state only a canvas mousedown can set, so hearing every
+        // release in the document is safe: with nothing in flight it falls
+        // straight through. This also retires the old window-level
+        // "clear stuck selection box" fallback, which knew how to CANCEL
+        // the two marquee flags but nothing else - the full finalizer now
+        // runs for off-canvas releases, so a marquee released past the
+        // edge commits exactly like one released on the canvas.
+        window.addEventListener('mouseup', this.handleMouseUp.bind(this));
         this.canvas.addEventListener('wheel', this.handleWheel.bind(this));
         this.canvas.addEventListener('contextmenu', this.handleContextMenu.bind(this));
         document.addEventListener('keydown', this.handleKeyDown.bind(this));
         document.addEventListener('keyup', this.handleKeyUp.bind(this));
-        window.addEventListener('mouseup', () => {
-            const hadLayerRect = !!this.layerSelectionRect;
-            const hadPanelRect = !!this.selectionRect;
-            if (!this.isSelectingLayers && !this.isSelectingPanels && !hadLayerRect && !hadPanelRect) return;
-            // Clear stuck selection box if mouseup happens off-canvas or flags get out of sync
-            if (this.isSelectingLayers || hadLayerRect) {
-                this.isSelectingLayers = false;
-                this.layerSelectionRect = null;
-            }
-            if (this.isSelectingPanels || hadPanelRect) {
-                this.isSelectingPanels = false;
-                this.selectionRect = null;
-            }
-            if (typeof sendClientLog === 'function') {
-                sendClientLog('selection_cleared_off_canvas', {
-                    viewMode: this.viewMode,
-                    hadLayerRect,
-                    hadPanelRect
-                });
-            }
-            this.render();
+        // Focus loss (cmd-tab, window switch, tab hide) delivers the
+        // matching keyup/mouseup to some OTHER app, never to us - see
+        // _releaseTransientInput.
+        window.addEventListener('blur', () => this._releaseTransientInput());
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) this._releaseTransientInput();
         });
         window.addEventListener('resize', () => this.setupCanvas());
     }
@@ -749,6 +749,10 @@ class CanvasRenderer {
     }
 
     handleMouseDown(e) {
+        // Last known cursor position, for the focus-loss finalizer
+        // (_releaseTransientInput) which has no event to read it from.
+        this._lastClientX = e.clientX;
+        this._lastClientY = e.clientY;
         const rect = this.canvas.getBoundingClientRect();
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
@@ -1273,6 +1277,8 @@ class CanvasRenderer {
     }
     
     handleMouseMove(e) {
+        this._lastClientX = e.clientX;
+        this._lastClientY = e.clientY;
         const rect = this.canvas.getBoundingClientRect();
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
@@ -2342,6 +2348,38 @@ class CanvasRenderer {
             this.spacePressed = false;
             if (!this.isDragging) this.canvas.style.cursor = 'default';
         }
+    }
+
+    // Focus loss eats the release events that end whatever is held right
+    // now: cmd-tab with space down delivers the keyup to the other app, and
+    // a mouse button let go over another window is never reported here
+    // either. Without this, spacePressed (and any armed drag) stayed
+    // latched until the user rediscovered the magic unstick tap. Called on
+    // window blur and on tab-hide. Held-key state is dropped outright;
+    // an in-flight drag is pushed through the normal mouseup finalizer at
+    // the last known cursor position, because layer/canvas drags mutate
+    // offsets live during mousemove and just clearing the flag would strand
+    // those moves unpersisted with no undo snapshot.
+    _releaseTransientInput() {
+        this.spacePressed = false;
+        const armed = this.isDragging || this.isDraggingLayer
+            || this.isDraggingScreenName || this.isDraggingGroupName
+            || this.isDraggingCanvas || this.isAltPainting
+            || this.isSelectingPanels || this.isSelectingPixelMapPanels
+            || this.isSelectingLayers
+            || this.selectionRect || this.layerSelectionRect;
+        if (armed) {
+            this.handleMouseUp({
+                button: 0,
+                clientX: this._lastClientX || 0,
+                clientY: this._lastClientY || 0,
+                shiftKey: false,
+                altKey: false,
+                metaKey: false,
+                ctrlKey: false
+            });
+        }
+        this.canvas.style.cursor = 'default';
     }
     
     /**
