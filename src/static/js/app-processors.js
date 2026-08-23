@@ -89,6 +89,18 @@ class _Processors {
                 const applied = !!(data && data.resolved);
                 this._applyProcessorState(data);
                 if (applied && action) this.saveState(action);
+                // A refusal carries its reason - a backup unit with the
+                // wrong port count, a port that already backs something -
+                // and the reason is the answer, so it is shown rather than
+                // swallowed. The panel re-renders from its cached state
+                // either way, which snaps a refused control back to what is
+                // actually stored.
+                if (!applied && data && data.error) {
+                    if (typeof this._toast === 'function') {
+                        this._toast(data.error, true, 6000);
+                    }
+                    this.renderProcessorPanel();
+                }
             })
             .catch(err => sendClientLog('processor_request_failed',
                                         { url, method, error: String(err) }));
@@ -383,9 +395,11 @@ class _Processors {
                 `/api/processors/${proc.id}`, 'PUT',
                 { redundancy: cb.checked }, 'Toggle Redundancy'));
             label.appendChild(cb);
-            // A backup port consumes a port number; it is never a hidden extra
-            // one, so turning this on can only take capacity away.
-            label.appendChild(document.createTextNode('Redundancy (halves usable ports)'));
+            // No parenthetical about halving any more: what redundancy costs
+            // now depends on the card's mode - 1:1 consumes the backup unit,
+            // sequential halves this one, manual takes only what is picked -
+            // and each mode states its own cost where it is chosen.
+            label.appendChild(document.createTextNode('Redundancy'));
             bodyWrap.appendChild(label);
 
             // WHERE THE VENDOR FIXES THE PAIRING, IT IS A FACT, NOT A FIELD.
@@ -532,6 +546,9 @@ class _Processors {
                 { mode: select.value || null }, 'Change Card Mode'));
             wrap.appendChild(select);
         }
+
+        const redundancy = this._buildCardRedundancyRow(proc, card);
+        if (redundancy) wrap.appendChild(redundancy);
 
         const cap = this._buildCapacityRow(
             card.defined, card.ceiling, card.ceilingKnown, card.ceilingReason);
@@ -750,6 +767,131 @@ class _Processors {
         return (occ[cardId] && occ[cardId][String(number)]) || [];
     }
 
+    // Every card of the project except this one, flattened in panel order -
+    // the 1:1 partner pick ranges over the whole project because a backup
+    // unit is usually a second machine, not a second slot.
+    _otherCards(cardId) {
+        const out = [];
+        (this._processorsResolved || []).forEach(p => {
+            (p.slots || []).forEach(slot => {
+                const c = slot.card;
+                if (c && c.id !== cardId) out.push({ proc: p, card: c });
+            });
+        });
+        return out;
+    }
+
+    // The card's data-redundancy row, where redundancy is on and the vendor
+    // does not fix the shape. Three modes, the user's design: 1:1 to a
+    // designated backup unit (the default - "the way brompton does it and
+    // novastar when using a second sending card"), sequential within the
+    // unit ("1 is backed up by 2 on the same unit/sending card"), and manual
+    // per port ("1 is backed up to whatever port you want"). A vendor-fixed
+    // pairing (Brompton adjacent) renders as the statement under the switch
+    // instead, and never as this select.
+    _buildCardRedundancyRow(proc, card) {
+        // A unit consumed as somebody's 1:1 backup states its role and
+        // offers no choices of its own: its ports are the mains' returns,
+        // so a mode select here would be a plan for ports that are spoken
+        // for. The card itself stays editable - name, templates, boxes -
+        // exactly as a NovaStar backup box does.
+        if (card.backupFor) {
+            const fact = document.createElement('div');
+            fact.style.marginTop = '6px';
+            fact.style.fontSize = '11px';
+            fact.style.color = '#c8a04a';
+            fact.textContent = `Backs up ${card.backupFor.title} - its ports `
+                + 'carry that unit’s returns.';
+            fact.title = 'Picked as the 1:1 backup. Clear the pick on the '
+                + 'main unit to free this one.';
+            return fact;
+        }
+        const shape = card.redundancyShape;
+        if (!shape || shape.forced) return null;
+
+        const wrap = document.createElement('div');
+        wrap.style.marginTop = '6px';
+
+        const select = document.createElement('select');
+        select.dataset.lrdField = `processor-card-redundancy-${card.id}`;
+        select.style.width = '100%';
+        [['1to1', '1:1 - mirrored by a backup unit'],
+         ['sequential', 'Sequential - 1 backed by 2, 3 by 4'],
+         ['manual', 'Manual - backup picked per port'],
+        ].forEach(([id, text]) => {
+            const opt = document.createElement('option');
+            opt.value = id;
+            opt.textContent = text;
+            if (id === shape.mode) opt.selected = true;
+            select.appendChild(opt);
+        });
+        select.addEventListener('change', () => this._processorRequest(
+            `/api/processors/${proc.id}/cards/${card.id}`, 'PUT',
+            { redundancyMode: select.value }, 'Change Redundancy Mode'));
+        wrap.appendChild(select);
+
+        if (shape.mode === '1to1') {
+            // The partner pick. Every other card is offered with its port
+            // count in the text, because the count is the eligibility rule -
+            // a 1:1 backup mirrors port for port, and the server refuses a
+            // mismatch with both counts in the reason.
+            const partner = document.createElement('select');
+            partner.dataset.lrdField = `processor-card-backup-${card.id}`;
+            partner.style.width = '100%';
+            partner.style.marginTop = '4px';
+            const blank = document.createElement('option');
+            blank.value = '';
+            blank.textContent = 'backed up by…';
+            blank.selected = !card.backupCardId;
+            partner.appendChild(blank);
+            this._otherCards(card.id).forEach(({ proc: p, card: c }) => {
+                const opt = document.createElement('option');
+                opt.value = c.id;
+                const title = c.name || p.name || c.deviceName;
+                const count = c.ceilingKnown ? `${c.ceiling}` : '?';
+                let note = '';
+                if (c.backupFor && c.id !== card.backupCardId) {
+                    note = ` (backs up ${c.backupFor.title})`;
+                }
+                opt.textContent = `${title} - ${count} ports${note}`;
+                if (c.id === card.backupCardId) opt.selected = true;
+                partner.appendChild(opt);
+            });
+            partner.addEventListener('change', () => this._processorRequest(
+                `/api/processors/${proc.id}/cards/${card.id}`, 'PUT',
+                { backupCardId: partner.value }, 'Change Backup Unit'));
+            wrap.appendChild(partner);
+            if (!card.backupCardId) {
+                const hint = document.createElement('div');
+                hint.style.fontSize = '11px';
+                hint.style.color = '#888';
+                hint.style.marginTop = '2px';
+                hint.textContent = 'No backup unit picked - nothing is '
+                    + 'backed up yet.';
+                wrap.appendChild(hint);
+            }
+        } else if (shape.mode === 'sequential') {
+            const info = document.createElement('div');
+            info.style.fontSize = '11px';
+            info.style.color = '#888';
+            info.style.marginTop = '2px';
+            info.textContent = card.ceilingKnown && card.ceiling
+                ? `1 backed by 2, 3 by 4 - ${shape.usable} of `
+                    + `${card.ceiling} ports usable.`
+                : '1 backed by 2, 3 by 4 - even ports are the returns.';
+            wrap.appendChild(info);
+        } else if (shape.mode === 'manual') {
+            const info = document.createElement('div');
+            info.style.fontSize = '11px';
+            info.style.color = '#888';
+            info.style.marginTop = '2px';
+            info.textContent = 'Each port picks its backup in its tile '
+                + 'below. An unpicked port has no backup.';
+            wrap.appendChild(info);
+        }
+        return wrap;
+    }
+
     _buildPortList(proc, card) {
         const list = document.createElement('div');
         list.style.marginTop = '6px';
@@ -820,8 +962,17 @@ class _Processors {
         const who = document.createElement('div');
         who.className = 'lrd-tile-line';
         if (!occupants.length) {
-            who.style.color = '#4a4a4a';
-            who.textContent = 'free';
+            if (port.backsUp) {
+                // Consumed as another main's return: not free, and the tile
+                // says whose return it carries - the backup-box gold, since
+                // it is the same role one level down.
+                who.style.color = '#c8a04a';
+                who.textContent = `backs up ${port.backsUp.label
+                    || `port ${port.backsUp.port}`}`;
+            } else {
+                who.style.color = '#4a4a4a';
+                who.textContent = 'free';
+            }
         } else if (occupants.length > 1) {
             who.style.color = '#d05a52';
             who.textContent = 'clash';
@@ -837,7 +988,10 @@ class _Processors {
             + (occupants.length
                 ? ` - ${occupants.map(o => `${o.name} p${o.number}`).join(', ')}`
                     + (occupants.length > 1 ? ' - clash' : '')
-                : ' - free')
+                : (port.backsUp
+                    ? ` - backs up ${port.backsUp.label
+                        || `port ${port.backsUp.port} on ${port.backsUp.cardTitle}`}`
+                    : ' - free'))
             + (port.beyondCeiling ? ' - beyond this card’s ceiling' : '')
             + '. Click to edit.';
         tile.appendChild(face);
@@ -993,6 +1147,92 @@ class _Processors {
         }
         row.appendChild(who);
         wrap.appendChild(names);
+
+        // The port's place in the redundancy mapping, stated where its
+        // labels are edited. A consumed port says whose return it carries; a
+        // backed main says which physical socket its return comes back on -
+        // the same socket its Return placeholder is already named after.
+        if (port.backsUp) {
+            const role = document.createElement('div');
+            role.style.fontSize = '11px';
+            role.style.color = '#c8a04a';
+            role.style.margin = '0 0 4px 0';
+            role.textContent = `Backs up ${port.backsUp.label
+                || `port ${port.backsUp.port} on ${port.backsUp.cardTitle}`}`
+                + ' - this socket carries its return.';
+            wrap.appendChild(role);
+        } else if (port.backedBy) {
+            const back = document.createElement('div');
+            back.style.fontSize = '11px';
+            back.style.color = '#888';
+            back.style.margin = '0 0 4px 0';
+            back.textContent = `Return comes back on ${port.backedBy.label
+                || `port ${port.backedBy.port} on ${port.backedBy.cardTitle}`}.`;
+            wrap.appendChild(back);
+        }
+
+        // Manual mode's per-port pick: which socket backs THIS one. Sparse
+        // by design - a blank port number clears the pick and the main
+        // simply has no backup, because manual is explicit.
+        const shape = card.redundancyShape;
+        if (shape && !shape.forced && shape.mode === 'manual'
+                && !card.backupFor && !port.backsUp) {
+            const picked = (card.backupPorts || {})[String(port.number)] || null;
+            const pick = document.createElement('div');
+            pick.style.display = 'flex';
+            pick.style.gap = '4px';
+            pick.style.alignItems = 'center';
+            pick.style.margin = '0 0 4px 0';
+            const cap = document.createElement('span');
+            cap.style.fontSize = '10px';
+            cap.style.color = '#888';
+            cap.textContent = 'Backed by';
+            pick.appendChild(cap);
+
+            const cardSel = document.createElement('select');
+            cardSel.dataset.lrdField =
+                `processor-port-backup-card-${card.id}-${port.number}`;
+            cardSel.style.flex = '1';
+            cardSel.style.minWidth = '0';
+            const own = document.createElement('option');
+            own.value = card.id;
+            own.textContent = card.name || proc.name || card.deviceName;
+            cardSel.appendChild(own);
+            this._otherCards(card.id).forEach(({ proc: p, card: c }) => {
+                const opt = document.createElement('option');
+                opt.value = c.id;
+                opt.textContent = c.name || p.name || c.deviceName;
+                if (picked && picked.cardId === c.id) opt.selected = true;
+                cardSel.appendChild(opt);
+            });
+
+            const portBox = document.createElement('input');
+            portBox.type = 'number';
+            portBox.min = '1';
+            portBox.dataset.lrdField =
+                `processor-port-backup-port-${card.id}-${port.number}`;
+            portBox.style.width = '52px';
+            portBox.placeholder = 'port';
+            portBox.value = picked ? String(picked.port) : '';
+            portBox.title = 'The port whose socket carries this one’s '
+                + 'return. Blank means no backup.';
+
+            // Through the same PUT the name boxes use - one route, one rule
+            // about what a port edit is.
+            const commit = () => {
+                const value = parseInt(portBox.value, 10);
+                const body = portBox.value.trim() === '' || !(value >= 1)
+                    ? { backup: null }
+                    : { backup: { cardId: cardSel.value, port: value } };
+                rename(body, 'Change Port Backup');
+            };
+            cardSel.addEventListener('change', commit);
+            portBox.addEventListener('change', commit);
+            pick.appendChild(cardSel);
+            pick.appendChild(portBox);
+            wrap.appendChild(pick);
+        }
+
         wrap.appendChild(row);
         return wrap;
     }

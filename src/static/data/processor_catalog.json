@@ -582,8 +582,9 @@
       "kind": "processor",
       "form": "all-in-one",
       "family": "brompton",
-      "redundancy": {"supported": true, "halvesPorts": true},
-      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 8}]}
+      "redundancy": {"supported": true, "halvesPorts": true, "pairing": "adjacent"},
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 8}]},
+      "note": "Redundancy pairs fixed adjacent ports - 1 backed by 2, 3 by 4, and so on - automatically; that is the only way this device pairs. The rule arrived by name (2026-08-23): the SX40 does A to B and C to D, 'and S8 does 1to2 and so on'. It names the S8 only: the S4 and M2 still halve and still claim no pairing shape."
     },
     {
       "id": "brompton-s4",

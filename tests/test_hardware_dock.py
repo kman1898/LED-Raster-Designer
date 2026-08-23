@@ -658,3 +658,53 @@ def test_drag_back_to_the_dock_unassigns_the_multi(dock_page):
     assert out['distro'] == {'1': ids['distroId']} and out['num'] == {'1': 1}, (
         f'two undos did not restore the assignment: {out}')
     page.evaluate(RESET_POWER_JS, ids)
+
+
+# ── Backing ports in the tray ─────────────────────────────────────────────
+
+def test_a_backing_port_wears_its_role_in_the_dock(dock_page):
+    """Sequential redundancy on the seeded card: the even tiles stop saying
+    'free' and say whose return they carry, in the backup gold - the dock is
+    where a drag would start, so the claim has to be visible before the
+    refusal is needed."""
+    page, ids = dock_page
+    open_view(page, 'data-flow')
+    page.evaluate("""async (ids) => {
+        const send = (url, method, body) => fetch(url, { method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body) }).then(r => r.json());
+        await send(`/api/processors/${ids.procId}`, 'PUT',
+                   { redundancy: true });
+        await send(`/api/processors/${ids.procId}/cards/${ids.cardId}`,
+                   'PUT', { redundancyMode: 'sequential' });
+        await window.app.refreshProcessors();
+    }""", ids)
+    page.wait_for_timeout(1200)
+    out = page.evaluate("""(ids) => {
+        const even = document.querySelector(
+            `[data-hwdock="port-${ids.cardId}-2"]`);
+        const odd = document.querySelector(
+            `[data-hwdock="port-${ids.cardId}-1"]`);
+        return {
+            even: even ? even.textContent : null,
+            evenTitle: even ? even.title : null,
+            odd: odd ? odd.textContent : null,
+        };
+    }""", ids)
+    try:
+        assert out['even'] and 'backs up' in out['even'], out
+        assert 'return end' in (out['evenTitle'] or ''), out
+        assert out['odd'] and 'backs up' not in out['odd'], out
+    finally:
+        # Leave the module's shared server the way this test found it.
+        page.evaluate("""async (ids) => {
+            const send = (url, method, body) => fetch(url, { method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body) }).then(r => r.json());
+            await send(`/api/processors/${ids.procId}/cards/${ids.cardId}`,
+                       'PUT', { redundancyMode: '1to1' });
+            await send(`/api/processors/${ids.procId}`, 'PUT',
+                       { redundancy: false });
+            await window.app.refreshProcessors();
+        }""", ids)
+        page.wait_for_timeout(600)

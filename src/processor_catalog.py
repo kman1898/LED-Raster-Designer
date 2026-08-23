@@ -114,16 +114,22 @@ def port_capacity(device_id, mode=None, redundancy=False):
 def redundancy_pairing(device, redundancy_on):
     """The documented backup pairing of one device, or None where none is.
 
-    Only Brompton documents one, and the rule arrived verbatim: "SX40s and
-    SQ200, A back up to B, C back up to D automatically - that is the only way
-    it works for Brompton." Fixed adjacent pairs, so the pairing is REPORTED
-    as a fact, never offered as a choice; there is nothing here for a caller
-    to edit and no storage for an alternative arrangement.
+    Only Brompton documents one, and each rule arrived verbatim, per device.
+    The first: "SX40s and SQ200, A back up to B, C back up to D automatically
+    - that is the only way it works for Brompton." The second (2026-08-23)
+    named one more: the S8 "does 1to2 and so on" - adjacent PORTS this time,
+    because the S8 has no trunks to letter, its eight RJ45s pair directly.
+    Fixed adjacent pairs either way, so the pairing is REPORTED as a fact,
+    never offered as a choice; there is nothing here for a caller to edit and
+    no storage for an alternative arrangement. The S4 and M2 stay out: the
+    ruling named the S8 only, and the plausible extension is still an
+    invented one.
 
-    `pairs` letters the device's trunks where it has trunks to letter, and is
-    empty where it does not: the SQ200 publishes no output count, and
-    lettering outputs nobody has counted would be a guessed ceiling wearing a
-    different hat. The statement still states the rule.
+    `pairs` letters the device's trunks where it has trunks to letter, and
+    numbers its ports where it has no trunks but a settled port count (the
+    S8). Where neither holds - the SQ200 publishes no output count - `pairs`
+    is empty: lettering outputs nobody has counted would be a guessed ceiling
+    wearing a different hat. The statement still states the rule.
 
     NovaStar carries no entry here - its redundancy is a DEFAULT pair of
     boxes, primary plus backup, built in add_cvt's caller and freely
@@ -136,9 +142,13 @@ def redundancy_pairing(device, redundancy_on):
     if ((device or {}).get('redundancy') or {}).get('pairing') != 'adjacent':
         return None
     trunks = device.get('trunks') or 0
-    letters = [chr(ord('A') + i) for i in range(trunks)]
-    pairs = [{'primary': letters[i], 'backup': letters[i + 1]}
-             for i in range(0, trunks - 1, 2)]
+    if trunks:
+        marks = [chr(ord('A') + i) for i in range(trunks)]
+    else:
+        count = port_capacity(device.get('id'))['count'] or 0
+        marks = [str(n) for n in range(1, count + 1)]
+    pairs = [{'primary': marks[i], 'backup': marks[i + 1]}
+             for i in range(0, len(marks) - 1, 2)]
     if pairs:
         text = ', '.join(f'{p["primary"]} backs up to {p["backup"]}'
                          for p in pairs)
@@ -151,6 +161,53 @@ def redundancy_pairing(device, redundancy_on):
         'statement': f'{text} - automatic, and the only way this device '
                      f'pairs.',
     }
+
+
+# The three data-redundancy shapes a card can run, per the user's design
+# (verbatim): "by default do redundancy as 1 to 1 aka the way brompton does
+# it and novastar when using a second sending card and then give the option
+# for sequential where 1 is backed up by 2 on the same unit/sending card and
+# also give the option for say 1 is backed up to whatever port you want."
+REDUNDANCY_MODES = ('1to1', 'sequential', 'manual')
+
+
+def card_redundancy_shape(card, proc, device=None):
+    """The data-redundancy shape in force on one card, or None with it off.
+
+    Returns {'mode', 'forced', 'level'}:
+
+    * mode '1to1' - the default: this card is mirrored by a designated
+      backup card/unit (card['backupCardId']), main port N returned on the
+      backup's port N. The main keeps every port; the backup unit is what
+      redundancy consumes.
+    * mode 'sequential' - within the card: 1 backed by 2, 3 by 4. Odd ports
+      are mains, even ports are their returns, so half the ports are usable.
+    * mode 'manual' - per port, sparse (card['backupPorts']): a main is
+      backed only where somebody named a backup port, and by exactly the
+      port they named. Nothing is derived for the rest - manual is explicit.
+
+    `forced` is True where the VENDOR fixes the shape - Brompton's adjacent
+    pairing - and there the stored mode is never consulted: a documented rule
+    is a fact, not a default. `level` says what the fixed pairing pairs:
+    'trunk' where the device has trunks (SX40 - A backs up to B, enforced in
+    the trunk blocks), 'port' where it does not (S8 - 1 backed by 2, the
+    same shape sequential mode chooses). A device whose sheet says
+    redundancy is not supported at all (T1) gets no shape, ever.
+    """
+    if not (proc or {}).get('redundancy'):
+        return None
+    if device is None:
+        device = get_device((card or {}).get('deviceId')) or {}
+    red = device.get('redundancy') or {}
+    if red.get('supported') is False:
+        return None
+    if red.get('pairing') == 'adjacent':
+        return {'mode': 'sequential', 'forced': True,
+                'level': 'trunk' if device.get('trunks') else 'port'}
+    mode = (card or {}).get('redundancyMode') or '1to1'
+    if mode not in REDUNDANCY_MODES:
+        mode = '1to1'
+    return {'mode': mode, 'forced': False, 'level': 'port'}
 
 
 def trunks_in(cvt_device):
@@ -519,8 +576,19 @@ def _label_owner(cvt, card, proc):
 def resolve_card(card, proc):
     """Expand one card into its ports, with the label each port carries."""
     device = get_device(card.get('deviceId')) or {}
+    shape = card_redundancy_shape(card, proc, device)
+    # ONLY the trunk-level fixed pairing halves the ceiling here (SX40: pairs
+    # of trunks carry one block, so the numbered ports really are half). A
+    # port-level sequential card - S8 forced, or the mode chosen - keeps its
+    # full numbering instead, because its even ports still EXIST: they are
+    # the returns of the odd ones, and a tech patching the backup loom into
+    # port 2 needs port 2 on the drawing. Usable capacity halves either way;
+    # for the port-level shape that is `usable` below, not the ceiling. A
+    # 1to1 card halves nothing - the backup UNIT is what redundancy consumes
+    # - and manual takes only the ports somebody named.
+    halve = bool(shape and shape['forced'] and shape['level'] == 'trunk')
     cap = port_capacity(card.get('deviceId'), card.get('mode'),
-                        redundancy=bool(proc.get('redundancy')))
+                        redundancy=halve)
     ceiling = cap['count']
 
     # A TRUNK DELIVERS A BLOCK OF THE CARD'S PORTS. IT DOES NOT CREATE ANY.
@@ -566,8 +634,7 @@ def resolve_card(card, proc):
     # second trunk of a pair is the first one's backup by construction.
     # Neither shape is ever applied to the other vendor, and Megapixel gets
     # neither, because none is documented for it.
-    adjacent = bool(proc.get('redundancy')) and \
-        ((device.get('redundancy') or {}).get('pairing') == 'adjacent')
+    adjacent = halve
 
     cvts = []
     claimed = 0
@@ -749,6 +816,15 @@ def resolve_card(card, proc):
             'labelSource': source,
             'returnLabel': return_label,
             'returnLabelSource': return_source,
+            # Whether the return end fell to the DERIVED rung - no typed
+            # return name, no return template. That is the one rung a
+            # redundancy mapping may replace (resolve_all): the mapped
+            # physical port's own label beats P-to-R guesswork, but never
+            # beats a name somebody typed or a template somebody set.
+            # returnLabelSource cannot answer this - the derived rung
+            # reports the PRIMARY's source, which is 'manual' whenever the
+            # primary was hand-named.
+            'returnDerived': not manual_return and not return_template,
             'cvtId': cvt['id'] if cvt else None,
             'beyondCeiling': bool(ceiling is not None and number > ceiling),
         }
@@ -836,6 +912,22 @@ def resolve_card(card, proc):
         # fact is not project state and must not become editable by accident.
         'redundancyPairing': redundancy_pairing(device,
                                                 proc.get('redundancy')),
+        # The data-redundancy shape in force, with what it leaves usable.
+        # Derived every resolve like the pairing above it; the STORED pieces
+        # (redundancyMode, backupCardId, backupPorts) echo back beside it so
+        # the panel shows what was chosen, not only what it produced. The
+        # port-to-port consequences - backedBy, backsUp, mapped return
+        # labels - land in resolve_all, because a 1to1 backup can live on
+        # another processor and one card cannot see that far.
+        'redundancyShape': dict(shape, usable=(
+            ceiling - ceiling // 2
+            if (ceiling and shape['mode'] == 'sequential'
+                and shape['level'] == 'port')
+            else ceiling)) if shape else None,
+        'redundancyMode': card.get('redundancyMode') or '',
+        'backupCardId': card.get('backupCardId') or None,
+        'backupPorts': {str(k): v for k, v in
+                        (card.get('backupPorts') or {}).items() if v},
         'delivered': delivered,
         'shortfall': shortfall,
         'defined': defined,
@@ -888,7 +980,16 @@ def resolve_processor(proc):
         'name': proc.get('name', ''),
         'mode': proc.get('mode'),
         'redundancy': bool(proc.get('redundancy')),
-        'redundancySupported': bool((device.get('redundancy') or {}).get('supported')),
+        # Whether the panel offers the redundancy toggle at all. Everything
+        # except an explicit "supported: false" (the T1: one output, nothing
+        # to loop) does - because with the data modes, redundancy stopped
+        # being a claim about the device and became a plan for the loom: any
+        # unit can be mirrored 1 to 1 by a second unit, whatever its vendor
+        # documents, which is the user's own NovaStar second-sending-card
+        # case. What stays vendor-documented stays vendor-gated: fixed
+        # pairing statements, halved ceilings, default box pairs.
+        'redundancySupported': (device.get('redundancy') or {})
+                               .get('supported') is not False,
         # Stated beside the checkbox that turns redundancy on: WHICH output
         # backs which, where the vendor fixes it. A fact the panel displays,
         # never a control - Brompton pairs adjacent outputs automatically and
@@ -909,5 +1010,129 @@ def resolve_processor(proc):
     }
 
 
+def _apply_backup_mapping(processors, resolved):
+    """Wire every card's redundancy shape into port-to-port facts, tree-wide.
+
+    This runs AFTER every card has resolved, and it is the only place the
+    mapping happens, because a 1to1 backup can be a card on another
+    processor entirely - the user's "second sending card" - and resolve_card
+    cannot see that far. Three consequences land on the resolved ports:
+
+    * a main port gains `backedBy` - the physical port its return comes
+      back on;
+    * that port gains `backsUp` - it is consumed as a return, which is what
+      the assignment resolver and the dock refuse on;
+    * where the main's return label was DERIVED (returnDerived - no typed
+      name, no template), it is replaced by the mapped port's own primary
+      label, because the return end physically IS that socket: a main card
+      P1 mirrored by a card R1 reads P1-1 out, R1-1 back, off the backup's
+      own name. Typed names and templates still win - the mapping replaces
+      only the derived rung of the ladder.
+
+    A port backs at most one main: the first claim in panel order stands and
+    a later one is skipped, so a degenerate file (hand-edited, or stale
+    after deletes) resolves deterministically instead of flapping. The fixed
+    trunk-level pairing (SX40) takes nothing from here - its backup is a box
+    on the paired trunk, already expressed in the trunk blocks.
+    """
+    raw_cards = {}
+    res_cards = {}
+    order = []
+    for proc, rproc in zip(processors or [], resolved):
+        for slot in proc.get('slots') or []:
+            if slot.get('card'):
+                raw_cards[slot['card']['id']] = (slot['card'], proc)
+        for rslot in rproc.get('slots') or []:
+            rcard = rslot.get('card')
+            if rcard:
+                res_cards[rcard['id']] = (rcard, rproc)
+                order.append(rcard['id'])
+
+    ports_of = {cid: {p['number']: p for p in res_cards[cid][0]['ports']}
+                for cid in res_cards}
+
+    def link(main_id, n, target_id, t):
+        mcard, mproc = res_cards[main_id]
+        tcard, tproc = res_cards[target_id]
+        mport = ports_of[main_id].get(n)
+        tport = ports_of[target_id].get(t)
+        if not mport or not tport or mport is tport:
+            return
+        # Claimed is claimed: a port that already backs a main cannot back
+        # another, and a port consumed as a return is no main.
+        if tport.get('backsUp') or mport.get('backsUp') \
+                or mport.get('backedBy'):
+            return
+        mport['backedBy'] = {
+            'processorId': tproc['id'], 'cardId': tcard['id'],
+            'cardTitle': tcard['name'] or tcard['deviceName'],
+            'port': t, 'label': tport['label'],
+        }
+        tport['backsUp'] = {
+            'processorId': mproc['id'],
+            'processorName': mproc['name'] or mproc['deviceName'],
+            'cardId': mcard['id'],
+            'cardTitle': mcard['name'] or mcard['deviceName'],
+            'port': n, 'label': mport['label'],
+        }
+        if mport.get('returnDerived') and tport['label']:
+            mport['returnLabel'] = tport['label']
+            mport['returnLabelSource'] = 'backup'
+
+    def shape_of(cid):
+        rcard, _rproc = res_cards[cid]
+        return rcard.get('redundancyShape')
+
+    # 1to1 first: it consumes whole units, and a consumed unit's own choices
+    # go quiet - a backup card is its main's return end, not a main itself.
+    consumed = set()
+    for cid in order:
+        shape = shape_of(cid)
+        if not shape or shape['forced'] or shape['mode'] != '1to1':
+            continue
+        if cid in consumed:
+            continue
+        raw, _proc = raw_cards[cid]
+        backup_id = raw.get('backupCardId')
+        if not backup_id or backup_id == cid or backup_id not in res_cards:
+            continue
+        if backup_id in consumed or res_cards[backup_id][0].get('backupFor'):
+            continue
+        rcard, rproc = res_cards[cid]
+        res_cards[backup_id][0]['backupFor'] = {
+            'processorId': rproc['id'],
+            'cardId': cid,
+            'title': rcard['name'] or rcard['deviceName'],
+        }
+        consumed.add(backup_id)
+        for n in sorted(ports_of[cid]):
+            link(cid, n, backup_id, n)
+
+    for cid in order:
+        shape = shape_of(cid)
+        if not shape or cid in consumed:
+            continue
+        if shape['mode'] == 'sequential' and shape['level'] == 'port':
+            numbers = sorted(ports_of[cid])
+            for n in numbers:
+                if n % 2 == 1 and (n + 1) in ports_of[cid]:
+                    link(cid, n, cid, n + 1)
+        elif shape['mode'] == 'manual' and not shape['forced']:
+            raw, _proc = raw_cards[cid]
+            entries = raw.get('backupPorts') or {}
+            for key in sorted(entries, key=lambda k: int(k)):
+                spec = entries[key] or {}
+                target_id = spec.get('cardId') or cid
+                if target_id not in res_cards:
+                    continue
+                try:
+                    n, t = int(key), int(spec.get('port'))
+                except (TypeError, ValueError):
+                    continue
+                link(cid, n, target_id, t)
+
+
 def resolve_all(processors):
-    return [resolve_processor(p) for p in (processors or [])]
+    resolved = [resolve_processor(p) for p in (processors or [])]
+    _apply_backup_mapping(processors, resolved)
+    return resolved

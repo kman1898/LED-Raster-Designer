@@ -126,13 +126,18 @@ class _HardwareDock {
 
         const summary = ((this._assignment && this._assignment.cards) || [])
             .find(c => c.cardId === card.id);
+        // A unit consumed as a 1:1 backup wears the tag its box-level
+        // cousin wears - dragging it is pointless (every port is refused as
+        // a return end) but hiding it would hide where the returns land.
+        const cardTag = card.backupFor
+            ? ` (backs up ${card.backupFor.title})` : '';
         const head = this._dockBuildHandle(
             {
                 type: 'card', cardId: card.id,
-                title: card.name || card.deviceName,
+                title: (card.name || card.deviceName) + cardTag,
             },
             `card-${card.id}`,
-            card.name || card.deviceName,
+            (card.name || card.deviceName) + cardTag,
             summary && summary.capacityKnown
                 ? `${summary.used} / ${summary.capacity}` : '',
             'Drag the whole card onto a screen: its ports fill in order from '
@@ -219,8 +224,16 @@ class _HardwareDock {
         const who = document.createElement('div');
         who.className = 'lrd-tile-line';
         if (!occupants.length) {
-            who.style.color = '#4a4a4a';
-            who.textContent = 'free';
+            if (port.backsUp) {
+                // Claimed by role: this socket is another main's return end.
+                // Same gold as the backup boxes, because it is the same job.
+                who.style.color = '#c8a04a';
+                who.textContent = `backs up ${port.backsUp.label
+                    || `port ${port.backsUp.port}`}`;
+            } else {
+                who.style.color = '#4a4a4a';
+                who.textContent = 'free';
+            }
         } else if (occupants.length > 1) {
             who.style.color = '#d05a52';
             who.textContent = 'clash';
@@ -235,10 +248,16 @@ class _HardwareDock {
             + (port.label ? ` - ${port.label}` : '')
             + (occupants.length
                 ? ` - ${occupants.map(o => `${o.name} p${o.number}`).join(', ')}`
-                : ' - free')
-            + '. Drag onto a port run to place it there'
-            + (occupants.some(o => o.source === 'pin')
-                ? '; drag back onto this tray to release it.' : '.');
+                : (port.backsUp
+                    ? ` - backs up ${port.backsUp.label
+                        || `port ${port.backsUp.port} on ${port.backsUp.cardTitle}`}`
+                    : ' - free'))
+            + (port.backsUp
+                ? '. A backup port is that port\'s return end - nothing '
+                    + 'else can land on it.'
+                : '. Drag onto a port run to place it there'
+                    + (occupants.some(o => o.source === 'pin')
+                        ? '; drag back onto this tray to release it.' : '.'));
 
         this._dockWireDraggable(face, {
             type: 'port', cardId: card.id, port: port.number,

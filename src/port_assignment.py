@@ -111,6 +111,14 @@ def cards_in(processors):
                 # them from the same resolution instead of re-deriving one.
                 'returnLabels': {p['number']: p['returnLabel']
                                  for p in card['ports']},
+                # Ports consumed as another main's return - the even half of
+                # a sequential card, every port of a 1to1 backup unit, a
+                # manual pick. Resolved with the labels above and carried
+                # whole, because a backing port is CLAIMED BY ROLE: not free
+                # to auto, refused to a hand placement, and the refusal has
+                # to say which main it returns.
+                'backupRoles': {p['number']: p['backsUp']
+                                for p in card['ports'] if p.get('backsUp')},
             })
     return out
 
@@ -203,8 +211,9 @@ def _free_ports(card, claims):
     capacity = card['capacity']
     if not capacity:
         return []
+    roles = card.get('backupRoles') or {}
     return [n for n in range(1, capacity + 1)
-            if (card['cardId'], n) not in claims]
+            if (card['cardId'], n) not in claims and n not in roles]
 
 
 def resolve(processors, screens, state=None):
@@ -383,6 +392,10 @@ def _occupancy(resolved_screens):
 def _card_summary(card, claims):
     used = sum(1 for key in claims if key[0] == card['cardId'])
     capacity = card['capacity']
+    # Ports consumed as returns are not free, and not "used" either - they
+    # are spoken for by a role, so they come off the free count the same way
+    # they come out of _free_ports.
+    backing = len(card.get('backupRoles') or {})
     return {
         'cardId': card['cardId'],
         'processorId': card['processorId'],
@@ -391,7 +404,9 @@ def _card_summary(card, claims):
         'capacity': capacity,
         'capacityKnown': card['capacityKnown'],
         'used': used,
-        'free': None if capacity is None else max(0, capacity - used),
+        'backing': backing,
+        'free': None if capacity is None
+        else max(0, capacity - used - backing),
         # The names the ports carry, so a panel offering somebody a choice of
         # sockets can call each one what the box calls it. Without them a port
         # picker reads "1, 2, 3..." while the card in the rack reads
@@ -740,6 +755,17 @@ def place_port(processors, screens, state, layer_id, index, card_id, port,
     if card['capacity'] and port > card['capacity']:
         return None, (f'{_card_title(card)} has {card["capacity"]} ports, so '
                       f'there is no port {port} on it.'), None
+    # A port consumed as a return is refused OUTRIGHT - no confirm, unlike
+    # the occupied-port question below. Sharing a socket with another screen
+    # is a real rig (a hot spare); sharing it with its own backup role is
+    # not a rig at all, because the socket's job is carrying a main's return
+    # loom. The refusal names the main it returns.
+    role = (card.get('backupRoles') or {}).get(port)
+    if role:
+        main = role.get('label') \
+            or f'port {role.get("port")} on {role.get("cardTitle")}'
+        return None, (f'{_port_title(card, port)} backs up {main} - it is '
+                      f'that port\'s return end, not a free port.'), None
 
     before, taken = _foreign_claims(processors, screens, state, layer_id, index)
     if (card['cardId'], port) in taken and not confirm:
@@ -785,7 +811,8 @@ def _fits(card, start, size, taken):
     capacity = card['capacity']
     if not capacity or start < 1 or start + size - 1 > capacity:
         return False
-    return all((card['cardId'], n) not in taken
+    roles = card.get('backupRoles') or {}
+    return all((card['cardId'], n) not in taken and n not in roles
                for n in range(start, start + size))
 
 

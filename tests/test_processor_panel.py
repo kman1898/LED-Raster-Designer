@@ -1890,16 +1890,64 @@ def test_the_sq200_states_the_rule_without_lettering_unknown_outputs(client):
     assert proc['ceilingKnown'] is False, 'the pairing invented a count'
 
 
-def test_the_other_tesseras_halve_but_claim_no_pairing_shape(client):
-    """The rule was given for the SX40 and SQ200 by name. The S8 still halves
-    - that much is documented - but no pairing statement is extrapolated onto
-    it, not even the plausible one."""
+def test_the_s8_pairs_fixed_adjacent_ports_by_the_2026_08_23_ruling(client):
+    """The second pairing rule arrived by name (2026-08-23): the SX40 "does
+    A to B and C to D on one sx40", "and S8 does 1to2 and so on". Port-level
+    this time - the S8 has no trunks to letter, its eight RJ45s pair
+    directly - so the statement numbers the ports, the even ports resolve as
+    the odd ones' returns, and the ceiling stays 8: port 2 still EXISTS, it
+    is the socket main 1's return loom lands on, and a tech patching it
+    needs it on the drawing. Usable is what halves."""
     state = add_processor(client, 'brompton-s8')
     pid = only(state)['id']
     resp = client.put(f'/api/processors/{pid}', json={'redundancy': True})
     proc = only(resp.get_json())
-    assert proc['ceiling'] == 4
-    assert proc['redundancyPairing'] is None
+    pairing = proc['redundancyPairing']
+    assert pairing['fixed'] is True
+    assert pairing['pairs'] == [{'primary': '1', 'backup': '2'},
+                                {'primary': '3', 'backup': '4'},
+                                {'primary': '5', 'backup': '6'},
+                                {'primary': '7', 'backup': '8'}]
+    assert '1 backs up to 2' in pairing['statement']
+    assert proc['ceiling'] == 8
+    card = first_card(proc)
+    assert card['redundancyShape'] == {'mode': 'sequential', 'forced': True,
+                                       'level': 'port', 'usable': 4}
+    evens = [p for p in card['ports'] if p['number'] % 2 == 0]
+    assert [p['backsUp']['port'] for p in evens] == [1, 3, 5, 7]
+    # Fixed means fixed: the mode select's PUT is refused, not stored.
+    card_id = card['id']
+    resp = client.put(f'/api/processors/{pid}/cards/{card_id}',
+                      json={'redundancyMode': 'manual'})
+    assert resp.status_code == 400
+    assert 'fact of the device' in resp.get_json()['error']
+
+
+def test_the_s4_and_m2_stay_unruled_and_present_the_modes(client):
+    """The ruling named the S8 only - "and so on" is the port sequence
+    1 to 2, 3 to 4, not the rest of the range - so the S4 and M2 still claim
+    no pairing shape, and under the data modes an unforced device presents
+    the mode select: 1:1 by default, which consumes a BACKUP unit and halves
+    nothing on the main. The documented halving still holds where the
+    on-unit loop is chosen: sequential leaves 2 of 4 usable."""
+    for device_id in ('brompton-s4', 'brompton-m2'):
+        state = add_processor(client, device_id)
+        proc = state['resolved'][-1]
+        pid = proc['id']
+        resp = client.put(f'/api/processors/{pid}', json={'redundancy': True})
+        proc = next(p for p in resp.get_json()['resolved'] if p['id'] == pid)
+        assert proc['redundancyPairing'] is None, device_id
+        card = first_card(proc)
+        assert card['redundancyShape']['mode'] == '1to1', device_id
+        assert card['redundancyShape']['forced'] is False, device_id
+        assert card['ceiling'] == 4, (
+            f'{device_id}: 1:1 halved the main - the backup unit is what it '
+            f'consumes')
+        resp = client.put(f'/api/processors/{pid}/cards/{card["id"]}',
+                          json={'redundancyMode': 'sequential'})
+        card = first_card(next(p for p in resp.get_json()['resolved']
+                               if p['id'] == pid))
+        assert card['redundancyShape']['usable'] == 2, device_id
 
 
 def test_a_novastar_box_in_redundancy_defaults_to_a_pair(client):
@@ -2016,16 +2064,21 @@ def test_a_copy_own_ports_card_gets_no_pair(client):
 
 def test_megapixel_gets_no_default_and_no_claimed_pairing(client):
     """"I'm not sure about how megapixel works" is an instruction: no
-    redundancy toggle, no pairing statement, no auto-created backup unit.
-    Manual wiring only - the absence is asserted so nobody fills it in as a
-    tidy-up."""
+    pairing statement, no auto-created backup unit, no device rule invented.
+    The redundancy TOGGLE does appear now - with the data modes it stopped
+    being a claim about the device and became a plan for the loom (any unit
+    can be mirrored 1:1 by a second unit) - but everything vendor-documented
+    stays absent, and that absence is asserted so nobody fills it in as a
+    tidy-up. Only an explicit "supported: false" (the T1) keeps the toggle
+    away."""
     assert 'redundancy' not in catalog.get_device('megapixel-helios-8k')
     assert catalog.default_backup_pair(
         {'deviceId': 'megapixel-helios-8k'}) is False
     state = add_processor(client, 'megapixel-helios-8k')
     proc = only(state)
-    assert proc['redundancySupported'] is False, (
-        'a redundancy toggle appeared for a vendor with no documented rule')
+    assert proc['redundancySupported'] is True, (
+        'the loom-level toggle should reach every device not documented '
+        'unable')
     assert proc['redundancyPairing'] is None
     pid = proc['id']
     card_id = first_card(proc)['id']
@@ -2731,3 +2784,379 @@ def test_deleting_a_processor_takes_its_fold_key_with_it(panel_page):
         """(pid) => localStorage.getItem(
                'ledRasterPanelCollapsed_processor-' + pid)""", ids['mx'])
     assert left is None, f'the deleted processor left its fold key: {left}'
+
+
+# ── 14. The data-redundancy modes, as stored and as refused ───────────────
+#
+# The user's design, verbatim: "so for data by default do redundancy as 1 to
+# 1 aka the way brompton does it and novastar when using a second sending
+# card and then give the option for sequential where 1 is backed up by 2 on
+# the same unit/ sending card and also give the option for say 1 is backed
+# up to whatever port you want". Three modes per card, 1:1 the default; the
+# mode is stored on the card, the 1:1 partner is a per-main pick, manual is
+# a sparse per-port map. Every impossible arrangement is refused with the
+# reason, never stored.
+
+def add_two(client, device='novastar-mx20'):
+    state = add_processor(client, device)
+    a_pid = state['resolved'][0]['id']
+    a_card = first_card(state['resolved'][0])['id']
+    state = add_processor(client, device)
+    b_pid = state['resolved'][1]['id']
+    b_card = first_card(state['resolved'][1])['id']
+    return a_pid, a_card, b_pid, b_card
+
+
+def card_of(state, pid):
+    return first_card(next(p for p in state['resolved'] if p['id'] == pid))
+
+
+def test_1to1_is_the_default_and_is_stored_as_absence(client):
+    """The default mode is what an ABSENT key means, exactly like the label
+    templates: choosing sequential stores it, choosing 1:1 back deletes it,
+    and an untouched card stores nothing at all."""
+    a_pid, a_card, _b, _bc = add_two(client)
+    client.put(f'/api/processors/{a_pid}', json={'redundancy': True})
+    state = client.get('/api/processors').get_json()
+    assert card_of(state, a_pid)['redundancyShape']['mode'] == '1to1'
+    assert 'redundancyMode' not in state['processors'][0]['slots'][0]['card']
+
+    client.put(f'/api/processors/{a_pid}/cards/{a_card}',
+               json={'redundancyMode': 'sequential'})
+    state = client.get('/api/processors').get_json()
+    assert state['processors'][0]['slots'][0]['card']['redundancyMode'] == \
+        'sequential'
+    client.put(f'/api/processors/{a_pid}/cards/{a_card}',
+               json={'redundancyMode': '1to1'})
+    state = client.get('/api/processors').get_json()
+    assert 'redundancyMode' not in state['processors'][0]['slots'][0]['card']
+
+    resp = client.put(f'/api/processors/{a_pid}/cards/{a_card}',
+                      json={'redundancyMode': 'free-for-all'})
+    assert resp.status_code == 400
+    assert 'Unknown redundancy mode' in resp.get_json()['error']
+
+
+def test_the_1to1_partner_pick_is_validated_with_the_counts(client):
+    """A 1:1 backup mirrors port for port, so the pick is refused where the
+    mirror cannot hold: itself, a card that is not there, a count that does
+    not match (both counts in the reason), a count nobody settled."""
+    a_pid, a_card, _b_pid, b_card = add_two(client)
+    client.put(f'/api/processors/{a_pid}', json={'redundancy': True})
+
+    resp = client.put(f'/api/processors/{a_pid}/cards/{a_card}',
+                      json={'backupCardId': a_card})
+    assert resp.status_code == 400
+    assert 'cannot back itself' in resp.get_json()['error']
+
+    resp = client.put(f'/api/processors/{a_pid}/cards/{a_card}',
+                      json={'backupCardId': 'card999'})
+    assert resp.status_code == 400
+    assert resp.get_json()['error'] == 'That card is not in this project.'
+
+    state = add_processor(client, 'novastar-mx40-pro')
+    big_card = first_card(state['resolved'][2])['id']
+    resp = client.put(f'/api/processors/{a_pid}/cards/{a_card}',
+                      json={'backupCardId': big_card})
+    assert resp.status_code == 400
+    why = resp.get_json()['error']
+    assert 'has 40 ports' in why and 'has 6' in why, why
+    assert 'counts must match' in why, why
+
+    state = add_processor(client, 'brompton-sq200')
+    unknown_card = first_card(state['resolved'][3])['id']
+    resp = client.put(f'/api/processors/{a_pid}/cards/{a_card}',
+                      json={'backupCardId': unknown_card})
+    assert resp.status_code == 400
+    assert 'no settled port count' in resp.get_json()['error']
+
+    # The valid pick stores, and clears back to nothing.
+    resp = client.put(f'/api/processors/{a_pid}/cards/{a_card}',
+                      json={'backupCardId': b_card})
+    assert resp.status_code == 200
+    assert client.get('/api/processors').get_json()['processors'][0][
+        'slots'][0]['card']['backupCardId'] == b_card
+    client.put(f'/api/processors/{a_pid}/cards/{a_card}',
+               json={'backupCardId': ''})
+    assert 'backupCardId' not in client.get('/api/processors').get_json()[
+        'processors'][0]['slots'][0]['card']
+
+
+def test_a_backup_unit_backs_one_main_and_takes_no_backup_of_its_own(client):
+    """Consumed means consumed: a unit already backing a main is refused to
+    a second main by the role it holds, and cannot name a backup for itself
+    while it holds it - both stated, neither stored."""
+    a_pid, a_card, b_pid, b_card = add_two(client)
+    state = add_processor(client, 'novastar-mx20')
+    c_pid = state['resolved'][2]['id']
+    c_card = first_card(state['resolved'][2])['id']
+    client.put(f'/api/processors/{a_pid}/cards/{a_card}', json={'name': 'A'})
+    client.put(f'/api/processors/{b_pid}/cards/{b_card}', json={'name': 'B'})
+    client.put(f'/api/processors/{a_pid}', json={'redundancy': True})
+    client.put(f'/api/processors/{c_pid}', json={'redundancy': True})
+    resp = client.put(f'/api/processors/{a_pid}/cards/{a_card}',
+                      json={'backupCardId': b_card})
+    assert resp.status_code == 200
+
+    resp = client.put(f'/api/processors/{c_pid}/cards/{c_card}',
+                      json={'backupCardId': b_card})
+    assert resp.status_code == 400
+    assert 'B already backs up A' in resp.get_json()['error']
+
+    client.put(f'/api/processors/{b_pid}', json={'redundancy': True})
+    resp = client.put(f'/api/processors/{b_pid}/cards/{b_card}',
+                      json={'backupCardId': c_card})
+    assert resp.status_code == 400
+    assert 'cannot take a backup of its own' in resp.get_json()['error']
+
+
+def test_backup_links_never_dangle(client):
+    """Deleting the backup's processor clears the pick, exactly as deleting
+    a primary box clears backupOf - a link into reused ids is a trap."""
+    a_pid, a_card, b_pid, b_card = add_two(client)
+    client.put(f'/api/processors/{a_pid}', json={'redundancy': True})
+    client.put(f'/api/processors/{a_pid}/cards/{a_card}',
+               json={'backupCardId': b_card})
+    client.put(f'/api/processors/{a_pid}/cards/{a_card}',
+               json={'redundancyMode': 'manual'})
+    resp = client.put(f'/api/processors/{a_pid}/cards/{a_card}/ports/1',
+                      json={'backup': {'cardId': b_card, 'port': 2}})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+
+    client.delete(f'/api/processors/{b_pid}')
+    stored = client.get('/api/processors').get_json()['processors'][0][
+        'slots'][0]['card']
+    assert 'backupCardId' not in stored, 'the 1:1 pick outlived its unit'
+    assert 'backupPorts' not in stored, 'a manual pick outlived its unit'
+
+
+def test_the_manual_pick_is_validated_like_a_placement(client):
+    """The same situations read the same way: a port past the ceiling, a
+    port backing itself, a port already spoken for by another main."""
+    a_pid, a_card, _b, _bc = add_two(client)
+    client.put(f'/api/processors/{a_pid}/cards/{a_card}', json={'name': 'SR'})
+    client.put(f'/api/processors/{a_pid}', json={'redundancy': True})
+    client.put(f'/api/processors/{a_pid}/cards/{a_card}',
+               json={'redundancyMode': 'manual'})
+
+    resp = client.put(f'/api/processors/{a_pid}/cards/{a_card}/ports/1',
+                      json={'backup': {'cardId': a_card, 'port': 9}})
+    assert resp.status_code == 400
+    assert 'has 6 ports, so there is no port 9' in resp.get_json()['error']
+
+    resp = client.put(f'/api/processors/{a_pid}/cards/{a_card}/ports/1',
+                      json={'backup': {'cardId': a_card, 'port': 1}})
+    assert resp.status_code == 400
+    assert 'cannot back itself' in resp.get_json()['error']
+
+    resp = client.put(f'/api/processors/{a_pid}/cards/{a_card}/ports/1',
+                      json={'backup': {'cardId': a_card, 'port': 5}})
+    assert resp.status_code == 200
+    resp = client.put(f'/api/processors/{a_pid}/cards/{a_card}/ports/2',
+                      json={'backup': {'cardId': a_card, 'port': 5}})
+    assert resp.status_code == 400
+    assert 'already backs up SR-1' in resp.get_json()['error']
+    # Re-stating the same pick is a no-op, not a conflict with itself.
+    resp = client.put(f'/api/processors/{a_pid}/cards/{a_card}/ports/1',
+                      json={'backup': {'cardId': a_card, 'port': 5}})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+
+
+def test_the_toggle_reaches_every_vendor_except_a_documented_no(client):
+    """Redundancy became a plan for the loom, so the switch is offered
+    everywhere - the user's own 1:1 case is NovaStar with a second sending
+    card - except where the sheet says the device cannot (T1)."""
+    state = add_processor(client, 'novastar-mx40-pro')
+    assert state['resolved'][0]['redundancySupported'] is True
+    state = add_processor(client, 'brompton-t1')
+    assert state['resolved'][1]['redundancySupported'] is False
+    pid = state['resolved'][1]['id']
+    resp = client.put(f'/api/processors/{pid}', json={'redundancy': True})
+    t1 = next(p for p in resp.get_json()['resolved'] if p['id'] == pid)
+    assert first_card(t1)['redundancyShape'] is None, (
+        'a shape appeared on a device documented unable')
+
+
+def test_the_panel_wires_the_modes_the_house_way():
+    """Source-text pins, same register as sections 7 and 10: the mode row
+    never draws for a vendor-fixed pairing, every new edit takes a named
+    history snapshot, and a refusal's reason is surfaced instead of
+    swallowed."""
+    source = js_source('app-processors.js')
+    body = source[source.index('_buildCardRedundancyRow(proc, card) {'):]
+    body = body[:body.index('\n    }')]
+    assert 'if (!shape || shape.forced) return null;' in body, (
+        'a fixed pairing grew a mode select')
+    for action in ("'Change Redundancy Mode'", "'Change Backup Unit'",
+                   "'Change Port Backup'"):
+        assert action in source, f'{action} takes no history snapshot'
+    assert 'data.error' in source, 'refusals are swallowed silently again'
+
+
+# ── 14b. The mode row in the real panel ───────────────────────────────────
+
+REDUNDANCY_SEED_JS = """
+async () => {
+    const state = await (await fetch('/api/processors')).json();
+    for (const p of state.processors) {
+        await fetch(`/api/processors/${p.id}`, { method: 'DELETE' });
+    }
+    const send = (url, method, body) => fetch(url, {
+        method, headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    }).then(r => r.json());
+    let st = await send('/api/processors', 'POST',
+                        { deviceId: 'novastar-mx20' });
+    const mx = st.resolved[st.resolved.length - 1];
+    const mxCard = mx.slots[0].card;
+    await send(`/api/processors/${mx.id}/cards/${mxCard.id}`, 'PUT',
+               { name: 'SR' });
+    await send(`/api/processors/${mx.id}`, 'PUT', { redundancy: true });
+    st = await send('/api/processors', 'POST',
+                    { deviceId: 'novastar-mx20' });
+    const bk = st.resolved[st.resolved.length - 1];
+    const bkCard = bk.slots[0].card;
+    await send(`/api/processors/${bk.id}/cards/${bkCard.id}`, 'PUT',
+               { name: 'BK' });
+    st = await send('/api/processors', 'POST',
+                    { deviceId: 'brompton-sx40' });
+    const sx = st.resolved[st.resolved.length - 1];
+    await send(`/api/processors/${sx.id}`, 'PUT', { redundancy: true });
+    await window.app.refreshProcessors();
+    window.app.saveState('Seed Redundancy');
+    return { mxId: mx.id, mxCardId: mxCard.id, bkId: bk.id,
+             bkCardId: bkCard.id, sxId: sx.id,
+             sxCardId: sx.slots[0].card.id };
+}
+"""
+
+STORED_CARD_JS = """
+async (pid) => {
+    const state = await (await fetch('/api/processors')).json();
+    const proc = state.processors.find(p => p.id === pid);
+    return proc.slots.find(s => s.card).card;
+}
+"""
+
+
+def test_the_mode_select_draws_only_where_the_vendor_does_not_fix(panel_page):
+    """The MX20 gets the three modes; the redundant SX40 gets the fixed
+    statement and NO select - a fact is not a setting, in the DOM either."""
+    pytest.importorskip("playwright.sync_api",
+                        reason="playwright is not installed")
+    page = panel_page
+    ids = page.evaluate(REDUNDANCY_SEED_JS)
+    page.wait_for_timeout(800)
+    out = page.evaluate("""(ids) => {
+        const mx = document.querySelector(
+            `[data-lrd-field="processor-card-redundancy-${ids.mxCardId}"]`);
+        const sx = document.querySelector(
+            `[data-lrd-field="processor-card-redundancy-${ids.sxCardId}"]`);
+        const partner = document.querySelector(
+            `[data-lrd-field="processor-card-backup-${ids.mxCardId}"]`);
+        const texts = Array.from(
+            document.querySelectorAll('#processor-list div'))
+            .map(d => d.textContent || '');
+        return {
+            mxSelect: !!mx,
+            mxOptions: mx ? Array.from(mx.options).map(o => o.value) : [],
+            partner: !!partner,
+            partnerTexts: partner
+                ? Array.from(partner.options).map(o => o.textContent) : [],
+            sxSelect: !!sx,
+            statement: texts.some(t =>
+                t.includes('automatic, and the only way this device pairs')),
+        };
+    }""", ids)
+    assert out['mxSelect'], out
+    assert out['mxOptions'] == ['1to1', 'sequential', 'manual'], out
+    assert out['partner'], 'the default 1:1 offers no partner pick'
+    assert any('BK - 6 ports' in t for t in out['partnerTexts']), out
+    assert not out['sxSelect'], 'the fixed pairing grew a mode select'
+    assert out['statement'], out
+
+
+def test_the_mode_change_round_trips_through_undo(panel_page):
+    """Same contract as every processor edit: a named post-mutation
+    snapshot, walked back and forward with the stored key following."""
+    pytest.importorskip("playwright.sync_api",
+                        reason="playwright is not installed")
+    page = panel_page
+    ids = page.evaluate(REDUNDANCY_SEED_JS)
+    page.wait_for_timeout(800)
+    page.evaluate("""(ids) => {
+        const sel = document.querySelector(
+            `[data-lrd-field="processor-card-redundancy-${ids.mxCardId}"]`);
+        sel.value = 'sequential';
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+    }""", ids)
+    page.wait_for_timeout(800)
+    assert page.evaluate(
+        "() => window.app.history.map(h => h.action).slice(-1)") == \
+        ['Change Redundancy Mode']
+    assert page.evaluate(STORED_CARD_JS, ids['mxId']).get(
+        'redundancyMode') == 'sequential'
+    page.evaluate("() => window.app.undo()")
+    page.wait_for_timeout(1000)
+    assert 'redundancyMode' not in page.evaluate(STORED_CARD_JS, ids['mxId'])
+    page.evaluate("() => window.app.redo()")
+    page.wait_for_timeout(1000)
+    assert page.evaluate(STORED_CARD_JS, ids['mxId']).get(
+        'redundancyMode') == 'sequential'
+
+
+def test_the_partner_pick_and_the_manual_picker_commit(panel_page):
+    """The 1:1 partner select stores the pick and the consumed unit states
+    its role; manual mode unfolds a per-port picker in the tile that stores
+    the sparse map - each through its own named action."""
+    pytest.importorskip("playwright.sync_api",
+                        reason="playwright is not installed")
+    page = panel_page
+    ids = page.evaluate(REDUNDANCY_SEED_JS)
+    page.wait_for_timeout(800)
+    page.evaluate("""(ids) => {
+        const sel = document.querySelector(
+            `[data-lrd-field="processor-card-backup-${ids.mxCardId}"]`);
+        sel.value = ids.bkCardId;
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+    }""", ids)
+    page.wait_for_timeout(800)
+    assert page.evaluate(STORED_CARD_JS, ids['mxId']).get(
+        'backupCardId') == ids['bkCardId']
+    assert page.evaluate(
+        "() => window.app.history.map(h => h.action).slice(-1)") == \
+        ['Change Backup Unit']
+    consumed = page.evaluate("""(ids) => {
+        const texts = Array.from(
+            document.querySelectorAll('#processor-list div'))
+            .map(d => d.textContent || '');
+        return texts.some(t => t.includes('Backs up SR'));
+    }""", ids)
+    assert consumed, 'the consumed unit does not state its role'
+
+    # Manual mode: the pick lives in the port tile's editor.
+    page.evaluate("""(ids) => {
+        const sel = document.querySelector(
+            `[data-lrd-field="processor-card-redundancy-${ids.mxCardId}"]`);
+        sel.value = 'manual';
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+    }""", ids)
+    page.wait_for_timeout(800)
+    page.evaluate(
+        "(tid) => document.querySelector(`[data-lrd-tile=\"${tid}\"]`)"
+        + ".querySelector('.lrd-tile-face').click()",
+        f"port-{ids['mxCardId']}-1")
+    page.wait_for_timeout(400)
+    box = page.locator(
+        f'[data-lrd-field="processor-port-backup-port-{ids["mxCardId"]}-1"]')
+    assert box.count() == 1, 'manual mode drew no per-port picker'
+    box.click()
+    box.fill('5')
+    page.keyboard.press('Tab')
+    page.wait_for_timeout(800)
+    stored = page.evaluate(STORED_CARD_JS, ids['mxId'])
+    assert stored.get('backupPorts', {}).get('1') == \
+        {'cardId': ids['mxCardId'], 'port': 5}
+    assert page.evaluate(
+        "() => window.app.history.map(h => h.action).slice(-1)") == \
+        ['Change Port Backup']

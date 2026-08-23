@@ -1235,3 +1235,115 @@ def test_the_backup_template_rides_the_return_labels_here_too(one_card):
     scr = by_name(res, 'Main')
     assert [p['returnLabel'] for p in scr['ports']] == \
         ['SR-1R', 'HOUSE-RTN', 'SR-3R']
+
+
+# ── 10. Ports claimed by a redundancy role ────────────────────────────────
+#
+# A port consumed by the redundancy mapping - the even half of a sequential
+# card, every port of a 1:1 backup unit, a manual pick - is CLAIMED BY ROLE:
+# auto numbers around it, a block cannot land across it, and a hand
+# placement is refused outright with the main it returns named in the
+# refusal. Outright, unlike the occupied-port question: sharing a socket
+# with another screen is a real rig (a hot spare), sharing it with its own
+# backup role is not a rig at all.
+
+def sequential_card(client):
+    """One MX20 named SR, redundancy on, sequential: 6 ports, odds usable."""
+    state = add_processor(client, 'novastar-mx20')
+    pid = state['resolved'][0]['id']
+    card = card_ids(state)[0]
+    client.put(f'/api/processors/{pid}/cards/{card}', json={'name': 'SR'})
+    client.put(f'/api/processors/{pid}', json={'redundancy': True})
+    resp = client.put(f'/api/processors/{pid}/cards/{card}',
+                      json={'redundancyMode': 'sequential'})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    return pid, card
+
+
+def test_auto_numbering_skips_the_backing_ports(client):
+    """Three ports on a sequential six land on 1, 3, 5 - the odd mains - and
+    the card is full at three, because the evens are its returns."""
+    _pid, card = sequential_card(client)
+    sc = [('Wall', 3)]
+    res = resolve(client, *sc)
+    assert spots(res, 'Wall') == [(card, 1), (card, 3), (card, 5)]
+
+    res = resolve(client, ('Wall', 4))
+    assert numbers(res, 'Wall') == [1, 3, 5, None]
+    assert issue(res, 'overflow')
+
+
+def test_placing_onto_a_backing_port_is_refused_naming_the_main(client):
+    """The refusal is hard - no confirm - and it says whose return the
+    socket carries. Nothing moves and nothing is stamped on the project."""
+    _pid, card = sequential_card(client)
+    sc = screens(('Wall', 2))
+    resp = place(client, 'Wall', 1, card, 2, sc)
+    assert resp.status_code == 409, resp.get_data(as_text=True)
+    body = resp.get_json()
+    assert 'backs up SR-1' in body['error'], body['error']
+    assert 'return end' in body['error'], body['error']
+    assert body.get('conflict') is None, (
+        'a role refusal offered the occupied-port confirm')
+    after = resolve(client, ('Wall', 2))
+    assert spots(after, 'Wall') == [(card, 1), (card, 3)], (
+        'the refused placement moved something')
+    assert assignment.STATE_KEY not in client.get('/api/project').get_json()
+
+
+def test_a_1to1_backup_unit_takes_nothing_and_refuses_by_role(client):
+    """Every port of the designated backup unit is consumed: auto never
+    reaches it, and a hand placement is refused with the main port it
+    returns - the claimed-by-role treatment, unit-wide."""
+    state = add_processor(client, 'novastar-mx20')
+    main_pid = state['resolved'][0]['id']
+    main_card = card_ids(state)[0]
+    state = add_processor(client, 'novastar-mx20')
+    backup_card = card_ids(state)[1]
+    client.put(f'/api/processors/{main_pid}/cards/{main_card}',
+               json={'name': 'P1'})
+    backup_pid = state['resolved'][1]['id']
+    client.put(f'/api/processors/{backup_pid}/cards/{backup_card}',
+               json={'name': 'R1'})
+    client.put(f'/api/processors/{main_pid}', json={'redundancy': True})
+    resp = client.put(f'/api/processors/{main_pid}/cards/{main_card}',
+                      json={'backupCardId': backup_card})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+
+    # Eight ports against a mirrored six: the main fills, the backup takes
+    # none, and the spill has nowhere to go.
+    res = resolve(client, ('Wall', 8))
+    assert spots(res, 'Wall')[:6] == [(main_card, n) for n in range(1, 7)]
+    assert spots(res, 'Wall')[6:] == [(None, None), (None, None)]
+    assert issue(res, 'overflow')
+
+    resp = place(client, 'Wall', 6, backup_card, 3, screens(('Wall', 8)))
+    assert resp.status_code == 409, resp.get_data(as_text=True)
+    assert 'backs up P1-3' in resp.get_json()['error'], \
+        resp.get_json()['error']
+
+
+def test_the_card_summary_counts_backing_ports_out_of_free(client):
+    """The dock's used/capacity line and the pin picker's (full) tell both
+    read the summary, so a sequential card must not promise six sockets when
+    three of them are spoken for by the role."""
+    _pid, card = sequential_card(client)
+    res = resolve(client, ('Wall', 2))
+    summary = next(c for c in res['cards'] if c['cardId'] == card)
+    assert summary['capacity'] == 6
+    assert summary['used'] == 2
+    assert summary['backing'] == 3
+    assert summary['free'] == 1
+
+
+def test_a_block_cannot_land_across_a_backing_port(client):
+    """A block is contiguous or it is not a block, and the evens of a
+    sequential card break every run of two - so the move is refused rather
+    than landed astride a return socket."""
+    _pid, _card = sequential_card(client)
+    sc = screens(('Wall', 2))
+    resolve(client, ('Wall', 2))
+    resp = client.post('/api/port-assignments/move-block',
+                       json={'layerId': 'Wall', 'screens': sc})
+    assert resp.status_code == 409, resp.get_data(as_text=True)
+    assert 'consecutive free ports' in resp.get_json()['error']
