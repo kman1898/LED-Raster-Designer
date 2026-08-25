@@ -679,7 +679,7 @@ def test_editing_a_distro_name_and_tabbing_keeps_focus_in_a_real_control(page):
 NAMED_HEADERS = [
     ('data-flow', 'Data Settings'),
     ('data-flow', 'Processors'),
-    ('data-flow', 'Port Assignment'),
+    ('data-flow', 'Port Numbering'),
     ('data-flow', 'Port Labels'),
     ('power', 'Power Distribution'),
 ]

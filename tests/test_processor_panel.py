@@ -1652,7 +1652,7 @@ def test_the_port_row_renders_both_fields(panel_page, width):
     layout, both placeholders carrying the RESOLVED label for their own end
     (SR-1 out, SR-1R back), both inside the panel's right edge, and the port
     list not scrolling sideways - scrollWidth over clientWidth is exactly the
-    off-the-panel overflow the clamp forbids. The Port Assignment rows below
+    off-the-panel overflow the clamp forbids. The Port Numbering hosts below
     them are measured by their own test further down."""
     pytest.importorskip("playwright.sync_api", reason="playwright not installed")
     ids = panel_page.evaluate(RESET_PROCESSORS_JS)
@@ -2200,7 +2200,7 @@ def test_sidebar_scroll_alone_reaches_all_twenty_ports(panel_page):
         'scrolling the sidebar does not bring port 20 into view')
 
 
-# ── 12. The Port Assignment rows fit the clamp ────────────────────────────
+# ── 12. The Port Numbering hosts fit the clamp ────────────────────────────
 
 ASSIGNMENT_FIT_JS = """(hostId) => {
     const host = document.getElementById(hostId);
@@ -2224,30 +2224,97 @@ ASSIGNMENT_FIT_JS = """(hostId) => {
 
 
 @pytest.mark.parametrize('width', [260, 180])
-def test_the_port_assignment_rows_fit_at_both_widths(panel_page, width):
-    """The move/pin rows and the Move whole block tools measured at the
-    default and at the clamp: nothing hangs past the panel's edge and the
-    list does not scroll sideways. Before the wrap treatment the rows'
-    scrollWidth was 203 in a 165px column at the clamp - the same overflow
-    the distro and soca rows were taught out of."""
+def test_the_port_assignment_hosts_fit_at_both_widths(panel_page, width):
+    """What remains of the Port Numbering panel - the issue boxes and the
+    foot's card-usage rows plus the auto toggle - measured at the default
+    and at the clamp: nothing hangs past the panel's edge and nothing
+    scrolls sideways. (The per-port move/pin rows this test used to measure
+    are gone: the dock's drag is the assignment gesture now.)"""
     pytest.importorskip("playwright.sync_api", reason="playwright not installed")
     panel_page.evaluate(RESET_PROCESSORS_JS)
     panel_page.wait_for_timeout(800)
     panel_page.evaluate(SET_WIDTH_JS, width)
     panel_page.wait_for_timeout(500)
-    for host in ('port-assignment-list', 'port-assignment-foot'):
+    for host in ('port-assignment-issues', 'port-assignment-foot'):
         m = panel_page.evaluate(ASSIGNMENT_FIT_JS, host)
         assert m, f'#{host} is not in the document'
-        if host == 'port-assignment-list':
+        if host == 'port-assignment-foot':
             assert m['rows'] > 0, (
-                'no assignment rows rendered - the seed screen carries no '
-                'ports, so this test proves nothing')
+                'the foot rendered nothing - the seed has no resolved cards, '
+                'so this test proves nothing')
         assert not m['strays'], (
             f"#{host} controls hang outside the panel at {width}px: "
             f"{m['strays']} (host clientWidth {m['clientW']}px)")
         assert m['scrollW'] <= m['clientW'], (
             f"#{host} scrolls sideways at {width}px: content {m['scrollW']}px "
             f"in a {m['clientW']}px column")
+
+
+def test_the_stripped_panel_still_reports_offers_and_toggles(panel_page):
+    """What the Port Numbering panel is after the strip: the issue boxes with
+    their offer buttons, the per-card usage foot and the auto toggle - and no
+    per-port rows at all (assignment is the dock's drag). The refuse-and-offer
+    surface is the part a drag cannot replace, so it is proven live end to
+    end: turning auto off through the real checkbox raises the auto-off issue
+    with its offer, and taking the offer turns auto back on."""
+    pytest.importorskip("playwright.sync_api", reason="playwright not installed")
+    panel_page.evaluate(RESET_PROCESSORS_JS)
+    panel_page.wait_for_timeout(800)
+
+    shape = panel_page.evaluate("""() => {
+        const issues = document.getElementById('port-assignment-issues');
+        const foot = document.getElementById('port-assignment-foot');
+        const panel = issues.closest('.panel');
+        const toggle = foot.querySelector(
+            '[data-lrd-field="port-assignment-auto"]');
+        return {
+            title: panel.querySelector('h2').textContent.trim(),
+            listHost: !!document.getElementById('port-assignment-list'),
+            toggle: !!toggle,
+            toggleOn: toggle ? toggle.checked : null,
+            footCardRows: foot.textContent.includes('/'),
+            rowButtons: [...panel.querySelectorAll('button')]
+                .map(b => b.textContent.trim())
+                .filter(t => ['move', 'pin', 'release', 'close',
+                              'Move whole block',
+                              'Release all pins'].includes(t)),
+        };
+    }""")
+    assert shape['title'] == 'Port Numbering', shape
+    assert not shape['listHost'], (
+        'the per-screen row host is still in the panel')
+    assert shape['rowButtons'] == [], (
+        f"per-port assignment controls are back: {shape['rowButtons']}")
+    assert shape['toggle'] and shape['toggleOn'], shape
+    assert shape['footCardRows'], (
+        'the per-card usage rows are gone from the foot')
+
+    # the toggle is live: off raises the auto-off issue and its offer
+    panel_page.locator('[data-lrd-field="port-assignment-auto"]').click()
+    panel_page.wait_for_timeout(800)
+    issue = panel_page.evaluate("""() => {
+        const issues = document.getElementById('port-assignment-issues');
+        const offer = [...issues.querySelectorAll('button')]
+            .find(b => b.textContent.includes('auto-numbering on'));
+        return {text: issues.textContent, offer: !!offer};
+    }""")
+    assert issue['offer'], f'the auto-off issue carries no offer: {issue}'
+
+    # taking the offer is the recovery path - auto back on, issue gone
+    panel_page.evaluate("""() => {
+        [...document.querySelectorAll('#port-assignment-issues button')]
+            .find(b => b.textContent.includes('auto-numbering on')).click();
+    }""")
+    panel_page.wait_for_timeout(800)
+    after = panel_page.evaluate("""() => ({
+        on: document.querySelector(
+            '[data-lrd-field="port-assignment-auto"]').checked,
+        issues: document.getElementById('port-assignment-issues')
+            .textContent,
+    })""")
+    assert after['on'], f'the offer did not turn auto back on: {after}'
+    assert 'auto' not in after['issues'].lower() or after['issues'] == '', (
+        f'the auto-off issue is still up: {after}')
 
 
 def test_the_return_template_round_trips_through_undo(panel_page):
@@ -2299,14 +2366,13 @@ def test_the_sidebar_hosts_pin_their_grid_track():
     column, so the pin is asserted as source where the measurement cannot
     reach it."""
     source = js_source('app-port-assignment.js')
-    assert source.count("gridTemplateColumns = 'minmax(0, 1fr)'") >= 2, (
-        'the assignment row grids lost their pinned track')
+    assert source.count("gridTemplateColumns = 'minmax(0, 1fr)'") >= 1, (
+        'the foot card-usage grid lost its pinned track')
     template = os.path.join(os.path.dirname(__file__), '..', 'src',
                             'templates', 'index.html')
     with open(template, encoding='utf-8') as fh:
         html = fh.read()
-    for host in ('processor-list', 'port-assignment-issues',
-                 'port-assignment-list'):
+    for host in ('processor-list', 'port-assignment-issues'):
         start = html.index(f'id="{host}"')
         tag = html[html.rindex('<div', 0, start):html.index('>', start)]
         assert 'minmax(0, 1fr)' in tag, (

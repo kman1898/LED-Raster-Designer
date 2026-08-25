@@ -26,6 +26,15 @@
 //   - an OCCUPIED port tile or multi slot dragged back onto the dock releases
 //     that assignment (unpin / clear distro+number), undoable like the rest.
 //
+// Right-click is the other way back: a drawn port run, a power circuit, a
+// dock chip, a card, a box or a distro right-clicked gets a "Clear …" item on
+// the app's context menu (_prepareClearMenu below arms it, showContextMenu
+// draws it). Clearing runs the same release operations the drag-back runs -
+// nothing is confirmed, because a clear is undoable and touches only the
+// assignment, never a name or a template - and a clear that is impossible is
+// offered disabled with the reason as its title, the drag-back rule spoken
+// before the gesture instead of after.
+//
 // The drag is pointer-based, not HTML5 DnD: the canvas is not a drop zone the
 // DnD model understands, page.mouse drives pointers natively in the tests,
 // and the resize handles already set the document-level move/up + teardown
@@ -401,6 +410,10 @@ class _HardwareDock {
 
     _dockWireDraggable(el, payload, key) {
         el.dataset.hwdock = key;
+        // The payload rides on the element too, so a right-click can know
+        // what chip it landed on (_prepareClearMenu reads it back) without
+        // re-deriving card ids and spans from the key string.
+        el.dataset.hwdockPayload = JSON.stringify(payload);
         // A real tab stop, like the panel tiles' faces: the dock must stay
         // reachable by keyboard even though the drag gesture itself has no
         // keyboard equivalent yet.
@@ -765,6 +778,295 @@ class _HardwareDock {
         unassigned.forEach(s => {
             this.setSocaDistro(layer, s.soca, payload.distroId);
         });
+        this._restateNaming();
+    }
+
+    // ── the right-click clears ────────────────────────────────────────────
+    //
+    // What the context menu's "Clear …" item should be for the point that was
+    // right-clicked, or null when the click landed on nothing clearable (the
+    // item then stays off the menu entirely). Returns { label, title, run }
+    // for a clear that can happen, { label, title, disabled: true } for one
+    // that cannot - disabled WITH the reason as the title, because "greyed
+    // out and silent" teaches nothing.
+    //
+    // Every clear here runs the release operations the dock's drag-back runs,
+    // and confirms nothing: clearing is undoable and touches only the
+    // assignment - names, templates and the hardware itself stay.
+    _prepareClearMenu(x, y) {
+        // The dock chip under the cursor first: chips carry their payload on
+        // the element, and the tray sits outside the canvas so the two tests
+        // cannot both hit.
+        const el = document.elementFromPoint(x, y);
+        const chip = el && el.closest
+            ? el.closest('[data-hwdock-payload]') : null;
+        if (chip) {
+            let payload = null;
+            try {
+                payload = JSON.parse(chip.dataset.hwdockPayload);
+            } catch (_) { /* a chip with unreadable payload arms nothing */ }
+            return payload ? this._clearMenuForDock(payload) : null;
+        }
+        const renderer = window.canvasRenderer;
+        if (!renderer || !renderer.canvas) return null;
+        const rect = renderer.canvas.getBoundingClientRect();
+        if (x < rect.left || x > rect.right
+                || y < rect.top || y > rect.bottom) {
+            return null;
+        }
+        // The same client-to-world walk every canvas gesture does, mirror
+        // included - the clear must land on the run under the cursor, not
+        // its reflection.
+        const worldY = ((y - rect.top) - renderer.panY) / renderer.zoom;
+        const worldX = renderer._unmirrorWorldX(
+            ((x - rect.left) - renderer.panX) / renderer.zoom, worldY);
+        const hit = renderer.getPanelAt(worldX, worldY);
+        if (!hit) return null;
+        if (renderer.viewMode === 'data-flow') {
+            return this._clearMenuForDataRun(hit);
+        }
+        if (renderer.viewMode === 'power') {
+            return this._clearMenuForCircuit(hit);
+        }
+        return null;
+    }
+
+    // A drawn port run in Data view: clear = release that screen-port's pin,
+    // the same unpin the panel's release buttons and the drag-back send.
+    _clearMenuForDataRun(hit) {
+        const run = this._dockBuildDataMap().get(hit.panel);
+        if (!run) return null;
+        const layer = (this.project.layers || [])
+            .find(l => l.id === run.ownerId);
+        // The label the run is drawn with, so the menu names what the user
+        // is looking at - SR-3 when a card names it, P3 off the template.
+        const label = (layer && typeof this.getPortLabelText === 'function'
+            && this.getPortLabelText(layer, run.portNum))
+            || `port ${run.portNum}`;
+        const scr = ((this._assignment && this._assignment.screens) || [])
+            .find(s => s.layerId === String(run.ownerId));
+        const port = scr
+            && (scr.ports || []).find(p => p.number === run.portNum);
+        if (!port || !port.cardId) {
+            return {
+                label: `Clear port ${label}`, disabled: true,
+                title: `${label} is not on a sending card - there is `
+                    + 'nothing to clear.',
+            };
+        }
+        if (port.source !== 'pin') {
+            // The drag-back rule, said before the gesture instead of after.
+            return {
+                label: `Clear port ${label}`, disabled: true,
+                title: `${label} is numbered automatically - there is no pin `
+                    + 'to release. Turn off auto-numbering to empty the port.',
+            };
+        }
+        return {
+            label: `Clear port ${label}`,
+            title: 'Hand this port back to auto-numbering. Names and '
+                + 'templates are untouched, and undo puts it back.',
+            run: () => {
+                sendClientLog('dock_clear', { kind: 'run',
+                    layerId: scr.layerId, index: port.index });
+                return this._assignmentRequest(
+                    '/api/port-assignments/unpin', 'POST',
+                    { layerId: scr.layerId, index: port.index },
+                    null, 'Release Port');
+            },
+        };
+    }
+
+    // A drawn circuit run in Power view: clear = un-assign that circuit's
+    // multi, number then distro, the drag-back semantics in one gesture.
+    _clearMenuForCircuit(hit) {
+        const under = (this.project.layers || [])
+            .find(l => l.id === hit.layerId);
+        const circuit = under && window.canvasRenderer
+            ? window.canvasRenderer._powerCircuitForPanel(under, hit.panel)
+            : null;
+        if (!circuit) return null;
+        const owner = circuit.owner;
+        const nm = this._powerNaming(owner);
+        const slot = nm.slots.get(circuit.circuitNum);
+        const rec = slot ? nm.socas.get(slot.multi) : null;
+        if (!rec) return null;
+        const name = rec.name || `multi ${rec.number}`;
+        if (!rec.distroId) {
+            return {
+                label: `Clear multi ${name}`, disabled: true,
+                title: `${name} is not on a distro - there is nothing to `
+                    + 'clear.',
+            };
+        }
+        return {
+            label: `Clear multi ${name}`,
+            title: 'Unassign this multi - its number, then its distro. '
+                + 'Names are untouched, and undo puts it back.',
+            run: () => this._clearMultis(
+                [{ layerId: owner.id, soca: rec.index }], 'Clear Multi'),
+        };
+    }
+
+    // A dock chip: the same clears, from the hardware end of the cable.
+    _clearMenuForDock(payload) {
+        if (payload.type === 'port') {
+            const label = `Clear ${payload.title}`;
+            const occupants = this._portOccupants(payload.cardId,
+                                                  payload.port);
+            if (!occupants.length) {
+                return {
+                    label, disabled: true,
+                    title: `${payload.title} is free - there is nothing to `
+                        + 'clear.',
+                };
+            }
+            const pinned = occupants.filter(o => o.source === 'pin');
+            if (!pinned.length) {
+                return {
+                    label, disabled: true,
+                    title: `${occupants[0].name} is numbered automatically - `
+                        + 'there is no pin to release. Turn off '
+                        + 'auto-numbering to empty the port.',
+                };
+            }
+            return {
+                label,
+                title: 'Release the pinned claim on this socket back to '
+                    + 'auto-numbering. Undo puts it back.',
+                run: () => {
+                    sendClientLog('dock_clear', { kind: 'port', payload });
+                    return this._dockReleasePins(
+                        pinned.map(o => ({ layerId: o.layerId,
+                                           index: o.number - 1 })),
+                        'Release Port');
+                },
+            };
+        }
+        if (payload.type === 'card' || payload.type === 'box') {
+            const label = `Clear ${payload.title}`;
+            const first = payload.type === 'box' ? payload.first : -Infinity;
+            const last = payload.type === 'box' ? payload.last : Infinity;
+            const pins = [];
+            ((this._assignment && this._assignment.screens) || [])
+                .forEach(scr => (scr.ports || []).forEach(p => {
+                    if (p.source === 'pin' && p.cardId === payload.cardId
+                            && p.port >= first && p.port <= last) {
+                        pins.push({ layerId: scr.layerId, index: p.index });
+                    }
+                }));
+            if (!pins.length) {
+                return {
+                    label, disabled: true,
+                    title: `${payload.title} holds no pins - its occupied `
+                        + 'ports are numbered automatically, and there is no '
+                        + 'pin to release.',
+                };
+            }
+            return {
+                label,
+                title: `Release every pin on ${payload.title} back to `
+                    + 'auto-numbering, as one undoable step.',
+                run: () => {
+                    sendClientLog('dock_clear',
+                                  { kind: payload.type, payload,
+                                    count: pins.length });
+                    return this._dockReleasePins(pins, 'Release Ports');
+                },
+            };
+        }
+        if (payload.type === 'slot') {
+            const label = `Clear ${payload.title}`;
+            const members = this._distroMultiNumbers(payload.distroId)
+                .get(payload.number) || [];
+            if (!members.length) {
+                return {
+                    label, disabled: true,
+                    title: `${payload.title} is free - there is nothing to `
+                        + 'clear.',
+                };
+            }
+            return {
+                label,
+                title: 'Unassign every multi on this slot - the chip is the '
+                    + 'box, and clearing the box takes all its feeds. One '
+                    + 'undoable step.',
+                run: () => this._clearMultis(
+                    members.map(m => ({ layerId: m.layerId, soca: m.soca })),
+                    'Clear Multi'),
+            };
+        }
+        if (payload.type === 'distro') {
+            const label = `Clear ${payload.title}`;
+            const members = [];
+            for (const l of (this.project.layers || [])) {
+                if ((l.type || 'screen') !== 'screen') continue;
+                for (const rec of this._powerNaming(l).socas.values()) {
+                    if (rec.distroId === payload.distroId) {
+                        members.push({ layerId: l.id, soca: rec.index });
+                    }
+                }
+            }
+            if (!members.length) {
+                return {
+                    label, disabled: true,
+                    title: `No multis are assigned to ${payload.title} - `
+                        + 'there is nothing to clear.',
+                };
+            }
+            return {
+                label,
+                title: `Unassign every multi on ${payload.title}, as one `
+                    + 'undoable step.',
+                run: () => this._clearMultis(members, 'Clear Distro'),
+            };
+        }
+        return null;
+    }
+
+    // One release per pin, ONE history entry for the gesture - the snapshot
+    // rides the last request the way the drag-back's does, so a single
+    // Ctrl+Z puts the whole card back.
+    _dockReleasePins(pins, action) {
+        let chain = Promise.resolve();
+        pins.forEach((p, i) => {
+            chain = chain.then(() => this._assignmentRequest(
+                '/api/port-assignments/unpin', 'POST',
+                { layerId: p.layerId, index: p.index },
+                null, i === pins.length - 1 ? action : null));
+        });
+        return chain;
+    }
+
+    // Un-assign a set of multis - number, then distro, the order the panel's
+    // selects always fired - as ONE gesture with ONE history entry: a
+    // distro-level clear is one decision, and Ctrl+Z must put every feed
+    // back at once. The deletions mirror setSocaNumber(null) /
+    // setSocaDistro(null) exactly, minus their per-call snapshots; the
+    // objects are always left behind, never the properties deleted whole -
+    // an absent key is missing from the update payload and the server keeps
+    // whatever it had, so "cleared" would silently not clear.
+    _clearMultis(members, action) {
+        sendClientLog('dock_clear', { kind: 'multis', action,
+                                      count: members.length });
+        const touched = [];
+        members.forEach(m => {
+            const layer = (this.project.layers || [])
+                .find(l => l.id === m.layerId);
+            if (!layer) return;
+            const nums = layer.powerSocaNumber
+                || (layer.powerSocaNumber = {});
+            delete nums[m.soca];
+            const dist = layer.powerSocaDistro
+                || (layer.powerSocaDistro = {});
+            delete dist[m.soca];
+            touched.push(layer);
+        });
+        if (!touched.length) return;
+        // Un-assignment renumbers both buckets it touches, so every label
+        // on the show can move - same cache drop the setters make.
+        this._circuitTailCache = null;
+        this.updateLayers([...new Set(touched)], true, action);
         this._restateNaming();
     }
 

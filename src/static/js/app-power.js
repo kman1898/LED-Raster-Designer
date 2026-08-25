@@ -59,6 +59,23 @@ class _Power {
         menu.querySelectorAll('.move-canvas-only').forEach(el => {
             el.style.display = canMove ? '' : 'none';
         });
+        // Assignment clears: armed only when the right-click landed on a
+        // drawn port run, a power circuit, or a dock chip (app-dock.js
+        // _prepareClearMenu). The label and the title are written at open
+        // time because they name the thing under the cursor; an impossible
+        // clear stays on the menu, disabled, with the reason as its title.
+        const clear = (typeof this._prepareClearMenu === 'function')
+            ? this._prepareClearMenu(x, y) : null;
+        this._clearMenuAction = clear;
+        menu.querySelectorAll('.hw-clear-only').forEach(el => {
+            el.style.display = clear ? '' : 'none';
+        });
+        const clearItem = menu.querySelector('[data-action="hw-clear"]');
+        if (clearItem && clear) {
+            clearItem.textContent = clear.label;
+            clearItem.title = clear.title || '';
+            clearItem.classList.toggle('menu-disabled', !!clear.disabled);
+        }
 
         menu.style.visibility = 'hidden';
         menu.style.display = 'block';

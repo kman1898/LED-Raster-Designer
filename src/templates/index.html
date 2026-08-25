@@ -103,6 +103,16 @@
             <div class="menu-divider"></div>
             <div class="menu-option" data-action="prev-port" data-label="Previous Port" data-shortcut-mac="Shift+Tab" data-shortcut-win="Shift+Tab"></div>
             <div class="menu-option" data-action="next-port" data-label="Next Port" data-shortcut-mac="Tab" data-shortcut-win="Tab"></div>
+            <!-- Assignment clear. Armed by _prepareClearMenu (app-dock.js)
+                 when the right-click lands on a drawn port run, a power
+                 circuit, or a dock chip; hidden everywhere else. No
+                 data-label: the text names what was clicked and is written
+                 at open time, so updateShortcutLabels must not restamp it.
+                 An impossible clear stays visible but disabled, with the
+                 reason as its title - a row that cannot be clicked and does
+                 not say why teaches nothing. -->
+            <div class="menu-divider hw-clear-only" style="display: none;"></div>
+            <div class="menu-option hw-clear-only" data-action="hw-clear" style="display: none;"></div>
         </div>
 
         <div id="toolbar">
@@ -1595,7 +1605,7 @@
                     <div class="panel-content">
                         <div class="info-row">
                             <!-- minmax(0, 1fr) for the same reason as the
-                                 Port Assignment hosts below: an auto track
+                                 Port Numbering hosts below: an auto track
                                  sizes to min-content and overflows the
                                  180px clamp. -->
                             <div id="processor-list" style="display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px;"></div>
@@ -1605,23 +1615,26 @@
                     </div>
                 </div>
 
-                <!-- Port Assignment: which sending-card port each screen's
-                     ports sit on. Numbering is automatic and packs densely in
-                     screen order, but nothing here ever rearranges itself -
-                     looms are made up and labelled off the drawing days before
-                     anything is hung, so a clash, an overflow or a wall bigger
-                     than its card is REPORTED with an offer attached and the
-                     numbering only changes when somebody takes it.
+                <!-- Port Numbering: how each screen's ports land on the
+                     sending cards. Numbering is automatic and packs densely
+                     in screen order, but nothing here ever rearranges
+                     itself - looms are made up and labelled off the drawing
+                     days before anything is hung, so a clash, an overflow or
+                     a wall bigger than its card is REPORTED with an offer
+                     attached and the numbering only changes when somebody
+                     takes it. Making an assignment is the hardware dock's
+                     drag; this panel is the reporting, the auto toggle and
+                     the per-card usage counts.
 
                      Built by app-port-assignment.js rather than declared here,
                      for the same reason as the Processors panel above: the
-                     rows are per-screen with no fixed number of them, and the
-                     controls are project state rather than layer state, which
-                     is what tests/test_all_fields_sweep.py drives every
+                     issues are per-problem with no fixed number of them, and
+                     the controls are project state rather than layer state,
+                     which is what tests/test_all_fields_sweep.py drives every
                      declared control in a tab-panel at. -->
                 <div class="panel tab-panel" data-tab="data-flow" style="display: none;">
-                    <div class="panel-header" data-tooltip="Port Assignment, Assign each screen's ports to a sending card. Numbering is automatic; pin any port to hold it, and clashes or overflow are reported with a move you can take.">
-                        <h2>Port Assignment</h2>
+                    <div class="panel-header" data-tooltip="Port Numbering, Screens' ports are numbered onto the sending cards automatically; drag hardware from the dock to place them by hand. Clashes, overflow and stranded pins are reported here with a move you can take.">
+                        <h2>Port Numbering</h2>
                     </div>
                     <div class="panel-content">
                         <div class="info-row">
@@ -1630,7 +1643,6 @@
                                  clamp; pinned to the column, the rows' own
                                  wrapping absorbs the narrowness instead. -->
                             <div id="port-assignment-issues" style="display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px;"></div>
-                            <div id="port-assignment-list" style="display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin-top: 8px;"></div>
                             <div id="port-assignment-foot" style="margin-top: 8px;"></div>
                             <p id="port-assignment-empty-note" style="font-size: 11px; color: #888; margin: 6px 0 0;">Add a processor above and each screen's ports are numbered onto its cards automatically.</p>
                         </div>

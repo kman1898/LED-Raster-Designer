@@ -314,10 +314,9 @@ export class LEDRasterApp {
      * Which tile is open lives HERE (`_openTiles`, boxId -> tileId), never
      * in the DOM: both panels that draw tiles rebuild wholesale on every
      * resolution, and the open editor has to come back by id through the
-     * wipe - the same reason the fold state and the half-made choosers
-     * (_assigningPort, _movingPort) live off the markup. In memory only, on
-     * purpose: an editor is a gesture, not a preference, so unlike the fold
-     * it does not outlive the page.
+     * wipe - the same reason the fold state lives off the markup. In memory
+     * only, on purpose: an editor is a gesture, not a preference, so unlike
+     * the fold it does not outlive the page.
      */
     _tileOpenId(boxId) {
         return (this._openTiles || {})[boxId] || null;

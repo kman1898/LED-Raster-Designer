@@ -656,6 +656,19 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     background: #2a2a2a;
 }
 
+/* A menu item that cannot act right now. It keeps pointer events - the
+   title carries the REASON and a tooltip needs hover - so the click guard
+   lives in handleMenuClick, and this only takes away the affordances.
+   !important because theme.css sets .menu-option colours with it. */
+.menu-option.menu-disabled {
+    color: #666 !important;
+    cursor: default;
+}
+.menu-option.menu-disabled:hover {
+    background: none !important;
+    color: #666 !important;
+}
+
 .menu-divider {
     height: 1px;
     background: #333;

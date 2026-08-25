@@ -2323,6 +2323,10 @@ class _ExportIo {
             if (!target) return;
             // Don't close menu when hovering over submenu parent
             if (target.classList.contains('menu-has-submenu')) return;
+            // A disabled item is a sentence, not a control: it stays put so
+            // its title (the reason) can be read, and clicking it neither
+            // acts nor closes the menu - native menu behaviour.
+            if (target.classList.contains('menu-disabled')) return;
             const action = target.dataset.action;
             if (!action) return;
             hideMenus();
@@ -2496,6 +2500,16 @@ class _ExportIo {
                 break;
             case 'prev-port':
                 this.stepCustomPort(-1);
+                break;
+            // The assignment clear armed for this opening of the menu
+            // (showContextMenu stored it). Re-checked here rather than
+            // trusted: the disabled guard in handleMenuClick already blocks
+            // the click, but a keyboard-driven call must not clear either.
+            case 'hw-clear':
+                if (this._clearMenuAction && !this._clearMenuAction.disabled
+                        && typeof this._clearMenuAction.run === 'function') {
+                    this._clearMenuAction.run();
+                }
                 break;
             case 'bulk-set-blank':
                 this.setPanelsBlankBulk(this.getPixelMapSelectedPanels(), true);

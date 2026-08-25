@@ -1142,7 +1142,7 @@ class _Processors {
                 + (occupants.length > 1 ? ' - clash' : '');
             who.title = occupants.length > 1
                 ? `${parts.join(' and ')} both claim this port. Nothing has `
-                  + 'been renumbered - see Port Assignment.'
+                  + 'been renumbered - see Port Numbering.'
                 : `${occupants[0].name}, its port ${occupants[0].number}`;
         }
         row.appendChild(who);

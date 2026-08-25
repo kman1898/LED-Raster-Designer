@@ -736,7 +736,7 @@ def test_a_card_with_no_settled_count_still_takes_a_placement(client):
 def test_assigning_from_the_socket_lands_where_pinning_from_the_screen_does(
         one_card):
     """The Processors panel knows a card and a port number and asks which
-    screen plugs in; the Port Assignment panel knows a screen's port and asks
+    screen plugs in; the assignment side knows a screen's port and asks
     where it goes. Same cable, two ends, and they have to write the same pin -
     two implementations of "what does that mean" would disagree the first time
     a socket was already claimed."""
@@ -1101,14 +1101,14 @@ def test_the_panel_ships_no_declared_fields_into_the_field_sweep():
                             'templates', 'index.html')
     with open(template, encoding='utf-8') as fh:
         html = fh.read()
-    start = html.index('<h2>Port Assignment</h2>')
+    start = html.index('<h2>Port Numbering</h2>')
     end = html.index('<h2>Port Labels</h2>')
     panel = html[start:end]
     for tag in ('<input', '<select', '<textarea'):
         assert tag not in panel, (
-            f'{tag} declared in the Port Assignment panel markup - the field '
+            f'{tag} declared in the Port Numbering panel markup - the field '
             f'sweep would drive it at the selected layer')
-    assert 'id="port-assignment-list"' in panel
+    assert 'id="port-assignment-issues"' in panel
 
 
 # ── 8. Labels come from the one place that owns them ──────────────────────
@@ -1147,7 +1147,7 @@ def test_a_card_summary_carries_the_names_its_ports_go_by(one_card):
 
 # ── 9. Both ends of one cable ─────────────────────────────────────────────
 #
-# The Port Assignment panel asks "where did my ports go" and the Processors
+# The Port Numbering module asks "where did my ports go" and the Processors
 # panel asks "what is on this socket". They are the same question from the two
 # ends of one cable, and the answer has to be written once.
 
@@ -1169,8 +1169,8 @@ def function_body(source, signature):
 def test_both_surfaces_place_a_port_through_the_one_request():
     """Two request builders would be two sets of rules about what may land on
     an occupied socket, and they would disagree the first time one was
-    changed. The second surface is the hardware dock now - its port-onto-run
-    drop is the same placement the screen-side mover sends."""
+    changed. The placement lives in the panel module (_placePort) and the
+    hardware dock - the only surface that still sends it - calls it."""
     panel = js('app-port-assignment.js')
     dock = js('app-dock.js')
     assert panel.count("'/api/port-assignments/place'") == 1
@@ -1191,25 +1191,31 @@ def test_a_placement_asks_before_it_lands_on_somebody():
     assert 'this._placePort(spot, true);' in body
 
 
-def test_the_mover_is_keyed_for_the_focus_guard():
-    """The panel is rebuilt wholesale whenever anything re-resolves, so a
-    control with no stable key is destroyed under the user's fingers - the same
-    bug the port label editor had, fixed by the same _preserveEditorFocus.
-    (The processor-side chooser is gone: pointing a socket at a screen is the
-    hardware dock's drag, which holds no half-made state in a field.)"""
+def test_the_per_port_rows_stay_out_of_the_panel():
+    """The dock's drag is the assignment gesture, so the panel's per-port
+    pin selects, movers and release buttons - and the per-screen "Move whole
+    block" tools - are gone, from both panels. This pins the strip the way
+    the Processors panel's stripped chooser is pinned, so the rows cannot
+    quietly come back and grow a second set of assignment rules.
+
+    (Two prior tests lived here: one held the mover's data-lrd-field keys
+    for the focus guard, one held the mover's half-made choice off the DOM
+    in _movingPort. Both drove UI that no longer exists - the focus guard
+    itself is still exercised by the auto toggle's key below.)"""
     panel = js('app-port-assignment.js')
-    assert 'port-move-card-${scr.layerId}-${port.index}' in panel
-    assert 'port-move-port-${scr.layerId}-${port.index}' in panel
+    for gone in ('port-move-card-', 'port-move-port-', 'port-pin-',
+                 '_movingPort', 'Move whole block', 'Release all pins',
+                 '_buildAssignmentScreen', '_buildAssignmentPort'):
+        assert gone not in panel, (
+            f'{gone!r} is back in the panel module - assignment controls '
+            f'belong to the dock now')
     assert 'processor-port-assign-' not in js('app-processors.js'), (
         'the stripped chooser is back in the Processors panel')
-
-
-def test_a_half_made_choice_is_not_held_in_the_dom():
-    """The panel can be rebuilt by a screen being resized on the other side
-    of the app, so which port has its mover open lives on the app rather than
-    in the markup that is about to be thrown away."""
-    panel = js('app-port-assignment.js')
-    assert 'this._movingPort = null;' in panel
+    # What deliberately STAYS: the refuse-and-offer surface and the auto
+    # toggle. The dock does not replace warnings.
+    assert '_buildIssue(issue) {' in panel
+    assert '_buildOffer(offer) {' in panel
+    assert "dataset.lrdField = 'port-assignment-auto'" in panel
 
 
 def test_the_backup_template_rides_the_return_labels_here_too(one_card):

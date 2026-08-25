@@ -28,6 +28,20 @@ What is pinned here, with real pointer drags (mouse down/move/up):
     the assignment, undoably
   * an invalid target refuses with a reason (status bar), nothing mutates
 
+And the right-click clears (real button='right' clicks), the other way back:
+  * a drawn port run offers "Clear port <label>" - the existing unpin, one
+    'Release Port' undo step - and an auto run offers it DISABLED with the
+    drag-back reason as its title
+  * a dock port chip clears its pinned claimant; free and auto chips are
+    disabled with their reasons
+  * a dock card clears every pin on the card as ONE undo step
+  * a power circuit run offers "Clear multi <name>" - number then distro,
+    one 'Clear Multi' undo step - disabled with the reason when unassigned
+  * a slot chip clears every member of its (distro, number) box in one step;
+    the distro chip clears every multi assigned to it in one step
+  * a right-click on nothing clearable keeps the item off the menu entirely,
+    and the menu closes on click-away as it always has
+
 Run locally:
     python3 -m pytest tests/test_hardware_dock.py -q --browser chromium
 """
@@ -158,6 +172,60 @@ PANEL_POINT_JS = """([layerId, which]) => {
 
 PINS_JS = "() => (window.app.project.port_assignments || {}).pins || []"
 HIST_JS = "(n) => window.app.history.map(h => h.action).slice(-n)"
+HIST_LEN_JS = "() => window.app.history.length"
+
+# The context menu's clear item as the user sees it after a right-click:
+# whether the menu opened, whether the item is on it, what it says, and the
+# reason a disabled one carries in its title.
+CLEAR_ITEM_JS = """() => {
+    const menu = document.getElementById('context-menu');
+    const item = menu ? menu.querySelector('[data-action="hw-clear"]') : null;
+    if (!menu || !item) return null;
+    const r = menu.getBoundingClientRect();
+    return {
+        menuShown: menu.style.display === 'block',
+        shown: item.style.display !== 'none',
+        label: (item.textContent || '').trim(),
+        title: item.title,
+        disabled: item.classList.contains('menu-disabled'),
+        menuX: r.left, menuY: r.top,
+    };
+}"""
+
+MENU_SHOWN_JS = ("() => document.getElementById('context-menu')"
+                 ".style.display === 'block'")
+
+POWER_STATE_JS = """(layerId) => {
+    const l = window.app.project.layers.find(x => x.id === layerId);
+    return {distro: l.powerSocaDistro || {}, num: l.powerSocaNumber || {}};
+}"""
+
+
+def right_click(page, x, y):
+    """A real right-click, and what the clear item looks like once the
+    menu is up."""
+    page.mouse.click(x, y, button='right')
+    page.wait_for_timeout(400)
+    return page.evaluate(CLEAR_ITEM_JS)
+
+
+def take_clear(page):
+    page.locator('#context-menu [data-action="hw-clear"]').click()
+    page.wait_for_timeout(800)
+
+
+def close_menu(page):
+    """Click-away on an empty canvas corner. NOT (30, 30): that is the menu
+    BAR, whose item handler stops propagation, so the document-level click
+    that hides the context menu never fires and the menu stays up - covering
+    whatever the next right-click aims at."""
+    pt = page.evaluate("""() => {
+        const r = window.canvasRenderer.canvas.getBoundingClientRect();
+        return {x: r.left + 15, y: r.top + 15};
+    }""")
+    page.mouse.click(pt['x'], pt['y'])
+    page.wait_for_timeout(250)
+    assert not page.evaluate(MENU_SHOWN_JS), 'click-away did not close it'
 
 
 @pytest.fixture(scope="module")
@@ -708,3 +776,292 @@ def test_a_backing_port_wears_its_role_in_the_dock(dock_page):
             await window.app.refreshProcessors();
         }""", ids)
         page.wait_for_timeout(600)
+
+
+# ── right-click: clear from the run or the chip ───────────────────────────
+#
+# The same releases the drag-back performs, reachable without a drag. Every
+# item confirms nothing - clearing is undoable and touches only the
+# assignment - and every impossible clear is offered DISABLED with the
+# reason as its title, so the rule is read before the gesture, not after.
+
+
+def test_right_click_on_a_run_clears_its_pin(dock_page):
+    page, ids = dock_page
+    open_view(page, 'data-flow')
+    page.evaluate(RESET_DATA_JS, ids)
+    # a pinned run to clear - the same placement the drag-back test uses
+    page.evaluate("""async (ids) => {
+        const app = window.app;
+        await app._assignmentRequest('/api/port-assignments/place', 'POST',
+            {layerId: String(ids.aId), index: 1, cardId: ids.cardId,
+             port: 8, confirm: false});
+        app.resetHistory('Dock Seed');
+    }""", ids)
+    page.wait_for_timeout(500)
+    assert len(page.evaluate(PINS_JS)) == 5
+
+    tgt = panel_point(page, ids['aId'], {'port': 2})
+    item = right_click(page, tgt['x'], tgt['y'])
+    assert item and item['menuShown'], 'no context menu opened on the run'
+    assert item['shown'], 'the clear item is not on the menu over a run'
+    assert not item['disabled'], item
+    assert item['label'].startswith('Clear port '), item
+    # the menu opens where the cursor is (clamped to the window at worst)
+    assert abs(item['menuX'] - tgt['x']) < 300, item
+    assert abs(item['menuY'] - tgt['y']) < 300, item
+
+    take_clear(page)
+    assert not page.evaluate(MENU_SHOWN_JS), 'the menu stayed open'
+    pins = page.evaluate(PINS_JS)
+    assert not any(p['index'] == 1 and p['layerId'] == str(ids['aId'])
+                   for p in pins), f'the pin was not released: {pins}'
+    assert page.evaluate(HIST_JS, 1) == ['Release Port']
+    page.evaluate("() => window.app.undo()")
+    page.wait_for_timeout(900)
+    assert any(p['port'] == 8 for p in page.evaluate(PINS_JS)), (
+        'undo did not restore the cleared pin')
+    page.evaluate(RESET_DATA_JS, ids)
+    page.wait_for_timeout(300)
+
+
+def test_an_auto_run_offers_the_clear_disabled_with_the_reason(dock_page):
+    page, ids = dock_page
+    open_view(page, 'data-flow')
+    page.evaluate(RESET_DATA_JS, ids)
+    page.wait_for_timeout(500)
+
+    tgt = panel_point(page, ids['aId'], {'port': 2})
+    item = right_click(page, tgt['x'], tgt['y'])
+    assert item['shown'] and item['disabled'], item
+    assert 'numbered automatically' in item['title'], item
+    assert 'no pin to release' in item['title'], item
+    # a click on the disabled item performs NOTHING. The menu itself closes,
+    # because this menu closes on every document click - the existing
+    # click-away behaviour, which applies to the item too.
+    take_clear(page)
+    assert not page.evaluate(MENU_SHOWN_JS), (
+        'the menu ignored the click-away rule it has everywhere else')
+    assert page.evaluate(PINS_JS) == [], 'a disabled clear still cleared'
+    assert page.evaluate(HIST_JS, 1) == ['Dock Seed'], (
+        'a disabled clear earned a history entry')
+
+
+def test_a_dock_card_right_click_clears_every_pin_as_one_step(dock_page):
+    page, ids = dock_page
+    open_view(page, 'data-flow')
+    page.evaluate(RESET_DATA_JS, ids)
+    page.evaluate("""async (ids) => {
+        const app = window.app;
+        await app._assignmentRequest('/api/port-assignments/place', 'POST',
+            {layerId: String(ids.aId), index: 1, cardId: ids.cardId,
+             port: 8, confirm: false});
+        app.resetHistory('Dock Seed');
+    }""", ids)
+    page.wait_for_timeout(500)
+    assert len(page.evaluate(PINS_JS)) == 5
+    before = page.evaluate(HIST_LEN_JS)
+
+    sx, sy = dock_tile_center(page, f'card-{ids["cardId"]}')
+    item = right_click(page, sx, sy)
+    assert item['shown'] and not item['disabled'], item
+    assert item['label'].startswith('Clear '), item
+    take_clear(page)
+    assert page.evaluate(PINS_JS) == [], 'the card clear left pins behind'
+    assert page.evaluate(HIST_JS, 1) == ['Release Ports']
+    assert page.evaluate(HIST_LEN_JS) == before + 1, (
+        'the batch clear is not ONE history entry')
+    page.evaluate("() => window.app.undo()")
+    page.wait_for_timeout(900)
+    assert len(page.evaluate(PINS_JS)) == 5, (
+        'one undo did not put every pin back')
+    page.evaluate(RESET_DATA_JS, ids)
+    page.wait_for_timeout(300)
+
+
+def test_a_dock_port_chip_clears_only_a_pinned_claimant(dock_page):
+    page, ids = dock_page
+    open_view(page, 'data-flow')
+    page.evaluate(RESET_DATA_JS, ids)
+    page.wait_for_timeout(500)
+
+    # an AUTO claimant: nothing to release, and the title says what would
+    sx, sy = dock_tile_center(page, f'port-{ids["cardId"]}-3')
+    item = right_click(page, sx, sy)
+    assert item['shown'] and item['disabled'], item
+    assert 'no pin to release' in item['title'], item
+    close_menu(page)
+
+    # a FREE socket: nothing on it at all
+    sx, sy = dock_tile_center(page, f'port-{ids["cardId"]}-16')
+    item = right_click(page, sx, sy)
+    assert item['shown'] and item['disabled'], item
+    assert 'free' in item['title'], item
+    close_menu(page)
+
+    # a PINNED claimant clears, same release as the drag-back
+    page.evaluate("""async (ids) => {
+        const app = window.app;
+        await app._assignmentRequest('/api/port-assignments/place', 'POST',
+            {layerId: String(ids.aId), index: 1, cardId: ids.cardId,
+             port: 8, confirm: false});
+        app.resetHistory('Dock Seed');
+    }""", ids)
+    page.wait_for_timeout(500)
+    sx, sy = dock_tile_center(page, f'port-{ids["cardId"]}-8')
+    item = right_click(page, sx, sy)
+    assert item['shown'] and not item['disabled'], item
+    take_clear(page)
+    pins = page.evaluate(PINS_JS)
+    assert not any(p['port'] == 8 for p in pins), (
+        f'the chip clear did not release the pin: {pins}')
+    assert page.evaluate(HIST_JS, 1) == ['Release Port']
+    page.evaluate(RESET_DATA_JS, ids)
+    page.wait_for_timeout(300)
+
+
+def test_right_click_on_a_circuit_clears_the_multi_in_one_step(dock_page):
+    page, ids = dock_page
+    open_view(page, 'power')
+    page.evaluate(RESET_POWER_JS, ids)
+    page.wait_for_timeout(500)
+
+    # unassigned first: the item is there, disabled, and says why
+    tgt = panel_point(page, ids['aId'], {'circuit': 0})
+    item = right_click(page, tgt['x'], tgt['y'])
+    assert item['shown'] and item['disabled'], item
+    assert 'not on a distro' in item['title'], item
+    close_menu(page)
+
+    page.evaluate("""(ids) => {
+        const app = window.app;
+        const a = app.project.layers.find(x => x.id === ids.aId);
+        app.setSocaDistro(a, 1, ids.distroId);
+        app.setSocaNumber(a, 1, 1);
+        app._restateNaming();
+        app.resetHistory('Dock Seed');
+    }""", ids)
+    page.wait_for_timeout(700)
+    before = page.evaluate(HIST_LEN_JS)
+
+    tgt = panel_point(page, ids['aId'], {'circuit': 0})
+    item = right_click(page, tgt['x'], tgt['y'])
+    assert item['shown'] and not item['disabled'], item
+    assert item['label'].startswith('Clear multi '), item
+    take_clear(page)
+    out = page.evaluate(POWER_STATE_JS, ids['aId'])
+    assert out == {'distro': {}, 'num': {}}, (
+        f'the clear did not unassign the multi: {out}')
+    assert page.evaluate(HIST_JS, 1) == ['Clear Multi']
+    assert page.evaluate(HIST_LEN_JS) == before + 1, (
+        'the multi clear is not ONE history entry')
+    page.evaluate("() => window.app.undo()")
+    page.wait_for_timeout(900)
+    out = page.evaluate(POWER_STATE_JS, ids['aId'])
+    assert out['distro'] == {'1': ids['distroId']} and out['num'] == {'1': 1}, (
+        f'one undo did not restore distro AND number: {out}')
+    page.evaluate(RESET_POWER_JS, ids)
+
+
+def test_a_slot_chip_right_click_clears_every_member_in_one_step(dock_page):
+    """The chip is the box: two screens joined on one (distro, number) both
+    come off it, one undo entry, one undo puts both back."""
+    page, ids = dock_page
+    open_view(page, 'power')
+    page.evaluate(RESET_POWER_JS, ids)
+    page.evaluate("""(ids) => {
+        const app = window.app;
+        const a = app.project.layers.find(x => x.id === ids.aId);
+        const b = app.project.layers.find(x => x.id === ids.bId);
+        app.setSocaDistro(a, 1, ids.distroId);
+        app.setSocaNumber(a, 1, 1);
+        app.setSocaDistro(b, 1, ids.distroId);
+        app.setSocaNumber(b, 1, 1);
+        app._restateNaming();
+        app.resetHistory('Dock Seed');
+    }""", ids)
+    page.wait_for_timeout(700)
+    before = page.evaluate(HIST_LEN_JS)
+
+    sx, sy = dock_tile_center(page, f'slot-{ids["distroId"]}-1')
+    item = right_click(page, sx, sy)
+    assert item['shown'] and not item['disabled'], item
+    assert item['label'].startswith('Clear '), item
+    take_clear(page)
+    for lid in (ids['aId'], ids['bId']):
+        out = page.evaluate(POWER_STATE_JS, lid)
+        assert out == {'distro': {}, 'num': {}}, (
+            f'layer {lid} kept its assignment: {out}')
+    assert page.evaluate(HIST_JS, 1) == ['Clear Multi']
+    assert page.evaluate(HIST_LEN_JS) == before + 1, (
+        'the box clear is not ONE history entry')
+    page.evaluate("() => window.app.undo()")
+    page.wait_for_timeout(900)
+    for lid in (ids['aId'], ids['bId']):
+        out = page.evaluate(POWER_STATE_JS, lid)
+        assert out['distro'] == {'1': ids['distroId']}, (
+            f'one undo did not restore layer {lid}: {out}')
+    page.evaluate(RESET_POWER_JS, ids)
+
+
+def test_the_distro_chip_right_click_clears_every_multi_on_it(dock_page):
+    page, ids = dock_page
+    open_view(page, 'power')
+    page.evaluate(RESET_POWER_JS, ids)
+    page.wait_for_timeout(500)
+
+    # nothing assigned: the item is there, disabled, and says why
+    sx, sy = dock_tile_center(page, f'distro-{ids["distroId"]}')
+    item = right_click(page, sx, sy)
+    assert item['shown'] and item['disabled'], item
+    assert 'No multis are assigned' in item['title'], item
+    close_menu(page)
+
+    # both screens feeding off it, auto numbers - the clear takes them all
+    page.evaluate("""(ids) => {
+        const app = window.app;
+        const a = app.project.layers.find(x => x.id === ids.aId);
+        const b = app.project.layers.find(x => x.id === ids.bId);
+        app.setSocaDistro(a, 1, ids.distroId);
+        app.setSocaDistro(b, 1, ids.distroId);
+        app._restateNaming();
+        app.resetHistory('Dock Seed');
+    }""", ids)
+    page.wait_for_timeout(700)
+    before = page.evaluate(HIST_LEN_JS)
+
+    sx, sy = dock_tile_center(page, f'distro-{ids["distroId"]}')
+    item = right_click(page, sx, sy)
+    assert item['shown'] and not item['disabled'], item
+    take_clear(page)
+    for lid in (ids['aId'], ids['bId']):
+        out = page.evaluate(POWER_STATE_JS, lid)
+        assert out['distro'] == {}, f'layer {lid} kept its distro: {out}'
+    assert page.evaluate(HIST_JS, 1) == ['Clear Distro']
+    assert page.evaluate(HIST_LEN_JS) == before + 1, (
+        'the distro clear is not ONE history entry')
+    page.evaluate("() => window.app.undo()")
+    page.wait_for_timeout(900)
+    for lid in (ids['aId'], ids['bId']):
+        out = page.evaluate(POWER_STATE_JS, lid)
+        assert out['distro'] == {'1': ids['distroId']}, (
+            f'one undo did not restore layer {lid}: {out}')
+    page.evaluate(RESET_POWER_JS, ids)
+
+
+def test_right_click_on_nothing_clearable_keeps_the_item_off_the_menu(dock_page):
+    page, ids = dock_page
+    open_view(page, 'data-flow')
+    page.evaluate(RESET_DATA_JS, ids)
+    page.wait_for_timeout(400)
+    # a canvas point left of every panel (world x < 0 at this pan/zoom)
+    corner = page.evaluate("""() => {
+        const rect = window.canvasRenderer.canvas.getBoundingClientRect();
+        return {x: rect.left + 15, y: rect.top + 15};
+    }""")
+    item = right_click(page, corner['x'], corner['y'])
+    assert item['menuShown'], 'the ordinary context menu should still open'
+    assert not item['shown'], (
+        'the clear item is on the menu with nothing clearable under the '
+        'cursor')
+    close_menu(page)
