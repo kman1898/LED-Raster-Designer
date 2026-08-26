@@ -369,14 +369,19 @@ label:has(#use-fractional-inches) { margin-left:8px !important; flex-shrink:0; }
 #power-sidebar:not(.collapsed) { width:var(--lrd-power-w, 260px); }
 #left-sidebar.collapsed, #right-sidebar.collapsed, #data-sidebar.collapsed,
 #power-sidebar.collapsed { width:0 !important; min-width:0 !important; }
-/* no width animation while actively dragging - every resizable panel has one,
-   and a panel that keeps it rubber-bands behind the pointer */
+/* no size animation while actively dragging - every resizable panel has one,
+   and a panel that keeps it rubber-bands behind the pointer. The dock's is
+   its height transition, same rule turned on its side. */
 #app.lrd-resizing #left-sidebar,
 #app.lrd-resizing #data-sidebar,
 #app.lrd-resizing #power-sidebar,
-#app.lrd-resizing #right-sidebar { transition:none !important; }
-/* drag strip on the inner edge of each sidebar */
+#app.lrd-resizing #right-sidebar,
+#app.lrd-resizing #hardware-dock { transition:none !important; }
+/* drag strip on the inner edge of each panel; the -y variant is the dock's,
+   lying along its top edge (theme.js sets left/width there, so only the
+   fixed dimension and the cursor change) */
 .lrd-resize-handle { position:fixed; width:7px; z-index:45; cursor:col-resize; background:transparent; }
+.lrd-resize-handle-y { width:auto; height:7px; cursor:row-resize; }
 .lrd-resize-handle:hover, .lrd-resize-handle.lrd-dragging { background:var(--ps-accent); opacity:0.55; }
 /* keep the collapse toggles clickable above the resize strip */
 .sidebar-toggle { z-index:60 !important; }
@@ -442,6 +447,9 @@ select, .info-select {
    border-top, so the dock owns exactly one line. */
 #hardware-dock { background:linear-gradient(#333,#2c2c2c) !important; border-top:1px solid var(--ps-dark) !important;
   box-shadow:inset 0 1px 0 #424242 !important; }
+/* folded, the tray must leave no seam line behind - the border and highlight
+   above carry !important, so their removal has to as well */
+#hardware-dock.collapsed { border-top:none !important; box-shadow:none !important; }
 #hardware-dock-body { background:var(--ps-panel-2) !important; }
 /* Drag feedback lives here, not in style.css: theme.css's !important tile
    rules silently killed the layer list's drag indicators once already

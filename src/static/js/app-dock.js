@@ -50,22 +50,11 @@ class _HardwareDock {
         if (!dock) return;
         this._dockDrag = null;
         this._dockDropTarget = null;
-        // The dock folds by the standard section machinery (the markup is a
-        // .lrd-sec-head/.lrd-sec-body pair initSectionCollapse already
-        // wired), but that machinery knows nothing about the canvas - and a
-        // tray leaving or entering the flex column changes the height the
-        // canvas has to fill, exactly like a sidebar changing width. Watch
-        // the class rather than re-implementing the toggle.
-        if (typeof MutationObserver === 'function') {
-            let folded = dock.classList.contains('lrd-sec-collapsed');
-            new MutationObserver(() => {
-                const now = dock.classList.contains('lrd-sec-collapsed');
-                if (now !== folded) {
-                    folded = now;
-                    this.settleLayout();
-                }
-            }).observe(dock, { attributes: true, attributeFilter: ['class'] });
-        }
+        // Fold and height are the sidebars' machinery transposed, not the
+        // section machinery: initSidebarToggles (app-core.js) owns the
+        // collapse - and settles the canvas after it - and theme.js's
+        // PANELS row owns the drag-resize, so there is nothing to watch
+        // here the way the old section fold needed watching.
         this.renderHardwareDock();
     }
 

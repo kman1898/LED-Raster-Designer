@@ -113,6 +113,9 @@ export class LEDRasterApp {
      * same thing as `key`: the Signal and Power panels are middle columns that
      * dock left like the left sidebar, so their toggles hug their right-hand
      * edges the same way, but their storage keys have to stay their own.
+     * The hardware dock is the horizontal member of the family - it docks to
+     * the BOTTOM of the canvas column, so its chevrons point down/up and its
+     * toggle hugs its top edge, the sidebars' rule turned on its side.
      */
     initSidebarToggles() {
         const sides = [
@@ -120,6 +123,7 @@ export class LEDRasterApp {
             { key: 'data', edge: 'left', label: 'signal', sidebarId: 'data-sidebar', toggleId: 'data-sidebar-toggle', expandSym: '›', collapseSym: '‹' },
             { key: 'power', edge: 'left', label: 'power', sidebarId: 'power-sidebar', toggleId: 'power-sidebar-toggle', expandSym: '›', collapseSym: '‹' },
             { key: 'right', edge: 'right', label: 'right', sidebarId: 'right-sidebar', toggleId: 'right-sidebar-toggle', expandSym: '‹', collapseSym: '›' },
+            { key: 'dock', edge: 'bottom', label: 'hardware', sidebarId: 'hardware-dock', toggleId: 'hardware-dock-toggle', expandSym: '▴', collapseSym: '▾' },
         ];
         // Kept so a panel entering or leaving layout (see
         // updateViewSidebars) can re-pin every toggle at once.
@@ -134,9 +138,17 @@ export class LEDRasterApp {
                 if (edge === 'left') {
                     btn.style.left = `${Math.round(rect.right)}px`;
                     btn.style.right = '';
-                } else {
+                } else if (edge === 'right') {
                     btn.style.right = `${Math.round(window.innerWidth - rect.left)}px`;
                     btn.style.left = '';
+                } else {
+                    // Bottom-docked: the toggle hangs above the tray's top
+                    // edge, centred on it - "hug the inner edge" turned on
+                    // its side. The CSS translate(-50%, -100%) makes these
+                    // coordinates the tab's centre and bottom.
+                    btn.style.left = `${Math.round(rect.left + rect.width / 2)}px`;
+                    btn.style.top = `${Math.round(rect.top)}px`;
+                    btn.style.right = '';
                 }
             };
             const apply = (collapsed) => {
@@ -450,7 +462,7 @@ export class LEDRasterApp {
         const panels = [
             { sidebarId: 'data-sidebar', toggleId: 'data-sidebar-toggle', modes: ['data-flow'] },
             { sidebarId: 'power-sidebar', toggleId: 'power-sidebar-toggle', modes: ['power'] },
-            { sidebarId: 'hardware-dock', toggleId: null, modes: ['data-flow', 'power'] },
+            { sidebarId: 'hardware-dock', toggleId: 'hardware-dock-toggle', modes: ['data-flow', 'power'] },
         ];
         let touched = false;
         panels.forEach(({ sidebarId, toggleId, modes }) => {

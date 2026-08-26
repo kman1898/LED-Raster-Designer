@@ -18,9 +18,11 @@ Three things here are deliberately awkward, and all three are the hardware:
   It is still a real device someone specs, so it stays selectable and reports
   its ceiling as unknown. A guessed ceiling silently caps a wall.
 * A COUNT CAN BE CONDITIONAL. H_4xfiber is 32 independent and 16 in
-  copy/backup; MX40 Pro is 40 or 20 by optical mode; a redundant Brompton is
-  half of what its datasheet says. Those are modes on the device, chosen per
-  instance, not separate devices.
+  copy/backup; MX40 Pro is 40 or 20 by optical mode. Those are modes on the
+  device, chosen per instance, not separate devices. A redundant Brompton
+  keeps every socket on the drawing and halves only what is USABLE - the
+  vendor's own capacity tool says half, and the halving lands on roles
+  (resolve_card's `usable`, the backup mapping), never on socket numbers.
 """
 import json
 import os
@@ -387,10 +389,22 @@ def new_processor(device_id, seq, name=''):
             proc['slots'].append({'index': i, 'card': None})
     else:
         proc['mode'] = None  # the fixed card carries the mode instead
-        proc['slots'].append({
-            'index': 0,
-            'card': new_card(device_id, f'{seq}f', fixed=True),
-        })
+        card = new_card(device_id, f'{seq}f', fixed=True)
+        # A device with no fixture ports of its own arrives WITH its boxes
+        # where the catalog names a default one. The SX40 is the case, by
+        # ruling (2026-08-25): "The sx40 by default has to use 10 port
+        # breakout boxes" - so a fresh SX40 is four XDs, ports 1-10 to
+        # 31-40, the way one leaves the shop. A default and nothing more:
+        # each box deletes like any box, and another documented box type
+        # can take its trunk (though behind an SX40 every documented box
+        # still delivers 10 - the trunk cap sees to that).
+        default_box = device.get('defaultCvt')
+        if device.get('requiresDistribution') and default_box:
+            for i in range(device.get('trunks') or 0):
+                box = new_cvt(default_box, f'{seq}f{i}')
+                if box:
+                    card['cvts'].append(box)
+        proc['slots'].append({'index': 0, 'card': card})
     return proc
 
 
@@ -577,18 +591,20 @@ def resolve_card(card, proc):
     """Expand one card into its ports, with the label each port carries."""
     device = get_device(card.get('deviceId')) or {}
     shape = card_redundancy_shape(card, proc, device)
-    # ONLY the trunk-level fixed pairing halves the ceiling here (SX40: pairs
-    # of trunks carry one block, so the numbered ports really are half). A
-    # port-level sequential card - S8 forced, or the mode chosen - keeps its
-    # full numbering instead, because its even ports still EXIST: they are
-    # the returns of the odd ones, and a tech patching the backup loom into
-    # port 2 needs port 2 on the drawing. Usable capacity halves either way;
-    # for the port-level shape that is `usable` below, not the ceiling. A
+    # REDUNDANCY NEVER RENUMBERS A SOCKET. The ceiling stays the datasheet
+    # count under every shape, because the backing ports still EXIST: they
+    # are the returns of the mains, and a tech patching a backup loom into
+    # socket 21 needs socket 21 on the drawing (the S8 said this first -
+    # port 2 is main 1's return, and it stays port 2). The trunk-level fixed
+    # pairing (SX40) used to halve the ceiling here instead, which is what
+    # the user reported as "limits to 20 primaries but it should be 10 per
+    # box" (2026-08-25): halving renumbered box C from sockets 21-30 down to
+    # 11-20 and erased 21-40 from the drawing. Now every shape says the same
+    # thing - usable capacity halves (`usable` below), the numbering never
+    # does, and the pairing lands port-to-port in _apply_backup_mapping. A
     # 1to1 card halves nothing - the backup UNIT is what redundancy consumes
     # - and manual takes only the ports somebody named.
-    halve = bool(shape and shape['forced'] and shape['level'] == 'trunk')
-    cap = port_capacity(card.get('deviceId'), card.get('mode'),
-                        redundancy=halve)
+    cap = port_capacity(card.get('deviceId'), card.get('mode'))
     ceiling = cap['count']
 
     # A TRUNK DELIVERS A BLOCK OF THE CARD'S PORTS. IT DOES NOT CREATE ANY.
@@ -626,15 +642,16 @@ def resolve_card(card, proc):
                    if (ceiling and per_trunk and ceiling >= per_trunk) else 0)
 
     # WHICH TRUNK BACKS WHICH IS THE VENDOR'S CALL, NOT A PATTERN. NovaStar
-    # documents interleaved copies - OPT 3/4 back up OPT 1/2 - which is what
-    # `block = index mod block count` produces. Brompton documents ADJACENT
-    # pairs, verbatim: "A back up to B, C back up to D automatically; that is
-    # the only way it works" - so under Brompton redundancy a pair of
-    # neighbouring trunks carries one block between them, and the box on the
-    # second trunk of a pair is the first one's backup by construction.
-    # Neither shape is ever applied to the other vendor, and Megapixel gets
-    # neither, because none is documented for it.
-    adjacent = halve
+    # documents interleaved copies - OPT 3/4 back up OPT 1/2 - expressed in
+    # the card's own MODE: copy-backup halves the block count, so
+    # `block = index mod block count` really does deliver ports 1-8 again on
+    # OPT 3. Brompton documents ADJACENT pairs, verbatim: "A back up to B,
+    # C back up to D automatically; that is the only way it works" - whole
+    # boxes, and every box keeps its own sockets: B is 11-20 carrying the
+    # returns of A's 1-10, never a second delivery of 1-10. So Brompton's
+    # pairing takes nothing from the block arithmetic; it is stated below
+    # (paired_backs_up) and wired port-to-port in _apply_backup_mapping.
+    paired = bool(shape and shape['forced'] and shape['level'] == 'trunk')
 
     cvts = []
     claimed = 0
@@ -678,7 +695,7 @@ def resolve_card(card, proc):
                 index += 1
         taken.update(range(index, index + takes))
         if block_count and index + takes <= trunks:
-            block = ((index // 2) if adjacent else index) % block_count
+            block = index % block_count
             first = block * per_trunk + 1
             over_trunk = False
             # A box can never deliver ports the card does not have, however
@@ -722,6 +739,21 @@ def resolve_card(card, proc):
         placed_by_id[resolved['id']] = resolved
         if size:
             claimed = max(claimed, first + size - 1)
+
+    # The fixed pairing pairs WHOLE BOXES: the box on the second trunk of an
+    # adjacent pair is the first one's backup - B carries A's returns, D
+    # carries C's - by construction, not by anyone's pick. Said on the
+    # resolved box (the same `backupOf` the NovaStar pair stores) so the
+    # panel's "backs up A" line reads off one field either way; derived here
+    # every resolve and stored nowhere, because a fact of the device is not
+    # project state.
+    if paired:
+        on_trunk = {c['trunkIndex']: c for c in cvts
+                    if c['trunksIn'] == 1 and not c['beyondTrunks']}
+        for index, box in on_trunk.items():
+            primary = on_trunk.get(index - 1)
+            if index % 2 == 1 and primary and not box['backupOf']:
+                box['backupOf'] = primary['id']
 
     # A box can only claim past the ceiling by hanging off a trunk that is not
     # there - five CVT10s on a four-trunk card. That stays visible rather than
@@ -919,10 +951,14 @@ def resolve_card(card, proc):
         # port-to-port consequences - backedBy, backsUp, mapped return
         # labels - land in resolve_all, because a 1to1 backup can live on
         # another processor and one card cannot see that far.
+        # Sequential halves what is USABLE at either level - odd ports on a
+        # port-level card, boxes A and C on a trunk-level one (the SX40's
+        # 20: 10 per primary box) - and never the ceiling, which is the
+        # socket count. 1to1 and manual leave usable at the ceiling: what
+        # they consume is a backup unit, or exactly the ports picked.
         'redundancyShape': dict(shape, usable=(
             ceiling - ceiling // 2
-            if (ceiling and shape['mode'] == 'sequential'
-                and shape['level'] == 'port')
+            if (ceiling and shape['mode'] == 'sequential')
             else ceiling)) if shape else None,
         'redundancyMode': card.get('redundancyMode') or '',
         'backupCardId': card.get('backupCardId') or None,
@@ -1032,8 +1068,10 @@ def _apply_backup_mapping(processors, resolved):
     A port backs at most one main: the first claim in panel order stands and
     a later one is skipped, so a degenerate file (hand-edited, or stale
     after deletes) resolves deterministically instead of flapping. The fixed
-    trunk-level pairing (SX40) takes nothing from here - its backup is a box
-    on the paired trunk, already expressed in the trunk blocks.
+    trunk-level pairing (SX40) maps here too, a block at a time: trunk pairs
+    carry box pairs, so main n in an even block returns on n + portsPerTrunk
+    in the odd block beside it - socket 1 returns on 11, 21 on 31 - and the
+    backing box's sockets keep their own numbers on the drawing.
     """
     raw_cards = {}
     res_cards = {}
@@ -1117,6 +1155,19 @@ def _apply_backup_mapping(processors, resolved):
             for n in numbers:
                 if n % 2 == 1 and (n + 1) in ports_of[cid]:
                     link(cid, n, cid, n + 1)
+        elif shape['mode'] == 'sequential' and shape['level'] == 'trunk':
+            # The SX40's box-level pairing, in socket numbers: trunk pairs
+            # A/B and C/D each carry a portsPerTrunk-sized block twice over
+            # in ROLE, never in numbering - the mains are the even blocks
+            # (sockets 1-10, 21-30) and each returns on the same socket of
+            # the block beside it (11-20, 31-40). "10 per box", per the
+            # 2026-08-25 ruling.
+            per_trunk = res_cards[cid][0].get('portsPerTrunk')
+            if per_trunk:
+                for n in sorted(ports_of[cid]):
+                    if ((n - 1) // per_trunk) % 2 == 0 \
+                            and (n + per_trunk) in ports_of[cid]:
+                        link(cid, n, cid, n + per_trunk)
         elif shape['mode'] == 'manual' and not shape['forced']:
             raw, _proc = raw_cards[cid]
             entries = raw.get('backupPorts') or {}

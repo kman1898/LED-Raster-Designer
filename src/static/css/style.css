@@ -112,6 +112,21 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
    layout. */
 #data-sidebar-toggle,
 #power-sidebar-toggle { border-left: none; border-radius: 0 4px 4px 0; top: calc(50% + 70px); }
+/* The hardware dock's toggle is the same chevron turned on its side: a wide,
+   short tab hanging above the tray's top edge. JS (initSidebarToggles) pins
+   left to the dock's centre and top to its top edge; the translate makes
+   those the tab's centre and bottom, so it sits flush ON the edge the way
+   the side toggles hug theirs. */
+#hardware-dock-toggle {
+    width: 56px;
+    height: 15px;
+    font-size: 11px;
+    transform: translate(-50%, -100%);
+    border-bottom: none;
+    border-radius: 4px 4px 0 0;
+    transition: background 0.15s, color 0.15s, left 0.18s ease, top 0.18s ease;
+}
+#hardware-dock-toggle.view-hidden { display: none; }
 #right-sidebar > .panel { margin: 0 10px 0 10px; flex: 1; overflow: hidden; min-height: 0; display: flex; flex-direction: column; }
 #right-sidebar > .panel > .panel-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 #right-sidebar > .panel > .panel-content > #layers-list { flex: 1; min-height: 0; overflow-y: auto; }
@@ -1281,18 +1296,39 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
    in the column - no height arithmetic anywhere, the same rule the sidebars
    follow for width. Out of its views it leaves layout entirely
    (.view-hidden), the middle sidebars' doctrine: anyone who never opens Data
-   or Power sees no change at all. */
-#hardware-dock { flex: 0 0 auto; border-top: 1px solid #131313; }
+   or Power sees no change at all.
+
+   Its height is the sidebars' width story transposed: a fixed size driven by
+   a CSS var (set/persisted by theme.js's dock row), the body scrolling
+   vertically inside it, and .collapsed folding it to nothing while the
+   chevron above its top edge (initSidebarToggles) stays as the way back.
+   172px default = the 21px header + 1px border + the 150px body the tray
+   always capped itself at. */
+#hardware-dock {
+    flex: 0 0 auto; border-top: 1px solid #131313;
+    display: flex; flex-direction: column;
+    box-sizing: border-box;
+    height: var(--lrd-dock-h, 172px);
+    transition: height 0.18s ease;
+}
 #hardware-dock.view-hidden { display: none; }
-/* The body scrolls VERTICALLY inside a capped height rather than growing the
-   tray without bound - the canvas is the star of this column. Sideways it
-   reflows (the tile grid's own rule), never scrolls. */
+#hardware-dock.collapsed {
+    height: 0;
+    min-height: 0;
+    border-top: none;
+    overflow: hidden;
+}
+/* The body scrolls VERTICALLY inside whatever height the tray has - the
+   canvas is the star of this column. Sideways it reflows (the tile grid's
+   own rule), never scrolls. */
 #hardware-dock-body {
-    max-height: 150px; overflow-y: auto; overflow-x: hidden;
+    flex: 1 1 auto; min-height: 0;
+    overflow-y: auto; overflow-x: hidden;
     padding: 6px 8px;
     display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start;
+    align-content: flex-start;
 }
-#hardware-dock .lrd-sec-head { font-size: 11px; }
+#hardware-dock .hw-dock-head { font-size: 11px; flex: 0 0 auto; }
 .hw-dock-note { font-size: 11px; color: #888; padding: 2px 0; }
 /* Units GROW along the tray: this is a horizontal strip under a wide canvas,
    so a 40-port card spreads into a wide shallow grid rather than stacking

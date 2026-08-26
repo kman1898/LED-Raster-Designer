@@ -1790,13 +1790,17 @@
                      hardware sits in, dragged from here onto the canvas to
                      assign. Ships view-hidden like the middle sidebars so the
                      three non-hardware views see no flash on first paint;
-                     updateViewSidebars shows it per view. It folds by the
-                     standard section machinery (lrd-sec-head/-body). -->
+                     updateViewSidebars shows it per view. It collapses and
+                     drag-resizes the way the sidebars do, transposed to
+                     height: the chevron above its top edge folds it
+                     (initSidebarToggles), the strip on the same edge resizes
+                     it (theme.js PANELS). -->
+                <button id="hardware-dock-toggle" class="sidebar-toggle view-hidden" data-side="dock" title="Collapse hardware tray" aria-label="Toggle hardware tray">▾</button>
                 <div id="hardware-dock" class="view-hidden" data-tooltip="Hardware, The view's processors or distros. Drag a port, card, box, multi slot or distro onto the canvas to assign; drag an assigned port or slot back here to release it.">
-                    <div class="lrd-sec-head" data-lrd-sec="hardware-dock" style="font-weight: 600; display: block; padding: 3px 8px;">
+                    <div class="hw-dock-head" style="font-weight: 600; padding: 3px 8px;">
                         <label>Hardware</label>
                     </div>
-                    <div class="lrd-sec-body" id="hardware-dock-body"></div>
+                    <div id="hardware-dock-body"></div>
                 </div>
             </div>
         </div>

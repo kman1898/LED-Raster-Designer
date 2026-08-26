@@ -1353,3 +1353,27 @@ def test_a_block_cannot_land_across_a_backing_port(client):
                        json={'layerId': 'Wall', 'screens': sc})
     assert resp.status_code == 409, resp.get_data(as_text=True)
     assert 'consecutive free ports' in resp.get_json()['error']
+
+
+def test_the_sx40_pair_claims_the_backing_boxes_whole(client):
+    """The trunk-level pairing at the assignment's end - "10 per box"
+    (2026-08-25): with redundancy on, the four stocked XDs are boxes A/C
+    driving and B/D returning, so a twelve-port wall packs sockets 1-10 and
+    jumps to 21 - every socket keeps its number on the drawing while B's
+    and D's twenty are claimed by role, and a hand placement onto socket 11
+    gets the same hard refusal every backing socket gets."""
+    state = add_processor(client, 'brompton-sx40')
+    pid = state['resolved'][0]['id']
+    card = card_ids(state)[0]
+    client.put(f'/api/processors/{pid}', json={'redundancy': True})
+
+    res = resolve(client, ('Wall', 12))
+    assert numbers(res, 'Wall') == list(range(1, 11)) + [21, 22]
+    summary = next(c for c in res['cards'] if c['cardId'] == card)
+    assert (summary['capacity'], summary['backing']) == (40, 20)
+    assert (summary['used'], summary['free']) == (12, 8)
+
+    resp = place(client, 'Wall', 0, card, 11, screens(('Wall', 12)))
+    assert resp.status_code == 409, resp.get_data(as_text=True)
+    body = resp.get_json()
+    assert 'backs up' in body['error'] and 'return end' in body['error']

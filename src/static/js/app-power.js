@@ -20,45 +20,15 @@ class _Power {
     showContextMenu(x, y) {
         const menu = document.getElementById('context-menu');
         if (!menu) return;
-        // Show/hide pixel-map-only menu group based on view + selection.
-        const inPixelMap = window.canvasRenderer && window.canvasRenderer.viewMode === 'pixel-map';
-        const haveSelection = this.pixelMapSelection && this.pixelMapSelection.size > 0;
-        const showPixelMapItems = inPixelMap && haveSelection;
-        menu.querySelectorAll('.pixel-map-only').forEach(el => {
-            el.style.display = showPixelMapItems ? '' : 'none';
-        });
-        // Centering only applies where screens can actually be positioned:
-        // Pixel Map (processor offset) and Show Look (show offset). Data and
-        // Power mirror the Show Look position, so they're read-only there.
-        const canCenter = window.canvasRenderer
-            && ['pixel-map', 'show-look'].includes(window.canvasRenderer.viewMode)
-            && this.getSelectedLayers().some(l => !l.locked);
-        menu.querySelectorAll('.movable-view-only').forEach(el => {
-            el.style.display = canCenter ? '' : 'none';
-        });
-        // v0.11.0: screen-group actions. Grouping needs 2+ screen layers
-        // selected, so with fewer the item is simply not offered (a group of
-        // one is not a group). Ungroup / Remove only mean anything once the
-        // selection is already in a group.
-        const canGroup = this.canGroupSelection();
-        const inGroup = this.getSelectedGroupIds().length > 0;
-        menu.querySelectorAll('.group-create-only').forEach(el => {
-            el.style.display = canGroup ? '' : 'none';
-        });
-        menu.querySelectorAll('.group-member-only').forEach(el => {
-            el.style.display = inGroup ? '' : 'none';
-        });
-        menu.querySelectorAll('.group-any-only').forEach(el => {
-            el.style.display = (canGroup || inGroup) ? '' : 'none';
-        });
-        // Move to Canvas needs a layer to move and somewhere to move it to.
-        // Offering it with one canvas would open a picker with nothing in it.
-        const canvases = (this.project && this.project.canvases) || [];
-        const canMove = canvases.length > 1
-            && this.getSelectedLayers().some(l => !l.locked);
-        menu.querySelectorAll('.move-canvas-only').forEach(el => {
-            el.style.display = canMove ? '' : 'none';
-        });
+        // The SURFACE under the cursor is decided before any item is: the
+        // hardware dock is hardware, not layers, so a chip right-clicked
+        // there gets that chip's own action and nothing else - "Delete
+        // Layer" next to "Clear port 3" reads as an offer to delete the
+        // chip. And a tray spot with no chip under it has no actions at
+        // all, so no menu opens: an empty menu teaches nothing.
+        const under = document.elementFromPoint(x, y);
+        const inDock = !!(under && under.closest
+            && under.closest('#hardware-dock'));
         // Assignment clears: armed only when the right-click landed on a
         // drawn port run, a power circuit, or a dock chip (app-dock.js
         // _prepareClearMenu). The label and the title are written at open
@@ -67,9 +37,67 @@ class _Power {
         const clear = (typeof this._prepareClearMenu === 'function')
             ? this._prepareClearMenu(x, y) : null;
         this._clearMenuAction = clear;
+        if (inDock && !clear) {
+            this.hideContextMenu();
+            return;
+        }
+        // The layer/canvas items belong to the canvas surface only. On the
+        // dock they all leave, whatever their group logic below would say.
+        menu.querySelectorAll(
+            '.menu-option:not(.hw-clear-only), '
+            + '.menu-divider:not(.hw-clear-only)').forEach(el => {
+            el.style.display = inDock ? 'none' : '';
+        });
+        if (!inDock) {
+            // Show/hide pixel-map-only menu group based on view + selection.
+            const inPixelMap = window.canvasRenderer && window.canvasRenderer.viewMode === 'pixel-map';
+            const haveSelection = this.pixelMapSelection && this.pixelMapSelection.size > 0;
+            const showPixelMapItems = inPixelMap && haveSelection;
+            menu.querySelectorAll('.pixel-map-only').forEach(el => {
+                el.style.display = showPixelMapItems ? '' : 'none';
+            });
+            // Centering only applies where screens can actually be
+            // positioned: Pixel Map (processor offset) and Show Look (show
+            // offset). Data and Power mirror the Show Look position, so
+            // they're read-only there.
+            const canCenter = window.canvasRenderer
+                && ['pixel-map', 'show-look'].includes(window.canvasRenderer.viewMode)
+                && this.getSelectedLayers().some(l => !l.locked);
+            menu.querySelectorAll('.movable-view-only').forEach(el => {
+                el.style.display = canCenter ? '' : 'none';
+            });
+            // v0.11.0: screen-group actions. Grouping needs 2+ screen
+            // layers selected, so with fewer the item is simply not offered
+            // (a group of one is not a group). Ungroup / Remove only mean
+            // anything once the selection is already in a group.
+            const canGroup = this.canGroupSelection();
+            const inGroup = this.getSelectedGroupIds().length > 0;
+            menu.querySelectorAll('.group-create-only').forEach(el => {
+                el.style.display = canGroup ? '' : 'none';
+            });
+            menu.querySelectorAll('.group-member-only').forEach(el => {
+                el.style.display = inGroup ? '' : 'none';
+            });
+            menu.querySelectorAll('.group-any-only').forEach(el => {
+                el.style.display = (canGroup || inGroup) ? '' : 'none';
+            });
+            // Move to Canvas needs a layer to move and somewhere to move it
+            // to. Offering it with one canvas would open a picker with
+            // nothing in it.
+            const canvases = (this.project && this.project.canvases) || [];
+            const canMove = canvases.length > 1
+                && this.getSelectedLayers().some(l => !l.locked);
+            menu.querySelectorAll('.move-canvas-only').forEach(el => {
+                el.style.display = canMove ? '' : 'none';
+            });
+        }
         menu.querySelectorAll('.hw-clear-only').forEach(el => {
             el.style.display = clear ? '' : 'none';
         });
+        // The clear's divider separates it from the layer items; alone on a
+        // dock menu there is nothing above it to separate from.
+        const clearDivider = menu.querySelector('.menu-divider.hw-clear-only');
+        if (clearDivider && inDock) clearDivider.style.display = 'none';
         const clearItem = menu.querySelector('[data-action="hw-clear"]');
         if (clearItem && clear) {
             clearItem.textContent = clear.label;

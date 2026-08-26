@@ -571,9 +571,10 @@
       "trunks": 4,
       "portsPerTrunk": 10,
       "requiresDistribution": true,
+      "defaultCvt": "brompton-xd",
       "redundancy": {"supported": true, "halvesPorts": true, "pairing": "adjacent"},
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 40}]},
-      "note": "8 physical 10G connectors = 4 logical trunks, each auto-switching between the copper and fibre of a pair. It has NO 1G fixture ports of its own; fixtures hang off XD boxes, 10 per trunk. Redundancy is opt-in per pair and halves the usable count to 20; a backup port is never a hidden extra port. Pairing is fixed adjacent pairs - A backs up to B, C backs up to D - automatically; that is the only way redundancy runs on this device."
+      "note": "8 physical 10G connectors = 4 logical trunks, each auto-switching between the copper and fibre of a pair. It has NO 1G fixture ports of its own; fixtures hang off 10-port boxes, 10 per trunk - the XD by default (ruling, 2026-08-25: 'The sx40 by default has to use 10 port breakout boxes'), and the 12-port XD-S/XD-T still deliver only their first 10 here. Redundancy is opt-in per pair and pairs whole boxes, fixed adjacent - A backs up to B, C backs up to D - automatically; that is the only way redundancy runs on this device. It halves what is USABLE to 20 (10 per primary box), never the socket numbering: boxes A and C stay ports 1-10 and 21-30, and B (11-20) and D (31-40) carry their returns, because a tech patching socket 21 must find socket 21 on the drawing."
     },
     {
       "id": "brompton-s8",

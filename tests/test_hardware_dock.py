@@ -41,6 +41,14 @@ And the right-click clears (real button='right' clicks), the other way back:
     the distro chip clears every multi assigned to it in one step
   * a right-click on nothing clearable keeps the item off the menu entirely,
     and the menu closes on click-away as it always has
+  * the menu is SCOPED to what was clicked: a dock chip's menu is exactly its
+    own clear (no layer/canvas items over hardware, no cross-domain
+    vocabulary), a chip-less tray spot opens no menu at all, and the canvas
+    keeps its layer menu with the clear joining it only over a drawn run
+
+The dock folds from the chevron above its top edge (initSidebarToggles' dock
+row - the sidebar collapse transposed; its drag-resize lives in
+test_sidebar_resize.py with the rest of that system).
 
 Run locally:
     python3 -m pytest tests/test_hardware_dock.py -q --browser chromium
@@ -195,6 +203,31 @@ CLEAR_ITEM_JS = """() => {
 MENU_SHOWN_JS = ("() => document.getElementById('context-menu')"
                  ".style.display === 'block'")
 
+# Everything the open menu offers, in the user's terms: which items (and how
+# many dividers) are actually visible. The scoping tests assert on this whole
+# list, because "the right item is there" says nothing about what is wrongly
+# there beside it.
+MENU_ITEMS_JS = """() => {
+    const menu = document.getElementById('context-menu');
+    const shown = menu && menu.style.display === 'block';
+    return {
+        menuShown: !!shown,
+        items: !shown ? [] : Array.from(
+            menu.querySelectorAll('.menu-option'))
+            .filter(el => getComputedStyle(el).display !== 'none')
+            .map(el => el.dataset.action),
+        dividers: !shown ? 0 : Array.from(
+            menu.querySelectorAll('.menu-divider'))
+            .filter(el => getComputedStyle(el).display !== 'none').length,
+    };
+}"""
+
+# The layer/canvas actions the menu carries everywhere ON the canvas - and
+# which have no business appearing over dock hardware: "Delete Layer" beside
+# "Clear port 3" reads as an offer to delete the chip.
+LAYER_ITEMS = ['undo', 'redo', 'copy', 'paste', 'duplicate', 'delete',
+               'prev-port', 'next-port']
+
 POWER_STATE_JS = """(layerId) => {
     const l = window.app.project.layers.find(x => x.id === layerId);
     return {distro: l.powerSocaDistro || {}, num: l.powerSocaNumber || {}};
@@ -298,24 +331,30 @@ def test_the_dock_lives_only_in_the_hardware_views(dock_page):
 
 
 def test_folding_the_dock_hands_the_room_back_to_the_canvas(dock_page):
+    """The fold is the sidebar collapse transposed: the chevron above the
+    tray's top edge (initSidebarToggles' dock row), not the old section
+    arrow, and the canvas backing store follows the height it frees."""
     page, ids = dock_page
     open_view(page, 'data-flow')
     before = page.evaluate(
         "() => document.getElementById('canvas-wrapper').clientHeight")
-    page.locator('#hardware-dock .lrd-sec-arrow').click()
+    page.locator('#hardware-dock-toggle').click()
     page.wait_for_timeout(600)
     folded = page.evaluate("""() => ({
         wrapH: document.getElementById('canvas-wrapper').clientHeight,
         canvasH: document.getElementById('main-canvas').height,
-        bodyShown: document.getElementById('hardware-dock-body')
-            .getClientRects().length > 0,
+        dockH: document.getElementById('hardware-dock')
+            .getBoundingClientRect().height,
+        collapsed: document.getElementById('hardware-dock')
+            .classList.contains('collapsed'),
     })""")
-    assert not folded['bodyShown'], 'the fold left the tray body painted'
+    assert folded['collapsed'] and folded['dockH'] < 2, (
+        f'the toggle did not fold the tray: {folded}')
     assert folded['wrapH'] > before, (
         f'folding the dock gave no room back: {before} -> {folded}')
     assert folded['canvasH'] == folded['wrapH'], (
         f'the canvas backing store missed the fold: {folded}')
-    page.locator('#hardware-dock .lrd-sec-arrow').click()
+    page.locator('#hardware-dock-toggle').click()
     page.wait_for_timeout(600)
     after = page.evaluate("""() => ({
         wrapH: document.getElementById('canvas-wrapper').clientHeight,
@@ -1064,4 +1103,136 @@ def test_right_click_on_nothing_clearable_keeps_the_item_off_the_menu(dock_page)
     assert not item['shown'], (
         'the clear item is on the menu with nothing clearable under the '
         'cursor')
+    # ... and the canvas surface keeps its ordinary layer menu - the dock
+    # scoping must not strip the canvas of anything.
+    state = page.evaluate(MENU_ITEMS_JS)
+    for action in LAYER_ITEMS:
+        assert action in state['items'], (
+            f'the canvas menu lost its {action} item: {state}')
+    close_menu(page)
+
+
+# ── right-click: the menu is scoped to what was clicked ───────────────────
+#
+# Reported from user testing: right-clicking dock hardware offered the whole
+# layer menu - Copy, Paste, Delete Layer, Previous/Next Port - beside the
+# chip's own clear. The rule now pinned: a context menu lists ONLY actions
+# applicable to the exact thing under the cursor. A dock chip gets its one
+# clear (still disabled-with-reason where the action is impossible); a
+# chip-less spot in the tray gets NO menu, because an empty menu teaches
+# nothing; and the canvas keeps its layer menu, with the clear joining it
+# only over a drawn run.
+
+
+def test_a_dock_data_chip_menu_offers_only_that_chips_action(dock_page):
+    page, ids = dock_page
+    open_view(page, 'data-flow')
+    page.evaluate(RESET_DATA_JS, ids)
+    page.wait_for_timeout(400)
+
+    # a port chip: exactly the port's clear, nothing about layers or multis
+    sx, sy = dock_tile_center(page, f'port-{ids["cardId"]}-3')
+    item = right_click(page, sx, sy)
+    assert item['menuShown'] and item['shown'], item
+    state = page.evaluate(MENU_ITEMS_JS)
+    assert state['items'] == ['hw-clear'], (
+        f'a dock port chip offers more than its own action: {state}')
+    assert state['dividers'] == 0, (
+        f'a lone item needs no divider above it: {state}')
+    assert 'port 3' in item['label'], item
+    assert 'multi' not in item['label'] and 'distro' not in item['label'], (
+        f'a data chip is wearing power vocabulary: {item}')
+    close_menu(page)
+
+    # the whole card: still exactly one action, the card's
+    sx, sy = dock_tile_center(page, f'card-{ids["cardId"]}')
+    item = right_click(page, sx, sy)
+    assert item['menuShown'] and item['shown'], item
+    state = page.evaluate(MENU_ITEMS_JS)
+    assert state['items'] == ['hw-clear'], (
+        f'a dock card offers more than its own action: {state}')
+    close_menu(page)
+
+
+def test_a_dock_power_chip_menu_offers_only_that_chips_action(dock_page):
+    page, ids = dock_page
+    open_view(page, 'power')
+    page.evaluate(RESET_POWER_JS, ids)
+    page.wait_for_timeout(500)
+
+    # a multi slot chip: exactly the slot's clear, nothing about layers/ports
+    sx, sy = dock_tile_center(page, f'slot-{ids["distroId"]}-1')
+    item = right_click(page, sx, sy)
+    assert item['menuShown'] and item['shown'], item
+    state = page.evaluate(MENU_ITEMS_JS)
+    assert state['items'] == ['hw-clear'], (
+        f'a dock slot chip offers more than its own action: {state}')
+    assert 'PD 1' in item['label'], item
+    assert 'port' not in item['label'].lower(), (
+        f'a power chip is wearing data vocabulary: {item}')
+    close_menu(page)
+
+    # the distro chip: one action, the distro's
+    sx, sy = dock_tile_center(page, f'distro-{ids["distroId"]}')
+    item = right_click(page, sx, sy)
+    assert item['menuShown'] and item['shown'], item
+    state = page.evaluate(MENU_ITEMS_JS)
+    assert state['items'] == ['hw-clear'], (
+        f'the distro chip offers more than its own action: {state}')
+    close_menu(page)
+
+
+def test_a_chipless_dock_spot_opens_no_menu_at_all(dock_page):
+    """The tray's header and its empty ground have no actions, and an empty
+    menu is worse than none. The no-menu must also CLOSE a menu a previous
+    right-click left open, or the stale one reads as this click's answer."""
+    page, ids = dock_page
+    open_view(page, 'data-flow')
+    page.evaluate(RESET_DATA_JS, ids)
+    page.wait_for_timeout(400)
+
+    # leave a menu open on a chip first
+    sx, sy = dock_tile_center(page, f'port-{ids["cardId"]}-3')
+    item = right_click(page, sx, sy)
+    assert item['menuShown'], item
+
+    head = page.locator('#hardware-dock .hw-dock-head').bounding_box()
+    state_after = right_click(page, head['x'] + head['width'] * 0.8,
+                              head['y'] + head['height'] / 2)
+    assert state_after is None or not state_after['menuShown'], (
+        f'a chip-less dock spot opened a menu: {state_after}')
+    assert not page.evaluate(MENU_SHOWN_JS), (
+        'the stale chip menu stayed open over a chip-less right-click')
+
+
+def test_the_canvas_run_menu_keeps_layer_items_beside_the_clear(dock_page):
+    """A drawn run sits ON a screen layer, so both the run's clear and the
+    layer's actions apply there - the dock scoping takes nothing from the
+    canvas, in either hardware view."""
+    page, ids = dock_page
+
+    open_view(page, 'data-flow')
+    page.evaluate(RESET_DATA_JS, ids)
+    page.wait_for_timeout(400)
+    tgt = panel_point(page, ids['aId'], {'port': 2})
+    item = right_click(page, tgt['x'], tgt['y'])
+    assert item['menuShown'] and item['shown'], item
+    assert item['label'].startswith('Clear port '), item
+    state = page.evaluate(MENU_ITEMS_JS)
+    for action in LAYER_ITEMS + ['hw-clear']:
+        assert action in state['items'], (
+            f'the data run menu lost its {action} item: {state}')
+    close_menu(page)
+
+    open_view(page, 'power')
+    page.evaluate(RESET_POWER_JS, ids)
+    page.wait_for_timeout(500)
+    tgt = panel_point(page, ids['aId'], {'circuit': 0})
+    item = right_click(page, tgt['x'], tgt['y'])
+    assert item['menuShown'] and item['shown'], item
+    assert item['label'].startswith('Clear multi '), item
+    state = page.evaluate(MENU_ITEMS_JS)
+    for action in LAYER_ITEMS + ['hw-clear']:
+        assert action in state['items'], (
+            f'the circuit menu lost its {action} item: {state}')
     close_menu(page)

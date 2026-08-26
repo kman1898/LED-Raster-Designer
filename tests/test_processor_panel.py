@@ -1794,7 +1794,8 @@ def test_the_panel_markup_says_breakout_box_generically():
 #
 # * BROMPTON (SX40, SQ200, and its breakout boxes): fixed adjacent pairs -
 #   "A back up to B, C back up to D automatically; that is the only way it
-#   works" - stated as a fact, enforced in the trunk blocks, never editable.
+#   works" - stated as a fact, wired port-to-port at box granularity (main
+#   socket n returns on n + 10 in the paired box), never editable.
 # * NOVASTAR: a primary box and a backup box is the DEFAULT when a card's
 #   mode has trunks backing trunks - created as a pair, freely overridden.
 # * MEGAPIXEL: nothing. No rule is documented, so no default is invented -
@@ -1835,42 +1836,138 @@ def test_brompton_pairing_is_a_fact_not_a_field(client):
         'the pairing leaked into stored state, where an edit could reach it')
 
 
-def test_brompton_boxes_pair_adjacent_and_the_pairing_is_enforced(client):
-    """Four XDs on a redundant SX40: the second box carries the FIRST box's
-    ports again (A backs up to B), the fourth carries the third's (C backs up
-    to D). Interleaving them - the NovaStar shape - would pair A with C,
-    which is not how Brompton runs. Redundancy off, the same four boxes are
-    four distinct blocks again."""
+def test_the_sx40_arrives_stocked_with_10_port_xd_boxes(client):
+    """The ruling, verbatim (2026-08-25): "The sx40 by default has to use 10
+    port breakout boxes." The SX40 has no fixture ports of its own, so a
+    fresh one arrives the way it leaves the shop: four 10-port XDs, one per
+    trunk, sockets 1-10 / 11-20 / 21-30 / 31-40. A default and nothing more
+    - each box deletes like any box - and the 12-port XD-S/XD-T stay
+    selectable in its place, still delivering only their first 10 behind
+    this device (the trunk cap), so 10 per box is the shape either way."""
+    state = add_processor(client, 'brompton-sx40')
+    card = first_card(only(state))
+    assert [c['deviceId'] for c in card['cvts']] == ['brompton-xd'] * 4
+    assert [c['portCount'] for c in card['cvts']] == [10, 10, 10, 10]
+    assert [c['firstPort'] for c in card['cvts']] == [1, 11, 21, 31]
+    assert card['trunksFree'] == 0
+    assert card['ceiling'] == 40 and card['delivered'] == 40
+    # Deleting a stocked box and hanging an XD-S on the freed trunk still
+    # lands at 10 ports: the sheets allow the box, not a bigger count.
+    pid = only(state)['id']
+    gone = card['cvts'][3]['id']
+    client.delete(f'/api/processors/{pid}/cvts/{gone}')
+    state = client.post(
+        f'/api/processors/{pid}/cards/{card["id"]}/cvts',
+        json={'deviceId': 'brompton-xd-s'}).get_json()
+    swapped = first_card(only(state))['cvts'][3]
+    assert (swapped['deviceId'], swapped['portCount']) == ('brompton-xd-s', 10)
+
+
+def test_redundancy_on_no_longer_limits_the_sx40_to_20_renumbered_primaries(
+        client):
+    """The reported defect (2026-08-25): "setting redundancy on limits to 20
+    primaries but it should be 10 per box." The old model halved the ceiling
+    to 20 and renumbered - box C read sockets 11-20 instead of its own
+    21-30, box D repeated them, and sockets 21-40 left the drawing, so a
+    tech patching socket 21 could not find socket 21. Redundancy is a
+    patching plan, never a renumbering: all 40 sockets stay, what halves is
+    what is USABLE - 20, ten per primary box."""
     state = add_processor(client, 'brompton-sx40')
     pid = only(state)['id']
-    card_id = first_card(only(state))['id']
-    client.put(f'/api/processors/{pid}', json={'redundancy': True})
-    state = add_boxes(client, pid, card_id, 4, 'brompton-xd')
+    state = client.put(f'/api/processors/{pid}',
+                       json={'redundancy': True}).get_json()
+    proc = only(state)
+    card = first_card(proc)
+    assert proc['ceiling'] == 40 and card['ceiling'] == 40
+    assert [p['number'] for p in card['ports']] == list(range(1, 41))
+    assert [c['firstPort'] for c in card['cvts']] == [1, 11, 21, 31], (
+        'a box was renumbered off its own sockets')
+    assert all(c['duplicateOf'] is None for c in card['cvts']), (
+        'a backup box was drawn as a second delivery of its primary\'s ports')
+    assert card['redundancyShape'] == {'mode': 'sequential', 'forced': True,
+                                       'level': 'trunk', 'usable': 20}
+
+
+def test_brompton_boxes_pair_adjacent_and_the_pairing_is_enforced(client):
+    """The four XDs on a redundant SX40 pair as WHOLE boxes, adjacent - A
+    backs up to B, C backs up to D - so the primaries are boxes A (sockets
+    1-10) and C (21-30) and each main returns on the same socket of the box
+    beside it: 1 on 11, 10 on 20, 21 on 31, 30 on 40. Interleaving them -
+    the NovaStar shape - would pair A with C, which is not how Brompton
+    runs. Redundancy off, the same four boxes are four plain blocks with no
+    roles at all."""
+    state = add_processor(client, 'brompton-sx40')
+    pid = only(state)['id']
+    state = client.put(f'/api/processors/{pid}',
+                       json={'redundancy': True}).get_json()
     card = first_card(only(state))
-    assert [c['firstPort'] for c in card['cvts']] == [1, 1, 11, 11]
-    assert [c['duplicateOf'] for c in card['cvts']] == [
-        None, card['cvts'][0]['id'], None, card['cvts'][2]['id']]
+    a, b, c, d = card['cvts']
+    assert [v['backupOf'] for v in (a, b, c, d)] == [
+        None, a['id'], None, c['id']]
+    ports = {p['number']: p for p in card['ports']}
+    for main in list(range(1, 11)) + list(range(21, 31)):
+        assert ports[main]['backedBy']['port'] == main + 10, ports[main]
+        assert ports[main + 10]['backsUp']['port'] == main, ports[main + 10]
+    assert not any(ports[n].get('backedBy') for n in range(11, 21)), (
+        'a backing socket was given a backup of its own')
 
     state = client.put(f'/api/processors/{pid}',
                        json={'redundancy': False}).get_json()
     card = first_card(only(state))
-    assert [c['firstPort'] for c in card['cvts']] == [1, 11, 21, 31]
-    assert all(c['duplicateOf'] is None for c in card['cvts'])
+    assert [v['firstPort'] for v in card['cvts']] == [1, 11, 21, 31]
+    assert all(v['backupOf'] is None for v in card['cvts'])
+    assert not any(p.get('backedBy') or p.get('backsUp')
+                   for p in card['ports'])
+
+
+def test_brompton_return_labels_resolve_to_the_backing_boxs_own_sockets(
+        client):
+    """Name the boxes what the truck calls them and the loom reads itself:
+    main A-1 returns on B-1 because socket 11 IS box B's first socket - the
+    mapped socket's own label, through the same ladder every mapping uses,
+    so a name typed on one return end still wins over it."""
+    state = add_processor(client, 'brompton-sx40')
+    pid = only(state)['id']
+    card = first_card(only(state))
+    for box, name in zip(card['cvts'], ('A', 'B', 'C', 'D')):
+        client.put(f'/api/processors/{pid}/cvts/{box["id"]}',
+                   json={'name': name})
+    state = client.put(f'/api/processors/{pid}',
+                       json={'redundancy': True}).get_json()
+    ports = {p['number']: p for p in first_card(only(state))['ports']}
+    assert (ports[1]['label'], ports[1]['returnLabel']) == ('A-1', 'B-1')
+    assert (ports[10]['label'], ports[10]['returnLabel']) == ('A-10', 'B-10')
+    assert (ports[21]['label'], ports[21]['returnLabel']) == ('C-1', 'D-1')
+    assert (ports[30]['label'], ports[30]['returnLabel']) == ('C-10', 'D-10')
+    assert all(ports[n]['returnLabelSource'] == 'backup'
+               for n in (1, 10, 21, 30))
+    # A typed return name still beats the mapping - the ladder is untouched.
+    resp = client.put(f'/api/processors/{pid}/cards/{card["id"]}/ports/1',
+                      json={'returnName': 'SPARE-1'})
+    ports = {p['number']: p for p in first_card(only(resp.get_json()))['ports']}
+    assert (ports[1]['returnLabel'], ports[1]['returnLabelSource']) == \
+        ('SPARE-1', 'manual')
+    assert ports[2]['returnLabel'] == 'B-2'
 
 
 def test_brompton_adds_one_box_per_add(client):
     """The enforcement is the SHAPE, not extra units: Brompton gets no
-    auto-created backup box - the second box someone adds IS the backup,
-    because adjacent pairing leaves it nothing else to be."""
+    auto-created backup box - a box added onto the second trunk of a pair
+    IS the backup, because adjacent pairing leaves it nothing else to be.
+    Two trunks are freed here so there is room to see exactly one arrive."""
     state = add_processor(client, 'brompton-sx40')
     pid = only(state)['id']
-    card_id = first_card(only(state))['id']
+    card = first_card(only(state))
+    for box in card['cvts'][2:]:
+        client.delete(f'/api/processors/{pid}/cvts/{box["id"]}')
     client.put(f'/api/processors/{pid}', json={'redundancy': True})
-    state = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
+    state = client.post(f'/api/processors/{pid}/cards/{card["id"]}/cvts',
                         json={'deviceId': 'brompton-xd'}).get_json()
     card = first_card(only(state))
-    assert len(card['cvts']) == 1
-    assert card['cvts'][0]['backupOf'] is None
+    assert len(card['cvts']) == 3
+    raw = state['processors'][0]['slots'][0]['card']
+    assert all('backupOf' not in v for v in raw['cvts']), (
+        'a pairing fact leaked into stored state')
 
 
 def test_the_sq200_states_the_rule_without_lettering_unknown_outputs(client):
@@ -2523,8 +2620,10 @@ def test_the_arrow_folds_a_processor_and_nothing_leaves_the_dom(panel_page):
 def test_the_summary_line_reads_model_name_screens_ports_redundancy(panel_page):
     """The glance line, read off the resolve and the occupancy and nothing
     else: model, the name, what the machine DRIVES, defined over ceiling,
-    and the redundancy flag - the SX40's halved 20/20, not the datasheet
-    40. The screens segment is the occupancy's answer, never a one-to-one
+    and the redundancy flag. The redundant SX40 reads 40/40 - redundancy is
+    a patching plan, never a renumbering, so the socket count stands and
+    'redundant' is the flag that says half of them carry returns. The
+    screens segment is the occupancy's answer, never a one-to-one
     assumption: the live screen sits on the first machine's card, so the
     second machine says so - 'no screens', an unused box stated as such. An
     unnamed, non-redundant machine states neither an empty name segment nor
@@ -2541,8 +2640,9 @@ def test_the_summary_line_reads_model_name_screens_ports_redundancy(panel_page):
     text = fold_state(panel_page, ids['sx'])['summaryText']
     assert text == (f"{sx['deviceName']} · SL IMAG · Screen1 · "
                     f"{sx['defined']}/{sx['ceiling']} ports · redundant"), text
-    assert '20/20 ports' in text, (
-        f'the summary does not carry the redundancy-halved figures: {text}')
+    assert '40/40 ports' in text, (
+        f'the summary renumbered the sockets instead of flagging '
+        f'redundancy: {text}')
 
     text = fold_state(panel_page, ids['mx'])['summaryText']
     assert text == (f"{mx['deviceName']} · no screens · "

@@ -1,5 +1,5 @@
 """Drag-resizable docked panels: left sidebar, Signal panel, Power panel, right
-sidebar.
+sidebar - and the hardware dock, the same system turned on its side.
 
 The resize code (theme.js) was hardcoded to the two string literals 'left' and
 'right', so the Signal panel - a middle column added later - collapsed but could
@@ -8,6 +8,12 @@ table in app-core.js initSidebarToggles, and these tests pin the behaviour that
 table has to keep producing. The Power panel is the second middle column and
 went in as one more row of each table, so every assertion below runs against
 both of them rather than against a copy of the file.
+
+The hardware dock is the horizontal member of both tables: it collapses from a
+chevron pinned above its top edge (its own ledRasterSidebarCollapsed_dock key)
+and drag-resizes in HEIGHT from a strip on that same edge (lrd_dock_h /
+--lrd-dock-h), with its own clamp - so the dock tests below are the sidebar
+assertions transposed, not a separate mechanism's.
 
 What these tests pin:
 
@@ -62,6 +68,15 @@ MIN_W = 180
 MAX_W = 560
 DEFAULT_W = 260
 
+# The dock's own clamp (theme.js dock row), mirrored for the same reason.
+# 100 is its header plus one unit head and one chip row - the smallest tray
+# that still shows a draggable chip; 420 keeps the canvas the star of the
+# column; 172 is the old fixed footprint (21px header + 1px border + the
+# 150px body cap), so an untouched layout looks exactly as it did.
+DOCK_MIN_H = 100
+DOCK_MAX_H = 420
+DOCK_DEFAULT_H = 172
+
 # Wide enough that the canvas wrapper still has slack after a panel grows to
 # its maximum - at 1280 the canvas container is already pinned to its own
 # minimum width, which would make the re-measure assertions vacuous.
@@ -112,16 +127,18 @@ def open_view(page, mode):
 
 
 def reset_widths(page, mode='data-flow'):
-    """Back to the default width and expanded on every panel, through the same
-    localStorage keys app-core.js and theme.js read on boot, so each test starts
-    from a known geometry no matter what the one before it left collapsed."""
+    """Back to the default size and expanded on every panel - the dock
+    included - through the same localStorage keys app-core.js and theme.js
+    read on boot, so each test starts from a known geometry no matter what
+    the one before it left collapsed."""
     page.evaluate(
-        """(w) => {
+        """(args) => {
             ['lrd_left_w', 'lrd_data_w', 'lrd_power_w', 'lrd_right_w'].forEach(
-                k => localStorage.setItem(k, String(w)));
-            ['left', 'data', 'power', 'right'].forEach(
+                k => localStorage.setItem(k, String(args.w)));
+            localStorage.setItem('lrd_dock_h', String(args.dockH));
+            ['left', 'data', 'power', 'right', 'dock'].forEach(
                 k => localStorage.setItem('ledRasterSidebarCollapsed_' + k, '0'));
-        }""", DEFAULT_W)
+        }""", {'w': DEFAULT_W, 'dockH': DOCK_DEFAULT_H})
     page.reload(wait_until='domcontentloaded')
     page.wait_for_timeout(2000)
     open_view(page, mode)
@@ -431,6 +448,11 @@ STRAYS_JS = """() => {
     // floating over the canvas is the same class of bug as a stranded
     // toggle, and the four panel rows above would never see it.
     const dock = document.getElementById('hardware-dock');
+    const dockControls = [
+        ['dock-toggle', document.getElementById('hardware-dock-toggle'), 'bottom'],
+        ['dock-strip', document.querySelector(
+            '.lrd-resize-handle[data-lrd-resize="dock"]'), 'top'],
+    ];
     if (dock && shown(dock)) {
         const wrap = document.getElementById('canvas-wrapper')
             .getBoundingClientRect();
@@ -447,6 +469,35 @@ STRAYS_JS = """() => {
                           edge: Math.round(canvas.left),
                           intoCanvas: Math.round(canvas.right - r.right) });
         }
+        // Its collapse toggle and drag strip are the transposed control
+        // rows: each must sit flush on the tray's TOP edge (the toggle by
+        // its bottom, the strip by its own top edge), never adrift over the
+        // drawing - the sidebar assertions above, turned on their side.
+        dockControls.forEach(([kind, el, side]) => {
+            if (!shown(el)) return;
+            const rr = el.getBoundingClientRect();
+            const d = Math.abs(rr[side] - r.top);
+            if (d > 8) {
+                strays.push({ kind: kind, key: 'hardware',
+                              drift: Math.round(d),
+                              at: Math.round(rr[side]),
+                              edge: Math.round(r.top),
+                              intoCanvas: Math.round(r.top - rr[side]) });
+            }
+        });
+    } else {
+        // Out of its views the dock leaves layout entirely, and so must
+        // both of its controls - a chevron or strip floating over the
+        // canvas in Pixel Map is the same class of bug as a stranded
+        // sidebar toggle.
+        dockControls.forEach(([kind, el]) => {
+            if (!shown(el)) return;
+            const rr = el.getBoundingClientRect();
+            strays.push({ kind: kind, key: 'hardware',
+                          reason: 'dock not in layout',
+                          at: Math.round(rr.top),
+                          intoCanvas: Math.round(canvas.bottom - rr.top) });
+        });
     }
     return strays;
 }"""
@@ -819,3 +870,204 @@ def test_a_collapsed_middle_panel_stays_collapsed_across_a_view_switch(page, key
     assert still, f"the {key} panel came back expanded after a view switch"
     assert_nothing_stranded(page, f"back in {mode} with {key} still collapsed")
     set_collapsed(page, key, False)
+
+
+# ── the hardware dock: the same system turned on its side ─────────────────
+#
+# The dock collapses from a chevron above its top edge and drag-resizes in
+# height from a strip on that same edge. Both are rows of the sidebar tables
+# (initSidebarToggles, theme.js PANELS) rather than a parallel mechanism, so
+# these are the sidebar assertions transposed to y - including the ones that
+# earn their keep only when something regresses: the clamp, the persistence,
+# the strip leaving with the tray, and the canvas keeping up mid-drag.
+
+DOCK_VIEWS = ['data-flow', 'power']
+
+DOCK_HANDLE_JS = """() => {
+    const h = document.querySelector(
+        '.lrd-resize-handle[data-lrd-resize="dock"]');
+    if (!h) return null;
+    if (getComputedStyle(h).display === 'none') return null;
+    const r = h.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1) return null;
+    // x deliberately off-centre: the collapse toggle sits over the strip's
+    // middle, exactly as the sidebar toggles sit over theirs.
+    return { x: r.left + 80, y: r.top + r.height / 2,
+             top: r.top, left: r.left, width: r.width };
+}"""
+
+DOCK_TOGGLE_SHOWN_JS = """() => {
+    const b = document.getElementById('hardware-dock-toggle');
+    return !!(b && getComputedStyle(b).display !== 'none');
+}"""
+
+DOCK_STATE_JS = """() => {
+    const dock = document.getElementById('hardware-dock');
+    const r = dock.getBoundingClientRect();
+    return {
+        collapsed: dock.classList.contains('collapsed'),
+        height: Math.round(r.height),
+        stored: localStorage.getItem('ledRasterSidebarCollapsed_dock'),
+        storedH: localStorage.getItem('lrd_dock_h'),
+    };
+}"""
+
+
+def dock_height(page):
+    return page.evaluate(
+        """() => Math.round(document.getElementById('hardware-dock')
+               .getBoundingClientRect().height)""")
+
+
+def drag_dock(page, dy):
+    """Drag the dock's strip by dy pixels (negative = up = taller) and answer
+    the dock's new height. Stepped moves, like drag() above: the handler
+    works off mousemove, and a single jump exercises a path no user can."""
+    h = page.evaluate(DOCK_HANDLE_JS)
+    assert h, "no visible resize strip for the dock"
+    page.mouse.move(h['x'], h['y'])
+    page.mouse.down()
+    for step in range(1, 5):
+        page.mouse.move(h['x'], h['y'] + dy * step / 4.0)
+    page.mouse.up()
+    page.wait_for_timeout(400)
+    return dock_height(page)
+
+
+@pytest.mark.parametrize('mode', ALL_VIEWS)
+def test_the_dock_strip_and_toggle_live_only_in_the_hardware_views(page, mode):
+    """Both controls belong to the tray, and the tray belongs to Data and
+    Power - anywhere else a strip or chevron over the drawing is the stranded-
+    control bug all over again."""
+    reset_widths(page, mode)
+    present = mode in DOCK_VIEWS
+    assert (page.evaluate(DOCK_HANDLE_JS) is not None) == present, (
+        f"the dock's drag strip is {'missing' if present else 'present'} "
+        f"in {mode}")
+    assert page.evaluate(DOCK_TOGGLE_SHOWN_JS) == present, (
+        f"the dock's collapse toggle is "
+        f"{'missing' if present else 'present'} in {mode}")
+    assert_nothing_stranded(page, f"in {mode} with the dock at its default")
+
+
+def test_dragging_the_dock_strip_changes_its_height(page):
+    reset_widths(page, 'data-flow')
+    before = dock_height(page)
+    assert before == DOCK_DEFAULT_H, (
+        f"the dock did not start at its default height: {before}")
+    after = drag_dock(page, -120)
+    assert abs(after - (before + 120)) <= 8, (
+        f"the dock did not follow the pointer: {before} -> {after}")
+    assert_canvas_matches_wrapper(page, "dragging the dock taller")
+    # and the other direction, so this cannot pass on a tray that only grows
+    down = drag_dock(page, 90)
+    assert abs(down - (after - 90)) <= 8, (
+        f"the dock did not shrink back: {after} -> {down}")
+    # the height is the dock's own: no sidebar moved with it
+    for key in ('left', 'data', 'right'):
+        assert width(page, key) == DEFAULT_W, (
+            f"resizing the dock resized the {key} panel with it")
+
+
+def test_the_dock_clamps_at_min_and_max(page):
+    reset_widths(page, 'power')
+    assert drag_dock(page, 600) == DOCK_MIN_H, (
+        "the dock can be dragged shorter than the clamp")
+    assert drag_dock(page, -800) == DOCK_MAX_H, (
+        "the dock can be dragged taller than the clamp")
+    assert_canvas_matches_wrapper(page, "dragging the dock to its clamps")
+
+
+def test_the_dock_height_survives_a_reload(page):
+    reset_widths(page, 'data-flow')
+    dragged = drag_dock(page, -100)
+    page.reload(wait_until='domcontentloaded')
+    page.wait_for_timeout(2000)
+    open_view(page, 'data-flow')
+    assert abs(dock_height(page) - dragged) <= 2, (
+        f"the dock came back at {dock_height(page)}, not {dragged}")
+    # And back to the default, so this cannot pass on a tray that is simply
+    # always tall.
+    reset_widths(page, 'data-flow')
+    assert dock_height(page) == DOCK_DEFAULT_H
+
+
+def test_the_canvas_keeps_up_during_a_dock_drag_not_only_at_the_end(page):
+    """The height transition is suppressed while dragging (#app.lrd-resizing),
+    so every frame is already in layout and the canvas re-measures per move
+    rather than waiting for the staged settle on mouseup."""
+    reset_widths(page, 'data-flow')
+    h = page.evaluate(DOCK_HANDLE_JS)
+    page.mouse.move(h['x'], h['y'])
+    page.mouse.down()
+    page.mouse.move(h['x'], h['y'] - 40)
+    page.mouse.move(h['x'], h['y'] - 80)
+    page.wait_for_timeout(120)
+    mid = page.evaluate(CANVAS_JS)
+    page.mouse.up()
+    page.wait_for_timeout(400)
+    assert mid['canvasH'] == mid['wrapperH'], (
+        f"the canvas lagged the pointer mid-drag on the dock: {mid}")
+
+
+def test_the_dock_collapse_toggle_folds_and_persists(page):
+    reset_widths(page, 'data-flow')
+    page.locator('#hardware-dock-toggle').click()
+    page.wait_for_timeout(500)
+    folded = page.evaluate(DOCK_STATE_JS)
+    assert folded['collapsed'] and folded['height'] < 2, (
+        f"the toggle did not fold the tray: {folded}")
+    assert folded['stored'] == '1', (
+        f"the fold did not persist under the dock's own key: {folded}")
+    assert page.evaluate(DOCK_HANDLE_JS) is None, (
+        "a folded dock still offers a strip to drag")
+    assert_canvas_matches_wrapper(page, "folding the dock")
+    assert_nothing_stranded(page, "with the dock folded")
+
+    page.reload(wait_until='domcontentloaded')
+    page.wait_for_timeout(2000)
+    open_view(page, 'data-flow')
+    assert page.evaluate(DOCK_STATE_JS)['collapsed'], (
+        "the fold did not survive a reload")
+
+    page.locator('#hardware-dock-toggle').click()
+    page.wait_for_timeout(500)
+    back = page.evaluate(DOCK_STATE_JS)
+    assert not back['collapsed'] and back['height'] == DOCK_DEFAULT_H, (
+        f"expanding did not restore the tray: {back}")
+    assert_canvas_matches_wrapper(page, "expanding the dock again")
+
+
+def test_the_dock_toggle_wins_the_hit_test_over_its_strip(page):
+    """They share the tray's top edge and the strip spans its whole width.
+    The toggle is the only way back from a folded tray, so it has to win."""
+    reset_widths(page, 'data-flow')
+    hit = page.evaluate(
+        """() => {
+            const r = document.getElementById('hardware-dock-toggle')
+                .getBoundingClientRect();
+            const el = document.elementFromPoint(
+                Math.round(r.left + r.width / 2),
+                Math.round(r.bottom - 2));
+            return el ? (el.id || el.className) : null;
+        }""")
+    assert hit == 'hardware-dock-toggle', (
+        f"#hardware-dock-toggle is covered by {hit} - the resize strip is on "
+        f"top of the only control that can expand the tray again")
+
+
+def test_a_folded_dock_stays_folded_across_a_view_switch(page):
+    """The dock belongs to BOTH hardware views, so the fold must hold through
+    Data -> elsewhere -> Power - the visibility pass touches .view-hidden and
+    nothing else, the middle panels' doctrine."""
+    reset_widths(page, 'data-flow')
+    page.locator('#hardware-dock-toggle').click()
+    page.wait_for_timeout(500)
+    open_view(page, 'pixel-map')
+    assert_nothing_stranded(page, "in pixel-map with the dock folded")
+    open_view(page, 'power')
+    assert page.evaluate(DOCK_STATE_JS)['collapsed'], (
+        "the dock came back expanded in Power after folding in Data")
+    assert_nothing_stranded(page, "in power with the dock still folded")
+    page.locator('#hardware-dock-toggle').click()
+    page.wait_for_timeout(500)
