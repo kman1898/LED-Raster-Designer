@@ -37,7 +37,15 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 import port_assignment as assignment  # noqa: E402
 
 
-# ── helpers ───────────────────────────────────────────────────────────────
+@pytest.fixture(scope="module", autouse=True)
+def _guard(flask_project_guard):
+    """Leave the shared server project the way this module found it.
+
+    Every test here builds its own project through the `client` fixture,
+    which swaps the module-global the LIVE e2e server also serves - so the
+    last test's leftovers (a processor tree, auto-numbering switched off)
+    would otherwise become the next browser module's starting state. The
+    guard is the documented idiom for exactly this (see conftest)."""
 
 def add_processor(client, device_id):
     resp = client.post('/api/processors', json={'deviceId': device_id})
@@ -1377,3 +1385,137 @@ def test_the_sx40_pair_claims_the_backing_boxes_whole(client):
     assert resp.status_code == 409, resp.get_data(as_text=True)
     body = resp.get_json()
     assert 'backs up' in body['error'] and 'return end' in body['error']
+
+
+# ── 11. A backup socket displays the occupancy of the socket it backs ─────
+#
+# Assign main A-1 to a screen and its return loom physically lands on B-1,
+# so B-1 reading "free" - or only "backs up A-1" - understates a socket
+# that is now carrying that screen's return. The resolution mirrors the
+# main's occupant onto the backup socket, marked role 'return' and naming
+# the main it follows. DERIVED, NEVER STORED: the mirrored entry is read
+# through the backedBy link on every resolve, so un-assigning the main
+# clears the backup's display with it, nothing lands in the project, and
+# there is nothing extra to undo. One rule for every pairing shape that
+# wires port-level links - the SX40's fixed boxes, sequential, 1:1, manual.
+
+def returns_on(res, card, port):
+    """The mirrored entries on one socket, flattened for comparison."""
+    return [(o['name'], o['number'], o.get('role'), o['source'],
+             (o.get('main') or {}).get('port'),
+             (o.get('main') or {}).get('label'))
+            for o in res['occupancy'].get(card, {}).get(str(port), [])]
+
+
+def test_the_sx40s_b_sockets_carry_the_screens_returns(client):
+    """The user's case, verbatim shape: "when i map A to a screen the B
+    ports need to fill automatically." Twelve ports on a redundant SX40
+    sit on sockets 1-10 and 21-22, so B's sockets 11-20 and D's 31-32 read
+    as those screen-ports' return ends - each mirrored entry names the
+    screen, the screen's own port number, and the main socket (by its A-n
+    label) the display follows. The claims themselves are untouched: used,
+    backing and free stand exactly as they did, and the project stores
+    nothing for any of it."""
+    state = add_processor(client, 'brompton-sx40')
+    pid = state['resolved'][0]['id']
+    card = card_ids(state)[0]
+    boxes = state['resolved'][0]['slots'][0]['card']['cvts']
+    for box, name in zip(boxes, ('A', 'B', 'C', 'D')):
+        client.put(f'/api/processors/{pid}/cvts/{box["id"]}',
+                   json={'name': name})
+    client.put(f'/api/processors/{pid}', json={'redundancy': True})
+
+    res = resolve(client, ('Wall', 12))
+    assert returns_on(res, card, 11) == \
+        [('Wall', 1, 'return', 'return', 1, 'A-1')]
+    assert returns_on(res, card, 20) == \
+        [('Wall', 10, 'return', 'return', 10, 'A-10')]
+    assert returns_on(res, card, 31) == \
+        [('Wall', 11, 'return', 'return', 21, 'C-1')]
+    assert returns_on(res, card, 32) == \
+        [('Wall', 12, 'return', 'return', 22, 'C-2')]
+    assert returns_on(res, card, 33) == [], (
+        'a free main grew a mirrored return')
+    summary = next(c for c in res['cards'] if c['cardId'] == card)
+    assert (summary['used'], summary['backing'], summary['free']) == \
+        (12, 20, 8), 'the mirrored display leaked into the claim counts'
+    assert assignment.STATE_KEY not in client.get('/api/project').get_json(), (
+        'derived occupancy stamped state onto the project')
+
+    # Un-assigning the mains clears the backups' display with them - the
+    # mirror is the main's occupant, so there is nothing to clear twice.
+    res = resolve(client, ('Wall', 0))
+    assert res['occupancy'] == {}
+
+
+def test_sequential_and_manual_sockets_mirror_the_same_way(client):
+    """The same follow-through on the port-level shapes: a sequential
+    card's even sockets carry the odd mains' occupants, and a manual pick
+    mirrors exactly the socket somebody named - nothing else."""
+    pid, card = sequential_card(client)
+    res = resolve(client, ('Wall', 2))
+    assert spots(res, 'Wall') == [(card, 1), (card, 3)]
+    assert returns_on(res, card, 2) == \
+        [('Wall', 1, 'return', 'return', 1, 'SR-1')]
+    assert returns_on(res, card, 4) == \
+        [('Wall', 2, 'return', 'return', 3, 'SR-3')]
+    assert returns_on(res, card, 6) == []
+
+    client.put(f'/api/processors/{pid}/cards/{card}',
+               json={'redundancyMode': 'manual'})
+    client.put(f'/api/processors/{pid}/cards/{card}/ports/1',
+               json={'backup': {'cardId': card, 'port': 5}})
+    res = resolve(client, ('Wall', 1))
+    assert returns_on(res, card, 5) == \
+        [('Wall', 1, 'return', 'return', 1, 'SR-1')]
+    assert returns_on(res, card, 2) == [], (
+        'manual is explicit - an unpicked socket mirrors nothing')
+
+
+def test_a_1to1_backup_units_sockets_mirror_their_mains(client):
+    """The designated backup unit stops looking idle the moment its main
+    carries a show: every occupied main mirrors onto the same-numbered
+    socket of the unit that returns it, across processors."""
+    state = add_processor(client, 'novastar-mx20')
+    main_pid = state['resolved'][0]['id']
+    main_card = card_ids(state)[0]
+    state = add_processor(client, 'novastar-mx20')
+    backup_card = card_ids(state)[1]
+    client.put(f'/api/processors/{main_pid}/cards/{main_card}',
+               json={'name': 'P1'})
+    client.put(f'/api/processors/{main_pid}', json={'redundancy': True})
+    client.put(f'/api/processors/{main_pid}/cards/{main_card}',
+               json={'backupCardId': backup_card})
+
+    res = resolve(client, ('Wall', 3))
+    assert spots(res, 'Wall') == [(main_card, n) for n in (1, 2, 3)]
+    for n in (1, 2, 3):
+        assert returns_on(res, backup_card, n) == \
+            [('Wall', n, 'return', 'return', n, f'P1-{n}')]
+    assert returns_on(res, backup_card, 4) == []
+
+
+def test_a_mirrored_return_is_not_a_pin_and_follows_the_mains_clear(client):
+    """The mirrored entry's source is 'return', never 'pin', so no release
+    path can mistake it for a claim it may act on - and releasing the MAIN
+    is the whole of clearing both ends: with the pin gone the mirror is
+    gone, and the project holds pins and the auto flag and nothing else."""
+    _pid, card = sequential_card(client)
+    client.put('/api/port-assignments', json={'auto': False})
+    resp = place(client, 'Wall', 0, card, 1, screens(('Wall', 1)))
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    res = resolve(client, ('Wall', 1))
+    assert returns_on(res, card, 2) == \
+        [('Wall', 1, 'return', 'return', 1, 'SR-1')]
+    assert all(o['source'] == 'pin'
+               for o in res['occupancy'][card]['1']), (
+        'the main claim itself must stay a pin')
+
+    client.post('/api/port-assignments/unpin',
+                json={'layerId': 'Wall', 'index': 0})
+    res = resolve(client, ('Wall', 1))
+    assert res['occupancy'].get(card, {}).get('2', []) == [], (
+        'clearing the main left the mirrored return behind')
+    stored = client.get('/api/project').get_json()[assignment.STATE_KEY]
+    assert stored == {'auto': False, 'pins': []}, (
+        'something beyond pins and the flag was stored')

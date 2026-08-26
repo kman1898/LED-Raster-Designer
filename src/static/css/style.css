@@ -1359,6 +1359,30 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 .hw-dock-unit-info { font-size: 10px; color: #666; font-family: monospace; margin-left: auto; }
 .hw-dock-box { margin-top: 4px; padding-left: 6px; border-left: 2px solid #2a2a2a; }
 .hw-dock-grid { margin-top: 4px; }
+/* A redundant pair reads as ONE group everywhere "X backs up Y" is drawn -
+   the SX40's fixed A/B and C/D boxes, a designated 1:1 backup unit - so the
+   backup element nests under its main inside a pair wrapper instead of
+   standing as a sibling, indented off an edge in the role's gold family
+   (the same gold the backup tiles and fact lines wear). Layout only: the
+   fold and tile machinery inside either element is untouched. */
+.lrd-red-pair { min-width: 0; }
+.lrd-red-backup {
+    /* !important because several nested surfaces carry their base border
+       and margins as inline styles (the panel's boxes and breakout rows),
+       and the role's edge must beat each of them without a per-surface
+       copy of this rule. */
+    margin-left: 10px !important;
+    margin-top: 2px !important;
+    border-left: 2px solid #6b5626 !important;
+    padding-left: 6px !important;
+}
+/* In the tray the pair wrapper takes the flex place its main had: a pair
+   of processors sits where one processor sat, a pair of card units where
+   one unit sat, the two halves stacking inside. */
+#hardware-dock-body > .lrd-red-pair { flex: 1 1 300px; }
+.hw-dock-proc > .lrd-red-pair {
+    flex: 1 1 240px; min-width: 170px; max-width: 100%;
+}
 /* Dock tiles are drag handles, not folding editors: the face is the whole
    tile and the cursor says so. */
 .hw-dock-tile > .lrd-tile-face { cursor: grab; }

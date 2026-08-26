@@ -823,3 +823,49 @@ def test_the_multi_tiles_fit_both_widths(power_page, width):
     page.evaluate(
         """() => document.documentElement.style.setProperty(
                '--lrd-power-w', '260px')""")
+
+
+def test_a_backing_tile_carries_the_mirrored_return_occupant(panel_page):
+    """Sequential redundancy on the seeded SR: socket 2 is Screen1 port
+    1's return end, and its tile says so in the occupant register the
+    tiles already use - screen, the screen's own port, the role - on the
+    occupied ground, instead of sitting free-but-role-claimed. Derived
+    display: nothing was placed on socket 2, so nothing joins the history
+    for it."""
+    ids = seed(panel_page)
+    hist = panel_page.evaluate(
+        "() => window.app.history.length")
+    panel_page.evaluate("""async (ids) => {
+        const send = (url, method, body) => fetch(url, { method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body) }).then(r => r.json());
+        await send(`/api/processors/${ids.procId}`, 'PUT',
+                   { redundancy: true });
+        await send(`/api/processors/${ids.procId}/cards/${ids.cardId}`,
+                   'PUT', { redundancyMode: 'sequential' });
+        await window.app.refreshProcessors();
+    }""", ids)
+    panel_page.wait_for_timeout(1200)
+    try:
+        back = tile_state(panel_page, f"port-{ids['cardId']}-2")
+        main = tile_state(panel_page, f"port-{ids['cardId']}-1")
+        assert back, 'socket 2 lost its tile'
+        assert 'Screen1 p1 return' in back['faceText'], back
+        assert back['occupied'], (
+            f'a working return must wear the occupied ground: {back}')
+        assert 'Screen1' in main['faceText'], main
+        assert panel_page.evaluate(
+            "() => window.app.history.length") == hist, (
+            'derived occupancy earned a history entry')
+    finally:
+        panel_page.evaluate("""async (ids) => {
+            const send = (url, method, body) => fetch(url, { method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body) }).then(r => r.json());
+            await send(`/api/processors/${ids.procId}/cards/${ids.cardId}`,
+                       'PUT', { redundancyMode: '1to1' });
+            await send(`/api/processors/${ids.procId}`, 'PUT',
+                       { redundancy: false });
+            await window.app.refreshProcessors();
+        }""", ids)
+        panel_page.wait_for_timeout(600)

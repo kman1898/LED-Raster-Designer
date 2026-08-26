@@ -3326,3 +3326,73 @@ def test_the_partner_pick_and_the_manual_picker_commit(panel_page):
     assert page.evaluate(
         "() => window.app.history.map(h => h.action).slice(-1)") == \
         ['Change Port Backup']
+
+
+def test_a_redundant_pair_presents_as_one_group_in_the_panel(panel_page):
+    """A redundant pair is ONE loom and draws as ONE group, at both levels
+    that state a backup: the redundant SX40's boxes nest as A-with-B and
+    C-with-D pairs inside the card - two brackets, not four sibling boxes
+    - and a designated 1:1 backup unit nests whole under its main in the
+    processor list. One presentation rule for "X backs up Y", never an
+    SX40 special case - and layout only: the fold machinery keeps working
+    on the nested unit."""
+    pytest.importorskip("playwright.sync_api",
+                        reason="playwright is not installed")
+    page = panel_page
+    ids = page.evaluate(REDUNDANCY_SEED_JS)
+    page.wait_for_timeout(800)
+    # Designate BK as SR's 1:1 backup through the real partner select.
+    page.evaluate("""(ids) => {
+        const sel = document.querySelector(
+            `[data-lrd-field="processor-card-backup-${ids.mxCardId}"]`);
+        sel.value = ids.bkCardId;
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+    }""", ids)
+    page.wait_for_timeout(1000)
+    out = page.evaluate("""(ids) => {
+        const sxCvts = window.app._processorsResolved
+            .find(p => p.id === ids.sxId).slots[0].card.cvts.map(c => c.id);
+        const field = (id) => document.querySelector(
+            `[data-lrd-field="processor-cvt-name-${id}"]`);
+        const [a, b, c, d] = sxCvts.map(field);
+        const pairOf = (el) => el && el.closest('.lrd-red-pair');
+        const bkHead = document.querySelector(
+            `[data-lrd-sec="processor-${ids.bkId}"]`);
+        const bkBox = bkHead && bkHead.parentElement;
+        const mxHead = document.querySelector(
+            `[data-lrd-sec="processor-${ids.mxId}"]`);
+        return {
+            built: !!(a && b && c && d && bkBox && mxHead),
+            bNested: !!(b && b.closest('.lrd-red-backup')),
+            aPlain: !!(a && !a.closest('.lrd-red-backup')),
+            abPaired: !!(pairOf(a) && pairOf(a) === pairOf(b)),
+            cdPaired: !!(pairOf(c) && pairOf(c) === pairOf(d)),
+            pairsDistinct: !!(pairOf(a) && pairOf(a) !== pairOf(c)),
+            unitNested: !!(bkBox
+                && bkBox.classList.contains('lrd-red-backup')),
+            unitPairHoldsMain: !!(bkBox
+                && bkBox.parentElement.classList.contains('lrd-red-pair')
+                && bkBox.parentElement.contains(mxHead)),
+            nestedArrow: !!(bkHead
+                && bkHead.querySelector('.lrd-sec-arrow')),
+        };
+    }""", ids)
+    assert out['built'], out
+    assert out['bNested'] and out['aPlain'], out
+    assert out['abPaired'] and out['cdPaired'], out
+    assert out['pairsDistinct'], (
+        f'A/B and C/D collapsed into one bracket: {out}')
+    assert out['unitNested'] and out['unitPairHoldsMain'], out
+    assert out['nestedArrow'], 'the nested unit lost its fold machinery'
+    # The nested unit still folds: the pair is presentation, not state.
+    page.locator(
+        f'[data-lrd-sec="processor-{ids["bkId"]}"] .lrd-sec-arrow').click()
+    page.wait_for_timeout(200)
+    folded = page.evaluate("""(ids) => {
+        const head = document.querySelector(
+            `[data-lrd-sec="processor-${ids.bkId}"]`);
+        const body = head.parentElement
+            .querySelector(':scope > .lrd-sec-body');
+        return getComputedStyle(body).display === 'none';
+    }""", ids)
+    assert folded, 'the nested backup unit no longer folds'

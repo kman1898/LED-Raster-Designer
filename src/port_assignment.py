@@ -348,12 +348,15 @@ def resolve(processors, screens, state=None):
     issues.extend(_overflow_issues(resolved_screens, cards, claims))
     issues.extend(_capacity_issues(cards, screens, auto_on))
 
+    occupancy = _occupancy(resolved_screens)
+    _mirror_returns(cards, occupancy)
+
     return {
         'configured': bool(cards),
         'auto': auto_on,
         'cards': [_card_summary(c, claims) for c in cards],
         'screens': resolved_screens,
-        'occupancy': _occupancy(resolved_screens),
+        'occupancy': occupancy,
         'issues': issues,
     }
 
@@ -387,6 +390,45 @@ def _occupancy(resolved_screens):
                 'overlap': port['overlap'],
             })
     return out
+
+
+def _mirror_returns(cards, occupancy):
+    """A backup socket displays the occupancy of the socket it backs.
+
+    Assign main A-1 to a screen and its return loom lands on B-1, so B-1
+    reading "free" (or only "backs up A-1") understates a socket that is
+    now physically carrying that screen's return. The display follows the
+    main through the same backedBy/backsUp link every pairing shape wires
+    (fixed SX40 boxes, sequential, 1:1, manual): one rule, whatever put the
+    link there.
+
+    DERIVED, NEVER STORED. The mirrored entry is the main's own occupant
+    read through the link on every resolve, so un-assigning the main clears
+    the backup's display with it and there is nothing extra to undo. It is
+    also display-only by construction: `claims` never sees it (used/free
+    counts stand), and its source is 'return' - never 'pin' - so no release
+    path can mistake the mirrored claim for one it may act on. `role` marks
+    it for the tiles, and `main` names the socket it follows, because a
+    refusal on the backup end has to say where the clear actually lands.
+    """
+    for card in cards:
+        for number, role in (card.get('backupRoles') or {}).items():
+            here = occupancy.get(role['cardId'], {}).get(str(role['port']))
+            for occupant in here or []:
+                if occupant.get('role'):
+                    continue  # a mirrored entry is never itself mirrored
+                occupancy.setdefault(card['cardId'], {}) \
+                    .setdefault(str(number), []).append({
+                        'layerId': occupant['layerId'],
+                        'name': occupant['name'],
+                        'number': occupant['number'],
+                        'source': 'return',
+                        'overlap': occupant['overlap'],
+                        'role': 'return',
+                        'main': {'cardId': role['cardId'],
+                                 'port': role['port'],
+                                 'label': role.get('label')},
+                    })
 
 
 def _card_summary(card, claims):

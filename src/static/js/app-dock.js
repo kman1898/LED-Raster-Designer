@@ -103,6 +103,8 @@ class _HardwareDock {
                 + 'appear here to drag onto screens.');
             return;
         }
+        const procEls = new Map();
+        const unitsByCard = new Map();
         procs.forEach(proc => {
             const wrap = document.createElement('div');
             wrap.className = 'hw-dock-proc';
@@ -112,9 +114,33 @@ class _HardwareDock {
             wrap.appendChild(title);
             (proc.slots || []).forEach(slot => {
                 if (!slot.card) return;
-                wrap.appendChild(this._dockBuildCard(proc, slot.card));
+                const unit = this._dockBuildCard(proc, slot.card);
+                unitsByCard.set(slot.card.id, unit);
+                wrap.appendChild(unit);
             });
+            procEls.set(proc.id, wrap);
             host.appendChild(wrap);
+        });
+        // The pair-presentation rule the panel follows, at the tray's two
+        // levels: a designated backup UNIT nests whole - name strip and
+        // all - under its main's block, and a backup card inside the same
+        // chassis nests under the card it mirrors. The chips inside keep
+        // their own keys and drags either way.
+        procs.forEach(proc => {
+            (proc.slots || []).forEach(slot => {
+                const card = slot.card;
+                if (card && card.backupFor
+                        && card.backupFor.processorId === proc.id) {
+                    this._nestBackupUnder(
+                        unitsByCard.get(card.backupFor.cardId),
+                        unitsByCard.get(card.id));
+                }
+            });
+            const mainId = this._backupUnitMainId(proc);
+            if (mainId) {
+                this._nestBackupUnder(procEls.get(mainId),
+                                      procEls.get(proc.id));
+            }
         });
     }
 
@@ -156,6 +182,7 @@ class _HardwareDock {
         if (loose.length) {
             unit.appendChild(this._dockBuildPortGrid(card, loose));
         }
+        const boxEls = new Map();
         cvts.forEach(cvt => {
             const nums = (cvt.ports || []).map(p => p.number);
             if (!nums.length) return;
@@ -178,7 +205,13 @@ class _HardwareDock {
                 + 'onto this box\'s sockets in order from the first '
                 + 'unassigned.'));
             box.appendChild(this._dockBuildPortGrid(card, cvt.ports || []));
-            unit.appendChild(box);
+            // A redundant pair of boxes is one group here too: B nests
+            // under the A it backs (the panel's rule, worn by the tray),
+            // and a box with no role stays the plain strip it was.
+            boxEls.set(cvt.id, box);
+            const main = cvt.backupOf && boxEls.get(cvt.backupOf);
+            if (main) this._nestBackupUnder(main, box);
+            else unit.appendChild(box);
         });
         return unit;
     }
@@ -235,6 +268,13 @@ class _HardwareDock {
         } else if (occupants.length > 1) {
             who.style.color = '#d05a52';
             who.textContent = 'clash';
+        } else if (occupants[0].role === 'return') {
+            // Derived occupancy: the socket carries this screen-port's
+            // return, following its main - the role's gold, because the
+            // claim is the role's, and only the main can clear it.
+            who.style.color = '#c8a04a';
+            who.textContent =
+                `${occupants[0].name} p${occupants[0].number} return`;
         } else {
             who.style.color = '#999';
             who.textContent = occupants[0].name;
@@ -245,7 +285,8 @@ class _HardwareDock {
         face.title = `Port ${port.number}`
             + (port.label ? ` - ${port.label}` : '')
             + (occupants.length
-                ? ` - ${occupants.map(o => `${o.name} p${o.number}`).join(', ')}`
+                ? ` - ${occupants.map(o => `${o.name} p${o.number}`
+                    + (o.role === 'return' ? ' return' : '')).join(', ')}`
                 : (port.backsUp
                     ? ` - backs up ${port.backsUp.label
                         || `port ${port.backsUp.port} on ${port.backsUp.cardTitle}`}`
@@ -648,8 +689,16 @@ class _HardwareDock {
             });
         }
         if (target.kind === 'dock') {
-            const occupants = this._portOccupants(payload.cardId, payload.port);
-            if (!occupants.length) return;
+            const all = this._portOccupants(payload.cardId, payload.port);
+            // A mirrored return is not a claim of its own: it follows the
+            // main, so the release is refused HERE, pointed at the socket
+            // where clearing actually lands.
+            const occupants = all.filter(o => !o.role);
+            if (!occupants.length) {
+                const back = all.find(o => o.role === 'return');
+                if (back) this._dockSay(this._returnFollowsNote(payload, back));
+                return;
+            }
             const pinned = occupants.filter(o => o.source === 'pin');
             if (!pinned.length) {
                 this._dockSay(
@@ -901,9 +950,33 @@ class _HardwareDock {
     _clearMenuForDock(payload) {
         if (payload.type === 'port') {
             const label = `Clear ${payload.title}`;
-            const occupants = this._portOccupants(payload.cardId,
-                                                  payload.port);
+            const all = this._portOccupants(payload.cardId, payload.port);
+            const occupants = all.filter(o => !o.role);
             if (!occupants.length) {
+                // A backup socket carrying a mirrored return refuses by the
+                // role, naming the screen and the main the display follows
+                // - "free" would deny exactly what the tile shows.
+                const back = all.find(o => o.role === 'return');
+                if (back) {
+                    return {
+                        label, disabled: true,
+                        title: this._returnFollowsNote(payload, back),
+                    };
+                }
+                // An idle backup socket is not "free" either - it is
+                // role-claimed and just carrying no return yet, and its
+                // own tile says so; the menu must not contradict it.
+                const rp = this._dockResolvedPort(payload.cardId,
+                                                  payload.port);
+                if (rp && rp.backsUp) {
+                    return {
+                        label, disabled: true,
+                        title: `${payload.title} backs up ${rp.backsUp.label
+                            || `port ${rp.backsUp.port}`} - it is that `
+                            + 'port\'s return end and holds no claim of '
+                            + 'its own.',
+                    };
+                }
                 return {
                     label, disabled: true,
                     title: `${payload.title} is free - there is nothing to `
@@ -1057,6 +1130,34 @@ class _HardwareDock {
         this._circuitTailCache = null;
         this.updateLayers([...new Set(touched)], true, action);
         this._restateNaming();
+    }
+
+    // One resolved port off the same tree the tiles drew, so a menu can
+    // read the role facts (backsUp) the occupancy alone cannot carry.
+    _dockResolvedPort(cardId, number) {
+        for (const proc of this._processorsResolved || []) {
+            for (const slot of proc.slots || []) {
+                const card = slot.card;
+                if (card && card.id === cardId) {
+                    return (card.ports || [])
+                        .find(p => p.number === number) || null;
+                }
+            }
+        }
+        return null;
+    }
+
+    // The one sentence every refusal on a mirrored backup socket says:
+    // whose return the socket carries, and where the clear actually lands.
+    // The display is derived - it follows the main through the backup link
+    // - so the main is the only thing there is to clear.
+    _returnFollowsNote(payload, occupant) {
+        const main = occupant.main || {};
+        const mainName = main.label
+            || (main.port ? `port ${main.port}` : 'its main port');
+        return `${payload.title} carries ${occupant.name} `
+            + `p${occupant.number}'s return - it follows ${mainName}; `
+            + 'clear that port to clear both ends.';
     }
 
     // A refusal the server never saw still deserves a sentence somewhere

@@ -771,9 +771,14 @@ def test_drag_back_to_the_dock_unassigns_the_multi(dock_page):
 
 def test_a_backing_port_wears_its_role_in_the_dock(dock_page):
     """Sequential redundancy on the seeded card: the even tiles stop saying
-    'free' and say whose return they carry, in the backup gold - the dock is
-    where a drag would start, so the claim has to be visible before the
-    refusal is needed."""
+    'free' and say what they carry, in the backup gold - the dock is where
+    a drag would start, so the claim has to be visible before the refusal
+    is needed. Two registers, by whether the main is working: a socket
+    whose main carries a screen displays that screen-port's RETURN (the
+    mirrored occupancy, derived through the backup link), and one whose
+    main is free states the bare role. WALL A's five auto ports sit on the
+    odds 1-9 and WALL B on 11, so socket 2 is a working return and socket
+    14 (main 13, free) is the bare role."""
     page, ids = dock_page
     open_view(page, 'data-flow')
     page.evaluate("""async (ids) => {
@@ -788,19 +793,28 @@ def test_a_backing_port_wears_its_role_in_the_dock(dock_page):
     }""", ids)
     page.wait_for_timeout(1200)
     out = page.evaluate("""(ids) => {
-        const even = document.querySelector(
-            `[data-hwdock="port-${ids.cardId}-2"]`);
-        const odd = document.querySelector(
-            `[data-hwdock="port-${ids.cardId}-1"]`);
+        const grab = (n) => document.querySelector(
+            `[data-hwdock="port-${ids.cardId}-${n}"]`);
+        const even = grab(2);
+        const idle = grab(14);
+        const odd = grab(1);
         return {
             even: even ? even.textContent : null,
             evenTitle: even ? even.title : null,
+            evenOccupied: even ? even.closest('.lrd-tile')
+                .classList.contains('lrd-tile-occupied') : null,
+            idle: idle ? idle.textContent : null,
+            idleTitle: idle ? idle.title : null,
             odd: odd ? odd.textContent : null,
         };
     }""", ids)
     try:
-        assert out['even'] and 'backs up' in out['even'], out
-        assert 'return end' in (out['evenTitle'] or ''), out
+        assert out['even'] and 'WALL A p1 return' in out['even'], out
+        assert 'WALL A p1 return' in (out['evenTitle'] or ''), out
+        assert out['evenOccupied'] is True, (
+            f'a working return must wear the occupied ground: {out}')
+        assert out['idle'] and 'backs up' in out['idle'], out
+        assert 'return end' in (out['idleTitle'] or ''), out
         assert out['odd'] and 'backs up' not in out['odd'], out
     finally:
         # Leave the module's shared server the way this test found it.
@@ -814,6 +828,162 @@ def test_a_backing_port_wears_its_role_in_the_dock(dock_page):
                        { redundancy: false });
             await window.app.refreshProcessors();
         }""", ids)
+        page.wait_for_timeout(600)
+
+
+def test_a_mirrored_return_refuses_clear_and_drag_back_naming_the_screen(
+        dock_page):
+    """The mirrored return is display, not a claim of its own: it follows
+    the main, so both ways of releasing it are refused AT the backup
+    socket, each naming the screen it carries and pointing at the main
+    where the clear actually lands. Nothing mutates and nothing joins the
+    history - the mirror is derived, so there is nothing to undo."""
+    page, ids = dock_page
+    open_view(page, 'data-flow')
+    page.evaluate("""async (ids) => {
+        const send = (url, method, body) => fetch(url, { method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body) }).then(r => r.json());
+        await send(`/api/processors/${ids.procId}`, 'PUT',
+                   { redundancy: true });
+        await send(`/api/processors/${ids.procId}/cards/${ids.cardId}`,
+                   'PUT', { redundancyMode: 'sequential' });
+        await window.app.refreshProcessors();
+    }""", ids)
+    page.wait_for_timeout(1200)
+    try:
+        pins_before = page.evaluate(PINS_JS)
+        hist_before = page.evaluate(HIST_LEN_JS)
+        x, y = dock_tile_center(page, f"port-{ids['cardId']}-2")
+
+        item = right_click(page, x, y)
+        assert item and item['shown'], item
+        assert item['disabled'], (
+            f'the mirrored return offered an enabled clear: {item}')
+        assert "carries WALL A p1's return" in item['title'], item
+        assert 'clear that port' in item['title'], item
+        close_menu(page)
+
+        # The drag-back says the same sentence: a hop that ends anywhere
+        # inside the tray is the release gesture for a port tile.
+        inside = page.evaluate("""() => {
+            const r = document.getElementById('hardware-dock')
+                .getBoundingClientRect();
+            return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        }""")
+        drag(page, x, y, inside['x'], inside['y'])
+        said = page.evaluate(
+            "() => document.getElementById('status-message').textContent")
+        assert "carries WALL A p1's return" in said, said
+        assert page.evaluate(PINS_JS) == pins_before, (
+            'a refused release moved a pin')
+        assert page.evaluate(HIST_LEN_JS) == hist_before, (
+            'a refusal earned a history entry')
+    finally:
+        page.evaluate("""async (ids) => {
+            const send = (url, method, body) => fetch(url, { method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body) }).then(r => r.json());
+            await send(`/api/processors/${ids.procId}/cards/${ids.cardId}`,
+                       'PUT', { redundancyMode: '1to1' });
+            await send(`/api/processors/${ids.procId}`, 'PUT',
+                       { redundancy: false });
+            await window.app.refreshProcessors();
+        }""", ids)
+        page.wait_for_timeout(600)
+
+
+def test_a_redundant_pair_reads_as_one_group_in_the_dock(dock_page):
+    """A redundant pair is ONE loom and reads as ONE group: on a redundant
+    SX40 box B nests under the A it backs and D under C - two pairs, not
+    four sibling strips - and a designated 1:1 backup machine nests whole,
+    name strip and all, under its main. Same rule, both levels; the chips
+    inside keep their keys either way."""
+    page, ids = dock_page
+    open_view(page, 'data-flow')
+    made = page.evaluate("""async () => {
+        const send = (url, method, body) => fetch(url, { method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body) }).then(r => r.json());
+        const sx = await send('/api/processors', 'POST',
+                              { deviceId: 'brompton-sx40' });
+        const sxProc = sx.resolved[sx.resolved.length - 1];
+        await send(`/api/processors/${sxProc.id}`, 'PUT',
+                   { redundancy: true });
+        const m = await send('/api/processors', 'POST',
+                             { deviceId: 'novastar-mx20' });
+        const mainProc = m.resolved[m.resolved.length - 1];
+        const b = await send('/api/processors', 'POST',
+                             { deviceId: 'novastar-mx20' });
+        const backProc = b.resolved[b.resolved.length - 1];
+        const mainCard = mainProc.slots[0].card.id;
+        const backCard = backProc.slots[0].card.id;
+        await send(`/api/processors/${mainProc.id}`, 'PUT',
+                   { redundancy: true });
+        await send(`/api/processors/${mainProc.id}/cards/${mainCard}`,
+                   'PUT', { backupCardId: backCard });
+        await window.app.refreshProcessors();
+        const resolvedSx = window.app._processorsResolved
+            .find(p => p.id === sxProc.id);
+        return {
+            sxId: sxProc.id, mainId: mainProc.id, backId: backProc.id,
+            mainCard, backCard,
+            sxCvts: resolvedSx.slots[0].card.cvts.map(c => c.id),
+        };
+    }""")
+    page.wait_for_timeout(1200)
+    out = page.evaluate("""(made) => {
+        const boxOf = (id) => {
+            const h = document.querySelector(`[data-hwdock="box-${id}"]`);
+            return h && h.closest('.hw-dock-box');
+        };
+        const [a, b, c, d] = made.sxCvts.map(boxOf);
+        const backUnit = document.querySelector(
+            `[data-hwdock="card-${made.backCard}"]`);
+        const backProcEl = backUnit && backUnit.closest('.hw-dock-proc');
+        const mainUnit = document.querySelector(
+            `[data-hwdock="card-${made.mainCard}"]`);
+        const paired = (main, backup) => !!(main && backup
+            && main.parentElement.classList.contains('lrd-red-pair')
+            && main.parentElement === backup.parentElement);
+        return {
+            built: !!(a && b && c && d && backUnit && mainUnit),
+            bIsBackup: !!(b && b.classList.contains('lrd-red-backup')),
+            dIsBackup: !!(d && d.classList.contains('lrd-red-backup')),
+            abPaired: paired(a, b),
+            cdPaired: paired(c, d),
+            pairsDistinct: !!(a && c
+                              && a.parentElement !== c.parentElement),
+            unitNested: !!(backProcEl
+                && backProcEl.classList.contains('lrd-red-backup')),
+            unitPairHoldsMain: !!(backProcEl && mainUnit
+                && backProcEl.parentElement.classList
+                    .contains('lrd-red-pair')
+                && backProcEl.parentElement.contains(mainUnit)),
+            chipsKeyed: !!document.querySelector(
+                `[data-hwdock="port-${made.backCard}-1"]`),
+        };
+    }""", made)
+    try:
+        assert out['built'], out
+        assert out['bIsBackup'] and out['abPaired'], out
+        assert out['dIsBackup'] and out['cdPaired'], out
+        assert out['pairsDistinct'], (
+            f'A/B and C/D collapsed into one bracket: {out}')
+        assert out['unitNested'] and out['unitPairHoldsMain'], out
+        assert out['chipsKeyed'], (
+            f'nesting cost the backup unit its tiles: {out}')
+    finally:
+        page.evaluate("""async (made) => {
+            const send = (url, method, body) => fetch(url, { method,
+                headers: { 'Content-Type': 'application/json' },
+                body: body === undefined ? undefined
+                    : JSON.stringify(body) }).then(r => r.json());
+            for (const id of [made.backId, made.mainId, made.sxId]) {
+                await send(`/api/processors/${id}`, 'DELETE');
+            }
+            await window.app.refreshProcessors();
+        }""", made)
         page.wait_for_timeout(600)
 
 

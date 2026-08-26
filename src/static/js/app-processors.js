@@ -118,6 +118,41 @@ class _Processors {
         return this._processorDevices().find(d => d.id === deviceId) || null;
     }
 
+    // One presentation rule for "X backs up Y", at whatever level states
+    // it: the backup's element joins its main inside one pair wrapper,
+    // indented under the role's gold edge, instead of standing as a
+    // sibling box - a redundant pair is ONE loom, and four sibling boxes
+    // read as four looms. Layout only: the fold and tile machinery inside
+    // either element is untouched, and a degenerate file whose "main" sits
+    // inside its own backup nests nothing rather than inverting.
+    _nestBackupUnder(mainEl, backupEl) {
+        if (!mainEl || !backupEl || mainEl === backupEl
+                || backupEl.contains(mainEl)) return;
+        let pair = mainEl.parentElement;
+        if (!pair || !pair.classList.contains('lrd-red-pair')) {
+            pair = document.createElement('div');
+            pair.className = 'lrd-red-pair';
+            mainEl.replaceWith(pair);
+            pair.appendChild(mainEl);
+        }
+        backupEl.classList.add('lrd-red-backup');
+        pair.appendChild(backupEl);
+    }
+
+    // The unit-level reading of the card-level facts: a processor whose
+    // every card is consumed backing cards of ONE other processor is that
+    // processor's designated backup unit - the "second sending card"
+    // bought to mirror the first - and the pair presents as one group. A
+    // unit with any main of its own keeps its own place in the row; its
+    // consumed cards still state their role on their own line.
+    _backupUnitMainId(proc) {
+        const cards = (proc.slots || []).map(s => s.card).filter(Boolean);
+        if (!cards.length || !cards.every(c => c.backupFor)) return null;
+        const mainId = cards[0].backupFor.processorId;
+        if (cards.some(c => c.backupFor.processorId !== mainId)) return null;
+        return mainId !== proc.id ? mainId : null;
+    }
+
     renderProcessorPanel() {
         const list = document.getElementById('processor-list');
         const addRow = document.getElementById('processor-add-row');
@@ -127,8 +162,24 @@ class _Processors {
         list.innerHTML = '';
         addRow.innerHTML = '';
 
+        const procEls = new Map();
         (this._processorsResolved || []).forEach(proc => {
-            list.appendChild(this._buildProcessorCard(proc));
+            const el = this._buildProcessorCard(proc);
+            procEls.set(proc.id, el);
+            list.appendChild(el);
+        });
+        // A designated backup unit groups under its main - the same
+        // presentation the SX40's fixed box pairs get inside a card, one
+        // level up. Within a chassis the pairing stays on the cards' own
+        // fact lines instead: the slots read in slot order because that IS
+        // the allocation order, and regrouping them would make the
+        // numbering appear to come from nowhere.
+        (this._processorsResolved || []).forEach(proc => {
+            const mainId = this._backupUnitMainId(proc);
+            if (mainId) {
+                this._nestBackupUnder(procEls.get(mainId),
+                                      procEls.get(proc.id));
+            }
         });
         // Every card folds by the section machinery (app-core.js). The
         // rebuild just wiped the wired nodes, so wire the fresh ones and
@@ -655,8 +706,18 @@ class _Processors {
             }
         }
 
+        // A redundant pair of boxes is one group: the backup nests under
+        // the box it backs (A with B, C with D on a redundant SX40, and a
+        // NovaStar pair likewise) through the same rule the processor list
+        // uses for a designated backup unit. Boxes with no role stay the
+        // plain siblings they are.
+        const cvtEls = new Map();
         (card.cvts || []).forEach(cvt => {
-            wrap.appendChild(this._buildCvt(proc, card, cvt));
+            const el = this._buildCvt(proc, card, cvt);
+            cvtEls.set(cvt.id, el);
+            const main = cvt.backupOf && cvtEls.get(cvt.backupOf);
+            if (main) this._nestBackupUnder(main, el);
+            else wrap.appendChild(el);
         });
 
         wrap.appendChild(this._buildPortList(proc, card));
@@ -976,6 +1037,13 @@ class _Processors {
         } else if (occupants.length > 1) {
             who.style.color = '#d05a52';
             who.textContent = 'clash';
+        } else if (occupants[0].role === 'return') {
+            // Derived, not placed: the socket carries this screen-port's
+            // RETURN, following its main through the backedBy link - so it
+            // reads in the role's gold and clears only from the main.
+            who.style.color = '#c8a04a';
+            who.textContent =
+                `${occupants[0].name} p${occupants[0].number} return`;
         } else {
             who.style.color = '#999';
             who.textContent = occupants[0].name;
@@ -986,7 +1054,8 @@ class _Processors {
         face.title = `Port ${port.number}`
             + (port.label ? ` - ${port.label}` : '')
             + (occupants.length
-                ? ` - ${occupants.map(o => `${o.name} p${o.number}`).join(', ')}`
+                ? ` - ${occupants.map(o => `${o.name} p${o.number}`
+                    + (o.role === 'return' ? ' return' : '')).join(', ')}`
                     + (occupants.length > 1 ? ' - clash' : '')
                 : (port.backsUp
                     ? ` - backs up ${port.backsUp.label
@@ -1136,14 +1205,21 @@ class _Processors {
             who.textContent = 'free';
             who.title = 'No screen is on this port.';
         } else {
-            const parts = occupants.map(o => `${o.name} p${o.number}`);
-            who.style.color = occupants.length > 1 ? '#d05a52' : '#888';
+            const parts = occupants.map(o => `${o.name} p${o.number}`
+                + (o.role === 'return' ? ' return' : ''));
+            const derived = occupants.length === 1
+                && occupants[0].role === 'return';
+            who.style.color = occupants.length > 1 ? '#d05a52'
+                : (derived ? '#c8a04a' : '#888');
             who.textContent = parts.join(', ')
                 + (occupants.length > 1 ? ' - clash' : '');
             who.title = occupants.length > 1
                 ? `${parts.join(' and ')} both claim this port. Nothing has `
                   + 'been renumbered - see Port Numbering.'
-                : `${occupants[0].name}, its port ${occupants[0].number}`;
+                : (derived
+                    ? `${occupants[0].name} port ${occupants[0].number}'s `
+                      + 'return end - it follows the main and clears with it.'
+                    : `${occupants[0].name}, its port ${occupants[0].number}`);
         }
         row.appendChild(who);
         wrap.appendChild(names);
