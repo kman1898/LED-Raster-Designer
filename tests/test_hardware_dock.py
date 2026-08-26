@@ -1650,7 +1650,9 @@ def test_a_slot_chip_wears_its_six_tail_sockets(dock_page):
     assert [c['used'] for c in occ] == [True] * 4 + [False] * 2, occ
     assert not any(c['clash'] for c in occ), occ
     assert 'OFF SL' in occ[0]['title'] and 'C2-2-1' in occ[0]['title'], occ
-    assert occ[4]['title'].endswith('free'), occ
+    # the pip's own drag hint now follows the holder statement, so "free"
+    # is the statement, not the string's end
+    assert 'Tail 5 - free' in occ[4]['title'], occ
     empty = out['empty']
     assert empty and len(empty) == 6, out
     assert not any(c['used'] or c['clash'] for c in empty), empty
@@ -1872,3 +1874,299 @@ def test_a_drop_on_a_box_with_no_free_tail_refuses_with_the_counts(dock_page):
     assert page.evaluate(HIST_LEN_JS) == before, (
         'a refusal must write no history entry')
     split_clean(page, ids, st)
+
+
+# ── the preview lights the drop's whole reach, and a pip drags one circuit ─
+#
+# Mid-flight, the underlay must light EVERYTHING the release will touch -
+# the data tab's rule, where a port drop lights exactly the run it takes.
+# A slot chip over a multi's FIRST circuit lights the whole multi; over a
+# later circuit it lights the split-off tail and leaves the head dark; a
+# distro lights every unassigned multi's circuits and nothing on a screen
+# with nothing left to feed. And the slot chip's six tail pips are draggable
+# themselves: pip N onto a circuit run puts that ONE circuit on tail N of
+# that box (the drop-implied split shrunk to one circuit, the stored tail
+# set [N] landing it on the pip), one undo entry, with the clash/occupied
+# refusals said in the status bar.
+
+# What the underlay ACTUALLY drew in one render pass: wrap the hook, count
+# a run as lit only when the original stroked something, restore, return.
+LIT_RUNS_JS = """() => {
+    const r = window.canvasRenderer;
+    const lit = [];
+    const orig = r._dockRunUnderlay;
+    r._dockRunUnderlay = function (panels, layer, num) {
+        const st = this.ctx.stroke;
+        let drew = false;
+        this.ctx.stroke = function () {
+            drew = true;
+            return st.apply(this, arguments);
+        };
+        try { orig.call(this, panels, layer, num); }
+        finally { this.ctx.stroke = st; }
+        if (drew) lit.push([layer.id, num]);
+    };
+    try { r.render(); } finally { r._dockRunUnderlay = orig; }
+    return lit;
+}"""
+
+POWER_FULL_STATE_JS = """(layerId) => {
+    const l = window.app.project.layers.find(x => x.id === layerId);
+    return {
+        splits: l.powerSocaSplits || [],
+        distro: l.powerSocaDistro || {},
+        num: l.powerSocaNumber || {},
+        pos: l.powerSocaPhasePos || {},
+    };
+}"""
+
+
+def drag_probe(page, sx, sy, ex, ey):
+    """Drag to (ex, ey), read the DRAWN underlay and the live target
+    mid-flight, then end the gesture over the sidebar: no drop target
+    there, so nothing mutates and no reset is owed."""
+    page.mouse.move(sx, sy)
+    page.mouse.down()
+    page.mouse.move((sx + ex) / 2, (sy + ey) / 2, steps=5)
+    page.mouse.move(ex, ey, steps=5)
+    page.wait_for_timeout(250)
+    lit = page.evaluate(LIT_RUNS_JS)
+    target = page.evaluate("() => window.app._dockDropTarget")
+    page.mouse.move(30, 300, steps=3)
+    page.mouse.up()
+    page.wait_for_timeout(300)
+    return sorted(set(map(tuple, lit))), target
+
+
+def test_the_preview_lights_the_drops_whole_reach(dock_page):
+    page, ids = dock_page
+    open_view(page, 'power')
+    page.evaluate(RESET_POWER_JS, ids)
+    page.wait_for_timeout(500)
+    before = page.evaluate(HIST_LEN_JS)
+    nums = page.evaluate(
+        """(aId) => window.app.screenCircuits(
+            window.app.project.layers.find(l => l.id === aId))
+            .map(c => c.num)""", ids['aId'])
+    assert len(nums) == 3, f'WALL A must make three circuits: {nums}'
+    whole = sorted((ids['aId'], n) for n in nums)
+
+    # slot over the FIRST circuit: the whole multi lights, all 3 circuits
+    sx, sy = dock_tile_center(page, f'slot-{ids["distroId"]}-1')
+    tgt = panel_point(page, ids['aId'], {'circuit': 0})
+    lit, target = drag_probe(page, sx, sy, tgt['x'], tgt['y'])
+    assert lit == whole, (
+        f'the whole-multi drop must light every circuit it takes: {lit}')
+    assert target and target['nums'] == nums, target
+
+    # slot over a MID circuit: the split-off tail lights, the head stays dark
+    sx, sy = dock_tile_center(page, f'slot-{ids["distroId"]}-1')
+    tgt = panel_point(page, ids['aId'], {'circuit': 1})
+    lit, target = drag_probe(page, sx, sy, tgt['x'], tgt['y'])
+    assert lit == sorted((ids['aId'], n) for n in nums[1:]), (
+        f'the split drop must light the tail circuits only: {lit}')
+    assert target and target['nums'] == nums[1:], target
+
+    # distro over the screen: every unassigned multi's circuits light
+    sx, sy = dock_tile_center(page, f'distro-{ids["distroId"]}')
+    tgt = panel_point(page, ids['aId'], {'circuit': 1})
+    lit, target = drag_probe(page, sx, sy, tgt['x'], tgt['y'])
+    assert lit == whole, (
+        f'the distro drop must light the unassigned multis: {lit}')
+    assert target and target['kind'] == 'screen'
+    assert target['nums'] == nums, target
+
+    # ... and on a screen with nothing unassigned, it lights NOTHING -
+    # exactly what the drop would feed
+    page.evaluate("""(ids) => {
+        const app = window.app;
+        const a = app.project.layers.find(x => x.id === ids.aId);
+        app.setSocaDistro(a, 1, ids.distroId);
+        app._restateNaming();
+    }""", ids)
+    page.wait_for_timeout(600)
+    sx, sy = dock_tile_center(page, f'distro-{ids["distroId"]}')
+    tgt = panel_point(page, ids['aId'], {'circuit': 1})
+    lit, target = drag_probe(page, sx, sy, tgt['x'], tgt['y'])
+    assert lit == [], (
+        f'a fully-fed screen must light nothing under a distro: {lit}')
+    assert target and target['nums'] == [], target
+
+    # the probes ended on dead ground: nothing was dropped, so only the
+    # one seeded assignment above may have written history
+    assert page.evaluate(HIST_LEN_JS) == before + 1, (
+        'a mid-flight preview must never write history')
+    page.evaluate(RESET_POWER_JS, ids)
+    page.wait_for_timeout(300)
+
+
+def test_a_tail_pip_drags_one_circuit_onto_its_tail(dock_page):
+    """Pip N onto a circuit run: that ONE circuit goes to tail N of that
+    box. Mid-multi, the boundary cuts fall out of the drop (one before the
+    circuit, one after) - ONE 'Assign Circuit' entry, one undo heals cuts
+    and assignment together. A one-circuit multi needs no cut at all. The
+    ghost names the pip the whole way."""
+    page, ids = dock_page
+    open_view(page, 'power')
+    page.evaluate(RESET_POWER_JS, ids)
+    page.wait_for_timeout(500)
+    before = page.evaluate(HIST_LEN_JS)
+
+    # WALL A's middle circuit onto PD 1 tail 3
+    sx, sy = dock_tile_center(page, f'tail-{ids["distroId"]}-1-3')
+    tgt = panel_point(page, ids['aId'], {'circuit': 1})
+    mid = drag(page, sx, sy, tgt['x'], tgt['y'],
+               mid_check=lambda p: p.evaluate("""() => ({
+                   ghost: (document.getElementById('hw-dock-ghost')
+                           || {}).textContent,
+                   target: window.app._dockDropTarget})"""))
+    assert mid['ghost'] == 'PD 1 tail 3', mid
+    assert mid['target']['kind'] == 'run', mid
+    out = page.evaluate(POWER_FULL_STATE_JS, ids['aId'])
+    assert out['splits'] == [1, 2], (
+        f'the pip drop must isolate the one circuit: {out}')
+    assert out['distro'] == {'2': ids['distroId']}, out
+    assert out['num'] == {'2': 1}, out
+    assert out['pos'] == {'2': [3]}, (
+        f'the stored tail set must land the circuit on pip 3: {out}')
+    label = page.evaluate("""(aId) => {
+        const app = window.app;
+        const a = app.project.layers.find(l => l.id === aId);
+        app._circuitTailCache = null;
+        return app.getPowerCircuitLabel(a, app.screenCircuits(a)[1].num);
+    }""", ids['aId'])
+    assert label == 'PD1-3', (
+        f'the label must derive from the box and the tail: {label}')
+    assert page.evaluate(HIST_LEN_JS) == before + 1, (
+        'the pip gesture must be ONE history entry')
+    assert page.evaluate(HIST_JS, 1) == ['Assign Circuit']
+    page.evaluate("() => window.app.undo()")
+    page.wait_for_timeout(900)
+    out = page.evaluate(POWER_FULL_STATE_JS, ids['aId'])
+    assert out == {'splits': [], 'distro': {}, 'num': {}, 'pos': {}}, (
+        f'one undo did not heal the cuts and the assignment together: {out}')
+
+    # WALL B's only circuit is already a multi of its own: no cut stored
+    sx, sy = dock_tile_center(page, f'tail-{ids["distroId"]}-1-5')
+    tgt = panel_point(page, ids['bId'], {'circuit': 0})
+    drag(page, sx, sy, tgt['x'], tgt['y'])
+    out = page.evaluate(POWER_FULL_STATE_JS, ids['bId'])
+    assert out['splits'] == [], (
+        f'a one-circuit multi must take no cut: {out}')
+    assert out['distro'] == {'1': ids['distroId']}, out
+    assert out['num'] == {'1': 1}, out
+    assert out['pos'] == {'1': [5]}, out
+    assert page.evaluate(HIST_JS, 1) == ['Assign Circuit']
+    page.evaluate(RESET_POWER_JS, ids)
+    page.wait_for_timeout(300)
+
+
+def test_a_held_pip_refuses_and_the_same_seat_is_a_no_op(dock_page):
+    """The pips' occupancy conventions, spoken before anything moves: a
+    tail a pinned member holds refuses with the holder's name, and the
+    circuit's own seat is a no-op said out loud - neither writes history."""
+    page, ids = dock_page
+    open_view(page, 'power')
+    page.evaluate(RESET_POWER_JS, ids)
+    page.wait_for_timeout(500)
+
+    # seat WALL B's circuit on PD 1 tail 3 first
+    sx, sy = dock_tile_center(page, f'tail-{ids["distroId"]}-1-3')
+    tgt = panel_point(page, ids['bId'], {'circuit': 0})
+    drag(page, sx, sy, tgt['x'], tgt['y'])
+    assert page.evaluate(POWER_FULL_STATE_JS,
+                         ids['bId'])['pos'] == {'1': [3]}
+    before = page.evaluate(HIST_LEN_JS)
+
+    # the held pip refuses another screen's circuit, naming the holder
+    sx, sy = dock_tile_center(page, f'tail-{ids["distroId"]}-1-3')
+    tgt = panel_point(page, ids['aId'], {'circuit': 0})
+    drag(page, sx, sy, tgt['x'], tgt['y'])
+    said = page.evaluate(
+        "() => document.getElementById('status-message').textContent")
+    assert 'held by WALL B' in said, said
+    out = page.evaluate(POWER_FULL_STATE_JS, ids['aId'])
+    assert out['distro'] == {} and out['splits'] == [], (
+        f'a refused pip drop mutated the wall: {out}')
+
+    # the circuit's own seat: a no-op with a note, never a re-write
+    sx, sy = dock_tile_center(page, f'tail-{ids["distroId"]}-1-3')
+    tgt = panel_point(page, ids['bId'], {'circuit': 0})
+    drag(page, sx, sy, tgt['x'], tgt['y'])
+    said = page.evaluate(
+        "() => document.getElementById('status-message').textContent")
+    assert 'already on PD 1 tail 3' in said, said
+    assert page.evaluate(HIST_LEN_JS) == before, (
+        'a refusal and a no-op must write no history entry')
+    page.evaluate(RESET_POWER_JS, ids)
+    page.wait_for_timeout(300)
+
+
+def test_the_dock_sections_ports_by_box_with_lettered_headers(dock_page):
+    """Within a card, ports group BY BREAKOUT BOX: one bounded section per
+    box, headed in the dock's own register with the box's name - lettered
+    by its trunk where nothing else tells four identical boxes apart -
+    and its port span; the backup box's section nests under its main's.
+    A boxless card keeps its single flat grid."""
+    page, ids = dock_page
+    open_view(page, 'data-flow')
+    made = page.evaluate("""async () => {
+        const send = (url, method, body) => fetch(url, { method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body) }).then(r => r.json());
+        const sx = await send('/api/processors', 'POST',
+                              { deviceId: 'brompton-sx40' });
+        const sxProc = sx.resolved[sx.resolved.length - 1];
+        await send(`/api/processors/${sxProc.id}`, 'PUT',
+                   { redundancy: true });
+        await window.app.refreshProcessors();
+        const resolved = window.app._processorsResolved
+            .find(p => p.id === sxProc.id);
+        return { sxId: sxProc.id,
+                 sxCvts: resolved.slots[0].card.cvts.map(c => c.id) };
+    }""")
+    page.wait_for_timeout(1200)
+    out = page.evaluate("""([made, cardId]) => {
+        const read = (id) => {
+            const h = document.querySelector(`[data-hwdock="box-${id}"]`);
+            const box = h && h.closest('.hw-dock-box');
+            if (!box) return null;
+            return {
+                name: h.querySelector('.hw-dock-unit-name').textContent,
+                detail: h.querySelector('.hw-dock-unit-info').textContent,
+                tiles: box.querySelectorAll('.lrd-tile').length,
+                backup: box.classList.contains('lrd-red-backup'),
+            };
+        };
+        const flat = document.querySelector(
+            `[data-hwdock="card-${cardId}"]`);
+        const flatUnit = flat && flat.closest('.hw-dock-unit');
+        return {
+            boxes: made.sxCvts.map(read),
+            flatBoxes: flatUnit
+                ? flatUnit.querySelectorAll('.hw-dock-box').length : null,
+            flatGrids: flatUnit
+                ? flatUnit.querySelectorAll('.lrd-tile-grid').length : null,
+        };
+    }""", [made, ids['cardId']])
+    try:
+        assert all(out['boxes']), out
+        names = [(b['name'], b['detail'], b['backup'])
+                 for b in out['boxes']]
+        assert names == [
+            ('Tessera XD A', 'ports 1-10', False),
+            ('Tessera XD B (backup)', 'ports 11-20', True),
+            ('Tessera XD C', 'ports 21-30', False),
+            ('Tessera XD D (backup)', 'ports 31-40', True),
+        ], f'the sections must be lettered and paired: {names}'
+        assert all(b['tiles'] == 10 for b in out['boxes']), (
+            f'each section must hold exactly its own span of chips: {out}')
+        assert out['flatBoxes'] == 0 and out['flatGrids'] == 1, (
+            f'a boxless card must keep its single flat grid: {out}')
+    finally:
+        page.evaluate("""async (made) => {
+            await fetch(`/api/processors/${made.sxId}`,
+                        { method: 'DELETE' });
+            await window.app.refreshProcessors();
+        }""", made)
+        page.wait_for_timeout(600)

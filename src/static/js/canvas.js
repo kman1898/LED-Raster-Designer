@@ -3103,11 +3103,21 @@ class CanvasRenderer {
     // shims) instead of re-deriving them and disagreeing on the wall that
     // matters. `num` is the port number in Data view and the circuit number
     // in Power view; a screen-wide target lights every run of the screen.
+    //
+    // The preview must light the drop's WHOLE reach before release: a multi
+    // slot takes every circuit of the multi (or the split-off tail), a
+    // distro takes every unassigned multi - lighting only the hovered run
+    // made those drops look like one circuit. `t.nums` is that reach where
+    // the hit test computed one; without it the target stays what it says
+    // (one run, or the whole screen).
     _dockRunUnderlay(panels, layer, num) {
         const t = window.app && window.app._dockDropTarget;
         if (!t || t.layerId !== layer.id) return;
-        if (t.kind === 'run' && t.num !== num) return;
         if (t.kind !== 'run' && t.kind !== 'screen') return;
+        const nums = Array.isArray(t.nums) ? t.nums : null;
+        if (t.kind === 'run'
+                && !(nums ? nums.includes(num) : t.num === num)) return;
+        if (t.kind === 'screen' && nums && !nums.includes(num)) return;
         if (!panels || !panels.length) return;
         this.ctx.save();
         this.ctx.strokeStyle = 'rgba(120, 180, 255, 0.55)';

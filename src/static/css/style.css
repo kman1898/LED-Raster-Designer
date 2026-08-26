@@ -1357,7 +1357,17 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     min-width: 0;
 }
 .hw-dock-unit-info { font-size: 10px; color: #666; font-family: monospace; margin-left: auto; }
-.hw-dock-box { margin-top: 4px; padding-left: 6px; border-left: 2px solid #2a2a2a; }
+/* One breakout box = one bounded section of its card: its own ground and
+   frame around the header ("Tessera XD A · ports 1-10") and its span of
+   chips, so where one box ends and the next begins is read at a glance -
+   a lone left border was invisible between two ten-chip grids. The backup
+   half of a pair keeps this frame and adds the pair rule's gold edge and
+   indent (.lrd-red-backup below beats the left border). */
+.hw-dock-box {
+    margin-top: 6px; padding: 2px 6px 5px;
+    background: #111; border: 1px solid #262626; border-radius: 3px;
+    border-left: 2px solid #3a3a3a;
+}
 .hw-dock-grid { margin-top: 4px; }
 /* A redundant pair reads as ONE group everywhere "X backs up Y" is drawn -
    the SX40's fixed A/B and C/D boxes, a designated 1:1 backup unit - so the

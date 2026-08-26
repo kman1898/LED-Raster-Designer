@@ -216,15 +216,22 @@ class _HardwareDock {
             const span = `${Math.min(...nums)}-${Math.max(...nums)}`;
             const tag = cvt.backupOf ? ' (backup)'
                 : (cvt.duplicateOf ? ' (copy)' : '');
+            // Four boxes all reading "Tessera XD" are four sections nobody
+            // can tell apart, so an unnamed box on a trunked card wears its
+            // trunk letter - "Tessera XD A" - the letters the pairing rule
+            // itself is written in ("A backs up to B"). A hand-named box is
+            // already told apart by its name.
+            const boxTitle = (cvt.name
+                || cvt.deviceName + this._dockBoxLetter(card, cvt)) + tag;
             box.appendChild(this._dockBuildHandle(
                 {
                     type: 'box', cardId: card.id,
                     first: Math.min(...nums), last: Math.max(...nums),
-                    title: (cvt.name || cvt.deviceName) + tag,
+                    title: boxTitle,
                     beyondTrunks: !!cvt.beyondTrunks,
                 },
                 `box-${cvt.id}`,
-                (cvt.name || cvt.deviceName) + tag,
+                boxTitle,
                 `ports ${span}`,
                 'Drag the whole box onto a screen: the screen\'s ports fill '
                 + 'onto this box\'s sockets in order from the first '
@@ -240,6 +247,22 @@ class _HardwareDock {
             else unit.appendChild(box);
         });
         return unit;
+    }
+
+    // " A" for the box on trunk 1, " C-D" for one eating two trunks - the
+    // trunk POSITION said in the letters the catalog's own pairing rule
+    // uses, nothing invented. Empty where there is nothing to letter: a
+    // card without at least two trunks (one section needs no telling
+    // apart), or a box hanging past the trunks (it has no position).
+    _dockBoxLetter(card, cvt) {
+        const trunks = Number(card.trunks) || 0;
+        if (trunks < 2 || cvt.beyondTrunks) return '';
+        if (!Number.isInteger(cvt.trunkIndex) || cvt.trunkIndex < 0) return '';
+        const first = String.fromCharCode(65 + cvt.trunkIndex);
+        const takes = Number(cvt.trunksIn) || 1;
+        return takes > 1
+            ? ` ${first}-${String.fromCharCode(65 + cvt.trunkIndex + takes - 1)}`
+            : ` ${first}`;
     }
 
     _dockBuildPortGrid(proc, card, ports) {
@@ -703,7 +726,21 @@ class _HardwareDock {
             cell.title = `Tail ${t} - ` + (holders.length
                 ? holders.map(h => `${h.who} ${h.label}`).join(', ')
                     + (holders.length > 1 ? ' (claimed twice)' : '')
-                : 'free');
+                : 'free')
+                + '. Drag onto a circuit to put that ONE circuit on this '
+                + 'tail.';
+            // The pip is the tray's finest drag: ONE circuit onto THIS tail
+            // ("when no multi is set i can't just drag one port"). Its
+            // mousedown must not bubble to the face, or every pip drag
+            // would also arm the whole-slot drag underneath it; hover
+            // inspection and the 4px click latitude are untouched.
+            this._dockWireDraggable(cell, {
+                type: 'tail', distroId: d.id, number: n, tail: t,
+                title: `${d.name || d.id} ${n} tail ${t}`,
+            }, `tail-${d.id}-${n}-${t}`);
+            cell.addEventListener('mousedown', (e) => {
+                if (e.button === 0) e.stopPropagation();
+            });
             row.appendChild(cell);
         }
         face.appendChild(row);
@@ -912,7 +949,8 @@ class _HardwareDock {
             worldY);
         const hit = renderer.getPanelAt(worldX, worldY);
         const whole = drag.payload.type !== 'port'
-            && drag.payload.type !== 'slot';
+            && drag.payload.type !== 'slot'
+            && drag.payload.type !== 'tail';
 
         if (renderer.viewMode === 'data-flow') {
             if (hit && drag.dataMap && drag.dataMap.has(hit.panel)) {
@@ -938,15 +976,35 @@ class _HardwareDock {
                     ? renderer._powerCircuitForPanel(layer, hit.panel) : null;
                 if (circuit) {
                     if (whole) {
-                        return { kind: 'screen', layerId: circuit.owner.id };
+                        return this._dockScreenTarget(circuit.owner, drag);
                     }
                     const slot = this._powerNaming(circuit.owner)
                         .slots.get(circuit.circuitNum);
                     if (slot) {
-                        return {
+                        const target = {
                             kind: 'run', layerId: circuit.owner.id,
                             num: circuit.circuitNum, socaIndex: slot.multi,
                         };
+                        // The drop's true reach rides on the target so the
+                        // underlay can light everything the release will
+                        // touch - the data tab's rule, where a port drop
+                        // lights exactly the run it takes. A slot takes its
+                        // whole multi from the hovered circuit on (all of
+                        // it from the first); a tail pip takes the hovered
+                        // circuit alone.
+                        if (drag.payload.type === 'slot') {
+                            const rec = this._powerNaming(circuit.owner)
+                                .socas.get(slot.multi);
+                            const at = rec
+                                ? rec.circuits.indexOf(circuit.circuitNum)
+                                : -1;
+                            target.nums = rec
+                                ? rec.circuits.slice(Math.max(at, 0))
+                                : [circuit.circuitNum];
+                        } else if (drag.payload.type === 'tail') {
+                            target.nums = [circuit.circuitNum];
+                        }
+                        return target;
                     }
                 }
             }
@@ -955,11 +1013,28 @@ class _HardwareDock {
                 // drop matrix refuses non-screens with a reason, which tells
                 // the user more than a drop that silently does nothing.
                 const layer = renderer.getLayerAt(worldX, worldY);
-                if (layer) return { kind: 'screen', layerId: layer.id };
+                if (layer) return this._dockScreenTarget(layer, drag);
             }
             return null;
         }
         return null;
+    }
+
+    // A screen-wide power target, carrying the drop's true reach for a
+    // DISTRO drag: the release feeds only the screen's unassigned multis,
+    // so those multis' circuits are what the preview lights - a screen with
+    // nothing unassigned lights nothing, which is exactly what the drop
+    // would do. Every other whole-unit drag really is screen-wide and
+    // carries no `nums`.
+    _dockScreenTarget(layer, drag) {
+        const target = { kind: 'screen', layerId: layer.id };
+        if (drag.payload.type === 'distro'
+                && (layer.type || 'screen') === 'screen') {
+            target.nums = this.getSocaPlan(layer)
+                .filter(s => !s.distroId)
+                .flatMap(s => s.legs.map(g => g.circuit));
+        }
+        return target;
     }
 
     // Which panel belongs to which port of which screen, frozen at pickup.
@@ -1009,6 +1084,7 @@ class _HardwareDock {
             return this._dockDropCardOrBox(payload, target);
         }
         if (payload.type === 'slot') return this._dockDropSlot(payload, target);
+        if (payload.type === 'tail') return this._dockDropTail(payload, target);
         if (payload.type === 'distro') {
             return this._dockDropDistro(payload, target);
         }
@@ -1163,6 +1239,83 @@ class _HardwareDock {
         }
     }
 
+    // A tail pip lands on ONE circuit: that circuit alone goes to this
+    // box's tail N - the tray's finest grain, for the wall where no whole
+    // multi is wanted. Composed entirely from the machinery the other drops
+    // already run: the drop-implied split isolates the circuit where it is
+    // not a multi of its own (one cut before it, one after the remainder),
+    // the incumbents on the box freeze exactly as every join freezes them,
+    // and the stored tail set [N] is how a one-circuit multi lands on pip N
+    // under the wall-order rule - a set of one has nothing to reorder. ONE
+    // history entry for the whole gesture, like the split-drop above.
+    _dockDropTail(payload, target) {
+        if (target.kind !== 'run') return;
+        const layer = (this.project.layers || [])
+            .find(l => l.id === target.layerId);
+        if (!layer) return;
+        const nm = this._powerNaming(layer);
+        const slot = nm.slots.get(target.num);
+        const rec = slot ? nm.socas.get(slot.multi) : null;
+        if (!rec) return;
+        const label = this.getPowerCircuitLabel(layer, target.num);
+        const n = parseInt(payload.number, 10);
+        if (rec.pinned && rec.distroId === payload.distroId
+                && rec.number === n && slot.tail === payload.tail) {
+            // Already exactly there - a no-op said out loud, not a refusal.
+            this._dockSay(`${label} is already on ${payload.title}.`);
+            return;
+        }
+        // The pips' own occupancy convention: a tail a PINNED member holds
+        // is taken (an auto at this number re-deals and defends nothing,
+        // the rule every join follows). The dragged circuit's own seat is
+        // not in its way - landing there is the no-op above.
+        for (const m of (this._distroMultiNumbers(payload.distroId)
+                .get(n) || [])) {
+            if (!m.pinned) continue;
+            const ml = (this.project.layers || [])
+                .find(l => l.id === m.layerId);
+            const mr = ml && this._powerNaming(ml).socas.get(m.soca);
+            if (!mr || !Array.isArray(mr.positions)) continue;
+            const i = mr.positions.indexOf(payload.tail);
+            if (i < 0) continue;
+            if (ml === layer && m.soca === rec.index
+                    && mr.circuits[i] === target.num) continue;
+            this._dockSay(`Tail ${payload.tail} is held by ${ml.name} `
+                + `${this.getPowerCircuitLabel(ml, mr.circuits[i])} - `
+                + 'clear it first, or drop on a free pip.');
+            return;
+        }
+        const at = rec.circuits.indexOf(target.num);
+        if (at < 0) return;
+        const touched = new Set([layer]);
+        let idx = rec.index;
+        if (at > 0) {
+            // Cut BEFORE the circuit: it becomes the head of the next part.
+            const stamped = this._splitSocaApply(layer, idx, at);
+            if (!stamped) return;
+            stamped.forEach(l => touched.add(l));
+            idx += 1;
+        }
+        if (rec.circuits.length - at > 1) {
+            // Cut AFTER it: the remainder stays behind as its own multi
+            // (unassigned, the split rule), and the moving part is exactly
+            // the one circuit the pip was aimed at.
+            const stamped = this._splitSocaApply(layer, idx, 1);
+            if (!stamped) return;
+            stamped.forEach(l => touched.add(l));
+        }
+        this._materializeSocaBox(payload.distroId, n, layer, idx)
+            .forEach(l => touched.add(l));
+        (layer.powerSocaDistro || (layer.powerSocaDistro = {}))[idx]
+            = payload.distroId;
+        (layer.powerSocaNumber || (layer.powerSocaNumber = {}))[idx] = n;
+        (layer.powerSocaPhasePos || (layer.powerSocaPhasePos = {}))[idx]
+            = [payload.tail];
+        this._circuitTailCache = null;
+        this.updateLayers([...touched], true, 'Assign Circuit');
+        this._restateNaming();
+    }
+
     _dockDropDistro(payload, target) {
         if (target.kind !== 'screen') return;
         const layer = (this.project.layers || [])
@@ -1202,18 +1355,36 @@ class _HardwareDock {
     // Every clear here runs the release operations the dock's drag-back runs,
     // and confirms nothing: clearing is undoable and touches only the
     // assignment - names, templates and the hardware itself stay.
+    // The payload of the chip under an element, for the right-click
+    // surfaces. A tail pip carries a payload of its own (it is its own drag
+    // handle), but the menus speak for the chip that holds it - clearing or
+    // merging "tail 3" is not a gesture anything offers - so the search
+    // walks out of a tail to the slot face around it. A chip whose payload
+    // cannot be read arms nothing, as before.
+    _dockChipPayload(el) {
+        let chip = el && el.closest ? el.closest('[data-hwdock-payload]') : null;
+        while (chip) {
+            let payload = null;
+            try {
+                payload = JSON.parse(chip.dataset.hwdockPayload);
+            } catch (_) {
+                return null;
+            }
+            if (!payload) return null;
+            if (payload.type !== 'tail') return payload;
+            chip = chip.parentElement
+                ? chip.parentElement.closest('[data-hwdock-payload]') : null;
+        }
+        return null;
+    }
+
     _prepareClearMenu(x, y) {
         // The dock chip under the cursor first: chips carry their payload on
         // the element, and the tray sits outside the canvas so the two tests
         // cannot both hit.
         const el = document.elementFromPoint(x, y);
-        const chip = el && el.closest
-            ? el.closest('[data-hwdock-payload]') : null;
-        if (chip) {
-            let payload = null;
-            try {
-                payload = JSON.parse(chip.dataset.hwdockPayload);
-            } catch (_) { /* a chip with unreadable payload arms nothing */ }
+        if (el && el.closest && el.closest('[data-hwdock-payload]')) {
+            const payload = this._dockChipPayload(el);
             return payload ? this._clearMenuForDock(payload) : null;
         }
         const renderer = window.canvasRenderer;
@@ -1329,13 +1500,8 @@ class _HardwareDock {
     // not a refused gesture - so the item stays off the menu entirely.
     _prepareMergeMenu(x, y) {
         const el = document.elementFromPoint(x, y);
-        const chip = el && el.closest
-            ? el.closest('[data-hwdock-payload]') : null;
-        if (chip) {
-            let payload = null;
-            try {
-                payload = JSON.parse(chip.dataset.hwdockPayload);
-            } catch (_) { /* a chip with unreadable payload arms nothing */ }
+        if (el && el.closest && el.closest('[data-hwdock-payload]')) {
+            const payload = this._dockChipPayload(el);
             if (!payload || payload.type !== 'slot') return null;
             // The chip is the box, so it offers to hand back only a
             // SPLIT-OFF part it holds - a head member whose tail lives on
