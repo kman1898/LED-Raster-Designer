@@ -314,6 +314,17 @@ export class LEDRasterApp {
             if (n.classList.contains('lrd-sec-collapsed')) {
                 this._setSectionCollapsed(n, false);
             }
+            // The dock folds by the SIDEBAR machinery, not the section
+            // machinery, and the port chips' editors live inside it - so a
+            // restore aiming into a collapsed tray reopens it through its
+            // own toggle, which is what persists the state and settles the
+            // canvas around the returning height.
+            if (n.id === 'hardware-dock'
+                    && n.classList.contains('collapsed')) {
+                const toggle =
+                    document.getElementById('hardware-dock-toggle');
+                if (toggle) toggle.click();
+            }
         }
     }
 
@@ -356,6 +367,14 @@ export class LEDRasterApp {
             delete this._openTiles[boxId];
         }
         tile.classList.toggle('lrd-tile-open', open);
+        // Opening grows the tile, and in a scrolling host (the dock's body
+        // caps its height) the editor can land partly outside the visible
+        // area - open half-off-screen, with the face no longer clickable
+        // where the eye left it. Nearest-edge scrolling keeps the opened
+        // tile in view and is a no-op when it already is.
+        if (open && tile.scrollIntoView) {
+            tile.scrollIntoView({ block: 'nearest' });
+        }
         const face = tile.querySelector(':scope > .lrd-tile-face');
         if (face) {
             face.setAttribute('aria-expanded', String(open));

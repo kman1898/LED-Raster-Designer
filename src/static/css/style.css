@@ -1383,7 +1383,27 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 .hw-dock-proc > .lrd-red-pair {
     flex: 1 1 240px; min-width: 170px; max-width: 100%;
 }
-/* Dock tiles are drag handles, not folding editors: the face is the whole
-   tile and the cursor says so. */
+/* Dock chips are drag handles first and the cursor says so - and in Data
+   view the port chips are ALSO the ports' folding editors, since the dock
+   is the one place ports appear: a press released without movement is the
+   click that opens the editor in place, press-and-move is the drag
+   (app-dock.js _dockArmDrag's 4px split). The power slot chips stay pure
+   handles - their editing lives in the Power sidebar's multi tiles. */
 .hw-dock-tile > .lrd-tile-face { cursor: grab; }
 .hw-dock-tile > .lrd-tile-face:active { cursor: grabbing; }
+/* A multi slot chip's six tail sockets, the port-chip register shrunk to
+   pips: one cell per tail of the 6-way fan, lit when a circuit holds it,
+   clash-red when two stored sets claim it, dim when free. Fixed six-up so
+   every chip reads the same fan at a squint; each cell carries its holder
+   on hover (app-dock.js _dockBuildSlotChip). */
+.hw-dock-tails {
+    display: grid; grid-template-columns: repeat(6, 1fr);
+    gap: 2px; margin-top: 3px; min-width: 0;
+}
+.hw-dock-tail {
+    font-size: 9px; font-family: monospace; line-height: 1.5;
+    text-align: center; border-radius: 2px;
+    color: #4a4a4a; background: #141414; border: 1px solid #222;
+}
+.hw-dock-tail-used { color: #bbb; background: #262626; border-color: #4a4a4a; }
+.hw-dock-tail-clash { color: #d05a52; background: #1a1010; border-color: #3a2a28; }

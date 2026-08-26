@@ -21,12 +21,19 @@ What is pinned here, with real pointer drags (mouse down/move/up):
   * a whole BREAKOUT BOX fills only its own span of card ports, dealing
     around sockets already claimed inside the span
   * a single multi SLOT dropped on a circuit lands that circuit's multi on
-    that (distro, number); an occupied slot is the JOIN, not a refusal
+    that (distro, number); an occupied slot is the JOIN, not a refusal; a
+    drop on a circuit past the multi's FIRST splits the multi there (the
+    drop implies the boundary; see the section at the end), and the slot
+    chips wear their six tail sockets as pips
   * a whole DISTRO dropped on a screen gives its unassigned multis that
     distro, numbered automatically
   * dragging an occupied port tile / slot chip back onto the dock releases
     the assignment, undoably
   * an invalid target refuses with a reason (status bar), nothing mutates
+  * a port chip is ALSO the port's editor (the dock is the one place ports
+    appear): a press released without movement opens it in place, a drag -
+    past _dockArmDrag's 4px threshold - never opens it, and an open chip
+    still drags (deep editor coverage lives in test_port_tiles.py)
 
 And the right-click clears (real button='right' clicks), the other way back:
   * a drawn port run offers "Clear port <label>" - the existing unpin, one
@@ -298,6 +305,15 @@ def drag(page, sx, sy, ex, ey, mid_check=None):
 
 
 def dock_tile_center(page, key):
+    # An open chip grows past the dock body's visible area, so the raw
+    # bounding box can name a point no click can reach (elementFromPoint
+    # returns null there). Scroll it into view first - exactly what a
+    # user's eye-then-hand does, and what locator.click() would do.
+    page.evaluate(
+        """(key) => {
+            const el = document.querySelector(`[data-hwdock="${key}"]`);
+            if (el) el.scrollIntoView({ block: 'nearest' });
+        }""", key)
     box = page.locator(f'[data-hwdock="{key}"]').bounding_box()
     assert box, f'no dock tile {key}'
     return box['x'] + box['width'] / 2, box['y'] + box['height'] / 2
@@ -625,6 +641,102 @@ def test_drag_back_to_the_dock_releases_the_port(dock_page):
         'undo did not restore the released pin')
     page.evaluate(RESET_DATA_JS, ids)
     page.wait_for_timeout(300)
+
+
+CHIP_STATE_JS = """(tid) => {
+    const tile = document.querySelector(`[data-lrd-tile="${tid}"]`);
+    if (!tile) return null;
+    const vis = (el) => !!el && el.getClientRects().length > 0;
+    return {
+        open: tile.classList.contains('lrd-tile-open'),
+        editorPainted: vis(tile.querySelector(':scope > .lrd-tile-body')),
+        ghost: !!document.getElementById('hw-dock-ghost'),
+        dragLive: !!window.app._dockDrag,
+    };
+}"""
+
+
+def test_a_click_opens_the_chip_and_a_drag_never_does(dock_page):
+    """The chip is both drag handle and the port's editor, split by
+    _dockArmDrag's 4px threshold - the same latitude every drag on the
+    canvas gives. A press released without movement (or inside 4px) is the
+    click that opens the editor in place; a press-and-move past 4px is the
+    drag, and the drag's synthetic click is swallowed so a drop back on the
+    chip never doubles as an open. An open chip still drags."""
+    page, ids = dock_page
+    open_view(page, 'data-flow')
+    page.evaluate(RESET_DATA_JS, ids)
+    page.wait_for_timeout(400)
+    tid = f'port-{ids["cardId"]}-16'
+
+    # a plain click opens the editor in place; no drag ever armed
+    sx, sy = dock_tile_center(page, tid)
+    page.mouse.click(sx, sy)
+    page.wait_for_timeout(200)
+    s = page.evaluate(CHIP_STATE_JS, tid)
+    assert s['open'] and s['editorPainted'], (
+        f'the click did not open the chip editor: {s}')
+    assert not s['ghost'] and not s['dragLive'], (
+        f'a plain click armed a drag: {s}')
+
+    # the face closes its own chip (it moved - the open chip spans the row)
+    sx, sy = dock_tile_center(page, tid)
+    page.mouse.click(sx, sy)
+    page.wait_for_timeout(200)
+    assert not page.evaluate(CHIP_STATE_JS, tid)['open'], (
+        'the second click did not close the editor')
+
+    # a sub-threshold jiggle is still the click: 2px of travel opens
+    sx, sy = dock_tile_center(page, tid)
+    page.mouse.move(sx, sy)
+    page.mouse.down()
+    page.mouse.move(sx + 2, sy + 1)
+    page.mouse.up()
+    page.wait_for_timeout(200)
+    assert page.evaluate(CHIP_STATE_JS, tid)['open'], (
+        'a 2px jiggle - inside the 4px threshold - did not count as the '
+        'click')
+    sx, sy = dock_tile_center(page, tid)
+    page.mouse.click(sx, sy)   # close again
+    page.wait_for_timeout(200)
+
+    # a real drag that ends back ON the same chip: the synthetic click is
+    # swallowed, so the drop does not double as an open
+    sx, sy = dock_tile_center(page, tid)
+    page.mouse.move(sx, sy)
+    page.mouse.down()
+    page.mouse.move(sx + 30, sy + 8, steps=4)
+    mid = page.evaluate(CHIP_STATE_JS, tid)
+    page.mouse.move(sx + 2, sy + 1, steps=4)
+    page.mouse.up()
+    page.wait_for_timeout(300)
+    assert mid['ghost'] and mid['dragLive'], (
+        f'a 30px press-and-move did not arm the drag: {mid}')
+    s = page.evaluate(CHIP_STATE_JS, tid)
+    assert not s['open'], (
+        f'the drag\'s synthetic click opened the editor: {s}')
+    assert not s['ghost'] and not s['dragLive'], f'the drag never ended: {s}'
+
+    # an open chip still drags: press-and-move on the open face arms the
+    # drag, and the editor neither closes nor re-opens around the gesture
+    sx, sy = dock_tile_center(page, tid)
+    page.mouse.click(sx, sy)
+    page.wait_for_timeout(200)
+    assert page.evaluate(CHIP_STATE_JS, tid)['open']
+    sx, sy = dock_tile_center(page, tid)
+    page.mouse.move(sx, sy)
+    page.mouse.down()
+    page.mouse.move(sx + 40, sy + 6, steps=4)
+    mid = page.evaluate(CHIP_STATE_JS, tid)
+    page.mouse.move(sx + 3, sy, steps=4)
+    page.mouse.up()
+    page.wait_for_timeout(300)
+    assert mid['dragLive'], f'an open chip no longer drags: {mid}'
+    s = page.evaluate(CHIP_STATE_JS, tid)
+    assert s['open'], f'dragging an open chip closed its editor: {s}'
+    sx, sy = dock_tile_center(page, tid)
+    page.mouse.click(sx, sy)   # leave it closed
+    page.wait_for_timeout(200)
 
 
 # ── power view: slot, join, distro, drag-back ─────────────────────────────
@@ -1406,3 +1518,357 @@ def test_the_canvas_run_menu_keeps_layer_items_beside_the_clear(dock_page):
         assert action in state['items'], (
             f'the circuit menu lost its {action} item: {state}')
     close_menu(page)
+
+
+# ── multi slot chips carry six tails; the drop implies the boundary ───────
+#
+# A multi IS a 6-tail box, so its slot chip wears the six tail sockets as
+# pips - who holds each one on hover, the clash red where two stored sets
+# collide. And WHICH circuit a slot chip is dropped on decides the gesture:
+# the first circuit of a multi takes the whole multi (as always), a LATER
+# circuit splits the multi there - the boundary the sidebar's Split select
+# used to ask for, implied by the drop (splitSocaOnto, one undo entry for
+# split and assignment together). The way back is right-click "Merge back
+# into <name>" on the circuit run or the chip, offered only where a stored
+# boundary exists.
+#
+# The screens here are purpose-built off to the side of WALL A/B: 100V x 5A
+# against 100W panels puts a 5-tile tl-v column exactly on a circuit, so
+# `columns` IS the circuit count (the test_power_shared_socas.py builder's
+# arithmetic, on the real server). The distro is named C2 and the incumbent
+# pinned to No. 2 so the joined labels reproduce the 2026 NCMF file's
+# hand-typed strings character for character.
+
+MERGE_ITEM_JS = """() => {
+    const menu = document.getElementById('context-menu');
+    const item = menu ? menu.querySelector('[data-action="hw-merge"]') : null;
+    if (!menu || !item) return null;
+    return {
+        menuShown: menu.style.display === 'block',
+        shown: item.style.display !== 'none',
+        label: (item.textContent || '').trim(),
+        title: item.title,
+    };
+}"""
+
+SPLIT_SEED_JS = """async (which) => {
+    const app = window.app;
+    const mk = async (name, columns, ox) => {
+        const r = await fetch('/api/layer/add', {method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name, columns, rows: 5,
+                cabinet_width: 128, cabinet_height: 128,
+                offset_x: ox, offset_y: 1200})});
+        const made = await r.json();
+        await fetch('/api/layer/' + made.id, {method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({powerVoltage: '100', powerAmperage: '5',
+                panelWatts: '100', powerOrganized: true, powerMaximize: false,
+                powerFlowPattern: 'tl-v'})});
+        return made.id;
+    };
+    const offId = await mk('OFF SL', which.off, 2400);
+    const cenId = await mk('CEN SL', which.cen,
+                           2400 + which.off * 128 + 256);
+    app.project = await (await fetch('/api/project')).json();
+    const d = app.addDistro({ name: 'C2' });
+    const off = app.project.layers.find(l => l.id === offId);
+    const cen = app.project.layers.find(l => l.id === cenId);
+    app.setSocaDistro(off, 1, d.id);
+    app.setSocaNumber(off, 1, 2);
+    app._circuitTailCache = null;
+    app.renderLayers();
+    // Frame the new pair: they sit below WALL A/B on purpose, so the
+    // module's stock framing does not show them.
+    const r = window.canvasRenderer;
+    r.zoom = 0.25; r.panX = -500; r.panY = -240; r.render();
+    app._restateNaming();
+    app.resetHistory('Split Seed');
+    return { offId, cenId, d2: d.id,
+             offCirc: app.screenCircuits(off).length,
+             cenCirc: app.screenCircuits(cen).length };
+}"""
+
+SPLIT_CLEAN_JS = """async (st) => {
+    const app = window.app;
+    await fetch('/api/layer/' + st.offId, { method: 'DELETE' });
+    await fetch('/api/layer/' + st.cenId, { method: 'DELETE' });
+    app.removeDistro(st.d2);
+    app.project = await (await fetch('/api/project')).json();
+    app.currentLayer = app.project.layers.find(l => l.name === 'WALL A');
+    app.selectedLayerIds = new Set([app.currentLayer.id]);
+    app._circuitTailCache = null;
+    app.renderLayers();
+    const r = window.canvasRenderer;
+    r.zoom = 0.28; r.panX = 60; r.panY = 40; r.render();
+    app.renderHardwareDock();
+    app.resetHistory('Dock Seed');
+    return true;
+}"""
+
+
+def split_seed(page, ids, off, cen):
+    page.evaluate(RESET_POWER_JS, ids)
+    page.wait_for_timeout(300)
+    st = page.evaluate(SPLIT_SEED_JS, {'off': off, 'cen': cen})
+    page.wait_for_timeout(800)
+    # columns IS the circuit count, or every drop below aims at the wrong run
+    assert st['offCirc'] == off and st['cenCirc'] == cen, st
+    return st
+
+
+def split_clean(page, ids, st):
+    page.evaluate(SPLIT_CLEAN_JS, st)
+    page.wait_for_timeout(500)
+    page.evaluate(RESET_POWER_JS, ids)
+
+
+def test_a_slot_chip_wears_its_six_tail_sockets(dock_page):
+    """The chip is the box, so it shows the fan: six pips, the incumbent's
+    four tails lit and named (screen + derived circuit label on hover), the
+    two free ones dim - and an untouched slot's chip shows six free pips."""
+    page, ids = dock_page
+    open_view(page, 'power')
+    st = split_seed(page, ids, off=4, cen=4)
+    out = page.evaluate("""(st) => {
+        const read = (key) => {
+            const el = document.querySelector(`[data-hwdock="${key}"]`);
+            if (!el) return null;
+            return [...el.querySelectorAll('.hw-dock-tail')].map(c => ({
+                text: c.textContent,
+                used: c.classList.contains('hw-dock-tail-used'),
+                clash: c.classList.contains('hw-dock-tail-clash'),
+                title: c.title,
+            }));
+        };
+        return { occupied: read(`slot-${st.d2}-2`),
+                 empty: read(`slot-${st.d2}-1`) };
+    }""", st)
+    occ = out['occupied']
+    assert occ and len(occ) == 6, out
+    assert [c['text'] for c in occ] == ['1', '2', '3', '4', '5', '6'], occ
+    assert [c['used'] for c in occ] == [True] * 4 + [False] * 2, occ
+    assert not any(c['clash'] for c in occ), occ
+    assert 'OFF SL' in occ[0]['title'] and 'C2-2-1' in occ[0]['title'], occ
+    assert occ[4]['title'].endswith('free'), occ
+    empty = out['empty']
+    assert empty and len(empty) == 6, out
+    assert not any(c['used'] or c['clash'] for c in empty), empty
+    split_clean(page, ids, st)
+
+
+def test_a_drop_past_the_first_circuit_splits_the_multi_there(dock_page):
+    """The 2026 NCMF center-beach shape (2+2), by DRAG alone: box C2 No. 2
+    holds OFF SL's four circuits on tails 1-4; dropping its chip on CEN SL's
+    THIRD circuit splits CEN's multi after 2, the two tail circuits join the
+    box on tails 5-6, and their labels derive C2-2-5 and C2-2-6 - the exact
+    strings the reference file hand-typed - as ONE undo entry."""
+    page, ids = dock_page
+    open_view(page, 'power')
+    st = split_seed(page, ids, off=4, cen=4)
+    before = page.evaluate(HIST_LEN_JS)
+
+    sx, sy = dock_tile_center(page, f'slot-{st["d2"]}-2')
+    tgt = panel_point(page, st['cenId'], {'circuit': 2})
+    drag(page, sx, sy, tgt['x'], tgt['y'])
+    page.wait_for_timeout(400)
+    out = page.evaluate("""(st) => {
+        const app = window.app;
+        const cen = app.project.layers.find(l => l.id === st.cenId);
+        app._circuitTailCache = null;
+        const share = app.getSocaShare(cen, 2);
+        return {
+            splits: cen.powerSocaSplits || [],
+            distro: cen.powerSocaDistro || {},
+            num: cen.powerSocaNumber || {},
+            labels: app.screenCircuits(cen).map(c =>
+                app.getPowerCircuitLabel(cen, c.num)),
+            tails: share && share.members.map(m => m.tails),
+            clash: !!(share && (share.clash || share.overflow)),
+        };
+    }""", st)
+    assert out['splits'] == [2], out
+    assert out['distro'] == {'2': st['d2']}, out
+    assert out['num'] == {'2': 2}, out
+    assert out['labels'][2:] == ['C2-2-5', 'C2-2-6'], (
+        f'the joined labels must derive character for character: {out}')
+    assert out['tails'] == [[1, 2, 3, 4], [5, 6]], out
+    assert out['clash'] is False, out
+    assert page.evaluate(HIST_LEN_JS) == before + 1, (
+        'split + assignment must be ONE history entry')
+    assert page.evaluate(HIST_JS, 1) == ['Split Multi']
+
+    page.evaluate("() => window.app.undo()")
+    page.wait_for_timeout(900)
+    out = page.evaluate("""(st) => {
+        const cen = window.app.project.layers.find(l => l.id === st.cenId);
+        return { splits: cen.powerSocaSplits || [],
+                 distro: cen.powerSocaDistro || {},
+                 num: cen.powerSocaNumber || {} };
+    }""", st)
+    assert out == {'splits': [], 'distro': {}, 'num': {}}, (
+        f'one undo did not heal the split and the assignment together: {out}')
+    split_clean(page, ids, st)
+
+
+def test_the_six_two_shape_lands_whole_on_the_grid_boundary(dock_page):
+    """The NCMF 6+2: on an 8-circuit screen the 6-grid already puts the
+    boundary after circuit 6, so a drop on circuit 7 is the FIRST circuit
+    of its multi - the whole 2-circuit multi joins the dropped box's free
+    tails with no split stored, through the two existing setters exactly
+    as before, and the labels still derive character for character."""
+    page, ids = dock_page
+    open_view(page, 'power')
+    st = split_seed(page, ids, off=4, cen=8)
+
+    sx, sy = dock_tile_center(page, f'slot-{st["d2"]}-2')
+    tgt = panel_point(page, st['cenId'], {'circuit': 6})
+    drag(page, sx, sy, tgt['x'], tgt['y'])
+    page.wait_for_timeout(400)
+    out = page.evaluate("""(st) => {
+        const app = window.app;
+        const cen = app.project.layers.find(l => l.id === st.cenId);
+        app._circuitTailCache = null;
+        const share = app.getSocaShare(cen, 2);
+        return {
+            splits: cen.powerSocaSplits || [],
+            distro: cen.powerSocaDistro || {},
+            num: cen.powerSocaNumber || {},
+            shape: app.getSocaPlan(cen).map(s => s.legs.length),
+            labels: app.screenCircuits(cen).map(c =>
+                app.getPowerCircuitLabel(cen, c.num)),
+            tails: share && share.members.map(m => m.tails),
+        };
+    }""", st)
+    assert out['splits'] == [], (
+        f'a drop on a first circuit must not store a split: {out}')
+    assert out['shape'] == [6, 2], out
+    assert out['distro'] == {'2': st['d2']}, out
+    assert out['num'] == {'2': 2}, out
+    assert out['labels'][6:] == ['C2-2-5', 'C2-2-6'], out
+    assert out['tails'] == [[1, 2, 3, 4], [5, 6]], out
+    # the whole-multi path is untouched: the two setters, their two entries
+    assert page.evaluate(HIST_JS, 2) == \
+        ['Assign Multi Distro', 'Set Multi Number']
+    split_clean(page, ids, st)
+
+
+def test_right_click_merges_the_split_back_into_its_head(dock_page):
+    """The reverse gesture, now that Un-split left the sidebar: the split-off
+    circuit run offers "Merge back into <head>" on right-click, the merge
+    removes the boundary (the tail's assignment goes with its identity, the
+    existing un-split), one 'Un-split Multi' entry, and one undo puts the
+    split back. A circuit with no stored boundary keeps the item off the
+    menu entirely."""
+    page, ids = dock_page
+    open_view(page, 'power')
+    st = split_seed(page, ids, off=4, cen=4)
+    sx, sy = dock_tile_center(page, f'slot-{st["d2"]}-2')
+    tgt = panel_point(page, st['cenId'], {'circuit': 2})
+    drag(page, sx, sy, tgt['x'], tgt['y'])
+    page.wait_for_timeout(400)
+
+    # no boundary under the cursor -> no merge item. OFF SL's first circuit:
+    # assigned, so the clear arms, but nothing to merge - and inside the
+    # section's reframed viewport, where WALL A no longer is.
+    plain = panel_point(page, st['offId'], {'circuit': 0})
+    page.mouse.click(plain['x'], plain['y'], button='right')
+    page.wait_for_timeout(400)
+    mi = page.evaluate(MERGE_ITEM_JS)
+    assert mi and mi['menuShown'] and not mi['shown'], (
+        f'the merge item is armed with no boundary under the cursor: {mi}')
+    close_menu(page)
+
+    # the split-off run offers the merge, named for the surviving head
+    tgt = panel_point(page, st['cenId'], {'circuit': 2})
+    page.mouse.click(tgt['x'], tgt['y'], button='right')
+    page.wait_for_timeout(400)
+    mi = page.evaluate(MERGE_ITEM_JS)
+    assert mi and mi['menuShown'] and mi['shown'], mi
+    assert mi['label'].startswith('Merge back into '), mi
+    before = page.evaluate(HIST_LEN_JS)
+    page.locator('#context-menu [data-action="hw-merge"]').click()
+    page.wait_for_timeout(800)
+    out = page.evaluate("""(st) => {
+        const cen = window.app.project.layers.find(l => l.id === st.cenId);
+        return { splits: cen.powerSocaSplits || [],
+                 distro: cen.powerSocaDistro || {},
+                 num: cen.powerSocaNumber || {} };
+    }""", st)
+    assert out == {'splits': [], 'distro': {}, 'num': {}}, (
+        f'the merge did not weld the parts back: {out}')
+    assert page.evaluate(HIST_JS, 1) == ['Un-split Multi']
+    assert page.evaluate(HIST_LEN_JS) == before + 1
+
+    page.evaluate("() => window.app.undo()")
+    page.wait_for_timeout(900)
+    out = page.evaluate("""(st) => {
+        const cen = window.app.project.layers.find(l => l.id === st.cenId);
+        return { splits: cen.powerSocaSplits || [],
+                 distro: cen.powerSocaDistro || {} };
+    }""", st)
+    assert out['splits'] == [2] and out['distro'] == {'2': st['d2']}, (
+        f'one undo did not restore the split and its assignment: {out}')
+    split_clean(page, ids, st)
+
+
+def test_the_slot_chip_offers_the_merge_for_its_split_off_part(dock_page):
+    """The chip is the box: holding a split-off part, its right-click menu
+    carries the merge beside the clear - and ONLY those two, the chip
+    scoping rule - and the merge from the chip welds the same boundary."""
+    page, ids = dock_page
+    open_view(page, 'power')
+    st = split_seed(page, ids, off=4, cen=4)
+    sx, sy = dock_tile_center(page, f'slot-{st["d2"]}-2')
+    tgt = panel_point(page, st['cenId'], {'circuit': 2})
+    drag(page, sx, sy, tgt['x'], tgt['y'])
+    page.wait_for_timeout(400)
+
+    sx, sy = dock_tile_center(page, f'slot-{st["d2"]}-2')
+    page.mouse.click(sx, sy, button='right')
+    page.wait_for_timeout(400)
+    mi = page.evaluate(MERGE_ITEM_JS)
+    assert mi and mi['menuShown'] and mi['shown'], mi
+    assert mi['label'].startswith('Merge back into '), mi
+    state = page.evaluate(MENU_ITEMS_JS)
+    assert state['items'] == ['hw-clear', 'hw-merge'], (
+        f'the chip menu carries more than its own actions: {state}')
+    page.locator('#context-menu [data-action="hw-merge"]').click()
+    page.wait_for_timeout(800)
+    out = page.evaluate("""(st) => {
+        const cen = window.app.project.layers.find(l => l.id === st.cenId);
+        return { splits: cen.powerSocaSplits || [],
+                 distro: cen.powerSocaDistro || {} };
+    }""", st)
+    assert out == {'splits': [], 'distro': {}}, (
+        f'the chip merge did not weld the parts back: {out}')
+    split_clean(page, ids, st)
+
+
+def test_a_drop_on_a_box_with_no_free_tail_refuses_with_the_counts(dock_page):
+    """place-overflow's refusal, in tails: a full box takes nothing, the
+    split does not happen for nothing, and the status bar says the counts
+    instead of the wall changing."""
+    page, ids = dock_page
+    open_view(page, 'power')
+    st = split_seed(page, ids, off=6, cen=4)
+    before = page.evaluate(HIST_LEN_JS)
+
+    sx, sy = dock_tile_center(page, f'slot-{st["d2"]}-2')
+    tgt = panel_point(page, st['cenId'], {'circuit': 2})
+    drag(page, sx, sy, tgt['x'], tgt['y'])
+    page.wait_for_timeout(400)
+    out = page.evaluate("""(st) => {
+        const cen = window.app.project.layers.find(l => l.id === st.cenId);
+        return {
+            splits: cen.powerSocaSplits || [],
+            distro: cen.powerSocaDistro || {},
+            said: document.getElementById('status-message').textContent,
+        };
+    }""", st)
+    assert out['splits'] == [] and out['distro'] == {}, (
+        f'a refused drop mutated the wall: {out}')
+    assert 'no free tails' in out['said'], out
+    assert page.evaluate(HIST_LEN_JS) == before, (
+        'a refusal must write no history entry')
+    split_clean(page, ids, st)

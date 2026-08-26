@@ -507,13 +507,17 @@ def test_a_processor_edit_re_resolves_so_the_drawing_follows():
 
 
 def test_the_port_row_is_an_input_keyed_for_the_focus_guard():
-    """The panel is rebuilt wholesale on every change, so a field with no
-    data-lrd-field key is destroyed under the user's fingers - the same bug the
-    port label editor had, fixed by the same _preserveEditorFocus."""
-    source = js('app-processors.js')
+    """The dock - the one place ports appear, editors included - is rebuilt
+    wholesale on every change, so a field with no data-lrd-field key is
+    destroyed under the user's fingers - the same bug the port label editor
+    had, fixed by the same _preserveEditorFocus."""
+    source = js('app-dock.js')
     assert 'processor-port-name-${card.id}-${port.number}' in source
     assert '/ports/${port.number}' in source
     assert "who.textContent = 'free';" in source
+    # and the panel module carries no second copy of the keys to fight the
+    # dock's fields for the focus restore
+    assert 'processor-port-name-' not in js('app-processors.js')
 
 
 # ── 6. The return end of the same socket ──────────────────────────────────

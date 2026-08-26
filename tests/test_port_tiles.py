@@ -1,29 +1,31 @@
 """The ports and multis render as tiles, and the tile is where they edit.
 
-A 20-port card drawn as twenty stacked editors was a wall; drawn as tiles it
-is a grid a glance can sweep - number, resolved label, and who is on it -
-and clicking a tile opens that port's own controls IN the tile, because the
-box a port lives in is where changes to it are made. One open editor per
-box; Escape or the face closes it; the same fields, handlers and history
-actions as the rows they replace, because the tiles are presentation over
-the same state. The multis in the Power panel wear the identical shape.
+The port tiles live on the HARDWARE DOCK - the one place ports appear at
+all, since the Processors panel stopped drawing the same grid a second
+time. Each dock chip is the dense cell a glance can sweep - number,
+resolved label, and who is on it - and clicking the chip (a press released
+without movement; press-and-move is the drag) opens that port's own
+controls IN the chip, because the box a port lives in is where changes to
+it are made. One open editor per card; Escape or the face closes it; the
+same fields, handlers and history actions as the panel rows they replace,
+because the tiles are presentation over the same state. The multis in the
+Power panel wear the identical tile shape in their own sidebar.
 
 What is pinned here:
-  * the tile states its number, its label and its state, and idle vs
+  * the chip states its number, its label and its state, and idle vs
     occupied read apart at a squint
   * a click opens exactly one editor; opening another closes the first
   * edits through the open editor land on the server under the SAME history
-    actions the rows used, and walk back through undo
+    actions the panel rows used, and walk back through undo
   * Escape closes and hands focus back to the face; the whole cycle works
     from the keyboard alone
-  * the grid fits the 260px default and the 180px clamp, open editor
-    included - reflow, never a sideways scroll
-  * a focus restore into a closed tile opens the tile (the fold rule, one
-    register down)
-  * the panel tiles NAME and READ; putting a screen on a socket is the
-    hardware dock's drag, so the editor offers no set/place control and the
-    dock offers a draggable twin of every tile
-  * a folded processor hides its tiles; unfolding hands them back as left
+  * the dock grids reflow, open editor included - never a sideways scroll
+  * a focus restore into a closed chip opens the chip, and one aiming into
+    a collapsed dock reopens the dock first (the fold rule, transposed)
+  * the dock is the ONE port surface: the panel draws no port grid and no
+    port field, and the editor offers no set/place control - assignment
+    stays the chip's own drag
+  * collapsing the dock hides the chips; expanding hands them back as left
 
 Run locally:
     python3 -m pytest tests/test_port_tiles.py -q --browser chromium
@@ -449,15 +451,23 @@ def test_the_whole_cycle_works_from_the_keyboard(panel_page):
     assert face_focused, 'the keyboard close did not land back on the face'
 
 
-# ── the clamp ─────────────────────────────────────────────────────────────
+# ── the reflow ────────────────────────────────────────────────────────────
+#
+# The dock spans the canvas column, so its clamp is the WINDOW: the tray is
+# wide on a wide monitor and narrow on the default one, and the grid must
+# reflow its columns to whatever width it has rather than scroll sideways.
+# The comparison grows from the fixture's 1280 rather than shrinking below
+# it, because the canvas element's backing store pins the column's
+# min-content at its load-time size - a window smaller than that clips the
+# layout instead of narrowing the tray, which is the app's standing
+# behaviour and not this feature's to change.
 
 GRID_FIT_JS = """(cardId) => {
-    const list = document.getElementById('processor-list');
-    const grids = [...list.querySelectorAll('.lrd-tile-grid')];
-    const sidebar = document.getElementById('data-sidebar');
-    const limit = sidebar.getBoundingClientRect().right;
+    const body = document.getElementById('hardware-dock-body');
+    const grids = [...body.querySelectorAll('.lrd-tile-grid')];
+    const limit = body.getBoundingClientRect().right;
     const strays = [];
-    list.querySelectorAll('.lrd-tile, .lrd-tile *').forEach(el => {
+    body.querySelectorAll('.lrd-tile, .lrd-tile *').forEach(el => {
         const r = el.getBoundingClientRect();
         if (r.width === 0 && r.height === 0) return;
         if (r.right > limit + 0.5) {
@@ -471,7 +481,7 @@ GRID_FIT_JS = """(cardId) => {
     const cols = grid ? getComputedStyle(grid).gridTemplateColumns
         .split(' ').length : 0;
     return {
-        clipped: list.scrollWidth > list.clientWidth,
+        clipped: body.scrollWidth > body.clientWidth,
         gridClipped: grids.some(g => g.scrollWidth > g.clientWidth),
         columns: cols,
         strays,
@@ -479,44 +489,55 @@ GRID_FIT_JS = """(cardId) => {
 }"""
 
 
-@pytest.mark.parametrize('width', [260, 180])
+@pytest.mark.parametrize('width', [1280, 1700])
 def test_the_tile_grid_fits_closed_and_open(panel_page, width):
-    """At the default and at the clamp: the grid reflows to fewer columns,
-    no tile clips past the panel, and the open editor wraps inside the tile
-    the way the soca rows wrap - never a sideways scroll."""
-    ids = seed(panel_page, width)
-    closed = panel_page.evaluate(GRID_FIT_JS, ids['cardId'])
-    assert not closed['clipped'] and not closed['gridClipped'], closed
-    assert not closed['strays'], (
-        f'tiles hang past the panel at {width}px: {closed["strays"]}')
-    assert closed['columns'] >= 1, closed
+    """At the default window and at a wide one: the grid reflows, no chip
+    clips past the tray, and the open editor wraps inside the chip the way
+    the soca rows wrap - never a sideways scroll."""
+    ids = seed(panel_page)
+    panel_page.set_viewport_size({'width': width, 'height': 720})
+    panel_page.wait_for_timeout(400)
+    try:
+        closed = panel_page.evaluate(GRID_FIT_JS, ids['cardId'])
+        assert not closed['clipped'] and not closed['gridClipped'], closed
+        assert not closed['strays'], (
+            f'chips hang past the tray at {width}px: {closed["strays"]}')
+        assert closed['columns'] >= 1, closed
 
-    assert panel_page.evaluate(CLICK_FACE_JS, f"port-{ids['cardId']}-1")
-    panel_page.wait_for_timeout(100)
-    opened = panel_page.evaluate(GRID_FIT_JS, ids['cardId'])
-    assert not opened['clipped'] and not opened['gridClipped'], opened
-    assert not opened['strays'], (
-        f'the open editor hangs past the panel at {width}px: '
-        f'{opened["strays"]}')
+        assert panel_page.evaluate(CLICK_FACE_JS, f"port-{ids['cardId']}-1")
+        panel_page.wait_for_timeout(100)
+        opened = panel_page.evaluate(GRID_FIT_JS, ids['cardId'])
+        assert not opened['clipped'] and not opened['gridClipped'], opened
+        assert not opened['strays'], (
+            f'the open editor hangs past the tray at {width}px: '
+            f'{opened["strays"]}')
+    finally:
+        panel_page.evaluate(CLICK_FACE_JS, f"port-{ids['cardId']}-1")
+        panel_page.set_viewport_size({'width': 1280, 'height': 720})
+        panel_page.wait_for_timeout(300)
 
 
-def test_the_clamp_reflows_to_fewer_columns(panel_page):
-    ids = seed(panel_page, 260)
-    wide = panel_page.evaluate(GRID_FIT_JS, ids['cardId'])
-    panel_page.evaluate(SET_WIDTH_JS, 180)
-    panel_page.wait_for_timeout(500)
+def test_a_wider_tray_reflows_to_more_columns(panel_page):
+    ids = seed(panel_page)
     narrow = panel_page.evaluate(GRID_FIT_JS, ids['cardId'])
-    assert narrow['columns'] < wide['columns'], (
-        f'the grid did not reflow: {wide["columns"]} columns at 260, '
-        f'{narrow["columns"]} at 180')
-    assert not narrow['clipped'] and not narrow['strays'], narrow
+    panel_page.set_viewport_size({'width': 1700, 'height': 720})
+    panel_page.wait_for_timeout(500)
+    try:
+        wide = panel_page.evaluate(GRID_FIT_JS, ids['cardId'])
+        assert wide['columns'] > narrow['columns'], (
+            f'the grid did not reflow: {narrow["columns"]} columns at 1280, '
+            f'{wide["columns"]} at 1700')
+        assert not wide['clipped'] and not wide['strays'], wide
+    finally:
+        panel_page.set_viewport_size({'width': 1280, 'height': 720})
+        panel_page.wait_for_timeout(300)
 
 
 # ── focus restore, set/place, and the fold ────────────────────────────────
 
 def test_a_focus_restore_into_a_closed_tile_opens_it(panel_page):
     """The fold rule one register down: a field the app is putting the caret
-    back into must not be display:none, so the restore opens the tile - and
+    back into must not be display:none, so the restore opens the chip - and
     records the opening, or the next rebuild would close the editor around
     the caret."""
     ids = seed(panel_page)
@@ -536,22 +557,57 @@ def test_a_focus_restore_into_a_closed_tile_opens_it(panel_page):
         const reopened = tile.classList.contains('lrd-tile-open');
         const focusedBack = document.activeElement === el;
         // and the opening is recorded, so a rebuild keeps it
-        app.renderProcessorPanel();
+        app.renderHardwareDock();
         const rebuilt = document.querySelector(
             `[data-lrd-tile="port-${args.cardId}-1"]`);
         return { reopened, focusedBack,
                  survives: rebuilt.classList.contains('lrd-tile-open') };
     }""", {'cardId': ids['cardId']})
-    assert out['reopened'], f'the restore left the tile closed: {out}'
+    assert out['reopened'], f'the restore left the chip closed: {out}'
     assert out['focusedBack'], f'focus was not restored into the field: {out}'
     assert out['survives'], f'the auto-opening did not survive a rebuild: {out}'
 
 
-def test_assignment_moved_to_the_dock_and_the_dock_mirrors_the_tiles(panel_page):
-    """The set/place chooser is gone from the panel - aiming a socket at a
-    screen is the hardware dock's drag. The dock carries a draggable twin of
-    every port tile (same number, same occupant story, focusable), and no
-    assignment field of the old flow survives anywhere in the panel."""
+def test_a_focus_restore_into_a_collapsed_dock_reopens_the_dock(panel_page):
+    """The same rule at the tray's own register: the dock folds by the
+    SIDEBAR machinery, so a restore aiming into a collapsed tray reopens it
+    through its own toggle - persisting the state, the way the section
+    auto-expand persists its - then opens the chip and lands the caret."""
+    ids = seed(panel_page)
+    tid = f"port-{ids['cardId']}-1"
+    assert panel_page.evaluate(CLICK_FACE_JS, tid)
+    out = panel_page.evaluate("""async (args) => {
+        const app = window.app;
+        const el = document.querySelector(
+            `[data-lrd-field="processor-port-name-${args.cardId}-1"]`);
+        el.focus();
+        app._preserveEditorFocus();          // captures key + schedules restore
+        const tile = document.querySelector(
+            `[data-lrd-tile="port-${args.cardId}-1"]`);
+        app._setTileOpen(tile, false);       // close before the restore lands
+        // collapse the tray through its own toggle, the way a user would
+        document.getElementById('hardware-dock-toggle').click();
+        if (document.activeElement) document.activeElement.blur();
+        await new Promise(r => setTimeout(r, 50));
+        const dock = document.getElementById('hardware-dock');
+        return {
+            dockReopened: !dock.classList.contains('collapsed'),
+            stored: localStorage.getItem('ledRasterSidebarCollapsed_dock'),
+            tileReopened: tile.classList.contains('lrd-tile-open'),
+            focusedBack: document.activeElement === el,
+        };
+    }""", {'cardId': ids['cardId']})
+    assert out['dockReopened'], f'the restore left the dock collapsed: {out}'
+    assert out['stored'] == '0', f'the reopening did not persist: {out}'
+    assert out['tileReopened'], f'the restore left the chip closed: {out}'
+    assert out['focusedBack'], f'focus was not restored into the field: {out}'
+
+
+def test_the_dock_is_the_one_port_surface(panel_page):
+    """The panel draws no port grid, no port tile and no port field - the
+    dock is the one place ports appear, editors included - and no
+    assignment field of the old set/place flow survives anywhere. The dock
+    chips stay focusable, one per port."""
     ids = seed(panel_page)
     out = panel_page.evaluate("""(args) => {
         const list = document.getElementById('processor-list');
@@ -562,56 +618,79 @@ def test_assignment_moved_to_the_dock_and_the_dock_mirrors_the_tiles(panel_page)
                 '[data-lrd-field^="processor-port-assign-"]'),
             setButtons: [...list.querySelectorAll('button')]
                 .filter(b => b.textContent === 'set').length,
+            panelTiles: list.querySelectorAll('.lrd-tile').length,
+            panelPortFields: document.querySelectorAll(
+                '#data-sidebar [data-lrd-field^="processor-port-"]').length,
             dockTile: !!dockTile,
             dockTileFocusable: dockTile ? dockTile.tabIndex === 0 : null,
             dockTiles: document.querySelectorAll(
                 `#hardware-dock [data-hwdock^="port-${args.cardId}-"]`).length,
+            // the one-id rule: each port field key resolves exactly once,
+            // and it resolves into the dock
+            fieldCount: document.querySelectorAll(
+                `[data-lrd-field="processor-port-name-${args.cardId}-1"]`)
+                .length,
+            fieldInDock: !!document.querySelector(
+                `#hardware-dock [data-lrd-field="processor-port-name-`
+                + `${args.cardId}-1"]`),
         };
     }""", {'cardId': ids['cardId']})
     assert not out['pickerAnywhere'], f'the old chooser survives: {out}'
     assert out['setButtons'] == 0, f'a set button survives in the panel: {out}'
-    assert out['dockTile'], f'the dock has no twin for port 5: {out}'
+    assert out['panelTiles'] == 0, (
+        f'the panel still draws port tiles - the data twice: {out}')
+    assert out['panelPortFields'] == 0, (
+        f'port fields survive in the panel beside the dock\'s: {out}')
+    assert out['dockTile'], f'the dock has no chip for port 5: {out}'
     assert out['dockTileFocusable'], (
-        f'the dock tile fell out of the tab ring: {out}')
-    # the MX20's six ports all have dock twins
+        f'the dock chip fell out of the tab ring: {out}')
+    # the MX20's six ports all appear, once each, editors in the dock
     assert out['dockTiles'] == 6, out
+    assert out['fieldCount'] == 1 and out['fieldInDock'], (
+        f'the one-id rule broke - a port field exists twice or outside '
+        f'the dock: {out}')
 
 
-def test_a_folded_processor_hides_its_tiles_and_hands_them_back(panel_page):
-    """Fold interplay: folding hides the whole grid, unfolding restores it,
-    and the open tile rides the panel's wholesale rebuild by id - the same
-    way the fold state itself does."""
+def test_a_collapsed_dock_hides_its_chips_and_hands_them_back(panel_page):
+    """Fold interplay at the tray's register: collapsing the dock hides
+    every chip, expanding restores them, and the open chip rides the
+    tray's wholesale rebuild by id - the same way the fold state itself
+    does."""
     ids = seed(panel_page)
     tid = f"port-{ids['cardId']}-1"
     assert panel_page.evaluate(CLICK_FACE_JS, tid)
     assert tile_state(panel_page, tid)['open']
 
-    panel_page.evaluate("""(procId) => {
-        const box = document.querySelector(
-            `[data-lrd-sec-id="processor-${procId}"]`);
-        window.app._setSectionCollapsed(box, true);
-    }""", ids['procId'])
-    s = tile_state(panel_page, tid)
-    assert not s['facePainted'] and not s['bodyPainted'], (
-        f'a folded processor still paints its tiles: {s}')
-    assert s['bodyInDom'], 'the fold detached the tiles'
+    panel_page.locator('#hardware-dock-toggle').click()
+    panel_page.wait_for_timeout(500)
+    # The collapse folds the tray to nothing and clips its content
+    # (height 0 + overflow hidden - the sidebar collapse transposed), so
+    # the proof is the tray's height, not display:none on each chip.
+    folded = panel_page.evaluate("""() => {
+        const dock = document.getElementById('hardware-dock');
+        return {
+            collapsed: dock.classList.contains('collapsed'),
+            dockH: dock.getBoundingClientRect().height,
+        };
+    }""")
+    assert folded['collapsed'] and folded['dockH'] < 2, (
+        f'the toggle did not fold the tray away: {folded}')
+    assert tile_state(panel_page, tid)['bodyInDom'], (
+        'the collapse detached the chips')
 
-    panel_page.evaluate("""(procId) => {
-        const box = document.querySelector(
-            `[data-lrd-sec-id="processor-${procId}"]`);
-        window.app._setSectionCollapsed(box, false);
-    }""", ids['procId'])
+    panel_page.locator('#hardware-dock-toggle').click()
+    panel_page.wait_for_timeout(500)
     s = tile_state(panel_page, tid)
-    assert s['facePainted'], 'unfolding did not hand the tiles back'
+    assert s['facePainted'], 'expanding did not hand the chips back'
     assert s['open'] and s['bodyPainted'], (
-        f'unfolding lost the open tile: {s}')
+        f'expanding lost the open chip: {s}')
 
-    # a bare wholesale rebuild: the open tile comes back by id
-    panel_page.evaluate("() => window.app.renderProcessorPanel()")
+    # a bare wholesale rebuild: the open chip comes back by id
+    panel_page.evaluate("() => window.app.renderHardwareDock()")
     panel_page.wait_for_timeout(100)
     s = tile_state(panel_page, tid)
     assert s['open'] and s['bodyPainted'], (
-        f'the rebuild closed the open tile: {s}')
+        f'the rebuild closed the open chip: {s}')
 
 
 # ── the multis wear the same shape ────────────────────────────────────────

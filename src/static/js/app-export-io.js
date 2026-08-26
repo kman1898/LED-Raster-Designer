@@ -2511,6 +2511,16 @@ class _ExportIo {
                     this._clearMenuAction.run();
                 }
                 break;
+            // The merge-back armed for this opening of the menu, same
+            // doctrine as the clear above: stored at open time, re-checked
+            // here so a keyboard-driven call cannot merge what the cursor
+            // never named.
+            case 'hw-merge':
+                if (this._mergeMenuAction
+                        && typeof this._mergeMenuAction.run === 'function') {
+                    this._mergeMenuAction.run();
+                }
+                break;
             case 'bulk-set-blank':
                 this.setPanelsBlankBulk(this.getPixelMapSelectedPanels(), true);
                 break;

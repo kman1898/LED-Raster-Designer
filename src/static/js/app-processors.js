@@ -1,14 +1,19 @@
 // app-processors: the Processors panel in the Signal sidebar.
 //
-// The panel draws a tree - processor, slot, card, breakout box, ports - and
-// every level of it earns its place. The CARD is where the port count comes
-// from, so the same H9 is a 100-port machine with RJ45 cards and a 160-port
-// one with fiber cards; and a fiber card's ports arrive at a breakout box,
-// which is the thing a tech is standing in front of when they read a port
-// label off it. ("cvt" in ids and endpoints is the stored key, kept stable;
-// the generic DEVICE is a breakout box - CVT is one vendor's name for
-// theirs, the way Tessera XD is another's, so only actual model names say
-// it.)
+// The panel draws the DEVICE tree - processor, slot, card, breakout box -
+// and every level of it earns its place. The CARD is where the port count
+// comes from, so the same H9 is a 100-port machine with RJ45 cards and a
+// 160-port one with fiber cards; and a fiber card's ports arrive at a
+// breakout box, which is the thing a tech is standing in front of when they
+// read a port label off it. ("cvt" in ids and endpoints is the stored key,
+// kept stable; the generic DEVICE is a breakout box - CVT is one vendor's
+// name for theirs, the way Tessera XD is another's, so only actual model
+// names say it.)
+//
+// The PORTS themselves do not draw here. The hardware dock is the one place
+// ports appear - the same data twice was two surfaces to read apart - so the
+// per-port tiles and their editors live in app-dock.js, and this panel stops
+// at the card and its boxes: names, templates, modes, redundancy, capacity.
 //
 // It deliberately derives nothing. Counts, labels and over-capacity flags all
 // come back from /api/processors, which resolves them in processor_catalog.py.
@@ -187,13 +192,6 @@ class _Processors {
         // panel's generated headings make after every rebuild.
         if (typeof this._wireSectionCollapse === 'function') {
             this._wireSectionCollapse(list);
-        }
-        // The tiles' own open/close wiring, rebuilt for the same reason -
-        // the wipe above took the wired nodes with it. Which tile is open
-        // rode the wipe on the app (_openTiles), the way the fold state
-        // rode it in localStorage.
-        if (typeof this._wireTiles === 'function') {
-            this._wireTiles(list);
         }
         const picker = this._buildDeviceSelect(
             this._processorDevices('processor'), '', 'Add a processor...');
@@ -719,8 +717,9 @@ class _Processors {
             if (main) this._nestBackupUnder(main, el);
             else wrap.appendChild(el);
         });
-
-        wrap.appendChild(this._buildPortList(proc, card));
+        // No port grid: the dock is the one place ports appear, editors
+        // included (app-dock.js). A second grid here was the same data
+        // twice, and the panel's copy is the one that went.
         return wrap;
     }
 
@@ -946,370 +945,10 @@ class _Processors {
             info.style.fontSize = '11px';
             info.style.color = '#888';
             info.style.marginTop = '2px';
-            info.textContent = 'Each port picks its backup in its tile '
-                + 'below. An unpicked port has no backup.';
+            info.textContent = 'Each port picks its backup in its chip on '
+                + 'the hardware dock. An unpicked port has no backup.';
             wrap.appendChild(info);
         }
-        return wrap;
-    }
-
-    _buildPortList(proc, card) {
-        const list = document.createElement('div');
-        list.style.marginTop = '6px';
-        // No height cap and no scrollbar of its own: the SIDEBAR is the one
-        // scroll context. A 190px scrollbox here showed two and a half ports
-        // of twenty and made every read a scroll-within-a-scroll; the section
-        // header folds the whole panel away when the length is unwanted. The
-        // tiles are what keep the natural height honest - a 20-port card is
-        // a few rows of grid, not twenty stacked editors.
-        list.className = 'lrd-tile-grid';
-        if (!(card.ports || []).length) {
-            const empty = document.createElement('div');
-            empty.style.fontSize = '11px';
-            empty.style.color = '#888';
-            empty.style.gridColumn = '1 / -1';
-            empty.textContent = card.ceilingKnown
-                ? 'No ports.'
-                : 'Port count unknown for this device.';
-            list.appendChild(empty);
-            return list;
-        }
-        card.ports.forEach(port => {
-            list.appendChild(this._buildPortTile(proc, card, port));
-        });
-        return list;
-    }
-
-    // One port as one dense cell of the card's grid: number, the resolved
-    // label (the assignment's answer, never re-derived here), and who is on
-    // it. Clicking the face opens the port's editor IN the tile - it takes
-    // the row's full width and the controls unfold under the face - because
-    // the box a port lives in is where its edits happen; an editor drawn
-    // outside the tile would orphan its controls in a wrapped grid, where
-    // "beneath" points at whatever happened to wrap there. The editor is
-    // hidden, never detached (style.css .lrd-tile-body), so every field
-    // keeps answering the focus-restore lookup from inside a closed tile.
-    _buildPortTile(proc, card, port) {
-        const tile = document.createElement('div');
-        tile.className = 'lrd-tile';
-        tile.dataset.lrdTile = `port-${card.id}-${port.number}`;
-        tile.dataset.lrdTileBox = `card-${card.id}`;
-        const occupants = this._portOccupants(card.id, port.number);
-        // The same states the editor prints, worn as the tile's ground so
-        // idle and occupied read apart at a squint: free stays dark,
-        // occupied is the lit one, a clash keeps the issue boxes' red.
-        if (occupants.length > 1) tile.classList.add('lrd-tile-clash');
-        else if (occupants.length) tile.classList.add('lrd-tile-occupied');
-
-        const face = document.createElement('div');
-        face.className = 'lrd-tile-face';
-        const top = document.createElement('div');
-        top.className = 'lrd-tile-line';
-        const num = document.createElement('span');
-        num.style.color = port.beyondCeiling ? '#d05a52' : '#666';
-        num.textContent = String(port.number);
-        top.appendChild(num);
-        if (port.label) {
-            const label = document.createElement('span');
-            // Typed gold vs derived grey - the same tell the editor's boxes
-            // wear, at the same 11px, so it survives the shrink to a tile.
-            label.style.color = port.labelSource === 'manual'
-                ? '#e0c98a' : '#ccc';
-            top.appendChild(document.createTextNode(' '));
-            label.textContent = port.label;
-            top.appendChild(label);
-        }
-        face.appendChild(top);
-        const who = document.createElement('div');
-        who.className = 'lrd-tile-line';
-        if (!occupants.length) {
-            if (port.backsUp) {
-                // Consumed as another main's return: not free, and the tile
-                // says whose return it carries - the backup-box gold, since
-                // it is the same role one level down.
-                who.style.color = '#c8a04a';
-                who.textContent = `backs up ${port.backsUp.label
-                    || `port ${port.backsUp.port}`}`;
-            } else {
-                who.style.color = '#4a4a4a';
-                who.textContent = 'free';
-            }
-        } else if (occupants.length > 1) {
-            who.style.color = '#d05a52';
-            who.textContent = 'clash';
-        } else if (occupants[0].role === 'return') {
-            // Derived, not placed: the socket carries this screen-port's
-            // RETURN, following its main through the backedBy link - so it
-            // reads in the role's gold and clears only from the main.
-            who.style.color = '#c8a04a';
-            who.textContent =
-                `${occupants[0].name} p${occupants[0].number} return`;
-        } else {
-            who.style.color = '#999';
-            who.textContent = occupants[0].name;
-        }
-        face.appendChild(who);
-        // The full story a squeezed cell cannot print, on hover - the open
-        // editor is where it is spelled out for real.
-        face.title = `Port ${port.number}`
-            + (port.label ? ` - ${port.label}` : '')
-            + (occupants.length
-                ? ` - ${occupants.map(o => `${o.name} p${o.number}`
-                    + (o.role === 'return' ? ' return' : '')).join(', ')}`
-                    + (occupants.length > 1 ? ' - clash' : '')
-                : (port.backsUp
-                    ? ` - backs up ${port.backsUp.label
-                        || `port ${port.backsUp.port} on ${port.backsUp.cardTitle}`}`
-                    : ' - free'))
-            + (port.beyondCeiling ? ' - beyond this card’s ceiling' : '')
-            + '. Click to edit.';
-        tile.appendChild(face);
-
-        const body = this._buildPortRow(proc, card, port);
-        body.classList.add('lrd-tile-body');
-        tile.appendChild(body);
-
-        if (this._tileOpenId(tile.dataset.lrdTileBox)
-                === tile.dataset.lrdTile) {
-            tile.classList.add('lrd-tile-open');
-        }
-        return tile;
-    }
-
-    // One of a port row's two name boxes, captioned the way the soca rows'
-    // fields are: an unlabeled box beside another unlabeled box reads as
-    // noise, and these two hold different ends of the same cable. The
-    // resolved label sits in the placeholder, so an empty box still reads as
-    // what that end is actually called.
-    _buildPortNameField(caption, fieldKey, value, placeholder, manual,
-                        titles, onCommit) {
-        const cell = document.createElement('div');
-        cell.style.flex = '1 1 70px';
-        cell.style.minWidth = '0';
-        const cap = document.createElement('label');
-        cap.style.display = 'block';
-        cap.style.fontSize = '10px';
-        cap.style.color = '#888';
-        cap.textContent = caption;
-        cell.appendChild(cap);
-
-        const input = document.createElement('input');
-        input.type = 'text';
-        input.value = value || '';
-        input.placeholder = placeholder || 'unnamed';
-        input.title = manual ? titles.named : titles.unnamed;
-        input.dataset.lrdField = fieldKey;
-        input.style.padding = '0 3px';
-        input.style.background = 'transparent';
-        input.style.border = '1px solid transparent';
-        input.style.borderRadius = '3px';
-        input.style.color = manual ? '#e0c98a' : '#ccc';
-        input.style.fontFamily = 'monospace';
-        input.style.fontSize = '11px';
-        input.style.width = '100%';
-        input.style.minWidth = '0';
-        input.style.boxSizing = 'border-box';
-        input.addEventListener('focus', () => {
-            input.style.borderColor = '#3a3a3a';
-            input.style.background = '#0d0d0d';
-        });
-        input.addEventListener('blur', () => {
-            input.style.borderColor = 'transparent';
-            input.style.background = 'transparent';
-        });
-        input.addEventListener('change', () => onCommit(input.value.trim()));
-        cell.appendChild(input);
-        return cell;
-    }
-
-    // The open tile's editor: the two name boxes on a wrapping line, then
-    // the occupancy detail. Naming and reading only - putting a screen ON
-    // the socket is the hardware dock's drag, not a control in this panel.
-    _buildPortRow(proc, card, port) {
-        const wrap = document.createElement('div');
-        const row = document.createElement('div');
-        // The names are inputs rather than text because a port is a socket
-        // someone has to be able to call what the house already calls it,
-        // and since the processor now beats a screen's own override for an
-        // assigned port, these boxes are the ONLY place left to do it.
-        // Making it a mode to find would strand every port that needs one.
-        row.style.display = 'flex';
-        row.style.flexWrap = 'wrap';
-        row.style.gap = '4px';
-        row.style.alignItems = 'center';
-        row.style.fontSize = '11px';
-        row.style.fontFamily = 'monospace';
-        row.style.marginBottom = '2px';
-
-        const rename = (body, action) => this._processorRequest(
-            `/api/processors/${proc.id}/cards/${card.id}/ports/${port.number}`,
-            'PUT', body, action);
-
-        // Two ends of one socket, named side by side. The fields share a
-        // wrapping line of their own: two 70px boxes fit abreast at the
-        // panel's usual width and stack at its 180px clamp, exactly as the
-        // soca rows' captioned fields do. Full editor width, never indented -
-        // the nested tree has already spent ~60px of the panel by here, and
-        // an indent is the difference between abreast and stacked at every
-        // width.
-        const names = document.createElement('div');
-        names.style.display = 'flex';
-        names.style.flexWrap = 'wrap';
-        names.style.gap = '4px';
-        names.style.margin = '0 0 4px 0';
-        names.appendChild(this._buildPortNameField(
-            'Name',
-            `processor-port-name-${card.id}-${port.number}`,
-            (card.portNames || {})[String(port.number)],
-            // No name anywhere upstream means no processor-derived label at
-            // all, and the screen's own template is still the thing doing
-            // the work - which is what "unnamed" has always meant here.
-            port.label,
-            port.labelSource === 'manual',
-            {
-                named: 'Named by hand. Clear the box to go back to the '
-                    + 'card’s template.',
-                unnamed: 'Name this port. It beats the card’s template for '
-                    + 'this port only.',
-            },
-            (val) => rename({ name: val }, 'Rename Processor Port')));
-        names.appendChild(this._buildPortNameField(
-            'Return',
-            `processor-port-return-${card.id}-${port.number}`,
-            (card.returnPortNames || {})[String(port.number)],
-            port.returnLabel,
-            port.returnLabelSource === 'manual',
-            {
-                named: 'Named by hand. Clear the box to go back to the '
-                    + 'name derived from the primary (R1-1 for P1-1).',
-                unnamed: 'Name this port’s redundancy run. Left blank it is '
-                    + 'derived from the primary: its leading P becomes R '
-                    + '(R1-1 for P1-1), any other name takes an R after it.',
-            },
-            (val) => rename({ returnName: val },
-                            'Rename Processor Port Return')));
-
-        const who = document.createElement('div');
-        // the one elastic cell of its line, same shape as the assignment rows
-        who.style.flex = '1 1 60px';
-        who.style.minWidth = '0';
-        who.style.overflow = 'hidden';
-        who.style.textOverflow = 'ellipsis';
-        who.style.whiteSpace = 'nowrap';
-        const occupants = this._portOccupants(card.id, port.number);
-        if (!occupants.length) {
-            // A port with nothing on it says so. The panel used to show the
-            // label and nothing else, which reads as if no screen were ever on
-            // the machine even when six of them are.
-            who.style.color = '#4a4a4a';
-            who.textContent = 'free';
-            who.title = 'No screen is on this port.';
-        } else {
-            const parts = occupants.map(o => `${o.name} p${o.number}`
-                + (o.role === 'return' ? ' return' : ''));
-            const derived = occupants.length === 1
-                && occupants[0].role === 'return';
-            who.style.color = occupants.length > 1 ? '#d05a52'
-                : (derived ? '#c8a04a' : '#888');
-            who.textContent = parts.join(', ')
-                + (occupants.length > 1 ? ' - clash' : '');
-            who.title = occupants.length > 1
-                ? `${parts.join(' and ')} both claim this port. Nothing has `
-                  + 'been renumbered - see Port Numbering.'
-                : (derived
-                    ? `${occupants[0].name} port ${occupants[0].number}'s `
-                      + 'return end - it follows the main and clears with it.'
-                    : `${occupants[0].name}, its port ${occupants[0].number}`);
-        }
-        row.appendChild(who);
-        wrap.appendChild(names);
-
-        // The port's place in the redundancy mapping, stated where its
-        // labels are edited. A consumed port says whose return it carries; a
-        // backed main says which physical socket its return comes back on -
-        // the same socket its Return placeholder is already named after.
-        if (port.backsUp) {
-            const role = document.createElement('div');
-            role.style.fontSize = '11px';
-            role.style.color = '#c8a04a';
-            role.style.margin = '0 0 4px 0';
-            role.textContent = `Backs up ${port.backsUp.label
-                || `port ${port.backsUp.port} on ${port.backsUp.cardTitle}`}`
-                + ' - this socket carries its return.';
-            wrap.appendChild(role);
-        } else if (port.backedBy) {
-            const back = document.createElement('div');
-            back.style.fontSize = '11px';
-            back.style.color = '#888';
-            back.style.margin = '0 0 4px 0';
-            back.textContent = `Return comes back on ${port.backedBy.label
-                || `port ${port.backedBy.port} on ${port.backedBy.cardTitle}`}.`;
-            wrap.appendChild(back);
-        }
-
-        // Manual mode's per-port pick: which socket backs THIS one. Sparse
-        // by design - a blank port number clears the pick and the main
-        // simply has no backup, because manual is explicit.
-        const shape = card.redundancyShape;
-        if (shape && !shape.forced && shape.mode === 'manual'
-                && !card.backupFor && !port.backsUp) {
-            const picked = (card.backupPorts || {})[String(port.number)] || null;
-            const pick = document.createElement('div');
-            pick.style.display = 'flex';
-            pick.style.gap = '4px';
-            pick.style.alignItems = 'center';
-            pick.style.margin = '0 0 4px 0';
-            const cap = document.createElement('span');
-            cap.style.fontSize = '10px';
-            cap.style.color = '#888';
-            cap.textContent = 'Backed by';
-            pick.appendChild(cap);
-
-            const cardSel = document.createElement('select');
-            cardSel.dataset.lrdField =
-                `processor-port-backup-card-${card.id}-${port.number}`;
-            cardSel.style.flex = '1';
-            cardSel.style.minWidth = '0';
-            const own = document.createElement('option');
-            own.value = card.id;
-            own.textContent = card.name || proc.name || card.deviceName;
-            cardSel.appendChild(own);
-            this._otherCards(card.id).forEach(({ proc: p, card: c }) => {
-                const opt = document.createElement('option');
-                opt.value = c.id;
-                opt.textContent = c.name || p.name || c.deviceName;
-                if (picked && picked.cardId === c.id) opt.selected = true;
-                cardSel.appendChild(opt);
-            });
-
-            const portBox = document.createElement('input');
-            portBox.type = 'number';
-            portBox.min = '1';
-            portBox.dataset.lrdField =
-                `processor-port-backup-port-${card.id}-${port.number}`;
-            portBox.style.width = '52px';
-            portBox.placeholder = 'port';
-            portBox.value = picked ? String(picked.port) : '';
-            portBox.title = 'The port whose socket carries this one’s '
-                + 'return. Blank means no backup.';
-
-            // Through the same PUT the name boxes use - one route, one rule
-            // about what a port edit is.
-            const commit = () => {
-                const value = parseInt(portBox.value, 10);
-                const body = portBox.value.trim() === '' || !(value >= 1)
-                    ? { backup: null }
-                    : { backup: { cardId: cardSel.value, port: value } };
-                rename(body, 'Change Port Backup');
-            };
-            cardSel.addEventListener('change', commit);
-            portBox.addEventListener('change', commit);
-            pick.appendChild(cardSel);
-            pick.appendChild(portBox);
-            wrap.appendChild(pick);
-        }
-
-        wrap.appendChild(row);
         return wrap;
     }
 

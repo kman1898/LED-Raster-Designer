@@ -1219,6 +1219,10 @@ def test_the_per_port_rows_stay_out_of_the_panel():
             f'belong to the dock now')
     assert 'processor-port-assign-' not in js('app-processors.js'), (
         'the stripped chooser is back in the Processors panel')
+    # The dock's chip editors took over the per-port naming, and they must
+    # not regrow the chooser either: the drag is the one assignment gesture.
+    assert 'processor-port-assign-' not in js('app-dock.js'), (
+        'the stripped chooser reappeared in the dock chip editor')
     # What deliberately STAYS: the refuse-and-offer surface and the auto
     # toggle. The dock does not replace warnings.
     assert '_buildIssue(issue) {' in panel

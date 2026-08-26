@@ -37,14 +37,21 @@ class _Power {
         const clear = (typeof this._prepareClearMenu === 'function')
             ? this._prepareClearMenu(x, y) : null;
         this._clearMenuAction = clear;
-        if (inDock && !clear) {
+        // The way back from a drop-implied split, offered only where a
+        // stored boundary exists (app-dock.js _prepareMergeMenu): unlike the
+        // clear there is no disabled state, because "nothing to merge" is
+        // the ordinary condition of most multis, not a refused gesture.
+        const merge = (typeof this._prepareMergeMenu === 'function')
+            ? this._prepareMergeMenu(x, y) : null;
+        this._mergeMenuAction = merge;
+        if (inDock && !clear && !merge) {
             this.hideContextMenu();
             return;
         }
         // The layer/canvas items belong to the canvas surface only. On the
         // dock they all leave, whatever their group logic below would say.
         menu.querySelectorAll(
-            '.menu-option:not(.hw-clear-only), '
+            '.menu-option:not(.hw-clear-only):not(.hw-merge-only), '
             + '.menu-divider:not(.hw-clear-only)').forEach(el => {
             el.style.display = inDock ? 'none' : '';
         });
@@ -103,6 +110,14 @@ class _Power {
             clearItem.textContent = clear.label;
             clearItem.title = clear.title || '';
             clearItem.classList.toggle('menu-disabled', !!clear.disabled);
+        }
+        menu.querySelectorAll('.hw-merge-only').forEach(el => {
+            el.style.display = merge ? '' : 'none';
+        });
+        const mergeItem = menu.querySelector('[data-action="hw-merge"]');
+        if (mergeItem && merge) {
+            mergeItem.textContent = merge.label;
+            mergeItem.title = merge.title || '';
         }
 
         menu.style.visibility = 'hidden';
@@ -629,7 +644,7 @@ class _Power {
     // The plan's multis as contiguous ordinal runs: [{index, start, end,
     // userEnd}], 1-based inclusive. Boundaries are the fixed 6-grid plus
     // every stored split point; `userEnd` marks a part whose END is a
-    // stored point - the boundary the Un-split control removes.
+    // stored point - the boundary the "Merge back into …" gesture removes.
     _socaSegments(layer, count) {
         const n = Math.max(0, Number(count) || 0);
         if (!n) return [];
@@ -686,22 +701,23 @@ class _Power {
         }
     }
 
-    // Break multi `socaIndex` after its `afterLeg`-th circuit (1..legs-1).
-    // The first part keeps the multi's identity - name, distro, number,
-    // length - and the second starts unassigned; its stored tail set is
-    // dropped because the arrangement covered circuits the part no longer
-    // has. Contiguous only: a boundary, never a reshuffle.
-    splitSocaAfter(layer, socaIndex, afterLeg) {
-        if (!layer) return false;
+    // The split MUTATION on its own, no history entry: validation, the
+    // incumbent stamp, the store splice. splitSocaAfter wraps it with the
+    // one-entry snapshot; the dock's drop-implied split composes it with
+    // the assignment that motivated it so the whole gesture is ONE entry.
+    // Returns the stamped layers (the incumbents can live on other screens)
+    // or null when the cut is not a legal boundary.
+    _splitSocaApply(layer, socaIndex, afterLeg) {
+        if (!layer) return null;
         const count = this.screenCircuits(layer).length;
         const segs = this._socaSegments(layer, count);
         const seg = segs.find(s => s.index === Number(socaIndex));
         const cut = parseInt(afterLeg, 10);
         if (!seg || !Number.isFinite(cut) || cut < 1
-                || cut >= seg.end - seg.start + 1) return false;
+                || cut >= seg.end - seg.start + 1) return null;
         const boundary = seg.start + cut - 1;
         const points = this._socaSplitPoints(layer, count);
-        if (points.includes(boundary)) return false;
+        if (points.includes(boundary)) return null;
         // The first part keeps the pin but sheds circuits, so it re-deals
         // its tails on the box - and if that box is shared, the OTHER
         // members' rendered tails must be held first or the re-deal could
@@ -714,10 +730,91 @@ class _Power {
         this._spliceSocaStores(layer, Number(socaIndex) + 1, +1);
         delete (layer.powerSocaPhasePos || {})[socaIndex];
         delete (layer.powerSocaPhaseOffset || {})[socaIndex];
+        // The segmentation just changed, so every read from here on must
+        // see the post-split wall - a caller composing further mutations
+        // (the drop gesture's second cut, the target-box stamp) included.
         this._circuitTailCache = null;
+        return stamped;
+    }
+
+    // Break multi `socaIndex` after its `afterLeg`-th circuit (1..legs-1).
+    // The first part keeps the multi's identity - name, distro, number,
+    // length - and the second starts unassigned; its stored tail set is
+    // dropped because the arrangement covered circuits the part no longer
+    // has. Contiguous only: a boundary, never a reshuffle.
+    splitSocaAfter(layer, socaIndex, afterLeg) {
+        const stamped = this._splitSocaApply(layer, socaIndex, afterLeg);
+        if (!stamped) return false;
         this.updateLayers([...new Set([layer, ...stamped])], true,
                           'Split Multi');
         return true;
+    }
+
+    // The drop-implied split: a multi slot dropped on a circuit that is NOT
+    // the first of its multi means "from this circuit on, feed from that
+    // box". The boundary falls out of where the drop landed - the Split
+    // select this replaces asked for the same fact in words - and the
+    // tail-end circuits take (distroId, number) in the same motion, so the
+    // whole gesture is ONE history entry: a single Ctrl+Z heals the split
+    // and the assignment together.
+    //
+    // Capacity follows place-overflow's convention: TAKE WHAT FITS. When
+    // the box's free tails cannot hold the whole tail-end, a second
+    // boundary caps the assigned part at what fits and the remainder
+    // stays behind as its own unassigned multi (the spare-ports rule
+    // transposed); a box with no free tail at all refuses outright.
+    // Only PINNED incumbents hold tails against the drop - an auto at
+    // this number re-deals around the new pin, so it defends nothing.
+    //
+    // Returns { ok, took, tailLen, free } - or { ok: false, free, tailLen }
+    // for the refusal - so the dock can phrase the note; the engine moves
+    // stores, the tray talks.
+    splitSocaOnto(layer, socaIndex, afterLeg, distroId, number) {
+        if (!layer || !distroId) return { ok: false, free: 0, tailLen: 0 };
+        const count = this.screenCircuits(layer).length;
+        const seg = this._socaSegments(layer, count)
+            .find(s => s.index === Number(socaIndex));
+        const cut = parseInt(afterLeg, 10);
+        if (!seg || !Number.isFinite(cut) || cut < 1
+                || cut >= seg.end - seg.start + 1) {
+            return { ok: false, free: 0, tailLen: 0 };
+        }
+        const tailLen = (seg.end - seg.start + 1) - cut;
+        const n = parseInt(number, 10);
+        let held = 0;
+        for (const m of (this._distroMultiNumbers(distroId).get(n) || [])) {
+            if (!m.pinned) continue;
+            // The multi being split already on the target box counts at its
+            // HEAD size: its tail-end is exactly what is moving in.
+            held += (m.layerId === layer.id && m.soca === Number(socaIndex))
+                ? cut : m.legs;
+        }
+        const free = Math.max(0, 6 - held);
+        if (!free) return { ok: false, free, tailLen };
+        const take = Math.min(tailLen, free);
+        const touched = new Set([layer]);
+        const first = this._splitSocaApply(layer, socaIndex, cut);
+        if (!first) return { ok: false, free, tailLen };
+        first.forEach(l => touched.add(l));
+        const tailIdx = Number(socaIndex) + 1;
+        if (take < tailLen) {
+            // The capped remainder becomes its own multi, unassigned - the
+            // circuits that did not fit stay visible as spare, never rammed
+            // onto a full fan as an overflow clash.
+            const capped = this._splitSocaApply(layer, tailIdx, take);
+            if (capped) capped.forEach(l => touched.add(l));
+        }
+        // Landing on an occupied box is the JOIN: the incumbents' rendered
+        // tails freeze first so the new part deals into what is genuinely
+        // free - the same stamp the panel's number pick always made.
+        this._materializeSocaBox(distroId, n, layer, tailIdx)
+            .forEach(l => touched.add(l));
+        (layer.powerSocaDistro || (layer.powerSocaDistro = {}))[tailIdx]
+            = distroId;
+        (layer.powerSocaNumber || (layer.powerSocaNumber = {}))[tailIdx] = n;
+        this._circuitTailCache = null;
+        this.updateLayers([...touched], true, 'Split Multi');
+        return { ok: true, took: take, tailLen, free };
     }
 
     // Remove the stored boundary at the end of part `socaIndex`: the part
@@ -2479,9 +2576,7 @@ class _Power {
                 </select>
             </div>
             <div class="lrd-tile-grid lrd-tile-grid-wide" style="margin:6px 0;">
-            ${(() => { const segsAll = this._socaSegments(
-                layer, this.screenCircuits(layer).length); return plan.map(s => {
-                const seg = segsAll.find(x => x.index === s.soca) || null;
+            ${(() => { return plan.map(s => {
                 const assigned = (layer.powerSocaDistro || {})[s.soca] || '';
                 const esc = (t) => this._esc ? this._esc(t) : t;
                 const hand = ((layer.powerSocaNames || {})[s.soca] || '');
@@ -2555,15 +2650,6 @@ class _Power {
                             <label class="power-soca-field-label" style="font-weight:400; display:block; margin-bottom:2px;">Length</label>
                             <input type="text" class="power-soca-length" data-soca="${s.soca}" data-lrd-field="power-soca-length-${s.soca}" value="${(s.length || '').replace(/"/g, '&quot;')}" placeholder="e.g. 100ft" style="width:100%; min-width:0; box-sizing:border-box;">
                         </div>
-                        ${s.legs.length > 1 || (seg && seg.userEnd) ? `
-                        <div style="flex:1 1 100%; display:flex; gap:5px; align-items:center;">
-                            ${s.legs.length > 1 ? `
-                            <select class="power-soca-split info-select" data-soca="${s.soca}" data-lrd-field="power-soca-split-${s.soca}" style="flex:1 1 auto; min-width:0;" data-tooltip="Split multi, Break this multi after a chosen circuit. Each part is a multi of its own — its own distro and number — so a short remainder can join another box's free tails.">
-                                <option value="">Split…</option>
-                                ${s.legs.slice(0, -1).map((l, i) => `<option value="${i + 1}">after ${esc(l.label)}</option>`).join('')}
-                            </select>` : ''}
-                            ${seg && seg.userEnd ? `<button class="btn btn-secondary power-soca-unsplit" data-soca="${s.soca}" data-lrd-field="power-soca-unsplit-${s.soca}" style="padding:2px 10px; flex:none;" data-tooltip="Un-split, Rejoin this multi with the next — the split boundary goes away and the circuits fall back into natural blocks of six.">Un-split</button>` : ''}
-                        </div>` : ''}
                         ${collisions.length ? `
                         <div class="power-soca-name-note" style="flex:1 1 100%; font-size:10px; color:#d8a13c;">
                             also named ${esc(s.name)} on this distro — ${collisions.map(c => `${esc(c.layerName)} at No. ${c.number}`).join(', ')}. Same box? Pin both to No. ${Math.min(s.number, ...collisions.map(c => c.number))}.
@@ -2595,22 +2681,10 @@ class _Power {
                 this._restateNaming();
             });
         });
-        host.querySelectorAll('.power-soca-split').forEach(sel => {
-            sel.addEventListener('change', () => {
-                if (!sel.value) return;
-                this.splitSocaAfter(layer, Number(sel.dataset.soca),
-                                    Number(sel.value));
-                // A split makes a new multi, renumbers the bucket and moves
-                // every label after the boundary - full restate.
-                this._restateNaming();
-            });
-        });
-        host.querySelectorAll('.power-soca-unsplit').forEach(btn => {
-            btn.addEventListener('click', () => {
-                this.unsplitSocaAfter(layer, Number(btn.dataset.soca));
-                this._restateNaming();
-            });
-        });
+        // Split and Un-split left this tile for the hardware dock: dropping
+        // a slot chip on a specific circuit IMPLIES the boundary (app-dock's
+        // _dockDropSlot -> splitSocaOnto), and the way back is the
+        // right-click "Merge back into …" on the circuit run or the chip.
         const sel = host.querySelector('#power-breakout-type');
         if (sel) sel.addEventListener('change', () => {
             const list = this._socaPanelTargets(layer);

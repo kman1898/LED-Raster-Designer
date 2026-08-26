@@ -846,10 +846,17 @@ def test_split_round_trips_and_undoes_on_the_real_server(page):
     assert out['clientAfterUndo'] == [], 'one undo removes the split'
 
 
-def test_split_controls_live_in_the_tile_editor(page):
-    """The gesture is the tile's: a multi with more than one circuit offers
-    "Split… / after <label>" in its open editor, the part whose end is a
-    stored boundary offers Un-split, and a 1-leg part offers no split."""
+def test_split_controls_left_the_tile_editor(page):
+    """The Split select and Un-split button are GONE from the soca tile.
+    They used to cover: offering "Split… / after <label>" on any multi with
+    more than one circuit, and Un-split on the part whose end was a stored
+    boundary. Both gestures moved to the hardware dock - dropping a slot
+    chip on a circuit past the multi's first IMPLIES the boundary
+    (splitSocaOnto, pinned below and dragged for real in
+    test_hardware_dock.py), and the way back is the right-click "Merge back
+    into …" on the circuit run or the chip (also test_hardware_dock.py).
+    The tile keeps its non-split contents: name, length, the read-only
+    distro line."""
     out = page.evaluate("""() => {
         const sh = window.__sh;
         const S = sh.screen({ id: 48, name: 'SplitUI', columns: 3 });
@@ -865,19 +872,158 @@ def test_split_controls_live_in_the_tile_editor(page):
                 const tiles = [...document.querySelectorAll(
                     '#power-soca-runs .power-soca-row')];
                 return tiles.map(t => ({
-                    split: [...(t.querySelector('.power-soca-split')
-                        || { options: [] }).options].map(o => o.textContent.trim()),
+                    split: !!t.querySelector('.power-soca-split'),
                     unsplit: !!t.querySelector('.power-soca-unsplit'),
+                    name: !!t.querySelector('.power-soca-name'),
+                    length: !!t.querySelector('.power-soca-length'),
+                    where: !!t.querySelector('.power-soca-where'),
                 }));
             } finally { app.currentLayer = savedLayer; }
         });
     }""")
     assert len(out) == 2, out
-    # part 1 (2 legs, user boundary at its end): split offer + Un-split
-    assert out[0]['split'][0] == 'Split…' and len(out[0]['split']) == 2
-    assert out[0]['unsplit'] is True
-    # part 2 (1 leg): nothing to split, no boundary at its end
-    assert out[1]['split'] == [] and out[1]['unsplit'] is False
+    for tile in out:
+        assert tile['split'] is False and tile['unsplit'] is False, (
+            f'split controls back in the tile editor: {out}')
+        assert tile['name'] and tile['length'] and tile['where'], (
+            f'the tile lost its non-split contents: {out}')
+
+
+# ── 10b. the drop-implied split: the boundary falls out of the drop ───────
+#
+# splitSocaOnto is the engine under app-dock's slot drop: a multi slot
+# dropped on a circuit that is NOT the first of its multi splits the multi
+# there and the tail-end circuits take the dropped (distro, number) in the
+# same motion. Real pointer drags exercising it live in
+# test_hardware_dock.py; here the composition itself is pinned.
+
+def test_split_onto_splits_and_assigns_in_one_motion(page):
+    """Dropping box (d1, No. 2) on the 3rd circuit of a 4-circuit multi:
+    split after 2, the tail part takes the pin - the stores land exactly as
+    the old Split-select-then-number-pick pair left them."""
+    out = page.evaluate("""() => {
+        const sh = window.__sh;
+        const S = sh.screen({ id: 51, name: 'DropSplit', columns: 4 });
+        return sh.withProject({ layers: [S], distros: [sh.distro()] }, () => {
+            const app = window.app;
+            app._circuitTailCache = null;
+            const r = app.splitSocaOnto(S, 1, 2, 'd1', 2);
+            app._circuitTailCache = null;
+            return {
+                r,
+                splits: S.powerSocaSplits,
+                distro: S.powerSocaDistro, num: S.powerSocaNumber,
+                shape: app.getSocaPlan(S).map(s =>
+                    ({ soca: s.soca, legs: s.legs.length })),
+            };
+        });
+    }""")
+    assert out['r'] == {'ok': True, 'took': 2, 'tailLen': 2, 'free': 6}, out
+    assert out['splits'] == [2]
+    assert out['distro'] == {'2': 'd1'} and out['num'] == {'2': 2}, out
+    assert out['shape'] == [{'soca': 1, 'legs': 2}, {'soca': 2, 'legs': 2}], out
+
+
+def test_split_onto_derives_the_center_beach_labels(page):
+    """The CEN SL US arrangement in ONE gesture: the remainder joins the
+    OFF SL US box (No. 2, tails 1-4 taken) on tails 5-6 and derives C2-2-5,
+    C2-2-6 - the strings the user used to hand-type - with the head keeping
+    its own multi."""
+    out = page.evaluate("""() => {
+        const sh = window.__sh;
+        const OFF = sh.screen({ id: 52, name: 'OFF SL US', columns: 4,
+            powerSocaDistro: { 1: 'd1' }, powerSocaNumber: { 1: 2 } });
+        const CEN = sh.screen({ id: 53, name: 'CEN SL US', columns: 4,
+            offset_x: 1000, powerSocaDistro: { 1: 'd1' } });
+        return sh.withProject(
+            { layers: [OFF, CEN], distros: [sh.distro()] }, () => {
+            const app = window.app;
+            app._circuitTailCache = null;
+            const r = app.splitSocaOnto(CEN, 1, 2, 'd1', 2);
+            const labels = sh.labelsOf(CEN);
+            const share = sh.shareOf(CEN, 2);
+            return {
+                ok: r.ok, labels,
+                clash: !!(share && (share.clash || share.overflow)),
+                tails: share && share.members.map(m =>
+                    ({ layer: m.layerName, tails: m.tails })),
+            };
+        });
+    }""")
+    assert out['ok'] is True
+    assert out['labels'][2:] == ['C2-2-5', 'C2-2-6'], out
+    assert out['clash'] is False
+    assert out['tails'] == [
+        {'layer': 'OFF SL US', 'tails': [1, 2, 3, 4]},
+        {'layer': 'CEN SL US', 'tails': [5, 6]}], out
+
+
+def test_split_onto_takes_what_fits_and_leaves_the_rest(page):
+    """place-overflow's convention, in tails: the box holds one free tail
+    (an incumbent pinned on 5), the drop offers four circuits - one lands,
+    on the box's last tail, and the other three become their own multi,
+    UNASSIGNED and visible as spare, never rammed onto the full fan as an
+    overflow clash."""
+    out = page.evaluate("""() => {
+        const sh = window.__sh;
+        const OFF = sh.screen({ id: 54, name: 'BigWall', columns: 5,
+            powerSocaDistro: { 1: 'd1' }, powerSocaNumber: { 1: 2 } });
+        const B = sh.screen({ id: 55, name: 'Joiner', columns: 6,
+            offset_x: 1000 });
+        return sh.withProject(
+            { layers: [OFF, B], distros: [sh.distro()] }, () => {
+            const app = window.app;
+            app._circuitTailCache = null;
+            const r = app.splitSocaOnto(B, 1, 2, 'd1', 2);
+            const share = sh.shareOf(B, 2);
+            return {
+                r,
+                splits: B.powerSocaSplits,
+                distro: B.powerSocaDistro, num: B.powerSocaNumber,
+                shape: app.getSocaPlan(B).map(s =>
+                    ({ soca: s.soca, legs: s.legs.length,
+                       distro: s.distroId || null })),
+                clash: !!(share && (share.clash || share.overflow)),
+                joinedTail: sh.labelsOf(B)[2],
+            };
+        });
+    }""")
+    assert out['r'] == {'ok': True, 'took': 1, 'tailLen': 4, 'free': 1}, out
+    assert out['splits'] == [2, 3], out
+    assert out['distro'] == {'2': 'd1'} and out['num'] == {'2': 2}, out
+    assert out['shape'] == [
+        {'soca': 1, 'legs': 2, 'distro': None},
+        {'soca': 2, 'legs': 1, 'distro': 'd1'},
+        {'soca': 3, 'legs': 3, 'distro': None}], out
+    assert out['clash'] is False, 'take-what-fits must never overflow the box'
+    assert out['joinedTail'] == 'C2-2-6', out
+
+
+def test_split_onto_refuses_a_full_box_and_moves_nothing(page):
+    """No free tail means the drop refuses outright - the split does not
+    happen for nothing, so every store stays byte-identical."""
+    out = page.evaluate("""() => {
+        const sh = window.__sh;
+        const OFF = sh.screen({ id: 56, name: 'FullWall', columns: 6,
+            powerSocaDistro: { 1: 'd1' }, powerSocaNumber: { 1: 2 } });
+        const B = sh.screen({ id: 57, name: 'Joiner', columns: 4,
+            offset_x: 1000 });
+        return sh.withProject(
+            { layers: [OFF, B], distros: [sh.distro()] }, () => {
+            const app = window.app;
+            app._circuitTailCache = null;
+            const r = app.splitSocaOnto(B, 1, 2, 'd1', 2);
+            return {
+                r,
+                splits: B.powerSocaSplits === undefined,
+                distro: B.powerSocaDistro === undefined,
+                num: B.powerSocaNumber === undefined,
+            };
+        });
+    }""")
+    assert out['r'] == {'ok': False, 'free': 0, 'tailLen': 2}, out
+    assert out['splits'] and out['distro'] and out['num'], (
+        f'a refused drop mutated a store: {out}')
 
 
 # ── 11. one name on two numbers is flagged, never blocked ─────────────────

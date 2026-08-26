@@ -113,6 +113,12 @@
                  not say why teaches nothing. -->
             <div class="menu-divider hw-clear-only" style="display: none;"></div>
             <div class="menu-option hw-clear-only" data-action="hw-clear" style="display: none;"></div>
+            <!-- Merge-back: the reverse of the drop-implied multi split.
+                 Armed by _prepareMergeMenu (app-dock.js) only where a stored
+                 split boundary exists on the circuit or chip under the
+                 cursor; absent everywhere else - "nothing to merge" is the
+                 ordinary state of a multi, not a refused gesture. -->
+            <div class="menu-option hw-merge-only" data-action="hw-merge" style="display: none;"></div>
         </div>
 
         <div id="toolbar">

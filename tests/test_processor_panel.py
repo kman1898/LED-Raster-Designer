@@ -1479,11 +1479,11 @@ def test_the_panel_ships_no_declared_fields_into_the_field_sweep():
 # ── 7. The return end on the port row ─────────────────────────────────────
 #
 # A port row names both ends of its socket now: the primary, and the
-# redundancy run that leaves it and comes back. The rows are rebuilt
-# wholesale on every change and squeezed down to the panel's 180px clamp, so
-# what is pinned here is the machinery that keeps two fields usable there:
-# stable focus keys, captions, and the wrap that stacks them where they no
-# longer fit abreast.
+# redundancy run that leaves it and comes back. The row lives in the dock
+# chip's editor (app-dock.js) - the dock is the one place ports appear -
+# and is rebuilt wholesale on every change, so what is pinned here is the
+# machinery that keeps two fields usable there: stable focus keys, captions,
+# and the wrap that stacks them where they no longer fit abreast.
 
 JS_DIR = os.path.join(os.path.dirname(__file__), '..', 'src', 'static', 'js')
 
@@ -1494,11 +1494,11 @@ def js_source(filename):
 
 
 def test_the_port_row_offers_the_return_end_beside_the_primary():
-    """Both fields, each with its own stable focus key (the panel is rebuilt
+    """Both fields, each with its own stable focus key (the dock is rebuilt
     under the user's fingers), each captioned (two unlabeled boxes holding
     different ends of the same cable read as noise), sharing a line that
-    wraps rather than a grid that overflows the 180px clamp."""
-    source = js_source('app-processors.js')
+    wraps rather than a grid that overflows a squeezed chip."""
+    source = js_source('app-dock.js')
     assert 'processor-port-name-${card.id}-${port.number}' in source
     assert 'processor-port-return-${card.id}-${port.number}' in source
     assert '(card.returnPortNames || {})[String(port.number)]' in source
@@ -1507,7 +1507,7 @@ def test_the_port_row_offers_the_return_end_beside_the_primary():
     body = source[source.index('_buildPortRow(proc, card, port) {'):]
     body = body[:body.index('\n    }')]
     assert "names.style.flexWrap = 'wrap';" in body, (
-        'the name fields do not wrap at the narrow clamp')
+        'the name fields do not wrap where the chip squeezes them')
     assert "{ returnName: val }" in body
     # The commit goes through the same PUT the primary uses - one route, one
     # rule about what a port-name edit is.
@@ -1518,14 +1518,18 @@ def test_processor_edits_take_post_mutation_history_snapshots():
     """The undo contract: a processor edit lands in history AFTER the server
     answers and the new tree is folded into this.project - the post-mutation
     snapshot every other action takes - and a refused edit takes none. Both
-    ends of a port enter history under their own names, identically."""
+    ends of a port enter history under their own names, identically - the
+    port actions living in the dock module now, through the same
+    _processorRequest."""
     source = js_source('app-processors.js')
     assert 'if (applied && action) this.saveState(action);' in source
     for action in ("'Add Processor'", "'Rename Processor'",
-                   "'Remove Processor'", "'Rename Card'",
-                   "'Rename Processor Port'",
-                   "'Rename Processor Port Return'"):
+                   "'Remove Processor'", "'Rename Card'"):
         assert action in source, f'{action} takes no history snapshot'
+    dock = js_source('app-dock.js')
+    for action in ("'Rename Processor Port'",
+                   "'Rename Processor Port Return'"):
+        assert action in dock, f'{action} takes no history snapshot'
 
 
 # ── 8. The row in a real browser, at both widths ──────────────────────────
@@ -1591,9 +1595,9 @@ SET_WIDTH_JS = """(width) => {
     document.documentElement.style.setProperty('--lrd-data-w', width + 'px');
 }"""
 
-# The ports render as tiles and a port's editor only shows while its tile is
-# open, so a driver that measures or types into the editor first opens the
-# tile the way a user does - through its face.
+# The ports render as dock chips and a port's editor only shows while its
+# chip is open, so a driver that measures or types into the editor first
+# opens the chip the way a user does - through its face.
 OPEN_TILE_JS = """(tileId) => {
     const tile = document.querySelector(`[data-lrd-tile="${tileId}"]`);
     if (!tile) return false;
@@ -1604,25 +1608,23 @@ OPEN_TILE_JS = """(tileId) => {
 }"""
 
 MEASURE_ROW_JS = """(args) => {
-    const sidebar = document.getElementById('data-sidebar');
-    const list = document.getElementById('processor-list');
+    const body = document.getElementById('hardware-dock-body');
     const field = (kind) => document.querySelector(
         `[data-lrd-field="processor-port-${kind}-${args.cardId}-1"]`);
     const name = field('name');
     const ret = field('return');
     const vis = (el) => !!el && el.offsetWidth > 0 && el.offsetHeight > 0;
-    const limit = sidebar.getBoundingClientRect().right;
+    const limit = body.getBoundingClientRect().right;
     const inside = (el) => !!el
         && el.getBoundingClientRect().right <= limit + 0.5;
     return {
-        sidebarWidth: Math.round(sidebar.getBoundingClientRect().width),
         nameVisible: vis(name),
         returnVisible: vis(ret),
         nameInside: inside(name),
         returnInside: inside(ret),
         namePlaceholder: name ? name.placeholder : null,
         returnPlaceholder: ret ? ret.placeholder : null,
-        listClipped: list.scrollWidth > list.clientWidth,
+        listClipped: body.scrollWidth > body.clientWidth,
     };
 }"""
 
@@ -1646,32 +1648,40 @@ def panel_page(e2e_server, pw_browser, server_project_guard):
     context.close()
 
 
-@pytest.mark.parametrize('width', [260, 180])
+@pytest.mark.parametrize('width', [1280, 860])
 def test_the_port_row_renders_both_fields(panel_page, width):
-    """At the panel's usual width and at its 180px clamp: both boxes in
-    layout, both placeholders carrying the RESOLVED label for their own end
-    (SR-1 out, SR-1R back), both inside the panel's right edge, and the port
-    list not scrolling sideways - scrollWidth over clientWidth is exactly the
-    off-the-panel overflow the clamp forbids. The Port Numbering hosts below
-    them are measured by their own test further down."""
+    """In the dock chip's open editor, at the usual window and a squeezed
+    one: both boxes in layout, both placeholders carrying the RESOLVED
+    label for their own end (SR-1 out, SR-1R back), both inside the tray's
+    right edge, and the tray not scrolling sideways - scrollWidth over
+    clientWidth is exactly the overflow the reflow rule forbids. The Port
+    Numbering hosts are measured by their own test further down."""
     pytest.importorskip("playwright.sync_api", reason="playwright not installed")
     ids = panel_page.evaluate(RESET_PROCESSORS_JS)
     panel_page.wait_for_timeout(600)
-    # The width change rides the panels' own transition, so it is set first
-    # and measured once the animation has landed.
-    panel_page.evaluate(SET_WIDTH_JS, width)
-    panel_page.wait_for_timeout(500)
-    assert panel_page.evaluate(OPEN_TILE_JS, f"port-{ids['cardId']}-1"), (
-        'port 1 has no tile to open')
-    panel_page.wait_for_timeout(100)
-    out = panel_page.evaluate(MEASURE_ROW_JS,
-                              {'cardId': ids['cardId'], 'width': width})
-    assert out['sidebarWidth'] == width, out
-    assert out['nameVisible'] and out['returnVisible'], out
-    assert out['nameInside'] and out['returnInside'], out
-    assert out['namePlaceholder'] == 'SR-1', out
-    assert out['returnPlaceholder'] == 'SR-1R', out
-    assert not out['listClipped'], 'the port list scrolls sideways'
+    panel_page.set_viewport_size({'width': width, 'height': 720})
+    panel_page.wait_for_timeout(400)
+    try:
+        assert panel_page.evaluate(OPEN_TILE_JS, f"port-{ids['cardId']}-1"), (
+            'port 1 has no chip to open')
+        panel_page.wait_for_timeout(100)
+        out = panel_page.evaluate(MEASURE_ROW_JS,
+                                  {'cardId': ids['cardId'], 'width': width})
+        assert out['nameVisible'] and out['returnVisible'], out
+        assert out['nameInside'] and out['returnInside'], out
+        assert out['namePlaceholder'] == 'SR-1', out
+        assert out['returnPlaceholder'] == 'SR-1R', out
+        assert not out['listClipped'], 'the dock body scrolls sideways'
+    finally:
+        # leave the chip closed for the next test - CLOSE, not toggle-open
+        panel_page.evaluate("""(tid) => {
+            const tile = document.querySelector(`[data-lrd-tile="${tid}"]`);
+            if (tile && tile.classList.contains('lrd-tile-open')) {
+                window.app._setTileOpen(tile, false);
+            }
+        }""", f"port-{ids['cardId']}-1")
+        panel_page.set_viewport_size({'width': 1280, 'height': 720})
+        panel_page.wait_for_timeout(300)
 
 
 def test_renaming_either_end_round_trips_through_undo(panel_page):
@@ -2202,18 +2212,20 @@ def test_the_panel_states_the_pairing_and_offers_no_control_for_it():
         'const fact', 1)[-1], 'the pairing fact grew a focus key - a control'
 
 
-# ── 11. The port list is the sidebar's height, not its own ────────────────
+# ── 11. The ports left the panel; the dock body is their scroll context ───
 
-def test_the_port_list_has_no_inner_scroll_cap():
-    """The sidebar is the ONE scroll context. The list used to cap itself at
-    190px - two and a half ports of twenty, a scrollbox nested inside the
-    scrolling sidebar - and the fold on the section header is the way to put
-    a long list away, not an inner scrollbar."""
+def test_the_panel_module_builds_no_port_grid():
+    """The dock is the one place ports appear, so the panel module builds
+    no port list, no port tile and no port field - a second grid here was
+    the same data twice, and it must not quietly come back and split the
+    focus keys between two surfaces."""
     source = js_source('app-processors.js')
-    body = source[source.index('_buildPortList(proc, card) {'):]
-    body = body[:body.index('\n    }')]
-    assert 'maxHeight' not in body, 'the port list capped itself again'
-    assert 'overflow' not in body, 'the port list scrolls inside the sidebar'
+    for gone in ('_buildPortList', '_buildPortTile', '_buildPortRow',
+                 'processor-port-name-', 'processor-port-return-',
+                 'processor-port-backup-'):
+        assert gone not in source, (
+            f'{gone!r} is back in the panel module - ports belong to the '
+            f'dock now')
 
 
 PORT_LIST_SEED_JS = """async () => {
@@ -2236,14 +2248,14 @@ PORT_LIST_SEED_JS = """async () => {
 }"""
 
 MEASURE_PORT_LIST_JS = """(args) => {
-    const sidebar = document.getElementById('data-sidebar');
+    const body = document.getElementById('hardware-dock-body');
     const rows = document.querySelectorAll(
         `[data-lrd-field^="processor-port-name-${args.cardId}-"]`);
     const last = rows[rows.length - 1];
-    // Any scrolling ancestor STRICTLY between a port row and the sidebar is
-    // a nested scrollbox - the double scroll this test exists to forbid.
+    // Any scrolling ancestor STRICTLY between a port chip and the dock body
+    // is a nested scrollbox - the double scroll this test exists to forbid.
     const nested = [];
-    for (let el = last.parentElement; el && el !== sidebar;
+    for (let el = last.parentElement; el && el !== body;
          el = el.parentElement) {
         const cs = getComputedStyle(el);
         if ((cs.overflowY === 'auto' || cs.overflowY === 'scroll')
@@ -2251,50 +2263,58 @@ MEASURE_PORT_LIST_JS = """(args) => {
             nested.push(el.id || el.className || el.tagName);
         }
     }
-    // Reaching port 20 must be the SIDEBAR's scroll and nobody else's:
-    // scroll the row into view, then check it landed inside the sidebar's
-    // box and that the sidebar is the thing that moved.
-    sidebar.scrollTop = 0;
+    // Reaching port 20 must be the DOCK BODY's scroll and nobody else's:
+    // scroll the field into view, then check it landed inside the body's
+    // box and that the body is the thing that moved.
+    body.scrollTop = 0;
     last.scrollIntoView({ block: 'nearest' });
-    const s = sidebar.getBoundingClientRect();
+    const s = body.getBoundingClientRect();
     const r = last.getBoundingClientRect();
     return {
         ports: rows.length,
         nested: nested,
-        sidebarScrolls: sidebar.scrollHeight > sidebar.clientHeight + 1,
-        sidebarMoved: sidebar.scrollTop > 0,
+        bodyScrolls: body.scrollHeight > body.clientHeight + 1,
+        bodyMoved: body.scrollTop > 0,
         lastReachable: r.top >= s.top - 0.5 && r.bottom <= s.bottom + 0.5,
     };
 }"""
 
 
-def test_sidebar_scroll_alone_reaches_all_twenty_ports(panel_page):
-    """A 20-port card, drawn at its natural height: every port row is reached
-    by scrolling the SIDEBAR, and nothing between a row and the sidebar
-    scrolls on its own - the wall of ports is one list in one column, foldable
-    by its section header rather than trapped in a 190px window."""
+def test_dock_scroll_alone_reaches_all_twenty_ports(panel_page):
+    """A 20-port card in the tray: every port chip - the open editor at the
+    far end included - is reached by scrolling the DOCK BODY, and nothing
+    between a chip and the body scrolls on its own. The tray is squeezed to
+    its resize floor first so it actually has something to scroll."""
     pytest.importorskip("playwright.sync_api", reason="playwright not installed")
     ids = panel_page.evaluate(PORT_LIST_SEED_JS)
     panel_page.wait_for_timeout(600)
-    panel_page.evaluate(SET_WIDTH_JS, 260)
+    # the dock's own height var (theme.js's resize row), floored at 100px
+    panel_page.evaluate("""() => document.documentElement.style
+        .setProperty('--lrd-dock-h', '100px')""")
     panel_page.wait_for_timeout(400)
-    # port 20's editor is the far end of the walk, so it is the one opened
-    assert panel_page.evaluate(OPEN_TILE_JS, f"port-{ids['cardId']}-20"), (
-        'port 20 has no tile to open')
-    panel_page.wait_for_timeout(100)
-    out = panel_page.evaluate(MEASURE_PORT_LIST_JS, {'cardId': ids['cardId']})
-    assert out['ports'] == 20, out
-    assert not out['nested'], (
-        f"a scrollbox sits between the port rows and the sidebar: "
-        f"{out['nested']}")
-    assert out['sidebarScrolls'], (
-        'the sidebar has nothing to scroll - the list is not at natural '
-        'height, so this test proves nothing')
-    assert out['sidebarMoved'], (
-        'port 20 came into view without the sidebar scrolling - something '
-        'else is doing the scrolling')
-    assert out['lastReachable'], (
-        'scrolling the sidebar does not bring port 20 into view')
+    try:
+        # port 20's editor is the far end of the walk, so it is the one opened
+        assert panel_page.evaluate(OPEN_TILE_JS, f"port-{ids['cardId']}-20"), (
+            'port 20 has no chip to open')
+        panel_page.wait_for_timeout(100)
+        out = panel_page.evaluate(MEASURE_PORT_LIST_JS,
+                                  {'cardId': ids['cardId']})
+        assert out['ports'] == 20, out
+        assert not out['nested'], (
+            f"a scrollbox sits between the port chips and the dock body: "
+            f"{out['nested']}")
+        assert out['bodyScrolls'], (
+            'the dock body has nothing to scroll at its 100px floor, so '
+            'this test proves nothing')
+        assert out['bodyMoved'], (
+            'port 20 came into view without the dock body scrolling - '
+            'something else is doing the scrolling')
+        assert out['lastReachable'], (
+            'scrolling the dock body does not bring port 20 into view')
+    finally:
+        panel_page.evaluate("""() => document.documentElement.style
+            .removeProperty('--lrd-dock-h')""")
+        panel_page.wait_for_timeout(300)
 
 
 # ── 12. The Port Numbering hosts fit the clamp ────────────────────────────
@@ -2604,12 +2624,18 @@ def test_the_arrow_folds_a_processor_and_nothing_leaves_the_dom(panel_page):
     assert s['stored'] == '1', f'the fold did not persist: {s}'
     assert fold_state(panel_page, ids['mx'])['collapsed'] is False, (
         'folding one processor took its neighbour')
-    # hidden, never detached: a port field inside the folded body still
-    # answers the focus-restore lookup
+    # hidden, never detached: a card field inside the folded body still
+    # answers the focus-restore lookup - and the fold never touches the
+    # dock, where the ports live
     assert panel_page.evaluate(
         """(cardId) => !!document.querySelector(
-               `[data-lrd-field="processor-port-name-${cardId}-1"]`)""",
-        ids['sxCard']), 'a folded port field no longer resolves by its key'
+               `[data-lrd-field="processor-card-name-${cardId}"]`)""",
+        ids['sxCard']), 'a folded card field no longer resolves by its key'
+    assert panel_page.evaluate(
+        """(cardId) => !!document.querySelector(
+               `#hardware-dock [data-lrd-field=`
+               + `"processor-port-name-${cardId}-1"]`)""",
+        ids['sxCard']), 'the dock\'s port field went with the panel fold'
 
     proc_arrow(panel_page, ids['sx']).click()
     panel_page.wait_for_timeout(100)
@@ -2846,15 +2872,15 @@ def test_focus_restore_into_a_folded_processor_unfolds_it(panel_page):
     """The stated rule from the section machinery, one level down: a field
     the app is putting the caret back into must not be display:none, so the
     restore opens the processor - and persists the opening, or the next
-    rebuild folds the field away again."""
+    rebuild folds the field away again. Driven through the card name field,
+    a field that actually lives in the foldable body now that the ports
+    live in the dock (whose own restore rule test_port_tiles.py holds)."""
     pytest.importorskip("playwright.sync_api", reason="playwright not installed")
     ids = seed_fold(panel_page)
-    assert panel_page.evaluate(OPEN_TILE_JS, f"port-{ids['sxCard']}-1"), (
-        'port 1 has no tile to open')
     out = panel_page.evaluate("""async (args) => {
         const app = window.app;
         const el = document.querySelector(
-            `[data-lrd-field="processor-port-name-${args.sxCard}-1"]`);
+            `[data-lrd-field="processor-card-name-${args.sxCard}"]`);
         if (!el) return { skipped: true };
         el.focus();
         app._preserveEditorFocus();            // captures key + schedules restore
@@ -2871,7 +2897,7 @@ def test_focus_restore_into_a_folded_processor_unfolds_it(panel_page):
                 'ledRasterPanelCollapsed_processor-' + args.sx),
         };
     }""", {'sx': ids['sx'], 'sxCard': ids['sxCard']})
-    assert not out.get('skipped'), 'the card built no port field to focus'
+    assert not out.get('skipped'), 'the card built no name field to focus'
     assert out['reopened'], (
         f'the restore left the processor folded around the field: {out}')
     assert out['focusedBack'], f'focus was not restored into the field: {out}'
@@ -3153,9 +3179,11 @@ def test_the_panel_wires_the_modes_the_house_way():
     body = body[:body.index('\n    }')]
     assert 'if (!shape || shape.forced) return null;' in body, (
         'a fixed pairing grew a mode select')
-    for action in ("'Change Redundancy Mode'", "'Change Backup Unit'",
-                   "'Change Port Backup'"):
+    for action in ("'Change Redundancy Mode'", "'Change Backup Unit'"):
         assert action in source, f'{action} takes no history snapshot'
+    # the per-port manual pick lives in the dock chip's editor now
+    assert "'Change Port Backup'" in js_source('app-dock.js'), (
+        "'Change Port Backup' takes no history snapshot")
     assert 'data.error' in source, 'refusals are swallowed silently again'
 
 
@@ -3273,8 +3301,8 @@ def test_the_mode_change_round_trips_through_undo(panel_page):
 
 def test_the_partner_pick_and_the_manual_picker_commit(panel_page):
     """The 1:1 partner select stores the pick and the consumed unit states
-    its role; manual mode unfolds a per-port picker in the tile that stores
-    the sparse map - each through its own named action."""
+    its role; manual mode unfolds a per-port picker in the port's DOCK CHIP
+    that stores the sparse map - each through its own named action."""
     pytest.importorskip("playwright.sync_api",
                         reason="playwright is not installed")
     page = panel_page
@@ -3300,7 +3328,7 @@ def test_the_partner_pick_and_the_manual_picker_commit(panel_page):
     }""", ids)
     assert consumed, 'the consumed unit does not state its role'
 
-    # Manual mode: the pick lives in the port tile's editor.
+    # Manual mode: the pick lives in the port's dock chip editor.
     page.evaluate("""(ids) => {
         const sel = document.querySelector(
             `[data-lrd-field="processor-card-redundancy-${ids.mxCardId}"]`);

@@ -1,8 +1,14 @@
 // app-dock: the hardware dock, a tray under the canvas that holds the view's
 // hardware and makes DRAG the way assignments are made.
 //
-// The Signal and Power panels stay the place hardware is named, inspected and
-// templated; the dock is the place it is AIMED. Data view lays out every
+// The Signal and Power panels stay the place DEVICES are named, inspected and
+// templated; the dock is the place hardware is AIMED - and, on the data side,
+// the ONE place ports appear at all. The Processors panel used to draw the
+// same port grid a second time, which was the same data twice; now each port
+// chip here carries the port's own editor folded inside it (the shared
+// _wireTiles machinery): click or Enter opens the per-port Name and Return
+// boxes, the manual backup pick and the occupancy detail in place, and drag
+// still starts on press-and-move. Data view lays out every
 // processor's cards, their breakout boxes and their port tiles; Power view
 // lays out every distro and its multi slots. Dragging a tile onto the canvas
 // assigns through exactly the operations the panels used - place, pin,
@@ -16,7 +22,11 @@
 //     question, never a silent displacement);
 //   - a single multi SLOT lands on a specific CIRCUIT run: that circuit's
 //     multi takes that (distro, number) - landing on an occupied slot is the
-//     existing join gesture, exactly as picking the number was;
+//     existing join gesture, exactly as picking the number was. Landing on a
+//     circuit that is NOT the first of its multi SPLITS the multi there
+//     (the drop implies the boundary the sidebar's Split select used to ask
+//     for): the circuits from there to the multi's end take the box, capped
+//     at its free tails, one undo entry for split and assignment together;
 //   - a whole CARD or BREAKOUT BOX lands anywhere on a screen: the screen's
 //     ports fill onto it in order from the first unassigned (place-overflow),
 //     or the whole block moves there when nothing is unassigned (move-block,
@@ -65,16 +75,31 @@ class _HardwareDock {
         const body = document.getElementById('hardware-dock-body');
         if (!dock || !body) return;
         const mode = window.canvasRenderer ? window.canvasRenderer.viewMode : '';
-        // Remember which tile held focus through the wipe, by its stable key
-        // - the same reason the panels carry data-lrd-field. Dock tiles are
-        // plain drag handles, so the key is all there is to restore.
+        // The port chips carry per-port editors now, so a field mid-edit
+        // rides the wipe by its data-lrd-field key - the same guard every
+        // panel rebuild takes before its own innerHTML wipe.
+        if (typeof this._preserveEditorFocus === 'function') {
+            this._preserveEditorFocus();
+        }
+        // Remember which chip FACE held focus through the wipe, by its
+        // stable key - the same reason the panels carry data-lrd-field.
         const focused = document.activeElement
             && document.activeElement.dataset
             && document.activeElement.dataset.hwdock;
         const before = dock.offsetHeight;
         body.innerHTML = '';
-        if (mode === 'data-flow') this._dockRenderData(body);
-        else if (mode === 'power') this._dockRenderPower(body);
+        if (mode === 'data-flow') {
+            this._dockRenderData(body);
+            // The port chips fold their editors inside them, so the tile
+            // machinery wires them after every wipe - which chip is open
+            // rode the wipe on the app (_openTiles), the way the fold state
+            // rides it in localStorage. The power slot chips stay plain
+            // drag handles (their editing lives in the Power sidebar's own
+            // multi tiles), so only the data render wires tiles.
+            if (typeof this._wireTiles === 'function') this._wireTiles(body);
+        } else if (mode === 'power') {
+            this._dockRenderPower(body);
+        }
         if (focused) {
             const again = body.querySelector(
                 `[data-hwdock="${CSS.escape(focused)}"]`);
@@ -180,7 +205,7 @@ class _HardwareDock {
         });
         const loose = (card.ports || []).filter(p => !covered.has(p.number));
         if (loose.length) {
-            unit.appendChild(this._dockBuildPortGrid(card, loose));
+            unit.appendChild(this._dockBuildPortGrid(proc, card, loose));
         }
         const boxEls = new Map();
         cvts.forEach(cvt => {
@@ -204,7 +229,8 @@ class _HardwareDock {
                 'Drag the whole box onto a screen: the screen\'s ports fill '
                 + 'onto this box\'s sockets in order from the first '
                 + 'unassigned.'));
-            box.appendChild(this._dockBuildPortGrid(card, cvt.ports || []));
+            box.appendChild(this._dockBuildPortGrid(proc, card,
+                                                    cvt.ports || []));
             // A redundant pair of boxes is one group here too: B nests
             // under the A it backs (the panel's rule, worn by the tray),
             // and a box with no role stays the plain strip it was.
@@ -216,21 +242,31 @@ class _HardwareDock {
         return unit;
     }
 
-    _dockBuildPortGrid(card, ports) {
+    _dockBuildPortGrid(proc, card, ports) {
         const grid = document.createElement('div');
         grid.className = 'lrd-tile-grid hw-dock-grid';
         ports.forEach(port => {
-            grid.appendChild(this._dockBuildPortTile(card, port));
+            grid.appendChild(this._dockBuildPortTile(proc, card, port));
         });
         return grid;
     }
 
-    // The same compact face the Processors panel's tiles wear - number,
-    // label, occupant, the occupied/clash ground - shrunk to a drag handle.
-    // No editor unfolds here; naming stays in the panel.
-    _dockBuildPortTile(card, port) {
+    // One port as one dense cell of its grid: number, the resolved label
+    // (the assignment's answer, never re-derived here), occupant, and the
+    // occupied/clash ground. The chip is both the drag handle AND the
+    // port's editor - the dock is the one place ports appear, so the
+    // editing the panel's tiles carried lives here now: click or Enter
+    // (no movement) opens the editor IN the tile through the shared
+    // _wireTiles machinery, press-and-move drags. The editor is hidden,
+    // never detached (style.css .lrd-tile-body), so every field keeps
+    // answering the focus-restore lookup from inside a closed chip.
+    _dockBuildPortTile(proc, card, port) {
         const tile = document.createElement('div');
         tile.className = 'lrd-tile hw-dock-tile';
+        // The tile machinery's keys, so the open editor comes back by id
+        // through the tray's wholesale rebuilds - one open editor per card.
+        tile.dataset.lrdTile = `port-${card.id}-${port.number}`;
+        tile.dataset.lrdTileBox = `card-${card.id}`;
         const occupants = this._portOccupants(card.id, port.number);
         if (occupants.length > 1) tile.classList.add('lrd-tile-clash');
         else if (occupants.length) tile.classList.add('lrd-tile-occupied');
@@ -291,10 +327,12 @@ class _HardwareDock {
                     ? ` - backs up ${port.backsUp.label
                         || `port ${port.backsUp.port} on ${port.backsUp.cardTitle}`}`
                     : ' - free'))
+            + (port.beyondCeiling ? ' - beyond this card’s ceiling' : '')
+            + '. Click to edit'
             + (port.backsUp
                 ? '. A backup port is that port\'s return end - nothing '
                     + 'else can land on it.'
-                : '. Drag onto a port run to place it there'
+                : '; drag onto a port run to place it there'
                     + (occupants.some(o => o.source === 'pin')
                         ? '; drag back onto this tray to release it.' : '.'));
 
@@ -303,7 +341,252 @@ class _HardwareDock {
             title: port.label || `${card.name || card.deviceName} `
                 + `port ${port.number}`,
         }, `port-${card.id}-${port.number}`);
+
+        const editor = this._buildPortRow(proc, card, port);
+        editor.classList.add('lrd-tile-body');
+        tile.appendChild(editor);
+
+        if (this._tileOpenId(tile.dataset.lrdTileBox)
+                === tile.dataset.lrdTile) {
+            tile.classList.add('lrd-tile-open');
+        }
         return tile;
+    }
+
+    // One of a port editor's two name boxes, captioned the way the soca
+    // rows' fields are: an unlabeled box beside another unlabeled box reads
+    // as noise, and these two hold different ends of the same cable. The
+    // resolved label sits in the placeholder, so an empty box still reads
+    // as what that end is actually called. (Moved here whole from the
+    // Processors panel when the dock became the one port surface - the
+    // data-lrd-field keys came with it, and they exist nowhere else.)
+    _buildPortNameField(caption, fieldKey, value, placeholder, manual,
+                        titles, onCommit) {
+        const cell = document.createElement('div');
+        cell.style.flex = '1 1 70px';
+        cell.style.minWidth = '0';
+        const cap = document.createElement('label');
+        cap.style.display = 'block';
+        cap.style.fontSize = '10px';
+        cap.style.color = '#888';
+        cap.textContent = caption;
+        cell.appendChild(cap);
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = value || '';
+        input.placeholder = placeholder || 'unnamed';
+        input.title = manual ? titles.named : titles.unnamed;
+        input.dataset.lrdField = fieldKey;
+        input.style.padding = '0 3px';
+        input.style.background = 'transparent';
+        input.style.border = '1px solid transparent';
+        input.style.borderRadius = '3px';
+        input.style.color = manual ? '#e0c98a' : '#ccc';
+        input.style.fontFamily = 'monospace';
+        input.style.fontSize = '11px';
+        input.style.width = '100%';
+        input.style.minWidth = '0';
+        input.style.boxSizing = 'border-box';
+        input.addEventListener('focus', () => {
+            input.style.borderColor = '#3a3a3a';
+            input.style.background = '#0d0d0d';
+        });
+        input.addEventListener('blur', () => {
+            input.style.borderColor = 'transparent';
+            input.style.background = 'transparent';
+        });
+        input.addEventListener('change', () => onCommit(input.value.trim()));
+        cell.appendChild(input);
+        return cell;
+    }
+
+    // The open chip's editor: the two name boxes on a wrapping line, then
+    // the occupancy detail. Naming and reading only - putting a screen ON
+    // the socket stays the chip's own drag, so no set/place control ever
+    // grows here: one gesture, one set of rules.
+    _buildPortRow(proc, card, port) {
+        const wrap = document.createElement('div');
+        const row = document.createElement('div');
+        // The names are inputs rather than text because a port is a socket
+        // someone has to be able to call what the house already calls it,
+        // and since the processor beats a screen's own override for an
+        // assigned port, these boxes are the ONLY place left to do it.
+        // Making it a mode to find would strand every port that needs one.
+        row.style.display = 'flex';
+        row.style.flexWrap = 'wrap';
+        row.style.gap = '4px';
+        row.style.alignItems = 'center';
+        row.style.fontSize = '11px';
+        row.style.fontFamily = 'monospace';
+        row.style.marginBottom = '2px';
+
+        const rename = (body, action) => this._processorRequest(
+            `/api/processors/${proc.id}/cards/${card.id}/ports/${port.number}`,
+            'PUT', body, action);
+
+        // Two ends of one socket, named side by side. The fields share a
+        // wrapping line of their own: two 70px boxes fit abreast in a chip
+        // opened across its grid row and stack where a narrow unit squeezes
+        // them, exactly as the soca rows' captioned fields do.
+        const names = document.createElement('div');
+        names.style.display = 'flex';
+        names.style.flexWrap = 'wrap';
+        names.style.gap = '4px';
+        names.style.margin = '0 0 4px 0';
+        names.appendChild(this._buildPortNameField(
+            'Name',
+            `processor-port-name-${card.id}-${port.number}`,
+            (card.portNames || {})[String(port.number)],
+            // No name anywhere upstream means no processor-derived label at
+            // all, and the screen's own template is still the thing doing
+            // the work - which is what "unnamed" has always meant here.
+            port.label,
+            port.labelSource === 'manual',
+            {
+                named: 'Named by hand. Clear the box to go back to the '
+                    + 'card’s template.',
+                unnamed: 'Name this port. It beats the card’s template for '
+                    + 'this port only.',
+            },
+            (val) => rename({ name: val }, 'Rename Processor Port')));
+        names.appendChild(this._buildPortNameField(
+            'Return',
+            `processor-port-return-${card.id}-${port.number}`,
+            (card.returnPortNames || {})[String(port.number)],
+            port.returnLabel,
+            port.returnLabelSource === 'manual',
+            {
+                named: 'Named by hand. Clear the box to go back to the '
+                    + 'name derived from the primary (R1-1 for P1-1).',
+                unnamed: 'Name this port’s redundancy run. Left blank it is '
+                    + 'derived from the primary: its leading P becomes R '
+                    + '(R1-1 for P1-1), any other name takes an R after it.',
+            },
+            (val) => rename({ returnName: val },
+                            'Rename Processor Port Return')));
+
+        const who = document.createElement('div');
+        // the one elastic cell of its line, same shape as the assignment rows
+        who.style.flex = '1 1 60px';
+        who.style.minWidth = '0';
+        who.style.overflow = 'hidden';
+        who.style.textOverflow = 'ellipsis';
+        who.style.whiteSpace = 'nowrap';
+        const occupants = this._portOccupants(card.id, port.number);
+        if (!occupants.length) {
+            // A port with nothing on it says so. The chip face says it too,
+            // but the open editor must not go silent where the face spoke.
+            who.style.color = '#4a4a4a';
+            who.textContent = 'free';
+            who.title = 'No screen is on this port.';
+        } else {
+            const parts = occupants.map(o => `${o.name} p${o.number}`
+                + (o.role === 'return' ? ' return' : ''));
+            const derived = occupants.length === 1
+                && occupants[0].role === 'return';
+            who.style.color = occupants.length > 1 ? '#d05a52'
+                : (derived ? '#c8a04a' : '#888');
+            who.textContent = parts.join(', ')
+                + (occupants.length > 1 ? ' - clash' : '');
+            who.title = occupants.length > 1
+                ? `${parts.join(' and ')} both claim this port. Nothing has `
+                  + 'been renumbered - see Port Numbering.'
+                : (derived
+                    ? `${occupants[0].name} port ${occupants[0].number}'s `
+                      + 'return end - it follows the main and clears with it.'
+                    : `${occupants[0].name}, its port ${occupants[0].number}`);
+        }
+        row.appendChild(who);
+        wrap.appendChild(names);
+
+        // The port's place in the redundancy mapping, stated where its
+        // labels are edited. A consumed port says whose return it carries; a
+        // backed main says which physical socket its return comes back on -
+        // the same socket its Return placeholder is already named after.
+        if (port.backsUp) {
+            const role = document.createElement('div');
+            role.style.fontSize = '11px';
+            role.style.color = '#c8a04a';
+            role.style.margin = '0 0 4px 0';
+            role.textContent = `Backs up ${port.backsUp.label
+                || `port ${port.backsUp.port} on ${port.backsUp.cardTitle}`}`
+                + ' - this socket carries its return.';
+            wrap.appendChild(role);
+        } else if (port.backedBy) {
+            const back = document.createElement('div');
+            back.style.fontSize = '11px';
+            back.style.color = '#888';
+            back.style.margin = '0 0 4px 0';
+            back.textContent = `Return comes back on ${port.backedBy.label
+                || `port ${port.backedBy.port} on ${port.backedBy.cardTitle}`}.`;
+            wrap.appendChild(back);
+        }
+
+        // Manual mode's per-port pick: which socket backs THIS one. Sparse
+        // by design - a blank port number clears the pick and the main
+        // simply has no backup, because manual is explicit.
+        const shape = card.redundancyShape;
+        if (shape && !shape.forced && shape.mode === 'manual'
+                && !card.backupFor && !port.backsUp) {
+            const picked = (card.backupPorts || {})[String(port.number)] || null;
+            const pick = document.createElement('div');
+            pick.style.display = 'flex';
+            pick.style.gap = '4px';
+            pick.style.alignItems = 'center';
+            pick.style.margin = '0 0 4px 0';
+            const cap = document.createElement('span');
+            cap.style.fontSize = '10px';
+            cap.style.color = '#888';
+            cap.textContent = 'Backed by';
+            pick.appendChild(cap);
+
+            const cardSel = document.createElement('select');
+            cardSel.dataset.lrdField =
+                `processor-port-backup-card-${card.id}-${port.number}`;
+            cardSel.style.flex = '1';
+            cardSel.style.minWidth = '0';
+            const own = document.createElement('option');
+            own.value = card.id;
+            own.textContent = card.name || proc.name || card.deviceName;
+            cardSel.appendChild(own);
+            this._otherCards(card.id).forEach(({ proc: p, card: c }) => {
+                const opt = document.createElement('option');
+                opt.value = c.id;
+                opt.textContent = c.name || p.name || c.deviceName;
+                if (picked && picked.cardId === c.id) opt.selected = true;
+                cardSel.appendChild(opt);
+            });
+
+            const portBox = document.createElement('input');
+            portBox.type = 'number';
+            portBox.min = '1';
+            portBox.dataset.lrdField =
+                `processor-port-backup-port-${card.id}-${port.number}`;
+            portBox.style.width = '52px';
+            portBox.placeholder = 'port';
+            portBox.value = picked ? String(picked.port) : '';
+            portBox.title = 'The port whose socket carries this one’s '
+                + 'return. Blank means no backup.';
+
+            // Through the same PUT the name boxes use - one route, one rule
+            // about what a port edit is.
+            const commit = () => {
+                const value = parseInt(portBox.value, 10);
+                const body = portBox.value.trim() === '' || !(value >= 1)
+                    ? { backup: null }
+                    : { backup: { cardId: cardSel.value, port: value } };
+                rename(body, 'Change Port Backup');
+            };
+            cardSel.addEventListener('change', commit);
+            portBox.addEventListener('change', commit);
+            pick.appendChild(cardSel);
+            pick.appendChild(portBox);
+            wrap.appendChild(pick);
+        }
+
+        wrap.appendChild(row);
+        return wrap;
     }
 
     _dockRenderPower(host) {
@@ -350,19 +633,31 @@ class _HardwareDock {
         const tile = document.createElement('div');
         tile.className = 'lrd-tile hw-dock-tile';
 
-        // Free tails: six minus every tail a member's rendering holds. Over
-        // six legs on one box is the overflow the soca tiles flag - the chip
-        // wears the same clash ground.
-        const used = new Set();
+        // A multi IS a 6-tail box, so the chip carries the six tails as
+        // cells: which screen's circuit holds each one (the same rendered
+        // positions the soca tiles and the shared-box notes read), which
+        // are free, and a tail two stored sets both claim wears the clash
+        // red. Over six legs on one box is the overflow the soca tiles
+        // flag - the chip wears the same clash ground.
+        const byTail = new Map();   // tail 1..6 -> [{who, label}]
         let legs = 0;
         members.forEach(m => {
             const l = (this.project.layers || []).find(x => x.id === m.layerId);
             if (!l) return;
             const rec = this._powerNaming(l).socas.get(m.soca);
-            if (rec) (rec.positions || []).forEach(t => used.add(t));
+            if (rec) {
+                (rec.positions || []).forEach((t, i) => {
+                    const list = byTail.get(t) || [];
+                    list.push({
+                        who: l.name,
+                        label: this.getPowerCircuitLabel(l, rec.circuits[i]),
+                    });
+                    byTail.set(t, list);
+                });
+            }
             legs += m.legs || 0;
         });
-        const free = [1, 2, 3, 4, 5, 6].filter(t => !used.has(t));
+        const free = [1, 2, 3, 4, 5, 6].filter(t => !byTail.has(t));
         if (legs > 6) tile.classList.add('lrd-tile-clash');
         else if (members.length) tile.classList.add('lrd-tile-occupied');
 
@@ -392,6 +687,26 @@ class _HardwareDock {
             who.textContent = members.map(m => m.layerName).join(' + ');
         }
         face.appendChild(who);
+        // The six tail sockets, one cell each, in the port-chip register:
+        // lit when a circuit holds the tail, clash-red when two stored sets
+        // claim it, dim when free. Each cell says who on hover, so the fan
+        // can be read tail by tail without opening the Power sidebar.
+        const row = document.createElement('div');
+        row.className = 'hw-dock-tails';
+        for (let t = 1; t <= 6; t++) {
+            const cell = document.createElement('span');
+            const holders = byTail.get(t) || [];
+            cell.className = 'hw-dock-tail'
+                + (holders.length > 1 ? ' hw-dock-tail-clash'
+                    : (holders.length ? ' hw-dock-tail-used' : ''));
+            cell.textContent = String(t);
+            cell.title = `Tail ${t} - ` + (holders.length
+                ? holders.map(h => `${h.who} ${h.label}`).join(', ')
+                    + (holders.length > 1 ? ' (claimed twice)' : '')
+                : 'free');
+            row.appendChild(cell);
+        }
+        face.appendChild(row);
         tile.appendChild(face);
 
         face.title = `${d.name || d.id} multi ${n} - `
@@ -401,7 +716,9 @@ class _HardwareDock {
                         ? `tails ${this._fmtTails(free)} free`
                         : 'no tails free')
                 : 'free')
-            + '. Drag onto a circuit to land that circuit\'s multi here'
+            + '. Drag onto a circuit to land that circuit\'s multi here - '
+            + 'the first circuit takes the whole multi, a later circuit '
+            + 'splits it there and this box takes the rest'
             + (members.length
                 ? '; drag back onto this tray to unassign it.' : '.');
 
@@ -462,7 +779,10 @@ class _HardwareDock {
         const move = (ev) => {
             if (!live) {
                 // A 4px threshold keeps a plain click from twitching into a
-                // drag - same latitude every drag on the canvas gives.
+                // drag - same latitude every drag on the canvas gives. It is
+                // also the whole click-vs-open split for the openable port
+                // chips: press-and-move past 4px is the drag, press released
+                // inside it is the click that opens the editor.
                 if (Math.abs(ev.clientX - startX) < 4
                         && Math.abs(ev.clientY - startY) < 4) return;
                 live = true;
@@ -473,7 +793,24 @@ class _HardwareDock {
         const up = (ev) => {
             document.removeEventListener('mousemove', move);
             document.removeEventListener('mouseup', up);
-            if (live) this._dockEndDrag(ev);
+            if (live) {
+                // A drag that ends back over its own chip still synthesizes
+                // a click after mouseup, and on an openable port chip that
+                // click would open the editor the drop never asked for.
+                // Swallow exactly that one click - the guard lifts on the
+                // next macrotask, after the browser has dispatched (or
+                // skipped) the click for THIS gesture, so the next real
+                // click opens as normal.
+                const swallow = (ce) => {
+                    ce.stopPropagation();
+                    ce.preventDefault();
+                };
+                document.addEventListener('click', swallow, true);
+                setTimeout(() => {
+                    document.removeEventListener('click', swallow, true);
+                }, 0);
+                this._dockEndDrag(ev);
+            }
         };
         document.addEventListener('mousemove', move);
         document.addEventListener('mouseup', up);
@@ -760,6 +1097,40 @@ class _HardwareDock {
             const layer = (this.project.layers || [])
                 .find(l => l.id === target.layerId);
             if (!layer) return;
+            // WHICH circuit of the multi took the drop decides the gesture:
+            // the first circuit means the whole multi (as it always has),
+            // and a later circuit means "from here on, feed from this box"
+            // - the split the sidebar's Split select used to spell out,
+            // implied by where the drop landed (splitSocaOnto, one undo
+            // entry for the boundary and the assignment together).
+            const rec = this._powerNaming(layer).socas.get(target.socaIndex);
+            const at = rec ? rec.circuits.indexOf(target.num) : -1;
+            if (rec && at > 0) {
+                const label = this.getPowerCircuitLabel(layer, target.num);
+                const r = this.splitSocaOnto(
+                    layer, target.socaIndex, at,
+                    payload.distroId, payload.number);
+                if (!r.ok) {
+                    // The place-overflow refusal, in tails: a box with no
+                    // free tail takes nothing, and the split does not
+                    // happen for nothing.
+                    this._dockSay(`${payload.title} has no free tails - `
+                        + `the ${r.tailLen} circuit`
+                        + `${r.tailLen === 1 ? '' : 's'} from ${label} on `
+                        + `stay with ${rec.name || 'their multi'}.`);
+                    return;
+                }
+                if (r.took < r.tailLen) {
+                    // Take-what-fits, said out loud - the same convention
+                    // place-overflow follows with spare ports.
+                    this._dockSay(`${payload.title} had ${r.free} free `
+                        + `tail${r.free === 1 ? '' : 's'} - took ${r.took} `
+                        + `of the ${r.tailLen} circuits from ${label} on; `
+                        + 'the rest stay as their own unassigned multi.');
+                }
+                this._restateNaming();
+                return;
+            }
             // The two existing setters, in the canonical order the panel's
             // selects fired them: distro first (a number means nothing off a
             // distro), then the pin. Landing on an occupied slot is the join
@@ -943,6 +1314,100 @@ class _HardwareDock {
                 + 'Names are untouched, and undo puts it back.',
             run: () => this._clearMultis(
                 [{ layerId: owner.id, soca: rec.index }], 'Clear Multi'),
+        };
+    }
+
+    // ── the right-click merge-back ────────────────────────────────────────
+    //
+    // The reverse of the drop-implied split. With the sidebar's Un-split
+    // button gone, the way back is the same surface the split now lives on:
+    // right-click the circuit run (or the slot chip holding the split-off
+    // part) and "Merge back into <name>" removes the stored boundary
+    // through the existing un-split - undoable, like every clear above.
+    // Unlike the clear there is no disabled state: a multi with no stored
+    // boundary simply has nothing to merge, which is its ordinary condition,
+    // not a refused gesture - so the item stays off the menu entirely.
+    _prepareMergeMenu(x, y) {
+        const el = document.elementFromPoint(x, y);
+        const chip = el && el.closest
+            ? el.closest('[data-hwdock-payload]') : null;
+        if (chip) {
+            let payload = null;
+            try {
+                payload = JSON.parse(chip.dataset.hwdockPayload);
+            } catch (_) { /* a chip with unreadable payload arms nothing */ }
+            if (!payload || payload.type !== 'slot') return null;
+            // The chip is the box, so it offers to hand back only a
+            // SPLIT-OFF part it holds - a head member whose tail lives on
+            // another box is that other surface's merge, not this chip's.
+            for (const m of (this._distroMultiNumbers(payload.distroId)
+                    .get(payload.number) || [])) {
+                const layer = (this.project.layers || [])
+                    .find(l => l.id === m.layerId);
+                if (!layer) continue;
+                const offer = this._mergeMenuForMulti(layer, m.soca, true);
+                if (offer) return offer;
+            }
+            return null;
+        }
+        const renderer = window.canvasRenderer;
+        if (!renderer || !renderer.canvas
+                || renderer.viewMode !== 'power') return null;
+        const rect = renderer.canvas.getBoundingClientRect();
+        if (x < rect.left || x > rect.right
+                || y < rect.top || y > rect.bottom) {
+            return null;
+        }
+        // The same client-to-world walk _prepareClearMenu makes, mirror
+        // included, for the same reason.
+        const worldY = ((y - rect.top) - renderer.panY) / renderer.zoom;
+        const worldX = renderer._unmirrorWorldX(
+            ((x - rect.left) - renderer.panX) / renderer.zoom, worldY);
+        const hit = renderer.getPanelAt(worldX, worldY);
+        if (!hit) return null;
+        const under = (this.project.layers || [])
+            .find(l => l.id === hit.layerId);
+        const circuit = under
+            ? renderer._powerCircuitForPanel(under, hit.panel) : null;
+        if (!circuit) return null;
+        const slot = this._powerNaming(circuit.owner)
+            .slots.get(circuit.circuitNum);
+        return slot
+            ? this._mergeMenuForMulti(circuit.owner, slot.multi, false)
+            : null;
+    }
+
+    // The merge offer for one multi, or null when no stored boundary
+    // touches it. The clicked part can sit on either side of the boundary:
+    // the split-off TAIL merges back into the part before it, and the HEAD
+    // takes its split-off tail back - the surviving multi is the head
+    // either way (unsplitSocaAfter's rule), so the label names it.
+    // `tailOnly` restricts to the tail side, for surfaces that hold the
+    // split-off part specifically (the slot chip).
+    _mergeMenuForMulti(layer, socaIndex, tailOnly) {
+        const count = this.screenCircuits(layer).length;
+        const segs = this._socaSegments(layer, count);
+        const idx = Number(socaIndex);
+        const seg = segs.find(s => s.index === idx);
+        if (!seg) return null;
+        const prev = segs.find(s => s.index === idx - 1);
+        const headIdx = (prev && prev.userEnd) ? prev.index
+            : (!tailOnly && seg.userEnd ? seg.index : null);
+        if (headIdx == null) return null;
+        const head = this._powerNaming(layer).socas.get(headIdx);
+        const name = (head && head.name) || `multi ${headIdx}`;
+        return {
+            label: `Merge back into ${name}`,
+            title: 'Remove the split boundary: the circuits fall back into '
+                + `one multi under ${name}, and the split-off part's `
+                + 'assignment goes with its identity. Undo puts the split '
+                + 'back.',
+            run: () => {
+                sendClientLog('dock_merge',
+                              { layerId: layer.id, soca: headIdx });
+                this.unsplitSocaAfter(layer, headIdx);
+                this._restateNaming();
+            },
         };
     }
 
