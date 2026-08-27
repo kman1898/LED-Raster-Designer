@@ -111,6 +111,24 @@ def cards_in(processors):
                 # them from the same resolution instead of re-deriving one.
                 'returnLabels': {p['number']: p['returnLabel']
                                  for p in card['ports']},
+                # The number written beside each socket: the box's own 1..N
+                # where a box delivers it (the 2026-08-27 silkscreen ruling),
+                # the card-wide number where none does. Every message that
+                # names a bare socket speaks THIS number - the card-wide one
+                # stays the bookkeeping key and nothing more.
+                'localNumbers': {p['number']: p['localNumber']
+                                 for p in card['ports']},
+                # Which box delivers each socket, by the box's display name
+                # (its typed name, or model + trunk letter - resolve_card's
+                # displayTitle). A bare local number only means something
+                # beside its box's name, so a message naming an unlabeled
+                # box-owned socket says both.
+                'boxTitles': {
+                    p['number']: next(
+                        (c.get('displayTitle')
+                         for c in card.get('cvts') or []
+                         if c['id'] == p['cvtId']), None)
+                    for p in card['ports'] if p.get('cvtId')},
                 # Ports consumed as another main's return - the even half of
                 # a sequential card, every port of a 1to1 backup unit, a
                 # manual pick. Resolved with the labels above and carried
@@ -141,7 +159,15 @@ def _port_title(card, port):
     label = (card.get('labels') or {}).get(port)
     title = _card_title(card)
     if not label:
-        return f'{title} port {port}'
+        # A bare number is the LOCAL one - the number silkscreened beside
+        # the socket (a box's own 1..N behind a box). The card-wide ordinal
+        # is a key, not a thing anyone can read off metal - and since every
+        # box counts from 1, the box's name rides along or the number names
+        # four different sockets.
+        spoken = (card.get('localNumbers') or {}).get(port, port)
+        box = (card.get('boxTitles') or {}).get(port)
+        where = f'{title} {box}' if box else title
+        return f'{where} port {spoken}'
     # A label is usually built out of the card's own name - the template is
     # {name}-# - so naming both would read "SR SR-1". Where it is not, because
     # a box in front of the card named it or somebody typed it, both halves are
@@ -427,6 +453,9 @@ def _mirror_returns(cards, occupancy):
                         'role': 'return',
                         'main': {'cardId': role['cardId'],
                                  'port': role['port'],
+                                 'localPort': role.get('localPort',
+                                                       role['port']),
+                                 'boxTitle': role.get('boxTitle'),
                                  'label': role.get('label')},
                     })
 
@@ -805,7 +834,8 @@ def place_port(processors, screens, state, layer_id, index, card_id, port,
     role = (card.get('backupRoles') or {}).get(port)
     if role:
         main = role.get('label') \
-            or f'port {role.get("port")} on {role.get("cardTitle")}'
+            or (f'port {role.get("localPort", role.get("port"))} on '
+                f'{role.get("boxTitle") or role.get("cardTitle")}')
         return None, (f'{_port_title(card, port)} backs up {main} - it is '
                       f'that port\'s return end, not a free port.'), None
 

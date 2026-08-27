@@ -1389,6 +1389,42 @@ def test_the_sx40_pair_claims_the_backing_boxes_whole(client):
     assert resp.status_code == 409, resp.get_data(as_text=True)
     body = resp.get_json()
     assert 'backs up' in body['error'] and 'return end' in body['error']
+    # Socket 11 is box B's socket 1 (the 2026-08-27 silkscreen ruling), and
+    # with nothing named upstream the refusal has to say so in the numbers
+    # on the metal: the main it returns is box A's port 1, never "port 1"
+    # bare - every box has a port 1 now - and never the card-wide 11.
+    assert 'port 1 on Tessera XD A' in body['error'], body['error']
+
+
+def test_the_halves_mode_claims_the_back_half_by_role(client):
+    """The 2026-08-27 arrangement at the assignment's end: "1-8 on
+    processor 1 and 9-16 as backups". With halves mode on a 16-port card,
+    auto packs the front half and stops - the back half is spoken for by
+    role - and a hand placement onto socket 9 gets the same hard refusal
+    every backing socket gets, naming the main whose return it carries."""
+    state = add_processor(client, 'novastar-h9')
+    pid = state['resolved'][0]['id']
+    state = set_card(client, pid, 0, 'novastar-card-h-16xrj45-2xfiber')
+    card = card_ids(state)[0]
+    client.put(f'/api/processors/{pid}/cards/{card}', json={'name': 'P1'})
+    client.put(f'/api/processors/{pid}', json={'redundancy': True})
+    resp = client.put(f'/api/processors/{pid}/cards/{card}',
+                      json={'redundancyMode': 'halves'})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+
+    res = resolve(client, ('Wall', 10))
+    assert numbers(res, 'Wall') == list(range(1, 9)) + [None, None], (
+        'auto crossed into the back half')
+    assert issue(res, 'overflow')
+    summary = next(c for c in res['cards'] if c['cardId'] == card)
+    assert (summary['capacity'], summary['backing']) == (16, 8)
+    assert (summary['used'], summary['free']) == (8, 0)
+
+    resp = place(client, 'Wall', 8, card, 9, screens(('Wall', 10)))
+    assert resp.status_code == 409, resp.get_data(as_text=True)
+    body = resp.get_json()
+    assert 'backs up P1-1' in body['error'], body['error']
+    assert 'return end' in body['error'], body['error']
 
 
 # ── 11. A backup socket displays the occupancy of the socket it backs ─────

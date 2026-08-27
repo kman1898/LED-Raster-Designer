@@ -2107,7 +2107,15 @@ def test_the_dock_sections_ports_by_box_with_lettered_headers(dock_page):
     box, headed in the dock's own register with the box's name - lettered
     by its trunk where nothing else tells four identical boxes apart -
     and its port span; the backup box's section nests under its main's.
-    A boxless card keeps its single flat grid."""
+    A boxless card keeps its single flat grid.
+
+    The spans read in each box's OWN numbers - all four sections say
+    "ports 1-10" - by the 2026-08-27 ruling ("B is 1-10 and D is 1-10",
+    "all cvt's are 1-10 or 1-16"): every box's face is silkscreened from
+    1 whichever trunk it hangs on, and the card-wide 11-20/21-30/31-40
+    this test used to pin are bookkeeping ordinals no hand can find
+    beside a socket. The lettered header is what tells the four
+    identical 1-10 spans apart."""
     page, ids = dock_page
     open_view(page, 'data-flow')
     made = page.evaluate("""async () => {
@@ -2155,10 +2163,11 @@ def test_the_dock_sections_ports_by_box_with_lettered_headers(dock_page):
                  for b in out['boxes']]
         assert names == [
             ('Tessera XD A', 'ports 1-10', False),
-            ('Tessera XD B (backup)', 'ports 11-20', True),
-            ('Tessera XD C', 'ports 21-30', False),
-            ('Tessera XD D (backup)', 'ports 31-40', True),
-        ], f'the sections must be lettered and paired: {names}'
+            ('Tessera XD B (backup)', 'ports 1-10', True),
+            ('Tessera XD C', 'ports 1-10', False),
+            ('Tessera XD D (backup)', 'ports 1-10', True),
+        ], f'the sections must be lettered, paired and locally numbered: ' \
+           f'{names}'
         assert all(b['tiles'] == 10 for b in out['boxes']), (
             f'each section must hold exactly its own span of chips: {out}')
         assert out['flatBoxes'] == 0 and out['flatGrids'] == 1, (

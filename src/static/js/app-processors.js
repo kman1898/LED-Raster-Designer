@@ -782,8 +782,12 @@ class _Processors {
         // The box's own port count is a maximum, not a promise: it fans out
         // whatever the trunk carries, which is why a CVT10 gives 8 behind an
         // 8B/10B card and why only the first 10 of an XD-S work behind an SX40.
-        info.textContent = `ports ${cvt.firstPort}-`
-            + `${cvt.firstPort + (cvt.portCount || 0) - 1}`;
+        // The span reads in the box's OWN numbers - every box's face is
+        // silkscreened from 1, whichever trunk it hangs on (the 2026-08-27
+        // ruling: "all cvt's are 1-10 or 1-16") - so the line says how many
+        // sockets work, never where the card's internal ordinals fall.
+        info.textContent = cvt.portCount
+            ? `ports 1-${cvt.portCount}` : 'no ports delivered';
         // How many trunks it eats is as much a fact about the box as how many
         // ports come out of it, and it is the one that decides what else will
         // go on the card.
@@ -842,13 +846,14 @@ class _Processors {
     }
 
     // The card's data-redundancy row, where redundancy is on and the vendor
-    // does not fix the shape. Three modes, the user's design: 1:1 to a
+    // does not fix the shape. Four modes, the user's design: 1:1 to a
     // designated backup unit (the default - "the way brompton does it and
     // novastar when using a second sending card"), sequential within the
-    // unit ("1 is backed up by 2 on the same unit/sending card"), and manual
-    // per port ("1 is backed up to whatever port you want"). A vendor-fixed
-    // pairing (Brompton adjacent) renders as the statement under the switch
-    // instead, and never as this select.
+    // unit ("1 is backed up by 2 on the same unit/sending card"), halves
+    // within the unit (the 2026-08-27 shape: "1-8 on processor 1 and 9-16
+    // as backups"), and manual per port ("1 is backed up to whatever port
+    // you want"). A vendor-fixed pairing (Brompton adjacent) renders as the
+    // statement under the switch instead, and never as this select.
     _buildCardRedundancyRow(proc, card) {
         // A unit consumed as somebody's 1:1 backup states its role and
         // offers no choices of its own: its ports are the mains' returns,
@@ -877,6 +882,10 @@ class _Processors {
         select.style.width = '100%';
         [['1to1', '1:1 - mirrored by a backup unit'],
          ['sequential', 'Sequential - 1 backed by 2, 3 by 4'],
+         // The 2026-08-27 arrangement, in the user's own shape: "1-8 on
+         // processor 1 and 9-16 as backups" - one gesture, not a manual
+         // pick per port.
+         ['halves', 'Halves - back half backs the front half'],
          ['manual', 'Manual - backup picked per port'],
         ].forEach(([id, text]) => {
             const opt = document.createElement('option');
@@ -939,6 +948,25 @@ class _Processors {
                 ? `1 backed by 2, 3 by 4 - ${shape.usable} of `
                     + `${card.ceiling} ports usable.`
                 : '1 backed by 2, 3 by 4 - even ports are the returns.';
+            wrap.appendChild(info);
+        } else if (shape.mode === 'halves') {
+            const info = document.createElement('div');
+            info.style.fontSize = '11px';
+            info.style.color = '#888';
+            info.style.marginTop = '2px';
+            if (card.ceilingKnown && card.ceiling) {
+                // The same split the server maps: mains are the front
+                // ceil(n/2), returns the back floor(n/2) - port 1 comes
+                // back on 9 of 16. Both spans named, because this is the
+                // one mode whose main and return wear different numbers.
+                const mains = card.ceiling - Math.floor(card.ceiling / 2);
+                info.textContent = `Ports ${mains + 1}-${card.ceiling} carry `
+                    + `the returns of 1-${Math.floor(card.ceiling / 2)} - `
+                    + `${shape.usable} of ${card.ceiling} ports usable.`;
+            } else {
+                info.textContent = 'The back half of the ports are the '
+                    + 'front half\'s returns.';
+            }
             wrap.appendChild(info);
         } else if (shape.mode === 'manual') {
             const info = document.createElement('div');

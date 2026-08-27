@@ -213,16 +213,27 @@ class _HardwareDock {
             if (!nums.length) return;
             const box = document.createElement('div');
             box.className = 'hw-dock-box';
-            const span = `${Math.min(...nums)}-${Math.max(...nums)}`;
+            // The span reads in the BOX's own numbers - 1-10 on every XD,
+            // whichever trunk it hangs on - because that is what is
+            // silkscreened on its face (the 2026-08-27 ruling: "B is 1-10
+            // and D is 1-10"). The card-wide first/last ride the payload
+            // below untouched; they are the server's window keys, not a
+            // number anyone reads off metal.
+            const locals = (cvt.ports || []).map(
+                p => p.localNumber || p.number);
+            const span = `${Math.min(...locals)}-${Math.max(...locals)}`;
             const tag = cvt.backupOf ? ' (backup)'
                 : (cvt.duplicateOf ? ' (copy)' : '');
             // Four boxes all reading "Tessera XD" are four sections nobody
             // can tell apart, so an unnamed box on a trunked card wears its
             // trunk letter - "Tessera XD A" - the letters the pairing rule
             // itself is written in ("A backs up to B"). A hand-named box is
-            // already told apart by its name.
-            const boxTitle = (cvt.name
-                || cvt.deviceName + this._dockBoxLetter(card, cvt)) + tag;
+            // already told apart by its name. The name comes RESOLVED
+            // (displayTitle) since every box numbers its own sockets from 1
+            // and the server's refusals must call a box exactly what this
+            // section header calls it - one implementation of the letter.
+            const boxTitle = (cvt.displayTitle
+                || cvt.name || cvt.deviceName) + tag;
             box.appendChild(this._dockBuildHandle(
                 {
                     type: 'box', cardId: card.id,
@@ -237,7 +248,8 @@ class _HardwareDock {
                 + 'onto this box\'s sockets in order from the first '
                 + 'unassigned.'));
             box.appendChild(this._dockBuildPortGrid(proc, card,
-                                                    cvt.ports || []));
+                                                    cvt.ports || [],
+                                                    boxTitle));
             // A redundant pair of boxes is one group here too: B nests
             // under the A it backs (the panel's rule, worn by the tray),
             // and a box with no role stays the plain strip it was.
@@ -249,27 +261,20 @@ class _HardwareDock {
         return unit;
     }
 
-    // " A" for the box on trunk 1, " C-D" for one eating two trunks - the
-    // trunk POSITION said in the letters the catalog's own pairing rule
-    // uses, nothing invented. Empty where there is nothing to letter: a
-    // card without at least two trunks (one section needs no telling
-    // apart), or a box hanging past the trunks (it has no position).
-    _dockBoxLetter(card, cvt) {
-        const trunks = Number(card.trunks) || 0;
-        if (trunks < 2 || cvt.beyondTrunks) return '';
-        if (!Number.isInteger(cvt.trunkIndex) || cvt.trunkIndex < 0) return '';
-        const first = String.fromCharCode(65 + cvt.trunkIndex);
-        const takes = Number(cvt.trunksIn) || 1;
-        return takes > 1
-            ? ` ${first}-${String.fromCharCode(65 + cvt.trunkIndex + takes - 1)}`
-            : ` ${first}`;
-    }
+    // The trunk letter lives on the resolved box now (displayTitle, from
+    // resolve_card): the server's refusals name boxes too, and two spellings
+    // of "Tessera XD A" would drift. Nothing here letters anything.
 
-    _dockBuildPortGrid(proc, card, ports) {
+    // `boxTitle` names the breakout box a grid belongs to, where it belongs
+    // to one - the disambiguator now that every box numbers its own sockets
+    // from 1 (two boxes both have a "3", and the box name is how they are
+    // told apart).
+    _dockBuildPortGrid(proc, card, ports, boxTitle) {
         const grid = document.createElement('div');
         grid.className = 'lrd-tile-grid hw-dock-grid';
         ports.forEach(port => {
-            grid.appendChild(this._dockBuildPortTile(proc, card, port));
+            grid.appendChild(this._dockBuildPortTile(proc, card, port,
+                                                     boxTitle));
         });
         return grid;
     }
@@ -283,24 +288,31 @@ class _HardwareDock {
     // _wireTiles machinery, press-and-move drags. The editor is hidden,
     // never detached (style.css .lrd-tile-body), so every field keeps
     // answering the focus-restore lookup from inside a closed chip.
-    _dockBuildPortTile(proc, card, port) {
+    _dockBuildPortTile(proc, card, port, boxTitle) {
         const tile = document.createElement('div');
         tile.className = 'lrd-tile hw-dock-tile';
         // The tile machinery's keys, so the open editor comes back by id
         // through the tray's wholesale rebuilds - one open editor per card.
+        // Keyed by the card-wide number ON PURPOSE: two boxes both display
+        // a "3" now, and a key that repeated would restore the wrong chip.
         tile.dataset.lrdTile = `port-${card.id}-${port.number}`;
         tile.dataset.lrdTileBox = `card-${card.id}`;
         const occupants = this._portOccupants(card.id, port.number);
         if (occupants.length > 1) tile.classList.add('lrd-tile-clash');
         else if (occupants.length) tile.classList.add('lrd-tile-occupied');
 
+        // What the chip's face SAYS is the socket's own silkscreen - the
+        // box's 1..N behind a box (the 2026-08-27 ruling), the card's
+        // number elsewhere. The card-wide ordinal stays in the keys and
+        // payloads above and below, where the server does its arithmetic.
+        const spoken = port.localNumber || port.number;
         const face = document.createElement('div');
         face.className = 'lrd-tile-face';
         const top = document.createElement('div');
         top.className = 'lrd-tile-line';
         const num = document.createElement('span');
         num.style.color = port.beyondCeiling ? '#d05a52' : '#666';
-        num.textContent = String(port.number);
+        num.textContent = String(spoken);
         top.appendChild(num);
         if (port.label) {
             const label = document.createElement('span');
@@ -317,9 +329,15 @@ class _HardwareDock {
             if (port.backsUp) {
                 // Claimed by role: this socket is another main's return end.
                 // Same gold as the backup boxes, because it is the same job.
+                // The bare-number fallback speaks the main's LOCAL number -
+                // the one beside its socket - with its box's name in front,
+                // because every box counts from 1 and "port 1" alone could
+                // be this very box's own first socket.
                 who.style.color = '#c8a04a';
-                who.textContent = `backs up ${port.backsUp.label
-                    || `port ${port.backsUp.port}`}`;
+                const bu = port.backsUp;
+                who.textContent = `backs up ${bu.label
+                    || `${bu.boxTitle ? `${bu.boxTitle} ` : ''}port `
+                        + `${bu.localPort || bu.port}`}`;
             } else {
                 who.style.color = '#4a4a4a';
                 who.textContent = 'free';
@@ -341,14 +359,16 @@ class _HardwareDock {
         face.appendChild(who);
         tile.appendChild(face);
 
-        face.title = `Port ${port.number}`
+        face.title = `Port ${spoken}`
             + (port.label ? ` - ${port.label}` : '')
             + (occupants.length
                 ? ` - ${occupants.map(o => `${o.name} p${o.number}`
                     + (o.role === 'return' ? ' return' : '')).join(', ')}`
                 : (port.backsUp
                     ? ` - backs up ${port.backsUp.label
-                        || `port ${port.backsUp.port} on ${port.backsUp.cardTitle}`}`
+                        || `port ${port.backsUp.localPort
+                            || port.backsUp.port} on ${port.backsUp.boxTitle
+                            || port.backsUp.cardTitle}`}`
                     : ' - free'))
             + (port.beyondCeiling ? ' - beyond this card’s ceiling' : '')
             + '. Click to edit'
@@ -359,10 +379,15 @@ class _HardwareDock {
                     + (occupants.some(o => o.source === 'pin')
                         ? '; drag back onto this tray to release it.' : '.'));
 
+        // The ghost's fallback names the surface the socket is ON - the box
+        // where there is one, since its local number only means something
+        // beside the box's name. `port` in the payload stays the card-wide
+        // socket: it is what the place/pin API runs on.
         this._dockWireDraggable(face, {
             type: 'port', cardId: card.id, port: port.number,
-            title: port.label || `${card.name || card.deviceName} `
-                + `port ${port.number}`,
+            title: port.label
+                || `${boxTitle || card.name || card.deviceName} `
+                + `port ${spoken}`,
         }, `port-${card.id}-${port.number}`);
 
         const editor = this._buildPortRow(proc, card, port);
@@ -533,7 +558,8 @@ class _HardwareDock {
             role.style.color = '#c8a04a';
             role.style.margin = '0 0 4px 0';
             role.textContent = `Backs up ${port.backsUp.label
-                || `port ${port.backsUp.port} on ${port.backsUp.cardTitle}`}`
+                || `port ${port.backsUp.localPort || port.backsUp.port} `
+                    + `on ${port.backsUp.boxTitle || port.backsUp.cardTitle}`}`
                 + ' - this socket carries its return.';
             wrap.appendChild(role);
         } else if (port.backedBy) {
@@ -542,7 +568,9 @@ class _HardwareDock {
             back.style.color = '#888';
             back.style.margin = '0 0 4px 0';
             back.textContent = `Return comes back on ${port.backedBy.label
-                || `port ${port.backedBy.port} on ${port.backedBy.cardTitle}`}.`;
+                || `port ${port.backedBy.localPort || port.backedBy.port} `
+                    + `on ${port.backedBy.boxTitle
+                        || port.backedBy.cardTitle}`}.`;
             wrap.appendChild(back);
         }
 
@@ -1603,7 +1631,10 @@ class _HardwareDock {
                     return {
                         label, disabled: true,
                         title: `${payload.title} backs up ${rp.backsUp.label
-                            || `port ${rp.backsUp.port}`} - it is that `
+                            || `${rp.backsUp.boxTitle
+                                ? `${rp.backsUp.boxTitle} ` : ''}port `
+                                + `${rp.backsUp.localPort
+                                    || rp.backsUp.port}`} - it is that `
                             + 'port\'s return end and holds no claim of '
                             + 'its own.',
                     };
@@ -1785,7 +1816,10 @@ class _HardwareDock {
     _returnFollowsNote(payload, occupant) {
         const main = occupant.main || {};
         const mainName = main.label
-            || (main.port ? `port ${main.port}` : 'its main port');
+            || (main.port
+                ? `${main.boxTitle ? `${main.boxTitle} ` : ''}port `
+                    + `${main.localPort || main.port}`
+                : 'its main port');
         return `${payload.title} carries ${occupant.name} `
             + `p${occupant.number}'s return - it follows ${mainName}; `
             + 'clear that port to clear both ends.';

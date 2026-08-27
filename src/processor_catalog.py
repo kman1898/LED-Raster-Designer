@@ -165,12 +165,18 @@ def redundancy_pairing(device, redundancy_on):
     }
 
 
-# The three data-redundancy shapes a card can run, per the user's design
-# (verbatim): "by default do redundancy as 1 to 1 aka the way brompton does
-# it and novastar when using a second sending card and then give the option
-# for sequential where 1 is backed up by 2 on the same unit/sending card and
-# also give the option for say 1 is backed up to whatever port you want."
-REDUNDANCY_MODES = ('1to1', 'sequential', 'manual')
+# The data-redundancy shapes a card can run. The first three per the user's
+# design (verbatim): "by default do redundancy as 1 to 1 aka the way brompton
+# does it and novastar when using a second sending card and then give the
+# option for sequential where 1 is backed up by 2 on the same unit/sending
+# card and also give the option for say 1 is backed up to whatever port you
+# want." The fourth, 'halves', per the 2026-08-27 ruling: "say i have 1-8 on
+# processor 1 and 9-16 as backups? i need to be able to set those to backup"
+# - within one card, the back half of the ports carries the front half's
+# returns (port N returned on port N + half). It is the one arrangement whose
+# main and return genuinely wear DIFFERENT numbers, which is why it exists as
+# a mode of its own rather than eight manual picks.
+REDUNDANCY_MODES = ('1to1', 'sequential', 'halves', 'manual')
 
 
 def card_redundancy_shape(card, proc, device=None):
@@ -184,6 +190,9 @@ def card_redundancy_shape(card, proc, device=None):
       redundancy consumes.
     * mode 'sequential' - within the card: 1 backed by 2, 3 by 4. Odd ports
       are mains, even ports are their returns, so half the ports are usable.
+    * mode 'halves' - within the card: the back half backs the front half,
+      1 returned on 9 of 16. Same cost as sequential - half the ports are
+      usable - but the pairs sit half a card apart instead of adjacent.
     * mode 'manual' - per port, sparse (card['backupPorts']): a main is
       backed only where somebody named a backup port, and by exactly the
       port they named. Nothing is derived for the rest - manual is explicit.
@@ -755,6 +764,28 @@ def resolve_card(card, proc):
             if index % 2 == 1 and primary and not box['backupOf']:
                 box['backupOf'] = primary['id']
 
+    # WHAT A MESSAGE CALLS EACH BOX, stated once for every reader. Since the
+    # 2026-08-27 ruling every box numbers its own sockets from 1, so a bare
+    # number only means something beside its box's name - and four boxes all
+    # reading "Tessera XD" are four sections nobody can tell apart. An
+    # unnamed box on a trunked card therefore wears its trunk letter ("A",
+    # or "A-B" for one eating two trunks) - the letters the pairing rule
+    # itself is written in ("A backs up to B") - while a hand-named box is
+    # already told apart by its name. No letter where there is nothing to
+    # letter: a card without two trunks, or a box hanging past them.
+    for box in cvts:
+        letter = ''
+        if (trunks >= 2 and not box['beyondTrunks']
+                and isinstance(box['trunkIndex'], int)
+                and box['trunkIndex'] >= 0):
+            first = chr(ord('A') + box['trunkIndex'])
+            takes = box['trunksIn'] or 1
+            letter = (f'{first}-{chr(ord("A") + box["trunkIndex"] + takes - 1)}'
+                      if takes > 1 else first)
+        box['trunkLetter'] = letter
+        box['displayTitle'] = (box['name'] or '').strip() \
+            or (box['deviceName'] + (f' {letter}' if letter else ''))
+
     # A box can only claim past the ceiling by hanging off a trunk that is not
     # there - five CVT10s on a four-trunk card. That stays visible rather than
     # being clamped away, because it is a real mistake to make on paper.
@@ -773,11 +804,18 @@ def resolve_card(card, proc):
         local = number - cvt['firstPort'] + 1 if cvt else number
         owner, owner_source = _label_owner(cvt, card, proc)
         source = owner_source
-        # A port is numbered within whatever is naming it. On the box, because
-        # that is what is silkscreened on its face; on the card otherwise -
-        # which matters the moment a card carries two unnamed boxes, where
-        # numbering both from 1 would print the same eight labels twice.
-        numbered = local if owner_source == 'cvt' else number
+        # A BOX'S SOCKETS ARE NUMBERED BY ITS OWN SILKSCREEN, whoever names
+        # them. The user's ruling (2026-08-27): "If i have redundancy enabled
+        # for an SX40 then B is 1-10 and D is 1-10" and "all cvt's are 1-10 or
+        # 1-16" - the face of every breakout box reads 1..N whichever trunk it
+        # hangs on, so a label numbered past N points at a socket no box has.
+        # It used to number off the CARD when the card was doing the naming, to
+        # keep two unnamed boxes from printing the same labels twice - but a
+        # label a tech cannot find beside any socket is the worse trade, and
+        # telling the boxes apart is the box's job (its name, or the trunk
+        # letter the dock hangs on it). Ports that reach no box keep the
+        # card's own numbering: the card's face IS their silkscreen.
+        numbered = local if cvt else number
         # A NAME TYPED ONTO ONE PORT BEATS EVERY RULE ABOVE IT.
         #
         # The rules produce a whole card at a time - SR-1 to SR-16 - which is
@@ -954,11 +992,13 @@ def resolve_card(card, proc):
         # Sequential halves what is USABLE at either level - odd ports on a
         # port-level card, boxes A and C on a trunk-level one (the SX40's
         # 20: 10 per primary box) - and never the ceiling, which is the
-        # socket count. 1to1 and manual leave usable at the ceiling: what
-        # they consume is a backup unit, or exactly the ports picked.
+        # socket count. Halves costs the same half, taken off the back of
+        # the card instead of the evens. 1to1 and manual leave usable at
+        # the ceiling: what they consume is a backup unit, or exactly the
+        # ports picked.
         'redundancyShape': dict(shape, usable=(
             ceiling - ceiling // 2
-            if (ceiling and shape['mode'] == 'sequential')
+            if (ceiling and shape['mode'] in ('sequential', 'halves'))
             else ceiling)) if shape else None,
         'redundancyMode': card.get('redundancyMode') or '',
         'backupCardId': card.get('backupCardId') or None,
@@ -1089,6 +1129,16 @@ def _apply_backup_mapping(processors, resolved):
     ports_of = {cid: {p['number']: p for p in res_cards[cid][0]['ports']}
                 for cid in res_cards}
 
+    def box_title(cid, port):
+        """The display name of the box delivering one port, or None off any
+        box. Rides the link below so a message can say WHICH box a bare
+        local number counts on - two boxes both have a port 3 now."""
+        if not port.get('cvtId'):
+            return None
+        return next((c.get('displayTitle')
+                     for c in res_cards[cid][0].get('cvts') or []
+                     if c['id'] == port['cvtId']), None)
+
     def link(main_id, n, target_id, t):
         mcard, mproc = res_cards[main_id]
         tcard, tproc = res_cards[target_id]
@@ -1101,17 +1151,26 @@ def _apply_backup_mapping(processors, resolved):
         if tport.get('backsUp') or mport.get('backsUp') \
                 or mport.get('backedBy'):
             return
+        # `port` is the card-wide socket the bookkeeping runs on; `localPort`
+        # is the number written beside that socket - the box's own 1..N where
+        # a box delivers it (the 2026-08-27 silkscreen ruling), the card's
+        # where none does. Anything SAYING which socket a return lands on
+        # says the local number, because that is the number a hand can find.
         mport['backedBy'] = {
             'processorId': tproc['id'], 'cardId': tcard['id'],
             'cardTitle': tcard['name'] or tcard['deviceName'],
-            'port': t, 'label': tport['label'],
+            'boxTitle': box_title(target_id, tport),
+            'port': t, 'localPort': tport['localNumber'],
+            'label': tport['label'],
         }
         tport['backsUp'] = {
             'processorId': mproc['id'],
             'processorName': mproc['name'] or mproc['deviceName'],
             'cardId': mcard['id'],
             'cardTitle': mcard['name'] or mcard['deviceName'],
-            'port': n, 'label': mport['label'],
+            'boxTitle': box_title(main_id, mport),
+            'port': n, 'localPort': mport['localNumber'],
+            'label': mport['label'],
         }
         if mport.get('returnDerived') and tport['label']:
             mport['returnLabel'] = tport['label']
@@ -1168,6 +1227,23 @@ def _apply_backup_mapping(processors, resolved):
                     if ((n - 1) // per_trunk) % 2 == 0 \
                             and (n + per_trunk) in ports_of[cid]:
                         link(cid, n, cid, n + per_trunk)
+        elif shape['mode'] == 'halves':
+            # The 2026-08-27 arrangement: "1-8 on processor 1 and 9-16 as
+            # backups" - the back half of the card carries the front half's
+            # returns, port N returned on N + half. The split is taken off
+            # the CEILING, never off `defined`: boxes past their trunks can
+            # inflate the enumeration, and a mapping computed off a drawing
+            # mistake would move with it. Rounding the mains UP on an odd
+            # count leaves the middle port a main with no backup, the same
+            # way sequential leaves the last odd port unpaired. A card with
+            # no settled count maps nothing - guessing where its half falls
+            # is the guessed-ceiling mistake wearing a redundancy hat.
+            ceiling = res_cards[cid][0].get('ceiling')
+            if ceiling:
+                half = ceiling - ceiling // 2
+                for n in sorted(ports_of[cid]):
+                    if n <= ceiling // 2 and (n + half) in ports_of[cid]:
+                        link(cid, n, cid, n + half)
         elif shape['mode'] == 'manual' and not shape['forced']:
             raw, _proc = raw_cards[cid]
             entries = raw.get('backupPorts') or {}

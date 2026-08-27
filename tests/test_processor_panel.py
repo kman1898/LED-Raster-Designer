@@ -863,6 +863,11 @@ def test_a_backup_box_does_not_rename_the_ports_the_primary_named(client):
         ['CVT-A-1', 'CVT-A-2', 'CVT-A-3']
     # The backup still carries them - it is a real cable to a real box.
     assert [p['number'] for p in card['cvts'][2]['ports']] == list(range(1, 9))
+    # And it carries them under the same local numbers its main shows
+    # (2026-08-27: "Same with default backups for any breakout boxes") -
+    # the default backup is a mirror, so the numbers never differ.
+    assert [p['localNumber'] for p in card['cvts'][2]['ports']] == \
+        list(range(1, 9))
 
 
 # ── 3c. A box takes trunks IN, and that is what caps it ───────────────────
@@ -1090,10 +1095,17 @@ def test_a_copy_trunk_card_never_reports_a_shortfall(client):
     assert card['shortfall'] is None
 
 
-def test_two_unnamed_boxes_do_not_print_the_same_labels_twice(client):
-    """A port is numbered within whatever names it. With the boxes unnamed the
-    CARD is doing the naming, so its numbering is the card's - numbering both
-    boxes from 1 would silkscreen SR-1 through SR-8 onto two different runs."""
+def test_box_owned_ports_number_off_the_boxs_own_face_whoever_names_them(
+        client):
+    """REVERSED on 2026-08-27, by ruling after live testing: "all cvt's are
+    1-10 or 1-16" - every breakout box's face is silkscreened 1..N whichever
+    trunk it hangs on, so a label numbered past N points at a socket no box
+    has. This test used to pin the opposite (card-wide numbers when the CARD
+    names, so two unnamed boxes never print the same labels twice), and the
+    duplicates it guarded against are now the physically true reading: both
+    boxes really do have a port 1, and telling them apart is the box's job -
+    its name, or the trunk letter the resolve stamps on displayTitle. Ports
+    on no box still number off the card, whose face IS their silkscreen."""
     state = add_processor(client, 'novastar-h9')
     pid = only(state)['id']
     state = set_card(client, pid, 0, 'novastar-card-h-4xfiber')
@@ -1104,8 +1116,14 @@ def test_two_unnamed_boxes_do_not_print_the_same_labels_twice(client):
                             json={'deviceId': 'novastar-cvt10'}).get_json()
     card = first_card(only(state))
     labels = [p['label'] for p in card['ports'][:16]]
-    assert len(set(labels)) == 16, f'duplicate port labels: {labels}'
-    assert labels[8] == 'SR-9'
+    assert labels[:8] == [f'SR-{n}' for n in range(1, 9)]
+    assert labels[8:] == [f'SR-{n}' for n in range(1, 9)], (
+        'the second box must read its own 1-8, not the card-wide 9-16')
+    # The disambiguators: each box's resolved display name carries its
+    # trunk letter, and each port says which local number it wears.
+    assert [c['displayTitle'] for c in card['cvts']] == ['CVT10 A', 'CVT10 B']
+    assert [p['localNumber'] for p in card['ports'][:16]] == \
+        list(range(1, 9)) * 2
 
 
 def test_an_unnamed_tree_produces_no_labels_at_all(client):
@@ -1918,8 +1936,21 @@ def test_brompton_boxes_pair_adjacent_and_the_pairing_is_enforced(client):
     for main in list(range(1, 11)) + list(range(21, 31)):
         assert ports[main]['backedBy']['port'] == main + 10, ports[main]
         assert ports[main + 10]['backsUp']['port'] == main, ports[main + 10]
+        # The 1:1 mirror in the numbers a hand can find (2026-08-27: "B is
+        # 1-10 and D is 1-10"): A-n returns on B's OWN socket n, so both
+        # ends of every link wear the same local number, and the link names
+        # the box that number counts on.
+        local = (main - 1) % 10 + 1
+        assert ports[main]['backedBy']['localPort'] == local, ports[main]
+        assert ports[main + 10]['backsUp']['localPort'] == local, \
+            ports[main + 10]
+    assert [ports[n]['backedBy']['boxTitle'] for n in (1, 21)] == \
+        ['Tessera XD B', 'Tessera XD D']
     assert not any(ports[n].get('backedBy') for n in range(11, 21)), (
         'a backing socket was given a backup of its own')
+    # The four faces as drawn: every box is 1-10 on its own silkscreen.
+    assert all([p['localNumber'] for p in box['ports']] == list(range(1, 11))
+               for box in card['cvts'])
 
     state = client.put(f'/api/processors/{pid}',
                        json={'redundancy': False}).get_json()
@@ -1949,6 +1980,10 @@ def test_brompton_return_labels_resolve_to_the_backing_boxs_own_sockets(
     assert (ports[10]['label'], ports[10]['returnLabel']) == ('A-10', 'B-10')
     assert (ports[21]['label'], ports[21]['returnLabel']) == ('C-1', 'D-1')
     assert (ports[30]['label'], ports[30]['returnLabel']) == ('C-10', 'D-10')
+    # The backing sockets' own primary labels count on their own faces too
+    # (2026-08-27: "B is 1-10 and D is 1-10") - B's first socket is B-1,
+    # never B-11.
+    assert ports[11]['label'] == 'B-1' and ports[31]['label'] == 'D-1'
     assert all(ports[n]['returnLabelSource'] == 'backup'
                for n in (1, 10, 21, 30))
     # A typed return name still beats the mapping - the ladder is untouched.
@@ -3154,6 +3189,60 @@ def test_the_manual_pick_is_validated_like_a_placement(client):
     assert resp.status_code == 200, resp.get_data(as_text=True)
 
 
+def test_the_halves_mode_backs_the_front_half_with_the_back_half(client):
+    """The 2026-08-27 arrangement, in the user's own numbers: "say i have
+    1-8 on processor 1 and 9-16 as backups? i need to be able to set those
+    to backup and add then accordingly" - a MODE, one gesture, not eight
+    manual picks. Within one card, port N returns on port N + half: 1 on 9,
+    8 on 16. This is the one shape whose main and return genuinely wear
+    DIFFERENT numbers, so the mapping states both ends plainly - and the
+    return labels resolve to the backing sockets' own labels through the
+    same ladder every mapping uses."""
+    state = add_processor(client, 'novastar-h9')
+    pid = only(state)['id']
+    state = set_card(client, pid, 0, 'novastar-card-h-16xrj45-2xfiber')
+    card_id = first_card(only(state))['id']
+    client.put(f'/api/processors/{pid}/cards/{card_id}', json={'name': 'P1'})
+    client.put(f'/api/processors/{pid}', json={'redundancy': True})
+    resp = client.put(f'/api/processors/{pid}/cards/{card_id}',
+                      json={'redundancyMode': 'halves'})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    state = resp.get_json()
+    assert state['processors'][0]['slots'][0]['card']['redundancyMode'] == \
+        'halves'
+    card = first_card(only(state))
+    assert card['redundancyShape'] == {'mode': 'halves', 'forced': False,
+                                       'level': 'port', 'usable': 8}
+    ports = {p['number']: p for p in card['ports']}
+    for main in range(1, 9):
+        assert ports[main]['backedBy']['port'] == main + 8, ports[main]
+        assert ports[main + 8]['backsUp']['port'] == main, ports[main + 8]
+    assert not any(ports[n].get('backedBy') for n in range(9, 17)), (
+        'a backing socket was given a backup of its own')
+    # P1-1 out, P1-9 back: the mapped socket's own label, exactly the
+    # sequential and SX40 treatment.
+    assert (ports[1]['label'], ports[1]['returnLabel']) == ('P1-1', 'P1-9')
+    assert ports[1]['returnLabelSource'] == 'backup'
+    assert (ports[8]['label'], ports[8]['returnLabel']) == ('P1-8', 'P1-16')
+
+
+def test_the_halves_mode_splits_smaller_cards_the_same_way(client):
+    """The split is the card's own ceiling, not a fixed 8/8: an MX20's six
+    ports go 1-3 mains, 4-6 returns, and the usable arithmetic matches
+    sequential's (an odd count would round the mains up, leaving the middle
+    port a main with no backup - the same way sequential leaves the last
+    odd port unpaired)."""
+    a_pid, a_card, _b, _bc = add_two(client)
+    client.put(f'/api/processors/{a_pid}', json={'redundancy': True})
+    resp = client.put(f'/api/processors/{a_pid}/cards/{a_card}',
+                      json={'redundancyMode': 'halves'})
+    card = card_of(resp.get_json(), a_pid)
+    assert card['redundancyShape']['usable'] == 3
+    ports = {p['number']: p for p in card['ports']}
+    assert [ports[n + 3]['backsUp']['port'] for n in (1, 2, 3)] == [1, 2, 3]
+    assert not ports[1].get('backsUp') and not ports[3].get('backsUp')
+
+
 def test_the_toggle_reaches_every_vendor_except_a_documented_no(client):
     """Redundancy became a plan for the loom, so the switch is offered
     everywhere - the user's own 1:1 case is NovaStar with a second sending
@@ -3216,6 +3305,17 @@ async () => {
                     { deviceId: 'brompton-sx40' });
     const sx = st.resolved[st.resolved.length - 1];
     await send(`/api/processors/${sx.id}`, 'PUT', { redundancy: true });
+    // A NEW machine must arrive open - but ids can RECUR here: the reload
+    // test above PUTs a saved project back, which rewinds next_processor_seq,
+    // so a machine seeded now can mint an id whose fold key an earlier fold
+    // test stored as collapsed. Shed any inherited key BEFORE the render
+    // applies it, or which test fails depends on how many machines every
+    // test before it happened to seed.
+    for (const id of [mx.id, bk.id, sx.id]) {
+        try {
+            localStorage.removeItem('ledRasterPanelCollapsed_processor-' + id);
+        } catch (e) { /* blocked storage never held the key */ }
+    }
     await window.app.refreshProcessors();
     window.app.saveState('Seed Redundancy');
     return { mxId: mx.id, mxCardId: mxCard.id, bkId: bk.id,
@@ -3234,7 +3334,7 @@ async (pid) => {
 
 
 def test_the_mode_select_draws_only_where_the_vendor_does_not_fix(panel_page):
-    """The MX20 gets the three modes; the redundant SX40 gets the fixed
+    """The MX20 gets the four modes; the redundant SX40 gets the fixed
     statement and NO select - a fact is not a setting, in the DOM either."""
     pytest.importorskip("playwright.sync_api",
                         reason="playwright is not installed")
@@ -3263,7 +3363,7 @@ def test_the_mode_select_draws_only_where_the_vendor_does_not_fix(panel_page):
         };
     }""", ids)
     assert out['mxSelect'], out
-    assert out['mxOptions'] == ['1to1', 'sequential', 'manual'], out
+    assert out['mxOptions'] == ['1to1', 'sequential', 'halves', 'manual'], out
     assert out['partner'], 'the default 1:1 offers no partner pick'
     assert any('BK - 6 ports' in t for t in out['partnerTexts']), out
     assert not out['sxSelect'], 'the fixed pairing grew a mode select'
@@ -3297,6 +3397,61 @@ def test_the_mode_change_round_trips_through_undo(panel_page):
     page.wait_for_timeout(1000)
     assert page.evaluate(STORED_CARD_JS, ids['mxId']).get(
         'redundancyMode') == 'sequential'
+
+
+def test_the_halves_mode_commits_from_the_select_and_states_its_split(
+        panel_page):
+    """The 2026-08-27 arrangement as ONE gesture: pick "Halves" in the
+    card's mode select and the back half backs the front half - stored,
+    mapped (an MX20's port 4 carries port 1's return), and stated under
+    the select with both spans, because this is the one mode whose main
+    and return wear different numbers."""
+    pytest.importorskip("playwright.sync_api",
+                        reason="playwright is not installed")
+    page = panel_page
+    ids = page.evaluate(REDUNDANCY_SEED_JS)
+    page.wait_for_timeout(800)
+    page.evaluate("""(ids) => {
+        const sel = document.querySelector(
+            `[data-lrd-field="processor-card-redundancy-${ids.mxCardId}"]`);
+        sel.value = 'halves';
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+    }""", ids)
+    page.wait_for_timeout(800)
+    assert page.evaluate(STORED_CARD_JS, ids['mxId']).get(
+        'redundancyMode') == 'halves'
+    assert page.evaluate(
+        "() => window.app.history.map(h => h.action).slice(-1)") == \
+        ['Change Redundancy Mode']
+    out = page.evaluate("""(ids) => {
+        const card = window.app._processorsResolved
+            .find(p => p.id === ids.mxId).slots[0].card;
+        const ports = Object.fromEntries(
+            card.ports.map(p => [p.number, p]));
+        const texts = Array.from(
+            document.querySelectorAll('#processor-list div'))
+            .map(d => d.textContent || '');
+        return {
+            fourBacks: ports[4] && ports[4].backsUp
+                ? ports[4].backsUp.port : null,
+            oneBackedOn: ports[1] && ports[1].backedBy
+                ? ports[1].backedBy.port : null,
+            stated: texts.some(t =>
+                t.includes('Ports 4-6 carry the returns of 1-3')),
+        };
+    }""", ids)
+    assert out['fourBacks'] == 1 and out['oneBackedOn'] == 4, out
+    assert out['stated'], out
+    # Leave the module's shared server the way this test found it: the
+    # later pair-presentation test folds a nested unit under live refresh
+    # traffic, and every extra machine in the list stretches that window.
+    page.evaluate("""async (ids) => {
+        for (const id of [ids.sxId, ids.bkId, ids.mxId]) {
+            await fetch(`/api/processors/${id}`, { method: 'DELETE' });
+        }
+        await window.app.refreshProcessors();
+    }""", ids)
+    page.wait_for_timeout(600)
 
 
 def test_the_partner_pick_and_the_manual_picker_commit(panel_page):
