@@ -84,6 +84,12 @@ class _PortAssignment {
                 name: l.name || `Screen ${l.id}`,
                 ports: (typeof this.getLayerPortsRequired === 'function'
                     ? this.getLayerPortsRequired(l) : 0) || 0,
+                // The layer's Processing setting rides with the count, so
+                // the server can hold the platform wall (a Legacy screen
+                // never lands on COEX gear) in the one place the matrix
+                // lives. Which cards accept what comes BACK on each card
+                // summary's `platforms`; nothing here re-derives it.
+                platform: l.processorType || null,
             }))
             // A screen needing no ports has nothing to assign and would only
             // draw an empty row. Text layers are already gone above.

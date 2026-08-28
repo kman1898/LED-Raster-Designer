@@ -1595,6 +1595,15 @@ RESET_LAYERS_JS = """async () => {
     window.app.project = await (await fetch('/api/project')).json();
     const screen = window.app.project.layers.find(
         l => (l.type || 'screen') === 'screen');
+    // The module's stock machine is a COEX MX20, and since the platform
+    // wall (2026-08-28) a screen only lands on gear its Processing setting
+    // matches - left unset, selecting it below would stamp the prefs
+    // default (Legacy) onto it and its ports would have nowhere to land.
+    screen.processorType = 'novastar-coex-1g';
+    await fetch(`/api/layer/${screen.id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ processorType: 'novastar-coex-1g' }),
+    });
     window.app.currentLayer = screen;
     window.app.selectedLayerIds = new Set([screen.id]);
     window.app.lastSelectedLayerId = screen.id;
@@ -2791,6 +2800,17 @@ FOLD_SEED_JS = """async () => {
     // so independence is provable.
     const sx = await mk('brompton-sx40', { name: 'SL IMAG', redundancy: true });
     const mx = await mk('novastar-mx20', null);
+    // These tests need the live screen ON the SX40 (used > 0) and OFF the
+    // MX20 (0/6). Since the platform wall (2026-08-28) that is the
+    // Processing setting's call, so re-stamp the module's screen from the
+    // stock COEX to Brompton for this section.
+    const screen = window.app.project.layers.find(
+        l => (l.type || 'screen') === 'screen');
+    screen.processorType = 'brompton';
+    await fetch(`/api/layer/${screen.id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ processorType: 'brompton' }),
+    });
     const resolved = (await (await fetch('/api/processors')).json()).resolved;
     const cardOf = (p) => p.slots.map(s => s.card).find(Boolean);
     const sxCard = cardOf(resolved[0]);

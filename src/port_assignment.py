@@ -19,9 +19,11 @@ THE ALLOCATION RULE, in full, because everything else is a consequence of it:
     Pins are placed first and nothing may move them. Then each screen's
     remaining ports go, as one run, onto the FIRST card - processors in order,
     slots in order - with enough free ports for ALL of them; failing that, onto
-    the first card with any free port at all. Within that card they take the
-    lowest-numbered free ports, ascending, in the screen's own port order.
-    Whatever does not fit is left unplaced and reported.
+    the first card with any free port at all. A card the screen's processing
+    platform cannot drive is skipped like a full one (the platform wall - see
+    "Who may drive whom" below). Within that card they take the lowest-
+    numbered free ports, ascending, in the screen's own port order. Whatever
+    does not fit is left unplaced and reported.
 
 So six ports take 1-6 and the next screen starts at 7, which is the behaviour
 this was asked for by name.
@@ -66,6 +68,126 @@ def new_state():
     return {'auto': True, 'pins': []}
 
 
+# ── Who may drive whom ────────────────────────────────────────────────────
+#
+# A screen's processing platform (the Processing setting on the layer) and a
+# card's product line have to agree before a port may land. The ruling
+# (user, 2026-08-28): "any screen programmed with say Novastar cannot be
+# mapped to a Brompton processor and vice versa, etc. etc. all examples like
+# that. A Novastar legacy processor cannot be mapped to an MX 40 since that
+# is a coex processor."
+#
+# THE MATRIX LIVES HERE AND NOWHERE ELSE. The card side is data-driven off
+# the catalog's `family` field, the screen side is the value the Processing
+# dropdown stores on the layer, and the client gates off the `platforms`
+# list each card summary carries back - never off a copy of this table.
+
+# What the Processing dropdown calls each value. A refusal speaks the label
+# the user picked, not the stored token.
+PLATFORM_LABELS = {
+    'novastar-armor': 'NovaStar (Legacy)',
+    'novastar-coex-1g': 'NovaStar COEX A10s/A8s (1G)',
+    'novastar-5g': 'NovaStar COEX CX40 (5G)',
+    'brompton': 'Brompton Tessera',
+    'megapixel-1g': 'Megapixel HELIOS (1G)',
+    'megapixel-2.5g': 'Megapixel HELIOS (2.5G)',
+}
+
+# platform -> the catalog families whose ports may carry it. The Legacy row
+# is the ruling by name - "VX, MCTRL, NovaPro, MSD, H", every non-COEX
+# NovaStar line (the MSD300 files under novastar-mctrl) - and the COEX rows
+# are "CX only map to 5G" with the 1G COEX all-in-ones keeping the 1G COEX
+# setting to themselves.
+PLATFORM_FAMILIES = {
+    'novastar-armor': {'novastar-vx', 'novastar-mctrl', 'novastar-novapro',
+                       'novastar-h'},
+    'novastar-coex-1g': {'novastar-mx'},
+    'novastar-5g': {'novastar-cx'},
+    # ASSUMPTION (pending user confirmation): every Tessera is one family,
+    # so any Brompton device drives a screen set to Brompton.
+    'brompton': {'brompton'},
+    # ASSUMPTION (pending user confirmation): both Megapixel settings accept
+    # every Megapixel processor - 1G vs 2.5G is a port rate on the tile, not
+    # a different product line.
+    'megapixel-1g': {'megapixel'},
+    'megapixel-2.5g': {'megapixel'},
+}
+
+# Devices whose compatibility crosses their family's line, by device id.
+# An entry here replaces the family answer outright.
+DEVICE_PLATFORMS = {
+    # Ruled COEX (user, 2026-08-28, hedged: "ku20 is coex i beleive"). The
+    # 1G-vs-5G sub-split is UNRULED, so both COEX settings pass until it is.
+    'novastar-ku20': {'novastar-coex-1g', 'novastar-5g'},
+    # The 40G MX-chassis card feeds the CVT8-5G and only the CVT8-5G, so its
+    # ports are 5GBASE-T: "mx6000 and 2000 with 5g fiber only work with 5g
+    # settings" (user, 2026-08-28).
+    'novastar-card-mx-1x40g': {'novastar-5g'},
+}
+
+# What a refusal calls the card's side of the disagreement.
+_FAMILY_GEAR = {
+    'novastar-mx': 'COEX gear',
+    'novastar-cx': '5G COEX gear',
+    'novastar-vx': 'NovaStar legacy gear',
+    'novastar-mctrl': 'NovaStar legacy gear',
+    'novastar-novapro': 'NovaStar legacy gear',
+    'novastar-h': 'NovaStar legacy gear',
+    'brompton': 'Brompton gear',
+    'megapixel': 'Megapixel gear',
+}
+_DEVICE_GEAR = {
+    'novastar-card-mx-1x40g': '5G fiber gear',
+}
+
+# The dropdown's retired tokens, folded onto their successors the same way
+# app-core folds them on load - a project saved before a rename still has to
+# land on the right side of the wall.
+_PLATFORM_ALIASES = {
+    'novastar-1g': 'novastar-coex-1g',
+    'novastar-armor-1g': 'novastar-armor',
+    'brompton-ull': 'brompton',
+}
+
+
+def accepted_platforms(device_id):
+    """The platform values a device's ports accept, or None for no
+    restriction.
+
+    None, not "everything": a device the matrix does not know - no family,
+    or a family no platform names - refuses nobody, because a wrong refusal
+    strands a real rig on site and a missed one only skips a warning.
+    """
+    if device_id in DEVICE_PLATFORMS:
+        return set(DEVICE_PLATFORMS[device_id])
+    family = (catalog.get_device(device_id) or {}).get('family')
+    accepted = {p for p, fams in PLATFORM_FAMILIES.items() if family in fams}
+    return accepted or None
+
+
+def _gear(device_id):
+    if device_id in _DEVICE_GEAR:
+        return _DEVICE_GEAR[device_id]
+    family = (catalog.get_device(device_id) or {}).get('family')
+    return _FAMILY_GEAR.get(family, "a different line's gear")
+
+
+def platform_allows(card, platform):
+    """May a screen on this platform land on this card? A screen carrying no
+    platform is never refused - old payloads carry none, and the safe side
+    of that gap is a warning missed, not a wall stranded."""
+    accepted = card.get('platforms')
+    return not platform or accepted is None or platform in accepted
+
+
+def _platform_refusal(name, platform, card):
+    """The refusal, naming both sides in the user's own words for each:
+    "IMAG SR is programmed NovaStar (Legacy); MX40 Pro is COEX gear." """
+    label = PLATFORM_LABELS.get(platform, platform)
+    return (f'{name} is programmed {label}; '
+            f'{_card_title(card)} is {card["gear"]}.')
+
+
 # ── The cards ports can land on ───────────────────────────────────────────
 
 def cards_in(processors):
@@ -93,6 +215,13 @@ def cards_in(processors):
                 'cardId': card['id'],
                 'name': card['name'] or '',
                 'deviceName': card['deviceName'],
+                'deviceId': card['deviceId'],
+                # Which processing platforms this card's ports may carry
+                # (None = no restriction), and what a refusal calls the
+                # card. Resolved here once so auto, every manual placement
+                # and the panel's gating all read the same word.
+                'platforms': accepted_platforms(card['deviceId']),
+                'gear': _gear(card['deviceId']),
                 'slot': slot.get('index'),
                 'capacity': card['ceiling'] if card['ceilingKnown'] else None,
                 'capacityKnown': card['ceilingKnown'],
@@ -195,10 +324,21 @@ def _clean_screens(screens):
             count = int(scr.get('ports') or 0)
         except (TypeError, ValueError):
             count = 0
+        # The layer's Processing setting rides with the port count, because
+        # the two travel from the same place (the client owns the layer the
+        # same way it owns the port maths) and compatibility needs it on
+        # every path. Absent stays absent - platform_allows treats a screen
+        # with no platform as free to land anywhere.
+        platform = scr.get('platform')
+        if isinstance(platform, str):
+            platform = _PLATFORM_ALIASES.get(platform, platform)
+        else:
+            platform = None
         out.append({
             'layerId': str(layer_id),
             'name': scr.get('name') or str(layer_id),
             'ports': max(0, count),
+            'platform': platform or None,
         })
     return out
 
@@ -313,7 +453,13 @@ def resolve(processors, screens, state=None):
                       if (scr['layerId'], i) not in placed]
             if not wanted:
                 continue
-            free_by_card = [(c, _free_ports(c, claims)) for c in cards]
+            # A card the screen's platform cannot drive is skipped the same
+            # way a full one is: a Brompton wall does not spill onto the
+            # NovaStar card beside it, it stays unplaced and the overflow
+            # report says so.
+            usable = [c for c in cards
+                      if platform_allows(c, scr['platform'])]
+            free_by_card = [(c, _free_ports(c, claims)) for c in usable]
             target = next((pair for pair in free_by_card
                            if len(pair[1]) >= len(wanted)), None)
             if target is None:
@@ -363,6 +509,7 @@ def resolve(processors, screens, state=None):
         resolved_screens.append({
             'layerId': scr['layerId'],
             'name': scr['name'],
+            'platform': scr['platform'],
             'ports': ports,
             'required': scr['ports'],
             'unplaced': unplaced,
@@ -371,6 +518,7 @@ def resolve(processors, screens, state=None):
         })
 
     issues.extend(_overlap_issues(overlapping, claims, by_id, screens))
+    issues.extend(_platform_issues(resolved_screens, by_id))
     issues.extend(_overflow_issues(resolved_screens, cards))
     issues.extend(_capacity_issues(cards, screens, auto_on))
 
@@ -483,6 +631,10 @@ def _card_summary(card, claims):
         # picker reads "1, 2, 3..." while the card in the rack reads
         # "SR-1, SR-2", and the two have to be matched up by counting.
         'labels': dict(card['labels']),
+        # The server's word on which platforms may land here, for any client-
+        # side gating - None means no restriction. The matrix itself never
+        # crosses the wire; only its answer does.
+        'platforms': sorted(card['platforms']) if card['platforms'] else None,
     }
 
 
@@ -531,6 +683,47 @@ def _overlap_issues(overlapping, claims, by_id, screens):
                         'label': f'Move {_screen_name(screens, lid)}'}
                        for lid in layer_ids],
         })
+    return out
+
+
+def _platform_issues(resolved_screens, by_id):
+    """A pin holding a screen on gear its platform cannot drive.
+
+    Auto never builds this state - it skips an incompatible card the way it
+    skips a full one - and every manual path refuses it outright, so the
+    only ways in are a project pinned before the wall existed and a layer
+    whose Processing changed after the pin went down. Same treatment as
+    every other found problem: reported red, NOTHING UNPINNED, and the
+    offers are the only thing that moves anything - silently releasing the
+    pin would renumber a drawing the truck was packed to.
+    """
+    out = []
+    for scr in resolved_screens:
+        if not scr.get('platform'):
+            continue
+        flagged = []
+        for port in scr['ports']:
+            card = by_id.get(port['cardId']) if port['cardId'] else None
+            if card is None or platform_allows(card, scr['platform']):
+                continue
+            if card['cardId'] in flagged:
+                continue
+            flagged.append(card['cardId'])
+            out.append({
+                'kind': 'platform-mismatch',
+                'layerId': scr['layerId'],
+                'cardId': card['cardId'],
+                'message': (
+                    f'{_platform_refusal(scr["name"], scr["platform"], card)}'
+                    f' Nothing has been unpinned - move the run to matching '
+                    f'gear, or release the pins.'),
+                'offers': [
+                    {'action': 'move-block', 'layerId': scr['layerId'],
+                     'label': f'Move {scr["name"]}'},
+                    {'action': 'release', 'layerId': scr['layerId'],
+                     'label': 'Release pins'},
+                ],
+            })
     return out
 
 
@@ -683,6 +876,13 @@ def pin_to_card(processors, screens, state, layer_id, index, card_id,
     card = by_id.get(str(card_id))
     if card is None:
         return None, 'That card is not in this project.'
+    # Wrong-line gear is refused outright, with both sides named. No confirm
+    # path, unlike an occupied port: sharing a socket is a real rig, driving
+    # a Brompton wall off a NovaStar card is not.
+    scr = next((s for s in _clean_screens(screens)
+                if s['layerId'] == str(layer_id)), None)
+    if scr and not platform_allows(card, scr['platform']):
+        return None, _platform_refusal(scr['name'], scr['platform'], card)
     if port is None:
         _res, taken = _foreign_claims(processors, screens, state, layer_id,
                                       int(index))
@@ -813,6 +1013,13 @@ def place_port(processors, screens, state, layer_id, index, card_id, port,
         return None, f'{scr["name"]} has no port {index + 1}.', None
     if port < 1:
         return None, 'Port numbers start at 1.', None
+    # Wrong-line gear is refused OUTRIGHT, like the return-end refusal below
+    # and unlike the occupied-port question: two screens on one socket is a
+    # rig somebody may mean, a Legacy screen on COEX gear is not a rig at
+    # all. The refusal names both sides so the fix is legible from the strip.
+    if not platform_allows(card, scr['platform']):
+        return None, _platform_refusal(scr['name'], scr['platform'],
+                                       card), None
     # A card whose count nobody settled takes any number, which is the whole of
     # what "ports can still be pinned to it by hand" means. A card with a
     # settled one is a fact about metal and there is no port past it to place
@@ -923,11 +1130,19 @@ def move_block(processors, screens, state, layer_id, card_id=None,
 
     if card_id and card_id not in by_id:
         return None, 'That card is not in this project.'
+    # A named destination on the wrong side of the platform wall is refused
+    # before any fit is looked for - a free run on gear the screen cannot
+    # drive is not an answer.
+    if card_id and not platform_allows(by_id[card_id], scr['platform']):
+        return None, _platform_refusal(scr['name'], scr['platform'],
+                                       by_id[card_id])
 
     # An explicit destination is an instruction, not a hint: place it there or
     # say why not, rather than sliding it somewhere nearby that does fit.
     if start_port is not None:
         card = by_id.get(card_id or current_card or cards[0]['cardId'])
+        if not platform_allows(card, scr['platform']):
+            return None, _platform_refusal(scr['name'], scr['platform'], card)
         if not _fits(card, int(start_port), size, taken):
             return None, (f'Ports {start_port}-{int(start_port) + size - 1} on '
                           f'{_card_title(card)} are not all free.')
@@ -945,6 +1160,16 @@ def move_block(processors, screens, state, layer_id, card_id=None,
     else:
         pivot = order.index(current_card) if current_card in order else 0
         search = order[pivot:] + order[:pivot]
+        # The search only walks cards the screen's platform can drive - the
+        # same skip auto makes, or "next free block" would relocate a run
+        # onto gear it cannot use. When that leaves nowhere at all, say the
+        # real reason rather than "no run free".
+        search = [cid for cid in search
+                  if platform_allows(by_id[cid], scr['platform'])]
+        if not search:
+            label = PLATFORM_LABELS.get(scr['platform'], scr['platform'])
+            return None, (f'{scr["name"]} is programmed {label}, and no card '
+                          f'in this project matches it.')
 
     # A window narrows the scan to the box's span of card ports; outside it
     # the loop below simply never starts a block.
@@ -1006,6 +1231,11 @@ def place_overflow(processors, screens, state, layer_id, card_id,
                     if s['layerId'] == layer_id), None)
     if current is None:
         return None, 'That screen is not in this project.'
+    # The tail of a run obeys the same wall its head does: overflow may
+    # cross onto a second card, never onto a second product line.
+    if not platform_allows(card, current.get('platform')):
+        return None, _platform_refusal(current['name'],
+                                       current['platform'], card)
     spare = [i for i in current['unplaced']]
     if not spare:
         return None, 'Every port on that screen already has a card.'

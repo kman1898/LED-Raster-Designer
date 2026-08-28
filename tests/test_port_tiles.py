@@ -72,7 +72,18 @@ def _guard(server_project_guard):
 SEED_JS = """async () => {
     const screen = window.app.project.layers.find(
         l => (l.type || 'screen') === 'screen');
-    if (screen) screen.name = 'Screen1';
+    if (screen) {
+        screen.name = 'Screen1';
+        // The MX20 is COEX gear, and since the platform wall (2026-08-28)
+        // a screen only lands on gear its Processing setting matches -
+        // without the stamp the occupied tile this module tells apart
+        // from the free ones would never be occupied.
+        screen.processorType = 'novastar-coex-1g';
+        await fetch(`/api/layer/${screen.id}`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ processorType: 'novastar-coex-1g' }),
+        });
+    }
     const state = await (await fetch('/api/processors')).json();
     for (const p of (state.processors || [])) {
         await fetch(`/api/processors/${p.id}`, { method: 'DELETE' });

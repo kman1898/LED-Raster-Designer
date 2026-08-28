@@ -44,6 +44,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 import port_assignment as assignment  # noqa: E402
+import processor_catalog as catalog  # noqa: E402
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -1645,3 +1646,272 @@ def test_a_mirrored_return_is_not_a_pin_and_follows_the_mains_clear(client):
     stored = client.get('/api/project').get_json()[assignment.STATE_KEY]
     assert stored == {'auto': False, 'pins': []}, (
         'something beyond pins and the flag was stored')
+
+
+# ── 12. The platform wall ─────────────────────────────────────────────────
+#
+# A screen's Processing setting and a card's product line have to agree
+# before a port may land (ruling, 2026-08-28): a Legacy screen never lands
+# on COEX gear, a NovaStar screen never lands on a Brompton, and so on for
+# every pairing. Auto skips a mismatched card the way it skips a full one;
+# every manual path refuses with both sides named; a saved pin that already
+# violates the wall is reported red and NEVER silently released.
+
+
+def pscreens(*triples):
+    """(name, ports, platform) - the screens as the client sends them since
+    the wall: the layer's Processing setting rides beside the port count."""
+    return [{'layerId': name, 'name': name, 'ports': count,
+             'platform': platform}
+            for name, count, platform in triples]
+
+
+def presolve(client, sc):
+    resp = client.post('/api/port-assignments/resolve',
+                       json={'screens': sc})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    return resp.get_json()['resolution']
+
+
+@pytest.fixture()
+def mixed_lines(client):
+    """One COEX all-in-one and one legacy card, COEX FIRST - so a legacy
+    screen landing anywhere proves the skip, not the ordering."""
+    state = add_processor(client, 'novastar-mx40-pro')
+    mx_card = card_ids(state)[0]
+    state = add_processor(client, 'novastar-h9')
+    pid = state['resolved'][1]['id']
+    state = set_card(client, pid, 0, 'novastar-card-h-16xrj45-2xfiber')
+    return client, mx_card, card_ids(state)[1]
+
+
+def test_the_matrix_covers_every_ported_device():
+    """Every processor and card in the catalog answers the matrix from its
+    family, except the two devices ruled (or pending) past their family's
+    line. A device this test does not expect would land in the else branch
+    unrestricted - which is the deliberate default, but never silently for
+    a device carrying a family the matrix claims to know."""
+    by_family = {
+        'novastar-mx': {'novastar-coex-1g'},
+        'novastar-cx': {'novastar-5g'},
+        'novastar-vx': {'novastar-armor'},
+        'novastar-mctrl': {'novastar-armor'},
+        'novastar-novapro': {'novastar-armor'},
+        'novastar-h': {'novastar-armor'},
+        'brompton': {'brompton'},
+        'megapixel': {'megapixel-1g', 'megapixel-2.5g'},
+    }
+    overrides = {
+        # Ruled COEX (2026-08-28, hedged); the 1G/5G sub-split is unruled,
+        # so the gate takes both COEX settings until it is.
+        'novastar-ku20': {'novastar-coex-1g', 'novastar-5g'},
+        # "mx6000 and 2000 with 5g fiber only work with 5g settings".
+        'novastar-card-mx-1x40g': {'novastar-5g'},
+    }
+    for device in catalog.devices():
+        if device.get('kind') not in ('processor', 'card'):
+            continue
+        got = assignment.accepted_platforms(device['id'])
+        want = overrides.get(device['id'],
+                             by_family.get(device.get('family')))
+        assert got == want, (
+            f'{device["id"]}: accepts {got}, the matrix says {want}')
+
+
+def test_auto_lands_each_screen_on_its_own_lines_gear(mixed_lines):
+    """The Legacy screen walks PAST the first (COEX) card to the H card,
+    and the COEX screen takes the COEX card the Legacy one skipped - the
+    same first-fit rule, walked over matching gear only."""
+    client, mx_card, h_card = mixed_lines
+    res = presolve(client, pscreens(('LEG', 2, 'novastar-armor'),
+                                    ('CX1', 2, 'novastar-coex-1g')))
+    assert spots(res, 'LEG') == [(h_card, 1), (h_card, 2)]
+    assert spots(res, 'CX1') == [(mx_card, 1), (mx_card, 2)]
+    assert kinds(res) == []
+
+
+def test_a_wall_with_no_matching_gear_stays_unplaced(mixed_lines):
+    """A Brompton screen among NovaStar cards goes NOWHERE - not onto the
+    least-wrong card - and the overflow report says its ports are not
+    attached. No mismatch row: nothing is pinned, so nothing is wrong that
+    a matching processor would not fix."""
+    client, _mx, _h = mixed_lines
+    res = presolve(client, pscreens(('Wall', 3, 'brompton')))
+    assert spots(res, 'Wall') == [(None, None)] * 3
+    assert issue(res, 'overflow')['layerId'] == 'Wall'
+    assert 'platform-mismatch' not in kinds(res)
+
+
+def test_a_hand_placement_across_the_wall_is_refused_naming_both_sides(
+        mixed_lines):
+    """The refusal is a fact with both halves stated - what the screen is
+    programmed, what the card is - because the fix could be either side
+    and the message is all the strip shows."""
+    client, mx_card, h_card = mixed_lines
+    sc = pscreens(('IMAG SR', 2, 'novastar-armor'))
+    resp = place(client, 'IMAG SR', 0, mx_card, 1, sc)
+    assert resp.status_code == 409
+    assert resp.get_json()['error'] == (
+        'IMAG SR is programmed NovaStar (Legacy); '
+        'MX40 Pro slot 1 is COEX gear.')
+    res = presolve(client, sc)
+    assert spots(res, 'IMAG SR') == [(h_card, n) for n in (1, 2)], (
+        'the refused placement moved something')
+
+
+def test_the_pin_and_overflow_paths_hold_the_same_wall(mixed_lines):
+    """One matrix, every door: the card-level pin and the overflow fill
+    refuse across the wall with the same both-sides message the socket
+    placement speaks."""
+    client, mx_card, _h = mixed_lines
+    sc = pscreens(('IMAG SR', 20, 'novastar-armor'))
+    resp = client.post('/api/port-assignments/pin',
+                       json={'layerId': 'IMAG SR', 'index': 0,
+                             'cardId': mx_card, 'screens': sc})
+    assert resp.status_code == 409
+    assert 'is COEX gear' in resp.get_json()['error']
+    # 20 Legacy ports on a 16-port H card: four genuinely overflow, and
+    # the COEX card still may not take the tail.
+    resp = client.post('/api/port-assignments/place-overflow',
+                       json={'layerId': 'IMAG SR', 'cardId': mx_card,
+                             'screens': sc})
+    assert resp.status_code == 409
+    assert 'is COEX gear' in resp.get_json()['error']
+
+
+def test_move_block_stays_on_matching_gear(mixed_lines):
+    """The block move's search walks matching cards only - so the next
+    free block for a Legacy run is further down its own card, never the
+    COEX card beside it - and naming the COEX card outright is refused."""
+    client, mx_card, h_card = mixed_lines
+    sc = pscreens(('LEG', 2, 'novastar-armor'))
+    resp = client.post('/api/port-assignments/move-block',
+                       json={'layerId': 'LEG', 'cardId': mx_card,
+                             'screens': sc})
+    assert resp.status_code == 409
+    assert 'is COEX gear' in resp.get_json()['error']
+    resp = client.post('/api/port-assignments/move-block',
+                       json={'layerId': 'LEG', 'screens': sc})
+    assert resp.status_code == 200
+    assert resp.get_json()['moved']['cardId'] == h_card
+
+
+def test_a_violating_pin_is_reported_red_and_kept(mixed_lines):
+    """A saved project can hold a pin the wall now forbids - pinned before
+    the screen's Processing changed, or before the wall existed. It is
+    reported as its own red row and the pin STAYS: releasing it would
+    renumber a drawing the truck was packed to, which is the one thing
+    this module never does by itself."""
+    client, mx_card, _h = mixed_lines
+    # The pin lands while the screen carries no platform - exactly an old
+    # project's shape - and the violation appears when the platform does.
+    resp = place(client, 'IMAG SR', 0, mx_card, 3,
+                 screens(('IMAG SR', 1)))
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    res = presolve(client, pscreens(('IMAG SR', 1, 'novastar-armor')))
+    row = issue(res, 'platform-mismatch')
+    assert row['layerId'] == 'IMAG SR' and row['cardId'] == mx_card
+    assert 'Nothing has been unpinned' in row['message']
+    assert {o['action'] for o in row['offers']} == {'move-block', 'release'}
+    assert spots(res, 'IMAG SR') == [(mx_card, 3)], (
+        'the report released the pin by itself')
+    assert sources(res, 'IMAG SR') == ['pin']
+
+
+def test_ku20_takes_both_coex_settings_and_nothing_else(client):
+    """The KU20 is ruled COEX (2026-08-28, hedged) with the 1G/5G
+    sub-split still open, so BOTH COEX settings pass and everything else
+    is refused. When the sub-split is ruled, one of the two 200s below
+    flips to a 409 and this test names the day."""
+    state = add_processor(client, 'novastar-ku20')
+    card = card_ids(state)[0]
+    ok_1g = place(client, 'A', 0, card, 1,
+                  pscreens(('A', 1, 'novastar-coex-1g')))
+    assert ok_1g.status_code == 200, ok_1g.get_data(as_text=True)
+    ok_5g = place(client, 'B', 0, card, 2,
+                  pscreens(('A', 1, 'novastar-coex-1g'),
+                           ('B', 1, 'novastar-5g')))
+    assert ok_5g.status_code == 200, ok_5g.get_data(as_text=True)
+    for platform in ('novastar-armor', 'brompton'):
+        resp = place(client, 'C', 0, card, 3,
+                     pscreens(('C', 1, platform)))
+        assert resp.status_code == 409, platform
+
+
+def test_cx_gear_takes_only_the_5g_setting(client):
+    """"CX only map to 5G": the CX80 Pro takes the 5G setting and refuses
+    both other NovaStar settings - the 1G COEX line is not its line."""
+    state = add_processor(client, 'novastar-cx80-pro')
+    card = card_ids(state)[0]
+    ok = place(client, 'FIVE', 0, card, 1,
+               pscreens(('FIVE', 1, 'novastar-5g')))
+    assert ok.status_code == 200, ok.get_data(as_text=True)
+    for platform in ('novastar-coex-1g', 'novastar-armor'):
+        resp = place(client, 'X', 0, card, 2,
+                     pscreens(('X', 1, platform)))
+        assert resp.status_code == 409, platform
+        assert '5G COEX gear' in resp.get_json()['error']
+
+
+def test_the_vendor_walls_hold_both_ways(client):
+    """Brompton screens to Brompton gear, Megapixel screens (either rate)
+    to Megapixel gear, and never across. Both directions are asserted
+    because the ruling was given in both: "cannot be mapped to a Brompton
+    processor and vice versa"."""
+    state = add_processor(client, 'brompton-sx40')
+    sx_card = card_ids(state)[0]
+    state = add_processor(client, 'megapixel-helios-jr')
+    mp_card = card_ids(state)[1]
+    res = presolve(client, pscreens(('BR', 2, 'brompton'),
+                                    ('M1', 2, 'megapixel-1g'),
+                                    ('M2', 2, 'megapixel-2.5g')))
+    assert {c for c, _p in spots(res, 'BR')} == {sx_card}
+    assert {c for c, _p in spots(res, 'M1')} == {mp_card}
+    assert {c for c, _p in spots(res, 'M2')} == {mp_card}
+    resp = place(client, 'BR', 0, mp_card, 1,
+                 pscreens(('BR', 1, 'brompton')))
+    assert resp.status_code == 409
+    assert 'Megapixel gear' in resp.get_json()['error']
+    resp = place(client, 'M1', 0, sx_card, 1,
+                 pscreens(('M1', 1, 'megapixel-1g')))
+    assert resp.status_code == 409
+    assert 'Brompton gear' in resp.get_json()['error']
+
+
+def test_the_40g_mx_card_is_5g_gear(client):
+    """The MX chassis card whose one trunk is 40G feeds the CVT8-5G and
+    only the CVT8-5G, so its ports are 5GBASE-T: "mx6000 and 2000 with 5g
+    fiber only work with 5g settings". The 1G COEX setting its chassis
+    family would suggest is refused."""
+    state = add_processor(client, 'novastar-mx2000-pro')
+    pid = state['resolved'][0]['id']
+    state = set_card(client, pid, 0, 'novastar-card-mx-1x40g')
+    card = card_ids(state)[0]
+    ok = place(client, 'FIVE', 0, card, 1,
+               pscreens(('FIVE', 1, 'novastar-5g')))
+    assert ok.status_code == 200, ok.get_data(as_text=True)
+    resp = place(client, 'ONE', 0, card, 2,
+                 pscreens(('ONE', 1, 'novastar-coex-1g')))
+    assert resp.status_code == 409
+    assert '5G fiber gear' in resp.get_json()['error']
+
+
+def test_a_screen_with_no_platform_is_never_refused(client):
+    """A payload with no platform - an old client, an old test - lands
+    anywhere, because the safe side of not knowing is a warning missed,
+    not a wall stranded on site."""
+    state = add_processor(client, 'novastar-mx40-pro')
+    card = card_ids(state)[0]
+    resp = place(client, 'Wall', 0, card, 1, screens(('Wall', 1)))
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+
+
+def test_the_card_summary_carries_the_servers_word(mixed_lines):
+    """Any client-side gating reads each card's `platforms` list off the
+    resolution rather than a second copy of the matrix - so the list has
+    to be there, and None has to mean no restriction."""
+    client, mx_card, h_card = mixed_lines
+    res = presolve(client, pscreens(('LEG', 1, 'novastar-armor')))
+    by_card = {c['cardId']: c for c in res['cards']}
+    assert by_card[mx_card]['platforms'] == ['novastar-coex-1g']
+    assert by_card[h_card]['platforms'] == ['novastar-armor']

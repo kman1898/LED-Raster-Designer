@@ -81,6 +81,15 @@ RESET_JS = """async () => {
     app.project = await (await fetch('/api/project')).json();
     app.dedupeProjectLayers('label_focus_test_reset');
     const screen = app.project.layers.find(l => (l.type || 'screen') === 'screen');
+    // The MX20 is COEX gear, and since the platform wall (2026-08-28) a
+    // screen only lands on gear its Processing setting matches - left
+    // unset, selecting it below would stamp the prefs default (Legacy)
+    // onto it and its ports would have nowhere to land.
+    screen.processorType = 'novastar-coex-1g';
+    await fetch(`/api/layer/${screen.id}`, {
+        method: 'PUT', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({processorType: 'novastar-coex-1g'}),
+    });
     app.currentLayer = screen;
     app.selectedLayerIds = new Set([screen.id]);
     app.lastSelectedLayerId = screen.id;

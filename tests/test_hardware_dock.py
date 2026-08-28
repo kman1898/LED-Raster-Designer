@@ -127,9 +127,14 @@ SEED_JS = """async () => {
     const app = window.app;
     const p1 = await (await fetch('/api/project')).json();
     for (const l of p1.layers) {
+        // The MX40 Pro is COEX gear, and since the platform wall
+        // (2026-08-28) a screen only lands on gear its Processing setting
+        // matches - left unset, selecting a wall would stamp the prefs
+        // default (Legacy) onto it and every drop here would refuse.
         await fetch(`/api/layer/${l.id}`, {method: 'PUT',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({powerVoltage: 208, powerAmperage: 20})});
+            body: JSON.stringify({powerVoltage: 208, powerAmperage: 20,
+                                  processorType: 'novastar-coex-1g'})});
     }
     const p = await (await fetch('/api/project')).json();
     app.project = p;
@@ -2161,7 +2166,11 @@ SPLIT_SEED_JS = """async (which) => {
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({powerVoltage: '100', powerAmperage: '5',
                 panelWatts: '100', powerOrganized: true, powerMaximize: false,
-                powerFlowPattern: 'tl-v'})});
+                powerFlowPattern: 'tl-v',
+                // Same platform stamp as the module seed: the only card in
+                // the project is COEX, and these screens' data ports still
+                // have to resolve while the power tests run.
+                processorType: 'novastar-coex-1g'})});
         return made.id;
     };
     const offId = await mk('OFF SL', which.off, 2400);

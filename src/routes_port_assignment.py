@@ -15,6 +15,11 @@ and ports that cross into a group peer - and that maths lives in
 getLayerPortsRequired on the client. Sending the answer keeps ONE implemen-
 tation of it. It also means nothing derived is ever stored: the project holds
 pins and an on/off flag, and everything else is worked out fresh.
+
+The screen's processing platform rides in the same payload, because the
+platform wall (port_assignment's "Who may drive whom") needs it on every
+resolve and every edit - a Legacy screen may not land on COEX gear, and the
+refusal has to know what the screen is programmed to say so.
 """
 from flask import Blueprint, request, jsonify
 
