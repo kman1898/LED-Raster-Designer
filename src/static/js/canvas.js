@@ -7074,7 +7074,24 @@ class CanvasRenderer {
                 // null and the label says so instead of printing a blended
                 // figure nobody can act on.
                 const circuits = groupTotals.circuits;
-                const multis = circuits > 0 ? Math.ceil(circuits / 6) : 0;
+                // Split-aware and box-size-aware, per member: socaCountFor
+                // reads each screen's own split points and breakout box
+                // size (three tails on an L21-30, six on a soca), so the
+                // group line agrees with the dock. A peer-served member
+                // reports zero circuits and therefore zero boxes.
+                let multis = 0;
+                if (circuits > 0 && window.app
+                        && typeof window.app.socaCountFor === 'function'
+                        && typeof window.app.screenCircuitCount === 'function'
+                        && typeof window.app.getGroupMembers === 'function') {
+                    (window.app.getGroupMembers(gplan.group) || []).forEach(m => {
+                        if (!m || (m.type || 'screen') !== 'screen') return;
+                        multis += window.app.socaCountFor(
+                            m, window.app.screenCircuitCount(m));
+                    });
+                } else if (circuits > 0) {
+                    multis = Math.ceil(circuits / 6);
+                }
                 if (groupTotals.voltageMismatch) {
                     const volts = groupTotals.voltages.filter(v => v > 0).join(' / ');
                     centerLines.push(`${multis} Multi, ${circuits} Circuits | Mixed voltage: ${volts} V`);

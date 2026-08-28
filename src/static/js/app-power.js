@@ -660,17 +660,19 @@ class _Power {
     }
 
     // The plan's multis as contiguous ordinal runs: [{index, start, end,
-    // userEnd}], 1-based inclusive. Boundaries are the fixed 6-grid plus
-    // every stored split point; `userEnd` marks a part whose END is a
-    // stored point - the boundary the "Merge back into …" gesture removes.
+    // userEnd}], 1-based inclusive. Boundaries are the fixed box grid (six
+    // for a soca, three for an L21-30 - socaBoxSize) plus every stored
+    // split point; `userEnd` marks a part whose END is a stored point -
+    // the boundary the "Merge back into …" gesture removes.
     _socaSegments(layer, count) {
         const n = Math.max(0, Number(count) || 0);
         if (!n) return [];
+        const size = this.socaBoxSize(layer);
         const stored = new Set(this._socaSplitPoints(layer, n));
         const segs = [];
         let start = 1;
         for (let i = 1; i <= n; i++) {
-            if (i === n || i % 6 === 0 || stored.has(i)) {
+            if (i === n || i % size === 0 || stored.has(i)) {
                 segs.push({ index: segs.length + 1, start, end: i,
                             userEnd: stored.has(i) });
                 start = i + 1;
@@ -800,14 +802,21 @@ class _Power {
         const tailLen = (seg.end - seg.start + 1) - cut;
         const n = parseInt(number, 10);
         let held = 0;
+        // The target box's fan is as big as the SMALLEST breakout claiming
+        // it - a 3-tail L21-30 box has three tails whoever else lands on
+        // it, and pretending to six would deal tails that do not exist.
+        let cap = this.socaBoxSize(layer);
         for (const m of (this._distroMultiNumbers(distroId).get(n) || [])) {
+            const ml = ((this.project && this.project.layers) || [])
+                .find(l => l.id === m.layerId);
+            if (ml) cap = Math.min(cap, this.socaBoxSize(ml));
             if (!m.pinned) continue;
             // The multi being split already on the target box counts at its
             // HEAD size: its tail-end is exactly what is moving in.
             held += (m.layerId === layer.id && m.soca === Number(socaIndex))
                 ? cut : m.legs;
         }
-        const free = Math.max(0, 6 - held);
+        const free = Math.max(0, cap - held);
         if (!free) return { ok: false, free, tailLen };
         const take = Math.min(tailLen, free);
         const touched = new Set([layer]);
@@ -957,18 +966,66 @@ class _Power {
     // breakouts add L6-20 -> panel tails per circuit.
     // `connector` is the bare connector name for labeling - the sticker goes
     // on the tail, and the tail is a True1, not a "Soca → True1".
+    //
+    // `boxSize` is how many circuits ONE physical box of this breakout
+    // holds - the fan the tails hang off. A soca is six; the L21-30
+    // breakout is a 3-circuit box (one 208V circuit per leg pair off a
+    // 30A/leg L21-30 feed, user-specified), so its `feedLegA` carries the
+    // feed's per-leg rating for the dock's over check. Everything that
+    // segments circuits into boxes, deals tails or maps tails onto legs
+    // reads the size through socaBoxSize below, never the literal 6.
     getPowerBreakoutTypes() {
         return [
-            { id: 'soca-true1', name: 'Multi → True1', connector: 'True1', breakoutItem: 'Multi breakouts → True1' },
-            { id: 'soca-powercon', name: 'Multi → powerCON', connector: 'powerCON', breakoutItem: 'Multi breakouts → powerCON' },
-            { id: 'soca-edison', name: 'Multi → Edison (110V)', connector: 'Edison', breakoutItem: 'Multi breakouts → Edison', tailItem: 'Edison → panel tails' },
-            { id: 'soca-l620', name: 'Multi → L6-20', connector: 'L6-20', breakoutItem: 'Multi breakouts → L6-20', tailItem: 'L6-20 → panel tails' }
+            { id: 'soca-true1', name: 'Multi → True1', connector: 'True1', boxSize: 6, breakoutItem: 'Multi breakouts → True1' },
+            { id: 'soca-powercon', name: 'Multi → powerCON', connector: 'powerCON', boxSize: 6, breakoutItem: 'Multi breakouts → powerCON' },
+            { id: 'soca-edison', name: 'Multi → Edison (110V)', connector: 'Edison', boxSize: 6, breakoutItem: 'Multi breakouts → Edison', tailItem: 'Edison → panel tails' },
+            { id: 'soca-l620', name: 'Multi → L6-20', connector: 'L6-20', boxSize: 6, breakoutItem: 'Multi breakouts → L6-20', tailItem: 'L6-20 → panel tails' },
+            // The L21-30 breakout (user ruling, 2026-08-28): fed by an
+            // L21-30 at 30 A per leg, splitting to 3 x 208V circuits on
+            // True1 or powerCON - a leg-PAIR circuit per tail, never a
+            // 6-circuit soca. It hangs on a distro number like a multi
+            // does, with 3 tails.
+            { id: 'l2130-true1', name: 'L21-30 (3 × 208V) → True1', connector: 'True1', boxSize: 3, feedLegA: 30, breakoutItem: 'L21-30 breakouts → True1' },
+            { id: 'l2130-powercon', name: 'L21-30 (3 × 208V) → powerCON', connector: 'powerCON', boxSize: 3, feedLegA: 30, breakoutItem: 'L21-30 breakouts → powerCON' }
         ];
     }
 
     getPowerBreakout(layer) {
         const types = this.getPowerBreakoutTypes();
-        return types.find(t => t.id === (layer && layer.powerBreakoutType)) || types[0];
+        const stored = types.find(t => t.id === (layer && layer.powerBreakoutType));
+        if (stored) return stored;
+        // No stored choice: a 110V screen defaults to its only legal
+        // breakout (user ruling: a 110V screen can only have 110V Edison
+        // on it). A stored choice is somebody's paperwork and stands as
+        // written, whatever the voltage says now.
+        const v = parseFloat(layer && layer.powerVoltage) || 0;
+        if (v > 0 && v <= 120) {
+            return types.find(t => t.id === 'soca-edison') || types[0];
+        }
+        return types[0];
+    }
+
+    // How many circuits one physical box on THIS screen holds. The one
+    // authority for the box shape - segmentation, tail clamps, the balance
+    // search, the leg maps and the dock's chip grid all read it, so a
+    // 3-tail L21-30 box can never render six chips or deal a tail 4.
+    socaBoxSize(layer) {
+        const n = Number(this.getPowerBreakout(layer).boxSize);
+        return Number.isFinite(n) && n >= 1 ? n : 6;
+    }
+
+    // Which breakouts a screen's voltage can legally run (user ruling: a
+    // screen set to 110V can only have 110V Edison on it, and the L21-30
+    // box is documented as 3 x 208V - nothing else is restricted, and no
+    // rule is extrapolated to voltages the ruling does not cover). The
+    // select disables what is ineligible; a STORED incompatible choice is
+    // somebody's paperwork and keeps displaying, the same doctrine the
+    // mismatched phasing scheme follows.
+    _breakoutEligible(type, voltage) {
+        const v = parseFloat(voltage) || 0;
+        if (v > 0 && v <= 120) return type.id === 'soca-edison';
+        if (String(type.id).startsWith('l2130-')) return v === 208;
+        return true;
     }
 
     setPowerBreakout(layer, id) {
@@ -1178,8 +1235,9 @@ class _Power {
                 if (Array.isArray(store[rec.index])) continue;
                 const L = rec.circuits.length;
                 const pos = rec.positions;
+                const cap = this.socaBoxSize(l);
                 if (!Array.isArray(pos) || pos.length !== L) continue;
-                if (!pos.every(p => Number.isInteger(p) && p >= 1 && p <= 6)
+                if (!pos.every(p => Number.isInteger(p) && p >= 1 && p <= cap)
                     || new Set(pos).size !== L) continue;
                 store[rec.index] = pos.slice();
                 touched.push(l);
@@ -1300,7 +1358,6 @@ class _Power {
                     seenBoxes.add(share.key);
                     if (share.clash || share.overflow) continue;
                     const total = share.members.reduce((t, m) => t + m.legs, 0);
-                    if (total >= 6) continue;
                     const members = share.members.map(m => {
                         const ml = (this.project.layers || [])
                             .find(l => l.id === m.layerId);
@@ -1308,6 +1365,12 @@ class _Power {
                                       tails: m.tails.slice() } : null;
                     }).filter(Boolean);
                     if (members.length !== share.members.length) continue;
+                    // Full is full against the BOX's fan - the smallest
+                    // member breakout's size, the same capacity the shared
+                    // deal answers to. Six for socas, three for an L21-30.
+                    const boxSize = Math.min(...members
+                        .map(m => this.socaBoxSize(m.layer)));
+                    if (total >= boxSize) continue;
                     // per-circuit amps and labels, member order - index k of
                     // from/to below is the k-th circuit of this walk
                     const legsDetail = members.flatMap(m =>
@@ -1320,21 +1383,22 @@ class _Power {
                     });
                     out.push({
                         layer, soca: s.soca, name: s.name, distroId: d.id,
-                        legs: total, members,
+                        legs: total, members, boxSize,
                         layerName: members.map(m => m.layer.name).join(' + '),
                         positions: members.flatMap(m => m.tails)
                             .sort((a, b) => a - b),
                         fromFlat: members.flatMap(m => m.tails),
                         amps: legsDetail.map(l => l.amps),
                         labels: legsDetail.map(l => l.label),
-                        scheme: this.powerPhasingFor(d, circuitV).id
+                        scheme: this._circuitSchemeFor(d, circuitV).id
                     });
                     continue;
                 }
-                if (s.legs.length >= 6) continue;
+                if (s.legs.length >= this.socaBoxSize(layer)) continue;
                 out.push({
                     layer, soca: s.soca, name: s.name, distroId: d.id,
                     legs: s.legs.length,
+                    boxSize: this.socaBoxSize(layer),
                     positions: this.socaCircuitPositions(layer, s.soca, s.legs.length),
                     amps: s.legs.map(l => l.amps),
                     // The circuits' CURRENT labels through the one authority,
@@ -1342,7 +1406,7 @@ class _Power {
                     // balance dialog names each moved circuit by the bubble
                     // on the canvas, never by a re-derived ordinal.
                     labels: s.legs.map(l => l.label),
-                    scheme: this.powerPhasingFor(d, circuitV).id
+                    scheme: this._circuitSchemeFor(d, circuitV).id
                 });
             }
         }
@@ -1382,12 +1446,13 @@ class _Power {
                     if (share.clash || share.overflow) {
                         out.clashed.push({ name: s.name, layers: names,
                             overflow: !!share.overflow });
-                    } else if (share.members.reduce((t, m) => t + m.legs, 0) >= 6) {
+                    } else if (share.members.reduce((t, m) => t + m.legs, 0)
+                            >= this.socaBoxSize(layer)) {
                         out.full.push({ name: s.name, layers: names });
                     }
                     continue;
                 }
-                if (s.legs.length >= 6) {
+                if (s.legs.length >= this.socaBoxSize(layer)) {
                     out.full.push({ name: s.name, layers: layer.name });
                 }
             }
@@ -1475,8 +1540,10 @@ class _Power {
                 const L = current[t].length;
                 for (let i = 0; i < L; i++) {
                     // trade the tail at slot i for one nothing is using;
-                    // re-sort so the array stays ascending wall order
-                    for (let p = 1; p <= 6; p++) {
+                    // re-sort so the array stays ascending wall order.
+                    // The fan is the target's OWN box - six tails on a
+                    // soca, three on an L21-30.
+                    for (let p = 1; p <= (targets[t].boxSize || 6); p++) {
                         if (current[t].includes(p)) continue;
                         const was = current[t].slice();
                         current[t][i] = p;
@@ -1586,7 +1653,7 @@ class _Power {
             const b = this._balanceBlockers(distroId);
             const lines = [];
             if (b.full.length) lines.push(
-                `${b.full.map(f => esc(f.name)).join(', ')} ${b.full.length === 1 ? 'is' : 'are'} full — a 6-circuit multi balances itself, there is nothing to choose.`);
+                `${b.full.map(f => esc(f.name)).join(', ')} ${b.full.length === 1 ? 'is' : 'are'} full — a full box balances itself, there is nothing to choose.`);
             b.clashed.forEach(c => lines.push(
                 `${esc(c.name)} (${esc(c.layers)}) is a shared box ${c.overflow
                     ? 'with more circuits than its six tails hold'
@@ -1946,8 +2013,20 @@ class _Power {
     // actually wraps, the offset was invalid and the answer is nonsense -
     // a 5-circuit multi at offset 3 would want positions 4..8, and wrapping
     // 7 and 8 back to 1 and 2 silently invents a plan nobody can patch.
-    _circuitLegs(legIndex, schemeId, offset = 0) {
-        const i = ((legIndex - 1 + (Number(offset) || 0)) % 6 + 6) % 6;
+    //
+    // `boxSize` is the fan the positions index into. A 3-tail L21-30 box
+    // has no order axis to choose - one circuit per assignment - so its
+    // line-to-line map is the fixed cyclic pair walk (XY YZ ZX, the box's
+    // own internal wiring) whatever paired/rotating scheme the distro
+    // runs its socas on, and its line-to-neutral map is one leg per tail.
+    _circuitLegs(legIndex, schemeId, offset = 0, boxSize = 6) {
+        const size = Number(boxSize) === 3 ? 3 : 6;
+        const i = ((legIndex - 1 + (Number(offset) || 0)) % size + size) % size;
+        if (size === 3) {
+            const ln = schemeId === 'paired-ln' || schemeId === 'rotating-ln';
+            if (ln) return [['X'], ['Y'], ['Z']][i];
+            return [['X','Y'], ['Y','Z'], ['Z','X']][i];
+        }
         if (schemeId === 'paired-ll') return [['X','Y'], ['X','Y'], ['Z','X'], ['Z','X'], ['Y','Z'], ['Y','Z']][i];
         if (schemeId === 'paired-ll-alt') return [['X','Y'], ['X','Y'], ['Y','Z'], ['Y','Z'], ['Z','X'], ['Z','X']][i];
         if (schemeId === 'rotating-ll') return [['X','Y'], ['X','Z'], ['Y','Z'], ['X','Y'], ['X','Z'], ['Y','Z']][i];
@@ -1956,10 +2035,10 @@ class _Power {
     }
 
     // How far a multi's used circuits can slide as a BLOCK before the last
-    // one runs off the end of the 6-way fan. Kept for the legacy block model;
+    // one runs off the end of the fan. Kept for the legacy block model;
     // socaCircuitPositions supersedes it.
-    socaPhaseOffsetMax(legsUsed) {
-        return Math.max(0, 6 - (Number(legsUsed) || 6));
+    socaPhaseOffsetMax(legsUsed, boxSize = 6) {
+        return Math.max(0, (Number(boxSize) || 6) - (Number(legsUsed) || 6));
     }
 
     // Which position on the multi's 6-way fan each used circuit occupies.
@@ -1979,10 +2058,11 @@ class _Power {
     // the occupied tails off+1..off+L, already ascending - then to the
     // natural 1..L.
     socaCircuitPositions(layer, socaNum, legsUsed) {
-        const L = Math.max(0, Math.min(6, Number(legsUsed) || 0));
+        const size = this.socaBoxSize(layer);
+        const L = Math.max(0, Math.min(size, Number(legsUsed) || 0));
         const saved = ((layer && layer.powerSocaPhasePos) || {})[socaNum];
         if (Array.isArray(saved) && saved.length === L
-            && saved.every(p => Number.isInteger(p) && p >= 1 && p <= 6)
+            && saved.every(p => Number.isInteger(p) && p >= 1 && p <= size)
             && new Set(saved).size === L) {
             return saved.slice().sort((a, b) => a - b);
         }
@@ -2007,6 +2087,27 @@ class _Power {
         return Array.from({ length: L }, (_, i) => i + 1 + off);
     }
 
+    // The scheme ONE CIRCUIT actually lands with: coupling is physics -
+    // a 110V Edison circuit needs a hot and a neutral, a 208V circuit two
+    // hots - so the circuit's own voltage decides line-to-neutral vs
+    // line-to-line, and only the dealing ORDER is the distro's wiring to
+    // declare. An explicit distro scheme therefore applies to a circuit
+    // only when its coupling matches what that circuit's voltage derives;
+    // otherwise the voltage's own derived default takes over for that
+    // circuit alone. This is what lets a 110V multi and a 208V multi share
+    // one distro without the explicit choice pairing up Edison circuits:
+    // the 110V circuits ride one leg each, the 208V circuits their pairs
+    // (user ruling, 2026-08-28). The gear select still shows a mismatched
+    // explicit choice and says so - paperwork is displayed, never obeyed
+    // into an impossible hookup.
+    _circuitSchemeFor(distro, circuitVoltage) {
+        const derived = this.powerPhasingFor(
+            { voltage: distro && distro.voltage, phasing: null },
+            circuitVoltage);
+        const chosen = this.powerPhasingFor(distro, circuitVoltage);
+        return chosen.lineToLine === derived.lineToLine ? chosen : derived;
+    }
+
     // Positions must be a set of distinct 1-6 values, one per used circuit -
     // two circuits cannot share a tail. Only the SET matters (wall-order
     // rule): stored sorted ascending, and a permutation of 1..L is the
@@ -2017,9 +2118,10 @@ class _Power {
     // back on 1-4" once evaporated and let the joiner keep tail 1.
     setSocaCircuitPositions(layer, socaNum, positions, legsUsed) {
         if (!layer) return false;
-        const L = Math.max(0, Math.min(6, Number(legsUsed) || 0));
+        const size = this.socaBoxSize(layer);
+        const L = Math.max(0, Math.min(size, Number(legsUsed) || 0));
         const ok = Array.isArray(positions) && positions.length === L
-            && positions.every(p => Number.isInteger(p) && p >= 1 && p <= 6)
+            && positions.every(p => Number.isInteger(p) && p >= 1 && p <= size)
             && new Set(positions).size === L;
         if (!ok) return false;
         const store = layer.powerSocaPhasePos || (layer.powerSocaPhasePos = {});
@@ -2042,7 +2144,8 @@ class _Power {
     socaPhaseOffset(layer, socaNum, legsUsed) {
         const map = (layer && layer.powerSocaPhaseOffset) || {};
         const raw = Math.max(0, Number(map[socaNum]) || 0);
-        return Math.min(raw, this.socaPhaseOffsetMax(legsUsed));
+        return Math.min(raw,
+            this.socaPhaseOffsetMax(legsUsed, this.socaBoxSize(layer)));
     }
 
     setSocaPhaseOffset(layer, socaNum, offset, legsUsed) {
@@ -2053,7 +2156,8 @@ class _Power {
         // clear. An empty object overwrites.
         const map = layer.powerSocaPhaseOffset || (layer.powerSocaPhaseOffset = {});
         const v = Math.min(Math.max(0, Number(offset) || 0),
-                           this.socaPhaseOffsetMax(legsUsed));
+                           this.socaPhaseOffsetMax(legsUsed,
+                               this.socaBoxSize(layer)));
         if (v) map[socaNum] = v; else delete map[socaNum];
         this._circuitTailCache = null;
         this.updateLayers([layer], true, 'Set Breaker Offset');
@@ -2126,18 +2230,32 @@ class _Power {
                 // spread this multi's circuits across the phase legs
                 const d = b.distro;
                 if (d && d.phase === 3) {
-                    const scheme = this.powerPhasingFor(d, circuitV);
+                    // Per CIRCUIT, not per distro: coupling follows the
+                    // circuit's own voltage (_circuitSchemeFor), so a 110V
+                    // multi rides one leg per circuit while a 208V multi on
+                    // the same service keeps its leg pairs - the mixed case
+                    // sums correctly because both land in one phasor store.
+                    const scheme = this._circuitSchemeFor(d, circuitV);
+                    if (b.scheme && b.scheme.lineToLine !== scheme.lineToLine) {
+                        b.schemeMixed = true;
+                    }
                     b.scheme = scheme;
                     const vln = d.voltage / Math.sqrt(3);
+                    const boxSize = this.socaBoxSize(layer);
                     const pos = this.socaCircuitPositions(layer, s.soca, s.legs.length);
                     for (let li = 0; li < s.legs.length; li++) {
                         const leg = s.legs[li];
-                        const legs = this._circuitLegs(pos[li], scheme.id);
+                        const legs = this._circuitLegs(pos[li], scheme.id, 0, boxSize);
                         if (legs.length === 1) {
-                            // line-to-neutral: full current on one leg, in
-                            // phase with that leg's L-N voltage
+                            // Line-to-neutral: full current on ONE leg, in
+                            // phase with that leg's L-N voltage. Amps are
+                            // I = P / V_screen (the circuit's own voltage -
+                            // a 110V circuit draws its watts at 110, user
+                            // ruling); the service L-N figure only stands
+                            // in when the screen carries no voltage.
                             b.legWatts[legs[0]] += leg.watts;
-                            this._addLegPhasor(b.legPhasor, legs[0], leg.watts / vln, 0);
+                            this._addLegPhasor(b.legPhasor, legs[0],
+                                leg.watts / (circuitV > 0 ? circuitV : vln), 0);
                         } else {
                             // Line-to-line: the SAME current flows in both
                             // legs (it is one series load) - it is NOT halved.
@@ -2191,6 +2309,11 @@ class _Power {
                 legs.over = rating > 0 && Math.max(...amps) > rating;
                 legs.scheme = b.scheme ? b.scheme.name : null;
                 legs.schemeId = b.scheme ? b.scheme.id : null;
+                // True when this service carries BOTH couplings at once -
+                // 110V single-leg circuits beside 208V leg pairs. The
+                // scheme fields above then name only the last one summed,
+                // so a surface printing the scheme can say "mixed" instead.
+                legs.schemeMixed = !!b.schemeMixed;
                 legs.pairWatts = b.pairWatts;
             }
             return {
@@ -2208,6 +2331,43 @@ class _Power {
         const out = distros.map(d => shape(buckets.get(d.id)));
         if (unassigned.socas.length) out.push(shape(unassigned));
         return out;
+    }
+
+    // Per-leg amps in ONE physical box's feed - the same phasor walk
+    // getDistroLoads runs for a service, scoped to the box. `members` is
+    // [{layer, s}] with `s` the member's soca-plan record; a shared box
+    // hands every member in, so both screens' circuits sum into one feed.
+    // This is what the L21-30's 30 A/leg feed check reads: the box's three
+    // 208V circuits sit +-30 deg off their legs, so a full box at circuit
+    // current I loads each feed leg at I x sqrt(3), never 2 x I.
+    boxFeedLegAmps(distro, members) {
+        const phasor = { X: { re: 0, im: 0 }, Y: { re: 0, im: 0 },
+                         Z: { re: 0, im: 0 } };
+        if (!distro) return { X: 0, Y: 0, Z: 0 };
+        const vln = (Number(distro.voltage) || 0) / Math.sqrt(3);
+        for (const m of (members || [])) {
+            if (!m || !m.layer || !m.s) continue;
+            const circuitV = parseFloat(m.layer.powerVoltage) || 0;
+            const scheme = this._circuitSchemeFor(distro, circuitV);
+            const boxSize = this.socaBoxSize(m.layer);
+            const pos = this.socaCircuitPositions(
+                m.layer, m.s.soca, m.s.legs.length);
+            for (let li = 0; li < m.s.legs.length; li++) {
+                const leg = m.s.legs[li];
+                const legs = this._circuitLegs(pos[li], scheme.id, 0, boxSize);
+                if (legs.length === 1) {
+                    this._addLegPhasor(phasor, legs[0],
+                        leg.watts / (circuitV > 0 ? circuitV : vln), 0);
+                } else {
+                    const [first, second] = this._cyclicPair(legs[0], legs[1]);
+                    const amps = leg.watts / (Number(distro.voltage) || 1);
+                    this._addLegPhasor(phasor, first, amps, 30);
+                    this._addLegPhasor(phasor, second, amps, -30);
+                }
+            }
+        }
+        const mag = (p) => Math.sqrt(p.re * p.re + p.im * p.im);
+        return { X: mag(phasor.X), Y: mag(phasor.Y), Z: mag(phasor.Z) };
     }
 
     // Keyed by the multi's stable index, like every other per-multi store, so
@@ -2506,6 +2666,24 @@ class _Power {
                     opt.value = t.id;
                     opt.textContent = t.name;
                     sel.appendChild(opt);
+                });
+            }
+            // Eligibility follows the screen's voltage (user ruling: a
+            // 110V screen can only have 110V Edison on it; the L21-30 box
+            // is 3 x 208V). Disabled, not removed: the list stays stable
+            // and a stored incompatible choice keeps displaying - the
+            // mismatched-phasing doctrine, applied to breakouts.
+            if (screen) {
+                const v = layer.powerVoltage;
+                const types = this.getPowerBreakoutTypes();
+                Array.from(sel.options).forEach(opt => {
+                    const t = types.find(x => x.id === opt.value);
+                    const ok = !t || this._breakoutEligible(t, v);
+                    // Only a STORED choice earns the exemption - it keeps
+                    // displaying and re-selecting; an unset screen has no
+                    // paperwork to defend.
+                    opt.disabled = !ok && opt.value !== layer.powerBreakoutType;
+                    opt.title = ok ? '' : `Not available at ${v} V.`;
                 });
             }
             if (screen && sel !== document.activeElement) {
@@ -3249,8 +3427,11 @@ class _Power {
                 if (!rec.pinned) continue;
                 rec.positions = this.socaCircuitPositions(
                     // read the STORE only - rec.positions is still null, so
-                    // the pinned branch below cannot answer yet
-                    { powerSocaPhasePos: layer.powerSocaPhasePos },
+                    // the pinned branch below cannot answer yet. The
+                    // breakout type rides along so the tail clamp reads the
+                    // screen's own box size, not the default six.
+                    { powerSocaPhasePos: layer.powerSocaPhasePos,
+                      powerBreakoutType: layer.powerBreakoutType },
                     rec.index, rec.circuits.length);
                 rec.moved = !rec.positions.every((p, i) => p === i + 1);
                 rec.circuits.forEach((num, i) => entry.slots.set(num, {
@@ -3382,6 +3563,13 @@ class _Power {
         for (const [key, members] of boxes) {
             const taken = new Set();
             let clash = false, overflow = false;
+            // The physical box has as many tails as the SMALLEST member
+            // breakout says it does - six for socas, three for an L21-30 -
+            // and every claim past that is overflow whichever member made
+            // it. Members of one box virtually always agree; when they do
+            // not, the smaller figure is the only honest capacity.
+            const cap = Math.min(...members
+                .map(m => this.socaBoxSize(m.layer)));
             // Pass 1: every stored set takes exactly its tails. Doing this
             // before ANY dealing is what makes a stored set law: an
             // unstored member earlier in layer order can no longer sit
@@ -3391,12 +3579,12 @@ class _Power {
                 const L = m.rec.circuits.length;
                 const saved = ((m.layer.powerSocaPhasePos) || {})[m.rec.index];
                 const valid = Array.isArray(saved) && saved.length === L
-                    && saved.every(p => Number.isInteger(p) && p >= 1 && p <= 6)
+                    && saved.every(p => Number.isInteger(p) && p >= 1 && p <= cap)
                     && new Set(saved).size === L;
                 if (!valid) { dealt.push(m); continue; }
                 const pos = saved.slice().sort((a, b) => a - b);
                 m.rec.clashTails = pos.filter(p => taken.has(p));
-                m.rec.overTails = pos.filter(p => p > 6);
+                m.rec.overTails = pos.filter(p => p > cap);
                 pos.forEach(p => taken.add(p));
                 m.rec.positions = pos;
             }
@@ -3412,7 +3600,7 @@ class _Power {
                     t += 1;
                 }
                 m.rec.clashTails = [];
-                m.rec.overTails = pos.filter(p => p > 6);
+                m.rec.overTails = pos.filter(p => p > cap);
                 pos.forEach(p => taken.add(p));
                 m.rec.positions = pos;
             }
@@ -3477,12 +3665,14 @@ class _Power {
             return `${slot.name}${tpl.sep}${slot.tail}${tpl.suffix}`;
         }
         // A circuit the plan does not hold - an editor row past the drawn
-        // circuits - or a template with no multi number to name. Both keep the
-        // arithmetic they have always had.
+        // circuits - or a template with no multi number to name. Both keep
+        // the arithmetic they have always had, wrapped at the screen's own
+        // box size (six on a soca, three on an L21-30).
         if (!tpl.ok) return tpl.raw.replace('#', circuitNum);
+        const size = this.socaBoxSize(layer);
         const n = Math.max(1, parseInt(circuitNum, 10) || 1);
-        const multi = tpl.start + Math.floor((n - 1) / 6);
-        const circuitInMulti = ((n - 1) % 6) + 1;
+        const multi = tpl.start + Math.floor((n - 1) / size);
+        const circuitInMulti = ((n - 1) % size) + 1;
         return `${tpl.prefix}${multi}${tpl.sep}${circuitInMulti}${tpl.suffix}`;
     }
 

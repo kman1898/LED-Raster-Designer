@@ -1956,3 +1956,274 @@ def test_a_folded_overloaded_distro_reddens_its_bars(page):
     f = out['folded']
     assert f['legsShown'] is True
     assert f['overCount'] >= 1, 'an over-capacity distro folded to green bars'
+
+
+# ── 110V single-leg circuits, mixed services, and the L21-30 box ──────────
+#
+# The ruling (2026-08-28): a screen set to 110V runs Edison circuits, and a
+# 110V circuit rides ONE leg (leg-to-neutral) of the same 3-phase 208
+# distro - balancing spreads those circuits across X/Y/Z, and a 110V multi
+# is six such single-leg circuits. A 208V circuit keeps its leg pair.
+# Coupling is therefore PHYSICS of the circuit's own voltage - an explicit
+# distro scheme contributes only the dealing order, never an impossible
+# hookup - and a single-leg circuit's amps are I = P / V_screen on its one
+# leg (never the service's L-N figure). The L21-30 breakout (same ruling)
+# is a 3-circuit box: one 208V leg-pair circuit per tail off a 30 A/leg
+# feed, hanging on a distro number like a multi with three tails.
+#
+# The leg figures are read off getDistroLoads - the same numbers the
+# .hw-dock-legs line prints - and the box shapes off the plan/segmentation
+# authorities the dock and canvas share.
+
+LEGS_OF_JS = """(cfg) => {
+    const ph = window.__ph;
+    const app = window.app;
+    const layers = cfg.screens.map(s => ph.col5(
+        s.id, s.name, s.columns,
+        Object.assign({ powerSocaDistro: { 1: 'd1' } }, s.extra || {})));
+    const distro = Object.assign(ph.box('d1', 'D'), cfg.distro || {});
+    return ph.withProject({ layers, distros: [distro] }, () => {
+        app._circuitTailCache = null;
+        const b = app.getDistroLoads().find(x => x.id === 'd1');
+        return {
+            X: b.legs.X.amps, Y: b.legs.Y.amps, Z: b.legs.Z.amps,
+            imbalance: b.imbalancePct,
+            schemeId: b.legs.schemeId,
+            mixed: b.legs.schemeMixed,
+        };
+    });
+}"""
+
+
+def test_a_110v_multi_rides_one_leg_per_circuit_at_screen_voltage(page):
+    """Six 500 W circuits at 110 V on a 208V 3-phase distro: line-to-neutral
+    derives per circuit, two circuits land on each leg, and each leg reads
+    2 x (500 / 110) A - the circuit's own voltage, never the service's
+    120 V line-to-neutral figure. A full multi balances itself."""
+    out = page.evaluate(LEGS_OF_JS, {'screens': [
+        {'id': 91, 'name': 'ED', 'columns': 6,
+         'extra': {'powerVoltage': 110, 'powerAmperage': 5}}]})
+    want = 2 * 500 / 110
+    for k in ('X', 'Y', 'Z'):
+        assert abs(out[k] - want) < 0.01, (k, out)
+    assert out['imbalance'] < 0.5, out
+    assert out['schemeId'] == 'rotating-ln', out
+    assert out['mixed'] is False, out
+
+
+def test_mixed_110v_and_208v_screens_sum_per_circuit_on_one_distro(page):
+    """A 110V screen and a 208V screen on ONE distro: the Edison circuits
+    ride one leg each at P/110 while the 208V circuits keep their pairs at
+    +-30 deg, and both land in the same phasor sum. Two full multis, so
+    every leg carries both couplings' share and the service stays even -
+    and the roll-up flags the mixed couplings for any surface printing the
+    scheme."""
+    out = page.evaluate(LEGS_OF_JS, {'screens': [
+        {'id': 92, 'name': 'ED', 'columns': 6,
+         'extra': {'powerVoltage': 110, 'powerAmperage': 5}},
+        {'id': 93, 'name': 'WALL', 'columns': 6,
+         'extra': {'powerVoltage': 208, 'powerAmperage': 2.5}}]})
+    want = 2 * 500 / 110 + 2 * (500 / 208) * (3 ** 0.5)
+    for k in ('X', 'Y', 'Z'):
+        assert abs(out[k] - want) < 0.01, (k, want, out)
+    assert out['imbalance'] < 0.5, out
+    assert out['mixed'] is True, out
+
+
+def test_an_explicit_ll_scheme_never_pairs_up_110v_circuits(page):
+    """An explicit line-to-line scheme on the distro is somebody's
+    paperwork for its 208V circuits; an Edison circuit still needs a hot
+    and a neutral. The 110V multi's legs must read the single-leg answer -
+    the explicit choice contributes nothing to a coupling its circuits
+    cannot run."""
+    out = page.evaluate(LEGS_OF_JS, {
+        'screens': [{'id': 94, 'name': 'ED', 'columns': 6,
+                     'extra': {'powerVoltage': 110, 'powerAmperage': 5}}],
+        'distro': {'phasing': 'paired-ll'}})
+    want = 2 * 500 / 110
+    for k in ('X', 'Y', 'Z'):
+        assert abs(out[k] - want) < 0.01, (k, out)
+    assert out['schemeId'] == 'rotating-ln', out
+
+
+def test_balance_spreads_stacked_110v_multis_across_the_legs(page):
+    """Two 2-circuit 110V multis, both natural on tails {1,2}: both dump on
+    X and Y and Z sits empty - 100% NEMA. The balancer moves one multi's
+    tail SET so a leg stops doubling, and applying the moves lands the
+    roll-up on the promised figure with Z loaded."""
+    out = page.evaluate("""() => {
+        const ph = window.__ph;
+        const app = window.app;
+        const A = ph.col5(95, 'EDA', 2,
+            { powerVoltage: 110, powerAmperage: 5,
+              powerSocaDistro: { 1: 'd1' } });
+        const B = ph.col5(96, 'EDB', 2,
+            { powerVoltage: 110, powerAmperage: 5,
+              powerSocaDistro: { 1: 'd1' } });
+        return ph.withProject({ layers: [A, B],
+                                distros: [ph.box('d1', 'D')] }, () => {
+            app._circuitTailCache = null;
+            const before = app.getDistroLoads().find(x => x.id === 'd1');
+            const r = app.suggestPhaseBalance('d1');
+            app.applyPhaseBalance(r.moves);
+            app._circuitTailCache = null;
+            const after = app.getDistroLoads().find(x => x.id === 'd1');
+            return {
+                beforeZ: before.legs.Z.amps,
+                beforeImb: before.imbalancePct,
+                promised: r.after,
+                moves: r.moves.map(m => ({ from: m.from, to: m.to })),
+                afterZ: after.legs.Z.amps,
+                afterImb: after.imbalancePct,
+            };
+        });
+    }""")
+    assert out['beforeZ'] < 0.01, out
+    assert out['beforeImb'] > 99, out
+    assert out['afterImb'] < out['beforeImb'] - 10, out
+    assert abs(out['afterImb'] - out['promised']) < 0.1, out
+    assert out['afterZ'] > 1, 'Z must carry load after balancing'
+    for m in out['moves']:
+        assert all(1 <= p <= 6 for p in m['to']), m
+
+
+def test_l2130_screens_box_three_circuits_with_leg_pairs(page):
+    """An L21-30 screen boxes its circuits three to a box (7 circuits =
+    3 + 3 + 1), its auto labels wrap at 3, and a full box lands one 208V
+    circuit per leg pair (XY YZ ZX) - each feed leg carrying I x sqrt(3),
+    never 2 x I. The box shape is the only change: chips, drags and labels
+    ride the same machinery."""
+    out = page.evaluate("""() => {
+        const ph = window.__ph;
+        const app = window.app;
+        const S = ph.col5(97, 'L21', 7,
+            { powerVoltage: 208, powerAmperage: 2.5,
+              powerBreakoutType: 'l2130-true1',
+              powerSocaDistro: { 1: 'd1', 2: 'd1', 3: 'd1' } });
+        return ph.withProject({ layers: [S],
+                                distros: [ph.box('d1', 'S')] }, () => {
+            app._circuitTailCache = null;
+            const b = app.getDistroLoads().find(x => x.id === 'd1');
+            return {
+                boxes: app.socaCountFor(S, app.screenCircuits(S).length),
+                segments: app._socaSegments(S, 7).map(s => [s.start, s.end]),
+                labels: ph.labelsOf(S),
+                planTails: app.getSocaPlan(S).map(s =>
+                    s.legs.map(l => l.leg)),
+                X: b.legs.X.amps, Y: b.legs.Y.amps, Z: b.legs.Z.amps,
+                schemeId: b.legs.schemeId,
+            };
+        });
+    }""")
+    assert out['boxes'] == 3, out
+    assert out['segments'] == [[1, 3], [4, 6], [7, 7]], out
+    assert out['labels'] == ['S1-1', 'S1-2', 'S1-3', 'S2-1', 'S2-2',
+                             'S2-3', 'S3-1'], out
+    assert out['planTails'] == [[1, 2, 3], [1, 2, 3], [1]], out
+    # Full box 1 and full box 2: one circuit per pair XY/YZ/ZX at
+    # I = 500/208 each; box 3's lone circuit adds one more pair on XY, so
+    # legs X and Y carry that extra circuit's contribution and Z reads the
+    # two full boxes' 2 x I x sqrt(3) exactly.
+    i = 500 / 208
+    assert abs(out['Z'] - 2 * i * (3 ** 0.5)) < 0.05, out
+    assert out['X'] > out['Z'] and out['Y'] > out['Z'], out
+    assert out['schemeId'] == 'paired-ll', out
+
+
+L2130_DOCK_JS = """(over) => {
+    const ph = window.__ph;
+    const app = window.app;
+    // 5 x 800 W panels per circuit at 208 V: 19.2 A circuits. Two on one
+    // box put their shared leg at 19.2 x sqrt(3) = 33.3 A - past the
+    // 30 A/leg feed. The single-circuit rig keeps 19.2 A on both its legs,
+    // under the rating.
+    const S = ph.col5(98, 'L21', over ? 2 : 1,
+        { powerVoltage: 208, powerAmperage: 20, panelWatts: 800,
+          powerBreakoutType: 'l2130-powercon',
+          powerSocaDistro: { 1: 'dq' } });
+    return ph.withProject({ layers: [S],
+                            distros: [ph.box('dq', 'Q')] }, () => {
+        const savedLayer = app.currentLayer;
+        try {
+            app.currentLayer = S;
+            app._circuitTailCache = null;
+            app.refreshDistroPanel();
+            const box = document.querySelector(
+                '#hardware-dock-body [data-lrd-sec="hwdock-multi-dq-1"]');
+            const sec = box && box.closest('.hw-dock-multi');
+            const chips = sec ? sec.querySelectorAll('.lrd-tile') : [];
+            const warnings = (app._dockPowerWarnings || []).map(w => w.text);
+            const feed = app.boxFeedLegAmps(
+                app.getDistros()[0],
+                [{ layer: S, s: app.getSocaPlan(S)[0] }]);
+            return {
+                chipCount: chips.length,
+                clash: !!(sec
+                    && sec.classList.contains('hw-dock-multi-clash')),
+                feedWarn: warnings.some(t => t.includes('feed leg')),
+                worstFeed: Math.max(feed.X, feed.Y, feed.Z),
+            };
+        } finally {
+            app.currentLayer = savedLayer;
+            app._circuitTailCache = null;
+            app.refreshDistroPanel();
+        }
+    });
+}"""
+
+
+def test_the_l2130_dock_box_holds_three_chips_and_rates_its_feed(page):
+    """The dock section for an L21-30 box carries exactly three tail chips
+    - the box shape, not the soca's six - and a feed leg pushed past the
+    30 A rating reddens the box and lands a strip warning naming the feed.
+    A box inside the rating stays green and says nothing."""
+    over = page.evaluate(L2130_DOCK_JS, True)
+    assert over['chipCount'] == 3, over
+    assert over['worstFeed'] > 30, over
+    assert over['clash'] is True, 'an over-rated feed must redden the box'
+    assert over['feedWarn'] is True, over
+    ok = page.evaluate(L2130_DOCK_JS, False)
+    assert ok['chipCount'] == 3, ok
+    assert ok['clash'] is False, ok
+    assert ok['feedWarn'] is False, ok
+
+
+def test_the_breakout_select_gates_on_the_screen_voltage(page):
+    """A 110V screen offers only the Edison breakout (the ruling verbatim),
+    and the L21-30 entries enable only at 208 V - disabled, never removed,
+    so a stored choice keeps displaying the way a mismatched phasing scheme
+    does."""
+    out = page.evaluate("""() => {
+        const ph = window.__ph;
+        const app = window.app;
+        const read = () => {
+            const sel = document.getElementById('power-breakout-type');
+            return [...sel.options].map(o => ({
+                id: o.value, disabled: o.disabled }));
+        };
+        const S110 = ph.col5(99, 'ED', 2, { powerVoltage: 110 });
+        const S208 = ph.col5(100, 'WALL', 2, { powerVoltage: 208 });
+        return ph.withProject({ layers: [S110, S208], distros: [] }, () => {
+            const savedLayer = app.currentLayer;
+            try {
+                app.currentLayer = S110;
+                app.refreshSocaRuns();
+                const at110 = read();
+                app.currentLayer = S208;
+                app.refreshSocaRuns();
+                const at208 = read();
+                return { at110, at208 };
+            } finally {
+                app.currentLayer = savedLayer;
+                app.refreshSocaRuns();
+            }
+        });
+    }""")
+    d110 = {o['id']: o['disabled'] for o in out['at110']}
+    assert d110['soca-edison'] is False, out
+    for other in ('soca-true1', 'soca-powercon', 'soca-l620',
+                  'l2130-true1', 'l2130-powercon'):
+        assert d110[other] is True, (other, out)
+    d208 = {o['id']: o['disabled'] for o in out['at208']}
+    for anything in d208:
+        assert d208[anything] is False, (anything, out)

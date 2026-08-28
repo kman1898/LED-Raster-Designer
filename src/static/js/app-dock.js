@@ -1437,16 +1437,30 @@ class _HardwareDock {
         // chips can never disagree with the paperwork. Circuit capacity is
         // the owner screen's amps-per-circuit figure - the same
         // powerAmperage the plan's own circuits were sized against.
-        const byTail = new Map();   // tail 1..6 -> [{who, label, amps, capA}]
+        const byTail = new Map();   // tail 1..size -> [{who, label, amps, capA}]
         const memberRecs = [];      // {layer, m, s} - the header's inline fields
         let legs = 0;
         let boxAmps = 0;
         let capA = 0;               // smallest member figure: the honest bound
+        // The box's fan is as big as its occupants' breakout says - six
+        // tails on a soca, three on an L21-30 (the smallest member figure
+        // when they disagree, matching _resolveSharedSocas). A free slot
+        // has no occupant to read, so it offers the full six.
+        let boxSize = 6;
+        let feedLegA = 0;           // L21-30: the feed's per-leg rating
         members.forEach(m => {
             const l = (this.project.layers || []).find(x => x.id === m.layerId);
             if (!l) return;
             const s = this.getSocaPlan(l).find(x => x.soca === m.soca);
             memberRecs.push({ layer: l, m, s });
+            boxSize = memberRecs.length === 1
+                ? this.socaBoxSize(l)
+                : Math.min(boxSize, this.socaBoxSize(l));
+            const bt = this.getPowerBreakout(l);
+            if (bt.feedLegA > 0) {
+                feedLegA = feedLegA > 0
+                    ? Math.min(feedLegA, bt.feedLegA) : bt.feedLegA;
+            }
             if (s) {
                 const a = parseFloat(l.powerAmperage) || 0;
                 if (a > 0) capA = capA > 0 ? Math.min(capA, a) : a;
@@ -1461,17 +1475,37 @@ class _HardwareDock {
             }
             legs += m.legs || 0;
         });
-        const free = [1, 2, 3, 4, 5, 6].filter(t => !byTail.has(t));
+        const free = Array.from({ length: boxSize }, (_, i) => i + 1)
+            .filter(t => !byTail.has(t));
         const tailClash = [...byTail.values()].some(h => h.length > 1);
-        const overflow = legs > 6;
+        const overflow = legs > boxSize;
         if (overflow || tailClash) sec.classList.add('hw-dock-multi-clash');
         // The box's problems are strip questions too - the same states the
         // chips wear, said where a glance lands first.
         const boxName = `${d.name || d.id} ${n}`;
         if (overflow) {
             this._dockPowerWarnings.push({
-                text: `${boxName} — more circuits than the six tails hold.`,
+                text: `${boxName} — more circuits than the `
+                    + `${boxSize === 3 ? 'three' : 'six'} tails hold.`,
             });
+        }
+        // An L21-30 box's feed is rated per leg (30 A), and the box's
+        // circuits load the feed legs as phasors - the same maths the
+        // distro's own LEGS line runs, scoped to this one feed. Over is a
+        // strip question and reddens the box like any other clash.
+        let feedOver = false;
+        if (feedLegA > 0 && memberRecs.length
+                && typeof this.boxFeedLegAmps === 'function') {
+            const fl = this.boxFeedLegAmps(d, memberRecs.filter(r => r.s));
+            const worst = Math.max(fl.X, fl.Y, fl.Z);
+            if (worst > feedLegA) {
+                feedOver = true;
+                sec.classList.add('hw-dock-multi-clash');
+                this._dockPowerWarnings.push({
+                    text: `${boxName} — feed leg at ${worst.toFixed(1)} A `
+                        + `of ${feedLegA} A — OVER`,
+                });
+            }
         }
         byTail.forEach((list, t) => {
             if (list.length > 1) {
@@ -1490,8 +1524,10 @@ class _HardwareDock {
                         ? `tails ${this._fmtTails(free)} free`
                         : 'no tails free')
                 : 'free')
-            + (overflow ? '. OVERFLOW - more circuits than the six tails '
-                + 'hold' : '')
+            + (feedLegA > 0
+                ? `. L21-30 feed, ${feedLegA} A per leg` : '')
+            + (overflow ? `. OVERFLOW - more circuits than the `
+                + `${boxSize === 3 ? 'three' : 'six'} tails hold` : '')
             + '. Drag onto a circuit to land that circuit\'s multi here - '
             + 'the first circuit takes the whole multi, a later circuit '
             + 'splits it there and this box takes the rest'
@@ -1510,13 +1546,14 @@ class _HardwareDock {
                 : 'free',
             tip,
             // The folded glance: tails used and the box's whole-fan load
-            // against its six circuits' capacity - red on overflow or a
-            // twice-claimed tail, the same states the chips wear.
+            // against its circuits' capacity - red on overflow, a
+            // twice-claimed tail or an over-rated L21-30 feed leg, the
+            // same states the chips wear.
             {
-                frac: capA > 0 ? boxAmps / (capA * 6) : 0,
-                over: overflow || tailClash
-                    || (capA > 0 && boxAmps > capA * 6),
-                text: `${6 - free.length}/6`,
+                frac: capA > 0 ? boxAmps / (capA * boxSize) : 0,
+                over: overflow || tailClash || feedOver
+                    || (capA > 0 && boxAmps > capA * boxSize),
+                text: `${boxSize - free.length}/${boxSize}`,
             });
         // An occupied box's header carries its members' NAME and home-run
         // LENGTH inline - the fields the retired soca tiles held, on the
@@ -1556,7 +1593,7 @@ class _HardwareDock {
                                            `hwdock-multi-${d.id}-${n}`);
         const grid = document.createElement('div');
         grid.className = 'lrd-tile-grid hw-dock-grid';
-        for (let t = 1; t <= 6; t++) {
+        for (let t = 1; t <= boxSize; t++) {
             grid.appendChild(this._dockBuildCircuitChip(
                 d, n, t, byTail.get(t) || []));
         }
