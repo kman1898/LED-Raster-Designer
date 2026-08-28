@@ -881,19 +881,29 @@ def test_an_empty_return_index_still_derives_from_the_primary():
     assert out == [['SR-1', 'SR-1R'], ['P3', 'R3']]
 
 
-def test_the_label_editor_names_the_actual_return_label():
-    """The ownedNote used to spell the return as ${fromProcessor}R by hand - a
-    second statement of the derivation, and the one place that would keep
-    saying SR-1R after someone typed BU-1. It asks getPortLabelText now, so it
-    can never disagree with the canvas about what the return end says."""
-    source = js('app-power.js')
-    assert '${fromProcessor}R' not in source, (
-        'the ownedNote still derives the return label by hand')
-    note = source.index('and its return ')
-    asks = source.index(
-        "getPortLabelText(this.currentLayer, portNum, 'return')", note)
-    assert asks - note < 200, (
-        'the ownedNote does not read the return label from getPortLabelText')
+def test_no_surface_spells_a_return_label_by_hand():
+    """The Power sidebar's ownedNote once spelled the return as
+    ${fromProcessor}R by hand - a second statement of the derivation, and the
+    one place that kept saying SR-1R after someone typed BU-1. The note died
+    with the sidebar, but the failure mode outlives any one surface: any
+    template that pastes an R onto a primary name is a fork of
+    deriveReturnLabel waiting to disagree with it. No JS file gets to hold
+    one."""
+    for filename in os.listdir(JS_DIR):
+        if not filename.endswith('.js'):
+            continue
+        source = js(filename)
+        if filename == 'app-power.js':
+            # deriveReturnLabel IS the authority (held byte-identical to the
+            # server's copy by its own test); its one `${primary}R` is the
+            # rule, not a fork of it.
+            body = function_body(source, 'deriveReturnLabel(primary)')
+            source = source.replace(body, '')
+        assert '${fromProcessor}R' not in source, (
+            f'{filename} derives a return label by hand')
+        assert '}R`' not in source, (
+            f'{filename} pastes R onto a template - a hand fork of '
+            f'deriveReturnLabel')
 
 
 # ── 7. The backup template - naming all the returns at once ───────────────
