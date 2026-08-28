@@ -451,6 +451,60 @@ def new_cvt(device_id, seq, name=''):
     }
 
 
+def stock_default_cvts(project):
+    """Put the shop-default boxes back on a boxless requires-distribution
+    device, in a project saved before new_processor stocked them at birth.
+
+    A boxless SX40 is never a state somebody chose: the device has no
+    fixture ports of its own, so every port it will ever drive comes out of
+    a box (the 2026-08-25 ruling: "The sx40 by default has to use 10 port
+    breakout boxes"). An empty cvts list on its fixed card is therefore a
+    pre-stocking save, and it gets exactly what a fresh add gets - one
+    default box per trunk. The same narrowness as the birth rule holds: a
+    card with even ONE box is somebody's arrangement and stays theirs, a
+    device with no documented default gains nothing, and a chassis's cards
+    are picked by hand so its emptiness means empty slots, not a legacy
+    file. Runs where a whole project ENTERS server state, never on a read -
+    a GET must not mutate, and the file must heal whether or not the panel
+    is ever opened. Idempotent: the boxes it stocks are the boxes that stop
+    it stocking any next time through.
+    """
+    for proc in (project or {}).get('processors') or []:
+        device = get_device(proc.get('deviceId'))
+        if not device or device.get('form') == 'chassis':
+            continue
+        default_box = device.get('defaultCvt')
+        trunks = device.get('trunks') or 0
+        if not (device.get('requiresDistribution') and default_box and trunks):
+            continue
+        # A non-chassis processor holds one slot with its fixed card in it.
+        card = next((s.get('card') for s in proc.get('slots') or []
+                     if s.get('card')), None)
+        if card is None or card.get('cvts'):
+            continue
+        # Ids come off the project's own counter, the way every hand-added
+        # box's do - but a legacy file's counter can trail the ids already
+        # in it (or be missing outright), so each candidate run is checked
+        # against every id in the tree and a taken run is skipped, never
+        # reused: a reused id would land edits on the wrong box.
+        taken = set()
+        for p in project.get('processors') or []:
+            taken.add(p.get('id'))
+            for slot in p.get('slots') or []:
+                if slot.get('card'):
+                    taken.add(slot['card'].get('id'))
+                    for cvt in slot['card'].get('cvts') or []:
+                        taken.add(cvt.get('id'))
+        while True:
+            seq = project.get('next_processor_seq') or 1
+            project['next_processor_seq'] = seq + 1
+            minted = [f'{seq}f{i}' for i in range(trunks)]
+            if all(f'cvt{m}' not in taken for m in minted):
+                break
+        card['cvts'] = [box for box in
+                        (new_cvt(default_box, m) for m in minted) if box]
+
+
 # ── Labels ────────────────────────────────────────────────────────────────
 
 def render_port_label(name, template, number):

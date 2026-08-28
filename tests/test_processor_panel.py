@@ -1931,6 +1931,96 @@ def test_the_sx40_arrives_stocked_with_10_port_xd_boxes(client):
     assert (swapped['deviceId'], swapped['portCount']) == ('brompton-xd-s', 10)
 
 
+def test_a_pre_stocking_save_gets_its_default_boxes_back_on_load(client):
+    """Projects saved before new_processor stocked the defaults carry an
+    SX40 with an empty cvts list. That is never a state anyone chose - the
+    device has no fixture ports of its own, so a boxless SX40 drives
+    nothing (the 2026-08-25 ruling again: "The sx40 by default has to use
+    10 port breakout boxes"). Loading such a file restocks the fixed card
+    with exactly what a fresh add gets: four XDs, one per trunk A-D."""
+    add_processor(client, 'brompton-sx40')
+    saved = client.get('/api/project').get_json()
+    saved['processors'][0]['slots'][0]['card']['cvts'] = []
+    assert client.put('/api/project', json=saved).status_code == 200
+
+    card = first_card(only(client.get('/api/processors').get_json()))
+    assert [c['deviceId'] for c in card['cvts']] == ['brompton-xd'] * 4
+    assert [c['trunkLetter'] for c in card['cvts']] == ['A', 'B', 'C', 'D']
+    assert [c['firstPort'] for c in card['cvts']] == [1, 11, 21, 31]
+    assert card['ceiling'] == 40 and card['delivered'] == 40
+    # The heal reached STORED state, not just the resolved answer: the next
+    # save writes a stocked file, and this file never heals again.
+    stored = client.get('/api/project').get_json()['processors'][0]
+    assert len(stored['slots'][0]['card']['cvts']) == 4
+
+
+def test_a_card_with_even_one_box_is_somebodys_arrangement(client):
+    """The heal is exactly as narrow as the birth rule: one box on the card
+    means somebody arranged it, and a reload hands back precisely what was
+    saved - no topping up to four."""
+    state = add_processor(client, 'brompton-sx40')
+    pid = only(state)['id']
+    card = first_card(only(state))
+    for box in card['cvts'][1:]:
+        client.delete(f'/api/processors/{pid}/cvts/{box["id"]}')
+    kept = card['cvts'][0]['id']
+
+    saved = client.get('/api/project').get_json()
+    assert client.put('/api/project', json=saved).status_code == 200
+    cvts = first_card(only(client.get('/api/processors').get_json()))['cvts']
+    assert [c['id'] for c in cvts] == [kept]
+
+
+def test_a_device_with_no_documented_default_gains_nothing_on_load(client):
+    """The HELIOS 8K needs distribution too, but no default box is
+    documented for it - and an invented one is still invented on the load
+    path. Its empty card is its normal state, before and after."""
+    add_processor(client, 'megapixel-helios-8k')
+    saved = client.get('/api/project').get_json()
+    assert saved['processors'][0]['slots'][0]['card']['cvts'] == []
+    assert client.put('/api/project', json=saved).status_code == 200
+    assert first_card(only(client.get('/api/processors').get_json()))['cvts'] \
+        == []
+    stored = client.get('/api/project').get_json()['processors'][0]
+    assert stored['slots'][0]['card']['cvts'] == []
+
+
+def test_healed_ids_never_land_on_ids_the_file_already_holds(client):
+    """A legacy file can carry other boxes AND a counter that trails the
+    ids in it (or lost it outright, as here). Restocked ids must dodge
+    every id already in the tree - a reused id would land edits on the
+    wrong box."""
+    add_processor(client, 'brompton-sx40')  # keeps its cvt1f0..cvt1f3
+    add_processor(client, 'brompton-sx40')  # stripped below
+    saved = client.get('/api/project').get_json()
+    saved['processors'][1]['slots'][0]['card']['cvts'] = []
+    saved.pop('next_processor_seq', None)
+    assert client.put('/api/project', json=saved).status_code == 200
+
+    stored = client.get('/api/project').get_json()['processors']
+    ids = [c['id'] for proc in stored for slot in proc['slots']
+           for c in slot['card']['cvts']]
+    assert len(ids) == 8, 'the stripped SX40 was not restocked'
+    assert len(set(ids)) == 8, f'an id was minted twice: {sorted(ids)}'
+    resolved = client.get('/api/processors').get_json()['resolved']
+    assert all(first_card(p)['delivered'] == 40 for p in resolved)
+
+
+def test_the_heal_runs_at_the_project_funnel_never_on_a_read(client):
+    """Deleting every box in one session is an edit in progress - mid-swap
+    to a different box type, say - and a GET must not restock behind it.
+    The heal lives only where a whole project enters server state."""
+    state = add_processor(client, 'brompton-sx40')
+    pid = only(state)['id']
+    for box in first_card(only(state))['cvts']:
+        client.delete(f'/api/processors/{pid}/cvts/{box["id"]}')
+    assert first_card(only(client.get('/api/processors').get_json()))['cvts'] \
+        == []
+    stored = client.get('/api/project').get_json()['processors'][0]
+    assert stored['slots'][0]['card']['cvts'] == [], (
+        'a read restocked the card mid-edit')
+
+
 def test_redundancy_on_no_longer_limits_the_sx40_to_20_renumbered_primaries(
         client):
     """The reported defect (2026-08-25): "setting redundancy on limits to 20
