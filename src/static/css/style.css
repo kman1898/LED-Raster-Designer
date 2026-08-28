@@ -1461,11 +1461,15 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 }
 .hw-dock-proc-name .hw-dock-name { font-size: 10px; }
 .hw-dock-proc-name { display: flex; align-items: center; gap: 6px; }
+/* The gear is the way into a unit's configuration (redundancy, templates,
+   ratings, remove) - at name-text size it disappeared next to the name it
+   belongs to, so it gets glyph size and a real hit area of its own. */
 .hw-dock-gear {
-    background: none; border: none; color: #969696; cursor: pointer;
-    font-size: 11px; padding: 0 2px; line-height: 1; flex: 0 0 auto;
+    background: none; border: none; color: #a8a8a8; cursor: pointer;
+    font-size: 15px; padding: 1px 5px; line-height: 1; flex: 0 0 auto;
+    border-radius: 3px;
 }
-.hw-dock-gear:hover { color: #fff; }
+.hw-dock-gear:hover { color: #fff; background: #333; }
 .hw-dock-btn { padding: 1px 8px; font-size: 10px; flex: 0 0 auto; white-space: nowrap; }
 /* over-loaded figures keep the red the bars wear */
 .hw-dock-unit-use-over { color: #e05050; }
