@@ -372,8 +372,11 @@ PROBE_JS = """(selector) => {
         type: (el.type || '').toLowerCase(),
         value: el.value,
         checked: !!el.checked,
+        // Disabled options are left out: a person cannot pick one, so the
+        // sweep may not either (the breakout select disables entries the
+        // screen's voltage rules out, and select_option hangs on them).
         options: el.tagName === 'SELECT'
-            ? [...el.options].map(o => o.value) : null,
+            ? [...el.options].filter(o => !o.disabled).map(o => o.value) : null,
     };
 }"""
 
@@ -572,8 +575,18 @@ def _open_tab(page, tab):
 # fills its options from getPowerBreakoutTypes at runtime, and on this sweep's
 # own page nothing may have run it before the field's turn comes - _plan()
 # would then find a select with nothing to change to and blame the field.
+# The screen is put at 208V first: at 110V the eligibility rule (110V screens
+# take Edison only) disables every alternative, and a select with one pickable
+# option has nothing for the round-trip to change to.
 _PREPARE_JS = {
-    'power-breakout-type': '() => window.app.refreshSocaRuns()',
+    'power-breakout-type': """() => {
+        const v = document.getElementById('power-voltage-select');
+        if (v && v.value !== '208') {
+            v.value = '208';
+            v.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        window.app.refreshSocaRuns();
+    }""",
 }
 
 
