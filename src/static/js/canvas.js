@@ -265,6 +265,125 @@ class CanvasRenderer {
         }
     }
 
+    // Leading for a label stacked inside a circular marker. Kept as one
+    // definition because _layoutCircleLabel sizes the circle from it and
+    // _fillWrappedLabel places the lines with it - if the two disagreed a
+    // wrapped label would poke out of its circle. Same fontPx + 4 leading
+    // the screen-label info block uses.
+    _circleLabelLineHeight(fontPx) {
+        return fontPx + 4;
+    }
+
+    /**
+     * Lay a port/circuit label out for its circular marker. The marker
+     * grows to fit its text (labels are never clipped), so a renamed port
+     * like "SR A1" used to inflate the circle until it swallowed the
+     * neighboring cabinets. A label with spaces may instead stack at the
+     * spaces ("SR" over "A1"), keeping the text at the user's label size
+     * AND the circle near its natural size. Rules:
+     *   - break only at whitespace, never inside a token - a single long
+     *     token keeps the old grow-to-fit behaviour unchanged;
+     *   - a label that fits the natural radius on one line never wraps;
+     *   - among the candidate splits the smallest circle wins, and only
+     *     beats the single line by a clear margin, so line count balances
+     *     itself (a tall narrow stack needs a bigger circle than a
+     *     slightly wider pair, and loses).
+     * The caller must have ctx.font set to the label font already (widths
+     * are measured with it). `minRadius` is the site's natural radius and
+     * `padding` its text padding, so the no-wrap result reproduces the
+     * site's old max(minRadius, textWidth/2 + padding) exactly.
+     * Returns { lines, radius }; draw the lines via _fillWrappedLabel.
+     */
+    _layoutCircleLabel(label, fontPx, minRadius, padding) {
+        const text = String(label);
+        const widthOf = (s) => this.ctx.measureText(s).width;
+        const oneLine = {
+            lines: [text],
+            radius: Math.max(minRadius, widthOf(text) / 2 + padding)
+        };
+        // Fits already, or nowhere legal to break: keep the single line.
+        const tokens = text.trim().split(/\s+/).filter(t => t.length > 0);
+        if (tokens.length < 2 || oneLine.radius <= minRadius) return oneLine;
+
+        const lineHeight = this._circleLabelLineHeight(fontPx);
+        // Smallest circle containing every line's text box: each line is a
+        // fontPx-tall box centered on its slot, and the box corner farthest
+        // from the circle center is what the radius must reach.
+        const radiusOfLines = (lines) => {
+            const n = lines.length;
+            let r = 0;
+            for (let i = 0; i < n; i++) {
+                const halfW = widthOf(lines[i]) / 2;
+                const yEdge = Math.abs(i - (n - 1) / 2) * lineHeight + fontPx / 2;
+                r = Math.max(r, Math.hypot(halfW, yEdge));
+            }
+            return Math.max(minRadius, r + padding);
+        };
+        // Greedy width-balanced split into n lines. Optimal-enough for the
+        // handful of tokens a port name has, without enumerating every
+        // partition of a pathological label.
+        const splitInto = (n) => {
+            const target = widthOf(text) / n;
+            const lines = [];
+            let cur = tokens[0];
+            for (let i = 1; i < tokens.length; i++) {
+                const joined = cur + ' ' + tokens[i];
+                if (lines.length < n - 1 && widthOf(joined) > target) {
+                    lines.push(cur);
+                    cur = tokens[i];
+                } else {
+                    cur = joined;
+                }
+            }
+            lines.push(cur);
+            return lines;
+        };
+        let best = oneLine;
+        // 4 stacked lines is already a tall circle; more never reads well
+        // and the radius math would reject it anyway.
+        for (let n = 2; n <= Math.min(tokens.length, 4); n++) {
+            const lines = splitInto(n);
+            const r = radiusOfLines(lines);
+            // Strictly-better only (half-px margin): ties keep fewer lines,
+            // and a wrap that doesn't shrink the circle isn't worth reading
+            // the label in pieces.
+            if (r < best.radius - 0.5) best = { lines, radius: r };
+        }
+        return best;
+    }
+
+    /**
+     * Draw the lines from _layoutCircleLabel centered on (x, y). One line
+     * delegates to _fillText so an unwrapped label renders exactly as it
+     * always has. A stack applies the mirror/upright un-transform ONCE for
+     * the whole block: per-line _fillText would counter-rotate each line
+     * about its own anchor and stagger the stack diagonally on a rotated
+     * screen, while the block belongs upright around the circle center.
+     */
+    _fillWrappedLabel(lines, x, y, fontPx) {
+        if (lines.length === 1) {
+            this._fillText(lines[0], x, y);
+            return;
+        }
+        const lineHeight = this._circleLabelLineHeight(fontPx);
+        const n = lines.length;
+        const upright = this._keepTextUpright && this._activeRotationRad;
+        if (this._mirror || upright) {
+            this.ctx.save();
+            this.ctx.translate(x, y);
+            if (upright) this.ctx.rotate(-this._activeRotationRad);
+            if (this._mirror) this.ctx.scale(-1, 1);
+            for (let i = 0; i < n; i++) {
+                this.ctx.fillText(lines[i], 0, (i - (n - 1) / 2) * lineHeight);
+            }
+            this.ctx.restore();
+        } else {
+            for (let i = 0; i < n; i++) {
+                this.ctx.fillText(lines[i], x, y + (i - (n - 1) / 2) * lineHeight);
+            }
+        }
+    }
+
     /**
      * Build a clip path that constrains drawing to the active raster bounds
      * in *screen* space, even when the caller is currently inside a per-layer
@@ -5404,12 +5523,14 @@ class CanvasRenderer {
             // to fit text width so the label is never clipped. If the
             // label would overflow the screen edge, shift the CENTER
             // inward so it stays fully inside the screen.
+            // A spaced label ("SR A1") stacks at the spaces instead of
+            // inflating the circle - see _layoutCircleLabel.
             const sizeLabel = (label) => {
                 this.ctx.font = `bold ${labelSize}px ${projectFontFamily()}`;
-                const textWidth = this.ctx.measureText(label).width;
                 const padding = Math.max(4, labelSize * 0.2);
-                const radius = Math.max(labelSize * 1.2, textWidth / 2 + padding);
-                return { size: labelSize, radius };
+                const layout = this._layoutCircleLabel(
+                    label, labelSize, labelSize * 1.2, padding);
+                return { size: labelSize, radius: layout.radius, lines: layout.lines };
             };
             const primaryFit = sizeLabel(primaryLabel);
             const returnFit = sizeLabel(returnLabel);
@@ -5445,7 +5566,7 @@ class CanvasRenderer {
                 this.ctx.font = `bold ${returnFit.size}px ${projectFontFamily()}`;
                 this.ctx.textAlign = 'center';
                 this.ctx.textBaseline = 'middle';
-                this._fillText(returnLabel, rx, ry);
+                this._fillWrappedLabel(returnFit.lines, rx, ry, returnFit.size);
             }
 
             this.ctx.fillStyle = primaryColor;
@@ -5457,7 +5578,7 @@ class CanvasRenderer {
             this.ctx.font = `bold ${primaryFit.size}px ${projectFontFamily()}`;
             this.ctx.textAlign = 'center';
             this.ctx.textBaseline = 'middle';
-            this._fillText(primaryLabel, px, py);
+            this._fillWrappedLabel(primaryFit.lines, px, py, primaryFit.size);
 
             if (portPanels.length > 1) {
                 this.ctx.fillStyle = backupColor;
@@ -5467,7 +5588,7 @@ class CanvasRenderer {
 
                 this.ctx.fillStyle = backupTextColor;
                 this.ctx.font = `bold ${returnFit.size}px ${projectFontFamily()}`;
-                this._fillText(returnLabel, rx, ry);
+                this._fillWrappedLabel(returnFit.lines, rx, ry, returnFit.size);
             }
 
             // v0.11.0: how close this port is to its limit, under the primary
@@ -5807,11 +5928,14 @@ class CanvasRenderer {
         // v0.12.0: placement split from drawing so the splitter fan-out can
         // place ONE bubble centered over its run heads (see
         // drawCircuitBranches); the single-run path is unchanged.
-        const labelRadius = (label) => {
+        // A spaced label ("SR A1") stacks at the spaces instead of
+        // inflating the circle - see _layoutCircleLabel. The layout (lines
+        // + radius) travels together so the bubble and its text agree.
+        const labelLayout = (label) => {
             this.ctx.font = `bold ${labelSize}px ${projectFontFamily()}`;
-            const textWidth = this.ctx.measureText(label).width;
             const padding = Math.max(6, labelSize * 0.25);
-            return Math.max(labelSize * 0.7, lineWidth * 1.4, textWidth / 2 + padding);
+            return this._layoutCircleLabel(
+                label, labelSize, Math.max(labelSize * 0.7, lineWidth * 1.4), padding);
         };
         const clampLabelCenter = (px, py, circleRadius) => {
             // Shift to keep circle fully within screen bounds.
@@ -5821,24 +5945,24 @@ class CanvasRenderer {
             if (py + circleRadius > layerBottom) py = layerBottom - circleRadius;
             return { px: this.snap(px), py: this.snap(py) };
         };
-        const drawLabelBubble = (label, px, py, circleRadius) => {
+        const drawLabelBubble = (layout, px, py) => {
             this.ctx.fillStyle = powerLabelBgColor;
             this.ctx.beginPath();
-            this.ctx.arc(px, py, circleRadius, 0, Math.PI * 2);
+            this.ctx.arc(px, py, layout.radius, 0, Math.PI * 2);
             this.ctx.fill();
 
             this.ctx.fillStyle = powerLabelTextColor;
             this.ctx.textAlign = 'center';
             this.ctx.textBaseline = 'middle';
-            this._fillText(label, px, py);
+            this._fillWrappedLabel(layout.lines, px, py, labelSize);
         };
         const drawCircuitLabel = (panelStart, panelNext, circuitNum) => {
             const label = window.app ? window.app.getPowerCircuitLabel(layer, circuitNum) : `S1-${circuitNum}`;
-            const circleRadius = labelRadius(label);
+            const layout = labelLayout(label);
             const { px, py } = clampLabelCenter(
                 panelStart.x + panelStart.width / 2,
-                panelStart.y + panelStart.height / 2, circleRadius);
-            drawLabelBubble(label, px, py, circleRadius);
+                panelStart.y + panelStart.height / 2, layout.radius);
+            drawLabelBubble(layout, px, py);
         };
 
         if (useColorCodedView) {
@@ -5965,10 +6089,10 @@ class CanvasRenderer {
             const hx = heads.map(h => h.x + h.width / 2);
             const hy = heads.map(h => h.y + h.height / 2);
             const label = window.app ? window.app.getPowerCircuitLabel(layer, circuitNum) : `S1-${circuitNum}`;
-            const circleRadius = labelRadius(label);
+            const layout = labelLayout(label);
             const { px, py } = clampLabelCenter(
                 (Math.min(...hx) + Math.max(...hx)) / 2,
-                (Math.min(...hy) + Math.max(...hy)) / 2, circleRadius);
+                (Math.min(...hy) + Math.max(...hy)) / 2, layout.radius);
             this.ctx.save();
             this.ctx.strokeStyle = currentLineColor;
             this.ctx.lineWidth = Math.max(1, lineWidth * 0.6);
@@ -5980,7 +6104,7 @@ class CanvasRenderer {
                 this.ctx.stroke();
             }
             this.ctx.restore();
-            drawLabelBubble(label, px, py, circleRadius);
+            drawLabelBubble(layout, px, py);
         };
 
         if (isCustom && layer.powerCustomPaths) {
