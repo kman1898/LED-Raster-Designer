@@ -47,6 +47,24 @@ PORT_TABLE = os.path.join(os.path.dirname(__file__), '..', 'docs',
                           'processor-port-table.md')
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _guard(server_project_guard):
+    """Leave the shared server project the way this module found it.
+
+    Autouse, NOT a panel_page dependency: this module's Flask `client`
+    tests rebuild the shared module-global project (TestScreen, no
+    Screen1) before the first browser test runs. A guard created only
+    when panel_page is first requested snapshots AFTER that pollution
+    whenever an earlier module already forced e2e_server up - and then
+    dutifully "restores" the polluted state over the session seed at
+    module end, handing every later browser module a project whose only
+    screen is TestScreen. Autouse pins the snapshot to module start,
+    where the seeded Screen1 project still stands (and, first thing in
+    the session, forces e2e_server up so there is a seed to snapshot),
+    the same shape every other browser module uses (see
+    tests/conftest.py's inter-suite isolation notes)."""
+
+
 # ── helpers ───────────────────────────────────────────────────────────────
 
 def add_processor(client, device_id):
@@ -1688,10 +1706,11 @@ MEASURE_ROW_JS = """(args) => {
 
 
 @pytest.fixture(scope="module")
-def panel_page(e2e_server, pw_browser, server_project_guard):
-    # server_project_guard: these tests seed processors into the SHARED live
-    # server; the guard hands the project back the way the module found it
-    # (see tests/conftest.py).
+def panel_page(e2e_server, pw_browser):
+    # These tests seed processors into the SHARED live server; the module's
+    # autouse _guard (top of file) hands the project back the way the module
+    # found it - autouse so the snapshot lands BEFORE this module's Flask
+    # client tests rebuild the shared project (see tests/conftest.py).
     context = pw_browser.new_context()
     context.add_init_script(
         "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
