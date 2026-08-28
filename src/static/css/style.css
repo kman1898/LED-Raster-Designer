@@ -1397,23 +1397,67 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
    view the port chips are ALSO the ports' folding editors, since the dock
    is the one place ports appear: a press released without movement is the
    click that opens the editor in place, press-and-move is the drag
-   (app-dock.js _dockArmDrag's 4px split). The power slot chips stay pure
+   (app-dock.js _dockArmDrag's 4px split). The power circuit chips stay pure
    handles - their editing lives in the Power sidebar's multi tiles. */
 .hw-dock-tile > .lrd-tile-face { cursor: grab; }
 .hw-dock-tile > .lrd-tile-face:active { cursor: grabbing; }
-/* A multi slot chip's six tail sockets, the port-chip register shrunk to
-   pips: one cell per tail of the 6-way fan, lit when a circuit holds it,
-   clash-red when two stored sets claim it, dim when free. Fixed six-up so
-   every chip reads the same fan at a squint; each cell carries its holder
-   on hover (app-dock.js _dockBuildSlotChip). */
-.hw-dock-tails {
-    display: grid; grid-template-columns: repeat(6, 1fr);
-    gap: 2px; margin-top: 3px; min-width: 0;
+/* ── chip load fill (app-dock.js _dockChipFill) ───────────────────────────
+   Two readings of one figure, the user's pick: the chip's GROUND fills
+   left-to-right like a meter, and a crisp rack-bar row sits along the
+   chip's bottom. The ground fill is a translucent layer INSIDE the face -
+   above the tile's occupied/clash ground, below the text - so it TINTS the
+   state colour instead of replacing it: an occupied chip stays lit grey
+   under green, a clash stays red-grounded (and the fill itself turns the
+   red family when the load is over). pointer-events off so the meter never
+   swallows the face's click/drag. */
+.hw-dock-tile > .lrd-tile-face { position: relative; }
+.hw-dock-fill {
+    position: absolute; left: 0; top: 0; bottom: 0;
+    background: rgba(55, 193, 95, .16);
+    border-right: 1px solid rgba(55, 193, 95, .55);
+    pointer-events: none;
 }
-.hw-dock-tail {
-    font-size: 9px; font-family: monospace; line-height: 1.5;
-    text-align: center; border-radius: 2px;
-    color: #4a4a4a; background: #141414; border: 1px solid #222;
+.hw-dock-fill-over {
+    background: rgba(224, 80, 80, .18);
+    border-right-color: rgba(224, 80, 80, .7);
 }
-.hw-dock-tail-used { color: #bbb; background: #262626; border-color: #4a4a4a; }
-.hw-dock-tail-clash { color: #d05a52; background: #1a1010; border-color: #3a2a28; }
+/* text rides above the meter */
+.hw-dock-tile .lrd-tile-line { position: relative; }
+.hw-dock-bar {
+    position: relative; height: 4px; border-radius: 2px;
+    background: #1a1a1a; border: 1px solid #333;
+    overflow: hidden; margin-top: 2px;
+}
+.hw-dock-bar > i {
+    display: block; height: 100%;
+    background: linear-gradient(90deg, #2e7d4f, #37c15f);
+}
+.hw-dock-bar > i.hw-dock-bar-over {
+    background: linear-gradient(90deg, #a03030, #e05050);
+}
+/* The header's glance (app-dock.js _dockBuildHandle): a compact count and
+   a slim fill line, so a section folded away still says how full it is -
+   a finished card folds to a thin green-filled line. */
+.hw-dock-unit-use { font-size: 10px; color: #888; font-family: monospace; }
+.hw-dock-headbar {
+    flex: 0 1 44px; min-width: 16px; height: 3px; border-radius: 2px;
+    background: #1a1a1a; border: 1px solid #333;
+    overflow: hidden; align-self: center;
+}
+.hw-dock-headbar > i {
+    display: block; height: 100%;
+    background: linear-gradient(90deg, #2e7d4f, #37c15f);
+}
+.hw-dock-headbar > i.hw-dock-bar-over {
+    background: linear-gradient(90deg, #a03030, #e05050);
+}
+/* A multi section past its six tails, or a tail claimed twice, wears the
+   clash family on its frame - the box-level reading of the chip grounds. */
+.hw-dock-multi-clash { background: #1a1010; border-color: #3a2a28; }
+/* A folded MAIN folds its nested backup with it - a redundant pair is one
+   thing, and half a folded thing must not stay open beside it. The backup
+   still folds alone through its own header. First-child guard: only the
+   pair's main hides its backups; a folded backup hides nobody. */
+.lrd-red-pair > .lrd-sec-collapsed:first-child ~ .lrd-red-backup {
+    display: none !important;
+}

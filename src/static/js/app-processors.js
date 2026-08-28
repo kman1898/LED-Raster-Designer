@@ -397,6 +397,19 @@ class _Processors {
                 try {
                     localStorage.removeItem(
                         `ledRasterPanelCollapsed_processor-${proc.id}`);
+                    // The dock's card and box sections fold under their own
+                    // ids; those ids die with the machine too.
+                    (proc.slots || []).forEach(slot => {
+                        const card = slot.card;
+                        if (!card) return;
+                        localStorage.removeItem(
+                            `ledRasterPanelCollapsed_hwdock-card-${card.id}`);
+                        (card.cvts || []).forEach(cvt => {
+                            localStorage.removeItem(
+                                'ledRasterPanelCollapsed_hwdock-box-'
+                                + cvt.id);
+                        });
+                    });
                 } catch (_) { /* blocked storage never held the key */ }
             }));
         head.appendChild(del);

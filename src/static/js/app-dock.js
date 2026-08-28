@@ -10,7 +10,12 @@
 // boxes, the manual backup pick and the occupancy detail in place, and drag
 // still starts on press-and-move. Data view lays out every
 // processor's cards, their breakout boxes and their port tiles; Power view
-// lays out every distro and its multi slots. Dragging a tile onto the canvas
+// lays out every distro as a section of multi sections, each multi holding
+// its six tails as circuit chips in the same register - one grammar for
+// both sides, because a circuit is dragged one at a time exactly as a port
+// is. Every section (card, box, distro, multi) folds by the app's one
+// section machinery, its header staying the whole-unit drag handle and
+// carrying a glance readout while folded. Dragging a tile onto the canvas
 // assigns through exactly the operations the panels used - place, pin,
 // move-block, place-overflow, setSocaDistro, setSocaNumber - so the rules,
 // the refusals, the conflict question and the undo entries are the same ones,
@@ -93,17 +98,36 @@ class _HardwareDock {
             // The port chips fold their editors inside them, so the tile
             // machinery wires them after every wipe - which chip is open
             // rode the wipe on the app (_openTiles), the way the fold state
-            // rides it in localStorage. The power slot chips stay plain
+            // rides it in localStorage. The power circuit chips stay plain
             // drag handles (their editing lives in the Power sidebar's own
             // multi tiles), so only the data render wires tiles.
             if (typeof this._wireTiles === 'function') this._wireTiles(body);
         } else if (mode === 'power') {
             this._dockRenderPower(body);
         }
+        // Every hardware section - card, breakout box, distro, multi - folds
+        // by the app's one section machinery, so "this card is done, get it
+        // out of the way" is the same gesture folding a sidebar block is.
+        // The wipe above threw the wired nodes away; wire the fresh ones and
+        // the stored per-section state re-applies.
+        if (typeof this._wireSectionCollapse === 'function') {
+            this._wireSectionCollapse(body);
+        }
         if (focused) {
             const again = body.querySelector(
                 `[data-hwdock="${CSS.escape(focused)}"]`);
-            if (again) again.focus();
+            if (again) {
+                // The chip the focus is coming back to may sit inside a
+                // section the user folded - the restore doctrine: a thing
+                // the app is programmatically focusing must be visible.
+                // SECTIONS only, deliberately not _expandSectionsFor: that
+                // helper also opens the closed TILE around a field, and a
+                // chip FACE is visible on a closed tile - opening the
+                // editor here would open a chip nobody clicked every time
+                // Tab parks focus on a face through a rebuild.
+                this._dockRevealSections(again);
+                again.focus();
+            }
         }
         // Content growing or shrinking the tray moves the canvas's bottom
         // edge; the backing store has to follow or a strip paints stale.
@@ -190,8 +214,20 @@ class _HardwareDock {
             summary && summary.capacityKnown
                 ? `${summary.used} / ${summary.capacity}` : '',
             'Drag the whole card onto a screen: its ports fill in order from '
-            + 'the first unassigned, or the whole run moves here.');
+            + 'the first unassigned, or the whole run moves here.',
+            // The folded header's glance: how full the card is, so a card
+            // folded away because it is done reads as done (a green-full
+            // line) without opening it. Counts from the same assignment
+            // summary the detail text prints - never re-derived.
+            summary && summary.capacityKnown && summary.capacity > 0
+                ? { frac: summary.used / summary.capacity,
+                    over: summary.used > summary.capacity }
+                : null);
         unit.appendChild(head);
+        // Everything under the header folds as one body - the section
+        // machinery's shape, transposed onto the tray's card unit.
+        const unitBody = this._dockSectionBody(unit, head,
+                                               `hwdock-card-${card.id}`);
 
         // The ports draw grouped the way they arrive: each breakout box gets
         // its own draggable strip holding its span of the card's ports, and
@@ -205,7 +241,7 @@ class _HardwareDock {
         });
         const loose = (card.ports || []).filter(p => !covered.has(p.number));
         if (loose.length) {
-            unit.appendChild(this._dockBuildPortGrid(proc, card, loose));
+            unitBody.appendChild(this._dockBuildPortGrid(proc, card, loose));
         }
         const boxEls = new Map();
         cvts.forEach(cvt => {
@@ -234,7 +270,13 @@ class _HardwareDock {
             // section header calls it - one implementation of the letter.
             const boxTitle = (cvt.displayTitle
                 || cvt.name || cvt.deviceName) + tag;
-            box.appendChild(this._dockBuildHandle(
+            // The folded box's glance is occupancy in sockets - "8/10" and
+            // a fill line - because "this box is done" is a count of claimed
+            // sockets, read from the same occupancy the chips inside wear.
+            const taken = (cvt.ports || []).filter(
+                p => this._portOccupants(card.id, p.number).length).length;
+            const total = (cvt.ports || []).length;
+            const boxHead = this._dockBuildHandle(
                 {
                     type: 'box', cardId: card.id,
                     first: Math.min(...nums), last: Math.max(...nums),
@@ -246,19 +288,63 @@ class _HardwareDock {
                 `ports ${span}`,
                 'Drag the whole box onto a screen: the screen\'s ports fill '
                 + 'onto this box\'s sockets in order from the first '
-                + 'unassigned.'));
-            box.appendChild(this._dockBuildPortGrid(proc, card,
-                                                    cvt.ports || [],
-                                                    boxTitle));
+                + 'unassigned.',
+                total > 0
+                    ? { frac: taken / total, over: false,
+                        text: `${taken}/${total}` }
+                    : null);
+            box.appendChild(boxHead);
+            const boxBody = this._dockSectionBody(box, boxHead,
+                                                  `hwdock-box-${cvt.id}`);
+            boxBody.appendChild(this._dockBuildPortGrid(proc, card,
+                                                        cvt.ports || [],
+                                                        boxTitle));
             // A redundant pair of boxes is one group here too: B nests
             // under the A it backs (the panel's rule, worn by the tray),
             // and a box with no role stays the plain strip it was.
             boxEls.set(cvt.id, box);
             const main = cvt.backupOf && boxEls.get(cvt.backupOf);
             if (main) this._nestBackupUnder(main, box);
-            else unit.appendChild(box);
+            else unitBody.appendChild(box);
         });
         return unit;
+    }
+
+    // Turn a dock unit into one of the app's foldable sections: the header
+    // becomes the section head (arrow, double-click, per-id persistence -
+    // app-core's _wireSectionCollapse owns the behaviour) and everything
+    // that follows lives in the returned body. The header keeps being the
+    // unit's DRAG handle: _dockArmDrag's 4px threshold already splits a
+    // click from a drag, so the arrow's click folds and press-and-move past
+    // the threshold still drags the folded unit's whole scope.
+    _dockSectionBody(container, head, secId) {
+        head.classList.add('lrd-sec-head');
+        head.dataset.lrdSec = secId;
+        const body = document.createElement('div');
+        body.className = 'lrd-sec-body';
+        container.appendChild(body);
+        return body;
+    }
+
+    // Expand every folded section (and a pair's folded main) above `el` -
+    // the section half of _expandSectionsFor, without its open-the-tile
+    // half: a chip face is already visible on a CLOSED tile, so a face
+    // restore must never open the editor nobody asked for.
+    _dockRevealSections(el) {
+        for (let n = el && el.parentElement; n; n = n.parentElement) {
+            if (!n.classList) continue;
+            if (n.classList.contains('lrd-sec-collapsed')) {
+                this._setSectionCollapsed(n, false);
+            }
+            if (n.classList.contains('lrd-red-pair')) {
+                const main = n.firstElementChild;
+                if (main && main.classList
+                        && main.classList.contains('lrd-sec-collapsed')
+                        && !main.contains(el)) {
+                    this._setSectionCollapsed(main, false);
+                }
+            }
+        }
     }
 
     // The trunk letter lives on the resolved box now (displayTitle, from
@@ -378,6 +464,10 @@ class _HardwareDock {
                 : '; drag onto a port run to place it there'
                     + (occupants.some(o => o.source === 'pin')
                         ? '; drag back onto this tray to release it.' : '.'));
+
+        // How full the socket is, worn twice (ground meter + bottom bar),
+        // scored by the canvas badge's own authority - see _dockPortFill.
+        this._dockChipFill(face, this._dockPortFill(card.id, port.number));
 
         // The ghost's fallback names the surface the socket is ON - the box
         // where there is one, since its local number only means something
@@ -648,69 +738,147 @@ class _HardwareDock {
                 + 'appear here to drag onto circuits.');
             return;
         }
+        // The roll-up's per-distro amps, read once for the headers' glance
+        // bars - the Power panel's own figures, never re-summed here.
+        const loads = typeof this.getDistroLoads === 'function'
+            ? this.getDistroLoads() : [];
         distros.forEach(d => {
-            host.appendChild(this._dockBuildDistro(d));
+            host.appendChild(this._dockBuildDistro(
+                d, loads.find(x => x.id === d.id)));
         });
     }
 
-    _dockBuildDistro(d) {
+    _dockBuildDistro(d, load) {
         const unit = document.createElement('div');
         unit.className = 'hw-dock-unit';
         const phase = Number(d.phase) === 3 ? '3ph' : '1ph';
-        unit.appendChild(this._dockBuildHandle(
+        const head = this._dockBuildHandle(
             { type: 'distro', distroId: d.id, title: d.name || d.id },
             `distro-${d.id}`,
             d.name || d.id,
             `${d.ratingA || '?'} A · ${d.voltage || '?'} V · ${phase}`,
             'Drag the whole distro onto a screen: its unassigned multis all '
-            + 'land on this distro, numbered automatically.'));
+            + 'land on this distro, numbered automatically.',
+            load && load.ratingA > 0
+                ? { frac: load.amps / load.ratingA, over: !!load.over,
+                    text: `${load.amps.toFixed(1)} A` }
+                : null);
+        unit.appendChild(head);
+        const body = this._dockSectionBody(unit, head,
+                                           `hwdock-distro-${d.id}`);
 
-        // The slots a distro offers are demand-driven, the same unbounded
+        // The multis a distro offers are demand-driven, the same unbounded
         // rule the old number select used: every occupied or pinned number,
-        // plus exactly one spare on the end, so there is always a free slot
-        // to drag and never a wall of empty ones.
+        // plus exactly one spare on the end, so there is always a free box
+        // to drag and never a wall of empty ones. Each multi is a bounded
+        // SECTION of its distro - the data side's box grammar - holding its
+        // six tails as individually draggable circuit chips.
         const inUse = this._distroMultiNumbers(d.id);
         const maxN = Math.max(0, ...inUse.keys()) + 1;
-        const grid = document.createElement('div');
-        grid.className = 'lrd-tile-grid lrd-tile-grid-wide hw-dock-grid';
         for (let n = 1; n <= maxN; n++) {
-            grid.appendChild(this._dockBuildSlotChip(d, n, inUse.get(n) || []));
+            body.appendChild(this._dockBuildMulti(d, n, inUse.get(n) || []));
         }
-        unit.appendChild(grid);
         return unit;
     }
 
-    _dockBuildSlotChip(d, n, members) {
-        const tile = document.createElement('div');
-        tile.className = 'lrd-tile hw-dock-tile';
+    // One multi as one bounded section: header = the whole-multi drag
+    // handle (the old slot chip's payload and drop matrix, untouched), body
+    // = six circuit chips in the port-chip register, each the tray's finest
+    // drag ("power should look more like the data bars - i have to be able
+    // to drag individual circuits, not just the whole multi").
+    _dockBuildMulti(d, n, members) {
+        const sec = document.createElement('div');
+        sec.className = 'hw-dock-box hw-dock-multi';
 
-        // A multi IS a 6-tail box, so the chip carries the six tails as
-        // cells: which screen's circuit holds each one (the same rendered
-        // positions the soca tiles and the shared-box notes read), which
-        // are free, and a tail two stored sets both claim wears the clash
-        // red. Over six legs on one box is the overflow the soca tiles
-        // flag - the chip wears the same clash ground.
-        const byTail = new Map();   // tail 1..6 -> [{who, label}]
+        // Which circuit holds each tail, WITH the plan's own leg figures:
+        // getSocaPlan is the one authority for a leg's tail, label and amps
+        // (report table, breaker stickers and brackets all read it), so the
+        // chips can never disagree with the paperwork. Circuit capacity is
+        // the owner screen's amps-per-circuit figure - the same
+        // powerAmperage the plan's own circuits were sized against.
+        const byTail = new Map();   // tail 1..6 -> [{who, label, amps, capA}]
         let legs = 0;
+        let boxAmps = 0;
+        let capA = 0;               // smallest member figure: the honest bound
         members.forEach(m => {
             const l = (this.project.layers || []).find(x => x.id === m.layerId);
             if (!l) return;
-            const rec = this._powerNaming(l).socas.get(m.soca);
-            if (rec) {
-                (rec.positions || []).forEach((t, i) => {
-                    const list = byTail.get(t) || [];
-                    list.push({
-                        who: l.name,
-                        label: this.getPowerCircuitLabel(l, rec.circuits[i]),
-                    });
-                    byTail.set(t, list);
+            const s = this.getSocaPlan(l).find(x => x.soca === m.soca);
+            if (s) {
+                const a = parseFloat(l.powerAmperage) || 0;
+                if (a > 0) capA = capA > 0 ? Math.min(capA, a) : a;
+                s.legs.forEach(leg => {
+                    const list = byTail.get(leg.leg) || [];
+                    list.push({ who: l.name, label: leg.label,
+                                amps: leg.amps, capA: a });
+                    byTail.set(leg.leg, list);
                 });
+                boxAmps += s.amps;
             }
             legs += m.legs || 0;
         });
         const free = [1, 2, 3, 4, 5, 6].filter(t => !byTail.has(t));
-        if (legs > 6) tile.classList.add('lrd-tile-clash');
-        else if (members.length) tile.classList.add('lrd-tile-occupied');
+        const tailClash = [...byTail.values()].some(h => h.length > 1);
+        const overflow = legs > 6;
+        if (overflow || tailClash) sec.classList.add('hw-dock-multi-clash');
+
+        const tip = `${d.name || d.id} multi ${n} - `
+            + (members.length
+                ? `${members.map(m => m.layerName).join(' and ')}, `
+                    + (free.length
+                        ? `tails ${this._fmtTails(free)} free`
+                        : 'no tails free')
+                : 'free')
+            + (overflow ? '. OVERFLOW - more circuits than the six tails '
+                + 'hold' : '')
+            + '. Drag onto a circuit to land that circuit\'s multi here - '
+            + 'the first circuit takes the whole multi, a later circuit '
+            + 'splits it there and this box takes the rest'
+            + (members.length
+                ? '; drag back onto this tray to unassign it.' : '.');
+        const head = this._dockBuildHandle(
+            {
+                type: 'slot', distroId: d.id, number: n,
+                title: `${d.name || d.id} ${n}`,
+            },
+            `slot-${d.id}-${n}`,
+            `${d.name || d.id} ${n}`,
+            members.length
+                ? members.map(m => m.layerName).join(' + ')
+                : 'free',
+            tip,
+            // The folded glance: tails used and the box's whole-fan load
+            // against its six circuits' capacity - red on overflow or a
+            // twice-claimed tail, the same states the chips wear.
+            {
+                frac: capA > 0 ? boxAmps / (capA * 6) : 0,
+                over: overflow || tailClash
+                    || (capA > 0 && boxAmps > capA * 6),
+                text: `${6 - free.length}/6`,
+            });
+        sec.appendChild(head);
+        const body = this._dockSectionBody(sec, head,
+                                           `hwdock-multi-${d.id}-${n}`);
+        const grid = document.createElement('div');
+        grid.className = 'lrd-tile-grid hw-dock-grid';
+        for (let t = 1; t <= 6; t++) {
+            grid.appendChild(this._dockBuildCircuitChip(
+                d, n, t, byTail.get(t) || []));
+        }
+        body.appendChild(grid);
+        return sec;
+    }
+
+    // One tail of the fan as one chip of its multi's grid, the data port
+    // chip's register: tail number, the derived circuit label, the occupant
+    // screen, the occupied/clash grounds - and the chip is the drag that
+    // puts ONE circuit on THIS tail (the old pip's payload and semantics,
+    // now on a chip a hand can find).
+    _dockBuildCircuitChip(d, n, t, holders) {
+        const tile = document.createElement('div');
+        tile.className = 'lrd-tile hw-dock-tile';
+        if (holders.length > 1) tile.classList.add('lrd-tile-clash');
+        else if (holders.length) tile.classList.add('lrd-tile-occupied');
 
         const face = document.createElement('div');
         face.className = 'lrd-tile-face';
@@ -718,85 +886,196 @@ class _HardwareDock {
         top.className = 'lrd-tile-line';
         const num = document.createElement('span');
         num.style.color = '#666';
-        num.textContent = String(n);
+        num.textContent = String(t);
         top.appendChild(num);
-        const cap = document.createElement('span');
-        cap.style.color = '#ccc';
-        top.appendChild(document.createTextNode(' '));
-        cap.textContent = members.length
-            ? (free.length ? `tails ${this._fmtTails(free)} free` : 'full')
-            : 'multi';
-        top.appendChild(cap);
+        if (holders.length) {
+            const label = document.createElement('span');
+            label.style.color = '#ccc';
+            top.appendChild(document.createTextNode(' '));
+            label.textContent = holders.map(h => h.label).join(' / ');
+            top.appendChild(label);
+        }
         face.appendChild(top);
         const who = document.createElement('div');
         who.className = 'lrd-tile-line';
-        if (!members.length) {
+        if (!holders.length) {
             who.style.color = '#4a4a4a';
             who.textContent = 'free';
+        } else if (holders.length > 1) {
+            who.style.color = '#d05a52';
+            who.textContent = 'clash';
         } else {
-            who.style.color = legs > 6 ? '#d05a52' : '#999';
-            who.textContent = members.map(m => m.layerName).join(' + ');
+            who.style.color = '#999';
+            who.textContent = holders[0].who;
         }
         face.appendChild(who);
-        // The six tail sockets, one cell each, in the port-chip register:
-        // lit when a circuit holds the tail, clash-red when two stored sets
-        // claim it, dim when free. Each cell says who on hover, so the fan
-        // can be read tail by tail without opening the Power sidebar.
-        const row = document.createElement('div');
-        row.className = 'hw-dock-tails';
-        for (let t = 1; t <= 6; t++) {
-            const cell = document.createElement('span');
-            const holders = byTail.get(t) || [];
-            cell.className = 'hw-dock-tail'
-                + (holders.length > 1 ? ' hw-dock-tail-clash'
-                    : (holders.length ? ' hw-dock-tail-used' : ''));
-            cell.textContent = String(t);
-            cell.title = `Tail ${t} - ` + (holders.length
-                ? holders.map(h => `${h.who} ${h.label}`).join(', ')
-                    + (holders.length > 1 ? ' (claimed twice)' : '')
-                : 'free')
-                + '. Drag onto a circuit to put that ONE circuit on this '
-                + 'tail.';
-            // The pip is the tray's finest drag: ONE circuit onto THIS tail
-            // ("when no multi is set i can't just drag one port"). Its
-            // mousedown must not bubble to the face, or every pip drag
-            // would also arm the whole-slot drag underneath it; hover
-            // inspection and the 4px click latitude are untouched.
-            this._dockWireDraggable(cell, {
-                type: 'tail', distroId: d.id, number: n, tail: t,
-                title: `${d.name || d.id} ${n} tail ${t}`,
-            }, `tail-${d.id}-${n}-${t}`);
-            cell.addEventListener('mousedown', (e) => {
-                if (e.button === 0) e.stopPropagation();
-            });
-            row.appendChild(cell);
-        }
-        face.appendChild(row);
         tile.appendChild(face);
 
-        face.title = `${d.name || d.id} multi ${n} - `
-            + (members.length
-                ? `${members.map(m => m.layerName).join(' and ')}, `
-                    + (free.length
-                        ? `tails ${this._fmtTails(free)} free`
-                        : 'no tails free')
-                : 'free')
-            + '. Drag onto a circuit to land that circuit\'s multi here - '
-            + 'the first circuit takes the whole multi, a later circuit '
-            + 'splits it there and this box takes the rest'
-            + (members.length
-                ? '; drag back onto this tray to unassign it.' : '.');
+        face.title = `Tail ${t} - ` + (holders.length
+            ? holders.map(h => `${h.who} ${h.label}`).join(', ')
+                + (holders.length > 1 ? ' (claimed twice)' : '')
+            : 'free')
+            + '. Drag onto a circuit to put that ONE circuit on this tail.';
+
+        // The circuit's load against its capacity, the plan's own leg
+        // figures (amps) over the owner screen's amps-per-circuit. A tail
+        // two stored sets claim carries both loads against the smaller
+        // figure - the honest reading of one breaker asked twice.
+        if (holders.length) {
+            const amps = holders.reduce((s, h) => s + h.amps, 0);
+            const cap = holders.reduce(
+                (s, h) => h.capA > 0 ? (s > 0 ? Math.min(s, h.capA) : h.capA)
+                    : s, 0);
+            this._dockChipFill(face, cap > 0
+                ? { frac: amps / cap, over: amps > cap,
+                    note: ` · ${amps.toFixed(1)} A / ${+cap.toFixed(1)} A` }
+                : { unknown: true });
+        } else {
+            this._dockChipFill(face, { frac: 0, over: false });
+        }
 
         this._dockWireDraggable(face, {
-            type: 'slot', distroId: d.id, number: n,
-            title: `${d.name || d.id} ${n}`,
-        }, `slot-${d.id}-${n}`);
+            type: 'tail', distroId: d.id, number: n, tail: t,
+            title: `${d.name || d.id} ${n} tail ${t}`,
+        }, `tail-${d.id}-${n}-${t}`);
         return tile;
     }
 
+    // ── the chips' load fill ──────────────────────────────────────────────
+    //
+    // Every dock chip wears its load twice, the user's pick of the rendered
+    // options: the chip's ground fills left-to-right like a meter (visible
+    // from across the room) AND a crisp bar row sits along the chip's
+    // bottom (the distro cards' rack-bar, miniaturized), with the exact
+    // figure on the hover title. The ground fill is a translucent layer
+    // INSIDE the face, above the tile's occupied/clash ground but below the
+    // text - it tints the state colour rather than replacing it, so an
+    // occupied chip stays readably lit and a clash stays readably red with
+    // the meter riding on top. Over-capacity turns both layers red.
+
+    // `info` is null for "draw nothing", { unknown: true } for a chip whose
+    // capacity has no figure (NO bar rather than a lying one - the hover
+    // says so), else { frac, over, note }. A free chip passes frac 0: the
+    // empty track renders, the ground stays untouched.
+    _dockChipFill(face, info) {
+        if (!info) return;
+        if (info.unknown) {
+            face.title += ' · load not scored - no capacity figure to '
+                + 'measure against';
+            return;
+        }
+        const w = `${Math.min(Math.max(info.frac, 0), 1) * 100}%`;
+        if (info.frac > 0) {
+            const ground = document.createElement('div');
+            ground.className = 'hw-dock-fill'
+                + (info.over ? ' hw-dock-fill-over' : '');
+            ground.style.width = w;
+            face.insertBefore(ground, face.firstChild);
+        }
+        const bar = document.createElement('div');
+        bar.className = 'hw-dock-bar';
+        const meat = document.createElement('i');
+        if (info.over) meat.className = 'hw-dock-bar-over';
+        meat.style.width = w;
+        bar.appendChild(meat);
+        face.appendChild(bar);
+        if (info.note) face.title += info.note;
+    }
+
+    // A data port chip's load, scored by THE authority the canvas badge
+    // uses: canvasRenderer.getPortLoadStats. The dock only gathers the same
+    // panels the badge scores (the drawn run, claimant by claimant) and
+    // never re-derives capacity arithmetic of its own. Two claimants on one
+    // socket (a clash) sum their loads against the smaller capacity - one
+    // physical socket cannot carry more because two screens ask.
+    _dockPortFill(cardId, number) {
+        const r = window.canvasRenderer;
+        if (!r || typeof r.getPortLoadStats !== 'function') return null;
+        const occupants = this._portOccupants(cardId, number);
+        if (!occupants.length) return { frac: 0, over: false };
+        let load = 0;
+        let capacity = Infinity;
+        let any = false;
+        for (const o of occupants) {
+            const layer = (this.project.layers || [])
+                .find(l => String(l.id) === String(o.layerId));
+            if (!layer) continue;
+            const stats = r.getPortLoadStats(
+                layer, this._dockRunPanels(layer, o.number));
+            // One claimant without a capacity figure poisons the whole
+            // reading: a bar built from the rest would understate.
+            if (!stats) return { unknown: true };
+            load += stats.load;
+            capacity = Math.min(capacity, stats.capacity);
+            any = true;
+        }
+        if (!any || !Number.isFinite(capacity) || !(capacity > 0)) {
+            return { unknown: true };
+        }
+        const over = load > capacity;
+        // The badge's own clamp: a port that fits never prints past 100, an
+        // over one never prints under 101 - digits and colour always agree.
+        const pct = over
+            ? Math.max(101, Math.round((load / capacity) * 100))
+            : Math.min(100, Math.round((load / capacity) * 100));
+        return {
+            frac: load / capacity, over,
+            note: ` · ${pct}% · ${this._dockFmtPx(load)} / `
+                + `${this._dockFmtPx(capacity)} px`,
+        };
+    }
+
+    _dockFmtPx(n) {
+        return n >= 10000 ? `${Math.round(n / 1000)}k` : String(Math.round(n));
+    }
+
+    // The panels one drawn port run carries, gathered exactly the way
+    // _dockBuildDataMap gathers them (calculatePortAssignments / the drawn
+    // custom paths) - the same single implementation of "which panels ride
+    // this port", filtered to one run. Cached per microtask because every
+    // chip of a 40-port card asks during one render, and the assignment
+    // walk is proportional to the wall.
+    _dockRunPanels(layer, num) {
+        if (!this._dockRunPanelsCache) {
+            this._dockRunPanelsCache = new Map();
+            Promise.resolve().then(() => {
+                this._dockRunPanelsCache = null;
+            });
+        }
+        let byPort = this._dockRunPanelsCache.get(layer);
+        if (!byPort) {
+            byPort = new Map();
+            if ((layer.flowPattern || 'tl-h') === 'custom'
+                    && layer.customPortPaths) {
+                Object.keys(layer.customPortPaths).forEach(numStr => {
+                    const n = parseInt(numStr, 10);
+                    byPort.set(n, (layer.customPortPaths[numStr] || [])
+                        .map(pos => (layer.panels || []).find(
+                            p => p.row === pos.row && p.col === pos.col))
+                        .filter(p => p && !p.hidden));
+                });
+            } else {
+                const items =
+                    typeof this.calculatePortAssignments === 'function'
+                        ? this.calculatePortAssignments(layer) : [];
+                items.forEach(it => {
+                    if (!it || !it.panel || it.panel.hidden) return;
+                    const arr = byPort.get(it.port) || [];
+                    arr.push(it.panel);
+                    byPort.set(it.port, arr);
+                });
+            }
+            this._dockRunPanelsCache.set(layer, byPort);
+        }
+        return byPort.get(num) || [];
+    }
+
     // A unit's title strip, which is also the unit's drag handle. The grip
-    // glyph is the affordance the canvas-group rows already use.
-    _dockBuildHandle(payload, key, name, detail, tip) {
+    // glyph is the affordance the canvas-group rows already use. `glance`
+    // adds the folded header's earn-its-keep readout: an optional compact
+    // count/figure and a slim fill line, so a section folded away still
+    // says how full it is.
+    _dockBuildHandle(payload, key, name, detail, tip, glance) {
         const head = document.createElement('div');
         head.className = 'hw-dock-head-row';
         const grip = document.createElement('span');
@@ -807,6 +1086,22 @@ class _HardwareDock {
         label.className = 'hw-dock-unit-name';
         label.textContent = name;
         head.appendChild(label);
+        if (glance) {
+            if (glance.text) {
+                const use = document.createElement('span');
+                use.className = 'hw-dock-unit-use';
+                use.textContent = glance.text;
+                head.appendChild(use);
+            }
+            const bar = document.createElement('span');
+            bar.className = 'hw-dock-headbar';
+            const meat = document.createElement('i');
+            if (glance.over) meat.className = 'hw-dock-bar-over';
+            meat.style.width =
+                `${Math.min(Math.max(glance.frac || 0, 0), 1) * 100}%`;
+            bar.appendChild(meat);
+            head.appendChild(bar);
+        }
         if (detail) {
             const info = document.createElement('span');
             info.className = 'hw-dock-unit-info';
@@ -1384,24 +1679,35 @@ class _HardwareDock {
     // and confirms nothing: clearing is undoable and touches only the
     // assignment - names, templates and the hardware itself stay.
     // The payload of the chip under an element, for the right-click
-    // surfaces. A tail pip carries a payload of its own (it is its own drag
-    // handle), but the menus speak for the chip that holds it - clearing or
-    // merging "tail 3" is not a gesture anything offers - so the search
-    // walks out of a tail to the slot face around it. A chip whose payload
-    // cannot be read arms nothing, as before.
+    // surfaces. A circuit chip speaks for ITSELF now that it is a real chip
+    // (its clear and merge are the drawn circuit run's own items, re-aimed
+    // from the hardware end); the multi header answers as the slot and the
+    // distro header as the distro. A chip whose payload cannot be read arms
+    // nothing, as before.
     _dockChipPayload(el) {
-        let chip = el && el.closest ? el.closest('[data-hwdock-payload]') : null;
-        while (chip) {
-            let payload = null;
-            try {
-                payload = JSON.parse(chip.dataset.hwdockPayload);
-            } catch (_) {
-                return null;
-            }
-            if (!payload) return null;
-            if (payload.type !== 'tail') return payload;
-            chip = chip.parentElement
-                ? chip.parentElement.closest('[data-hwdock-payload]') : null;
+        const chip = el && el.closest
+            ? el.closest('[data-hwdock-payload]') : null;
+        if (!chip) return null;
+        try {
+            return JSON.parse(chip.dataset.hwdockPayload) || null;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    // Which circuit holds one tail of box (distroId, number), read off the
+    // naming index's rendered positions - the same map the chips drew from.
+    // Returns { layer, rec, circuit } for the first claimant, or null for a
+    // free tail.
+    _dockTailHolder(distroId, number, tail) {
+        for (const m of (this._distroMultiNumbers(distroId)
+                .get(number) || [])) {
+            const l = (this.project.layers || [])
+                .find(x => x.id === m.layerId);
+            const rec = l && this._powerNaming(l).socas.get(m.soca);
+            if (!rec || !Array.isArray(rec.positions)) continue;
+            const i = rec.positions.indexOf(tail);
+            if (i >= 0) return { layer: l, rec, circuit: rec.circuits[i] };
         }
         return null;
     }
@@ -1530,7 +1836,19 @@ class _HardwareDock {
         const el = document.elementFromPoint(x, y);
         if (el && el.closest && el.closest('[data-hwdock-payload]')) {
             const payload = this._dockChipPayload(el);
-            if (!payload || payload.type !== 'slot') return null;
+            if (!payload) return null;
+            if (payload.type === 'tail') {
+                // A circuit chip merges as the drawn circuit run does: both
+                // sides of a boundary touching its holder's multi.
+                const held = this._dockTailHolder(
+                    payload.distroId, parseInt(payload.number, 10),
+                    payload.tail);
+                return held
+                    ? this._mergeMenuForMulti(held.layer, held.rec.index,
+                                              false)
+                    : null;
+            }
+            if (payload.type !== 'slot') return null;
             // The chip is the box, so it offers to hand back only a
             // SPLIT-OFF part it holds - a head member whose tail lives on
             // another box is that other surface's merge, not this chip's.
@@ -1697,6 +2015,30 @@ class _HardwareDock {
                                     count: pins.length });
                     return this._dockReleasePins(pins, 'Release Ports');
                 },
+            };
+        }
+        if (payload.type === 'tail') {
+            // The circuit chip's clear is the drawn circuit run's clear,
+            // re-aimed from the hardware end: un-assign the holder's multi,
+            // number then distro. A free tail states its freedom.
+            const held = this._dockTailHolder(
+                payload.distroId, parseInt(payload.number, 10), payload.tail);
+            if (!held) {
+                return {
+                    label: `Clear ${payload.title}`, disabled: true,
+                    title: `${payload.title} is free - there is nothing to `
+                        + 'clear.',
+                };
+            }
+            const name = held.rec.name || `multi ${held.rec.number}`;
+            return {
+                label: `Clear multi ${name}`,
+                title: 'Unassign this circuit\'s multi - its number, then '
+                    + 'its distro. Names are untouched, and undo puts it '
+                    + 'back.',
+                run: () => this._clearMultis(
+                    [{ layerId: held.layer.id, soca: held.rec.index }],
+                    'Clear Multi'),
             };
         }
         if (payload.type === 'slot') {

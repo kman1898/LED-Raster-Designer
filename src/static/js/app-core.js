@@ -314,6 +314,18 @@ export class LEDRasterApp {
             if (n.classList.contains('lrd-sec-collapsed')) {
                 this._setSectionCollapsed(n, false);
             }
+            // A backup nested in a redundant pair hides WHOLE when its main
+            // folds (the pair is one thing), so a restore aiming inside the
+            // backup must open the MAIN - a sibling, which the ancestor
+            // walk alone would never touch.
+            if (n.classList.contains('lrd-red-pair')) {
+                const main = n.firstElementChild;
+                if (main && main.classList
+                        && main.classList.contains('lrd-sec-collapsed')
+                        && !main.contains(el)) {
+                    this._setSectionCollapsed(main, false);
+                }
+            }
             // The dock folds by the SIDEBAR machinery, not the section
             // machinery, and the port chips' editors live inside it - so a
             // restore aiming into a collapsed tray reopens it through its

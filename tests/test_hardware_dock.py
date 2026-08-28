@@ -1623,38 +1623,48 @@ def split_clean(page, ids, st):
     page.evaluate(RESET_POWER_JS, ids)
 
 
-def test_a_slot_chip_wears_its_six_tail_sockets(dock_page):
-    """The chip is the box, so it shows the fan: six pips, the incumbent's
-    four tails lit and named (screen + derived circuit label on hover), the
-    two free ones dim - and an untouched slot's chip shows six free pips."""
+def test_a_multi_section_wears_six_circuit_chips(dock_page):
+    """The data grammar crossed over: a multi renders as a framed SECTION
+    (its header the whole-multi drag handle) holding six CIRCUIT CHIPS in
+    the port-chip register - tail number, derived circuit label and the
+    occupant screen on the face, occupied/clash grounds as the data tiles
+    wear them - the incumbent's four tails occupied and named, the two free
+    ones dim, and an untouched slot's section shows six free chips."""
     page, ids = dock_page
     open_view(page, 'power')
     st = split_seed(page, ids, off=4, cen=4)
     out = page.evaluate("""(st) => {
-        const read = (key) => {
-            const el = document.querySelector(`[data-hwdock="${key}"]`);
-            if (!el) return null;
-            return [...el.querySelectorAll('.hw-dock-tail')].map(c => ({
-                text: c.textContent,
-                used: c.classList.contains('hw-dock-tail-used'),
-                clash: c.classList.contains('hw-dock-tail-clash'),
-                title: c.title,
-            }));
+        const read = (n) => {
+            const head = document.querySelector(
+                `[data-hwdock="slot-${st.d2}-${n}"]`);
+            const sec = head && head.closest('.hw-dock-multi');
+            if (!sec) return null;
+            return [1, 2, 3, 4, 5, 6].map(t => {
+                const face = sec.querySelector(
+                    `[data-hwdock="tail-${st.d2}-${n}-${t}"]`);
+                const tile = face && face.closest('.lrd-tile');
+                if (!tile) return null;
+                return {
+                    text: face.textContent,
+                    used: tile.classList.contains('lrd-tile-occupied'),
+                    clash: tile.classList.contains('lrd-tile-clash'),
+                    title: face.title,
+                };
+            });
         };
-        return { occupied: read(`slot-${st.d2}-2`),
-                 empty: read(`slot-${st.d2}-1`) };
+        return { occupied: read(2), empty: read(1) };
     }""", st)
     occ = out['occupied']
-    assert occ and len(occ) == 6, out
-    assert [c['text'] for c in occ] == ['1', '2', '3', '4', '5', '6'], occ
+    assert occ and len(occ) == 6 and all(occ), out
     assert [c['used'] for c in occ] == [True] * 4 + [False] * 2, occ
     assert not any(c['clash'] for c in occ), occ
+    # the chip face says tail number + derived label + occupant screen
+    assert 'C2-2-1' in occ[0]['text'] and 'OFF SL' in occ[0]['text'], occ
     assert 'OFF SL' in occ[0]['title'] and 'C2-2-1' in occ[0]['title'], occ
-    # the pip's own drag hint now follows the holder statement, so "free"
-    # is the statement, not the string's end
     assert 'Tail 5 - free' in occ[4]['title'], occ
+    assert 'free' in occ[4]['text'], occ
     empty = out['empty']
-    assert empty and len(empty) == 6, out
+    assert empty and len(empty) == 6 and all(empty), out
     assert not any(c['used'] or c['clash'] for c in empty), empty
     split_clean(page, ids, st)
 
@@ -2179,3 +2189,581 @@ def test_the_dock_sections_ports_by_box_with_lettered_headers(dock_page):
             await window.app.refreshProcessors();
         }""", made)
         page.wait_for_timeout(600)
+
+
+# ── the chips wear their load: B's ground meter + C's rack-bar ────────────
+#
+# Every dock chip carries how full it is, twice (the user's pick of the
+# rendered options): the chip's ground fills left-to-right behind the text
+# (translucent green, red past capacity) AND a crisp 4px bar rides the
+# chip's bottom, with the exact figure on the hover title. Data chips are
+# scored by THE authority the canvas badge uses (getPortLoadStats); power
+# chips by the soca plan's own leg figures against the screen's
+# amps-per-circuit. A free chip shows the empty track and no ground fill;
+# a chip with no capacity figure shows NO bar rather than a lying one, and
+# says so on hover.
+
+CHIP_FILL_JS = """(key) => {
+    const face = document.querySelector(`[data-hwdock="${key}"]`);
+    if (!face) return null;
+    const tile = face.closest('.lrd-tile');
+    const ground = face.querySelector('.hw-dock-fill');
+    const bar = face.querySelector('.hw-dock-bar');
+    const meat = bar ? bar.querySelector('i') : null;
+    const pct = (el) => el ? parseFloat(el.style.width) : null;
+    return {
+        title: face.title,
+        occupied: tile.classList.contains('lrd-tile-occupied'),
+        clash: tile.classList.contains('lrd-tile-clash'),
+        hasGround: !!ground,
+        groundPct: pct(ground),
+        groundOver: !!(ground
+            && ground.classList.contains('hw-dock-fill-over')),
+        hasBar: !!bar,
+        barPct: pct(meat),
+        barOver: !!(meat && meat.classList.contains('hw-dock-bar-over')),
+        // the state ground must stay under the meter, not be replaced by it
+        tileBg: getComputedStyle(tile).backgroundColor,
+    };
+}"""
+
+
+def test_data_chips_fill_from_the_badges_own_stats(dock_page):
+    """The occupied chip's meter and bar both measure exactly what the
+    canvas badge measures - getPortLoadStats' load over ITS capacity - and
+    the hover carries the figure; a free chip shows the empty track and no
+    ground fill; the occupied ground colour survives under the meter."""
+    page, ids = dock_page
+    open_view(page, 'data-flow')
+    page.evaluate(RESET_DATA_JS, ids)
+    page.wait_for_timeout(600)
+
+    model = page.evaluate("""(ids) => {
+        const app = window.app;
+        const r = window.canvasRenderer;
+        const a = app.project.layers.find(l => l.id === ids.aId);
+        const stats = r.getPortLoadStats(a, app._dockRunPanels(a, 1));
+        return stats && { pct: (stats.load / stats.capacity) * 100,
+                          state: stats.state };
+    }""", ids)
+    assert model and 0 < model['pct'] < 100, (
+        f'the seed must give port 1 a real partial load: {model}')
+
+    out = page.evaluate(CHIP_FILL_JS, f'port-{ids["cardId"]}-1')
+    assert out and out['occupied'], out
+    assert out['hasGround'] and out['hasBar'], out
+    assert abs(out['groundPct'] - model['pct']) < 0.5, (
+        f'the ground meter disagrees with the badge authority: '
+        f'{out} vs {model}')
+    assert abs(out['barPct'] - model['pct']) < 0.5, out
+    assert not out['groundOver'] and not out['barOver'], out
+    assert '% ·' in out['title'] and ' px' in out['title'], (
+        f'the hover must carry the exact figure: {out["title"]}')
+    # the occupied ground is still the occupied ground - the meter layers
+    # over it inside the face instead of replacing the tile's state colour
+    assert out['tileBg'] == 'rgb(30, 30, 30)', out
+
+    # a free chip: empty track, no ground fill, no figure
+    free = page.evaluate(CHIP_FILL_JS, f'port-{ids["cardId"]}-12')
+    assert free and not free['occupied'], free
+    assert not free['hasGround'], f'a free chip must not fill: {free}'
+    assert free['hasBar'] and free['barPct'] == 0, (
+        f'a free chip shows the empty track: {free}')
+
+
+def test_an_over_capacity_port_reddens_both_layers(dock_page):
+    """A drawn custom run past the port's capacity - the only way a data
+    port goes over, auto keeps itself legal - turns the ground meter and
+    the bar red, full-width, with the over figure on hover. The badge's own
+    authority decides 'over'; the chip only wears its answer."""
+    page, ids = dock_page
+    open_view(page, 'data-flow')
+    page.evaluate(RESET_DATA_JS, ids)
+    page.wait_for_timeout(600)
+    try:
+        model = page.evaluate("""(ids) => {
+            const app = window.app;
+            const a = app.project.layers.find(l => l.id === ids.aId);
+            // two whole rows on one drawn path: 20 cabinets of 200x200 px,
+            // 800k px against the card's ~660k figure
+            const path = [];
+            for (let row = 0; row < 2; row++) {
+                for (let col = 0; col < 10; col++) path.push({ row, col });
+            }
+            a.flowPattern = 'custom';
+            a.customPortPaths = { 1: path };
+            app.renderHardwareDock();
+            const stats = window.canvasRenderer.getPortLoadStats(
+                a, app._dockRunPanels(a, 1));
+            return stats && { state: stats.state,
+                              pct: (stats.load / stats.capacity) * 100 };
+        }""", ids)
+        assert model and model['state'] == 'over', (
+            f'the seed must overload the port in the model first: {model}')
+
+        out = page.evaluate(CHIP_FILL_JS, f'port-{ids["cardId"]}-1')
+        assert out['hasGround'] and out['groundOver'], out
+        assert out['groundPct'] == 100, (
+            f'an over meter clamps full, the red says the rest: {out}')
+        assert out['hasBar'] and out['barOver'] and out['barPct'] == 100, out
+        assert '% ·' in out['title'], out
+    finally:
+        page.evaluate("""(ids) => {
+            const a = window.app.project.layers.find(l => l.id === ids.aId);
+            a.flowPattern = 'tl-h';
+            delete a.customPortPaths;
+            window.app.renderHardwareDock();
+        }""", ids)
+        page.wait_for_timeout(300)
+
+
+def test_a_port_with_no_capacity_figure_shows_no_bar(dock_page):
+    """An unknown processor type has no capacity table, so a bar would be a
+    guess drawn as a fact: the chip shows NO track at all and the hover
+    says the load was not scored."""
+    page, ids = dock_page
+    open_view(page, 'data-flow')
+    page.evaluate(RESET_DATA_JS, ids)
+    page.wait_for_timeout(600)
+    try:
+        page.evaluate("""(ids) => {
+            const a = window.app.project.layers.find(l => l.id === ids.aId);
+            a._savedProcessorType = a.processorType;
+            a.processorType = 'mystery-brand';
+            window.app.renderHardwareDock();
+        }""", ids)
+        out = page.evaluate(CHIP_FILL_JS, f'port-{ids["cardId"]}-1')
+        assert out and out['occupied'], out
+        assert not out['hasBar'] and not out['hasGround'], (
+            f'no capacity figure must mean no bar: {out}')
+        assert 'load not scored' in out['title'], out
+    finally:
+        page.evaluate("""(ids) => {
+            const a = window.app.project.layers.find(l => l.id === ids.aId);
+            a.processorType = a._savedProcessorType;
+            delete a._savedProcessorType;
+            window.app.renderHardwareDock();
+        }""", ids)
+        page.wait_for_timeout(300)
+
+
+def test_power_chips_fill_from_the_plans_leg_figures(dock_page):
+    """A circuit chip's meter is its leg's amps (getSocaPlan's own figure)
+    over the screen's amps-per-circuit, with the exact amps on hover; a
+    custom-drawn circuit past the breaker turns both layers red. The free
+    chips beside it keep the empty track."""
+    page, ids = dock_page
+    open_view(page, 'power')
+    page.evaluate(RESET_POWER_JS, ids)
+    page.wait_for_timeout(500)
+
+    model = page.evaluate("""(ids) => {
+        const app = window.app;
+        const a = app.project.layers.find(l => l.id === ids.aId);
+        a.panelWatts = 200;   // pin the wattage the seed's comment assumes
+        app.setSocaDistro(a, 1, ids.distroId);
+        app._restateNaming();
+        app.renderHardwareDock();
+        const s = app.getSocaPlan(a).find(x => x.soca === 1);
+        const capA = parseFloat(a.powerAmperage);
+        const leg = s.legs.find(l => l.leg === 1);
+        return { amps: leg.amps, capA, pct: (leg.amps / capA) * 100 };
+    }""", ids)
+    assert 0 < model['pct'] < 100, (
+        f'the seed must give tail 1 a real partial load: {model}')
+
+    out = page.evaluate(CHIP_FILL_JS, f'tail-{ids["distroId"]}-1-1')
+    assert out and out['occupied'], out
+    assert out['hasGround'] and out['hasBar'], out
+    assert abs(out['groundPct'] - model['pct']) < 0.5, (
+        f'the meter disagrees with the plan leg figure: {out} vs {model}')
+    assert abs(out['barPct'] - model['pct']) < 0.5, out
+    assert not out['groundOver'] and not out['barOver'], out
+    assert (f"{model['amps']:.1f} A" in out['title']
+            and f"{model['capA']:g} A" in out['title']), (
+        f'the hover must say amps over capacity: {out["title"]}')
+
+    # WALL A makes 3 circuits; tails 4-6 are free chips with empty tracks
+    free = page.evaluate(CHIP_FILL_JS, f'tail-{ids["distroId"]}-1-5')
+    assert free and not free['occupied'], free
+    assert not free['hasGround'], free
+    assert free['hasBar'] and free['barPct'] == 0, free
+
+    # a custom-drawn circuit of 30 cabinets: 28.8 A on a 20 A circuit
+    try:
+        over_model = page.evaluate("""(ids) => {
+            const app = window.app;
+            const a = app.project.layers.find(l => l.id === ids.aId);
+            const path = [];
+            for (let row = 0; row < 3; row++) {
+                for (let col = 0; col < 10; col++) path.push({ row, col });
+            }
+            a.powerFlowPattern = 'custom';
+            a.powerCustomPaths = { 1: path };
+            app._circuitTailCache = null;
+            app.renderHardwareDock();
+            const s = app.getSocaPlan(a).find(x => x.soca === 1);
+            const leg = s.legs.find(l => l.leg === 1);
+            return { amps: leg.amps, over: leg.amps
+                     > parseFloat(a.powerAmperage) };
+        }""", ids)
+        assert over_model['over'], (
+            f'the drawn circuit must overload in the model first: '
+            f'{over_model}')
+        out = page.evaluate(CHIP_FILL_JS, f'tail-{ids["distroId"]}-1-1')
+        assert out['hasGround'] and out['groundOver'], out
+        assert out['groundPct'] == 100 and out['barOver'], out
+        assert out['barPct'] == 100, out
+    finally:
+        page.evaluate("""(ids) => {
+            const app = window.app;
+            const a = app.project.layers.find(l => l.id === ids.aId);
+            a.powerFlowPattern = null;
+            delete a.powerCustomPaths;
+            delete a.panelWatts;
+            app._circuitTailCache = null;
+            app.renderHardwareDock();
+        }""", ids)
+        page.evaluate(RESET_POWER_JS, ids)
+        page.wait_for_timeout(300)
+
+
+# ── the sections fold: card, box, distro, multi - one machinery ───────────
+#
+# Every hardware section folds by the app's one section machinery
+# (_wireSectionCollapse: arrow click, header double-click, per-id
+# localStorage persistence, re-wired after every rebuild). The folded
+# header earns its keep: it keeps being the whole-unit drag handle, and it
+# carries a glance readout (count + slim fill line) so a card folded away
+# because it is done reads as done. A reveal aimed inside a folded section
+# opens it (_expandSectionsFor), and a redundant pair folds as one thing
+# under its main while the backup can still fold alone.
+
+FOLD_STATE_JS = """(secId) => {
+    const head = document.querySelector(`[data-lrd-sec="${secId}"]`);
+    const sec = head && head.parentElement;
+    if (!sec) return null;
+    const body = sec.querySelector(':scope > .lrd-sec-body');
+    return {
+        collapsed: sec.classList.contains('lrd-sec-collapsed'),
+        bodyHidden: body ? getComputedStyle(body).display === 'none' : null,
+        stored: localStorage.getItem(`ledRasterPanelCollapsed_${secId}`),
+        hasArrow: !!head.querySelector('.lrd-sec-arrow'),
+    };
+}"""
+
+
+def fold_arrow(page, sec_id):
+    page.locator(f'[data-lrd-sec="{sec_id}"] .lrd-sec-arrow').click()
+    page.wait_for_timeout(250)
+
+
+def test_every_dock_section_kind_folds_and_persists(dock_page):
+    """Card (data), distro and multi (power): arrow folds, the state
+    persists per section id and survives the tray's wholesale rebuild,
+    and the header's double-click unfolds."""
+    page, ids = dock_page
+    sections = [
+        ('data-flow', f'hwdock-card-{ids["cardId"]}'),
+        ('power', f'hwdock-distro-{ids["distroId"]}'),
+        ('power', f'hwdock-multi-{ids["distroId"]}-1'),
+    ]
+    for view, sec in sections:
+        open_view(page, view)
+        st = page.evaluate(FOLD_STATE_JS, sec)
+        assert st and st['hasArrow'] and not st['collapsed'], (
+            f'{sec} did not wire as a section: {st}')
+        fold_arrow(page, sec)
+        st = page.evaluate(FOLD_STATE_JS, sec)
+        assert st['collapsed'] and st['bodyHidden'], f'{sec}: {st}'
+        assert st['stored'] == '1', f'{sec} did not persist: {st}'
+        # the tray rebuilds wholesale on every change; the fold must ride it
+        page.evaluate("() => window.app.renderHardwareDock()")
+        page.wait_for_timeout(300)
+        st = page.evaluate(FOLD_STATE_JS, sec)
+        assert st['collapsed'] and st['bodyHidden'], (
+            f'{sec} forgot its fold across a rebuild: {st}')
+        # double-click anywhere on the header is the other unfold gesture
+        page.locator(f'[data-lrd-sec="{sec}"]').dblclick()
+        page.wait_for_timeout(250)
+        st = page.evaluate(FOLD_STATE_JS, sec)
+        assert not st['collapsed'] and st['stored'] == '0', (
+            f'{sec} did not unfold on header double-click: {st}')
+
+
+def test_a_folded_header_still_drags_its_whole_scope(dock_page):
+    """Folding gets a finished unit out of the way without taking its drag
+    away: the folded multi header still lands the whole multi on a
+    circuit, exactly as the open one does."""
+    page, ids = dock_page
+    open_view(page, 'power')
+    page.evaluate(RESET_POWER_JS, ids)
+    page.wait_for_timeout(500)
+    sec = f'hwdock-multi-{ids["distroId"]}-1'
+    fold_arrow(page, sec)
+    assert page.evaluate(FOLD_STATE_JS, sec)['collapsed']
+    try:
+        sx, sy = dock_tile_center(page, f'slot-{ids["distroId"]}-1')
+        tgt = panel_point(page, ids['bId'], {'circuit': 0})
+        drag(page, sx, sy, tgt['x'], tgt['y'])
+        out = page.evaluate(POWER_STATE_JS, ids['bId'])
+        assert out['distro'] == {'1': ids['distroId']}, (
+            f'the folded header lost its drop: {out}')
+        assert out['num'] == {'1': 1}, out
+    finally:
+        # unfold (the section id survives the rebuild the drop caused)
+        page.evaluate("""(sec) => {
+            const head = document.querySelector(`[data-lrd-sec="${sec}"]`);
+            if (head) window.app._setSectionCollapsed(
+                head.parentElement, false);
+        }""", sec)
+        page.evaluate(RESET_POWER_JS, ids)
+        page.wait_for_timeout(300)
+
+
+def test_a_reveal_into_a_folded_section_opens_it(dock_page):
+    """The _expandSectionsFor doctrine, extended to the tray: a chip the
+    app is about to reveal (focus restore, the aim flow) must not stay
+    display:none inside a folded section - the fold opens, and the opening
+    persists."""
+    page, ids = dock_page
+    open_view(page, 'data-flow')
+    sec = f'hwdock-card-{ids["cardId"]}'
+    fold_arrow(page, sec)
+    assert page.evaluate(FOLD_STATE_JS, sec)['collapsed']
+    out = page.evaluate("""([ids, sec]) => {
+        const chip = document.querySelector(
+            `[data-hwdock="port-${ids.cardId}-3"]`);
+        window.app._expandSectionsFor(chip);
+        const head = document.querySelector(`[data-lrd-sec="${sec}"]`);
+        return {
+            collapsed: head.parentElement.classList
+                .contains('lrd-sec-collapsed'),
+            stored: localStorage.getItem(`ledRasterPanelCollapsed_${sec}`),
+            visible: chip.offsetParent !== null,
+        };
+    }""", [ids, sec])
+    assert not out['collapsed'] and out['stored'] == '0', out
+    assert out['visible'], f'the revealed chip is still hidden: {out}'
+
+
+def test_a_backup_section_folds_with_its_main_and_alone(dock_page):
+    """A redundant pair is one thing: folding the MAIN box hides the whole
+    nested backup with it (header and all), and unfolding brings it back.
+    The backup still folds alone through its own header without touching
+    the main - and a reveal aimed inside the hidden backup opens the main
+    around it."""
+    page, ids = dock_page
+    open_view(page, 'data-flow')
+    made = page.evaluate("""async () => {
+        const send = (url, method, body) => fetch(url, { method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body) }).then(r => r.json());
+        const sx = await send('/api/processors', 'POST',
+                              { deviceId: 'brompton-sx40' });
+        const sxProc = sx.resolved[sx.resolved.length - 1];
+        await send(`/api/processors/${sxProc.id}`, 'PUT',
+                   { redundancy: true });
+        await window.app.refreshProcessors();
+        const resolved = window.app._processorsResolved
+            .find(p => p.id === sxProc.id);
+        const card = resolved.slots[0].card;
+        return { sxId: sxProc.id, cardId: card.id,
+                 cvtA: card.cvts[0].id, cvtB: card.cvts[1].id };
+    }""")
+    page.wait_for_timeout(1200)
+    try:
+        read_pair = """(made) => {
+            const headA = document.querySelector(
+                `[data-lrd-sec="hwdock-box-${made.cvtA}"]`);
+            const headB = document.querySelector(
+                `[data-lrd-sec="hwdock-box-${made.cvtB}"]`);
+            const boxA = headA && headA.parentElement;
+            const boxB = headB && headB.parentElement;
+            if (!boxA || !boxB) return null;
+            return {
+                aCollapsed: boxA.classList.contains('lrd-sec-collapsed'),
+                bCollapsed: boxB.classList.contains('lrd-sec-collapsed'),
+                bShown: getComputedStyle(boxB).display !== 'none',
+                aBodyShown: getComputedStyle(boxA.querySelector(
+                    ':scope > .lrd-sec-body')).display !== 'none',
+                paired: !!boxB.closest('.lrd-red-pair')
+                    && boxB.classList.contains('lrd-red-backup'),
+            };
+        }"""
+        st = page.evaluate(read_pair, made)
+        assert st and st['paired'], f'B must nest under A as a pair: {st}'
+        assert st['bShown'], st
+
+        # folding the main takes the backup with it, whole
+        fold_arrow(page, f'hwdock-box-{made["cvtA"]}')
+        st = page.evaluate(read_pair, made)
+        assert st['aCollapsed'] and not st['bShown'], (
+            f'folding the main must fold the pair: {st}')
+
+        # a reveal aimed inside the hidden backup opens the main around it
+        out = page.evaluate("""(made) => {
+            const chip = document.querySelector(
+                `[data-hwdock="port-${made.cardId}-11"]`);
+            window.app._expandSectionsFor(chip);
+            return null;
+        }""", made)
+        st = page.evaluate(read_pair, made)
+        assert not st['aCollapsed'] and st['bShown'], (
+            f'the reveal did not open the main around the backup: {st}')
+
+        # the backup folds alone, main untouched
+        fold_arrow(page, f'hwdock-box-{made["cvtB"]}')
+        st = page.evaluate(read_pair, made)
+        assert st['bCollapsed'] and not st['aCollapsed'], st
+        assert st['bShown'] and st['aBodyShown'], (
+            f'the backup folding alone must leave the main open: {st}')
+    finally:
+        page.evaluate("""async (made) => {
+            await fetch(`/api/processors/${made.sxId}`,
+                        { method: 'DELETE' });
+            await window.app.refreshProcessors();
+        }""", made)
+        page.wait_for_timeout(600)
+
+
+def test_the_folded_header_earns_its_keep_with_a_glance(dock_page):
+    """The header carries a compact usage readout and a slim fill line -
+    the reason folding a finished card is safe: '40/40' and a full green
+    line still say everything the open grid said at a squint."""
+    page, ids = dock_page
+    open_view(page, 'power')
+    page.evaluate(RESET_POWER_JS, ids)
+    page.evaluate("""(ids) => {
+        const app = window.app;
+        const b = app.project.layers.find(x => x.id === ids.bId);
+        app.setSocaDistro(b, 1, ids.distroId);
+        app.setSocaNumber(b, 1, 1);
+        app._restateNaming();
+        app.renderHardwareDock();
+    }""", ids)
+    page.wait_for_timeout(500)
+    try:
+        out = page.evaluate("""(ids) => {
+            const head = document.querySelector(
+                `[data-hwdock="slot-${ids.distroId}-1"]`);
+            const use = head.querySelector('.hw-dock-unit-use');
+            const bar = head.querySelector('.hw-dock-headbar > i');
+            return {
+                use: use && use.textContent,
+                barW: bar && parseFloat(bar.style.width),
+            };
+        }""", ids)
+        # WALL B's one circuit sits on tail 1: one of six tails used
+        assert out['use'] == '1/6', out
+        assert out['barW'] is not None and out['barW'] > 0, (
+            f'the glance line must fill with the box load: {out}')
+
+        # the data card header wears the same glance from the assignment's
+        # own used/capacity counts
+        open_view(page, 'data-flow')
+        page.evaluate(RESET_DATA_JS, ids)
+        page.wait_for_timeout(500)
+        card = page.evaluate("""(ids) => {
+            const head = document.querySelector(
+                `[data-hwdock="card-${ids.cardId}"]`);
+            const bar = head.querySelector('.hw-dock-headbar > i');
+            const summary = (window.app._assignment.cards || [])
+                .find(c => c.cardId === ids.cardId);
+            return {
+                barW: bar && parseFloat(bar.style.width),
+                expect: summary && summary.capacityKnown
+                    ? (summary.used / summary.capacity) * 100 : null,
+            };
+        }""", ids)
+        assert card['expect'] and card['barW'] is not None, card
+        assert abs(card['barW'] - card['expect']) < 0.5, (
+            f'the card glance disagrees with the assignment summary: {card}')
+    finally:
+        open_view(page, 'power')
+        page.evaluate(RESET_POWER_JS, ids)
+        page.wait_for_timeout(300)
+
+
+# ── the circuit chip's right-click speaks for the circuit ────────────────
+#
+# The re-pointing that came with the chips: a CIRCUIT chip offers the drawn
+# circuit run's own items (clear its multi, merge a split back) from the
+# hardware end; the MULTI HEADER keeps the slot's box-wide clear; the
+# DISTRO HEADER keeps the distro's. A free chip states its freedom.
+
+
+def test_a_circuit_chips_menu_is_the_circuit_runs_menu(dock_page):
+    page, ids = dock_page
+    open_view(page, 'power')
+    page.evaluate(RESET_POWER_JS, ids)
+    page.evaluate("""(ids) => {
+        const app = window.app;
+        const b = app.project.layers.find(x => x.id === ids.bId);
+        app.setSocaDistro(b, 1, ids.distroId);
+        app.setSocaNumber(b, 1, 1);
+        app._restateNaming();
+        app.renderHardwareDock();
+        app.resetHistory('Dock Seed');
+    }""", ids)
+    page.wait_for_timeout(600)
+    before = page.evaluate(HIST_LEN_JS)
+
+    # the chip holding WALL B's circuit: clear = the run's multi clear
+    sx, sy = dock_tile_center(page, f'tail-{ids["distroId"]}-1-1')
+    item = right_click(page, sx, sy)
+    assert item['menuShown'] and item['shown'] and not item['disabled'], item
+    assert item['label'].startswith('Clear multi '), (
+        f"the circuit chip must offer the run's own clear: {item}")
+    state = page.evaluate(MENU_ITEMS_JS)
+    assert state['items'] == ['hw-clear'], (
+        f'the chip menu carries more than its own actions: {state}')
+    take_clear(page)
+    out = page.evaluate(POWER_STATE_JS, ids['bId'])
+    assert out == {'distro': {}, 'num': {}}, (
+        f'the chip clear did not unassign the multi: {out}')
+    assert page.evaluate(HIST_JS, 1) == ['Clear Multi']
+    assert page.evaluate(HIST_LEN_JS) == before + 1
+
+    # a free chip: the item is there, disabled, and says why
+    sx, sy = dock_tile_center(page, f'tail-{ids["distroId"]}-1-4')
+    item = right_click(page, sx, sy)
+    assert item['shown'] and item['disabled'], item
+    assert 'is free' in item['title'], item
+    close_menu(page)
+    page.evaluate(RESET_POWER_JS, ids)
+    page.wait_for_timeout(300)
+
+
+def test_a_circuit_chip_offers_the_merge_for_its_split_off_part(dock_page):
+    """The chip holding a split-off circuit merges exactly as right-clicking
+    that circuit's drawn run does - both surfaces, one boundary."""
+    page, ids = dock_page
+    open_view(page, 'power')
+    st = split_seed(page, ids, off=4, cen=4)
+    sx, sy = dock_tile_center(page, f'slot-{st["d2"]}-2')
+    tgt = panel_point(page, st['cenId'], {'circuit': 2})
+    drag(page, sx, sy, tgt['x'], tgt['y'])
+    page.wait_for_timeout(400)
+
+    # CEN SL's split-off circuits joined tails 5-6; the tail-5 chip offers
+    # the merge beside the clear - and only those two
+    sx, sy = dock_tile_center(page, f'tail-{st["d2"]}-2-5')
+    page.mouse.click(sx, sy, button='right')
+    page.wait_for_timeout(400)
+    mi = page.evaluate(MERGE_ITEM_JS)
+    assert mi and mi['menuShown'] and mi['shown'], mi
+    assert mi['label'].startswith('Merge back into '), mi
+    state = page.evaluate(MENU_ITEMS_JS)
+    assert state['items'] == ['hw-clear', 'hw-merge'], (
+        f'the chip menu carries more than its own actions: {state}')
+    page.locator('#context-menu [data-action="hw-merge"]').click()
+    page.wait_for_timeout(800)
+    out = page.evaluate("""(st) => {
+        const cen = window.app.project.layers.find(l => l.id === st.cenId);
+        return { splits: cen.powerSocaSplits || [],
+                 distro: cen.powerSocaDistro || {} };
+    }""", st)
+    assert out == {'splits': [], 'distro': {}}, (
+        f'the chip merge did not weld the parts back: {out}')
+    split_clean(page, ids, st)

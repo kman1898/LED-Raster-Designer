@@ -2472,6 +2472,15 @@ class _Power {
                 try {
                     localStorage.removeItem(
                         `ledRasterPanelCollapsed_power-distro-${id}`);
+                    // The dock folds this distro and its multis under their
+                    // own ids; the multi keys are per (distro, number), so a
+                    // prefix sweep catches however many the tray ever drew.
+                    localStorage.removeItem(
+                        `ledRasterPanelCollapsed_hwdock-distro-${id}`);
+                    const prefix = `ledRasterPanelCollapsed_hwdock-multi-${id}-`;
+                    Object.keys(localStorage)
+                        .filter(k => k.startsWith(prefix))
+                        .forEach(k => localStorage.removeItem(k));
                 } catch (_) { /* blocked storage never held the key */ }
                 this._restateNaming();
             });
