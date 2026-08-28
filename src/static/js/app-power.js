@@ -44,14 +44,24 @@ class _Power {
         const merge = (typeof this._prepareMergeMenu === 'function')
             ? this._prepareMergeMenu(x, y) : null;
         this._mergeMenuAction = merge;
-        if (inDock && !clear && !merge) {
+        // Circuit sharing (the retired Splitters panel's manual lever):
+        // armed only on a power circuit run or chip, and only while the
+        // screen's splitters are on or its circuits are drawn custom
+        // (app-dock.js _prepareShareMenus). Absent everywhere else.
+        const sharing = (typeof this._prepareShareMenus === 'function')
+            ? this._prepareShareMenus(x, y) : { share: null, unshare: null };
+        this._shareMenuAction = sharing.share;
+        this._unshareMenuAction = sharing.unshare;
+        if (inDock && !clear && !merge && !sharing.share
+                && !sharing.unshare) {
             this.hideContextMenu();
             return;
         }
         // The layer/canvas items belong to the canvas surface only. On the
         // dock they all leave, whatever their group logic below would say.
         menu.querySelectorAll(
-            '.menu-option:not(.hw-clear-only):not(.hw-merge-only), '
+            '.menu-option:not(.hw-clear-only):not(.hw-merge-only)'
+            + ':not(.hw-share-only):not(.hw-unshare-only), '
             + '.menu-divider:not(.hw-clear-only)').forEach(el => {
             el.style.display = inDock ? 'none' : '';
         });
@@ -119,6 +129,18 @@ class _Power {
             mergeItem.textContent = merge.label;
             mergeItem.title = merge.title || '';
         }
+        [['hw-share-only', 'hw-share', sharing.share],
+         ['hw-unshare-only', 'hw-unshare', sharing.unshare],
+        ].forEach(([cls, action, armed]) => {
+            menu.querySelectorAll(`.${cls}`).forEach(el => {
+                el.style.display = armed ? '' : 'none';
+            });
+            const item = menu.querySelector(`[data-action="${action}"]`);
+            if (item && armed) {
+                item.textContent = armed.label;
+                item.title = armed.title || '';
+            }
+        });
 
         menu.style.visibility = 'hidden';
         menu.style.display = 'block';
@@ -462,15 +484,11 @@ class _Power {
         if (amps3El) amps3El.textContent = totalAmps3 ? totalAmps3.toFixed(2) + ' A' : '0';
         // Deferred, not called inline: this runs synchronously inside the
         // change handlers of the static Power fields (panel watts, voltage,
-        // amperage), and it wipes all three hosts.
-        //
-        // Those hosts moved to the Power panel (#power-sidebar), so Tab out of
-        // Watts per Panel now lands on the Flow Pattern buttons that follow it
-        // in the left sidebar rather than inside the soca host. The deferral
-        // still earns its place: the three hosts are siblings there and tab
-        // into one another, and this same path runs from their own controls,
-        // so an inline wipe still destroys the field Tab is about to land in.
-        // See _rebuildAfterGesture.
+        // amperage). The knob syncs are cheap, but refreshDistroPanel is a
+        // whole dock render (its wipe included), and this same path runs
+        // from controls whose Tab is still mid-flight - an inline wipe
+        // destroys the field Tab is about to land in. See
+        // _rebuildAfterGesture.
         this._rebuildAfterGesture(() => {
             this.refreshSocaRuns();
             this.refreshSplitterPanel();
@@ -2202,290 +2220,212 @@ class _Power {
         this.updateLayers([layer], true, 'Set Multi Home Run');
     }
 
-    // Project-level distro list with a live load bar per source. Shown in the
-    // Power panel because that's where power planning lives, but the numbers
-    // roll up across EVERY screen, not just the selected one.
-    //
-    // Unlike refreshSocaRuns and refreshSplitterPanel it never blanks itself:
-    // there is no layer it is wrong for. What keeps it off the other tabs is
-    // its host's ancestry - the Power panel leaves layout outside Power view
-    // (updateViewSidebars) and the tab-panel around the hosts hides with the
-    // tab. Give the host a parent that lives in every view and this list
-    // renders in every view.
+    // The distro list died with the Power sidebar: the dock's distro
+    // sections are the one surface now - name inline on the header, the
+    // load bar and LEGS line beside it, the electrical setup behind the
+    // gear (whose content _buildDistroGearContent below builds). So a
+    // distro refresh IS a dock render, kept under its old name because
+    // every "the loads moved" path already calls it.
     refreshDistroPanel() {
-        const host = document.getElementById('power-distros');
-        if (!host) return;
-        // The distro rows are editors too, and this wipe runs on every stats
-        // refresh - keyed fields plus the capture keep the user's focus and
-        // caret across it (see _preserveEditorFocus). The buttons carry keys
-        // as well: Tab out of a row's name field lands on its ✕ button, and
-        // an unkeyed stop is one the restore cannot bring back - the same
-        // reason the label editors keyed their row checkboxes.
-        this._preserveEditorFocus();
-        const esc = (s) => this._esc ? this._esc(s) : s;
-        const loads = this.getDistroLoads();
-        host.innerHTML = `
-            <!-- Wraps: the Power panel drags down to 180px, and the heading
-                 with both buttons has never fitted one line at any width the
-                 panel offers - the sidebar's overflow-x:hidden was simply
-                 cutting + Add off, and squeezing its label onto two lines at
-                 the 260px default. The buttons travel as one group so they
-                 drop below the heading together and stay right-aligned, and
-                 the group wraps in turn once even it runs out of room. The
-                 heading takes the slack instead of a spacer span, so a wrapped
-                 line has nothing stretched across it. -->
-            <!-- Balance moved onto each distro's own row: legs never
-                 interact across services, so a show-wide button was N
-                 independent problems behind one control - and it moved
-                 multis on distros the user was not looking at. -->
-            <div class="lrd-sec-head" data-lrd-sec="power-distros" style="display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:6px;">
-                <label style="font-weight:600; flex:1 1 auto;" data-tooltip="Power distros, Project-level power sources. Assign each multi to one and the load rolls up here across every screen.">Power Distros</label>
-                <div style="display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; margin-left:auto;">
-                    <button id="power-distro-add" data-lrd-field="power-distro-add" class="btn btn-secondary" style="padding:2px 10px; white-space:nowrap;">+ Add</button>
-                </div>
-            </div>
-            <div class="lrd-sec-body">
-            ${loads.length ? loads.map(d => {
-                const pct = Math.min(100, Math.round(d.pct));
-                const feeds = d.socas.length
-                    ? d.socas.map(s => `${esc(s.name)} (${esc(s.layer)})`).join(', ')
-                    : 'nothing assigned';
-                // Read off the distro itself, not the rollup: the rollup only
-                // learns a scheme from a multi that landed on it, so an empty
-                // distro used to fall through to whichever option happened to
-                // be first in the list.
-                const raw = d.id ? this.getDistros().find(x => x.id === d.id) : null;
-                const ph = raw && raw.phase === 3 ? this.distroPhasingState(raw) : null;
-                // The voltage DECIDES the coupling: line-to-line IS the
-                // service voltage and line-to-neutral is service/sqrt(3), so
-                // a 208V circuit on a 208V service cannot be line-to-neutral
-                // and a 120V one cannot be line-to-line. Only the ORDER axis
-                // is a real per-distro choice, so the wiring group offers
-                // just the orderings of the coupling the derivation picked -
-                // read off ph.derived, the same comparison the leg maths
-                // runs (powerPhasingFor), never a second one that could
-                // disagree with it.
-                //
-                // An explicit scheme whose coupling the voltage no longer
-                // permits (picked first, voltage changed after) is
-                // somebody's paperwork: it stays selected with the mismatch
-                // said out loud, never silently dropped or swapped. Picking
-                // any other entry - the derive entry included - releases it
-                // through the normal change handler.
-                let phasingOptions = '';
-                if (ph) {
-                    const offered = this.powerPhasingSchemes()
-                        .filter(sc => sc.lineToLine === ph.derived.lineToLine);
-                    if (ph.explicit && !offered.some(sc => sc.id === ph.scheme.id)) {
-                        offered.push({ ...ph.scheme,
-                            name: `${ph.scheme.name} — does not match the ${Math.round(ph.circuitVoltage)} V circuits (${ph.derived.coupling.toLowerCase()})` });
-                    }
-                    phasingOptions = offered.map(sc => `<option value="${sc.id}" ${ph.explicit && ph.scheme.id === sc.id ? 'selected' : ''}>${sc.name}</option>`).join('');
-                }
-                // The folded face: everything a glance needs, red only when
-                // something is wrong (the .value-normal doctrine).
-                const glanceBad = d.over || (d.legs && d.legs.over);
-                const glance = [
-                    `${d.ratingA} A`,
-                    `${Math.round(d.pct)}%${d.over ? ' OVER' : ''}`,
-                    d.legs ? (d.imbalancePct > 1 ? `±${Math.round(d.imbalancePct)}%` : 'even') : null,
-                    `${d.socas.length} multi${d.socas.length === 1 ? '' : 's'}`,
-                ].filter(Boolean).join(' · ');
-                // The glance line's numbers, drawn: the fold keeps the load
-                // bar and the per-leg minis so a folded LIST still reads as
-                // levels and balance, not just figures. Same .rack-bar
-                // markup, same over/alarm rules as the open body below -
-                // one bar implementation, two places it shows. Kept to two
-                // short rows so a fold stays a fold.
-                const legTone = d.legs
-                    ? (d.imbalancePct > 20 ? '#e05050' : d.imbalancePct > 10 ? '#d8a13c' : 'var(--ps-dim, #b8b8b8)')
-                    : '';
-                const glanceBars = `<div class="lrd-distro-glance-bars">
-                    <div class="rack-bar"><div class="rack-bar-fill${d.over ? ' over' : ''}" style="width:${Math.min(100, Math.round(d.pct))}%"></div></div>
-                    ${d.legs ? `<div style="display:flex; gap:3px; margin-top:2px; align-items:flex-end; font-size:9px; color:${legTone};">
-                        ${['X', 'Y', 'Z'].map(k => `<div style="flex:1; min-width:0;">
-                            <div style="text-align:center; white-space:nowrap;">${k} ${d.legs[k].amps.toFixed(0)}A</div>
-                            <div class="rack-bar"><div class="rack-bar-fill${d.legs[k].pct > 100 ? ' over' : ''}" style="width:${Math.min(100, Math.round(d.legs[k].pct))}%"></div></div>
-                        </div>`).join('')}
-                        <span style="white-space:nowrap;">${d.imbalancePct > 1 ? `±${Math.round(d.imbalancePct)}%` : 'even'}</span>
-                    </div>` : ''}
-                </div>`;
-                return `<div class="power-distro-row lrd-distro-card" data-id="${d.id || ''}">
-                    ${d.id ? `
-                    <!-- The head is the fold handle (same machinery the
-                         processor cards ride): arrow click or head
-                         double-click folds, state persists per distro id.
-                         Folded, the name field and the ✕ give way to the
-                         glance line; Balance stays out of the live class on
-                         purpose - it is the row's one action and works
-                         folded or open. -->
-                    <div class="lrd-sec-head" data-lrd-sec="power-distro-${d.id}" style="display:flex; flex-wrap:wrap; gap:5px; align-items:center;">
-                        <label style="flex:1 1 auto; min-width:0; display:flex; gap:5px; align-items:center; font-weight:600;">
-                            <input type="text" class="distro-name lrd-distro-live" data-lrd-field="distro-name-${d.id}" value="${esc(d.name).replace(/"/g, '&quot;')}" style="flex:1; min-width:60px;" data-tooltip="Name this power source.">
-                            <span class="lrd-distro-glance" style="font-size:11px; min-width:0; color:${glanceBad ? '#e05050' : 'var(--ps-dim, #b8b8b8)'};"><strong style="color:${glanceBad ? '#e05050' : 'var(--ps-text, #e0e0e0)'};">${esc(d.name)}</strong> · ${glance}</span>
-                        </label>
-                        ${d.phase === 3 ? `<button class="btn btn-secondary distro-balance" data-lrd-field="distro-balance-${d.id}" style="padding:1px 8px; flex:none; white-space:nowrap;" data-tooltip="Balance legs, Searches which set of six breakers each partly-filled multi on THIS distro should land on. A full multi balances itself, so only short ones move. Nothing changes until you accept it.">Balance</button>` : ''}
-                        <button class="btn btn-secondary distro-del lrd-distro-live" data-lrd-field="distro-del-${d.id}" style="padding:1px 7px; flex:none;">✕</button>
-                        ${glanceBars}
-                    </div>
-                    <div class="lrd-sec-body">
-                    <!-- Same wrap, same reason as the heading above. Voltage
-                         and phase travel as one group so they drop to the
-                         second line together rather than one at a time, and
-                         the group's flex-basis is short enough that the whole
-                         row still fits on one line at the 260px default -
-                         now INSIDE the card's padding, which is why the
-                         basis is tighter than it was when the row ran to
-                         the sidebar's own edge. -->
-                    <div style="display:flex; flex-wrap:wrap; gap:5px; align-items:center; margin-bottom:4px;">
-                        <input type="number" class="distro-rating" data-lrd-field="distro-rating-${d.id}" value="${d.ratingA}" min="1" style="width:56px;" data-tooltip="Rating, Service rating in amps.">
-                        <span style="font-size:10px; color:var(--ps-faint, #999);">A</span>
-                        <div style="display:flex; gap:5px; align-items:center; flex:1 1 90px; min-width:0;">
-                            <select class="distro-voltage info-select" data-lrd-field="distro-voltage-${d.id}" style="width:70px; min-width:0;">
-                                ${[110, 120, 208, 220, 230, 240, 400, 415].map(v => `<option value="${v}" ${d.voltage === v ? 'selected' : ''}>${v}V</option>`).join('')}
-                            </select>
-                            <select class="distro-phase info-select" data-lrd-field="distro-phase-${d.id}" style="width:56px; min-width:0;">
-                                <option value="1" ${d.phase === 1 ? 'selected' : ''}>1φ</option>
-                                <option value="3" ${d.phase === 3 ? 'selected' : ''}>3φ</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div style="display:flex; gap:5px; align-items:center; margin-bottom:4px;">
-                        <input type="text" class="distro-location" data-lrd-field="distro-location-${d.id}" value="${esc(d.location || '').replace(/"/g, '&quot;')}" placeholder="beach / location" style="flex:1; min-width:60px;" data-tooltip="Location, Where this distro physically sits - the beach, stage left world, FOH. Prints on every power label that names it, so a runner can find the other end.">
-                    </div>
-                    ${d.phase === 3 && ph ? `<div class="info-row" style="margin-bottom:4px;" data-tooltip="Phasing, How a multi's 6 circuits land on the phase legs. A property of the distro's bus and breaker arrangement - read it off the distro. Not the same as the connector's E1.80 pinout type. Each name gives the coupling (how many legs one circuit touches) then the dealing order.">
-                        <label style="font-weight:400; font-size:10px;">Phasing</label>
-                        <!-- The select and its help button share a line of
-                             their own beneath the caption: the row was written
-                             as a flex row but never given display:flex, so the
-                             select sized itself to its longest option and hung
-                             off the panel at every width below its own. -->
-                        <div style="display:flex; align-items:center; gap:6px;">
-                            <!-- Two KINDS of entry, so they are grouped as
-                                 two: the first is an instruction to the app
-                                 ("follow the voltage"), the rest describe how
-                                 a distro is wired. Read as one flat list the
-                                 old "Match voltage" entry scanned as a peer
-                                 of "paired", which is not a choice anybody
-                                 has - deriving and paired are not
-                                 alternatives.
-                                 Deriving is a state, not the absence of one:
-                                 an empty value clears distro.phasing and
-                                 hands the choice back to the voltage.
-                                 The resolved volts ride on the GROUP, off
-                                 this distro's own service - they are not a
-                                 property of any scheme (line-to-neutral is
-                                 120V on a 208V service, 230V on a 400V one),
-                                 and hard-coding them into names made every
-                                 label wrong on a EU 400V box. -->
-                            <select class="distro-phasing info-select" data-lrd-field="distro-phasing-${d.id}" style="flex:1 1 0; min-width:0;">
-                                <optgroup label="Let the voltage decide">
-                                    <option value="" ${ph.explicit ? '' : 'selected'}>Follow the circuit voltage — ${ph.derived.name}</option>
-                                </optgroup>
-                                <optgroup label="Read it off the distro · ${Math.round(d.voltage / Math.sqrt(3))} V line-to-neutral, ${Math.round(d.voltage)} V line-to-line">
-                                    ${phasingOptions}
-                                </optgroup>
-                            </select>
-                            <button class="distro-phasing-help" data-lrd-field="distro-phasing-help-${d.id}" title="What do these mean?">?</button>
-                        </div>
-                    </div>` : ''}` : `<div style="font-size:12px; font-weight:600; color:#d8a13c; margin-bottom:3px;">${esc(d.name)}</div>`}
-                    <div class="rack-bar"><div class="rack-bar-fill${d.over ? ' over' : ''}" style="width:${pct}%"></div></div>
-                    <!-- The amps line is THE figure a tech reads off this
-                         row, so a healthy one sits on the bright text step
-                         (the .value-normal doctrine: colour here means
-                         something is wrong, and nothing else). It was the
-                         same muted blue-grey as everything around it. -->
-                    <div style="font-size:11px; color:${d.over ? '#e05050' : d.id ? 'var(--ps-text, #e0e0e0)' : '#d8a13c'}; margin-top:2px;">
-                        ${d.id
-                            ? `${d.amps.toFixed(1)} A / ${d.ratingA} A (${Math.round(d.pct)}%)${d.over ? ' — OVER' : ''} · ${Math.round(d.watts).toLocaleString()} W · ${d.phase}φ`
-                            : `${Math.round(d.watts).toLocaleString()} W with no distro — assign to see amps`}
-                    </div>
-                    ${d.legs ? `<div style="margin-top:4px;">
-                        <!-- Wraps for the same reason the rows above do: at
-                             180px the imbalance figure is the one that no
-                             longer fits, and it drops below the three legs
-                             rather than off the panel. -->
-                        <div style="display:flex; flex-wrap:wrap; gap:4px; align-items:center; font-size:10px; color:${d.imbalancePct > 20 ? '#e05050' : d.imbalancePct > 10 ? '#d8a13c' : 'var(--ps-dim, #b8b8b8)'};"
-                             data-tooltip="Leg loading, Per-leg current is a phasor sum - line-to-line circuits sit 30 degrees off each leg's line-to-neutral reference, so they are not simply added. Imbalance is NEMA-style: max deviation from the average.">
-                            <span style="letter-spacing:0.5px;">LEGS</span>
-                            ${['X', 'Y', 'Z'].map(k => `<span style="flex:1; text-align:center;">${k} ${d.legs[k].amps.toFixed(0)}A</span>`).join('')}
-                            <span>${d.imbalancePct > 1 ? `±${Math.round(d.imbalancePct)}%` : 'even'}</span>
-                        </div>
-                        <div style="display:flex; gap:3px; margin-top:2px;">
-                            ${['X', 'Y', 'Z'].map(k => `<div class="rack-bar" style="flex:1;"><div class="rack-bar-fill${d.legs[k].pct > 100 ? ' over' : ''}" style="width:${Math.min(100, Math.round(d.legs[k].pct))}%"></div></div>`).join('')}
-                        </div>
-                    </div>` : ''}
-                    <div style="font-size:10px; color:var(--ps-faint, #909090); margin-top:3px;">${feeds}</div>
-                ${d.id ? '</div>' : ''}</div>`;
-            }).join('') : '<div style="font-size:11px; color:var(--ps-faint, #888); padding:4px 0;">No distros yet — add one, then assign multis to it.</div>'}
-            </div>`;
-        if (typeof this._wireSectionCollapse === 'function') this._wireSectionCollapse(host);
-        // The dock lists the same distros; a rename, a new one or a removal
-        // must reach the tray in the same paint as the panel.
         if (typeof this.renderHardwareDock === 'function') {
             this.renderHardwareDock();
         }
+    }
 
-        const add = host.querySelector('#power-distro-add');
-        if (add) add.addEventListener('click', () => {
-            this.addDistro();
-            // + Add lives in the section HEAD, so it works while the list is
-            // folded - but a distro appearing into a folded list looks like
-            // nothing happened. Open the section so the new row is seen (the
-            // rebuild below re-reads the persisted state this writes).
-            if (typeof this._expandSectionsFor === 'function') {
-                this._expandSectionsFor(add);
+    // The phasing entries one distro's gear select offers: only the
+    // orderings of the coupling the voltage derivation picked - read off
+    // distroPhasingState's own comparison (powerPhasingFor), never a second
+    // one that could disagree with the leg maths. An explicit scheme whose
+    // coupling the voltage no longer permits (picked first, voltage changed
+    // after) is somebody's paperwork: it stays offered with the mismatch
+    // said out loud, never silently dropped or swapped.
+    _distroPhasingOptions(ph) {
+        const offered = this.powerPhasingSchemes()
+            .filter(sc => sc.lineToLine === ph.derived.lineToLine);
+        if (ph.explicit && !offered.some(sc => sc.id === ph.scheme.id)) {
+            offered.push({ ...ph.scheme,
+                name: `${ph.scheme.name} — does not match the `
+                    + `${Math.round(ph.circuitVoltage)} V circuits `
+                    + `(${ph.derived.coupling.toLowerCase()})` });
+        }
+        return offered;
+    }
+
+    // The distro's gear popover: the electrical setup the retired sidebar
+    // rows carried - rating, voltage, phase, phasing (with its derive entry
+    // and help), location, remove. Same data-lrd-field keys, same patch
+    // path (updateDistro + _restateNaming), same phasing doctrine: the
+    // voltage DECIDES the coupling, so only the ordering axis is offered.
+    _buildDistroGearContent(d) {
+        const wrap = document.createElement('div');
+        const heading = document.createElement('div');
+        heading.className = 'hw-pop-heading';
+        heading.textContent = d.name || 'distro';
+        wrap.appendChild(heading);
+
+        const patch = (p) => {
+            this.updateDistro(d.id, p);
+            this._restateNaming();
+        };
+        const cap = (text) => {
+            const c = document.createElement('label');
+            c.style.fontSize = '10px';
+            c.style.color = '#888';
+            c.style.textTransform = 'uppercase';
+            c.textContent = text;
+            return c;
+        };
+
+        const row1 = document.createElement('div');
+        row1.style.display = 'flex';
+        row1.style.flexWrap = 'wrap';
+        row1.style.gap = '6px';
+        row1.style.alignItems = 'center';
+        row1.appendChild(cap('Rating'));
+        const rate = document.createElement('input');
+        rate.type = 'number';
+        rate.min = '1';
+        rate.value = d.ratingA;
+        rate.style.width = '56px';
+        rate.dataset.lrdField = `distro-rating-${d.id}`;
+        rate.title = 'Service rating in amps.';
+        rate.addEventListener('change', () => patch({ ratingA: rate.value }));
+        row1.appendChild(rate);
+        row1.appendChild(cap('Voltage'));
+        const volt = document.createElement('select');
+        volt.className = 'info-select';
+        volt.dataset.lrdField = `distro-voltage-${d.id}`;
+        [110, 120, 208, 220, 230, 240, 400, 415].forEach(v => {
+            const opt = document.createElement('option');
+            opt.value = String(v);
+            opt.textContent = `${v}V`;
+            if (Number(d.voltage) === v) opt.selected = true;
+            volt.appendChild(opt);
+        });
+        volt.addEventListener('change', () => patch({ voltage: volt.value }));
+        row1.appendChild(volt);
+        const phase = document.createElement('select');
+        phase.className = 'info-select';
+        phase.dataset.lrdField = `distro-phase-${d.id}`;
+        [[1, '1φ'], [3, '3φ']].forEach(([v, text]) => {
+            const opt = document.createElement('option');
+            opt.value = String(v);
+            opt.textContent = text;
+            if (Number(d.phase) === v) opt.selected = true;
+            phase.appendChild(opt);
+        });
+        phase.addEventListener('change', () => patch({ phase: phase.value }));
+        row1.appendChild(phase);
+        wrap.appendChild(row1);
+
+        if (Number(d.phase) === 3) {
+            const ph = this.distroPhasingState(d);
+            const row2 = document.createElement('div');
+            row2.style.display = 'flex';
+            row2.style.gap = '6px';
+            row2.style.alignItems = 'center';
+            row2.style.marginTop = '6px';
+            row2.title = 'Phasing. How a multi\'s 6 circuits land on the '
+                + 'phase legs - a property of the distro\'s bus and breaker '
+                + 'arrangement, read off the distro. Not the connector\'s '
+                + 'E1.80 pinout type. Each name gives the coupling, then '
+                + 'the dealing order.';
+            row2.appendChild(cap('Phasing'));
+            const sel = document.createElement('select');
+            sel.className = 'info-select';
+            sel.style.flex = '1 1 0';
+            sel.style.minWidth = '0';
+            sel.dataset.lrdField = `distro-phasing-${d.id}`;
+            // Two KINDS of entry, grouped as two: the first is an
+            // instruction to the app ("follow the voltage"), the rest
+            // describe how a distro is wired. Deriving is a state, not the
+            // absence of one - the empty value clears distro.phasing and
+            // hands the choice back to the voltage. The resolved volts ride
+            // on the GROUP, off this distro's own service: they are not a
+            // property of any scheme (line-to-neutral is 120V on a 208V
+            // service, 230V on a 400V one).
+            const derive = document.createElement('optgroup');
+            derive.label = 'Let the voltage decide';
+            const followOpt = document.createElement('option');
+            followOpt.value = '';
+            followOpt.textContent =
+                `Follow the circuit voltage — ${ph.derived.name}`;
+            if (!ph.explicit) followOpt.selected = true;
+            derive.appendChild(followOpt);
+            sel.appendChild(derive);
+            const wired = document.createElement('optgroup');
+            wired.label = 'Read it off the distro · '
+                + `${Math.round(d.voltage / Math.sqrt(3))} V line-to-neutral, `
+                + `${Math.round(d.voltage)} V line-to-line`;
+            this._distroPhasingOptions(ph).forEach(sc => {
+                const opt = document.createElement('option');
+                opt.value = sc.id;
+                opt.textContent = sc.name;
+                if (ph.explicit && ph.scheme.id === sc.id) opt.selected = true;
+                wired.appendChild(opt);
+            });
+            sel.appendChild(wired);
+            sel.addEventListener('change', () => patch({ phasing: sel.value }));
+            row2.appendChild(sel);
+            const help = document.createElement('button');
+            help.textContent = '?';
+            help.title = 'What do these mean?';
+            help.dataset.lrdField = `distro-phasing-help-${d.id}`;
+            help.addEventListener('click', () => this.showPhasingHelp());
+            row2.appendChild(help);
+            wrap.appendChild(row2);
+        }
+
+        const row3 = document.createElement('div');
+        row3.style.display = 'flex';
+        row3.style.gap = '6px';
+        row3.style.alignItems = 'center';
+        row3.style.marginTop = '6px';
+        row3.appendChild(cap('Location'));
+        const loc = document.createElement('input');
+        loc.type = 'text';
+        loc.value = d.location || '';
+        loc.placeholder = 'beach / location';
+        loc.style.flex = '1';
+        loc.style.minWidth = '0';
+        loc.dataset.lrdField = `distro-location-${d.id}`;
+        loc.title = 'Where this distro physically sits - the beach, stage '
+            + 'left world, FOH. Prints on every power label that names it, '
+            + 'so a runner can find the other end.';
+        loc.addEventListener('change', () => patch({ location: loc.value }));
+        row3.appendChild(loc);
+        wrap.appendChild(row3);
+
+        const remove = document.createElement('button');
+        remove.className = 'btn hw-pop-remove';
+        remove.textContent = 'Remove distro';
+        remove.title = 'Remove this power source. Multis assigned to it '
+            + 'come free; undo puts it back.';
+        remove.dataset.lrdField = `distro-del-${d.id}`;
+        remove.addEventListener('click', () => {
+            if (typeof this._hwPopoverClose === 'function') {
+                this._hwPopoverClose();
             }
+            this.removeDistro(d.id);
+            // The distro is gone and its id never comes back, so its fold
+            // keys go with it - the dock section's, and the per-number
+            // multi keys under it (a prefix sweep catches however many the
+            // tray ever drew).
+            try {
+                localStorage.removeItem(
+                    `ledRasterPanelCollapsed_hwdock-distro-${d.id}`);
+                const prefix =
+                    `ledRasterPanelCollapsed_hwdock-multi-${d.id}-`;
+                Object.keys(localStorage)
+                    .filter(k => k.startsWith(prefix))
+                    .forEach(k => localStorage.removeItem(k));
+            } catch (_) { /* blocked storage never held the key */ }
             this._restateNaming();
         });
-        host.querySelectorAll('.power-distro-row').forEach(row => {
-            const id = row.dataset.id;
-            if (!id) return;
-            // patch() fires from the rows' own change handlers, mid-Tab.
-            // _restateNaming defers the panel wipes for exactly that reason.
-            const patch = (p) => {
-                this.updateDistro(id, p);
-                this._restateNaming();
-            };
-            const nameEl = row.querySelector('.distro-name');
-            if (nameEl) nameEl.addEventListener('change', () => patch({ name: nameEl.value }));
-            const rate = row.querySelector('.distro-rating');
-            if (rate) rate.addEventListener('change', () => patch({ ratingA: rate.value }));
-            const volt = row.querySelector('.distro-voltage');
-            if (volt) volt.addEventListener('change', () => patch({ voltage: volt.value }));
-            const ph = row.querySelector('.distro-phase');
-            if (ph) ph.addEventListener('change', () => patch({ phase: ph.value }));
-            const phg = row.querySelector('.distro-phasing');
-            if (phg) phg.addEventListener('change', () => patch({ phasing: phg.value }));
-            const loc = row.querySelector('.distro-location');
-            if (loc) loc.addEventListener('change', () => patch({ location: loc.value }));
-            const phHelp = row.querySelector('.distro-phasing-help');
-            if (phHelp) phHelp.addEventListener('click', () => this.showPhasingHelp());
-            const bal = row.querySelector('.distro-balance');
-            if (bal) bal.addEventListener('click', () =>
-                this.showBalanceDialog(id));
-            const del = row.querySelector('.distro-del');
-            if (del) del.addEventListener('click', () => {
-                this.removeDistro(id);
-                // The distro is gone and its id never comes back, so its
-                // fold key goes with it - same as a removed processor's.
-                try {
-                    localStorage.removeItem(
-                        `ledRasterPanelCollapsed_power-distro-${id}`);
-                    // The dock folds this distro and its multis under their
-                    // own ids; the multi keys are per (distro, number), so a
-                    // prefix sweep catches however many the tray ever drew.
-                    localStorage.removeItem(
-                        `ledRasterPanelCollapsed_hwdock-distro-${id}`);
-                    const prefix = `ledRasterPanelCollapsed_hwdock-multi-${id}-`;
-                    Object.keys(localStorage)
-                        .filter(k => k.startsWith(prefix))
-                        .forEach(k => localStorage.removeItem(k));
-                } catch (_) { /* blocked storage never held the key */ }
-                this._restateNaming();
-            });
-        });
+        wrap.appendChild(remove);
+        return wrap;
     }
+
 
     // Every surface a name reaches, restated together.
     //
@@ -2505,10 +2445,9 @@ class _Power {
         this._rebuildAfterGesture(() => {
             this.refreshSocaRuns();
             this.refreshSplitterPanel();
-            this.refreshDistroPanel();
-            this.updatePowerLabelEditor && this.updatePowerLabelEditor();
-            // The dock's slot chips read the same naming index; a renumber
-            // moves their occupants and free tails with it.
+            // The dock is where the naming shows now - headers, chips,
+            // strip - so ONE render covers what four panel wipes did
+            // (refreshDistroPanel is this same render under its old name).
             this.renderHardwareDock && this.renderHardwareDock();
         });
     }
@@ -2546,290 +2485,136 @@ class _Power {
             + `Fix in Power Settings: higher voltage or amperage.`;
     }
 
+    // The soca tiles died with the Power sidebar - a multi's name and
+    // home-run length edit inline on its dock multi header, and the
+    // empty-plan story tells on the dock's strip - so what is left under
+    // this name is syncing the per-screen knobs that moved into the left
+    // sidebar's Power Settings: the breakout type and the map brackets.
+    // Static controls, synced in place (never wiped), so there is no focus
+    // to preserve; a control someone is standing in is left alone.
     refreshSocaRuns() {
-        const host = document.getElementById('power-soca-runs');
-        if (!host) return;
-        // Same wipe, same cure as the label editors: the round-trip after a
-        // soca-length edit lands here and rewrites the host the user is
-        // standing in. Every field below carries a data-lrd-field key so the
-        // capture can put focus and caret back after the innerHTML wipe.
-        this._preserveEditorFocus();
+        const sel = document.getElementById('power-breakout-type');
+        const brk = document.getElementById('show-soca-brackets');
+        if (!sel && !brk) return;
+        this._wireScreenPowerKnobs();
         const layer = this.currentLayer;
-        if (!layer || (layer.type || 'screen') === 'image') { host.innerHTML = ''; return; }
-        const plan = this.getSocaPlan(layer);
-        if (!plan.length) {
-            // An empty plan CAUSED by a power error gets the error told
-            // where the socas would be; the legitimately-empty states keep
-            // today's blank host - see _socaPlanEmptyReason.
-            const why = this._socaPlanEmptyReason(layer);
-            host.innerHTML = why ? `
-                <label class="lrd-sec-head" data-lrd-sec="power-soca-runs" style="font-weight: 600; margin-bottom: 6px; display: block;">Soca / Multi Home Runs</label>
-                <div class="lrd-sec-body">
-                    <div style="font-size:11px; color:#e05050; padding:4px 0;">No circuits — ${why}</div>
-                </div>` : '';
-            if (typeof this._wireSectionCollapse === 'function') this._wireSectionCollapse(host);
-            return;
+        const screen = layer && (layer.type || 'screen') === 'screen';
+        if (sel) {
+            if (!sel.options.length) {
+                this.getPowerBreakoutTypes().forEach(t => {
+                    const opt = document.createElement('option');
+                    opt.value = t.id;
+                    opt.textContent = t.name;
+                    sel.appendChild(opt);
+                });
+            }
+            if (screen && sel !== document.activeElement) {
+                sel.value = this.getPowerBreakout(layer).id;
+            }
         }
-        const breakout = this.getPowerBreakout(layer);
-        host.innerHTML = `
-            <label class="lrd-sec-head" data-lrd-sec="power-soca-runs" style="font-weight: 600; margin-bottom: 6px; display: block;" data-tooltip="Soca / multi home runs, Each Soca (multi) feeds up to 6 circuits. Set the home-run cable length per multi - it flows into the gear checklist and report.">Soca / Multi Home Runs</label>
-            <div class="lrd-sec-body">
-            <!-- Wraps for the same reason the distro rows do: a fixed 150px
-                 select does not fit the ~119px column the panel offers at its
-                 180px minimum, and the sidebar's overflow-x:hidden was simply
-                 cutting the option text off. -->
-            <div class="info-row" style="display:flex; flex-wrap:wrap; align-items:center; gap:5px;" data-tooltip="Breakout, How the multi terminates: True1 or powerCON breakouts feed panels directly (the 6-channel default), Edison is the 110V option, L6-20 adds L6-20-to-panel tails per circuit. Drives the gear checklist.">
-                <label style="font-weight:400;">Breakout</label>
-                <select id="power-breakout-type" data-lrd-field="power-breakout-type" class="info-select" style="flex:1 1 110px; min-width:0; max-width:150px;">
-                    ${this.getPowerBreakoutTypes().map(t => `<option value="${t.id}" ${breakout.id === t.id ? 'selected' : ''}>${t.name}</option>`).join('')}
-                </select>
-            </div>
-            <div class="lrd-tile-grid lrd-tile-grid-wide" style="margin:6px 0;">
-            ${(() => { return plan.map(s => {
-                const assigned = (layer.powerSocaDistro || {})[s.soca] || '';
-                const esc = (t) => this._esc ? this._esc(t) : t;
-                const hand = ((layer.powerSocaNames || {})[s.soca] || '');
-                // Each multi is a tile: the face is the heading data - the
-                // multi's identity (bold, like the distro rows' own
-                // headings), its legs and its amps - and clicking it opens
-                // the three captioned fields in place, the same open-in-the-
-                // box shape the port tiles wear. The editor is hidden, never
-                // detached, so its keyed fields keep answering the focus
-                // restore from inside a closed tile. Which tile is open is
-                // keyed per layer (the plan is the shown screen's), so
-                // flipping screens does not carry one wall's open editor
-                // onto another wall's multi.
-                // The name field shows the DERIVED name as its placeholder
-                // while unnamed - grey text means "following the distro",
-                // typed text means named by hand, same legibility rule as
-                // the phasing select's deriving state.
-                const tileId = `soca-${layer.id}-${s.soca}`;
-                const openCls = this._tileOpenId(`soca-runs-${layer.id}`) === tileId
-                    ? ' lrd-tile-open' : '';
-                // Which slot of which distro this multi sits on is READ here
-                // and CHANGED on the hardware dock: drag a distro's slot chip
-                // onto the circuit (an occupied slot is the join gesture, the
-                // chip says who holds it), drag the chip back to unassign.
-                // The face line below carries the assignment for the glance.
-                const pin = parseInt((layer.powerSocaNumber || {})[s.soca], 10);
-                const hasPin = Number.isFinite(pin) && pin >= 1;
-                // A member of a shared box says so on its face: one box,
-                // named once, this screen on its own tails - never two
-                // multis coincidentally named alike. A tail claimed twice
-                // (or a box past its six tails) is a CLASH, worn the way a
-                // double-booked port tile wears it.
-                const share = this.getSocaShare(layer, s.soca);
-                const tails = s.legs.map(l => l.leg);
-                const shareClash = !!(share && (share.clash || share.overflow));
-                // Two multis on this distro wearing one name on two numbers:
-                // the tile says so - a label problem, not a block.
-                const collisions = this._socaNameCollisions(layer, s.soca);
-                const face = (share
-                    ? `${esc(s.name)} · tails ${this._fmtTails(tails)} · ${s.amps.toFixed(1)} A${shareClash ? ' · TAIL CLASH' : ''}`
-                    : `${esc(s.name)} · ${s.legs.length} leg${s.legs.length === 1 ? '' : 's'} · ${s.amps.toFixed(1)} A`)
-                    + (collisions.length ? ' · SAME NAME' : '');
-                const others = share ? share.members.filter(m =>
-                    !(m.layerId === layer.id && m.soca === s.soca)) : [];
-                const shareNote = share ? `
-                        <div class="power-soca-share-note" style="flex:1 1 100%; font-size:10px; color:${shareClash ? '#e05050' : 'var(--ps-faint, #999)'};">
-                            One physical multi — ${share.members.map(m =>
-                                `${esc(m.layerName)} tails ${this._fmtTails(m.tails)}`).join(' · ')}${
-                            shareClash ? (share.overflow
-                                ? ' — more circuits than the six tails hold'
-                                : ` — tail${share.members.reduce((n, m) => n + m.clashTails.length, 0) === 1 ? '' : 's'} ${this._fmtTails(share.members.flatMap(m => m.clashTails))} claimed twice`) : ''}
-                        </div>` : '';
-                return `
-                <div class="power-soca-row lrd-tile${openCls}${shareClash ? ' lrd-tile-clash' : ''}" data-lrd-tile="${tileId}" data-lrd-tile-box="soca-runs-${layer.id}">
-                    <label class="lrd-tile-face" style="font-weight:600;" data-tooltip="Multi, ${esc(s.name).replace(/"/g, '&quot;')} feeds ${s.legs.length} circuit${s.legs.length === 1 ? '' : 's'} at ${s.amps.toFixed(1)} A${share ? ` as part of one shared box with ${others.map(m => esc(m.layerName)).join(', ')}` : ''}. Click to set its name and home-run length; assign its distro by dragging a slot from the Hardware tray onto a circuit.">${face}</label>
-                    <div class="lrd-tile-body" style="display:flex; flex-wrap:wrap; gap:5px;">
-                        <div style="flex:1 1 70px; min-width:0;">
-                            <label class="power-soca-field-label" style="font-weight:400; display:block; margin-bottom:2px;">Name</label>
-                            <input type="text" class="power-soca-name" data-soca="${s.soca}" data-lrd-field="power-soca-name-${s.soca}" value="${esc(hand).replace(/"/g, '&quot;')}" placeholder="${esc(s.name).replace(/"/g, '&quot;')}" style="width:100%; min-width:0; box-sizing:border-box;" data-tooltip="Multi name, Name this multi by hand. Leave it blank and it follows its distro — multis on a distro named SL are SL1, SL2 — so renaming the distro renames them all. A name typed here stops following.">
-                        </div>
-                        <div class="power-soca-where" style="flex:1 1 100%; font-size:10px; color:var(--ps-faint, #999);" data-tooltip="Distro, Which power source this multi lands on - read-only here. Assign by dragging a slot from the Hardware tray onto one of this multi's circuits; drag the slot back onto the tray to unassign.">
-                            ${(() => {
-                                const d = assigned
-                                    ? this.getDistros().find(x => x.id === assigned) : null;
-                                if (!d) return 'No distro — drag one from the Hardware tray.';
-                                return `On ${esc(d.name)} No. ${s.number}`
-                                    + (hasPin ? '' : ' (auto)');
-                            })()}
-                        </div>
-                        <div style="flex:1 1 70px; min-width:0;">
-                            <label class="power-soca-field-label" style="font-weight:400; display:block; margin-bottom:2px;">Length</label>
-                            <input type="text" class="power-soca-length" data-soca="${s.soca}" data-lrd-field="power-soca-length-${s.soca}" value="${(s.length || '').replace(/"/g, '&quot;')}" placeholder="e.g. 100ft" style="width:100%; min-width:0; box-sizing:border-box;">
-                        </div>
-                        ${collisions.length ? `
-                        <div class="power-soca-name-note" style="flex:1 1 100%; font-size:10px; color:#d8a13c;">
-                            also named ${esc(s.name)} on this distro — ${collisions.map(c => `${esc(c.layerName)} at No. ${c.number}`).join(', ')}. Same box? Pin both to No. ${Math.min(s.number, ...collisions.map(c => c.number))}.
-                        </div>` : ''}
-                        ${shareNote}
-                    </div>
-                </div>`; }).join(''); })()}
-            </div>
-            <div class="info-row checkbox-row" data-tooltip="Soca Brackets, Draw a bracket over each multi's span on the power map with its name and home-run length.">
-                <!-- OFF unless explicitly ticked (=== true, matching the
-                     canvas gate): brackets started life on by default and
-                     the user asked for them unselected. A field never
-                     touched now means off, on old projects too. -->
-                <input type="checkbox" id="show-soca-brackets" data-lrd-field="show-soca-brackets" ${layer.showSocaBrackets === true ? 'checked' : ''}>
-                <label for="show-soca-brackets">Soca Brackets on Map</label>
-            </div>
-            </div>`;
-        if (typeof this._wireSectionCollapse === 'function') this._wireSectionCollapse(host);
-        // the tiles' open/close wiring, rebuilt after the same innerHTML wipe
-        if (typeof this._wireTiles === 'function') this._wireTiles(host);
-        host.querySelectorAll('.power-soca-length').forEach(inp => {
-            inp.addEventListener('change', () => {
-                this.setSocaLength(layer, Number(inp.dataset.soca), inp.value);
-            });
-        });
-        host.querySelectorAll('.power-soca-name').forEach(inp => {
-            inp.addEventListener('change', () => {
-                this.setSocaName(layer, Number(inp.dataset.soca), inp.value);
-                this._restateNaming();
-            });
-        });
-        // Split and Un-split left this tile for the hardware dock: dropping
-        // a slot chip on a specific circuit IMPLIES the boundary (app-dock's
-        // _dockDropSlot -> splitSocaOnto), and the way back is the
-        // right-click "Merge back into …" on the circuit run or the chip.
-        const sel = host.querySelector('#power-breakout-type');
+        if (brk && brk !== document.activeElement) {
+            // OFF unless explicitly ticked (=== true, matching the canvas
+            // gate): brackets started life on by default and the user asked
+            // for them unselected. A field never touched now means off, on
+            // old projects too.
+            brk.checked = !!(screen && layer.showSocaBrackets === true);
+        }
+    }
+
+    // The static knobs' change handlers, wired ONCE - the controls live in
+    // index.html now and are never rebuilt. Multi-select doctrine
+    // unchanged: a per-screen scalar edit applies to EVERY selected screen
+    // (_socaPanelTargets), under the same history actions the old panel
+    // rows earned.
+    _wireScreenPowerKnobs() {
+        if (this._screenPowerKnobsWired) return;
+        this._screenPowerKnobsWired = true;
+        const sel = document.getElementById('power-breakout-type');
         if (sel) sel.addEventListener('change', () => {
+            const layer = this.currentLayer;
+            if (!layer) return;
             const list = this._socaPanelTargets(layer);
             list.forEach(l => { l.powerBreakoutType = sel.value; });
             this.updateLayers(list, true, 'Change Power Breakout');
         });
-        const brk = host.querySelector('#show-soca-brackets');
+        const brk = document.getElementById('show-soca-brackets');
         if (brk) brk.addEventListener('change', () => {
+            const layer = this.currentLayer;
+            if (!layer) return;
             const list = this._socaPanelTargets(layer);
             list.forEach(l => { l.showSocaBrackets = brk.checked; });
             this.updateLayers(list, true, 'Toggle Soca Brackets');
             if (window.canvasRenderer) window.canvasRenderer.render();
         });
-    }
-
-    // The Splitters block beside the soca panel: the per-screen packing
-    // toggle and splitter size, plus one row per circuit for the manual
-    // merge/split override. Rendered like refreshSocaRuns (same focus
-    // doctrine, same _rebuildAfterGesture flow), with ids/classes DISTINCT
-    // from the soca panel's.
-    refreshSplitterPanel() {
-        const host = document.getElementById('power-splitters');
-        if (!host) return;
-        this._preserveEditorFocus();
-        const layer = this.currentLayer;
-        if (!layer || (layer.type || 'screen') !== 'screen') { host.innerHTML = ''; return; }
-        const sp = this.getPowerSplitters(layer);
-        const custom = this.usesCustomCircuits(layer);
-        // Rows appear when the manual lever means something: packed auto
-        // circuits, or drawn custom circuits (merge-only - drawn numbering
-        // is user intent and is never auto-packed).
-        const circuits = (sp.enabled || custom) ? this.screenCircuits(layer) : [];
-        const voltage = parseFloat(layer.powerVoltage) || 0;
-        const amperage = parseFloat(layer.powerAmperage) || 0;
-        const esc = (s) => this._esc ? this._esc(s) : s;
-        const stockWays = [2, 3, 4];
-        const isStock = stockWays.includes(sp.maxWays);
-        const rowHtml = circuits.map(c => {
-            const branches = (c.branches && c.branches.length) ? c.branches : [c.panels];
-            const srcLayers = c.layers || [];
-            const watts = c.panels.reduce((s, p, pi) => {
-                const src = srcLayers[pi];
-                const w = (src && src !== layer)
-                    ? (parseFloat(src.panelWatts) || 0)
-                    : (parseFloat(layer.panelWatts) || 0);
-                return s + w * this.getPanelLoadFactor(src || layer, p);
-            }, 0);
-            const amps = voltage ? watts / voltage : 0;
-            const over = amperage > 0 && amps > amperage;
-            const comp = branches.map(b => b.length).join('+');
-            const label = this.getPowerCircuitLabel(layer, c.num);
-            return `
-                <div class="info-row splitter-circuit-row" style="align-items:center; gap:6px;">
-                    <input type="checkbox" class="splitter-circuit-pick" data-circuit="${c.num}" data-lrd-field="splitter-circuit-pick-${c.num}">
-                    <label style="font-weight:400; flex:1;">${esc(label)} · ${branches.length > 1 ? `${branches.length} runs (${comp} tiles) via ${branches.length}fer` : `${c.panels.length} tiles`} · ${amps.toFixed(1)} A${over ? ' <span style="color:#c0392b; font-weight:600;">OVER</span>' : ''}</label>
-                </div>`;
-        }).join('');
-        host.innerHTML = `
-            <label class="lrd-sec-head" data-lrd-sec="power-splitters" style="font-weight: 600; margin-bottom: 6px; display: block;" data-tooltip="Power splitters, Share one circuit between adjacent short power runs through a 2fer/3fer/4fer Y-cable. Organized modes pack whole rows or columns as separate runs on a shared feed; Maximize already fills each circuit to capacity, so packing changes nothing there.">Splitters</label>
-            <div class="lrd-sec-body">
-            <div class="info-row checkbox-row" data-tooltip="Circuit sharing, Gang consecutive row/column runs onto one shared circuit through a splitter, up to the splitter size and the circuit capacity. Only adjacent runs share - a run is never skipped to pair two non-neighbours.">
-                <input type="checkbox" id="power-splitters-enabled" data-lrd-field="power-splitters-enabled" ${sp.enabled ? 'checked' : ''}>
-                <label for="power-splitters-enabled">Share circuits via splitters</label>
-            </div>
-            <!-- Splitter size only means something while the packer is
-                 running: sharing is off by default, so on a fresh project
-                 this row was a control that did nothing. It follows the
-                 checkbox above it - and on a MIXED multi-selection that is
-                 the shown screen's flag, the same one the checkbox itself
-                 shows, so the row never contradicts the box beside it. The
-                 tick writes through to every selected screen (writeAll), so
-                 one gesture settles both the state and the row. -->
-            ${sp.enabled ? `
-            <div class="info-row" style="align-items:center;" data-tooltip="Splitter size, The largest Y-cable the packer may use. It always uses the smallest that fits: none, then 2fer, then 3fer.">
-                <label style="font-weight:400;">Max splitter</label>
-                <select id="power-splitters-maxways" data-lrd-field="power-splitters-maxways" class="info-select" style="width: 96px;">
-                    ${stockWays.map(w => `<option value="${w}" ${isStock && sp.maxWays === w ? 'selected' : ''}>${w}fer</option>`).join('')}
-                    <option value="custom" ${isStock ? '' : 'selected'}>Custom…</option>
-                </select>
-                ${isStock ? '' : `<input type="number" id="power-splitters-maxways-custom" data-lrd-field="power-splitters-maxways-custom" min="2" step="1" value="${sp.maxWays}" style="width: 56px;">`}
-            </div>` : ''}
-            ${circuits.length ? `
-            <div id="power-splitter-rows">${rowHtml}</div>
-            <div class="info-row" style="gap:8px;">
-                <button id="power-splitters-merge" data-lrd-field="power-splitters-merge" class="btn btn-secondary" style="padding:2px 10px;" data-tooltip="Merge selected, Gang the checked circuits onto ONE shared circuit through a splitter. Honored even over capacity - the row flags OVER.">Merge selected</button>
-                <button id="power-splitters-split" data-lrd-field="power-splitters-split" class="btn btn-secondary" style="padding:2px 10px;" data-tooltip="Split, Un-merge the checked circuits and pin their runs out of auto packing.">Split</button>
-            </div>` : ''}
-            </div>`;
-        if (typeof this._wireSectionCollapse === 'function') this._wireSectionCollapse(host);
-        // Multi-select doctrine: the enabled/maxWays edits apply to EVERY
-        // selected screen (same helper as the soca panel's scalar settings);
-        // manual merge/split rows are inherently per-screen.
+        const en = document.getElementById('power-splitters-enabled');
+        const mw = document.getElementById('power-splitters-maxways');
+        const mwc = document.getElementById('power-splitters-maxways-custom');
         const writeAll = (patch) => {
+            const layer = this.currentLayer;
+            if (!layer) return;
             const list = this._socaPanelTargets(layer);
             list.forEach(l => {
                 const cur = this.getPowerSplitters(l);
-                l.powerSplitters = { ...cur, ...patch,
-                    manual: cur.manual };
+                l.powerSplitters = { ...cur, ...patch, manual: cur.manual };
             });
             this.updateLayers(list, true, 'Change Splitter Packing');
             this._rebuildAfterGesture(() => {
                 this.refreshSplitterPanel();
                 this.refreshSocaRuns();
                 this.refreshDistroPanel();
-                this.updatePowerLabelEditor && this.updatePowerLabelEditor();
                 if (window.canvasRenderer) window.canvasRenderer.render();
             });
         };
-        const en = host.querySelector('#power-splitters-enabled');
-        if (en) en.addEventListener('change', () => writeAll({ enabled: en.checked }));
-        const mw = host.querySelector('#power-splitters-maxways');
+        if (en) en.addEventListener('change',
+                                    () => writeAll({ enabled: en.checked }));
         if (mw) mw.addEventListener('change', () => {
             if (mw.value === 'custom') {
-                // seed the custom input with a non-stock value so it renders
+                // seed a non-stock value so the custom box appears, filled
                 writeAll({ maxWays: 5 });
                 return;
             }
             writeAll({ maxWays: parseInt(mw.value, 10) || 3 });
         });
-        const mwc = host.querySelector('#power-splitters-maxways-custom');
         if (mwc) mwc.addEventListener('change', () => {
             writeAll({ maxWays: Math.max(2, parseInt(mwc.value, 10) || 2) });
         });
-        const picked = () => [...host.querySelectorAll('.splitter-circuit-pick:checked')]
-            .map(el => parseInt(el.dataset.circuit, 10))
-            .filter(n => Number.isFinite(n));
-        const mergeBtn = host.querySelector('#power-splitters-merge');
-        if (mergeBtn) mergeBtn.addEventListener('click', () => {
-            this.mergeSplitterCircuits(layer, picked());
-        });
-        const splitBtn = host.querySelector('#power-splitters-split');
-        if (splitBtn) splitBtn.addEventListener('click', () => {
-            this.splitSplitterCircuits(layer, picked());
-        });
     }
 
+    // The Splitters panel rows died with the sidebar - manual merge and
+    // split are the right-click Share / Un-share on the circuit itself
+    // (app-dock.js _prepareShareMenus) - so what is left under this name is
+    // syncing the packing knobs that moved into Power Settings: the enable
+    // checkbox, and the size row that follows it. "Present only while
+    // sharing is on" (the old panel's rule) is worn as visibility on the
+    // static row.
+    refreshSplitterPanel() {
+        const en = document.getElementById('power-splitters-enabled');
+        if (!en) return;
+        this._wireScreenPowerKnobs();
+        const layer = this.currentLayer;
+        const screen = layer && (layer.type || 'screen') === 'screen';
+        const sp = screen ? this.getPowerSplitters(layer)
+            : { enabled: false, maxWays: 3 };
+        if (en !== document.activeElement) {
+            en.checked = !!(screen && sp.enabled);
+        }
+        const row = document.getElementById('power-splitters-maxways-row');
+        if (row) row.style.display = (screen && sp.enabled) ? 'flex' : 'none';
+        const mw = document.getElementById('power-splitters-maxways');
+        const mwc = document.getElementById('power-splitters-maxways-custom');
+        const stock = [2, 3, 4].includes(sp.maxWays);
+        if (mw && mw !== document.activeElement) {
+            mw.value = stock ? String(sp.maxWays) : 'custom';
+        }
+        if (mwc) {
+            mwc.style.display = stock ? 'none' : '';
+            if (mwc !== document.activeElement && !stock) {
+                mwc.value = String(sp.maxWays);
+            }
+        }
+    }
+
+    // Merge the selected circuits into one manual group.
     // Merge the selected circuits into one manual group. The group is stored
     // as RUN ids: for auto screens the run ordinals the selected circuits
     // currently carry, for custom screens the drawn circuit numbers. Members
@@ -3829,294 +3614,23 @@ class _Power {
         setTimeout(fn, 0);
     }
 
+    // The per-port override editor died with the Signal sidebar. The
+    // overrides themselves are untouched: the Fallback Labels block in
+    // Data Settings bulk-applies and clears them, an assigned port renames
+    // on its dock chip, and the canvas keeps drawing every stored
+    // override. Kept as a no-op because every "labels may have moved" path
+    // calls it.
     updatePortLabelEditor() {
-        if (!this.currentLayer) return;
-        if ((this.currentLayer.type || 'screen') === 'image') return;
-        const list = document.getElementById('port-label-list');
-        if (!list) return;
-
-        let portsRequired = this.currentLayer._portsRequired || 0;
-        if (portsRequired <= 0) {
-            this.updatePortCapacityDisplay();
-            portsRequired = this.currentLayer._portsRequired || 0;
-        }
-        if (this.customDebug) {
-            console.log('[PortLabels] update', {
-                layerId: this.currentLayer.id,
-                portsRequired,
-                flowPattern: this.currentLayer.flowPattern,
-                bitDepth: this.currentLayer.bitDepth,
-                frameRate: this.currentLayer.frameRate,
-                processorType: this.currentLayer.processorType,
-                panelPixels: this.currentLayer.cabinet_width * this.currentLayer.cabinet_height,
-                panels: this.currentLayer.panels ? this.currentLayer.panels.length : 0
-            });
-        }
-        this._preserveEditorFocus();
-        list.innerHTML = '';
-        // v0.8.7.3: force the list's grid to 1fr so each row stretches
-        // the full list width instead of collapsing to content width
-        // (which left ~12px of dead space on the right after the
-        // backup input). Also tighten the list's own padding to claw
-        // back another ~8px for the inputs. Negative margins break the
-        // list out of the panel-content's 12px L+R padding so the
-        // inputs can extend the full sidebar interior, claws back
-        // another 24px (12 on each side).
-        list.style.gridTemplateColumns = '1fr';
-        list.style.padding = '4px';
-        list.style.marginLeft = '-12px';
-        list.style.marginRight = '-12px';
-
-        if (portsRequired <= 0) {
-            const empty = document.createElement('div');
-            empty.style.color = '#888';
-            empty.style.fontSize = '11px';
-            empty.textContent = 'No ports to edit.';
-            list.appendChild(empty);
-            return;
-        }
-
-        for (let portNum = 1; portNum <= portsRequired; portNum++) {
-            const row = document.createElement('div');
-            row.style.display = 'grid';
-            // v0.8.7.3: compact "1" / "2" number column instead of the
-            // full "Port N" text, saves ~40px in the narrow 260px
-            // sidebar so both inputs get more width. Row stretches to
-            // fill its container with no right-side gap.
-            row.style.gridTemplateColumns = '18px 14px 1fr 1fr';
-            row.style.gap = '4px';
-            row.style.alignItems = 'center';
-            row.style.width = '100%';
-
-            const cb = document.createElement('input');
-            cb.type = 'checkbox';
-            cb.setAttribute('data-port', String(portNum));
-            // Tab out of a port's Return field lands on the NEXT row's
-            // checkbox, so it needs a stable key too or the rebuild drops it.
-            cb.dataset.lrdField = `port-check-${portNum}`;
-            cb.title = `Port ${portNum}`;
-            cb.style.margin = '0';
-
-            const numLabel = document.createElement('div');
-            numLabel.style.fontSize = '13px';
-            numLabel.style.fontWeight = '700';
-            numLabel.style.color = '#ccc';
-            numLabel.style.textAlign = 'center';
-            numLabel.style.fontFamily = 'monospace';
-            numLabel.textContent = String(portNum);
-
-            // An assigned port takes its name off the processor and nothing
-            // typed here reaches it. Say so on the row rather than leaving two
-            // boxes that accept text and change nothing on the drawing - the
-            // place to rename an assigned port is its row in the Processors
-            // panel. The boxes stay editable because what is in them is still
-            // the fallback the moment the processor stops naming the port.
-            const fromProcessor = this.getProcessorPortLabel(this.currentLayer, portNum);
-            // The return label the drawing will actually print - a name typed
-            // on the return end in the Processors panel, or the derived
-            // return (R1-1 for P1-1). Asked of getPortLabelText so this note
-            // can never disagree with the canvas about what the return end
-            // says.
-            const ownedNote = fromProcessor
-                ? `Port ${portNum} is on the processor, which names it `
-                  + `${fromProcessor} and its return `
-                  + `${this.getPortLabelText(this.currentLayer, portNum, 'return')}. Rename `
-                  + `it in the Processors panel. What you type here is kept, `
-                  + `and draws again only if this port stops being assigned.`
-                : '';
-            if (fromProcessor) {
-                numLabel.style.color = '#c8a04a';
-                numLabel.title = ownedNote;
-            }
-
-            const primaryInput = document.createElement('input');
-            primaryInput.type = 'text';
-            // Stable identity across rebuilds, so focus + caret can be
-            // restored into the same field after list.innerHTML = ''.
-            primaryInput.dataset.lrdField = `port-primary-${portNum}`;
-            if (ownedNote) primaryInput.title = ownedNote;
-            primaryInput.value = (this.currentLayer.portLabelOverridesPrimary && this.currentLayer.portLabelOverridesPrimary[portNum]) || '';
-            primaryInput.placeholder = this.getPortLabelText(this.currentLayer, portNum, 'primary');
-            primaryInput.style.padding = '3px 4px';
-            primaryInput.style.background = '#0d0d0d';
-            primaryInput.style.border = '1px solid #333';
-            primaryInput.style.color = '#fff';
-            primaryInput.style.borderRadius = '4px';
-            primaryInput.style.fontFamily = 'monospace';
-            // v0.8.7.3: fill the grid column instead of using the input's
-            // default intrinsic width (was leaving wasted space to the
-            // right of each input). Power editor already does this.
-            primaryInput.style.width = '100%';
-            primaryInput.style.minWidth = '0';
-            primaryInput.style.boxSizing = 'border-box';
-
-            primaryInput.addEventListener('change', () => {
-                const val = primaryInput.value.trim();
-                this.applyToSelectedLayers(layer => {
-                    if (!layer.portLabelOverridesPrimary) layer.portLabelOverridesPrimary = {};
-                    if (val) {
-                        layer.portLabelOverridesPrimary[portNum] = val;
-                    } else {
-                        delete layer.portLabelOverridesPrimary[portNum];
-                    }
-                });
-                this.saveClientSideProperties();
-                this.updateLayers(this.getSelectedLayers());
-                window.canvasRenderer.render();
-                this.saveState('Edit Port Label');
-            });
-
-            const returnInput = document.createElement('input');
-            returnInput.type = 'text';
-            returnInput.dataset.lrdField = `port-return-${portNum}`;
-            if (ownedNote) returnInput.title = ownedNote;
-            returnInput.value = (this.currentLayer.portLabelOverridesReturn && this.currentLayer.portLabelOverridesReturn[portNum]) || '';
-            returnInput.placeholder = this.getPortLabelText(this.currentLayer, portNum, 'return');
-            returnInput.style.padding = '3px 4px';
-            returnInput.style.background = '#0d0d0d';
-            returnInput.style.border = '1px solid #333';
-            returnInput.style.color = '#fff';
-            returnInput.style.borderRadius = '4px';
-            returnInput.style.fontFamily = 'monospace';
-            returnInput.style.width = '100%';
-            returnInput.style.minWidth = '0';
-            returnInput.style.boxSizing = 'border-box';
-
-            returnInput.addEventListener('change', () => {
-                const val = returnInput.value.trim();
-                this.applyToSelectedLayers(layer => {
-                    if (!layer.portLabelOverridesReturn) layer.portLabelOverridesReturn = {};
-                    if (val) {
-                        layer.portLabelOverridesReturn[portNum] = val;
-                    } else {
-                        delete layer.portLabelOverridesReturn[portNum];
-                    }
-                });
-                this.saveClientSideProperties();
-                this.updateLayers(this.getSelectedLayers());
-                window.canvasRenderer.render();
-                this.saveState('Edit Port Label');
-            });
-
-            row.appendChild(cb);
-            row.appendChild(numLabel);
-            row.appendChild(primaryInput);
-            row.appendChild(returnInput);
-            list.appendChild(row);
-        }
     }
 
+
+    // Same story on the power side: the per-circuit override edits on its
+    // circuit chip in the dock (which every naming path already redraws),
+    // and the Circuit Labels block in Power Settings bulk-applies and
+    // clears. Kept as a no-op for its callers.
     updatePowerLabelEditor() {
-        if (!this.currentLayer) return;
-        if ((this.currentLayer.type || 'screen') === 'image') return;
-        const list = document.getElementById('power-label-list');
-        if (!list) return;
-        list.style.overflowX = 'hidden';
-
-        // v0.11.0 step 6: same single implementation the ports readout now
-        // uses - a circuit drawn across two members is one circuit, and the
-        // editor must offer exactly that many label rows.
-        const circuitsRequired = this.getLayerCircuitsRequired(this.currentLayer);
-
-        this._preserveEditorFocus();
-        list.innerHTML = '';
-        // v0.8.7.3: stretch each row to full list width, trim padding,
-        // and extend past panel-content padding for more input room.
-        list.style.gridTemplateColumns = '1fr';
-        list.style.padding = '4px';
-        list.style.marginLeft = '-12px';
-        list.style.marginRight = '-12px';
-        if (circuitsRequired <= 0) {
-            const empty = document.createElement('div');
-            empty.style.color = '#888';
-            empty.style.fontSize = '11px';
-            // Zero circuits BECAUSE of a power error gets the same one-line
-            // reason the soca panel tells - extending this message rather
-            // than inventing a second empty-state pattern.
-            const why = this._socaPlanEmptyReason(this.currentLayer);
-            empty.textContent = why
-                ? `No circuits to edit — ${why}` : 'No circuits to edit.';
-            list.appendChild(empty);
-            return;
-        }
-
-        for (let circuitNum = 1; circuitNum <= circuitsRequired; circuitNum++) {
-            const row = document.createElement('div');
-            row.style.display = 'grid';
-            // v0.8.7.3: compact "1" / "2" number column, same as port
-            // editor. Row stretches to fill its container width.
-            row.style.gridTemplateColumns = '18px 18px 1fr';
-            row.style.gap = '4px';
-            row.style.alignItems = 'center';
-            row.style.width = '100%';
-
-            // v0.12.0: once balancing (or a breaker offset) moves this
-            // multi's circuits onto other tails of the fan, the number
-            // column shows the PHYSICAL TAIL - the same digit the canvas
-            // bubble and breaker sticker carry - through the same slot the
-            // label authority reads. A balanced wall on tails {1,2,3,5,6}
-            // lists 1, 2, 3, 5, 6 down the editor, never 1..5. Screens on
-            // natural positions keep today's sequential column
-            // byte-identical (`moved` gates exactly like the labels).
-            const slot = this._circuitTailSlot(this.currentLayer, circuitNum);
-            const moved = !!(slot && slot.moved);
-
-            const cb = document.createElement('input');
-            cb.type = 'checkbox';
-            cb.setAttribute('data-circuit', String(circuitNum));
-            // Tab out of a circuit's label field lands here, on the next
-            // row's checkbox - the first thing the rebuild destroys.
-            cb.dataset.lrdField = `power-check-${circuitNum}`;
-            cb.title = moved
-                ? this.getPowerCircuitLabel(this.currentLayer, circuitNum)
-                : `Circuit ${circuitNum}`;
-            cb.style.margin = '0';
-
-            const numLabel = document.createElement('div');
-            numLabel.style.fontSize = '13px';
-            numLabel.style.fontWeight = '700';
-            numLabel.style.color = '#ccc';
-            numLabel.style.textAlign = 'center';
-            numLabel.style.fontFamily = 'monospace';
-            numLabel.textContent = String(moved ? slot.tail : circuitNum);
-
-            const input = document.createElement('input');
-            input.type = 'text';
-            input.dataset.lrdField = `power-label-${circuitNum}`;
-            input.value = (this.currentLayer.powerLabelOverrides && this.currentLayer.powerLabelOverrides[circuitNum]) || '';
-            input.placeholder = this.getPowerCircuitLabel(this.currentLayer, circuitNum);
-            input.style.padding = '3px 4px';
-            input.style.background = '#0d0d0d';
-            input.style.border = '1px solid #333';
-            input.style.color = '#fff';
-            input.style.borderRadius = '4px';
-            input.style.fontFamily = 'monospace';
-            input.style.width = '100%';
-            input.style.minWidth = '0';
-            input.style.boxSizing = 'border-box';
-
-            input.addEventListener('change', () => {
-                const val = input.value.trim();
-                this.applyToSelectedLayers(layer => {
-                    if (!layer.powerLabelOverrides) layer.powerLabelOverrides = {};
-                    if (val) {
-                        layer.powerLabelOverrides[circuitNum] = val;
-                    } else {
-                        delete layer.powerLabelOverrides[circuitNum];
-                    }
-                });
-                this.saveClientSideProperties();
-                this.updateLayers(this.getSelectedLayers());
-                window.canvasRenderer.render();
-                this.saveState('Edit Circuit Label');
-            });
-
-            row.appendChild(cb);
-            row.appendChild(numLabel);
-            row.appendChild(input);
-            list.appendChild(row);
-        }
     }
+
 
     updatePowerCircuitColorEditor() {
         if (!this.currentLayer) return;

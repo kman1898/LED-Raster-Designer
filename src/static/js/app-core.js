@@ -119,9 +119,9 @@ export class LEDRasterApp {
      */
     initSidebarToggles() {
         const sides = [
+            // The Signal and Power middle rows retired with their sidebars:
+            // the hardware dock is the one view-scoped member left.
             { key: 'left', edge: 'left', label: 'left', sidebarId: 'left-sidebar', toggleId: 'left-sidebar-toggle', expandSym: '›', collapseSym: '‹' },
-            { key: 'data', edge: 'left', label: 'signal', sidebarId: 'data-sidebar', toggleId: 'data-sidebar-toggle', expandSym: '›', collapseSym: '‹' },
-            { key: 'power', edge: 'left', label: 'power', sidebarId: 'power-sidebar', toggleId: 'power-sidebar-toggle', expandSym: '›', collapseSym: '‹' },
             { key: 'right', edge: 'right', label: 'right', sidebarId: 'right-sidebar', toggleId: 'right-sidebar-toggle', expandSym: '‹', collapseSym: '›' },
             { key: 'dock', edge: 'bottom', label: 'hardware', sidebarId: 'hardware-dock', toggleId: 'hardware-dock-toggle', expandSym: '▴', collapseSym: '▾' },
         ];
@@ -402,6 +402,11 @@ export class LEDRasterApp {
             if (tile.dataset.lrdTileWired) return;
             const face = tile.querySelector(':scope > .lrd-tile-face');
             if (!face) return;
+            // A tile with no editor folded inside it (a FREE circuit chip -
+            // there is no override to edit until a circuit holds the tail)
+            // is a plain drag handle: wiring it would make its face toggle
+            // an empty body open and closed.
+            if (!tile.querySelector(':scope > .lrd-tile-body')) return;
             tile.dataset.lrdTileWired = '1';
             // The face is a real tab stop: the old rows were keyboard-
             // reachable through their inputs, and a tile whose fields are
@@ -469,30 +474,26 @@ export class LEDRasterApp {
     }
 
     /**
-     * The middle panels each belong to ONE view and nowhere else. Port
-     * labelling - and the processor work that joins it - describes how signal
-     * reaches the cabinets; the multis, splitters and distros describe how
-     * power does. Neither means anything in Pixel Map, Cabinet ID or Show
-     * Look, or in each other's view, so a panel and its toggle leave layout
+     * The hardware dock belongs to the two hardware views and nowhere else:
+     * processors and ports describe how signal reaches the cabinets, distros
+     * and multis how power does, and neither means anything in Pixel Map,
+     * Cabinet ID or Show Look - so the tray and its toggle leave layout
      * completely everywhere else (.view-hidden is display:none, not a
-     * collapse). That is the whole reason a user who only ever opens Pixel Map
-     * sees nothing new.
+     * collapse). That is the whole reason a user who only ever opens Pixel
+     * Map sees nothing new. The Signal and Power middle sidebars used to be
+     * two more rows of this table; they retired when the dock absorbed the
+     * hardware surfaces, and the canvas got their width back.
      *
-     * One row per view-scoped panel, the same table shape as the collapse and
-     * resize tables it sits between (initSidebarToggles above, PANELS in
-     * theme.js): a fourth panel is a row here rather than a fourth near-copy
-     * of this function.
+     * The table shape stays (one row per view-scoped panel, the same shape
+     * as the collapse and resize tables in initSidebarToggles above and
+     * theme.js's PANELS): a future view-scoped panel is a row here rather
+     * than a near-copy of this function.
      *
-     * Collapsed state is untouched here: collapsing a panel and then leaving
-     * its view must not silently re-expand it on the way back.
+     * Collapsed state is untouched here: collapsing the tray and then
+     * leaving its views must not silently re-expand it on the way back.
      */
     updateViewSidebars(mode) {
-        // `modes` rather than one mode: the hardware dock belongs to BOTH
-        // hardware views - it holds whichever view's hardware is assignable
-        // by drag - while each sidebar still belongs to exactly one.
         const panels = [
-            { sidebarId: 'data-sidebar', toggleId: 'data-sidebar-toggle', modes: ['data-flow'] },
-            { sidebarId: 'power-sidebar', toggleId: 'power-sidebar-toggle', modes: ['power'] },
             { sidebarId: 'hardware-dock', toggleId: 'hardware-dock-toggle', modes: ['data-flow', 'power'] },
         ];
         let touched = false;
@@ -2979,8 +2980,6 @@ export class LEDRasterApp {
         const portBulkReturnInput = document.getElementById('port-label-bulk-return');
         const portApplySelectedBtn = document.getElementById('port-label-apply-selected');
         const portClearSelectedBtn = document.getElementById('port-label-clear-selected');
-        const portSelectAllBtn = document.getElementById('port-label-select-all');
-        const portDeselectAllBtn = document.getElementById('port-label-deselect-all');
         const customModeToggle = document.getElementById('custom-flow-toggle');
         const customPrevPortBtn = document.getElementById('custom-prev-port');
         const customNextPortBtn = document.getElementById('custom-next-port');
@@ -3010,22 +3009,17 @@ export class LEDRasterApp {
             });
         }
 
+        // The per-port list died with the Signal panel, and its checkboxes
+        // were the only selection there was - so Apply Style restyles the
+        // WHOLE run now: every port the shown screen needs, in order. One
+        // port is renamed on its chip in the hardware dock instead.
         const getSelectedPortNumbers = () => {
-            const list = document.getElementById('port-label-list');
-            if (!list) return [];
-            const selected = [];
-            list.querySelectorAll('input[type=\"checkbox\"][data-port]').forEach(cb => {
-                if (cb.checked) selected.push(parseInt(cb.getAttribute('data-port'), 10));
-            });
-            return selected;
-        };
-
-        const setAllPortCheckboxes = (checked) => {
-            const list = document.getElementById('port-label-list');
-            if (!list) return;
-            list.querySelectorAll('input[type=\"checkbox\"][data-port]').forEach(cb => {
-                cb.checked = checked;
-            });
+            const layer = this.currentLayer;
+            if (!layer || (layer.type || 'screen') !== 'screen') return [];
+            const count = layer._portsRequired
+                || (typeof this.getLayerPortsRequired === 'function'
+                    ? this.getLayerPortsRequired(layer) : 0) || 0;
+            return Array.from({ length: count }, (_, i) => i + 1);
         };
 
         if (portApplySelectedBtn) {
@@ -3082,18 +3076,6 @@ export class LEDRasterApp {
                 this.updatePortLabelEditor();
                 this.updateLayers(targetLayers, true, 'Clear Port Labels');
                 window.canvasRenderer.render();
-            });
-        }
-
-        if (portSelectAllBtn) {
-            portSelectAllBtn.addEventListener('click', () => {
-                setAllPortCheckboxes(true);
-            });
-        }
-
-        if (portDeselectAllBtn) {
-            portDeselectAllBtn.addEventListener('click', () => {
-                setAllPortCheckboxes(false);
             });
         }
 
@@ -3254,8 +3236,6 @@ export class LEDRasterApp {
         const powerLabelBulkInput = document.getElementById('power-label-bulk');
         const powerLabelApplyBtn = document.getElementById('power-label-apply-selected');
         const powerLabelClearBtn = document.getElementById('power-label-clear-selected');
-        const powerLabelSelectAllBtn = document.getElementById('power-label-select-all');
-        const powerLabelDeselectAllBtn = document.getElementById('power-label-deselect-all');
         const showDataFlowPortInfoEl = document.getElementById('show-data-flow-port-info');
         const showDataFlowPortLoadEl = document.getElementById('show-data-flow-port-load');
         const showPowerCircuitInfoEl = document.getElementById('show-power-circuit-info');
@@ -3534,22 +3514,15 @@ export class LEDRasterApp {
             });
         }
 
+        // Same rule as the ports side: the per-circuit list died with the
+        // Power sidebar, so Apply Style restyles every circuit the shown
+        // screen has. One circuit is renamed on its chip in the dock.
         const getSelectedPowerCircuits = () => {
-            const list = document.getElementById('power-label-list');
-            if (!list) return [];
-            const selected = [];
-            list.querySelectorAll('input[type="checkbox"][data-circuit]').forEach(cb => {
-                if (cb.checked) selected.push(parseInt(cb.getAttribute('data-circuit'), 10));
-            });
-            return selected;
-        };
-
-        const setAllPowerCheckboxes = (checked) => {
-            const list = document.getElementById('power-label-list');
-            if (!list) return;
-            list.querySelectorAll('input[type="checkbox"][data-circuit]').forEach(cb => {
-                cb.checked = checked;
-            });
+            const layer = this.currentLayer;
+            if (!layer || (layer.type || 'screen') !== 'screen') return [];
+            const count = (typeof this.getLayerCircuitsRequired === 'function'
+                ? this.getLayerCircuitsRequired(layer) : 0) || 0;
+            return Array.from({ length: count }, (_, i) => i + 1);
         };
 
         if (powerLabelTemplateInput) {
@@ -3609,13 +3582,6 @@ export class LEDRasterApp {
                 this.updateLayers(targetLayers, true, 'Clear Power Labels');
                 window.canvasRenderer.render();
             });
-        }
-
-        if (powerLabelSelectAllBtn) {
-            powerLabelSelectAllBtn.addEventListener('click', () => setAllPowerCheckboxes(true));
-        }
-        if (powerLabelDeselectAllBtn) {
-            powerLabelDeselectAllBtn.addEventListener('click', () => setAllPowerCheckboxes(false));
         }
 
         if (powerCustomToggle) {

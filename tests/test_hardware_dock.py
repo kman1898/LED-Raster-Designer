@@ -1,11 +1,15 @@
 """The hardware dock: the tray under the canvas, and drag as THE assignment.
 
 The Data and Power views' hardware sits in a tray between the canvas and the
-status bar, and dragging it onto the canvas is how assignments are made - the
-panels name and inspect, the dock aims. Every drop goes through the same
-operations the panels' controls used to fire (place, move-block,
-place-overflow, setSocaDistro, setSocaNumber), so the refusals, the conflict
-question and the history entries are the ones those operations always earned.
+status bar, and dragging it onto the canvas is how assignments are made. The
+dock is the ONE hardware surface: its header bar carries each view's add
+cluster and the auto-numbering switch, the issues strip under the header
+carries the warnings with their fix buttons inline, and every section header
+names its thing inline beside a ⚙ that opens its configuration popover.
+Every drop goes through the same operations the retired panels' controls
+fired (place, move-block, place-overflow, setSocaDistro, setSocaNumber), so
+the refusals, the conflict question and the history entries are the ones
+those operations always earned.
 
 What is pinned here, with real pointer drags (mouse down/move/up):
   * the dock exists only in the Data and Power views, and the canvas backing
@@ -33,7 +37,17 @@ What is pinned here, with real pointer drags (mouse down/move/up):
   * a port chip is ALSO the port's editor (the dock is the one place ports
     appear): a press released without movement opens it in place, a drag -
     past _dockArmDrag's 4px threshold - never opens it, and an open chip
-    still drags (deep editor coverage lives in test_port_tiles.py)
+    still drags (deep editor coverage lives in test_port_tiles.py); an
+    occupied circuit chip is a tile the same way, holding its label editor
+  * the header bar shows each view's own add cluster, offers the auto
+    switch only once the assignment is configured, and folds the tray from
+    its own chevron through the one stored collapse state
+  * the issues strip under the header holds one row per issue with its fix
+    buttons inline, and leaves layout entirely (display:none) when empty
+  * a header's ⚙ opens the gear popover, which survives the tray's
+    wholesale rebuilds while open (its fields keep focus by key), closes on
+    outside mousedown, Escape or its anchor vanishing - and a press on a
+    header input or button is that control's gesture, never a drag pickup
 
 And the right-click clears (real button='right' clicks), the other way back:
   * a drawn port run offers "Clear port <label>" - the existing unpin, one
@@ -54,14 +68,17 @@ And the right-click clears (real button='right' clicks), the other way back:
     keeps its layer menu with the clear joining it only over a drawn run
 
 The dock folds from the chevron above its top edge (initSidebarToggles' dock
-row - the sidebar collapse transposed; its drag-resize lives in
-test_sidebar_resize.py with the rest of that system).
+row - the sidebar collapse transposed), and the header bar's own #hw-dock-fold
+chevron proxies that same toggle: one mechanism, one stored state
+(ledRasterSidebarCollapsed_dock). Its drag-resize lives in
+test_sidebar_resize.py with the rest of that system.
 
 Run locally:
     python3 -m pytest tests/test_hardware_dock.py -q --browser chromium
 """
 
 import os
+import re
 import sys
 
 import pytest
@@ -347,14 +364,17 @@ def test_the_dock_lives_only_in_the_hardware_views(dock_page):
 
 
 def test_folding_the_dock_hands_the_room_back_to_the_canvas(dock_page):
-    """The fold is the sidebar collapse transposed: the chevron above the
-    tray's top edge (initSidebarToggles' dock row), not the old section
-    arrow, and the canvas backing store follows the height it frees."""
+    """The fold is the sidebar collapse transposed: the header bar's own
+    #hw-dock-fold chevron proxies the hanging toggle above the tray's top
+    edge (initSidebarToggles' dock row) - one mechanism, one stored state
+    under ledRasterSidebarCollapsed_dock - and the canvas backing store
+    follows the height the fold frees. The hanging tab is the way back
+    once the tray is folded to nothing."""
     page, ids = dock_page
     open_view(page, 'data-flow')
     before = page.evaluate(
         "() => document.getElementById('canvas-wrapper').clientHeight")
-    page.locator('#hardware-dock-toggle').click()
+    page.locator('#hw-dock-fold').click()
     page.wait_for_timeout(600)
     folded = page.evaluate("""() => ({
         wrapH: document.getElementById('canvas-wrapper').clientHeight,
@@ -363,9 +383,12 @@ def test_folding_the_dock_hands_the_room_back_to_the_canvas(dock_page):
             .getBoundingClientRect().height,
         collapsed: document.getElementById('hardware-dock')
             .classList.contains('collapsed'),
+        stored: localStorage.getItem('ledRasterSidebarCollapsed_dock'),
     })""")
     assert folded['collapsed'] and folded['dockH'] < 2, (
-        f'the toggle did not fold the tray: {folded}')
+        f'the header chevron did not fold the tray: {folded}')
+    assert folded['stored'] == '1', (
+        f'the proxied fold missed the one stored state: {folded}')
     assert folded['wrapH'] > before, (
         f'folding the dock gave no room back: {before} -> {folded}')
     assert folded['canvasH'] == folded['wrapH'], (
@@ -375,9 +398,324 @@ def test_folding_the_dock_hands_the_room_back_to_the_canvas(dock_page):
     after = page.evaluate("""() => ({
         wrapH: document.getElementById('canvas-wrapper').clientHeight,
         canvasH: document.getElementById('main-canvas').height,
+        stored: localStorage.getItem('ledRasterSidebarCollapsed_dock'),
     })""")
+    assert after['stored'] == '0', f'unfolding did not store back: {after}'
     assert after['wrapH'] == before and after['canvasH'] == after['wrapH'], (
         f'unfolding did not restore the layout: {before} -> {after}')
+
+
+# ── the header bar, the issues strip and the gear popover ─────────────────
+#
+# The tray's chrome, now that the dock is the whole hardware surface: the
+# header bar carries each view's add cluster, the auto switch and the fold
+# chevron; the strip under it is the refuse-and-offer surface; every section
+# header names its thing inline beside a ⚙ popover. Pinned here: what shows
+# in which view, that the strip vanishes when empty, the popover's lifecycle
+# across the tray's wholesale rebuilds, and that a press on a header control
+# is the control's gesture - never a drag pickup.
+
+HEADBAR_JS = """() => {
+    const vis = (id) => {
+        const el = document.getElementById(id);
+        return !!el && el.offsetParent !== null;
+    };
+    return {
+        data: vis('hw-dock-data-controls'),
+        power: vis('hw-dock-power-controls'),
+        auto: vis('hw-dock-auto-wrap'),
+        fold: vis('hw-dock-fold'),
+        options: document.querySelectorAll(
+            '#processor-add-device option').length,
+    };
+}"""
+
+STRIP_JS = """() => {
+    const strip = document.getElementById('hw-dock-issues');
+    return {
+        display: getComputedStyle(strip).display,
+        rows: Array.from(strip.querySelectorAll('.hw-dock-issue'))
+            .map(r => ({
+                text: r.querySelector('.hw-dock-issue-msg').textContent,
+                mild: r.classList.contains('hw-dock-issue-mild'),
+                buttons: Array.from(r.querySelectorAll('button'))
+                    .map(b => b.textContent),
+            })),
+    };
+}"""
+
+POP_JS = """(field) => {
+    const pop = document.getElementById('hw-gear-popover');
+    return {
+        shown: !!pop && pop.style.display === 'block',
+        hasField: !!(pop && field && pop.querySelector(
+            `[data-lrd-field="${field}"]`)),
+    };
+}"""
+
+
+def test_the_header_bar_shows_each_views_own_controls(dock_page):
+    """Data view offers the processor picker + Add and the auto switch;
+    power view offers + Add distro; neither shows the other's cluster.
+    The switch is offered only once the assignment is configured (a
+    processor exists) - the rule the render reads off the assignment's
+    own configured flag."""
+    page, ids = dock_page
+    open_view(page, 'data-flow')
+    page.wait_for_timeout(300)
+    out = page.evaluate(HEADBAR_JS)
+    assert out['data'] and not out['power'], out
+    assert out['auto'], (
+        f'a configured assignment must offer the auto switch: {out}')
+    assert out['fold'], out
+    assert out['options'] > 1, (
+        f'the add picker must fill from the processor catalog: {out}')
+
+    # before a processor exists the switch means nothing
+    hid = page.evaluate("""() => {
+        const app = window.app;
+        const saved = app._assignment;
+        app._assignment = { configured: false, auto: true, issues: [] };
+        app.renderPortAssignmentPanel();
+        const wrap = document.getElementById('hw-dock-auto-wrap');
+        const hidden = wrap.classList.contains('view-hidden');
+        app._assignment = saved;
+        app.renderPortAssignmentPanel();
+        return { hidden, back: !wrap.classList.contains('view-hidden') };
+    }""")
+    assert hid['hidden'], 'an unconfigured assignment still offered auto'
+    assert hid['back'], 'restoring the assignment did not restore the switch'
+
+    open_view(page, 'power')
+    page.wait_for_timeout(300)
+    out = page.evaluate(HEADBAR_JS)
+    assert out['power'] and not out['data'], out
+    assert not out['auto'], (
+        f'the auto switch has no business in the power view: {out}')
+
+
+def test_the_issues_strip_warns_offers_and_hides_when_empty(dock_page):
+    """The refuse-and-offer surface: empty, it leaves layout entirely
+    (CSS :empty -> display:none). The auto-off condition renders as an
+    amber row whose inline button is the one-click way back, and a tail
+    claimed twice renders as a red power row through the same rows."""
+    page, ids = dock_page
+    open_view(page, 'data-flow')
+    page.evaluate(RESET_DATA_JS, ids)
+    page.wait_for_timeout(500)
+
+    st = page.evaluate(STRIP_JS)
+    assert st['rows'] == [] and st['display'] == 'none', (
+        f'an empty strip must leave layout: {st}')
+
+    # the header's own switch turns auto off; the strip answers with the
+    # amber condition and its offer button inline in the row - and with
+    # auto off every port is unplaced, so the overflow questions join it
+    # as RED rows carrying their own place offers
+    page.locator('#port-assignment-auto').click()
+    page.wait_for_timeout(700)
+    assert page.evaluate(HIST_JS, 1) == ['Toggle Auto Numbering']
+    st = page.evaluate(STRIP_JS)
+    assert st['display'] != 'none', st
+    autoff = [r for r in st['rows'] if 'Auto-numbering is off' in r['text']]
+    assert autoff and autoff[0]['mild'], (
+        f'auto-off is a condition, so its row is amber: {st}')
+    assert autoff[0]['buttons'] == ['Turn auto-numbering on'], st
+    reds = [r for r in st['rows'] if not r['mild']]
+    assert reds and all('did not fit' in r['text'] for r in reds), (
+        f'the unplaced screens must ask their red questions: {st}')
+    assert all(any(b.startswith('Place on') for b in r['buttons'])
+               for r in reds), (
+        f'a red question carries its offers inline in the row: {st}')
+
+    page.locator(
+        '#hw-dock-issues button:has-text("Turn auto-numbering on")').click()
+    page.wait_for_timeout(700)
+    assert page.evaluate(
+        "() => document.getElementById('port-assignment-auto').checked"), (
+        'taking the offer did not turn auto back on')
+    assert page.evaluate(HIST_JS, 1) == ['Toggle Auto Numbering']
+    st = page.evaluate(STRIP_JS)
+    assert st['rows'] == [] and st['display'] == 'none', (
+        f'taking the offer must clear the strip: {st}')
+
+    # power view: a tail claimed twice is a red question in the same rows.
+    # Two STORED tail sets that overlap are the only way a clash exists -
+    # an unstored member always deals into the free tails - so both
+    # members carry paperwork claiming tail 1.
+    open_view(page, 'power')
+    page.evaluate(RESET_POWER_JS, ids)
+    page.evaluate("""(ids) => {
+        const app = window.app;
+        const a = app.project.layers.find(x => x.id === ids.aId);
+        const b = app.project.layers.find(x => x.id === ids.bId);
+        app.setSocaDistro(a, 1, ids.distroId);
+        app.setSocaNumber(a, 1, 1);
+        app.setSocaDistro(b, 1, ids.distroId);
+        app.setSocaNumber(b, 1, 1);
+        a.powerSocaPhasePos = { '1': [1, 2, 3] };
+        b.powerSocaPhasePos = { '1': [1] };   // WALL A's tail, claimed again
+        app.updateLayers([a, b]);
+        app._circuitTailCache = null;
+        app.renderHardwareDock();
+    }""", ids)
+    page.wait_for_timeout(600)
+    st = page.evaluate(STRIP_JS)
+    clash = [r for r in st['rows'] if 'claimed twice' in r['text']]
+    assert clash and not clash[0]['mild'], (
+        f'the twice-claimed tail must warn red: {st}')
+    assert 'PD 1 tail 1' in clash[0]['text'], st
+    assert 'WALL A' in clash[0]['text'] and 'WALL B' in clash[0]['text'], st
+    page.evaluate(RESET_POWER_JS, ids)
+    page.wait_for_timeout(300)
+
+
+def test_the_gear_popover_survives_rebuilds_and_closes_cleanly(dock_page):
+    """One popover for every header's ⚙: it opens at the gear with the
+    thing's own configuration fields, re-renders in place across the
+    tray's wholesale rebuilds while open (its focused field comes back by
+    data-lrd-field key), and closes on Escape, on an outside mousedown,
+    and when its anchor stops existing."""
+    page, ids = dock_page
+    open_view(page, 'data-flow')
+    page.evaluate(RESET_DATA_JS, ids)
+    page.wait_for_timeout(400)
+    mode_key = f'processor-card-mode-{ids["cardId"]}'
+
+    page.locator(f'[data-hwpop="card-{ids["cardId"]}"]').click()
+    page.wait_for_timeout(300)
+    st = page.evaluate(POP_JS, mode_key)
+    assert st['shown'] and st['hasField'], (
+        f'the card gear did not open its popover: {st}')
+
+    # a focused popover field rides the wholesale rebuild by its key, and
+    # the popover itself stays open, re-rendered against fresh state (the
+    # restore lands a microtask after the rebuild, so read after a beat)
+    page.evaluate("""(key) => {
+        document.querySelector(
+            `#hw-gear-popover [data-lrd-field="${key}"]`).focus();
+        window.app.renderHardwareDock();
+    }""", mode_key)
+    page.wait_for_timeout(300)
+    out = page.evaluate("""() => {
+        const el = document.activeElement;
+        return {
+            shown: document.getElementById('hw-gear-popover')
+                .style.display === 'block',
+            focusKey: el && el.dataset ? el.dataset.lrdField : null,
+        };
+    }""")
+    assert out['shown'], f'the rebuild closed an open popover: {out}'
+    assert out['focusKey'] == mode_key, (
+        f'the rebuild lost the popover field focus: {out}')
+
+    page.keyboard.press('Escape')
+    page.wait_for_timeout(200)
+    assert not page.evaluate(POP_JS, None)['shown'], (
+        'Escape did not close the popover')
+
+    page.locator(f'[data-hwpop="card-{ids["cardId"]}"]').click()
+    page.wait_for_timeout(300)
+    assert page.evaluate(POP_JS, None)['shown']
+    corner = page.evaluate("""() => {
+        const r = window.canvasRenderer.canvas.getBoundingClientRect();
+        return {x: r.left + 15, y: r.top + 15};
+    }""")
+    page.mouse.click(corner['x'], corner['y'])
+    page.wait_for_timeout(200)
+    assert not page.evaluate(POP_JS, None)['shown'], (
+        'an outside mousedown did not close the popover')
+
+    # an anchor that stops existing takes its popover with it: a distro
+    # gear whose distro is removed while the popover is up
+    open_view(page, 'power')
+    tmp = page.evaluate("""() => {
+        const d = window.app.addDistro({ name: 'TMP' });
+        window.app.renderHardwareDock();
+        return d.id;
+    }""")
+    page.wait_for_timeout(400)
+    page.locator(f'[data-hwpop="distro-{tmp}"]').click()
+    page.wait_for_timeout(300)
+    st = page.evaluate(POP_JS, f'distro-rating-{tmp}')
+    assert st['shown'] and st['hasField'], (
+        f'the distro gear did not open its popover: {st}')
+    page.evaluate("""(tmp) => {
+        window.app.removeDistro(tmp);
+        window.app.renderHardwareDock();
+    }""", tmp)
+    page.wait_for_timeout(300)
+    assert not page.evaluate(POP_JS, None)['shown'], (
+        'the popover outlived its anchor')
+
+
+def test_a_press_on_a_header_control_never_arms_a_drag(dock_page):
+    """The headers carry live controls now - the inline name field, the
+    gear - and a press on one is the control's gesture: no ghost, no drag,
+    and the typed name commits as the existing rename. The header keeps
+    its grammar around the edit: static text stays the model, the hand
+    name lives in the input, the glance keeps its used/capacity count and
+    the card header carries no detail text."""
+    page, ids = dock_page
+    open_view(page, 'data-flow')
+    page.evaluate(RESET_DATA_JS, ids)
+    page.wait_for_timeout(400)
+    key = f'processor-card-name-{ids["cardId"]}'
+
+    box = page.locator(f'[data-lrd-field="{key}"]').bounding_box()
+    assert box, 'the card header lost its inline name input'
+    cx = box['x'] + box['width'] / 2
+    cy = box['y'] + box['height'] / 2
+    page.mouse.move(cx, cy)
+    page.mouse.down()
+    page.mouse.move(cx + 30, cy + 6, steps=4)
+    mid = page.evaluate("""() => ({
+        ghost: !!document.getElementById('hw-dock-ghost'),
+        dragLive: !!window.app._dockDrag,
+    })""")
+    page.mouse.up()
+    page.wait_for_timeout(200)
+    assert not mid['ghost'] and not mid['dragLive'], (
+        f'a press on the name input armed a drag: {mid}')
+
+    try:
+        page.locator(f'[data-lrd-field="{key}"]').click()
+        page.keyboard.type('SR')
+        page.keyboard.press('Tab')
+        page.wait_for_timeout(800)
+        assert page.evaluate(HIST_JS, 1) == ['Rename Card']
+        out = page.evaluate("""(ids) => {
+            const head = document.querySelector(
+                `[data-hwdock="card-${ids.cardId}"]`);
+            const card = window.app._processorsResolved[0].slots
+                .map(s => s.card).find(Boolean);
+            const use = head.querySelector('.hw-dock-unit-use');
+            return {
+                name: card.name,
+                input: head.querySelector('.hw-dock-name').value,
+                model: head.querySelector('.hw-dock-unit-name').textContent,
+                use: use && use.textContent,
+                info: !!head.querySelector('.hw-dock-unit-info'),
+            };
+        }""", ids)
+        assert out['name'] == 'SR' and out['input'] == 'SR', (
+            f'the inline rename did not commit: {out}')
+        assert out['model'] and 'SR' not in out['model'], (
+            f'the static header text must stay the model name: {out}')
+        assert out['use'] and re.fullmatch(r'\d+/\d+', out['use']), (
+            f'the card glance must keep its used/capacity count: {out}')
+        assert not out['info'], (
+            f'the card header carries no detail text: {out}')
+    finally:
+        page.evaluate("""async (ids) => {
+            await fetch(`/api/processors/${ids.procId}/cards/${ids.cardId}`,
+                        {method: 'PUT',
+                         headers: {'Content-Type': 'application/json'},
+                         body: JSON.stringify({name: ''})});
+            await window.app.refreshProcessors();
+        }""", ids)
+        page.evaluate(RESET_DATA_JS, ids)
+        page.wait_for_timeout(300)
 
 
 # ── data view: port, card, box ────────────────────────────────────────────
@@ -2114,17 +2452,18 @@ def test_a_held_pip_refuses_and_the_same_seat_is_a_no_op(dock_page):
 
 def test_the_dock_sections_ports_by_box_with_lettered_headers(dock_page):
     """Within a card, ports group BY BREAKOUT BOX: one bounded section per
-    box, headed in the dock's own register with the box's name - lettered
-    by its trunk where nothing else tells four identical boxes apart -
-    and its port span; the backup box's section nests under its main's.
-    A boxless card keeps its single flat grid.
+    box, headed in the dock's own register - static MODEL text plus an
+    inline name INPUT whose placeholder speaks the resolved lettered
+    title, lettered by its trunk where nothing else tells four identical
+    boxes apart - and its port span; the backup box's section nests under
+    its main's. A boxless card keeps its single flat grid.
 
     The spans read in each box's OWN numbers - all four sections say
     "ports 1-10" - by the 2026-08-27 ruling ("B is 1-10 and D is 1-10",
     "all cvt's are 1-10 or 1-16"): every box's face is silkscreened from
     1 whichever trunk it hangs on, and the card-wide 11-20/21-30/31-40
     this test used to pin are bookkeeping ordinals no hand can find
-    beside a socket. The lettered header is what tells the four
+    beside a socket. The lettered placeholder is what tells the four
     identical 1-10 spans apart."""
     page, ids = dock_page
     open_view(page, 'data-flow')
@@ -2149,8 +2488,11 @@ def test_the_dock_sections_ports_by_box_with_lettered_headers(dock_page):
             const h = document.querySelector(`[data-hwdock="box-${id}"]`);
             const box = h && h.closest('.hw-dock-box');
             if (!box) return null;
+            const inline = h.querySelector('.hw-dock-name');
             return {
                 name: h.querySelector('.hw-dock-unit-name').textContent,
+                inline: inline && inline.placeholder,
+                key: inline && inline.dataset.lrdField,
                 detail: h.querySelector('.hw-dock-unit-info').textContent,
                 tiles: box.querySelectorAll('.lrd-tile').length,
                 backup: box.classList.contains('lrd-red-backup'),
@@ -2169,15 +2511,22 @@ def test_the_dock_sections_ports_by_box_with_lettered_headers(dock_page):
     }""", [made, ids['cardId']])
     try:
         assert all(out['boxes']), out
-        names = [(b['name'], b['detail'], b['backup'])
+        # The static text is the MODEL (plus the pair tag); the lettered
+        # identity - "Tessera XD A" - is the inline name input's
+        # placeholder, the resolved displayTitle the server's refusals
+        # also speak.
+        names = [(b['name'], b['inline'], b['detail'], b['backup'])
                  for b in out['boxes']]
         assert names == [
-            ('Tessera XD A', 'ports 1-10', False),
-            ('Tessera XD B (backup)', 'ports 1-10', True),
-            ('Tessera XD C', 'ports 1-10', False),
-            ('Tessera XD D (backup)', 'ports 1-10', True),
+            ('Tessera XD', 'Tessera XD A', 'ports 1-10', False),
+            ('Tessera XD (backup)', 'Tessera XD B', 'ports 1-10', True),
+            ('Tessera XD', 'Tessera XD C', 'ports 1-10', False),
+            ('Tessera XD (backup)', 'Tessera XD D', 'ports 1-10', True),
         ], f'the sections must be lettered, paired and locally numbered: ' \
            f'{names}'
+        assert [b['key'] for b in out['boxes']] == \
+            [f'processor-cvt-name-{c}' for c in made['sxCvts']], (
+            f'each box name must edit under its own key: {out}')
         assert all(b['tiles'] == 10 for b in out['boxes']), (
             f'each section must hold exactly its own span of chips: {out}')
         assert out['flatBoxes'] == 0 and out['flatGrids'] == 1, (
@@ -2685,12 +3034,104 @@ def test_the_folded_header_earns_its_keep_with_a_glance(dock_page):
         page.wait_for_timeout(300)
 
 
-# ── the circuit chip's right-click speaks for the circuit ────────────────
+# ── the circuit chip speaks for the circuit: click and right-click ────────
 #
-# The re-pointing that came with the chips: a CIRCUIT chip offers the drawn
-# circuit run's own items (clear its multi, merge a split back) from the
-# hardware end; the MULTI HEADER keeps the slot's box-wide clear; the
-# DISTRO HEADER keeps the distro's. A free chip states its freedom.
+# The re-pointing that came with the chips: an OCCUPIED circuit chip is a
+# tile in the port chips' full grammar - the click that would open a port's
+# editor opens the circuit's label override in place, committed to the
+# HOLDER's layer only - while a free chip is an un-wired handle with no
+# editor to open. And a CIRCUIT chip offers the drawn circuit run's own
+# right-click items (clear its multi, merge a split back) from the hardware
+# end; the MULTI HEADER keeps the slot's box-wide clear; the DISTRO HEADER
+# keeps the distro's. A free chip states its freedom.
+
+
+def test_an_occupied_circuit_chip_opens_its_label_editor(dock_page):
+    """The port chips' grammar crossed over whole: an occupied circuit chip
+    is a TILE (ptail-<distro>-<n>-<tail>), a face click opens its label
+    override in place (no drag armed), the commit writes the HOLDER's
+    layer only under one 'Edit Circuit Label' entry, and a free chip has
+    no editor at all - _wireTiles leaves it a plain drag handle."""
+    page, ids = dock_page
+    open_view(page, 'power')
+    page.evaluate(RESET_POWER_JS, ids)
+    page.evaluate("""(ids) => {
+        const app = window.app;
+        const b = app.project.layers.find(x => x.id === ids.bId);
+        app.setSocaDistro(b, 1, ids.distroId);
+        app.setSocaNumber(b, 1, 1);
+        app._restateNaming();
+        app.renderHardwareDock();
+        app.resetHistory('Dock Seed');
+    }""", ids)
+    page.wait_for_timeout(600)
+    tid = f'ptail-{ids["distroId"]}-1-1'
+
+    # the face click opens the editor in place, no drag armed
+    sx, sy = dock_tile_center(page, f'tail-{ids["distroId"]}-1-1')
+    page.mouse.click(sx, sy)
+    page.wait_for_timeout(300)
+    st = page.evaluate(CHIP_STATE_JS, tid)
+    assert st and st['open'] and st['editorPainted'], (
+        f'the click did not open the circuit chip editor: {st}')
+    assert not st['ghost'] and not st['dragLive'], st
+
+    # the label field commits to the holder layer only
+    page.locator(
+        f'[data-lrd-field="power-label-{ids["bId"]}-1"]').click()
+    page.keyboard.type('FOH-1')
+    page.keyboard.press('Tab')
+    page.wait_for_timeout(800)
+    out = page.evaluate("""(ids) => {
+        const app = window.app;
+        const a = app.project.layers.find(x => x.id === ids.aId);
+        const b = app.project.layers.find(x => x.id === ids.bId);
+        app._circuitTailCache = null;
+        return {
+            b: (b.powerLabelOverrides || {})['1'] || null,
+            a: a.powerLabelOverrides || null,
+            label: app.getPowerCircuitLabel(b, 1),
+        };
+    }""", ids)
+    assert out['b'] == 'FOH-1', f'the override missed the holder: {out}'
+    assert not out['a'], f'the commit smeared onto another layer: {out}'
+    assert out['label'] == 'FOH-1', (
+        f'the typed label must beat the derived one: {out}')
+    assert page.evaluate(HIST_JS, 1) == ['Edit Circuit Label']
+
+    # close the open chip, then a FREE chip: no tile wiring, no editor
+    sx, sy = dock_tile_center(page, f'tail-{ids["distroId"]}-1-1')
+    page.mouse.click(sx, sy)
+    page.wait_for_timeout(300)
+    sx, sy = dock_tile_center(page, f'tail-{ids["distroId"]}-1-5')
+    page.mouse.click(sx, sy)
+    page.wait_for_timeout(300)
+    free = page.evaluate("""(d) => {
+        const face = document.querySelector(
+            `[data-hwdock="tail-${d}-1-5"]`);
+        const tile = face && face.closest('.lrd-tile');
+        if (!tile) return null;
+        return {
+            open: tile.classList.contains('lrd-tile-open'),
+            hasEditor: !!tile.querySelector('.lrd-tile-body'),
+            tiled: 'lrdTile' in tile.dataset,
+        };
+    }""", ids['distroId'])
+    assert free and not free['open'] and not free['hasEditor'], (
+        f'a free chip opened an editor it does not have: {free}')
+    assert not free['tiled'], (
+        f'a free chip must stay an un-wired handle: {free}')
+
+    # leave no override and no assignment behind
+    page.evaluate("""(ids) => {
+        const app = window.app;
+        const b = app.project.layers.find(x => x.id === ids.bId);
+        if (b.powerLabelOverrides) delete b.powerLabelOverrides['1'];
+        app.saveClientSideProperties();
+        app.updateLayers([b]);
+    }""", ids)
+    page.evaluate(RESET_POWER_JS, ids)
+    page.wait_for_timeout(300)
 
 
 def test_a_circuit_chips_menu_is_the_circuit_runs_menu(dock_page):

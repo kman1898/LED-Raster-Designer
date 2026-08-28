@@ -1,23 +1,26 @@
-"""Editing a port/circuit label and pressing Tab dropped you out of the panel.
+"""Editing a name in the hardware dock and pressing Tab must not kill focus.
 
-The sequence, in order:
+The port and circuit label edits live on the DOCK's chips now: a port renames
+in its port chip's editor (keys processor-port-name-<cardId>-<port> /
+processor-port-return-<cardId>-<port>), a circuit's label override edits on
+its occupied circuit chip (key power-label-<layerId>-<circuit>). The failure
+mode those keys guard against is unchanged:
 
-1. You type in a port (or circuit) label field and press Tab.
-2. The field's `change` listener writes the override and calls updateLayers(),
-   which PUTs the layer to the server.
+1. You type in a keyed field and press Tab.
+2. The field's `change` listener commits the edit - a PUT to
+   /api/processors/... for a port, updateLayers() for a circuit label.
 3. The browser moves focus to the NEXT field immediately - it does not wait
    for anything.
-4. A round-trip later the response lands, updateUI() runs, and the editor
-   rebuilds itself from scratch: `list.innerHTML = ''` in
-   updatePortLabelEditor / updatePowerLabelEditor. That destroys the field you
-   are now standing in, and focus falls to <body>.
-5. Your next keystroke goes nowhere. Pressing Tab a second time appears to
-   work only because an untouched field fires no `change`, so nothing rebuilds.
+4. The rebuild lands later - the processor response (renderHardwareDock) or
+   the deferred dock rebuild a circuit edit schedules - and wipes
+   #hardware-dock-body with innerHTML. That destroys the field you are now
+   standing in, and focus falls to <body>.
+5. Your next keystroke goes nowhere.
 
-The socket `layer_updated` echo drives the same rebuild, so the fix cannot key
-off which trigger fired: _preserveEditorFocus() snapshots the focused field's
-`data-lrd-field` key plus its caret before the wipe and restores it in a
-microtask, after the synchronous rebuild has finished.
+_preserveEditorFocus() snapshots the focused field's `data-lrd-field` key
+plus its caret before the wipe and restores it in a microtask, after the
+synchronous rebuild has finished; a focused chip FACE rides the same wipe by
+its data-hwdock key. These tests pin that contract against the dock fields.
 
 Run locally:
     python -m pytest tests/test_label_editor_focus.py -v --browser chromium
@@ -39,24 +42,27 @@ def _restore_server_project(server_project_guard):
     (see conftest.server_project_guard)."""
 
 
-# A screen sized so BOTH editors build the field Tab is supposed to land on.
-#
-# Both bugs here are about Tab moving to the next field INSIDE the editor, so
-# the editor has to have a next field. Left to whatever project the previous
-# test file happened to leave on the shared server, a small screen builds a
-# single circuit row, Tab lands on #power-line-width outside the list, and the
-# power test fails with "Tab left the editor before any rebuild" - passing
-# alone and failing in a full run, which is the worst way to find out.
+# A screen plus one processor, so the dock has chips whose editors hold the
+# keyed fields under test.
 #
 # 4x4 of the default 200W cabinet on the default 15A/110V circuit is two
-# circuits. Bigger is NOT safer here: 12 wide overruns a single circuit, the
-# layer takes a CANNOT FIT COMPLETE ROW error, and the editor renders "No
-# circuits to edit." - zero rows, not more of them.
+# circuits - so once a distro takes the multi, the dock's grid holds TWO
+# occupied circuit chips and Tab out of the first chip's Label field has a
+# real stop (the second chip's face) to land on. Bigger is NOT safer here:
+# 12 wide overruns a single circuit, the layer takes a CANNOT FIT COMPLETE
+# ROW error, and the plan is empty - no occupied chips at all.
+#
+# The MX20 is an all-in-one with six ports on one fixed card: six port chips,
+# each with a Name and a Return field, and no breakout boxes to complicate
+# which chip is which.
 RESET_JS = """async () => {
     const app = window.app;
     let project = await (await fetch('/api/project')).json();
     project.layers = [];
     project.groups = [];
+    project.processors = [];
+    project.distros = [];
+    delete project.port_assignments;
     await fetch('/api/project', {
         method: 'PUT', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(project),
@@ -68,6 +74,10 @@ RESET_JS = """async () => {
             columns: 4, rows: 4, cabinet_width: 128, cabinet_height: 128,
         }),
     });
+    await fetch('/api/processors', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({deviceId: 'novastar-mx20', name: 'MX'}),
+    });
     app.project = await (await fetch('/api/project')).json();
     app.dedupeProjectLayers('label_focus_test_reset');
     const screen = app.project.layers.find(l => (l.type || 'screen') === 'screen');
@@ -76,16 +86,17 @@ RESET_JS = """async () => {
     app.lastSelectedLayerId = screen.id;
     app.renderLayers();
     app.loadLayerToInputs(screen);
-    // Both editors size themselves from _portsRequired / _powerCircuitsRequired,
-    // which are computed client-side by the capacity passes - a layer fetched
-    // straight from the server carries neither, and the power editor renders
-    // "No circuits to edit."
+    // The capacity passes compute _portsRequired / _powerCircuitsRequired
+    // client-side - a layer fetched straight from the server carries
+    // neither, and the power plan (which sizes the circuit chips) needs
+    // them.
     app.updatePortCapacityDisplay();
     app.updatePowerCapacityDisplay();
-    app.updatePortLabelEditor();
-    app.updatePowerLabelEditor();
+    await app.refreshProcessors();
     if (window.canvasRenderer) window.canvasRenderer.render();
-    return screen.id;
+    const proc = app._processorsResolved[0];
+    const card = proc.slots.map(s => s.card).find(Boolean);
+    return {screenId: screen.id, procId: proc.id, cardId: card.id};
 }"""
 
 
@@ -97,9 +108,10 @@ def page(e2e_server, pw_browser):
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
     pg.wait_for_timeout(2000)
-    assert pg.evaluate(RESET_JS), "test project was not created"
+    ids = pg.evaluate(RESET_JS)
+    assert ids and ids.get('cardId'), f"test project was not created: {ids}"
     pg.wait_for_timeout(600)
-    yield pg
+    yield pg, ids
     context.close()
 
 
@@ -108,28 +120,14 @@ def has_field(page, key):
         "(k) => !!document.querySelector('[data-lrd-field=\"' + k + '\"]')", key)
 
 
-def test_the_editors_have_a_field_to_tab_INTO(page):
-    """Guard the premise both focus tests rest on: the field Tab moves to has
-    to exist, or focus leaves the editor and there is nothing for a rebuild to
-    destroy - the tests would pass while proving nothing."""
-    _open(page, 'data-flow')
-    assert has_field(page, 'port-return-1'), (
-        "no Port 1 Return field - Tab out of Port 1 Primary would leave the "
-        "editor")
-    _open(page, 'power')
-    assert has_field(page, 'power-check-2'), (
-        "the power editor built a single circuit row - Tab out of Circuit 1's "
-        "label lands outside the editor")
-
-
-# Stamp every field the editor currently holds. Element identity is not
+# Stamp every field the dock body currently holds. Element identity is not
 # stable across a rebuild, so a field that still carries the stamp afterwards
 # proves the rebuild never happened - and a focus assertion over it would be
 # passing for the wrong reason.
-STAMP_JS = """(listId) => {
-    document.querySelectorAll('#' + listId + ' input')
+STAMP_JS = """() => {
+    document.querySelectorAll('#hardware-dock-body input')
         .forEach(el => { el.__stamp = 1; });
-    return document.querySelectorAll('#' + listId + ' input').length;
+    return document.querySelectorAll('#hardware-dock-body input').length;
 }"""
 
 FOCUS_JS = """() => {
@@ -165,152 +163,225 @@ def _wait_for_rebuild(page, key):
     )
 
 
-def _clear_overrides(page):
-    """Reset the overrides AND the rendered fields. Clearing only the layer
-    would leave the previous test's text sitting in the inputs, so the next
-    keyboard.type() would append to it."""
-    page.evaluate("""() => {
-        const l = window.app.currentLayer;
-        l.portLabelOverridesPrimary = {};
-        l.portLabelOverridesReturn = {};
-        l.powerLabelOverrides = {};
-        window.app.updatePortLabelEditor();
-        window.app.updatePowerLabelEditor();
-    }""")
+def _chip_is_open(page, tile_key):
+    return page.evaluate(
+        """(k) => {
+            const t = document.querySelector(`[data-lrd-tile="${k}"]`);
+            return !!t && t.classList.contains('lrd-tile-open');
+        }""", tile_key)
 
 
-# ── The reported bug: Tab, then the panel goes dead ───────────────────────
+def _open_port_chip(page, card_id, port):
+    """Open a port chip's editor the way a user does: a click on its face.
+    Idempotent - the face click is a toggle, so an already-open chip is
+    left alone rather than closed."""
+    tile_key = f'port-{card_id}-{port}'
+    if _chip_is_open(page, tile_key):
+        return
+    # An open neighbour grows past the dock body's visible area, so scroll
+    # the face into view first - what locator.click() would do anyway, made
+    # explicit so a miss fails here with the chip's name.
+    page.evaluate(
+        """(k) => {
+            const el = document.querySelector(`[data-hwdock="${k}"]`);
+            if (el) el.scrollIntoView({block: 'nearest'});
+        }""", tile_key)
+    page.locator(f'[data-hwdock="{tile_key}"]').click()
+    page.wait_for_timeout(250)
+    assert _chip_is_open(page, tile_key), f'chip {tile_key} did not open'
 
-def test_focus_survives_the_rebuild_that_follows_a_port_label_edit(page):
-    """Type in Port 1 Primary, Tab, and wait for the server round-trip to
-    rebuild the editor. Focus must still be in a real field."""
-    _open(page, 'data-flow')
-    _clear_overrides(page)
-    page.evaluate("""() => {
-        document.querySelector('[data-lrd-field="port-primary-1"]').focus();
-    }""")
-    assert page.evaluate(STAMP_JS, 'port-label-list') >= 2, \
-        "port label editor built no fields - nothing to test"
 
-    page.keyboard.type("SL-A")
-    page.keyboard.press("Tab")
-    # Tab moved focus to Port 1 Return before any of this resolves.
-    assert page.evaluate(FOCUS_JS)['key'] == 'port-return-1'
+def test_the_dock_chips_have_a_field_to_tab_INTO(page):
+    """Guard the premise the focus tests rest on: Tab out of a chip's Name
+    field has to land on its Return field, or focus leaves the editor and
+    there is nothing for a rebuild to destroy - the tests would pass while
+    proving nothing. The fields exist (hidden, never detached) even while
+    the chip is closed, so no click is needed to check."""
+    pg, ids = page
+    _open(pg, 'data-flow')
+    assert has_field(pg, f'processor-port-name-{ids["cardId"]}-1'), (
+        "no port 1 Name field - the MX20's card built no port chips")
+    assert has_field(pg, f'processor-port-return-{ids["cardId"]}-1'), (
+        "no port 1 Return field - Tab out of the Name field would leave the "
+        "chip's editor")
 
-    _wait_for_rebuild(page, 'port-return-1')
-    after = page.evaluate(FOCUS_JS)
+
+# ── The reported bug: Tab, then the editor goes dead ──────────────────────
+
+def test_focus_survives_the_rebuild_that_follows_a_port_name_edit(page):
+    """Type in port 1's Name field, Tab, and wait for the processor
+    round-trip to rebuild the dock. Focus must still be in a real field."""
+    pg, ids = page
+    _open(pg, 'data-flow')
+    _open_port_chip(pg, ids['cardId'], 1)
+    name_key = f'processor-port-name-{ids["cardId"]}-1'
+    return_key = f'processor-port-return-{ids["cardId"]}-1'
+    pg.evaluate(
+        "(k) => document.querySelector('[data-lrd-field=\"' + k + '\"]')"
+        ".focus()", name_key)
+    assert pg.evaluate(STAMP_JS) >= 2, \
+        "the dock built no fields - nothing to test"
+
+    pg.keyboard.type("SL-A")
+    pg.keyboard.press("Tab")
+    # Tab moved focus to the chip's Return field before any of this resolves.
+    assert pg.evaluate(FOCUS_JS)['key'] == return_key
+
+    _wait_for_rebuild(pg, return_key)
+    after = pg.evaluate(FOCUS_JS)
 
     assert not after['isBody'], (
         "focus fell to <body>: the rebuild destroyed the field Tab had just "
         f"moved into. activeElement={after}")
     assert after['tag'] == 'INPUT', f"focus left the editor entirely: {after}"
-    assert after['key'] == 'port-return-1', (
+    assert after['key'] == return_key, (
         f"focus landed somewhere else after the rebuild: {after}")
     assert not after['stamped'], (
-        "the editor never rebuilt, so this test proved nothing - the fixture "
+        "the dock never rebuilt, so this test proved nothing - the fixture "
         "or the round-trip changed")
 
 
-def test_the_edited_port_label_reached_the_layer_and_the_server(page):
-    """The focus fix must not cost the edit itself."""
-    _open(page, 'data-flow')
-    _clear_overrides(page)
-    page.evaluate("""() => {
-        document.querySelector('[data-lrd-field="port-primary-1"]').focus();
-    }""")
-    page.evaluate(STAMP_JS, 'port-label-list')
-    page.keyboard.type("SL-A")
-    page.keyboard.press("Tab")
-    _wait_for_rebuild(page, 'port-return-1')
+def test_the_edited_port_name_reached_the_card_and_the_server(page):
+    """The focus fix must not cost the edit itself. Port 2, so the previous
+    test's text is not sitting in the field being typed into."""
+    pg, ids = page
+    _open(pg, 'data-flow')
+    _open_port_chip(pg, ids['cardId'], 2)
+    name_key = f'processor-port-name-{ids["cardId"]}-2'
+    return_key = f'processor-port-return-{ids["cardId"]}-2'
+    pg.evaluate(
+        "(k) => document.querySelector('[data-lrd-field=\"' + k + '\"]')"
+        ".focus()", name_key)
+    pg.evaluate(STAMP_JS)
+    pg.keyboard.type("SL-B")
+    pg.keyboard.press("Tab")
+    _wait_for_rebuild(pg, return_key)
 
-    stored = page.evaluate(
-        "() => window.app.currentLayer.portLabelOverridesPrimary")
-    assert stored.get('1') == 'SL-A', f"override not on the layer: {stored}"
+    field = pg.evaluate(
+        """(k) => {
+            const el = document.querySelector('[data-lrd-field="' + k + '"]');
+            return el ? el.value : null;
+        }""", name_key)
+    assert field == 'SL-B', f"rebuilt field lost the text: {field!r}"
 
-    field = page.evaluate("""() => {
-        const el = document.querySelector('[data-lrd-field="port-primary-1"]');
-        return el ? el.value : null;
+    served = pg.evaluate("""async () => {
+        const d = await (await fetch('/api/processors')).json();
+        const card = ((d.processors || [])[0] || {slots: []}).slots
+            .map(s => s.card).find(Boolean);
+        return card ? (card.portNames || {}) : null;
     }""")
-    assert field == 'SL-A', f"rebuilt field lost the text: {field!r}"
-
-    served = page.evaluate("""async () => {
-        const id = window.app.currentLayer.id;
-        const p = await (await fetch('/api/project')).json();
-        const l = (p.layers || []).find(x => x.id === id);
-        return l ? l.portLabelOverridesPrimary : null;
-    }""")
-    assert served and served.get('1') == 'SL-A', (
-        f"the edit never reached the server: {served}")
+    assert served and served.get('2') == 'SL-B', (
+        f"the edit never reached the server's card: {served}")
 
 
 def test_the_caret_position_survives_the_rebuild(page):
     """Restoring focus is not enough - land the caret back where it was, or
-    the next keystroke goes to the wrong end of the text."""
-    _open(page, 'data-flow')
-    page.evaluate("""() => {
-        const l = window.app.currentLayer;
-        l.portLabelOverridesPrimary = Object.assign(
-            {}, l.portLabelOverridesPrimary, {1: 'ABCDEFG'});
-        window.app.updatePortLabelEditor();
-    }""")
-    page.evaluate("""() => {
-        const el = document.querySelector('[data-lrd-field="port-primary-1"]');
-        el.focus();
-        el.setSelectionRange(3, 3);
-    }""")
-    page.evaluate(STAMP_JS, 'port-label-list')
-    # Rebuild directly: same wipe, no round-trip to wait on.
-    page.evaluate("() => window.app.updatePortLabelEditor()")
-    _wait_for_rebuild(page, 'port-primary-1')
-    after = page.evaluate(FOCUS_JS)
+    the next keystroke goes to the wrong end of the text. Driven through a
+    direct renderHardwareDock(): the same wipe, no round-trip to wait on."""
+    pg, ids = page
+    _open(pg, 'data-flow')
+    # Name port 3 through the API so the rebuilt field carries the text the
+    # caret is being placed in - a value typed only into the DOM would come
+    # back empty from the render and clamp the caret to 0.
+    pg.evaluate(
+        """async ([procId, cardId]) => {
+            await fetch(`/api/processors/${procId}/cards/${cardId}/ports/3`, {
+                method: 'PUT', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name: 'ABCDEFG'}),
+            });
+            await window.app.refreshProcessors();
+        }""", [ids['procId'], ids['cardId']])
+    pg.wait_for_timeout(400)
+    _open_port_chip(pg, ids['cardId'], 3)
+    name_key = f'processor-port-name-{ids["cardId"]}-3'
+    pg.evaluate(
+        """(k) => {
+            const el = document.querySelector('[data-lrd-field="' + k + '"]');
+            el.focus();
+            el.setSelectionRange(3, 3);
+        }""", name_key)
+    pg.evaluate(STAMP_JS)
+    pg.evaluate("() => window.app.renderHardwareDock()")
+    _wait_for_rebuild(pg, name_key)
+    after = pg.evaluate(FOCUS_JS)
 
-    assert after['key'] == 'port-primary-1', f"focus was not restored: {after}"
+    assert after['key'] == name_key, f"focus was not restored: {after}"
     assert after['caret'] == 3, (
         f"caret moved to {after['caret']} - the user's next keystroke would "
         "land in the wrong place")
-    _clear_overrides(page)
 
 
-def test_the_power_circuit_label_editor_behaves_the_same(page):
-    """Same builder, same wipe, same bug - the Power tab's circuit labels."""
-    _open(page, 'power')
-    _clear_overrides(page)
-    page.evaluate("""() => {
-        document.querySelector('[data-lrd-field="power-label-1"]').focus();
+def test_the_circuit_label_editor_behaves_the_same(page):
+    """The power side of the same contract: an occupied circuit chip's Label
+    field commits to the HOLDER layer and schedules a deferred dock rebuild
+    (_rebuildAfterGesture), and focus must ride that wipe too."""
+    pg, ids = page
+    seeded = pg.evaluate(
+        """(screenId) => {
+            const app = window.app;
+            const layer = app.project.layers.find(l => l.id === screenId);
+            app.currentLayer = layer;
+            const d = app.getDistros()[0] || app.addDistro({name: 'PD'});
+            const plan = app.getSocaPlan(layer);
+            if (!plan.length) return null;
+            app.setSocaDistro(layer, plan[0].soca, d.id);
+            app._restateNaming();
+            return {distroId: d.id, legs: plan[0].legs.length};
+        }""", ids['screenId'])
+    assert seeded, "the screen has no soca plan - no circuits to label"
+    assert seeded['legs'] >= 2, (
+        f"a single-circuit plan leaves Tab nowhere to go inside the dock's "
+        f"grid: {seeded}")
+    _open(pg, 'power')
+    pg.wait_for_timeout(400)
+
+    # The first occupied circuit chip; a free tail has no editor at all.
+    face = pg.locator('[data-lrd-tile^="ptail-"] > .lrd-tile-face').first
+    face.scroll_into_view_if_needed()
+    face.click()
+    pg.wait_for_timeout(250)
+    key = pg.evaluate("""() => {
+        const tile = document.querySelector('.lrd-tile-open[data-lrd-tile^="ptail-"]');
+        const el = tile
+            && tile.querySelector('[data-lrd-field^="power-label-"]');
+        return el ? el.dataset.lrdField : null;
     }""")
-    assert has_field(page, 'power-check-2'), (
-        "power label editor built a single circuit row - Tab has nowhere to go "
-        "inside the editor")
-    page.evaluate(STAMP_JS, 'power-label-list')
+    assert key, "the circuit chip opened no Label field"
+    circuit = key.rsplit('-', 1)[1]
 
-    page.keyboard.type("C-1")
-    page.keyboard.press("Tab")
-    moved = page.evaluate(FOCUS_JS)
-    assert moved['key'], f"Tab left the editor before any rebuild: {moved}"
+    pg.evaluate(
+        "(k) => document.querySelector('[data-lrd-field=\"' + k + '\"]')"
+        ".focus()", key)
+    pg.evaluate(STAMP_JS)
+    pg.keyboard.type("C-1")
+    pg.keyboard.press("Tab")
 
-    _wait_for_rebuild(page, moved['key'])
-    after = page.evaluate(FOCUS_JS)
+    _wait_for_rebuild(pg, key)
+    after = pg.evaluate(FOCUS_JS)
+    assert not after['isBody'] and after['tag'] is not None, (
+        f"focus fell to <body> after the deferred dock rebuild: {after}")
 
-    assert not after['isBody'], (
-        f"focus fell to <body> after the Power editor rebuilt: {after}")
-    assert after['tag'] == 'INPUT'
-    assert after['key'] == moved['key'], (
-        f"focus moved during the rebuild: {moved['key']} -> {after['key']}")
-    assert not after['stamped'], "the power editor never rebuilt"
-
-    stored = page.evaluate(
-        "() => window.app.currentLayer.powerLabelOverrides")
-    assert stored.get('1') == 'C-1', f"circuit override not stored: {stored}"
-    _clear_overrides(page)
+    stored = pg.evaluate(
+        """(screenId) => {
+            const l = window.app.project.layers.find(x => x.id === screenId);
+            return l.powerLabelOverrides || {};
+        }""", ids['screenId'])
+    assert stored.get(circuit) == 'C-1', (
+        f"circuit override not on the holder layer: {stored}")
 
 
 # ── The helper must be inert when it has nothing to preserve ──────────────
 
 def test_a_rebuild_with_nothing_focused_neither_throws_nor_grabs_focus(page):
-    _open(page, 'data-flow')
-    result = page.evaluate("""() => {
+    pg, ids = page
+    _open(pg, 'data-flow')
+    result = pg.evaluate("""() => {
         document.activeElement && document.activeElement.blur();
         try {
+            window.app.renderHardwareDock();
+            // The retired list editors survive as no-op stubs; every
+            // "labels may have moved" path still calls them, so they must
+            // stay safe to call.
             window.app.updatePortLabelEditor();
             window.app.updatePowerLabelEditor();
             window.app.updatePowerCircuitColorEditor();
@@ -320,45 +391,52 @@ def test_a_rebuild_with_nothing_focused_neither_throws_nor_grabs_focus(page):
         return {error: null};
     }""")
     assert result['error'] is None, f"rebuild threw: {result['error']}"
-    page.wait_for_timeout(200)
-    after = page.evaluate(FOCUS_JS)
+    pg.wait_for_timeout(200)
+    after = pg.evaluate(FOCUS_JS)
     assert after['isBody'] or after['key'] is None, (
-        f"an unfocused rebuild pulled focus into the editor: {after}")
+        f"an unfocused rebuild pulled focus into the dock: {after}")
 
 
-def test_a_rebuild_does_not_steal_focus_from_a_field_outside_the_editor(page):
-    """Only fields the editor itself owns carry a key; everything else must
-    be left exactly where it is."""
-    _open(page, 'data-flow')
-    page.evaluate("""() => {
+def test_a_rebuild_does_not_steal_focus_from_a_field_outside_the_dock(page):
+    """Only fields the dock's editors own carry a key; everything else must
+    be left exactly where it is. The Fallback Labels template box in the
+    left sidebar's Data Settings panel is the nearest neighbour."""
+    pg, ids = page
+    _open(pg, 'data-flow')
+    pg.evaluate("""() => {
         document.getElementById('port-label-template-primary').focus();
     }""")
-    page.evaluate("() => window.app.updatePortLabelEditor()")
-    page.wait_for_timeout(200)
-    after = page.evaluate(FOCUS_JS)
+    pg.evaluate("() => window.app.renderHardwareDock()")
+    pg.wait_for_timeout(200)
+    after = pg.evaluate(FOCUS_JS)
     assert after['id'] == 'port-label-template-primary', (
         f"the rebuild moved focus off an unrelated input: {after}")
 
 
 def test_a_field_that_no_longer_exists_is_not_restored(page):
-    """The port count can shrink between the wipe and the restore. Missing
-    field means leave focus alone, not throw."""
-    _open(page, 'data-flow')
-    result = page.evaluate("""() => {
-        const el = document.querySelector('[data-lrd-field="port-primary-1"]');
-        el.focus();
-        try {
-            window.app._preserveEditorFocus();
-            // Empty the editor so the key it captured resolves to nothing.
-            document.getElementById('port-label-list').innerHTML = '';
-        } catch (e) {
-            return {error: String(e)};
-        }
-        return {error: null};
-    }""")
+    """The chip a key names can vanish between the wipe and the restore -
+    the processor removed, the view left. Missing field means leave focus
+    alone, not throw."""
+    pg, ids = page
+    _open(pg, 'data-flow')
+    _open_port_chip(pg, ids['cardId'], 1)
+    name_key = f'processor-port-name-{ids["cardId"]}-1'
+    result = pg.evaluate(
+        """(k) => {
+            const el = document.querySelector('[data-lrd-field="' + k + '"]');
+            el.focus();
+            try {
+                window.app._preserveEditorFocus();
+                // Empty the dock so the key it captured resolves to nothing.
+                document.getElementById('hardware-dock-body').innerHTML = '';
+            } catch (e) {
+                return {error: String(e)};
+            }
+            return {error: null};
+        }""", name_key)
     assert result['error'] is None, f"threw during capture: {result['error']}"
-    page.wait_for_timeout(200)
-    after = page.evaluate(FOCUS_JS)
+    pg.wait_for_timeout(200)
+    after = pg.evaluate(FOCUS_JS)
     assert after['key'] is None, (
         f"restored a field that no longer exists: {after}")
-    page.evaluate("() => window.app.updatePortLabelEditor()")
+    pg.evaluate("() => window.app.renderHardwareDock()")

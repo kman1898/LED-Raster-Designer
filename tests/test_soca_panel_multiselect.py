@@ -1,19 +1,24 @@
-"""Multi-select doctrine on the soca panel's per-screen settings.
+"""Multi-select doctrine on the per-screen power settings.
 
 The app's rule: modify something with several screens selected and the edit
 lands on EVERY selected screen (app-screen-info's update path has always
-worked this way). The soca panel's per-screen scalar settings - the
-"Soca Brackets on Map" checkbox and the breakout-type select - bypassed
-that and wrote only to the screen the panel happened to show. These tests
-pin the fixed behaviour, through the real checkbox/select in the Power view:
+worked this way). The per-screen power knobs - the "Soca Brackets on Map"
+checkbox, the breakout-type select and the splitter packing controls - live
+in the LEFT sidebar's Power Settings block now (the Power sidebar and its
+soca panel are gone): STATIC controls, synced in place per selection by
+refreshSocaRuns/refreshSplitterPanel (no rebuild wipe) and wired once by
+_wireScreenPowerKnobs. These tests pin the doctrine through the real
+controls in the Power view:
 
 * toggling brackets with two screens selected updates BOTH models and both
   server rows; a third, unselected screen is untouched
 * changing the breakout type does the same
+* the splitter packing knobs (enable + max ways) do the same
 * with a single selection the edit still lands only on the shown screen
 
-Per-multi fields (home-run lengths, distro assignments) are NOT swept along:
-they belong to one screen's own soca plan.
+Per-multi fields (names, home-run lengths, distro assignments) are NOT
+swept along: they belong to one screen's own soca plan, and they edit
+inline on that multi's hardware dock header.
 
 Run locally:
     python -m pytest tests/test_soca_panel_multiselect.py -v --browser chromium
@@ -37,8 +42,8 @@ def _restore_server_project(server_project_guard):
 
 
 # Three 4x4 screens of the default 200W cabinet on the default 15A/110V
-# circuit - small enough that each renders a soca plan (and therefore the
-# brackets checkbox). SelA is shown in the panel, SelB rides in the
+# circuit - small enough that each packs a soca plan. SelA is the shown
+# screen the Power Settings knobs sync to, SelB rides in the
 # multi-selection, Solo stays out of it as the control.
 RESET_JS = """async () => {
     const app = window.app;
@@ -104,9 +109,13 @@ def page(e2e_server, pw_browser):
         "test screens were not created"
     pg.locator('[data-mode="power"]').click()
     pg.wait_for_timeout(500)
+    # The knobs are static markup in the left sidebar's Power Settings now;
+    # the evidence the power view wired them up is refreshSocaRuns having
+    # filled the breakout picker's options.
     assert pg.evaluate(
-        "() => !!document.querySelector('#show-soca-brackets')"), \
-        "the soca panel never rendered its brackets checkbox"
+        "() => document.querySelectorAll('#power-breakout-type option')"
+        ".length > 0"), \
+        "refreshSocaRuns never filled the breakout picker"
     yield pg
     context.close()
 
@@ -174,19 +183,79 @@ def test_breakout_select_applies_to_every_selected_screen(page):
         f"breakout never persisted for both screens: {served}")
 
 
+def test_splitter_knobs_apply_to_every_selected_screen(page):
+    """The splitter packing knobs (the retired Splitters panel's surviving
+    scalars) follow the same doctrine from Power Settings: the enable tick
+    and the size pick land on every selected screen; Solo is untouched.
+    The size row shows only while sharing is on - refreshSplitterPanel
+    wears the old panel's present-only-while-enabled rule as visibility on
+    the static row. (Manual merge and split are not knobs any more: they
+    are the right-click Share / Un-share on the circuit itself.)"""
+    page.locator('#power-splitters-enabled').click()  # tick: on
+    page.wait_for_timeout(400)
+    state = page.evaluate("""() => {
+        const app = window.app;
+        const byName = (n) => app.project.layers.find(l => l.name === n);
+        const on = (l) => app.getPowerSplitters(l).enabled;
+        const row = document.getElementById('power-splitters-maxways-row');
+        return { a: on(byName('SelA')), b: on(byName('SelB')),
+                 solo: on(byName('Solo')),
+                 rowShown: !!row && row.style.display !== 'none' };
+    }""")
+    assert state['a'] is True, "shown screen must take the enable"
+    assert state['b'] is True, (
+        f"the OTHER selected screen was skipped - multi-select edits must "
+        f"apply to every selected screen: {state}")
+    assert state['solo'] is False, (
+        f"an UNSELECTED screen was swept along: {state}")
+    assert state['rowShown'], "the size row must show while sharing is on"
+
+    page.evaluate("""() => {
+        const mw = document.getElementById('power-splitters-maxways');
+        mw.value = '4';
+        mw.dispatchEvent(new Event('change', { bubbles: true }));
+    }""")
+    page.wait_for_timeout(400)
+    ways = page.evaluate("""() => {
+        const app = window.app;
+        const byName = (n) => app.project.layers.find(l => l.name === n);
+        const w = (l) => app.getPowerSplitters(l).maxWays;
+        return { a: w(byName('SelA')), b: w(byName('SelB')),
+                 solo: w(byName('Solo')) };
+    }""")
+    assert ways['a'] == 4 and ways['b'] == 4, (
+        f"the size pick skipped a selected screen: {ways}")
+    assert ways['solo'] == 3, (
+        f"an UNSELECTED screen took the size pick: {ways}")
+
+
 def test_a_multi_name_stays_with_its_own_multi(page):
     """A NAME is per-multi, so it is on the other side of the doctrine from
-    the brackets toggle and the breakout select: naming the shown screen's
-    multi must not name the other selected screen's multi, which is a
-    different multi on a different wall."""
+    the scalar knobs: it edits inline on the multi's hardware dock header
+    (key power-soca-name-<layerId>-<idx>, which exists once the multi is
+    ON a distro - an unassigned multi has no dock section), and naming the
+    shown screen's multi must not name the other selected screen's multi,
+    which is a different multi on a different wall."""
     typed = page.evaluate("""() => {
-        const inp = document.querySelector('[data-lrd-field="power-soca-name-1"]');
+        const app = window.app;
+        const a = app.project.layers.find(l => l.name === 'SelA');
+        if (!app.project.distros) app.project.distros = [];
+        if (!app.project.distros.some(d => d.id === 'dm1')) {
+            app.project.distros.push({ id: 'dm1', name: 'DM', ratingA: 400,
+                                       voltage: 208, phase: 3 });
+        }
+        app._circuitTailCache = null;
+        app.setSocaDistro(a, 1, 'dm1');
+        app._circuitTailCache = null;
+        app.renderHardwareDock();
+        const inp = document.querySelector(
+            `[data-lrd-field="power-soca-name-${a.id}-1"]`);
         if (!inp) return null;
         inp.value = 'HOUSE';
         inp.dispatchEvent(new Event('change', { bubbles: true }));
         return 'HOUSE';
     }""")
-    assert typed, "the soca panel built no multi name field"
+    assert typed, "the dock built no multi name field for the shown screen"
     page.wait_for_timeout(300)
     state = page.evaluate("""() => {
         const byName = (n) => window.app.project.layers.find(l => l.name === n);
@@ -213,6 +282,12 @@ def test_single_select_still_edits_only_the_shown_screen(page):
         app.updatePowerCapacityDisplay();
     }""")
     page.wait_for_timeout(300)
+    # The static checkbox is synced in place per selection (no rebuild
+    # wipe, no focus dance): after re-selecting SelA alone it must already
+    # show SelA's stored value.
+    assert page.evaluate(
+        "() => document.getElementById('show-soca-brackets').checked"), \
+        "the checkbox did not follow the shown screen after re-selection"
     b_before = page.evaluate(STATE_JS)['b']['brackets']
     page.locator('#show-soca-brackets').click()  # untick (both went on above)
 
@@ -280,15 +355,16 @@ def test_stored_true_survives_a_reload_and_default_stays_off(page):
         f"an untouched screen must come back unticked: {out}")
 
 
-# ── the soca panel says WHY it is empty ───────────────────────────────────
+# ── the dock's issue strip says WHY the plan is empty ─────────────────────
 #
 # Live repro: a 13-wide screen of 200W panels at 110V/15A in organized row
 # mode -> CANNOT FIT COMPLETE ROW -> zero circuits -> empty soca plan -> the
-# panel rendered NOTHING, and the user read the soca feature as broken. The
-# error already lived in the left sidebar and the red wall tint; the Power
-# sidebar showed blank space with no story. Only the ERROR empty state gets
-# the message - a non-screen layer or a screen with nothing visible on it
-# keeps today's blank host.
+# old panel rendered NOTHING, and the user read the soca feature as broken.
+# The panel is gone; the story now rides the hardware dock's issue strip
+# (#hw-dock-issues) as a "No circuits on SCREEN — <reason>" row, pushed by
+# _dockRenderPower from _socaPlanEmptyReason. Only the ERROR empty state
+# gets the row - a non-screen layer or a screen with nothing visible on it
+# keeps the strip silent.
 
 ERROR_SCREEN_JS = """() => {
     // The user's shape, in memory only: 13 columns of 200W cabinets on a
@@ -321,44 +397,43 @@ WITH_LAYER_JS = """(mutate) => {
     app.selectedLayerIds = new Set([layer.id]);
     try {
         layer._powerCircuitsRequired = app.screenCircuitCount(layer);
-        app.refreshSocaRuns();
-        app.updatePowerLabelEditor();
-        const host = document.getElementById('power-soca-runs');
-        const list = document.getElementById('power-label-list');
+        app._circuitTailCache = null;
+        app.renderHardwareDock();
+        const strip = document.getElementById('hw-dock-issues');
         return {
-            text: host.textContent.replace(/\\s+/g, ' ').trim(),
-            empty: host.innerHTML.trim() === '',
-            fits: host.scrollWidth <= host.clientWidth,
-            editor: list ? list.textContent.replace(/\\s+/g, ' ').trim() : null,
+            text: strip.textContent.replace(/\\s+/g, ' ').trim(),
+            empty: !strip.querySelector('.hw-dock-issue'),
+            fits: strip.scrollWidth <= strip.clientWidth,
         };
     } finally {
         app.project.layers.pop();
         app.currentLayer = savedCurrent;
         app.selectedLayerIds = savedSel;
-        app.refreshSocaRuns();
-        app.updatePowerLabelEditor();
+        app._circuitTailCache = null;
+        app.renderHardwareDock();
     }
 }""" % ERROR_SCREEN_JS
 
 
-def test_soca_panel_states_the_power_error_with_the_layers_figures(page):
+def test_dock_strip_states_the_power_error_with_the_layers_figures(page):
     out = page.evaluate(WITH_LAYER_JS, None)
     assert not out['empty'], (
-        "an error-emptied plan rendered a blank soca panel - the exact "
-        "silence the user read as the feature being broken")
-    for figure in ('No circuits', 'a full row is 2,600 W',
+        "an error-emptied plan raised no strip row - the exact silence the "
+        "user read as the feature being broken")
+    for figure in ('No circuits on WideErr', 'a full row is 2,600 W',
                    '110 V / 15 A', 'carries 1,650 W',
                    'higher voltage or amperage', 'column pattern',
                    'custom path'):
         assert figure in out['text'], (
-            f"{figure!r} missing - the message must carry the layer's own "
+            f"{figure!r} missing - the row must carry the layer's own "
             f"numbers and a way out: {out['text']}")
     assert out['fits'], (
-        "the error message overflows the panel sideways - it must wrap "
-        "inside the clamp like every other row")
-    assert 'No circuits to edit — a full row is 2,600 W' in out['editor'], (
-        f"the label editor's empty message must carry the same reason: "
-        f"{out['editor']}")
+        "the error row overflows the strip sideways - it must wrap inside "
+        "the dock like every other row")
+    # The retired Circuit Labels list echoed this reason ("No circuits to
+    # edit — ..."); with the consolidation the per-circuit editors ARE the
+    # dock's circuit chips, and an emptied plan has no chips - the strip
+    # row above is the one story (updatePowerLabelEditor is a kept no-op).
 
 
 def test_column_error_names_the_column_and_the_row_way_out(page):
@@ -377,8 +452,8 @@ def test_column_error_names_the_column_and_the_row_way_out(page):
         f"a column error suggests the row pattern, not itself: {out['text']}")
 
 
-def test_legitimately_empty_states_stay_blank(page):
-    # Every cabinet hidden: nothing visible is not an error, so no message.
+def test_legitimately_empty_states_keep_the_strip_silent(page):
+    # Every cabinet hidden: nothing visible is not an error, so no row.
     hidden = page.evaluate(WITH_LAYER_JS,
                            "layer.panels.forEach(p => p.hidden = true);")
     assert hidden['empty'], (
@@ -391,45 +466,63 @@ def test_legitimately_empty_states_stay_blank(page):
         f"{unset['text']}")
 
 
-# ── the multi rows read as rows, not as three bare boxes ──────────────────
+# ── the multi's fields read legibly on its dock header ────────────────────
 #
-# User screenshot: each multi rendered a heading and then three UNLABELED
-# inputs - the name (repeating the heading), the distro select and the
-# length - with nothing separating one multi from the next. The fields now
-# carry captions in the distro rows' own register, and the name field shows
-# the DERIVED name as its placeholder while unnamed, so following-the-distro
-# (grey) vs named-by-hand (typed) is visible at a glance - the same
-# legibility rule as the phasing select's deriving state.
+# The multi rows died with the Power sidebar; what they existed for - the
+# name and home-run length, legible at a glance - rides the multi's own
+# hardware dock header now (one header per box, no static label while
+# occupied). The name field shows the DERIVED name as its placeholder while
+# unnamed, so following-the-distro (grey) vs named-by-hand (typed) is
+# visible at a glance - the same legibility rule as the phasing select's
+# deriving state - and the length field wears hw-dock-name-len with the
+# "100ft" hint as its caption.
 
-def test_the_multi_rows_carry_field_labels(page):
+def test_the_multi_header_carries_the_name_and_length_fields(page):
     out = page.evaluate("""() => {
         const app = window.app;
-        app.refreshSocaRuns();
-        const host = document.getElementById('power-soca-runs');
-        const rows = [...host.querySelectorAll('.power-soca-row')];
-        const plan = app.getSocaPlan(app.currentLayer);
+        const byName = (n) => app.project.layers.find(l => l.name === n);
+        const b = byName('SelB');
+        app.currentLayer = b;
+        app.selectedLayerIds = new Set([b.id]);
+        if (!app.project.distros) app.project.distros = [];
+        if (!app.project.distros.some(d => d.id === 'dm2')) {
+            app.project.distros.push({ id: 'dm2', name: 'DL', ratingA: 400,
+                                       voltage: 208, phase: 3 });
+        }
+        app._circuitTailCache = null;
+        app.setSocaDistro(b, 1, 'dm2');
+        app._circuitTailCache = null;
+        app.renderHardwareDock();
+        const name = document.querySelector(
+            `[data-lrd-field="power-soca-name-${b.id}-1"]`);
+        const len = document.querySelector(
+            `[data-lrd-field="power-soca-length-${b.id}-1"]`);
+        const head = name && name.closest('.hw-dock-head-row');
+        const plan = app.getSocaPlan(b);
         return {
-            rows: rows.length,
-            labels: rows.map(r => [...r.querySelectorAll('.power-soca-field-label')]
-                .map(l => l.textContent.trim())),
-            headings: rows.map(r => r.querySelector(':scope > label').textContent.trim()),
-            placeholders: rows.map(r => r.querySelector('.power-soca-name').placeholder),
-            planNames: plan.map(s => s.name),
-            fits: host.scrollWidth <= host.clientWidth,
+            name: !!name, len: !!len,
+            sameHead: !!(head && len && head.contains(len)),
+            lenClass: !!(len && len.classList.contains('hw-dock-name-len')),
+            lenPlaceholder: len ? len.placeholder : null,
+            value: name ? name.value : null,
+            placeholder: name ? name.placeholder : null,
+            planName: plan.length ? plan[0].name : null,
+            staticLabel: !!(head
+                && head.querySelector('.hw-dock-unit-name')),
+            fits: !!(head && head.scrollWidth <= head.clientWidth),
         };
     }""")
-    assert out['rows'] > 0, "the soca panel built no multi rows"
-    for labels in out['labels']:
-        # Distro left the row when assignment moved to the hardware dock's
-        # drag; the remaining editors keep their captions.
-        assert labels == ['Name', 'Length'], (
-            f"every field in a multi row carries its caption: {out['labels']}")
-    for head, name in zip(out['headings'], out['planNames']):
-        assert head.startswith(f'{name} ·'), (
-            f"the row heading must lead with the plan's own name: {out}")
-    assert out['placeholders'] == out['planNames'], (
+    assert out['name'] and out['len'], (
+        f"the dock built no name/length fields for the assigned multi: {out}")
+    assert out['sameHead'], (
+        f"name and length must ride the multi's ONE header: {out}")
+    assert out['lenClass'] and out['lenPlaceholder'] == '100ft', out
+    assert out['value'] == '', f"SelB's multi is unnamed: {out}"
+    assert out['planName'] and out['placeholder'] == out['planName'], (
         "the name field's placeholder is the derived name, so an unnamed "
         f"multi visibly follows its distro: {out}")
+    assert not out['staticLabel'], (
+        f"an occupied box wears its member's field, not a static label: {out}")
     assert out['fits'], (
-        "the labelled rows overflow the panel sideways - they must wrap "
-        "inside the clamp like the distro rows do")
+        "the header's fields overflow their row - they must fit the dock "
+        f"header like every other unit's: {out}")

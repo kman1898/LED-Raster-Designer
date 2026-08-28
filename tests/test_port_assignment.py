@@ -19,6 +19,13 @@ The four behaviours, and the reason each is awkward:
 * A PIN WINS. Auto works around it and never over it, and releasing it hands
   the port straight back.
 
+The reporting surface moved with the consolidation round: the retired Port
+Numbering panel's issue boxes are rows on the hardware dock's issues strip
+(#hw-dock-issues), the auto toggle is the dock header's own checkbox, and the
+per-card usage foot is the card headers' used/capacity glance. The numbering
+itself never left the server, which is why almost everything here still
+drives the API and re-points cleanly.
+
 Values are asserted as they come BACK from the server, never as they were
 sent - this codebase drops unlisted fields silently in two separate places and
 a test that only checks its own request body passes straight through that.
@@ -61,7 +68,7 @@ def set_card(client, proc_id, slot, device_id):
 
 
 def card_ids(state):
-    """Cards in the order the panel draws them, which is the order auto fills
+    """Cards in the order the dock draws them, which is the order auto fills
     them - processor by processor, slot 1 downward."""
     out = []
     for proc in state['resolved']:
@@ -89,8 +96,9 @@ def by_name(resolution, name):
 
 
 def place(client, layer_id, index, card_id, port, sc, confirm=False):
-    """One port of one screen onto one card port - the request both panels
-    send, from either end of the cable."""
+    """One port of one screen onto one card port - the request a hand
+    placement sends, from either end of the cable (the dock's drop is the
+    gesture that sends it in the app)."""
     body = {'layerId': layer_id, 'index': index, 'cardId': card_id,
             'port': port, 'screens': sc}
     if confirm:
@@ -162,13 +170,13 @@ def test_ports_pack_densely_in_screen_order(one_card):
 
 def test_auto_is_on_before_anybody_turns_it_on(one_card):
     """A project that has never been touched here must number itself, or the
-    panel opens on a wall of blanks and every screen needs a decision before it
-    says anything."""
+    drawing opens on a wall of blanks and every screen needs a decision before
+    it says anything."""
     client, _pid, _card = one_card
     res = resolve(client, ('Main', 3))
     assert res['auto'] is True
     assert numbers(res, 'Main') == [1, 2, 3]
-    # And the panel reading itself did not stamp state onto the project.
+    # And merely reading the resolution did not stamp state onto the project.
     assert assignment.STATE_KEY not in client.get('/api/project').get_json()
 
 
@@ -221,7 +229,8 @@ def test_a_cvt_gives_a_copy_opt_card_no_extra_ports_to_hand_out(one_card):
 
 
 def test_boxes_hung_on_trunks_that_do_not_exist_hand_out_no_ports(client):
-    """The panel refuses to ADD a box with no OPT left, but a project can still
+    """The app refuses to ADD a box with no OPT left (the card gear's box
+    picker), but a project can still
     arrive carrying one - a file saved before that rule, or hand-edited. The
     read path has to stay safe on its own, because the number it produces is
     what a wall gets packed onto: 40 cabinets assigned to 48 ports of a 32-port
@@ -261,8 +270,8 @@ def test_a_card_whose_boxes_cannot_reach_its_ceiling_says_so_here_too(client):
     """Two CVT4K-S boxes on an enhanced H_4xfiber use all four OPTs and deliver
     32 of its 40. Assignment still plans against the card's 40 - which box
     delivers a port is a patching decision and can still change - but the eight
-    that no box will hand out have to be said out loud on the panel that is
-    handing ports to walls."""
+    that no box will hand out have to be said out loud on the dock strip that
+    is handing ports to walls."""
     state = add_processor(client, 'novastar-h9')
     pid = state['resolved'][0]['id']
     state = set_card(client, pid, 0, 'novastar-card-h-4xfiber-enhanced')
@@ -280,7 +289,7 @@ def test_a_card_whose_boxes_cannot_reach_its_ceiling_says_so_here_too(client):
     assert 'CVT10' in short['message']
 
 
-def test_a_half_patched_card_is_not_flagged_on_the_assignment_panel(client):
+def test_a_half_patched_card_is_not_flagged_on_the_dock_strip(client):
     """One box on a four-OPT card is a card someone has not finished patching,
     not a shortfall. Nagging about it would train people to ignore the message
     that matters."""
@@ -429,8 +438,9 @@ def test_auto_ports_repack_and_pinned_ones_do_not(one_card):
     behaviour as a screen being deleted, and it is what dense packing means.
 
     The way to hold a numbering is to pin it, which is the whole reason pinning
-    exists, and the panel prints PINNED against every port that will not move.
-    Nothing here happens quietly: the marks are on the page before the move."""
+    exists, and every port that will not move comes back marked as a pin for
+    the dock to draw. Nothing here happens quietly: the marks are on the page
+    before the move."""
     client, _pid, card = one_card
     sc = screens(('Main', 4), ('Side', 4))
     assert numbers(resolve(client, ('Main', 4), ('Side', 4)), 'Side') == [5, 6, 7, 8]
@@ -555,7 +565,8 @@ def test_placing_one_port_leaves_the_screens_other_ports_where_they_were(one_car
     slide down into the port that was vacated - an auto port is arithmetic and
     re-packs into whatever room appears - so one click would renumber four
     ports on a drawing. The rest of the run is held first, which is the same
-    trade the block move makes and prints PINNED on the page just as loudly."""
+    trade the block move makes, and comes back marked as pins just as
+    loudly."""
     client, _pid, card = one_card
     sc = screens(('Main', 6),)
     before = numbers(resolve(client, ('Main', 6)), 'Main')
@@ -683,7 +694,8 @@ def test_a_placement_onto_another_card_says_the_run_now_spans_two(one_card):
 
 
 def test_a_placement_names_the_socket_it_landed_on(one_card):
-    """The note is what the panel prints after the move, and a port number on
+    """The note is what the dock strip prints after the move (its quiet blue
+    row), and a port number on
     its own is not what the tech is standing in front of. The card's name is
     not repeated in front of a label already built out of it - "SR SR-9" reads
     like two different things."""
@@ -730,8 +742,8 @@ def test_a_placement_of_a_port_the_screen_does_not_have_is_refused(one_card):
 
 
 def test_a_card_with_no_settled_count_still_takes_a_placement(client):
-    """"Ports can still be pinned to it by hand" is what the panel says about
-    an SQ200, and this is the by-hand path. There is no ceiling to check
+    """"Ports can still be pinned to it by hand" is what the capacity-unknown
+    row on the dock strip says about an SQ200, and this is the by-hand path. There is no ceiling to check
     against, and inventing one to check against is the failure the catalog
     exists to prevent."""
     state = add_processor(client, 'brompton-sq200')
@@ -743,8 +755,8 @@ def test_a_card_with_no_settled_count_still_takes_a_placement(client):
 
 def test_assigning_from_the_socket_lands_where_pinning_from_the_screen_does(
         one_card):
-    """The Processors panel knows a card and a port number and asks which
-    screen plugs in; the assignment side knows a screen's port and asks
+    """The dock's socket end knows a card and a port number and asks which
+    screen plugs in; the screen end knows a screen's port and asks
     where it goes. Same cable, two ends, and they have to write the same pin -
     two implementations of "what does that mean" would disagree the first time
     a socket was already claimed."""
@@ -888,7 +900,7 @@ def test_any_port_of_any_screen_can_be_pinned(two_cards):
 
 def test_a_pin_without_a_port_number_takes_the_cards_lowest_free_one(two_cards):
     """"Put this one on that card" is the decision; which free number it lands
-    on is arithmetic. Leaving the number out is the normal case from the panel,
+    on is arithmetic. Leaving the number out is the normal case from the dock,
     and the server owns the answer - working it out in the browser would be a
     second implementation of "which ports are free" that gets it wrong the
     first time a pin leaves a hole in the middle of a card."""
@@ -1016,7 +1028,7 @@ def test_pins_round_trip_through_save_and_reload(two_cards):
 def test_only_pins_and_the_auto_flag_are_stored(one_card):
     """Nothing derived is kept. Storing the auto numbering would put a stale
     copy in the file the moment a screen changed size, and the file would then
-    disagree with the panel drawn beside it."""
+    disagree with the dock drawn beside it."""
     client, _pid, card = one_card
     client.post('/api/port-assignments/pin', json={
         'layerId': 'Main', 'index': 0, 'cardId': card, 'port': 3,
@@ -1099,24 +1111,72 @@ def test_the_per_screen_port_templates_are_untouched(client_with_layer):
         client_with_layer.get('/api/project').get_json()
 
 
-def test_the_panel_ships_no_declared_fields_into_the_field_sweep():
+def test_the_docks_assignment_controls_stay_out_of_the_field_sweep():
     """tests/test_all_fields_sweep.py drives every control declared inside a
-    .tab-panel straight at the selected LAYER. Assignment is project state and
-    its controls are built in JS for that reason; a control declared in the
-    template here would be swept and would fail for a reason that has nothing
-    to do with it."""
+    .tab-panel straight at the selected LAYER. Assignment is project state,
+    and since the consolidation its two declared controls - the dock header's
+    auto checkbox and the add-processor picker - live in the dock's static
+    markup, OUTSIDE every panel, so the sweep must never find them; swept,
+    they would fail for a reason that has nothing to do with them. The issue
+    rows themselves are still built in JS, onto #hw-dock-issues, and the
+    retired panel's #port-assignment-issues host must stay gone."""
+    from html.parser import HTMLParser
+
     template = os.path.join(os.path.dirname(__file__), '..', 'src',
                             'templates', 'index.html')
     with open(template, encoding='utf-8') as fh:
         html = fh.read()
-    start = html.index('<h2>Port Numbering</h2>')
-    end = html.index('<h2>Port Labels</h2>')
-    panel = html[start:end]
-    for tag in ('<input', '<select', '<textarea'):
-        assert tag not in panel, (
-            f'{tag} declared in the Port Numbering panel markup - the field '
-            f'sweep would drive it at the selected layer')
-    assert 'id="port-assignment-issues"' in panel
+
+    void = {'input', 'br', 'hr', 'img', 'meta', 'link', 'col', 'wbr',
+            'area', 'base', 'embed', 'source', 'track', 'param'}
+
+    class Scan(HTMLParser):
+        """The sweep's panel scope, re-derived: a control counts as swept
+        when it sits inside a .tab-panel (or #text-layer-panel)."""
+
+        def __init__(self):
+            super().__init__(convert_charrefs=True)
+            self._stack = []
+            self._panels = []
+            self.declared = set()
+            self.swept = set()
+
+        def handle_starttag(self, tag, attrs):
+            a = dict(attrs)
+            if tag not in void:
+                self._stack.append(tag)
+                classes = (a.get('class') or '').split()
+                if ('tab-panel' in classes
+                        or a.get('id') == 'text-layer-panel'):
+                    self._panels.append(len(self._stack))
+            if tag in ('input', 'select', 'textarea') and a.get('id'):
+                self.declared.add(a['id'])
+                if self._panels:
+                    self.swept.add(a['id'])
+
+        def handle_endtag(self, tag):
+            if tag in void:
+                return
+            while self._stack and self._stack[-1] != tag:
+                self._stack.pop()
+            if self._stack:
+                self._stack.pop()
+            while self._panels and self._panels[-1] > len(self._stack):
+                self._panels.pop()
+
+    scan = Scan()
+    scan.feed(html)
+    for key in ('port-assignment-auto', 'processor-add-device'):
+        assert key in scan.declared, f'{key} is missing from the template'
+        assert key not in scan.swept, (
+            f'{key} is declared inside a .tab-panel - the field sweep would '
+            f'drive project state at the selected layer')
+    # The focus guard restores by this key across dock rebuilds, so the
+    # static checkbox has to carry it.
+    assert 'data-lrd-field="port-assignment-auto"' in html
+    assert 'id="hw-dock-issues"' in html, 'the issues strip host is gone'
+    assert 'id="port-assignment-issues"' not in html, (
+        'the retired Port Numbering issue host is back')
 
 
 # ── 8. Labels come from the one place that owns them ──────────────────────
@@ -1143,9 +1203,10 @@ def test_an_unnamed_card_gives_its_ports_no_label(one_card):
 
 
 def test_a_card_summary_carries_the_names_its_ports_go_by(one_card):
-    """A panel offering somebody a choice of sockets has to call each one what
-    the box calls it. Without the names the list reads 1, 2, 3 while the card
-    in the rack reads SR-1, SR-2, and the two get matched up by counting."""
+    """A surface offering somebody a choice of sockets - the dock's chips -
+    has to call each one what the box calls it. Without the names the list
+    reads 1, 2, 3 while the card in the rack reads SR-1, SR-2, and the two get
+    matched up by counting."""
     client, pid, card = one_card
     client.put(f'/api/processors/{pid}/cards/{card}', json={'name': 'SR'})
     summary = resolve(client, ('Main', 2))['cards'][0]
@@ -1155,8 +1216,8 @@ def test_a_card_summary_carries_the_names_its_ports_go_by(one_card):
 
 # ── 9. Both ends of one cable ─────────────────────────────────────────────
 #
-# The Port Numbering module asks "where did my ports go" and the Processors
-# panel asks "what is on this socket". They are the same question from the two
+# The assignment module asks "where did my ports go" and the dock's chips ask
+# "what is on this socket". They are the same question from the two
 # ends of one cable, and the answer has to be written once.
 
 def js(filename):
@@ -1177,7 +1238,7 @@ def function_body(source, signature):
 def test_both_surfaces_place_a_port_through_the_one_request():
     """Two request builders would be two sets of rules about what may land on
     an occupied socket, and they would disagree the first time one was
-    changed. The placement lives in the panel module (_placePort) and the
+    changed. The placement lives in the assignment module (_placePort) and the
     hardware dock - the only surface that still sends it - calls it."""
     panel = js('app-port-assignment.js')
     dock = js('app-dock.js')
@@ -1199,35 +1260,41 @@ def test_a_placement_asks_before_it_lands_on_somebody():
     assert 'this._placePort(spot, true);' in body
 
 
-def test_the_per_port_rows_stay_out_of_the_panel():
-    """The dock's drag is the assignment gesture, so the panel's per-port
-    pin selects, movers and release buttons - and the per-screen "Move whole
-    block" tools - are gone, from both panels. This pins the strip the way
-    the Processors panel's stripped chooser is pinned, so the rows cannot
-    quietly come back and grow a second set of assignment rules.
+def test_the_per_port_rows_stay_out_of_the_assignment_module():
+    """The dock's drag is the assignment gesture, so the retired panel's
+    per-port pin selects, movers and release buttons - and the per-screen
+    "Move whole block" tools - are gone for good. This pins the module the
+    way the stripped socket chooser is pinned, so the rows cannot quietly
+    come back and grow a second set of assignment rules.
 
     (Two prior tests lived here: one held the mover's data-lrd-field keys
     for the focus guard, one held the mover's half-made choice off the DOM
-    in _movingPort. Both drove UI that no longer exists - the focus guard
-    itself is still exercised by the auto toggle's key below.)"""
+    in _movingPort. Both drove UI that no longer exists - the focus guard's
+    auto-toggle key rides in the static dock markup now, asserted with the
+    field-sweep test above.)"""
     panel = js('app-port-assignment.js')
     for gone in ('port-move-card-', 'port-move-port-', 'port-pin-',
                  '_movingPort', 'Move whole block', 'Release all pins',
-                 '_buildAssignmentScreen', '_buildAssignmentPort'):
+                 '_buildAssignmentScreen', '_buildAssignmentPort',
+                 '_buildAssignmentFoot'):
         assert gone not in panel, (
-            f'{gone!r} is back in the panel module - assignment controls '
-            f'belong to the dock now')
+            f'{gone!r} is back in the assignment module - assignment '
+            f'controls belong to the dock now')
     assert 'processor-port-assign-' not in js('app-processors.js'), (
-        'the stripped chooser is back in the Processors panel')
+        'the stripped chooser is back in the processors module')
     # The dock's chip editors took over the per-port naming, and they must
     # not regrow the chooser either: the drag is the one assignment gesture.
     assert 'processor-port-assign-' not in js('app-dock.js'), (
         'the stripped chooser reappeared in the dock chip editor')
-    # What deliberately STAYS: the refuse-and-offer surface and the auto
-    # toggle. The dock does not replace warnings.
+    # What deliberately STAYS: the refuse-and-offer surface, re-hosted as
+    # rows on the dock's issues strip, and the header checkbox it syncs.
+    # The dock does not replace warnings.
     assert '_buildIssue(issue) {' in panel
     assert '_buildOffer(offer) {' in panel
-    assert "dataset.lrdField = 'port-assignment-auto'" in panel
+    assert "getElementById('hw-dock-issues')" in panel, (
+        'the issue rows stopped rendering onto the dock strip')
+    assert "getElementById('port-assignment-auto')" in panel, (
+        'the render no longer syncs the dock header auto checkbox')
 
 
 def test_the_backup_template_rides_the_return_labels_here_too(one_card):
@@ -1342,9 +1409,9 @@ def test_a_1to1_backup_unit_takes_nothing_and_refuses_by_role(client):
 
 
 def test_the_card_summary_counts_backing_ports_out_of_free(client):
-    """The dock's used/capacity line and the pin picker's (full) tell both
-    read the summary, so a sequential card must not promise six sockets when
-    three of them are spoken for by the role."""
+    """The card headers' used/capacity glance and the gear popover's capacity
+    row both read the summary, so a sequential card must not promise six
+    sockets when three of them are spoken for by the role."""
     _pid, card = sequential_card(client)
     res = resolve(client, ('Wall', 2))
     summary = next(c for c in res['cards'] if c['cardId'] == card)

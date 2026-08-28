@@ -1,14 +1,18 @@
 // app-dock: the hardware dock, a tray under the canvas that holds the view's
 // hardware and makes DRAG the way assignments are made.
 //
-// The Signal and Power panels stay the place DEVICES are named, inspected and
-// templated; the dock is the place hardware is AIMED - and, on the data side,
-// the ONE place ports appear at all. The Processors panel used to draw the
-// same port grid a second time, which was the same data twice; now each port
-// chip here carries the port's own editor folded inside it (the shared
-// _wireTiles machinery): click or Enter opens the per-port Name and Return
-// boxes, the manual backup pick and the occupancy detail in place, and drag
-// still starts on press-and-move. Data view lays out every
+// The dock is the ONE hardware surface now - the Signal and Power middle
+// sidebars retired into it. Its header bar carries the add controls and the
+// auto-numbering switch; a slim strip under the header carries the issues
+// and warnings with their fix buttons inline; every section header carries
+// its thing's NAME inline and a ⚙ opening its configuration popover
+// (templates, modes, redundancy, electrical setup, removal - built by
+// app-processors.js and app-power.js, anchored here). Each port chip
+// carries the port's own editor folded inside it (the shared _wireTiles
+// machinery): click or Enter opens the per-port Name and Return boxes, the
+// manual backup pick and the occupancy detail in place, and drag still
+// starts on press-and-move; an occupied circuit chip opens its label
+// override the same way. Data view lays out every
 // processor's cards, their breakout boxes and their port tiles; Power view
 // lays out every distro as a section of multi sections, each multi holding
 // its six tails as circuit chips in the same register - one grammar for
@@ -70,7 +74,56 @@ class _HardwareDock {
         // collapse - and settles the canvas after it - and theme.js's
         // PANELS row owns the drag-resize, so there is nothing to watch
         // here the way the old section fold needed watching.
+        this._wireDockChrome();
         this.renderHardwareDock();
+    }
+
+    // The dock header's own controls, wired ONCE against the static markup:
+    // with the middle sidebars retired the tray is the whole hardware
+    // surface, so adding a processor, adding a distro and the auto-numbering
+    // switch live on its header bar. The chevron proxies the existing fold
+    // toggle - one collapse mechanism, one stored state, just reachable
+    // from inside the bar the eye is already on (the hanging tab stays as
+    // the way back once the tray is folded to nothing).
+    _wireDockChrome() {
+        const fold = document.getElementById('hw-dock-fold');
+        if (fold) fold.addEventListener('click', () => {
+            const toggle = document.getElementById('hardware-dock-toggle');
+            if (toggle) toggle.click();
+        });
+        const addBtn = document.getElementById('processor-add-btn');
+        const picker = document.getElementById('processor-add-device');
+        if (addBtn && picker) addBtn.addEventListener('click', () => {
+            if (!picker.value) return;
+            sendClientLog('processor_add_clicked', { deviceId: picker.value });
+            this._processorRequest('/api/processors', 'POST',
+                                   { deviceId: picker.value },
+                                   'Add Processor');
+        });
+        const auto = document.getElementById('port-assignment-auto');
+        if (auto) auto.addEventListener('change', () => this._assignmentRequest(
+            '/api/port-assignments', 'PUT', { auto: auto.checked },
+            null, 'Toggle Auto Numbering'));
+        const addDistro = document.getElementById('power-distro-add');
+        if (addDistro) addDistro.addEventListener('click', () => {
+            this.addDistro();
+            this._restateNaming();
+        });
+        // The gear popover's teardown gestures, the menu idiom: click-away
+        // and Escape, bound once at the document. A press on the popover's
+        // own anchor is the toggle's business, not a dismissal.
+        document.addEventListener('mousedown', (e) => {
+            if (!this._hwPopover) return;
+            const pop = document.getElementById('hw-gear-popover');
+            if (pop && pop.contains(e.target)) return;
+            const anchor = e.target && e.target.closest
+                && e.target.closest('[data-hwpop]');
+            if (anchor && anchor.dataset.hwpop === this._hwPopover.id) return;
+            this._hwPopoverClose();
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && this._hwPopover) this._hwPopoverClose();
+        });
     }
 
     // ── drawing ───────────────────────────────────────────────────────────
@@ -95,16 +148,19 @@ class _HardwareDock {
         body.innerHTML = '';
         if (mode === 'data-flow') {
             this._dockRenderData(body);
-            // The port chips fold their editors inside them, so the tile
-            // machinery wires them after every wipe - which chip is open
-            // rode the wipe on the app (_openTiles), the way the fold state
-            // rides it in localStorage. The power circuit chips stay plain
-            // drag handles (their editing lives in the Power sidebar's own
-            // multi tiles), so only the data render wires tiles.
-            if (typeof this._wireTiles === 'function') this._wireTiles(body);
         } else if (mode === 'power') {
             this._dockRenderPower(body);
         }
+        // The chips fold their editors inside them on BOTH sides now - the
+        // port chips their name boxes, the occupied circuit chips their
+        // label override - so the tile machinery wires them after every
+        // wipe. Which chip is open rode the wipe on the app (_openTiles),
+        // the way the fold state rides it in localStorage; a free circuit
+        // chip has no editor and _wireTiles skips it.
+        if (typeof this._wireTiles === 'function') this._wireTiles(body);
+        // The header bar and the issues strip are per-view too: which add
+        // cluster shows, what the strip warns about.
+        this._renderDockChrome(mode);
         // Every hardware section - card, breakout box, distro, multi - folds
         // by the app's one section machinery, so "this card is done, get it
         // out of the way" is the same gesture folding a sidebar block is.
@@ -129,12 +185,165 @@ class _HardwareDock {
                 again.focus();
             }
         }
+        // An open gear popover describes a header the wipe just replaced:
+        // rebuild its content against the fresh state, or close it when its
+        // anchor stopped existing (the card was removed, the view left).
+        this._hwPopoverRefresh();
         // Content growing or shrinking the tray moves the canvas's bottom
         // edge; the backing store has to follow or a strip paints stale.
         if (dock.offsetHeight !== before
                 && typeof this.settleLayout === 'function') {
             this.settleLayout();
         }
+    }
+
+    // ── the header bar and the issues strip ──────────────────────────────
+    //
+    // The dock's chrome: which add cluster the header shows, whether the
+    // auto toggle is offered, and what the strip under the header warns
+    // about. The strip is the refuse-and-offer surface the retired Port
+    // Numbering panel was - the data side re-hosts its issue rows whole
+    // (app-port-assignment.js renderPortAssignmentPanel), and the power
+    // side fills the same rows with the clash / overflow / same-name
+    // warnings its sidebar tiles used to wear.
+    _renderDockChrome(mode) {
+        const dataCtl = document.getElementById('hw-dock-data-controls');
+        const powerCtl = document.getElementById('hw-dock-power-controls');
+        const autoWrap = document.getElementById('hw-dock-auto-wrap');
+        const strip = document.getElementById('hw-dock-issues');
+        if (dataCtl) {
+            dataCtl.classList.toggle('view-hidden', mode !== 'data-flow');
+        }
+        if (powerCtl) {
+            powerCtl.classList.toggle('view-hidden', mode !== 'power');
+        }
+        if (mode === 'data-flow') {
+            const picker = document.getElementById('processor-add-device');
+            // Refill only while nobody is standing in it: the options are
+            // static per catalog, and rewriting a focused select would
+            // close it under the pointer.
+            if (picker && this._processorCatalog
+                    && picker !== document.activeElement) {
+                const devices = this._processorDevices('processor');
+                if (picker.querySelectorAll('option').length
+                        !== devices.length + 1) {
+                    const keep = picker.value;
+                    this._fillDeviceSelect(picker, devices, keep,
+                                           'Add a processor…');
+                }
+            }
+            // The strip and the auto toggle narrate the assignment; that
+            // render owns them (and hides the toggle until configured).
+            if (typeof this.renderPortAssignmentPanel === 'function') {
+                this.renderPortAssignmentPanel();
+            }
+        } else {
+            if (autoWrap) autoWrap.classList.add('view-hidden');
+            if (strip) {
+                strip.innerHTML = '';
+                if (mode === 'power') this._dockPowerStrip(strip);
+            }
+        }
+    }
+
+    // The power view's warnings, as strip rows: collected during the body
+    // render (the same computations the chips and headers drew from, never
+    // a second derivation) plus the current screen's empty-plan reason.
+    // Red rows are questions - a tail claimed twice, a box past its six
+    // tails, a distro over its rating, a plan a power error emptied; amber
+    // rows are conditions - two multis wearing one name on two numbers.
+    _dockPowerStrip(strip) {
+        (this._dockPowerWarnings || []).forEach(w => {
+            const row = document.createElement('div');
+            row.className = 'hw-dock-issue'
+                + (w.mild ? ' hw-dock-issue-mild' : '');
+            const msg = document.createElement('span');
+            msg.className = 'hw-dock-issue-msg';
+            msg.textContent = w.text;
+            row.appendChild(msg);
+            if (w.offer) {
+                const btn = document.createElement('button');
+                btn.className = 'btn';
+                btn.style.padding = '4px 8px';
+                btn.style.fontSize = '11px';
+                btn.style.background = '#333';
+                btn.textContent = w.offer.label;
+                if (w.offer.title) btn.title = w.offer.title;
+                btn.addEventListener('click', w.offer.run);
+                row.appendChild(btn);
+            }
+            strip.appendChild(row);
+        });
+    }
+
+    // ── the gear popover ─────────────────────────────────────────────────
+    //
+    // One popover for every header's ⚙, following the app's menu idiom:
+    // positioned at the gear (above it - the dock sits at the window's
+    // bottom), closed by click-away or Escape (_wireDockChrome), refreshed
+    // in place across the dock's wholesale rebuilds so an open panel never
+    // narrates stale state. The content builders live with their owners
+    // (app-processors.js for the device tree, app-power.js for distros);
+    // their fields carry data-lrd-field keys, so the focus machinery treats
+    // a popover field exactly like a panel field.
+    _hwPopoverToggle(anchor, id, build) {
+        if (this._hwPopover && this._hwPopover.id === id) {
+            this._hwPopoverClose();
+            return;
+        }
+        this._hwPopover = { id, build };
+        this._hwPopoverRender(anchor);
+    }
+
+    _hwPopoverRender(anchor) {
+        let pop = document.getElementById('hw-gear-popover');
+        if (!pop) {
+            pop = document.createElement('div');
+            pop.id = 'hw-gear-popover';
+            document.body.appendChild(pop);
+        }
+        const content = this._hwPopover && this._hwPopover.build();
+        if (!content) {
+            this._hwPopoverClose();
+            return;
+        }
+        pop.innerHTML = '';
+        pop.appendChild(content);
+        // Measure hidden, then place: above the gear when it fits (the
+        // tray hugs the window's bottom edge), below it otherwise, clamped
+        // to the viewport the way the context menu clamps itself.
+        pop.style.display = 'block';
+        pop.style.visibility = 'hidden';
+        const r = anchor.getBoundingClientRect();
+        const pr = pop.getBoundingClientRect();
+        const margin = 8;
+        let x = Math.min(r.left, window.innerWidth - pr.width - margin);
+        x = Math.max(margin, x);
+        let y = r.top - pr.height - 6;
+        if (y < margin) y = Math.min(r.bottom + 6,
+                                     window.innerHeight - pr.height - margin);
+        pop.style.left = `${Math.round(x)}px`;
+        pop.style.top = `${Math.round(Math.max(margin, y))}px`;
+        pop.style.visibility = 'visible';
+    }
+
+    _hwPopoverClose() {
+        this._hwPopover = null;
+        const pop = document.getElementById('hw-gear-popover');
+        if (pop) pop.style.display = 'none';
+    }
+
+    _hwPopoverRefresh() {
+        if (!this._hwPopover) return;
+        const anchor = document.querySelector(
+            `[data-hwpop="${CSS.escape(this._hwPopover.id)}"]`);
+        if (!anchor) {
+            // Whatever the popover described stopped existing (removed, or
+            // the view left) - a panel over a ghost closes.
+            this._hwPopoverClose();
+            return;
+        }
+        this._hwPopoverRender(anchor);
     }
 
     _dockNote(host, text) {
@@ -144,12 +353,38 @@ class _HardwareDock {
         host.appendChild(note);
     }
 
+    // One resolved card off the fresh tree, for the gear builds: a popover
+    // rebuilt after a round-trip must describe the state that came back,
+    // never the closure's stale snapshot.
+    _dockFindCard(cardId) {
+        for (const proc of this._processorsResolved || []) {
+            for (const slot of proc.slots || []) {
+                if (slot.card && slot.card.id === cardId) {
+                    return { proc, card: slot.card };
+                }
+            }
+        }
+        return null;
+    }
+
+    _dockFindCvt(cvtId) {
+        for (const proc of this._processorsResolved || []) {
+            for (const slot of proc.slots || []) {
+                const card = slot.card;
+                if (!card) continue;
+                const cvt = (card.cvts || []).find(c => c.id === cvtId);
+                if (cvt) return { proc, card, cvt };
+            }
+        }
+        return null;
+    }
+
     _dockRenderData(host) {
         const procs = this._processorsResolved || [];
         if (!procs.length) {
             this._dockNote(host,
-                'No processors. Add one in the Signal panel and its ports '
-                + 'appear here to drag onto screens.');
+                'No processors. Pick a model in the header above, press '
+                + 'Add, and its ports appear here to drag onto screens.');
             return;
         }
         const procEls = new Map();
@@ -157,9 +392,37 @@ class _HardwareDock {
         procs.forEach(proc => {
             const wrap = document.createElement('div');
             wrap.className = 'hw-dock-proc';
+            // The processor's own strip: the model as static text, the name
+            // edited inline, and the machine-level configuration
+            // (redundancy, slots, remove) behind its ⚙. Not a drag handle -
+            // a whole processor is not a droppable thing; its cards are.
             const title = document.createElement('div');
             title.className = 'hw-dock-proc-name';
-            title.textContent = proc.name || proc.deviceName;
+            const model = document.createElement('span');
+            model.textContent = proc.deviceName;
+            title.appendChild(model);
+            title.appendChild(this._dockHeadName({
+                value: proc.name,
+                placeholder: 'unnamed',
+                key: `processor-name-${proc.id}`,
+                title: 'Name this processor. A card\'s ports take the '
+                    + 'nearest name above them.',
+                onCommit: (val) => this._processorRequest(
+                    `/api/processors/${proc.id}`, 'PUT', { name: val },
+                    'Rename Processor'),
+            }));
+            this._dockHeadAugment(title, {
+                gear: {
+                    id: `proc-${proc.id}`,
+                    title: 'Configure this processor - redundancy, slots, '
+                        + 'remove.',
+                    build: () => {
+                        const p = (this._processorsResolved || [])
+                            .find(x => x.id === proc.id);
+                        return p ? this._buildProcGearContent(p) : null;
+                    },
+                },
+            });
             wrap.appendChild(title);
             (proc.slots || []).forEach(slot => {
                 if (!slot.card) return;
@@ -210,19 +473,45 @@ class _HardwareDock {
                 title: (card.name || card.deviceName) + cardTag,
             },
             `card-${card.id}`,
-            (card.name || card.deviceName) + cardTag,
-            summary && summary.capacityKnown
-                ? `${summary.used} / ${summary.capacity}` : '',
+            card.deviceName + cardTag,
+            '',
             'Drag the whole card onto a screen: its ports fill in order from '
             + 'the first unassigned, or the whole run moves here.',
-            // The folded header's glance: how full the card is, so a card
-            // folded away because it is done reads as done (a green-full
-            // line) without opening it. Counts from the same assignment
-            // summary the detail text prints - never re-derived.
+            // The header's glance: how full the card is, the retired
+            // panel's per-card usage foot worn as n/N and a fill line - so
+            // a card folded away because it is done reads as done (a
+            // green-full line) without opening it. Counts from the same
+            // assignment summary the foot printed - never re-derived.
             summary && summary.capacityKnown && summary.capacity > 0
                 ? { frac: summary.used / summary.capacity,
-                    over: summary.used > summary.capacity }
+                    over: summary.used > summary.capacity,
+                    text: `${summary.used}/${summary.capacity}` }
                 : null);
+        // The card's NAME edits inline where it reads; everything else the
+        // panel's card block carried lives behind the ⚙.
+        this._dockHeadAugment(head, {
+            name: {
+                value: card.name,
+                placeholder: proc.name || 'unnamed',
+                key: `processor-card-name-${card.id}`,
+                title: 'Name this card. Its ports read the name - name it '
+                    + 'SR and they read SR-1, SR-2.',
+                onCommit: (val) => this._processorRequest(
+                    `/api/processors/${proc.id}/cards/${card.id}`, 'PUT',
+                    { name: val }, 'Rename Card'),
+            },
+            gear: {
+                id: `card-${card.id}`,
+                title: 'Configure this card - templates, mode, redundancy, '
+                    + 'breakout boxes, remove.',
+                build: () => {
+                    const found = this._dockFindCard(card.id);
+                    return found ? this._buildCardGearContent(found.proc,
+                                                              found.card)
+                        : null;
+                },
+            },
+        });
         unit.appendChild(head);
         // Everything under the header folds as one body - the section
         // machinery's shape, transposed onto the tray's card unit.
@@ -284,7 +573,7 @@ class _HardwareDock {
                     beyondTrunks: !!cvt.beyondTrunks,
                 },
                 `box-${cvt.id}`,
-                boxTitle,
+                cvt.deviceName + tag,
                 `ports ${span}`,
                 'Drag the whole box onto a screen: the screen\'s ports fill '
                 + 'onto this box\'s sockets in order from the first '
@@ -293,6 +582,30 @@ class _HardwareDock {
                     ? { frac: taken / total, over: false,
                         text: `${taken}/${total}` }
                     : null);
+            // The box's name edits inline; unnamed, the placeholder speaks
+            // the RESOLVED title (trunk letter included), so "Tessera XD A"
+            // still reads on the header the server's refusals name.
+            this._dockHeadAugment(boxHead, {
+                name: {
+                    value: cvt.name,
+                    placeholder: cvt.displayTitle || 'unnamed',
+                    key: `processor-cvt-name-${cvt.id}`,
+                    title: 'Name this box. Its sockets read the name the '
+                        + 'way a card\'s ports read the card\'s.',
+                    onCommit: (val) => this._processorRequest(
+                        `/api/processors/${proc.id}/cvts/${cvt.id}`, 'PUT',
+                        { name: val }, 'Rename Breakout Box'),
+                },
+                gear: {
+                    id: `box-${cvt.id}`,
+                    title: 'Configure this box - templates, facts, remove.',
+                    build: () => {
+                        const found = this._dockFindCvt(cvt.id);
+                        return found ? this._buildBoxGearContent(
+                            found.proc, found.card, found.cvt) : null;
+                    },
+                },
+            });
             box.appendChild(boxHead);
             const boxBody = this._dockSectionBody(box, boxHead,
                                                   `hwdock-box-${cvt.id}`);
@@ -731,39 +1044,141 @@ class _HardwareDock {
     }
 
     _dockRenderPower(host) {
+        // The strip's warnings are collected DURING this render, from the
+        // exact figures the chips and headers draw - a second derivation
+        // could disagree with the surfaces it warns about.
+        // (_renderDockChrome paints them after the body.)
+        this._dockPowerWarnings = [];
+        // A plan a POWER ERROR emptied gets the error told where the multis
+        // would be - the story the retired soca panel used to tell. Every
+        // legitimately-empty state stays silent (_socaPlanEmptyReason).
+        const cur = this.currentLayer;
+        if (cur && (cur.type || 'screen') === 'screen'
+                && typeof this._socaPlanEmptyReason === 'function'
+                && !(this.getSocaPlan(cur) || []).length) {
+            const why = this._socaPlanEmptyReason(cur);
+            if (why) {
+                this._dockPowerWarnings.push({
+                    text: `No circuits on ${cur.name} — ${why}`,
+                });
+            }
+        }
         const distros = this.getDistros ? this.getDistros() : [];
         if (!distros.length) {
             this._dockNote(host,
-                'No distros. Add one in the Power panel and its multi slots '
-                + 'appear here to drag onto circuits.');
+                'No distros. Press + Add distro above and its multis appear '
+                + 'here to drag onto circuits.');
             return;
         }
         // The roll-up's per-distro amps, read once for the headers' glance
-        // bars - the Power panel's own figures, never re-summed here.
+        // bars - the roll-up's own figures, never re-summed here.
         const loads = typeof this.getDistroLoads === 'function'
             ? this.getDistroLoads() : [];
         distros.forEach(d => {
             host.appendChild(this._dockBuildDistro(
                 d, loads.find(x => x.id === d.id)));
         });
+        // Two multis on one distro wearing one name on two numbers is one
+        // box on paper and two on the patch - a label problem, not a block,
+        // so it warns amber. Deduped per (distro, name): the collision is
+        // symmetric and one row saying both sides is one problem stated
+        // once.
+        const seen = new Set();
+        for (const l of (this.project.layers || [])) {
+            if ((l.type || 'screen') !== 'screen') continue;
+            for (const rec of this._powerNaming(l).socas.values()) {
+                if (!rec.distroId || !rec.name) continue;
+                const collisions = this._socaNameCollisions(l, rec.index);
+                if (!collisions.length) continue;
+                const key = `${rec.distroId}|${rec.name}`;
+                if (seen.has(key)) continue;
+                seen.add(key);
+                const d = distros.find(x => x.id === rec.distroId);
+                const minNo = Math.min(rec.number,
+                                       ...collisions.map(c => c.number));
+                this._dockPowerWarnings.push({
+                    mild: true,
+                    text: `${rec.name} names two multis on `
+                        + `${d ? d.name : 'one distro'} — ${l.name} at `
+                        + `No. ${rec.number}, ${collisions.map(c =>
+                            `${c.layerName} at No. ${c.number}`).join(', ')}. `
+                        + `Same box? Pin both to No. ${minNo}.`,
+                });
+            }
+        }
     }
 
     _dockBuildDistro(d, load) {
         const unit = document.createElement('div');
         unit.className = 'hw-dock-unit';
-        const phase = Number(d.phase) === 3 ? '3ph' : '1ph';
+        const phase = Number(d.phase) === 3 ? '3φ' : '1φ';
         const head = this._dockBuildHandle(
             { type: 'distro', distroId: d.id, title: d.name || d.id },
             `distro-${d.id}`,
-            d.name || d.id,
-            `${d.ratingA || '?'} A · ${d.voltage || '?'} V · ${phase}`,
+            '',
+            `${d.voltage || '?'}V·${phase}`,
             'Drag the whole distro onto a screen: its unassigned multis all '
             + 'land on this distro, numbered automatically.',
             load && load.ratingA > 0
                 ? { frac: load.amps / load.ratingA, over: !!load.over,
-                    text: `${load.amps.toFixed(1)} A` }
+                    text: `${load.amps.toFixed(1)}/${load.ratingA} A` }
                 : null);
+        // An over-loaded service is a strip question, not just a red bar.
+        if (load && load.over) {
+            this._dockPowerWarnings.push({
+                text: `${d.name || d.id} — ${load.amps.toFixed(1)} A / `
+                    + `${load.ratingA} A (${Math.round(load.pct)}%) — OVER`,
+            });
+        }
+        // Balance sits ON the header (legs never interact across services,
+        // so each distro carries its own), and the electrical setup -
+        // rating, voltage, phase, phasing, location, remove - lives behind
+        // the ⚙. The name edits inline where the header reads it.
+        const controls = [];
+        if (Number(d.phase) === 3) {
+            const bal = document.createElement('button');
+            bal.className = 'btn hw-dock-btn';
+            bal.textContent = 'Balance';
+            bal.dataset.lrdField = `distro-balance-${d.id}`;
+            bal.title = 'Balance legs. Searches which set of six breakers '
+                + 'each partly-filled multi on THIS distro should land on. '
+                + 'A full multi balances itself, so only short ones move. '
+                + 'Nothing changes until you accept it.';
+            bal.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.showBalanceDialog(d.id);
+            });
+            controls.push(bal);
+        }
+        this._dockHeadAugment(head, {
+            name: {
+                value: d.name,
+                placeholder: 'distro',
+                key: `distro-name-${d.id}`,
+                title: 'Name this power source. Multis on it follow the '
+                    + 'name - a distro named SL feeds SL1, SL2.',
+                onCommit: (val) => {
+                    this.updateDistro(d.id, { name: val });
+                    this._restateNaming();
+                },
+            },
+            controls,
+            gear: {
+                id: `distro-${d.id}`,
+                title: 'Configure this distro - rating, voltage, phase, '
+                    + 'phasing, location, remove.',
+                build: () => {
+                    const raw = this.getDistros().find(x => x.id === d.id);
+                    return raw ? this._buildDistroGearContent(raw) : null;
+                },
+            },
+        });
         unit.appendChild(head);
+        // The LEGS line rides between the header and the foldable body, so
+        // a folded distro still reads its balance at a glance - the
+        // sidebar's folded-glance bars generalized to an always-on line.
+        const legs = this._dockDistroLegsLine(load);
+        if (legs) unit.appendChild(legs);
         const body = this._dockSectionBody(unit, head,
                                            `hwdock-distro-${d.id}`);
 
@@ -779,6 +1194,45 @@ class _HardwareDock {
             body.appendChild(this._dockBuildMulti(d, n, inUse.get(n) || []));
         }
         return unit;
+    }
+
+    // The slim LEGS line under a 3-phase distro's header: per-leg amps with
+    // a mini meter each and the NEMA-style imbalance figure - the roll-up's
+    // own numbers (getDistroLoads), never re-summed. Null where there is
+    // nothing to say (single phase, or no load record yet).
+    _dockDistroLegsLine(load) {
+        if (!load || !load.legs) return null;
+        const row = document.createElement('div');
+        row.className = 'hw-dock-legs';
+        row.title = 'Leg loading. Per-leg current is a phasor sum - '
+            + 'line-to-line circuits sit 30 degrees off each leg\'s '
+            + 'line-to-neutral reference, so they are not simply added. '
+            + 'Imbalance is NEMA-style: max deviation from the average.';
+        const tone = load.imbalancePct > 20 ? 'hw-dock-legs-bad'
+            : load.imbalancePct > 10 ? 'hw-dock-legs-warn' : '';
+        if (tone) row.classList.add(tone);
+        const cap = document.createElement('span');
+        cap.className = 'hw-dock-legs-cap';
+        cap.textContent = 'LEGS';
+        row.appendChild(cap);
+        ['X', 'Y', 'Z'].forEach(k => {
+            const amps = document.createElement('span');
+            amps.textContent = `${k} ${load.legs[k].amps.toFixed(0)}A`;
+            row.appendChild(amps);
+            const bar = document.createElement('span');
+            bar.className = 'hw-dock-legbar';
+            const meat = document.createElement('i');
+            if (load.legs[k].pct > 100) meat.className = 'hw-dock-bar-over';
+            meat.style.width =
+                `${Math.min(100, Math.round(load.legs[k].pct))}%`;
+            bar.appendChild(meat);
+            row.appendChild(bar);
+        });
+        const im = document.createElement('span');
+        im.textContent = load.imbalancePct > 1
+            ? `±${Math.round(load.imbalancePct)}%` : 'even';
+        row.appendChild(im);
+        return row;
     }
 
     // One multi as one bounded section: header = the whole-multi drag
@@ -797,6 +1251,7 @@ class _HardwareDock {
         // the owner screen's amps-per-circuit figure - the same
         // powerAmperage the plan's own circuits were sized against.
         const byTail = new Map();   // tail 1..6 -> [{who, label, amps, capA}]
+        const memberRecs = [];      // {layer, m, s} - the header's inline fields
         let legs = 0;
         let boxAmps = 0;
         let capA = 0;               // smallest member figure: the honest bound
@@ -804,12 +1259,14 @@ class _HardwareDock {
             const l = (this.project.layers || []).find(x => x.id === m.layerId);
             if (!l) return;
             const s = this.getSocaPlan(l).find(x => x.soca === m.soca);
+            memberRecs.push({ layer: l, m, s });
             if (s) {
                 const a = parseFloat(l.powerAmperage) || 0;
                 if (a > 0) capA = capA > 0 ? Math.min(capA, a) : a;
                 s.legs.forEach(leg => {
                     const list = byTail.get(leg.leg) || [];
-                    list.push({ who: l.name, label: leg.label,
+                    list.push({ who: l.name, layerId: l.id,
+                                circuit: leg.circuit, label: leg.label,
                                 amps: leg.amps, capA: a });
                     byTail.set(leg.leg, list);
                 });
@@ -821,6 +1278,23 @@ class _HardwareDock {
         const tailClash = [...byTail.values()].some(h => h.length > 1);
         const overflow = legs > 6;
         if (overflow || tailClash) sec.classList.add('hw-dock-multi-clash');
+        // The box's problems are strip questions too - the same states the
+        // chips wear, said where a glance lands first.
+        const boxName = `${d.name || d.id} ${n}`;
+        if (overflow) {
+            this._dockPowerWarnings.push({
+                text: `${boxName} — more circuits than the six tails hold.`,
+            });
+        }
+        byTail.forEach((list, t) => {
+            if (list.length > 1) {
+                this._dockPowerWarnings.push({
+                    text: `${boxName} tail ${t} is claimed twice (`
+                        + `${list.map(h => `${h.who} ${h.label}`).join(' + ')}`
+                        + ').',
+                });
+            }
+        });
 
         const tip = `${d.name || d.id} multi ${n} - `
             + (members.length
@@ -842,9 +1316,10 @@ class _HardwareDock {
                 title: `${d.name || d.id} ${n}`,
             },
             `slot-${d.id}-${n}`,
-            `${d.name || d.id} ${n}`,
-            members.length
-                ? members.map(m => m.layerName).join(' + ')
+            memberRecs.length ? '' : `${d.name || d.id} ${n}`,
+            memberRecs.length
+                ? `${legs} tail${legs === 1 ? '' : 's'} · `
+                    + `${boxAmps.toFixed(1)} A`
                 : 'free',
             tip,
             // The folded glance: tails used and the box's whole-fan load
@@ -856,6 +1331,39 @@ class _HardwareDock {
                     || (capA > 0 && boxAmps > capA * 6),
                 text: `${6 - free.length}/6`,
             });
+        // An occupied box's header carries its members' NAME and home-run
+        // LENGTH inline - the fields the retired soca tiles held, on the
+        // box they describe. The name's placeholder is the derived name
+        // (following the distro), so an unnamed box still reads as its
+        // identity; typed text stops following. Usually one member; a
+        // shared box carries one pair per member, told apart by title.
+        memberRecs.forEach(({ layer, m, s }) => {
+            const nameField = this._dockHeadName({
+                value: (layer.powerSocaNames || {})[m.soca],
+                placeholder: (s && s.name) || `${d.name || d.id} ${n}`,
+                key: `power-soca-name-${layer.id}-${m.soca}`,
+                title: `Name ${layer.name}'s multi by hand. Left blank it `
+                    + 'follows its distro - multis on a distro named SL are '
+                    + 'SL1, SL2 - so renaming the distro renames them all.',
+                onCommit: (val) => {
+                    this.setSocaName(layer, m.soca, val);
+                    this._restateNaming();
+                },
+            });
+            head.insertBefore(nameField, head.querySelector(
+                '.hw-dock-unit-use, .hw-dock-headbar, .hw-dock-unit-info'));
+            const len = this._dockHeadName({
+                value: (layer.powerSocaLengths || {})[m.soca]
+                    || (s && s.length) || '',
+                placeholder: '100ft',
+                key: `power-soca-length-${layer.id}-${m.soca}`,
+                title: `${layer.name}'s home-run length for this multi - `
+                    + 'it flows into the gear checklist and report.',
+                onCommit: (val) => this.setSocaLength(layer, m.soca, val),
+            });
+            len.classList.add('hw-dock-name-len');
+            head.appendChild(len);
+        });
         sec.appendChild(head);
         const body = this._dockSectionBody(sec, head,
                                            `hwdock-multi-${d.id}-${n}`);
@@ -915,7 +1423,28 @@ class _HardwareDock {
             ? holders.map(h => `${h.who} ${h.label}`).join(', ')
                 + (holders.length > 1 ? ' (claimed twice)' : '')
             : 'free')
-            + '. Drag onto a circuit to put that ONE circuit on this tail.';
+            + '. Drag onto a circuit to put that ONE circuit on this tail'
+            + (holders.length ? '; click to edit its label.' : '.');
+
+        // An occupied chip is the circuit's editor too, the port chips'
+        // grammar: click (no movement) opens the label override in place -
+        // the row the retired Circuit Labels list provided, now on the
+        // chip it names. A free tail has no circuit to label, so it stays
+        // a plain drag handle (_wireTiles skips editor-less tiles).
+        if (holders.length) {
+            tile.dataset.lrdTile = `ptail-${d.id}-${n}-${t}`;
+            tile.dataset.lrdTileBox = `multi-${d.id}-${n}`;
+            const editor = document.createElement('div');
+            editor.className = 'lrd-tile-body';
+            holders.forEach(h => {
+                editor.appendChild(this._buildCircuitLabelField(h));
+            });
+            tile.appendChild(editor);
+            if (this._tileOpenId(tile.dataset.lrdTileBox)
+                    === tile.dataset.lrdTile) {
+                tile.classList.add('lrd-tile-open');
+            }
+        }
 
         // The circuit's load against its capacity, the plan's own leg
         // figures (amps) over the owner screen's amps-per-circuit. A tail
@@ -939,6 +1468,44 @@ class _HardwareDock {
             title: `${d.name || d.id} ${n} tail ${t}`,
         }, `tail-${d.id}-${n}-${t}`);
         return tile;
+    }
+
+    // One holder's label override, in the port-name-field register: the
+    // derived label is the placeholder, typed text beats it for this
+    // circuit only. Writes the HOLDER's layer - the chip is unambiguous
+    // about whose circuit it is, unlike the retired list, which wrote every
+    // selected screen. Same override store, same history action.
+    _buildCircuitLabelField(h) {
+        const layer = (this.project.layers || [])
+            .find(l => l.id === h.layerId);
+        const override = (layer && layer.powerLabelOverrides
+            && layer.powerLabelOverrides[h.circuit]) || '';
+        return this._buildPortNameField(
+            'Label', `power-label-${h.layerId}-${h.circuit}`,
+            override, h.label, !!override,
+            {
+                named: 'Named by hand. Clear the box to go back to the '
+                    + 'name derived from the multi.',
+                unnamed: 'Name this circuit. It beats the derived label '
+                    + 'for this circuit only.',
+            },
+            (val) => {
+                if (!layer) return;
+                if (!layer.powerLabelOverrides) {
+                    layer.powerLabelOverrides = {};
+                }
+                if (val) layer.powerLabelOverrides[h.circuit] = val;
+                else delete layer.powerLabelOverrides[h.circuit];
+                this.saveClientSideProperties();
+                this.updateLayers([layer]);
+                if (window.canvasRenderer) window.canvasRenderer.render();
+                this.saveState('Edit Circuit Label');
+                // The chip face prints the label it just changed; the
+                // rebuild waits a macrotask so the Tab this change rode
+                // lands on a real element first (_rebuildAfterGesture's
+                // rule).
+                this._rebuildAfterGesture(() => this.renderHardwareDock());
+            });
     }
 
     // ── the chips' load fill ──────────────────────────────────────────────
@@ -1082,10 +1649,15 @@ class _HardwareDock {
         grip.className = 'hw-dock-grip';
         grip.textContent = '⋮⋮';
         head.appendChild(grip);
-        const label = document.createElement('span');
-        label.className = 'hw-dock-unit-name';
-        label.textContent = name;
-        head.appendChild(label);
+        // An empty name means the caller puts an inline name FIELD where
+        // the static text would sit (_dockHeadAugment) - a label span with
+        // nothing in it would still take its gap.
+        if (name) {
+            const label = document.createElement('span');
+            label.className = 'hw-dock-unit-name';
+            label.textContent = name;
+            head.appendChild(label);
+        }
         if (glance) {
             if (glance.text) {
                 const use = document.createElement('span');
@@ -1113,6 +1685,65 @@ class _HardwareDock {
         return head;
     }
 
+    // ── the headers' live controls ───────────────────────────────────────
+    //
+    // The retired sidebars' per-thing editors, re-hosted onto the section
+    // headers themselves: the NAME edits inline (the dashed underline says
+    // "click to type"), a ⚙ opens the thing's configuration popover, and a
+    // header can carry a control of its own (Balance, a length field). The
+    // drag guard in _dockWireDraggable is what keeps a press on any of
+    // these the control's gesture rather than a pickup.
+
+    // A dashed inline name field for a dock header. The value is the hand
+    // name; the placeholder is what the thing is called when unnamed, so an
+    // empty field still reads as its identity - the ladder every naming
+    // field in this app follows.
+    _dockHeadName(opts) {
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'hw-dock-name';
+        input.value = opts.value || '';
+        input.placeholder = opts.placeholder || 'unnamed';
+        if (opts.title) input.title = opts.title;
+        input.dataset.lrdField = opts.key;
+        // Sized to what it holds (placeholder included), so a header reads
+        // as a line of text with an underline, not a text box with slack.
+        const shown = (opts.value || opts.placeholder || 'unnamed');
+        input.size = Math.min(18, Math.max(4, shown.length + 1));
+        input.addEventListener('change',
+                               () => opts.onCommit(input.value.trim()));
+        return input;
+    }
+
+    // Grow a drag-handle header: the inline name field goes where the
+    // static label would sit (before the glance readouts), extra controls
+    // and the gear go on the end. `gear.build` is re-invoked on every
+    // popover refresh, so it must read live state, never a closure snapshot
+    // of stale data beyond the ids it needs.
+    _dockHeadAugment(head, opts) {
+        if (opts.name) {
+            const before = head.querySelector(
+                '.hw-dock-unit-use, .hw-dock-headbar, .hw-dock-unit-info');
+            head.insertBefore(this._dockHeadName(opts.name), before || null);
+        }
+        (opts.controls || []).forEach(c => head.appendChild(c));
+        if (opts.gear) {
+            const btn = document.createElement('button');
+            btn.className = 'hw-dock-gear';
+            btn.textContent = '⚙';
+            btn.title = opts.gear.title
+                || 'Configure - templates, mode, redundancy, remove.';
+            btn.dataset.hwpop = opts.gear.id;
+            btn.dataset.lrdField = `hwgear-${opts.gear.id}`;
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this._hwPopoverToggle(btn, opts.gear.id, opts.gear.build);
+            });
+            head.appendChild(btn);
+        }
+        return head;
+    }
+
     // ── the drag itself ───────────────────────────────────────────────────
 
     _dockWireDraggable(el, payload, key) {
@@ -1127,6 +1758,14 @@ class _HardwareDock {
         el.tabIndex = 0;
         el.addEventListener('mousedown', (e) => {
             if (e.button !== 0) return;
+            // The headers carry live controls now - the inline name field,
+            // the gear, Balance - and a press on one is that control's
+            // gesture, not a drag pickup: preventDefault here would eat the
+            // click that focuses the input or opens the popover.
+            if (e.target !== el && e.target.closest
+                    && e.target.closest('input, select, button, textarea')) {
+                return;
+            }
             e.preventDefault();
             this._dockArmDrag(e, payload, el);
         });
@@ -1921,6 +2560,104 @@ class _HardwareDock {
                 this._restateNaming();
             },
         };
+    }
+
+    // ── the right-click circuit sharing ──────────────────────────────────
+    //
+    // The manual 2fer lever the retired Splitters panel rows carried, on
+    // the surfaces the circuit actually lives on: right-click a drawn
+    // circuit run or its chip and "Share with next run via 2fer" gangs it
+    // with the run after it (mergeSplitterCircuits), "Un-share" un-gangs a
+    // shared one (splitSplitterCircuits) - the existing ops, the existing
+    // undo entries. Gated exactly as the panel rows were: packed auto
+    // circuits (splitters on), or drawn custom circuits (merge-only by the
+    // ops' own rule). Off the gate, or off a circuit, neither item appears
+    // - like the merge-back, absence is the ordinary condition, not a
+    // refusal.
+
+    // The circuit under a point, for the share menu: a dock circuit chip
+    // (its holder names the circuit), or a drawn circuit run on the canvas
+    // - the same two surfaces every circuit gesture reads.
+    _dockCircuitAt(x, y) {
+        const el = document.elementFromPoint(x, y);
+        if (el && el.closest && el.closest('[data-hwdock-payload]')) {
+            const payload = this._dockChipPayload(el);
+            if (!payload || payload.type !== 'tail') return null;
+            const held = this._dockTailHolder(
+                payload.distroId, parseInt(payload.number, 10), payload.tail);
+            if (!held) return null;
+            return { layer: held.layer, num: held.circuit };
+        }
+        const renderer = window.canvasRenderer;
+        if (!renderer || !renderer.canvas
+                || renderer.viewMode !== 'power') return null;
+        const rect = renderer.canvas.getBoundingClientRect();
+        if (x < rect.left || x > rect.right
+                || y < rect.top || y > rect.bottom) {
+            return null;
+        }
+        const worldY = ((y - rect.top) - renderer.panY) / renderer.zoom;
+        const worldX = renderer._unmirrorWorldX(
+            ((x - rect.left) - renderer.panX) / renderer.zoom, worldY);
+        const hit = renderer.getPanelAt(worldX, worldY);
+        if (!hit) return null;
+        const under = (this.project.layers || [])
+            .find(l => l.id === hit.layerId);
+        const circuit = under
+            ? renderer._powerCircuitForPanel(under, hit.panel) : null;
+        return circuit
+            ? { layer: circuit.owner, num: circuit.circuitNum } : null;
+    }
+
+    _prepareShareMenus(x, y) {
+        const none = { share: null, unshare: null };
+        if (!window.canvasRenderer
+                || window.canvasRenderer.viewMode !== 'power') return none;
+        const at = this._dockCircuitAt(x, y);
+        if (!at) return none;
+        const { layer, num } = at;
+        const sp = this.getPowerSplitters(layer);
+        const custom = this.usesCustomCircuits(layer);
+        if (!sp.enabled && !custom) return none;
+        const circuits = this.screenCircuits(layer);
+        const idx = circuits.findIndex(c => c.num === num);
+        if (idx < 0) return none;
+        const c = circuits[idx];
+        const label = this.getPowerCircuitLabel(layer, c.num);
+        const out = { share: null, unshare: null };
+        const next = circuits[idx + 1];
+        if (next) {
+            // The splitter the merge would need: every run already ganged
+            // on either side, plus the join.
+            const ways = (c.runIds || [c.num]).length
+                + (next.runIds || [next.num]).length;
+            out.share = {
+                label: `Share with next run via ${ways}fer`,
+                title: `Gang ${label} and `
+                    + `${this.getPowerCircuitLabel(layer, next.num)} onto `
+                    + 'one circuit through a splitter. Honored even over '
+                    + 'capacity - the chip flags OVER. Undo un-gangs it.',
+                run: () => {
+                    sendClientLog('dock_share',
+                                  { layerId: layer.id, num: c.num });
+                    this.mergeSplitterCircuits(layer, [c.num, next.num]);
+                },
+            };
+        }
+        if ((c.runIds || []).length > 1) {
+            out.unshare = {
+                label: 'Un-share',
+                title: `Un-gang ${label}'s runs back onto circuits of `
+                    + 'their own, and pin them out of auto packing. Undo '
+                    + 'restores the share.',
+                run: () => {
+                    sendClientLog('dock_unshare',
+                                  { layerId: layer.id, num: c.num });
+                    this.splitSplitterCircuits(layer, [c.num]);
+                },
+            };
+        }
+        return out;
     }
 
     // A dock chip: the same clears, from the hardware end of the cable.

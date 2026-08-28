@@ -7,6 +7,11 @@ tile, through a 3fer. The feature under test:
 
   - layer.powerSplitters = {enabled, maxWays, manual: {merge, split}} -
     per-screen AUTO packing toggle (organized modes) + MANUAL merge/split.
+    In the app the packing knobs (enable checkbox, splitter-size row) are
+    static controls in the LEFT sidebar's Power Settings "Multis &
+    Splitters" block, synced by refreshSplitterPanel; the manual lever is
+    the right-click Share / Un-share on the circuit itself - a drawn run
+    or its occupied dock chip (app-dock.js _prepareShareMenus).
   - The engine (calculatePowerAssignments) forms one RUN per row/column unit
     and gangs CONSECUTIVE runs while the branch count stays within maxWays
     and the summed load fits the circuit - never skipping a run to pair two
@@ -492,15 +497,26 @@ PIN_ASSIGNMENTS = {
 }
 
 
-# ── 11. the Splitters panel: the size row only when sharing is on ─────────
+# ── 11. the packing knobs and the right-click share menu ──────────────────
 #
-# Splitters default to OFF, so on a fresh project the "Max splitter" select
-# was a control that did nothing - it drives the packer, and the packer is
-# not running. The row now follows the enable checkbox.
+# The Power sidebar's Splitters panel is gone; its levers consolidated into
+# two homes:
 #
-# The per-circuit merge/split rows are a SEPARATE condition (packing on OR
-# the screen routes custom) and are deliberately not folded into this one:
-# a hand-merge on a custom-drawn screen never consults maxWays.
+#   - The PACKING knobs - the enable checkbox and the "Max splitter" size
+#     row - are STATIC controls in the left sidebar's Power Settings
+#     "Multis & Splitters" block, synced in place by refreshSplitterPanel
+#     (no innerHTML wipe). Splitters default OFF, and the size select
+#     drives only the packer - so #power-splitters-maxways-row SHOWS only
+#     while sharing is on. The controls stay in the DOM; what the old
+#     panel wore as absence, the static row wears as display:none, and
+#     VISIBILITY is the contract these tests pin.
+#   - The per-circuit Merge/Split rows became the right-click Share /
+#     Un-share on the circuit itself (app-dock.js _prepareShareMenus):
+#     armed in power view on a drawn circuit run or an occupied circuit
+#     chip, and only when packing is on OR the screen routes custom - the
+#     old rows' gate, unchanged. A hand-merge on a custom-drawn screen
+#     never consults maxWays, so the two conditions stay separate: the
+#     menu can be armed while the size row is hidden.
 #
 # MIXED MULTI-SELECTION. The enable checkbox writes through _socaPanelTargets
 # to every selected screen, but it can only SHOW one state, and it shows the
@@ -513,12 +529,25 @@ PANEL_INSTALL_JS = """(specs) => {
     const app = window.app;
     const layers = specs.map((s, i) => sp.column_wall(3, Object.assign(
         { id: 9900 + i, name: 'Panel' + (i + 1) }, s)));
-    window.__panelSaved = { project: app.project, layer: app.currentLayer,
-                            sel: app.selectedLayerIds, update: app.updateLayers };
+    // Save the REAL tree once - a test may install twice, and the second
+    // install must not capture the first synthetic project as "saved".
+    if (!window.__panelSaved) {
+        window.__panelSaved = { project: app.project, layer: app.currentLayer,
+                                sel: app.selectedLayerIds,
+                                update: app.updateLayers };
+    }
     app.project = { layers: layers, groups: [], canvases: [], rack: [] };
     app.currentLayer = layers[0];
     app.selectedLayerIds = new Set(layers.map(l => l.id));
-    app.updateLayers = () => {};   // a synthetic tree makes no server trip
+    // a synthetic tree makes no server trip - but record the history
+    // action each write claims, so the tests can pin it
+    window.__panelActions = [];
+    app.updateLayers = (list, save, action) => {
+        window.__panelActions.push(action);
+    };
+    // The knobs live in the Power Settings tab-panel, whose visibility is
+    // computed from the selection - restate it for the synthetic screens.
+    if (app.updateLayerPanelVisibility) app.updateLayerPanelVisibility(false, false);
     app.refreshSplitterPanel();
     return layers.map(l => l.id);
 }"""
@@ -532,33 +561,127 @@ PANEL_RESTORE_JS = """() => {
     app.selectedLayerIds = s.sel;
     app.updateLayers = s.update;
     delete window.__panelSaved;
+    delete window.__panelActions;
     app.refreshSplitterPanel();
+    if (app.renderHardwareDock) app.renderHardwareDock();
 }"""
 
 PANEL_READ_JS = """() => {
-    const host = document.getElementById('power-splitters');
-    const en = host.querySelector('#power-splitters-enabled');
-    const labels = [...host.querySelectorAll('label')]
-        .map(l => l.textContent.trim());
+    const vis = (el) => !!(el && el.offsetParent !== null);
+    const en = document.getElementById('power-splitters-enabled');
+    const row = document.getElementById('power-splitters-maxways-row');
+    const mw = document.getElementById('power-splitters-maxways');
+    const mwc = document.getElementById('power-splitters-maxways-custom');
+    const labels = row ? [...row.querySelectorAll('label')]
+        .map(l => l.textContent.trim()) : [];
     return {
-        enableBox: !!en,
+        enableBox: vis(en),
         checked: !!(en && en.checked),
-        sizeSelect: !!host.querySelector('#power-splitters-maxways'),
-        sizeLabel: labels.includes('Max splitter'),
-        customInput: !!host.querySelector('#power-splitters-maxways-custom'),
-        circuitRows: host.querySelectorAll('.splitter-circuit-row').length,
+        sizeRow: vis(row),
+        sizeSelect: vis(mw),
+        sizeLabel: vis(row) && labels.includes('Max splitter'),
+        customInput: vis(mwc),
+        mwValue: mw ? mw.value : null,
+        mwcValue: mwc ? mwc.value : null,
+        actions: window.__panelActions || [],
         enabledFlags: window.app.project.layers.map(
             l => window.app.getPowerSplitters(l).enabled),
     };
 }"""
 
+# A distro pushed straight into the synthetic project's own bucket -
+# app.addDistro would saveState and POST the synthetic tree to the shared
+# server - and the current screen's multi assigned to it, so its circuits
+# occupy tail chips in the hardware dock. Returns the occupied-chip count.
+DOCK_INSTALL_JS = """() => {
+    const app = window.app;
+    app.getDistros().push({ id: 'd1', name: 'PD', ratingA: 400,
+                            voltage: 208, phase: 3 });
+    app.currentLayer.powerSocaDistro = { 1: 'd1' };
+    app._circuitTailCache = null;
+    app.renderHardwareDock();
+    return document.querySelectorAll('#hardware-dock [data-lrd-tile]').length;
+}"""
+
+# Arm the share menu at circuit `num`'s occupied chip face - the real
+# gesture's coordinates, through the real hit test (_dockCircuitAt reads
+# document.elementFromPoint). `view`, when given, probes with the renderer
+# claiming that view, to pin the power-view gate.
+SHARE_PROBE_JS = """([num, view]) => {
+    const app = window.app, r = window.canvasRenderer;
+    const l = app.currentLayer;
+    const fld = document.querySelector(
+        '[data-lrd-field="power-label-' + l.id + '-' + num + '"]');
+    const tile = fld && fld.closest('[data-lrd-tile]');
+    const face = tile && tile.querySelector('[data-hwdock-payload]');
+    if (!face) return { found: false };
+    face.scrollIntoView({ block: 'nearest' });
+    const rect = face.getBoundingClientRect();
+    const saved = r.viewMode;
+    if (view) r.viewMode = view;
+    try {
+        const m = app._prepareShareMenus(rect.left + rect.width / 2,
+                                         rect.top + rect.height / 2);
+        return { found: true,
+                 share: m.share ? m.share.label : null,
+                 unshare: m.unshare ? m.unshare.label : null };
+    } finally { r.viewMode = saved; }
+}"""
+
+# The same probe on a FREE tail chip - occupied tiles carry data-lrd-tile,
+# a free tail's does not - where neither menu item may arm.
+FREE_PROBE_JS = """() => {
+    const app = window.app;
+    const free = [...document.querySelectorAll(
+        '#hardware-dock [data-hwdock-payload]')].find(el => {
+        let p = null;
+        try { p = JSON.parse(el.dataset.hwdockPayload); } catch (e) {}
+        return p && p.type === 'tail'
+            && !(el.parentElement && el.parentElement.dataset.lrdTile);
+    });
+    if (!free) return { found: false };
+    free.scrollIntoView({ block: 'nearest' });
+    const rect = free.getBoundingClientRect();
+    const m = app._prepareShareMenus(rect.left + rect.width / 2,
+                                     rect.top + rect.height / 2);
+    return { found: true, share: !!m.share, unshare: !!m.unshare };
+}"""
+
+# Arm at circuit `num`'s chip and .run() the chosen entry - the whole
+# manual lever, exactly as the context menu dispatches it.
+SHARE_RUN_JS = """([num, which]) => {
+    const app = window.app;
+    const l = app.currentLayer;
+    const fld = document.querySelector(
+        '[data-lrd-field="power-label-' + l.id + '-' + num + '"]');
+    const tile = fld && fld.closest('[data-lrd-tile]');
+    const face = tile && tile.querySelector('[data-hwdock-payload]');
+    if (!face) return false;
+    face.scrollIntoView({ block: 'nearest' });
+    const rect = face.getBoundingClientRect();
+    const m = app._prepareShareMenus(rect.left + rect.width / 2,
+                                     rect.top + rect.height / 2);
+    const entry = which === 'unshare' ? m.unshare : m.share;
+    if (!entry) return false;
+    entry.run();
+    return true;
+}"""
+
+# Three drawn custom paths of two tiles each - the gate's OTHER arm, and
+# the shape whose hand-merge the ops tests below lean on.
+CUSTOM3 = {'powerFlowPattern': 'custom', 'powerCustomIndex': 4,
+           'powerCustomPaths': {str(c + 1): [{'row': 0, 'col': c},
+                                             {'row': 1, 'col': c}]
+                                for c in range(3)}}
+
 
 @pytest.fixture
 def panel(page):
-    """Install a synthetic project the real panel can render, and put the
-    page's own project back afterwards. Unlike __sp.withProject this outlives
-    the call, so the deferred _rebuildAfterGesture restate lands on it."""
-    page.locator('[data-mode="power"]').click()   # the panel's own view
+    """Install a synthetic project the real left-sidebar knobs and the
+    hardware dock can render, and put the page's own project back
+    afterwards. Unlike __sp.withProject this outlives the call, so the
+    deferred _rebuildAfterGesture restate lands on it."""
+    page.locator('[data-mode="power"]').click()   # the knobs' own view
     page.wait_for_timeout(400)
 
     def install(*specs):
@@ -568,28 +691,31 @@ def panel(page):
     page.evaluate(PANEL_RESTORE_JS)
 
 
-def test_splitter_size_row_is_absent_until_sharing_is_switched_on(page, panel):
-    """Splitters off - the default - and the Max splitter row is not there:
-    label, select and all. Ticking the box brings it back with no further
-    gesture from the user."""
+def test_splitter_size_row_hides_until_sharing_is_switched_on(page, panel):
+    """Splitters off - the default - and the Max splitter row shows
+    nothing: label, select and all. (The controls are static in the left
+    sidebar since the consolidation, so the old absence is worn as
+    display:none.) Ticking the box shows it with no further gesture from
+    the user, and the write claims the panel rows' old history action."""
     off = panel({})
     assert off['enableBox'] and not off['checked'], 'fixture: sharing starts off'
-    assert not off['sizeSelect'] and not off['sizeLabel'], (
-        f"the splitter size select is on screen with the packer switched "
+    assert not off['sizeRow'] and not off['sizeSelect'] and not off['sizeLabel'], (
+        f"the splitter size row is on screen with the packer switched "
         f"off, driving nothing: {off}")
 
     page.locator('#power-splitters-enabled').click()
-    page.wait_for_timeout(300)   # the panel restates past the gesture
+    page.wait_for_timeout(300)   # the knobs restate past the gesture
     on = page.evaluate(PANEL_READ_JS)
     assert on['checked'] and on['enabledFlags'] == [True], on
-    assert on['sizeSelect'] and on['sizeLabel'], (
-        f"ticking the box did not bring the size row back: {on}")
+    assert on['actions'][-1] == 'Change Splitter Packing', on
+    assert on['sizeRow'] and on['sizeSelect'] and on['sizeLabel'], (
+        f"ticking the box did not show the size row: {on}")
 
     page.locator('#power-splitters-enabled').click()
     page.wait_for_timeout(300)
     back = page.evaluate(PANEL_READ_JS)
-    assert not back['checked'] and not back['sizeSelect'], (
-        f"switching sharing off left the size row behind: {back}")
+    assert not back['checked'] and not back['sizeRow'], (
+        f"switching sharing off left the size row on screen: {back}")
 
 
 def test_a_custom_splitter_size_hides_with_its_row(page, panel):
@@ -597,7 +723,7 @@ def test_a_custom_splitter_size_hides_with_its_row(page, panel):
     with it - a 5fer stored on a screen with sharing off shows nothing."""
     off = panel({'powerSplitters': {'enabled': False, 'maxWays': 5,
                                     'manual': {'merge': [], 'split': []}}})
-    assert not off['sizeSelect'] and not off['customInput'], (
+    assert not off['sizeRow'] and not off['customInput'], (
         f"a stored custom size kept the row on screen: {off}")
 
     page.evaluate("""() => {
@@ -609,33 +735,108 @@ def test_a_custom_splitter_size_hides_with_its_row(page, panel):
     on = page.evaluate(PANEL_READ_JS)
     assert on['sizeSelect'] and on['customInput'], (
         f"the custom size input did not come back with the row: {on}")
+    assert on['mwValue'] == 'custom' and on['mwcValue'] == '5', (
+        f"the row came back but does not state the stored 5fer: {on}")
 
 
-def test_merge_rows_keep_their_own_condition_on_a_custom_screen(page, panel):
-    """The per-circuit rows appear when packing is on OR the screen routes
-    custom; the size row only when packing is on. A custom-drawn screen with
-    sharing off keeps its Merge/Split rows and shows no size select - the two
-    conditions are not the same condition."""
-    paths = {str(c + 1): [{'row': 0, 'col': c}, {'row': 1, 'col': c}]
-             for c in range(3)}
-    out = panel({'powerFlowPattern': 'custom', 'powerCustomIndex': 4,
-                 'powerCustomPaths': paths})
-    assert out['circuitRows'] == 3, (
-        f"the drawn circuits lost their merge rows: {out}")
-    assert not out['sizeSelect'] and not out['sizeLabel'], (
-        f"a hand-merge never consults maxWays, so the size row does not "
-        f"belong on a custom screen with packing off: {out}")
+def test_share_menu_arms_by_the_old_rows_gate(page, panel):
+    """The right-click Share/Un-share - the retired Merge/Split rows' lever
+    - arms on an occupied circuit chip only in power view and only when
+    packing is on OR the screen routes custom. A custom screen with sharing
+    off arms Share (and shows NO size row - a hand-merge never consults
+    maxWays, so the two conditions are not the same condition); Un-share
+    stays off an unmerged circuit; a free chip, and any point probed
+    outside power view, arm nothing; and so does a plain screen with
+    sharing off, occupied chips and all."""
+    out = panel(CUSTOM3)
+    assert not out['sizeRow'], (
+        f"custom routing alone must not surface the packing size row: {out}")
+    chips = page.evaluate(DOCK_INSTALL_JS)
+    assert chips == 3, f"fixture: three occupied circuit chips, got {chips}"
+
+    armed = page.evaluate(SHARE_PROBE_JS, [1, None])
+    assert armed['found'], armed
+    assert armed['share'] == 'Share with next run via 2fer', armed
+    assert armed['unshare'] is None, (
+        f"Un-share offered on an unmerged circuit: {armed}")
+
+    off_view = page.evaluate(SHARE_PROBE_JS, [1, 'data-flow'])
+    assert off_view == {'found': True, 'share': None, 'unshare': None}, (
+        f"the share menu armed outside power view: {off_view}")
+
+    free = page.evaluate(FREE_PROBE_JS)
+    assert free['found'], 'fixture: the multi has free tails'
+    assert not free['share'] and not free['unshare'], (
+        f"the share menu armed on a FREE chip: {free}")
+
+    # packing off and nothing custom: the gate holds on occupied chips too
+    plain = panel({})
+    assert plain['enabledFlags'] == [False], 'fixture: sharing off'
+    assert page.evaluate(DOCK_INSTALL_JS) >= 1, 'fixture: an occupied chip'
+    gated = page.evaluate(SHARE_PROBE_JS, [1, None])
+    assert gated['found'], gated
+    assert gated['share'] is None and gated['unshare'] is None, (
+        f"sharing off and nothing custom, yet the menu armed: {gated}")
+
+
+def test_share_and_unshare_drive_the_merge_ops_from_the_chip(page, panel):
+    """.run() on the armed entries is the manual lever itself. Share gangs
+    the circuit with the next run (mergeSplitterCircuits, under the rows'
+    old 'Edit Splitter Groups' action); the merged chip re-arms as a 3fer
+    Share plus Un-share while the LAST circuit still offers neither; and
+    Un-share dissolves the group (splitSplitterCircuits) without pinning
+    the drawn circuits."""
+    panel(CUSTOM3)
+    assert page.evaluate(DOCK_INSTALL_JS) == 3
+
+    assert page.evaluate(SHARE_RUN_JS, [1, 'share']) is True
+    state = page.evaluate("""() => {
+        const app = window.app, l = app.currentLayer;
+        const circuits = app.screenCircuits(l);
+        return {
+            merge: app.getPowerSplitters(l).manual.merge,
+            nums: circuits.map(c => c.num),
+            branches: circuits.map(c => (c.branches || []).map(b => b.length)),
+            actions: window.__panelActions,
+        };
+    }""")
+    assert state['merge'] == [[1, 2]], state
+    assert state['nums'] == [1, 3], (
+        f"the merged circuit must keep its first member number: {state}")
+    assert state['branches'][0] == [2, 2], state
+    assert state['actions'][-1] == 'Edit Splitter Groups', state
+
+    page.wait_for_timeout(100)   # the deferred restate re-renders the dock
+    page.evaluate("() => window.app.renderHardwareDock()")
+    merged = page.evaluate(SHARE_PROBE_JS, [1, None])
+    assert merged['share'] == 'Share with next run via 3fer', merged
+    assert merged['unshare'] == 'Un-share', merged
+    last = page.evaluate(SHARE_PROBE_JS, [3, None])
+    assert last['found'] and last['unshare'] is None, (
+        f"Un-share belongs only on a merged circuit: {last}")
+
+    assert page.evaluate(SHARE_RUN_JS, [1, 'unshare']) is True
+    after = page.evaluate("""() => {
+        const app = window.app, l = app.currentLayer;
+        const sp = app.getPowerSplitters(l);
+        return { merge: sp.manual.merge, split: sp.manual.split,
+                 nums: app.screenCircuits(l).map(c => c.num) };
+    }""")
+    assert after['merge'] == [], after
+    assert after['split'] == [], (
+        f"drawn custom circuits are never pinned by un-share: {after}")
+    assert after['nums'] == [1, 2, 3], after
 
 
 def test_mixed_selection_shows_the_panel_screen_and_the_tick_settles_both(page, panel):
     """Two screens selected, the shown one off and the other on. The row
-    follows the checkbox, which shows the screen the panel is displaying -
-    so the panel never states two things at once. The tick writes through to
+    follows the checkbox, which shows the screen the knobs are displaying -
+    so the block never states two things at once. The tick writes through to
     every selected screen, which makes the states agree."""
     mixed = panel({}, {'powerSplitters': {'enabled': True, 'maxWays': 3,
                                           'manual': {'merge': [], 'split': []}}})
     assert mixed['enabledFlags'] == [False, True], 'fixture: mixed states'
-    assert not mixed['checked'] and not mixed['sizeSelect'], (
+    assert not mixed['checked'] and not mixed['sizeRow'], (
         f"the row disagreed with the checkbox beside it: {mixed}")
 
     page.locator('#power-splitters-enabled').click()
@@ -643,4 +844,4 @@ def test_mixed_selection_shows_the_panel_screen_and_the_tick_settles_both(page, 
     after = page.evaluate(PANEL_READ_JS)
     assert after['enabledFlags'] == [True, True], (
         f"the tick did not reach every selected screen: {after}")
-    assert after['checked'] and after['sizeSelect'], after
+    assert after['checked'] and after['sizeRow'], after

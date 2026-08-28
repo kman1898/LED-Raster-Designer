@@ -1,17 +1,18 @@
-"""Drag-resizable docked panels: left sidebar, Signal panel, Power panel, right
-sidebar - and the hardware dock, the same system turned on its side.
+"""Drag-resizable docked panels: left sidebar, right sidebar - and the
+hardware dock, the same system turned on its side.
 
-The resize code (theme.js) was hardcoded to the two string literals 'left' and
-'right', so the Signal panel - a middle column added later - collapsed but could
-not be resized. It is now a table of panels, the same shape as the collapse
-table in app-core.js initSidebarToggles, and these tests pin the behaviour that
-table has to keep producing. The Power panel is the second middle column and
-went in as one more row of each table, so every assertion below runs against
-both of them rather than against a copy of the file.
+The resize code (theme.js) is a table of panels, the same shape as the
+collapse table in app-core.js initSidebarToggles, and these tests pin the
+behaviour that table has to keep producing. The Signal and Power middle
+columns were rows of both tables once; the consolidation retired them - the
+hardware itself (processors, cards, boxes, distros, multis) lives in the
+hardware dock now, and the per-screen knobs moved into the LEFT sidebar's
+Data Settings / Power Settings panels. So the tables carry exactly three
+rows: left, right, and the dock.
 
-The hardware dock is the horizontal member of both tables: it collapses from a
-chevron pinned above its top edge (its own ledRasterSidebarCollapsed_dock key)
-and drag-resizes in HEIGHT from a strip on that same edge (lrd_dock_h /
+The hardware dock is the horizontal member of both tables: it collapses from
+a chevron pinned above its top edge (its own ledRasterSidebarCollapsed_dock
+key) and drag-resizes in HEIGHT from a strip on that same edge (lrd_dock_h /
 --lrd-dock-h), with its own clamp - so the dock tests below are the sidebar
 assertions transposed, not a separate mechanism's.
 
@@ -21,24 +22,27 @@ What these tests pin:
   changes the panel's width - not just the CSS variable.
 * The width clamps between 180 and 560 so a panel can neither vanish nor
   swallow the canvas, and it survives a reload.
-* Each middle panel's strip leaves with the panel. Outside its own view the
-  panel is display:none, and a fixed-position strip left floating over the
-  canvas there would be a live bug: a 7px column of the drawing that silently
-  starts a resize instead of a selection.
-* The two middle panels are independent. Signal and Power keep their own width
-  and their own collapsed state, and neither moves when the other is dragged.
+* The retired middle panels are GONE, not dormant: no resize/collapse pass
+  ever writes their storage keys again, and no data/power drag strip exists
+  in any view. A leftover strip would be a live bug - a 7px column of the
+  drawing that silently starts a resize instead of a selection.
 * The collapse toggle stays on top of the strip. They occupy the same seam,
   and the toggle is the only way back from a collapsed panel.
 * Dragging re-measures the canvas. The canvas backing store is sized from its
   wrapper in setupCanvas(), whose only automatic trigger is the window resize
   listener, so before this change a drag left the canvas painting at its
   pre-drag pixel width until the window itself was resized.
-* No toggle and no drag strip is ever left floating over the drawing. Reported
-  as "the sidebar is still floating in the air": collapsing a panel used to
-  reposition only its own toggle, so collapsing the left sidebar slid the
-  middle panel across without telling its toggle, stranding it mid-canvas.
+* No toggle and no drag strip is ever left floating over the drawing.
+  Reported as "the sidebar is still floating in the air": collapsing a panel
+  used to reposition only its own toggle, so collapsing the left sidebar
+  moved the next flex member without telling its controls. Today that next
+  member is the hardware dock, whose chevron and strip ride its top edge.
   These assert on coordinates, because in that bug every class was already
   correct.
+* The re-homed power surfaces fit their new homes: the per-screen splitter
+  and label knobs fit the left sidebar down to its 180px clamp, the distro
+  headers fit the dock without a sideways scroll, and the distro's
+  electrical setup fits its own gear popover.
 
 Run locally:
     python3 -m pytest tests/test_sidebar_resize.py -v --browser chromium
@@ -82,29 +86,28 @@ DOCK_DEFAULT_H = 172
 # minimum width, which would make the re-measure assertions vacuous.
 VIEWPORT = {'width': 1700, 'height': 900}
 
+# The vertical panels still in the tables. The dock is the third row of both
+# tables and keeps its own constants above.
 PANELS = {
     'left': 'left-sidebar',
-    'data': 'data-sidebar',
-    'power': 'power-sidebar',
     'right': 'right-sidebar',
 }
+PANEL_KEYS = ['left', 'right']
 
-# The middle columns and the one view each belongs to. The left and right
-# sidebars are in every view, so they have no entry here.
-VIEW_OF = {'data': 'data-flow', 'power': 'power'}
+# Which way a positive-x drag moves each panel's width: the left sidebar's
+# strip is on its right edge (drag right = wider), the right sidebar's on its
+# left edge (drag right = narrower).
+GROW = {'left': 1, 'right': -1}
+
+# The retired middle columns. Their strips must not EXIST anywhere and their
+# storage keys must never be written again - the negative pins below.
+RETIRED = ['data', 'power']
+RETIRED_STORAGE = [
+    'lrd_data_w', 'lrd_power_w',
+    'ledRasterSidebarCollapsed_data', 'ledRasterSidebarCollapsed_power',
+]
 
 ALL_VIEWS = ['pixel-map', 'cabinet-id', 'show-look', 'data-flow', 'power']
-
-# Every (middle panel, view it is absent from) pair, which is what the
-# "the strip left with the panel" assertions have to sweep.
-ABSENT = [(key, mode) for key in VIEW_OF for mode in ALL_VIEWS
-          if mode != VIEW_OF[key]]
-
-
-def keys_in(mode):
-    """The panels that are in layout in `mode`, left to right."""
-    middle = [k for k, v in VIEW_OF.items() if v == mode]
-    return ['left'] + middle + ['right']
 
 
 @pytest.fixture(scope="module")
@@ -130,13 +133,14 @@ def reset_widths(page, mode='data-flow'):
     """Back to the default size and expanded on every panel - the dock
     included - through the same localStorage keys app-core.js and theme.js
     read on boot, so each test starts from a known geometry no matter what
-    the one before it left collapsed."""
+    the one before it left collapsed. Only the surviving keys: seeding the
+    retired data/power keys here would defeat the never-written pins."""
     page.evaluate(
         """(args) => {
-            ['lrd_left_w', 'lrd_data_w', 'lrd_power_w', 'lrd_right_w'].forEach(
+            ['lrd_left_w', 'lrd_right_w'].forEach(
                 k => localStorage.setItem(k, String(args.w)));
             localStorage.setItem('lrd_dock_h', String(args.dockH));
-            ['left', 'data', 'power', 'right', 'dock'].forEach(
+            ['left', 'right', 'dock'].forEach(
                 k => localStorage.setItem('ledRasterSidebarCollapsed_' + k, '0'));
         }""", {'w': DEFAULT_W, 'dockH': DOCK_DEFAULT_H})
     page.reload(wait_until='domcontentloaded')
@@ -184,6 +188,11 @@ def drag(page, key, dx):
     return width(page, key)
 
 
+def widen(page, key, by):
+    """Drag a panel `by` px WIDER regardless of which edge its strip is on."""
+    return drag(page, key, by * GROW[key])
+
+
 CANVAS_JS = """() => {
     const c = document.getElementById('main-canvas');
     const w = document.getElementById('canvas-wrapper');
@@ -203,19 +212,26 @@ def assert_canvas_matches_wrapper(page, why):
 # ── the handles exist and are where they should be ────────────────────────
 
 @pytest.mark.parametrize('mode', ALL_VIEWS)
-def test_every_docked_panel_in_a_view_has_a_drag_strip(page, mode):
+def test_every_docked_panel_has_a_drag_strip_and_no_retired_strip_exists(page, mode):
+    """Left and right are in every view now that the middle columns are gone -
+    and gone means gone: a data/power strip existing in ANY view would be a
+    7px slice of the canvas that starts a resize of a panel that is not
+    there."""
     reset_widths(page, mode)
-    for key in keys_in(mode):
+    for key in PANEL_KEYS:
         assert handle(page, key), f"the {key} panel has no resize handle in {mode}"
+    leftovers = page.evaluate(
+        """(keys) => keys.filter(k => document.querySelector(
+               '.lrd-resize-handle[data-lrd-resize="' + k + '"]'))""",
+        RETIRED)
+    assert not leftovers, (
+        f"the retired {leftovers} strip(s) still exist in the DOM in {mode} - "
+        f"the middle sidebars were removed in the consolidation")
 
 
-@pytest.mark.parametrize('key,edge', [
-    ('left', 'right'), ('data', 'right'), ('power', 'right'), ('right', 'left')])
+@pytest.mark.parametrize('key,edge', [('left', 'right'), ('right', 'left')])
 def test_each_strip_sits_on_its_panels_inner_edge(page, key, edge):
-    """The middle panels dock left, so they are dragged from the right exactly
-    like the left sidebar - not from the left because they are 'the second
-    panel'."""
-    reset_widths(page, VIEW_OF.get(key, 'data-flow'))
+    reset_widths(page)
     h = handle(page, key)
     rect = page.evaluate(
         "(id) => { const r = document.getElementById(id).getBoundingClientRect();"
@@ -226,48 +242,47 @@ def test_each_strip_sits_on_its_panels_inner_edge(page, key, edge):
         f"strip at {h['left']}, edge at {target}")
 
 
-# ── dragging a middle panel ───────────────────────────────────────────────
+# ── dragging a sidebar ────────────────────────────────────────────────────
 
-@pytest.mark.parametrize('key', sorted(VIEW_OF))
-def test_dragging_a_middle_panel_changes_its_width(page, key):
-    reset_widths(page, VIEW_OF[key])
+@pytest.mark.parametrize('key', PANEL_KEYS)
+def test_dragging_a_sidebar_changes_its_width(page, key):
+    reset_widths(page)
     before = width(page, key)
-    after = drag(page, key, 120)
+    after = widen(page, key, 120)
     assert after > before + 80, f"the {key} panel did not widen: {before} -> {after}"
     assert abs(after - (before + 120)) <= 8, (
         f"the {key} panel did not follow the pointer: {before} -> {after}")
 
 
-@pytest.mark.parametrize('key', sorted(VIEW_OF))
-def test_a_middle_panels_width_survives_a_reload(page, key):
-    mode = VIEW_OF[key]
-    reset_widths(page, mode)
-    dragged = drag(page, key, 120)
+@pytest.mark.parametrize('key', PANEL_KEYS)
+def test_a_sidebars_width_survives_a_reload(page, key):
+    reset_widths(page)
+    dragged = widen(page, key, 120)
 
     page.reload(wait_until='domcontentloaded')
     page.wait_for_timeout(2000)
-    open_view(page, mode)
+    open_view(page, 'data-flow')
     assert abs(width(page, key) - dragged) <= 2, (
         f"the {key} panel came back at {width(page, key)}, not {dragged}")
 
     # And the other way round, so this cannot pass on a panel that is simply
     # always wide.
-    reset_widths(page, mode)
+    reset_widths(page)
     assert abs(width(page, key) - DEFAULT_W) <= 2, (
         f"the {key} panel ignored a stored default width")
 
 
-@pytest.mark.parametrize('key', sorted(VIEW_OF))
-def test_a_middle_panel_clamps_at_the_minimum(page, key):
-    reset_widths(page, VIEW_OF[key])
-    assert drag(page, key, -600) == MIN_W, (
+@pytest.mark.parametrize('key', PANEL_KEYS)
+def test_a_sidebar_clamps_at_the_minimum(page, key):
+    reset_widths(page)
+    assert widen(page, key, -600) == MIN_W, (
         f"the {key} panel can be dragged narrower than the clamp")
 
 
-@pytest.mark.parametrize('key', sorted(VIEW_OF))
-def test_a_middle_panel_clamps_at_the_maximum(page, key):
-    reset_widths(page, VIEW_OF[key])
-    assert drag(page, key, 600) == MAX_W, (
+@pytest.mark.parametrize('key', PANEL_KEYS)
+def test_a_sidebar_clamps_at_the_maximum(page, key):
+    reset_widths(page)
+    assert widen(page, key, 600) == MAX_W, (
         f"the {key} panel can be dragged wider than the clamp")
 
 
@@ -276,52 +291,48 @@ def test_resizing_one_panel_leaves_the_others_alone(page, mode):
     reset_widths(page, mode)
     drag(page, 'left', 100)
     assert width(page, 'left') == DEFAULT_W + 100, "the left sidebar did not resize"
-    for key in keys_in(mode)[1:]:
-        assert width(page, key) == DEFAULT_W, (
-            f"resizing the left sidebar resized the {key} panel with it")
+    assert width(page, 'right') == DEFAULT_W, (
+        "resizing the left sidebar resized the right panel with it")
 
 
-def test_the_two_middle_panels_keep_their_own_widths(page):
-    """Signal and Power occupy the same slot and are never both in layout, so a
-    shared storage key would look right until the user switched tabs."""
-    reset_widths(page, 'data-flow')
-    signal = drag(page, 'data', 120)
+def test_no_resize_or_collapse_pass_writes_the_retired_keys(page):
+    """The Signal and Power sidebars did not merely hide - their rows left
+    both tables. A full resize pass and a full collapse pass over everything
+    that still exists must write only the survivors' keys; a data/power key
+    reappearing means a retired row grew back."""
+    reset_widths(page, 'power')
+    page.evaluate(
+        "(keys) => keys.forEach(k => localStorage.removeItem(k))",
+        RETIRED_STORAGE)
 
-    open_view(page, 'power')
-    assert width(page, 'power') == DEFAULT_W, (
-        f"widening Signal widened Power with it: {width(page, 'power')}")
-    power = drag(page, 'power', -60)
+    # A resize pass over every surviving member...
+    widen(page, 'left', 60)
+    widen(page, 'right', 60)
+    drag_dock(page, -40)
+    # ...and a collapse/expand pass.
+    for key in PANEL_KEYS:
+        set_collapsed(page, key, True)
+        set_collapsed(page, key, False)
+    page.locator('#hardware-dock-toggle').click()
+    page.wait_for_timeout(500)
+    page.locator('#hardware-dock-toggle').click()
+    page.wait_for_timeout(500)
 
-    open_view(page, 'data-flow')
-    assert width(page, 'data') == signal, (
-        f"the Signal panel came back at {width(page, 'data')}, not {signal} - "
-        f"resizing Power overwrote it")
-    open_view(page, 'power')
-    assert width(page, 'power') == power, (
-        f"the Power panel came back at {width(page, 'power')}, not {power}")
-
-    stored = page.evaluate(
-        """() => ({ data: localStorage.getItem('lrd_data_w'),
-                    power: localStorage.getItem('lrd_power_w') })""")
-    assert stored['data'] != stored['power'], (
-        f"both panels are persisting through the same value: {stored}")
+    written = page.evaluate(
+        """(keys) => Object.fromEntries(
+               keys.map(k => [k, localStorage.getItem(k)])
+                   .filter(([, v]) => v !== null))""",
+        RETIRED_STORAGE)
+    assert not written, (
+        f"a resize/collapse pass wrote the retired middle panels' storage "
+        f"keys: {written}")
 
 
 # ── the strip leaves when the panel does ──────────────────────────────────
 
-@pytest.mark.parametrize('key,mode', ABSENT)
-def test_a_middle_strip_is_gone_outside_its_own_view(page, key, mode):
-    reset_widths(page, mode)
-    assert handle(page, key) is None, (
-        f"the {key} panel's drag strip is still over the canvas in {mode}")
-    # The other two are unaffected - the strip did not simply stop being drawn.
-    assert handle(page, 'left') and handle(page, 'right'), (
-        f"leaving {VIEW_OF[key]} took the other panels' strips with it, in {mode}")
-
-
-@pytest.mark.parametrize('key', sorted(VIEW_OF))
-def test_a_middle_strip_is_gone_while_the_panel_is_collapsed(page, key):
-    reset_widths(page, VIEW_OF[key])
+@pytest.mark.parametrize('key', PANEL_KEYS)
+def test_a_strip_is_gone_while_the_panel_is_collapsed(page, key):
+    reset_widths(page)
     page.locator(f'#{key}-sidebar-toggle').click()
     page.wait_for_timeout(500)
     assert handle(page, key) is None, (
@@ -336,7 +347,7 @@ def test_the_strip_does_not_swallow_the_collapse_toggle(page, mode):
     """They share the same seam and the strip is full height. The toggle is the
     only way back from a collapsed panel, so it has to win the hit test."""
     reset_widths(page, mode)
-    for key in keys_in(mode):
+    for key in PANEL_KEYS:
         toggle_id = f'{key}-sidebar-toggle'
         hit = page.evaluate(
             """(id) => {
@@ -353,29 +364,29 @@ def test_the_strip_does_not_swallow_the_collapse_toggle(page, mode):
 
 # ── the canvas keeps up ───────────────────────────────────────────────────
 
-@pytest.mark.parametrize('key', ['left', 'data', 'power', 'right'])
+@pytest.mark.parametrize('key', PANEL_KEYS)
 def test_dragging_a_panel_re_measures_the_canvas(page, key):
     """setupCanvas() sizes the canvas from its wrapper and only runs itself on
     a window resize, so a drag used to leave the canvas painting at its
     pre-drag pixel width until the window was touched."""
-    reset_widths(page, VIEW_OF.get(key, 'data-flow'))
+    reset_widths(page)
     assert_canvas_matches_wrapper(page, "a reset")
-    dx = -140 if key == 'right' else 140
-    drag(page, key, dx)
+    widen(page, key, 140)
     assert_canvas_matches_wrapper(page, f"dragging the {key} panel")
 
 
-@pytest.mark.parametrize('key', sorted(VIEW_OF))
+@pytest.mark.parametrize('key', PANEL_KEYS)
 def test_the_canvas_keeps_up_during_the_drag_not_only_at_the_end(page, key):
     """The width transition is suppressed while dragging, so every frame is
     already in layout - the canvas is re-measured per move rather than left to
     the staged settle on mouseup."""
-    reset_widths(page, VIEW_OF[key])
+    reset_widths(page)
     h = handle(page, key)
+    dx = GROW[key] * 60
     page.mouse.move(h['x'], h['y'])
     page.mouse.down()
-    page.mouse.move(h['x'] + 60, h['y'])
-    page.mouse.move(h['x'] + 120, h['y'])
+    page.mouse.move(h['x'] + dx, h['y'])
+    page.mouse.move(h['x'] + dx * 2, h['y'])
     page.wait_for_timeout(120)
     mid = page.evaluate(CANVAS_JS)
     page.mouse.up()
@@ -389,11 +400,14 @@ def test_the_canvas_keeps_up_during_the_drag_not_only_at_the_end(page, key):
 # Reported as "you can see the sidebar is still floating in the air": with the
 # panels collapsed, a chevron tab sat in the middle of the artwork.
 #
-# The cause was that collapsing a panel repositioned only its OWN toggle, while
-# collapsing the left sidebar MOVES the middle panel - the next flex column -
-# without changing its size. Its toggle was never told, and the ResizeObserver
+# The cause was that collapsing a panel repositioned only its OWN toggle,
+# while collapsing the left sidebar MOVES the next flex member without
+# changing its size. Its controls were never told, and the ResizeObserver
 # that was meant to be the safety net watches size, not position, so it never
-# fired either. Nothing else repositions toggles, so it stayed stranded.
+# fired either. The middle sidebars that first showed the bug are gone, but
+# the mechanism is not: the hardware dock's chevron and strip ride the tray's
+# top edge and the tray's left edge follows the left sidebar, so the same
+# orphaning is still one missed reposition away.
 #
 # These assert on geometry rather than on a class: in the reported bug every
 # class was correct and only the coordinates were wrong.
@@ -403,8 +417,6 @@ STRAYS_JS = """() => {
     const canvas = document.getElementById('canvas-container').getBoundingClientRect();
     const panels = [
         { key: 'left',  sidebar: 'left-sidebar',  toggle: 'left-sidebar-toggle',  inner: 'right' },
-        { key: 'data',  sidebar: 'data-sidebar',  toggle: 'data-sidebar-toggle',  inner: 'right' },
-        { key: 'power', sidebar: 'power-sidebar', toggle: 'power-sidebar-toggle', inner: 'right' },
         { key: 'right', sidebar: 'right-sidebar', toggle: 'right-sidebar-toggle', inner: 'left'  },
     ];
     const strays = [];
@@ -446,7 +458,7 @@ STRAYS_JS = """() => {
     // views it must sit flush under the canvas wrapper and inside the canvas
     // column, and out of them it must be out of layout entirely - a tray
     // floating over the canvas is the same class of bug as a stranded
-    // toggle, and the four panel rows above would never see it.
+    // toggle, and the two panel rows above would never see it.
     const dock = document.getElementById('hardware-dock');
     const dockControls = [
         ['dock-toggle', document.getElementById('hardware-dock-toggle'), 'bottom'],
@@ -522,27 +534,27 @@ def set_collapsed(page, key, want):
     page.wait_for_timeout(500)
 
 
-@pytest.mark.parametrize('key', sorted(VIEW_OF))
-def test_collapsing_the_left_sidebar_takes_the_middle_toggle_with_it(page, key):
-    """The reported repro, exactly: in the panel's own view, collapse the middle
-    panel and then the left sidebar. The middle panel slides left without
-    resizing, and its toggle used to stay behind in the middle of the
-    drawing."""
-    reset_widths(page, VIEW_OF[key])
-    set_collapsed(page, key, True)
-    assert_nothing_stranded(page, f"with only the {key} panel collapsed")
+@pytest.mark.parametrize('mode', ['data-flow', 'power'])
+def test_collapsing_the_left_sidebar_takes_the_dock_controls_with_it(page, mode):
+    """Collapsing the left sidebar moves the canvas column - and the dock
+    with it - without resizing either, which is exactly the shape of the
+    original stranded-toggle bug: reposition is nobody's job unless the
+    positioners are re-run."""
+    reset_widths(page, mode)
     set_collapsed(page, 'left', True)
     page.wait_for_timeout(500)
     assert_nothing_stranded(
-        page, f"after collapsing the left sidebar behind a collapsed {key} panel")
+        page, f"after collapsing the left sidebar in {mode}")
     set_collapsed(page, 'left', False)
-    set_collapsed(page, key, False)
+    assert_nothing_stranded(
+        page, f"after expanding the left sidebar again in {mode}")
 
 
 @pytest.mark.parametrize('mode', ['data-flow', 'power'])
-def test_resizing_the_left_sidebar_takes_the_middle_toggle_with_it(page, mode):
+def test_resizing_the_left_sidebar_takes_the_dock_with_it(page, mode):
     """The same failure the drag handles could reintroduce: widening the left
-    sidebar moves the middle panel without resizing it."""
+    sidebar moves the canvas column and the tray docked under it without
+    resizing the sidebar's own controls."""
     reset_widths(page, mode)
     drag(page, 'left', 140)
     assert_nothing_stranded(page, f"after widening the left sidebar in {mode}")
@@ -553,10 +565,10 @@ def test_resizing_the_left_sidebar_takes_the_middle_toggle_with_it(page, mode):
 
 @pytest.mark.parametrize('mode', ALL_VIEWS)
 def test_no_control_is_stranded_in_any_view_or_collapse_order(page, mode):
-    """Every view, and both collapse orders - the bug only appeared in one of
-    them, so a single ordering would have missed it."""
+    """Every view, and both collapse orders - the original bug only appeared
+    in one of them, so a single ordering would have missed it."""
     reset_widths(page, mode)
-    order = keys_in(mode)
+    order = PANEL_KEYS
 
     for key in order:
         set_collapsed(page, key, False)
@@ -569,7 +581,7 @@ def test_no_control_is_stranded_in_any_view_or_collapse_order(page, mode):
     for key in order:
         set_collapsed(page, key, False)
 
-    # and the reverse order, which is what actually stranded the middle toggle
+    # and the reverse order, which is what actually stranded a toggle
     for key in reversed(order):
         set_collapsed(page, key, True)
         assert_nothing_stranded(page, f"in {mode} collapsing inwards, at {key}")
@@ -588,16 +600,15 @@ def test_nothing_is_stranded_across_a_view_switch(page):
     set_collapsed(page, 'left', False)
 
 
-# ── the contents fit the panel at the minimum ─────────────────────────────
+# ── the re-homed power surfaces fit their new homes ───────────────────────
 #
-# The clamp is shared by every panel, so a row that only fits at 260 is the
-# row's bug and not the clamp's. The distro rows are the dense ones: rating,
-# unit, voltage and phase, then a phasing select and a per-leg summary, all in
-# a column ~119px wide once the sidebar's padding, its stable scrollbar gutter
-# and the panel's own padding come off 180. They were laid out as flex rows
-# with no flex-wrap, so at the minimum they overflowed and the sidebar's
-# overflow-x:hidden simply cut them off - the phase select sliced in half and
-# + Add pushed off the edge entirely.
+# The consolidation moved the Power sidebar's contents to two places: the
+# per-screen knobs (breakout, splitters, brackets, the circuit label
+# template) into the LEFT sidebar's Power Settings panel, and the hardware
+# itself (distro headers, multis, circuit chips) into the hardware dock. The
+# left sidebar shares the 180-560 clamp with every panel, so a knob row that
+# only fits at 260 is the row's bug and not the clamp's; the dock reflows
+# instead of clamping, so its bar is "never a sideways scroll".
 
 DISTRO_SEED_JS = """() => {
     const app = window.app;
@@ -614,64 +625,76 @@ DISTRO_CLEANUP_JS = """(id) => {
     window.app.refreshDistroPanel();
 }"""
 
-# Measured against the HOST's content box, not the sidebar's: the sidebar's own
-# padding would hide the first 10px of any overhang.
-OVERFLOW_JS = """() => {
-    const host = document.getElementById('power-distros');
-    const box = host.getBoundingClientRect();
+# The distro's dock footprint: its header controls (the inline name, the
+# Balance button, the gear, the legs line when a 3-phase load exists) must
+# stay inside the tray, and the tray's body must reflow rather than scroll
+# sideways - the dock spans the whole canvas column, so a horizontal
+# scrollbar means a row refused to wrap.
+DOCK_DISTRO_FIT_JS = """() => {
+    const dock = document.getElementById('hardware-dock');
+    const body = document.getElementById('hardware-dock-body');
+    const box = dock.getBoundingClientRect();
     const strays = [];
-    host.querySelectorAll('*').forEach(el => {
+    dock.querySelectorAll(
+        '.hw-dock-name, .hw-dock-gear, .hw-dock-legs, '
+        + '[data-lrd-field^="distro-balance-"]').forEach(el => {
         const r = el.getBoundingClientRect();
         if (r.width === 0 && r.height === 0) return;
         if (r.right > box.right + 0.5 || r.left < box.left - 0.5) {
             strays.push({
-                tag: el.tagName,
-                key: el.getAttribute('data-lrd-field') || el.className || null,
+                key: el.getAttribute('data-lrd-field') || el.className,
                 over: Math.round(Math.max(r.right - box.right,
                                           box.left - r.left)),
             });
         }
     });
-    // The centre line, not the top edge: a number input and a select are not
-    // the same height, and align-items:center leaves their top edges several
-    // px apart on the very same row.
-    const mid = (cls) => {
-        const el = host.querySelector('.' + cls);
-        if (!el) return null;
-        const r = el.getBoundingClientRect();
-        return Math.round(r.top + r.height / 2);
-    };
-    return { hostW: Math.round(box.width), scrollW: host.scrollWidth,
-             clientW: host.clientWidth, strays: strays,
-             rating: mid('distro-rating'), voltage: mid('distro-voltage'),
-             phase: mid('distro-phase') };
+    return { dockW: Math.round(box.width),
+             scrollW: body.scrollWidth, clientW: body.clientWidth,
+             headers: dock.querySelectorAll('[data-hwpop^="distro-"]').length,
+             strays: strays };
 }"""
 
 
-@pytest.mark.parametrize('w', [MIN_W, DEFAULT_W])
-def test_the_distro_rows_fit_inside_the_power_panel(page, w):
+def test_the_distro_rows_fit_inside_the_hardware_dock(page):
+    """The distro rows left the Power sidebar for the dock, so the fit
+    contract moved with them: at the dock's default height the header
+    controls stay inside the tray and the body never scrolls sideways."""
     reset_widths(page, 'power')
     seeded = page.evaluate(DISTRO_SEED_JS)
     try:
         assert seeded['distros'] > 0, f"no distro row to measure: {seeded}"
-        if w != DEFAULT_W:
-            assert drag(page, 'power', w - DEFAULT_W) == w
         page.wait_for_timeout(300)
-        m = page.evaluate(OVERFLOW_JS)
+        m = page.evaluate(DOCK_DISTRO_FIT_JS)
+        assert m['headers'] > 0, (
+            f"the dock built no distro section to measure: {m}")
         assert not m['strays'], (
-            f"distro controls hang outside the panel at {w}px, where the "
-            f"sidebar's overflow-x:hidden clips them: {m['strays']} "
-            f"(over is px past the host's edge; host is {m['hostW']}px)")
+            f"distro header controls hang outside the dock's box: "
+            f"{m['strays']} (over is px past the tray's edge; the tray is "
+            f"{m['dockW']}px wide)")
         assert m['scrollW'] <= m['clientW'], (
-            f"the distro list scrolls sideways at {w}px: content {m['scrollW']}px "
-            f"in a {m['clientW']}px column")
+            f"the dock body scrolls sideways: content {m['scrollW']}px in a "
+            f"{m['clientW']}px tray - the dock reflows, it never scrolls "
+            f"horizontally")
     finally:
         page.evaluate(DISTRO_CLEANUP_JS, seeded['added'])
 
 
-# The Splitters block above the distros carries the other row that comes and
-# goes: "Max splitter" only renders while sharing is switched on, so both
+# The per-screen knobs live in the LEFT sidebar's Power Settings panel now:
+# breakout type, the splitter enable and its Max splitter row, the map
+# brackets, and the circuit label template/apply pair. The Max splitter row
+# is a static row toggled display:flex/none by refreshSplitterPanel, so both
 # states have to fit the same 180px column.
+
+POWER_KNOB_IDS = [
+    'power-breakout-type',
+    'power-splitters-enabled',
+    'power-splitters-maxways-row',
+    'power-splitters-maxways',
+    'power-splitters-maxways-custom',
+    'show-soca-brackets',
+    'power-label-template',
+    'power-label-bulk',
+]
 
 SPLITTER_SEED_JS = """(enabled) => {
     const app = window.app;
@@ -684,8 +707,9 @@ SPLITTER_SEED_JS = """(enabled) => {
     }
     l.powerSplitters = { ...app.getPowerSplitters(l), enabled: enabled };
     app.refreshSplitterPanel();
-    return { size: !!document.getElementById('power-splitters-maxways'),
-             box: !!document.getElementById('power-splitters-enabled') };
+    const row = document.getElementById('power-splitters-maxways-row');
+    return { box: !!document.getElementById('power-splitters-enabled'),
+             rowDisplay: row ? getComputedStyle(row).display : null };
 }"""
 
 SPLITTER_CLEANUP_JS = """() => {
@@ -699,177 +723,122 @@ SPLITTER_CLEANUP_JS = """() => {
     app.refreshSplitterPanel();
 }"""
 
-SPLITTER_OVERFLOW_JS = """() => {
-    const host = document.getElementById('power-splitters');
-    const box = host.getBoundingClientRect();
+# Each knob and its block container, measured against the LEFT sidebar's own
+# box: a control poking past the sidebar is clipped by its overflow-x:hidden,
+# which is exactly the silent-truncation bug the old panel had.
+KNOB_OVERFLOW_JS = """(ids) => {
+    const side = document.getElementById('left-sidebar');
+    const box = side.getBoundingClientRect();
     const strays = [];
-    host.querySelectorAll('*').forEach(el => {
-        const r = el.getBoundingClientRect();
-        if (r.width === 0 && r.height === 0) return;
-        if (r.right > box.right + 0.5 || r.left < box.left - 0.5) {
-            strays.push({ tag: el.tagName,
-                          key: el.getAttribute('data-lrd-field') || el.className || null,
-                          over: Math.round(Math.max(r.right - box.right,
-                                                    box.left - r.left)) });
-        }
+    ids.forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) { strays.push({ id: id, missing: true }); return; }
+        const block = el.closest('.info-row') || el.parentElement;
+        [['control', el], ['block', block]].forEach(([kind, node]) => {
+            if (!node) return;
+            if (getComputedStyle(node).display === 'none') return;
+            const r = node.getBoundingClientRect();
+            if (r.width === 0 && r.height === 0) return;
+            if (r.right > box.right + 0.5 || r.left < box.left - 0.5) {
+                strays.push({
+                    id: id, kind: kind,
+                    over: Math.round(Math.max(r.right - box.right,
+                                              box.left - r.left)),
+                });
+            }
+        });
     });
-    return { hostW: Math.round(box.width), scrollW: host.scrollWidth,
-             clientW: host.clientWidth, strays: strays };
+    return { sideW: Math.round(box.width), strays: strays };
 }"""
 
 
 @pytest.mark.parametrize('w', [MIN_W, DEFAULT_W])
 @pytest.mark.parametrize('enabled', [False, True])
-def test_the_splitter_rows_fit_inside_the_power_panel(page, w, enabled):
+def test_the_power_knobs_fit_inside_the_left_sidebar(page, w, enabled):
+    """The splitter and label knobs came into the left sidebar, so they must
+    fit its clamp exactly as the distro rows once had to fit the Power
+    panel's - and the Max splitter row must follow the enable checkbox,
+    shown only while sharing is on (a static row refreshSplitterPanel
+    toggles between display:flex and none)."""
     reset_widths(page, 'power')
     seeded = page.evaluate(SPLITTER_SEED_JS, enabled)
     try:
         assert seeded and seeded['box'], (
-            f"the splitter panel never rendered its enable checkbox: {seeded}")
-        assert seeded['size'] is enabled, (
-            f"the Max splitter row must follow the enable checkbox - present "
-            f"only when sharing is on: {seeded}")
+            f"the Power Settings panel has no splitter enable checkbox: {seeded}")
+        assert seeded['rowDisplay'] == ('flex' if enabled else 'none'), (
+            f"the Max splitter row must follow the enable checkbox - "
+            f"display:flex only while sharing is on: {seeded}")
         if w != DEFAULT_W:
-            assert drag(page, 'power', w - DEFAULT_W) == w
+            assert drag(page, 'left', w - DEFAULT_W) == w
         page.wait_for_timeout(300)
-        m = page.evaluate(SPLITTER_OVERFLOW_JS)
+        m = page.evaluate(KNOB_OVERFLOW_JS, POWER_KNOB_IDS)
         assert not m['strays'], (
-            f"splitter controls hang outside the panel at {w}px with sharing "
-            f"{'on' if enabled else 'off'}: {m['strays']} (host {m['hostW']}px)")
-        assert m['scrollW'] <= m['clientW'], (
-            f"the splitter block scrolls sideways at {w}px: content "
-            f"{m['scrollW']}px in a {m['clientW']}px column")
+            f"power knobs hang outside the left sidebar at {w}px with sharing "
+            f"{'on' if enabled else 'off'}: {m['strays']} (over is px past "
+            f"the sidebar's edge; the sidebar is {m['sideW']}px)")
     finally:
         page.evaluate(SPLITTER_CLEANUP_JS)
 
 
-# The soca rows carry three fields of their own now - a name, a distro and a
-# home-run length - and the circuit label editor came into this panel with
-# them. Both have to fit the same 180px column the distro rows were taught to.
+# The distro's electrical setup - rating, voltage, phase, phasing, location,
+# remove - moved off the row entirely, into the ⚙ gear popover. The old
+# "rating row wraps at the minimum" test pinned how those fields shared a
+# 180px column; the popover sizes itself, so its contract is simpler: it is
+# visible when the gear is clicked and nothing inside it overflows its own
+# box.
 
-NAMING_SEED_JS = """() => {
-    const app = window.app;
-    const l = app.currentLayer;
-    if (!l) return null;
-    // In-memory only, like the splitter seed: the stamp the editor sizes
-    // itself from is a client-side figure, so nothing here is written to the
-    // server and the shared project is handed back untouched.
-    if (window.__nmSaved === undefined) {
-        window.__nmSaved = l._powerCircuitsRequired;
-    }
-    l._powerCircuitsRequired = app.screenCircuitCount(l);
-    const added = app.getDistros().length ? null : app.addDistro().id;
-    app.refreshSocaRuns();
-    app.refreshDistroPanel();
-    app.updatePowerLabelEditor();
-    return {
-        added: added,
-        socaRows: document.querySelectorAll('#power-soca-runs .power-soca-row').length,
-        labelRows: document.querySelectorAll('#power-label-list > div').length,
-    };
-}"""
-
-NAMING_CLEANUP_JS = """(id) => {
-    const app = window.app;
-    const l = app.currentLayer;
-    if (l && window.__nmSaved !== undefined) {
-        l._powerCircuitsRequired = window.__nmSaved;
-    }
-    delete window.__nmSaved;
-    if (id) app.removeDistro(id);
-    app.refreshSocaRuns();
-    app.refreshDistroPanel();
-    app.updatePowerLabelEditor();
-}"""
-
-# Same measurement as the distro rows above, against any host in the panel.
-HOST_OVERFLOW_JS = """(hostId) => {
-    const host = document.getElementById(hostId);
-    if (!host) return null;
-    const box = host.getBoundingClientRect();
+GEAR_POPOVER_FIT_JS = """() => {
+    const pop = document.getElementById('hw-gear-popover');
+    if (!pop) return null;
+    const s = getComputedStyle(pop);
+    const box = pop.getBoundingClientRect();
     const strays = [];
-    host.querySelectorAll('*').forEach(el => {
+    pop.querySelectorAll('*').forEach(el => {
         const r = el.getBoundingClientRect();
         if (r.width === 0 && r.height === 0) return;
-        if (r.right > box.right + 0.5 || r.left < box.left - 0.5) {
-            strays.push({ tag: el.tagName,
-                          key: el.getAttribute('data-lrd-field') || el.className || null,
-                          over: Math.round(Math.max(r.right - box.right,
-                                                    box.left - r.left)) });
+        if (r.right > box.right + 0.5 || r.left < box.left - 0.5
+                || r.bottom > box.bottom + 0.5 || r.top < box.top - 0.5) {
+            strays.push({
+                tag: el.tagName,
+                key: el.getAttribute('data-lrd-field') || el.className || null,
+                over: Math.round(Math.max(
+                    r.right - box.right, box.left - r.left,
+                    r.bottom - box.bottom, box.top - r.top)),
+            });
         }
     });
-    return { hostW: Math.round(box.width), scrollW: host.scrollWidth,
-             clientW: host.clientWidth, strays: strays };
+    return { display: s.display,
+             w: Math.round(box.width), h: Math.round(box.height),
+             fields: pop.querySelectorAll('[data-lrd-field]').length,
+             strays: strays };
 }"""
 
 
-@pytest.mark.parametrize('w', [MIN_W, DEFAULT_W])
-@pytest.mark.parametrize('host', ['power-soca-runs', 'power-label-list'])
-def test_the_naming_rows_fit_inside_the_power_panel(page, host, w):
-    reset_widths(page, 'power')
-    seeded = page.evaluate(NAMING_SEED_JS)
-    try:
-        assert seeded, "no current layer to build a soca plan from"
-        assert seeded['socaRows'] > 0, (
-            f"the soca panel built no multi rows to measure: {seeded}")
-        assert seeded['labelRows'] > 0, (
-            f"the circuit label editor built no rows to measure: {seeded}")
-        if w != DEFAULT_W:
-            assert drag(page, 'power', w - DEFAULT_W) == w
-        page.wait_for_timeout(300)
-        m = page.evaluate(HOST_OVERFLOW_JS, host)
-        assert m, f"#{host} is not in the document"
-        assert not m['strays'], (
-            f"#{host} controls hang outside their host at {w}px, where the "
-            f"sidebar's overflow-x:hidden clips them: {m['strays']} "
-            f"(host is {m['hostW']}px)")
-        assert m['scrollW'] <= m['clientW'], (
-            f"#{host} scrolls sideways at {w}px: content {m['scrollW']}px in "
-            f"a {m['clientW']}px column")
-    finally:
-        page.evaluate(NAMING_CLEANUP_JS, seeded and seeded['added'])
-
-
-def test_the_rating_row_is_one_line_at_the_default_and_wraps_at_the_minimum(page):
-    """The wrap has to be a wrap, not a permanent restack: at the 260px default
-    rating, voltage and phase still read as one line, and only the drag to the
-    clamp breaks them apart."""
+def test_the_distro_gear_popover_shows_its_controls_inside_its_own_box(page):
+    """Rating, voltage, phase, phasing and location live behind the distro's
+    gear now. Clicking the gear must produce a visible popover whose
+    controls all sit inside it - the popover's box is the new column the
+    old rating row had to fit."""
     reset_widths(page, 'power')
     seeded = page.evaluate(DISTRO_SEED_JS)
     try:
-        wide = page.evaluate(OVERFLOW_JS)
-        assert wide['rating'] == wide['voltage'] == wide['phase'], (
-            f"the rating row is no longer one line at the {DEFAULT_W}px "
-            f"default: {wide}")
-        assert drag(page, 'power', MIN_W - DEFAULT_W) == MIN_W
+        assert seeded['distros'] > 0, f"no distro to open a gear on: {seeded}"
         page.wait_for_timeout(300)
-        narrow = page.evaluate(OVERFLOW_JS)
-        assert narrow['voltage'] > narrow['rating'] + 6, (
-            f"the rating row did not wrap at {MIN_W}px, so the fit assertions "
-            f"prove nothing: {narrow}")
-        assert narrow['voltage'] == narrow['phase'], (
-            f"voltage and phase parted company - they travel as one group so "
-            f"they drop to the next line together: {narrow}")
+        page.locator('[data-hwpop^="distro-"]').first.click()
+        page.wait_for_timeout(300)
+        m = page.evaluate(GEAR_POPOVER_FIT_JS)
+        assert m, "clicking the distro gear made no #hw-gear-popover"
+        assert m['display'] != 'none' and m['w'] > 1 and m['h'] > 1, (
+            f"the gear popover is not visible: {m}")
+        assert m['fields'] > 0, (
+            f"the gear popover opened empty - no data-lrd-field controls: {m}")
+        assert not m['strays'], (
+            f"gear popover controls overflow the popover's own box: "
+            f"{m['strays']} (popover is {m['w']}x{m['h']}px)")
+        page.keyboard.press('Escape')
+        page.wait_for_timeout(200)
     finally:
         page.evaluate(DISTRO_CLEANUP_JS, seeded['added'])
-
-
-@pytest.mark.parametrize('key', sorted(VIEW_OF))
-def test_a_collapsed_middle_panel_stays_collapsed_across_a_view_switch(page, key):
-    """Collapsing a panel and then leaving its view must not silently
-    re-expand it on the way back - the visibility pass touches .view-hidden and
-    nothing else."""
-    mode = VIEW_OF[key]
-    reset_widths(page, mode)
-    set_collapsed(page, key, True)
-    open_view(page, 'pixel-map')
-    open_view(page, mode)
-    still = page.evaluate(
-        "(id) => document.getElementById(id).classList.contains('collapsed')",
-        PANELS[key])
-    assert still, f"the {key} panel came back expanded after a view switch"
-    assert_nothing_stranded(page, f"back in {mode} with {key} still collapsed")
-    set_collapsed(page, key, False)
 
 
 # ── the hardware dock: the same system turned on its side ─────────────────
@@ -964,7 +933,7 @@ def test_dragging_the_dock_strip_changes_its_height(page):
     assert abs(down - (after - 90)) <= 8, (
         f"the dock did not shrink back: {after} -> {down}")
     # the height is the dock's own: no sidebar moved with it
-    for key in ('left', 'data', 'right'):
+    for key in PANEL_KEYS:
         assert width(page, key) == DEFAULT_W, (
             f"resizing the dock resized the {key} panel with it")
 
@@ -1059,7 +1028,7 @@ def test_the_dock_toggle_wins_the_hit_test_over_its_strip(page):
 def test_a_folded_dock_stays_folded_across_a_view_switch(page):
     """The dock belongs to BOTH hardware views, so the fold must hold through
     Data -> elsewhere -> Power - the visibility pass touches .view-hidden and
-    nothing else, the middle panels' doctrine."""
+    nothing else."""
     reset_widths(page, 'data-flow')
     page.locator('#hardware-dock-toggle').click()
     page.wait_for_timeout(500)

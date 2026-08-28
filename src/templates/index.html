@@ -119,6 +119,16 @@
                  cursor; absent everywhere else - "nothing to merge" is the
                  ordinary state of a multi, not a refused gesture. -->
             <div class="menu-option hw-merge-only" data-action="hw-merge" style="display: none;"></div>
+            <!-- Circuit sharing through a 2fer/3fer, the manual lever the
+                 retired Splitters panel rows carried. Armed by
+                 _prepareShareMenus (app-dock.js) only on a power circuit run
+                 or a circuit chip, and only while the screen's splitters are
+                 on (or its circuits are drawn custom) - the same gate the
+                 panel rows had. Share gangs the clicked circuit with the
+                 next run; Un-share appears only on a circuit that is
+                 currently shared. -->
+            <div class="menu-option hw-share-only" data-action="hw-share" style="display: none;"></div>
+            <div class="menu-option hw-unshare-only" data-action="hw-unshare" style="display: none;"></div>
         </div>
 
         <div id="toolbar">
@@ -535,7 +545,7 @@
 
                 <!-- Data Controls -->
                 <div class="panel tab-panel screen-only" data-tab="data-flow" style="display: none;">
-                    <div class="panel-header" data-tooltip="Data Settings, Configure data port mapping, flow patterns, and visual styling for the data flow overlay. Port labels live in the Signal panel.">
+                    <div class="panel-header" data-tooltip="Data Settings, Configure data port mapping, flow patterns, fallback labels, and visual styling for the data flow overlay. Ports themselves live on the Hardware tray under the canvas.">
                         <h2>Data Settings</h2>
                     </div>
                     <div class="panel-content">
@@ -825,12 +835,42 @@
                             </div>
                         </div>
 
-                        <!-- Port Labels moved to the Signal panel (#data-sidebar,
-                             below the canvas markup). It is the one thing in
-                             Data Settings that is about naming the signal
-                             rather than styling the overlay, and the left
-                             sidebar had no room left for the processor work
-                             that joins it there. -->
+                        <!-- Fallback labels, back from the retired Signal
+                             panel in compact form. Per-screen settings on
+                             purpose: they label ports on NO processor, so
+                             they belong with the screen's other data
+                             settings, not with the hardware in the dock.
+                             The per-port override list died with the panel -
+                             an assigned port renames on its dock chip, and
+                             Apply restyles the whole run. -->
+                        <div style="margin-top: 15px; padding: 8px; background: #1a1a1a; border-radius: 6px; border: 1px solid #333;" data-tooltip="Fallback labels, Templates for ports that are not on a processor: # is the port number. Apply Style stamps a numbered override onto every port of the selected screens; Clear removes every override. A port on a processor is named on its chip in the Hardware tray.">
+                            <label style="font-weight: 600; margin-bottom: 8px; display: block;">Fallback Labels</label>
+                            <div style="display: flex; gap: 6px;">
+                                <div style="flex: 1 1 60px; min-width: 0;">
+                                    <label style="font-size: 10px; color: #888;">Primary</label>
+                                    <input type="text" id="port-label-template-primary" value="P#" style="width: 100%; min-width: 0; box-sizing: border-box; padding: 4px; background: #111; border: 1px solid #333; color: #fff; border-radius: 4px; font-family: monospace;">
+                                </div>
+                                <div style="flex: 1 1 60px; min-width: 0;">
+                                    <label style="font-size: 10px; color: #888;">Return</label>
+                                    <input type="text" id="port-label-template-return" value="R#" style="width: 100%; min-width: 0; box-sizing: border-box; padding: 4px; background: #111; border: 1px solid #333; color: #fff; border-radius: 4px; font-family: monospace;">
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 6px; margin-top: 6px;">
+                                <div style="flex: 1 1 60px; min-width: 0;">
+                                    <label style="font-size: 10px; color: #888;">Apply Style</label>
+                                    <input type="text" id="port-label-bulk-primary" placeholder="#A" style="width: 100%; min-width: 0; box-sizing: border-box; padding: 4px; background: #111; border: 1px solid #333; color: #fff; border-radius: 4px; font-family: monospace;">
+                                </div>
+                                <div style="flex: 1 1 60px; min-width: 0;">
+                                    <label style="font-size: 10px; color: #888;">Return Style</label>
+                                    <input type="text" id="port-label-bulk-return" placeholder="#B" style="width: 100%; min-width: 0; box-sizing: border-box; padding: 4px; background: #111; border: 1px solid #333; color: #fff; border-radius: 4px; font-family: monospace;">
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 6px; margin-top: 6px;">
+                                <button id="port-label-apply-selected" class="btn" style="flex: 1; padding: 5px 10px;">Apply</button>
+                                <button id="port-label-clear-selected" class="btn" style="flex: 1; padding: 5px 10px; background: #333;">Clear</button>
+                            </div>
+                            <p style="font-size: 11px; color: #888; margin: 6px 0 0;">Used only for ports not on a processor. Apply restyles every port; # is the port number.</p>
+                        </div>
 
                         <div class="info-row" data-tooltip="Line Color, Color of the data flow connection lines drawn between cabinets.">
                             <label>Line Color</label>
@@ -1051,11 +1091,67 @@
                             <div>Total Amps (3φ): <span id="power-total-amps-3ph">0</span></div>
                         </div>
 
-                        <!-- The soca / splitter / distro hosts used to sit
-                             here. They moved to the Power panel (#power-sidebar
-                             below) when the left sidebar ran out of width for
-                             them; nothing was copied, so the ids are still
-                             unique and the focus restore still finds them. -->
+                        <!-- The per-screen power knobs, back from the retired
+                             Power sidebar in compact form: how a multi
+                             terminates, whether circuits gang through
+                             splitters, and the map brackets. Per-screen
+                             settings on purpose - the hardware itself
+                             (distros, multis, circuit chips) lives in the
+                             dock now. The breakout options are filled by
+                             refreshSocaRuns (app-power.js) from the same
+                             list the old panel read; the splitter rows sync
+                             in refreshSplitterPanel. -->
+                        <div style="margin-bottom: 12px; padding: 8px; background: #1a1a1a; border-radius: 6px; border: 1px solid #333;">
+                            <label style="font-weight: 600; margin-bottom: 8px; display: block;">Multis &amp; Splitters</label>
+                            <div class="info-row" style="display: flex; flex-wrap: wrap; align-items: center; gap: 5px;" data-tooltip="Breakout, How the multi terminates: True1 or powerCON breakouts feed panels directly (the 6-channel default), Edison is the 110V option, L6-20 adds L6-20-to-panel tails per circuit. Drives the gear checklist.">
+                                <label style="font-weight: 400;">Breakout</label>
+                                <select id="power-breakout-type" data-lrd-field="power-breakout-type" class="info-select" style="flex: 1 1 100px; min-width: 0; max-width: 150px;"></select>
+                            </div>
+                            <div class="info-row checkbox-row" data-tooltip="Circuit sharing, Gang consecutive row/column runs onto one shared circuit through a splitter, up to the splitter size and the circuit capacity. Only adjacent runs share - a run is never skipped to pair two non-neighbours. Share or un-share one circuit by right-clicking it on the map or its chip in the Hardware tray.">
+                                <input type="checkbox" id="power-splitters-enabled" data-lrd-field="power-splitters-enabled">
+                                <label for="power-splitters-enabled">Share circuits via splitters</label>
+                            </div>
+                            <div class="info-row" id="power-splitters-maxways-row" style="display: none; align-items: center; gap: 6px;" data-tooltip="Splitter size, The largest Y-cable the packer may use. It always uses the smallest that fits: none, then 2fer, then 3fer.">
+                                <label style="font-weight: 400;">Max splitter</label>
+                                <select id="power-splitters-maxways" data-lrd-field="power-splitters-maxways" class="info-select" style="width: 96px;">
+                                    <option value="2">2fer</option>
+                                    <option value="3">3fer</option>
+                                    <option value="4">4fer</option>
+                                    <option value="custom">Custom…</option>
+                                </select>
+                                <input type="number" id="power-splitters-maxways-custom" data-lrd-field="power-splitters-maxways-custom" min="2" step="1" value="5" style="width: 56px; display: none;">
+                            </div>
+                            <div class="info-row checkbox-row" data-tooltip="Soca Brackets, Draw a bracket over each multi's span on the power map with its name and home-run length.">
+                                <input type="checkbox" id="show-soca-brackets" data-lrd-field="show-soca-brackets">
+                                <label for="show-soca-brackets">Soca Brackets on Map</label>
+                            </div>
+                        </div>
+
+                        <!-- Circuit label fallback, the register of the
+                             Fallback Labels block on the Data side: the
+                             template names circuits on NO distro, so it is a
+                             per-screen setting. The per-circuit override list
+                             died with the sidebar - one circuit renames on
+                             its chip in the Hardware tray, and Apply restyles
+                             the whole run. -->
+                        <div style="margin-bottom: 12px; padding: 8px; background: #1a1a1a; border-radius: 6px; border: 1px solid #333;" data-tooltip="Circuit labels, The template names circuits whose multi is on no distro: # is the circuit number. Apply Style stamps a numbered override onto every circuit of the selected screens; Clear removes every override. One circuit renames on its chip in the Hardware tray.">
+                            <label style="font-weight: 600; margin-bottom: 8px; display: block;">Circuit Labels</label>
+                            <div style="display: flex; gap: 6px;">
+                                <div style="flex: 1 1 60px; min-width: 0;">
+                                    <label style="font-size: 10px; color: #888;">Template</label>
+                                    <input type="text" id="power-label-template" value="S1-#" style="width: 100%; min-width: 0; box-sizing: border-box; padding: 4px; background: #111; border: 1px solid #333; color: #fff; border-radius: 4px; font-family: monospace;">
+                                </div>
+                                <div style="flex: 1 1 60px; min-width: 0;">
+                                    <label style="font-size: 10px; color: #888;">Apply Style</label>
+                                    <input type="text" id="power-label-bulk" placeholder="S1-#" style="width: 100%; min-width: 0; box-sizing: border-box; padding: 4px; background: #111; border: 1px solid #333; color: #fff; border-radius: 4px; font-family: monospace;">
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 6px; margin-top: 6px;">
+                                <button id="power-label-apply-selected" class="btn" style="flex: 1; padding: 5px 10px;">Apply</button>
+                                <button id="power-label-clear-selected" class="btn" style="flex: 1; padding: 5px 10px; background: #333;">Clear</button>
+                            </div>
+                            <p style="font-size: 11px; color: #888; margin: 6px 0 0;">Left blank, a circuit is named by its multi — which is named by its distro, or by this template.</p>
+                        </div>
 
                         <div style="margin-bottom: 12px;">
                             <label style="font-weight: 600; margin-bottom: 8px; display: block;">Flow Pattern</label>
@@ -1188,18 +1284,6 @@
                                 </div>
                             </div>
                         </div>
-
-                        <!-- The Circuit Labels block used to sit here. It moved
-                             into the Power panel (#power-sidebar below) to join
-                             the two things that now NAME a circuit - the distro
-                             and the multi - so the naming chain reads in one
-                             place. Nothing was copied: two editors bound to one
-                             set of data-lrd-field keys would fight over the
-                             focus restore, and you would type into one while
-                             the other held the state. What stayed here is the
-                             per-screen electrical setup - voltage, amperage,
-                             watts per panel, flow pattern, circuit colours -
-                             which names nothing. -->
 
                         <hr style="border: none; border-top: 1px solid #3a3a3a; margin: 12px 0;">
 
@@ -1580,198 +1664,15 @@
                 </div>
             </div>
 
-            <!-- Signal panel. Everything about how signal reaches the cabinets
-                 lives here: the port labelling below, and the processor /
-                 chassis work that follows. It exists only in Data view - the
-                 markup ships carrying .view-hidden so the other four views are
-                 untouched from the very first paint, with no flash of a panel
-                 they never show. Collapse is the same mechanism as the other
-                 two sidebars (app-core.js initSidebarToggles). -->
-            <button id="data-sidebar-toggle" class="sidebar-toggle view-hidden" data-side="data" title="Collapse signal panel" aria-label="Toggle signal panel">‹</button>
-            <div id="data-sidebar" class="view-hidden">
-                <!-- Processors. The tree is chassis -> slot -> card ->
-                     breakout box -> ports, and every level of it is
-                     load-bearing: the CARD decides the port count, so an H9
-                     of 20xRJ45 cards and an H9 of 4xfiber cards are
-                     different machines, and a fiber card's ports physically
-                     arrive at a breakout box (a CVT10, a Tessera XD), which
-                     is what a tech stands in front of on site.
-
-                     Everything inside is built by app-processors.js rather
-                     than declared here. The rows are per-processor and there
-                     is no fixed number of them, and the fields are project
-                     state rather than layer state - the field sweep in
-                     tests/test_all_fields_sweep.py drives every declared
-                     control in a tab-panel straight at the selected layer,
-                     which none of these belong to. -->
-                <div class="panel tab-panel" data-tab="data-flow" style="display: none;">
-                    <div class="panel-header" data-tooltip="Processors, Define the processors driving this project: the cards in a chassis's slots, any breakout boxes downstream of them, and the port labels their names generate.">
-                        <h2>Processors</h2>
-                    </div>
-                    <div class="panel-content">
-                        <div class="info-row">
-                            <!-- minmax(0, 1fr) for the same reason as the
-                                 Port Numbering hosts below: an auto track
-                                 sizes to min-content and overflows the
-                                 180px clamp. -->
-                            <div id="processor-list" style="display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px;"></div>
-                            <div id="processor-add-row" style="display: flex; gap: 6px; margin-top: 8px;"></div>
-                            <p id="processor-empty-note" style="font-size: 11px; color: #888; margin: 6px 0 0;">A card's ports take the nearest name above them. Name a card SR and its ports read SR-1, SR-2.</p>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Port Numbering: how each screen's ports land on the
-                     sending cards. Numbering is automatic and packs densely
-                     in screen order, but nothing here ever rearranges
-                     itself - looms are made up and labelled off the drawing
-                     days before anything is hung, so a clash, an overflow or
-                     a wall bigger than its card is REPORTED with an offer
-                     attached and the numbering only changes when somebody
-                     takes it. Making an assignment is the hardware dock's
-                     drag; this panel is the reporting, the auto toggle and
-                     the per-card usage counts.
-
-                     Built by app-port-assignment.js rather than declared here,
-                     for the same reason as the Processors panel above: the
-                     issues are per-problem with no fixed number of them, and
-                     the controls are project state rather than layer state,
-                     which is what tests/test_all_fields_sweep.py drives every
-                     declared control in a tab-panel at. -->
-                <div class="panel tab-panel" data-tab="data-flow" style="display: none;">
-                    <div class="panel-header" data-tooltip="Port Numbering, Screens' ports are numbered onto the sending cards automatically; drag hardware from the dock to place them by hand. Clashes, overflow and stranded pins are reported here with a move you can take.">
-                        <h2>Port Numbering</h2>
-                    </div>
-                    <div class="panel-content">
-                        <div class="info-row">
-                            <!-- minmax(0, 1fr): a bare auto track sizes to
-                                 its content's min-content and overflows the
-                                 clamp; pinned to the column, the rows' own
-                                 wrapping absorbs the narrowness instead. -->
-                            <div id="port-assignment-issues" style="display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px;"></div>
-                            <div id="port-assignment-foot" style="margin-top: 8px;"></div>
-                            <p id="port-assignment-empty-note" style="font-size: 11px; color: #888; margin: 6px 0 0;">Add a processor above and each screen's ports are numbered onto its cards automatically.</p>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="panel tab-panel screen-only" data-tab="data-flow" style="display: none;">
-                    <div class="panel-header" data-tooltip="Port Labels, Customize the text labels shown on primary and return data ports using templates with # as the port number.">
-                        <h2>Port Labels</h2>
-                    </div>
-                    <div class="panel-content">
-                        <div class="info-row">
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px;">
-                                <div>
-                                    <label style="font-size: 11px; color: #888;">Primary Template</label>
-                                    <input type="text" id="port-label-template-primary" value="P#" style="width: 100%; padding: 6px; background: #111; border: 1px solid #333; color: #fff; border-radius: 4px; font-family: monospace;">
-                                </div>
-                                <div>
-                                    <label style="font-size: 11px; color: #888;">Return Template</label>
-                                    <input type="text" id="port-label-template-return" value="R#" style="width: 100%; padding: 6px; background: #111; border: 1px solid #333; color: #fff; border-radius: 4px; font-family: monospace;">
-                                </div>
-                            </div>
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; align-items: end; margin-bottom: 6px;">
-                                <div>
-                                    <label style="font-size: 11px; color: #888;">Apply Style (Primary)</label>
-                                    <input type="text" id="port-label-bulk-primary" placeholder="#A" style="width: 100%; padding: 6px; background: #111; border: 1px solid #333; color: #fff; border-radius: 4px; font-family: monospace;">
-                                </div>
-                                <div>
-                                    <label style="font-size: 11px; color: #888;">Apply Style (Return)</label>
-                                    <input type="text" id="port-label-bulk-return" placeholder="#B" style="width: 100%; padding: 6px; background: #111; border: 1px solid #333; color: #fff; border-radius: 4px; font-family: monospace;">
-                                </div>
-                            </div>
-                            <div style="display: flex; gap: 6px; margin-bottom: 8px;">
-                                <button id="port-label-apply-selected" class="btn" style="flex: 1; padding: 6px 10px;">Apply</button>
-                                <button id="port-label-clear-selected" class="btn" style="flex: 1; padding: 6px 10px; background: #333;">Clear</button>
-                            </div>
-                            <div style="display: flex; gap: 6px; margin-bottom: 8px;">
-                                <button id="port-label-select-all" class="btn" style="flex: 1; padding: 6px 10px; background: #222;">Select All</button>
-                                <button id="port-label-deselect-all" class="btn" style="flex: 1; padding: 6px 10px; background: #222;">Deselect All</button>
-                            </div>
-                            <!-- No height cap: the sidebar is the one scroll
-                                 context, same rule as the processor port
-                                 list. A capped list here was a scrollbox
-                                 nested inside the scrolling sidebar. -->
-                            <div id="port-label-list" style="display: grid; gap: 6px; padding: 6px; background: #111; border: 1px solid #333; border-radius: 4px;"></div>
-                            <p style="font-size: 11px; color: #888; margin: 6px 0 0;">Use # for port number. Overrides apply per port.</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Power panel. Everything about how power REACHES the cabinets
-                 lives here: the home-run multis, the splitters that gang
-                 circuits onto one of them, and the distros they land on. It
-                 exists only in Power view - the markup ships carrying
-                 .view-hidden so the other four views are untouched from the
-                 very first paint, with no flash of a panel they never show.
-                 Collapse and drag are the same two mechanisms as the Signal
-                 panel above (app-core.js initSidebarToggles, theme.js PANELS),
-                 with their own storage keys so the two panels' widths and
-                 collapsed states never move together. -->
-            <button id="power-sidebar-toggle" class="sidebar-toggle view-hidden" data-side="power" title="Collapse power panel" aria-label="Toggle power panel">‹</button>
-            <div id="power-sidebar" class="view-hidden">
-                <!-- The three hosts below are built by app-power.js rather
-                     than declared here: the rows are per-multi, per-circuit
-                     and per-distro, with no fixed number of them.
-
-                     They keep a .panel-content parent because that is what
-                     styles their bold section headings and gives them their
-                     12px gutter - .panel-content label in theme.css is the
-                     only rule those headings have.
-
-                     data-tab is belt to the sidebar's braces. refreshSocaRuns
-                     and refreshSplitterPanel blank themselves for the layer
-                     types they don't apply to, but the distro list is
-                     project-level and blanks itself for nothing, so it needs
-                     an ancestor that leaves Power view or it would render on
-                     every other tab. -->
-                <div class="panel tab-panel screen-only" data-tab="power" style="display: none;">
-                    <div class="panel-header" data-tooltip="Power Distribution, Home-run multis, the splitters that gang circuits onto one of them, and the distros they land on. Distro loads roll up across every screen, not just the selected one.">
-                        <h2>Power Distribution</h2>
-                    </div>
-                    <div class="panel-content">
-                        <div id="power-soca-runs" style="margin-bottom: 12px;"></div>
-                        <div id="power-splitters" style="margin-bottom: 12px;"></div>
-                        <div id="power-distros" style="margin-bottom: 12px;"></div>
-
-                        <!-- Circuit Labels, moved whole out of the left
-                             sidebar. It reads LAST because it is the result of
-                             the two blocks above it: a multi takes its name
-                             from its distro, and a circuit takes its name from
-                             its multi. Only the naming came - the electrical
-                             setup stayed in the left sidebar. -->
-                        <div style="margin-bottom: 12px;">
-                            <label class="lrd-sec-head" data-lrd-sec="power-circuit-labels" style="font-weight: 600; margin-bottom: 8px; display: block;" data-tooltip="Circuit labels, What each circuit is called. A label typed here is the user's text and never changes. Left blank, a circuit is named by its multi — which is named by its distro, or by the template below.">Circuit Labels</label>
-                            <div class="lrd-sec-body">
-                            <div style="display: grid; grid-template-columns: 1fr; gap: 6px; margin-bottom: 8px;">
-                                <div>
-                                    <label style="font-size: 11px; color: #888;">Template</label>
-                                    <input type="text" id="power-label-template" value="S1-#" style="width: 100%; padding: 6px; background: #111; border: 1px solid #333; color: #fff; border-radius: 4px; font-family: monospace;">
-                                </div>
-                            </div>
-                            <div style="display: grid; grid-template-columns: 1fr; gap: 6px; align-items: end; margin-bottom: 6px;">
-                                <div>
-                                    <label style="font-size: 11px; color: #888;">Apply Style</label>
-                                    <input type="text" id="power-label-bulk" placeholder="S1-#" style="width: 100%; padding: 6px; background: #111; border: 1px solid #333; color: #fff; border-radius: 4px; font-family: monospace;">
-                                </div>
-                            </div>
-                            <div style="display: flex; gap: 6px; margin-bottom: 8px;">
-                                <button id="power-label-apply-selected" class="btn" style="flex: 1; padding: 6px 10px;">Apply</button>
-                                <button id="power-label-clear-selected" class="btn" style="flex: 1; padding: 6px 10px; background: #333;">Clear</button>
-                            </div>
-                            <div style="display: flex; gap: 6px; margin-bottom: 8px;">
-                                <button id="power-label-select-all" class="btn" style="flex: 1; padding: 6px 10px; background: #222;">Select All</button>
-                                <button id="power-label-deselect-all" class="btn" style="flex: 1; padding: 6px 10px; background: #222;">Deselect All</button>
-                            </div>
-                            <div id="power-label-list" style="display: grid; gap: 6px; max-height: 160px; overflow: auto; padding: 6px; background: #111; border: 1px solid #333; border-radius: 4px;"></div>
-                            <p style="font-size: 11px; color: #888; margin: 6px 0 0;">Use # for circuit number. Overrides apply per circuit.</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            <!-- The Signal and Power middle sidebars used to sit here. Both
+                 retired in the consolidation: the hardware dock under the
+                 canvas is the one hardware surface now (processors, port
+                 numbering and its issues on the Data side; distros, multis
+                 and circuit chips on the Power side), and the per-screen
+                 knobs they carried moved back into the left sidebar's Data
+                 Settings and Power Settings panels. Nothing was copied -
+                 every id and data-lrd-field key has exactly one home, so
+                 getElementById and the focus restore never race a twin. -->
 
             <div id="canvas-container">
                 <div id="canvas-controls">
@@ -1803,9 +1704,35 @@
                      it (theme.js PANELS). -->
                 <button id="hardware-dock-toggle" class="sidebar-toggle view-hidden" data-side="dock" title="Collapse hardware tray" aria-label="Toggle hardware tray">▾</button>
                 <div id="hardware-dock" class="view-hidden" data-tooltip="Hardware, The view's processors or distros. Drag a port, card, box, multi slot or distro onto the canvas to assign; drag an assigned port or slot back here to release it.">
+                    <!-- The header bar carries what the retired middle
+                         sidebars' add rows carried: which cluster shows is
+                         per view (app-dock.js _renderDockChrome), and the
+                         chevron proxies the existing fold toggle so there is
+                         still exactly one collapse mechanism and one stored
+                         state. The add picker's options come from the same
+                         processor catalog the old panel read. -->
                     <div class="hw-dock-head" style="font-weight: 600; padding: 3px 8px;">
                         <label>Hardware</label>
+                        <span id="hw-dock-data-controls" class="hw-dock-ctl view-hidden">
+                            <select id="processor-add-device" data-lrd-field="processor-add-device" data-tooltip="Add a processor, Pick a model and press Add. Its cards, boxes and ports appear in this tray to drag onto screens."></select>
+                            <button id="processor-add-btn" class="btn" data-lrd-field="processor-add-btn">Add</button>
+                        </span>
+                        <span id="hw-dock-power-controls" class="hw-dock-ctl view-hidden">
+                            <button id="power-distro-add" class="btn" data-lrd-field="power-distro-add" data-tooltip="Add a power distro, A project-level power source. Its multis appear in this tray to drag onto circuits, and the load rolls up on its header.">+ Add distro</button>
+                        </span>
+                        <span class="hw-dock-head-sp"></span>
+                        <label id="hw-dock-auto-wrap" class="view-hidden" title="Number unpinned ports automatically. Off, the numbering freezes exactly as drawn and only pinned moves change it.">
+                            <input type="checkbox" id="port-assignment-auto" data-lrd-field="port-assignment-auto"> Auto-number
+                        </label>
+                        <button id="hw-dock-fold" title="Collapse the hardware tray" aria-label="Collapse hardware tray">▾</button>
                     </div>
+                    <!-- The refuse-and-offer surface, re-hosted from the old
+                         Port Numbering panel: one slim row per issue with its
+                         fix buttons inline (red = waiting on a person, amber
+                         = a condition worth knowing), drawn only when issues
+                         exist. Power view's clash / overflow / same-name
+                         warnings render here through the same rows. -->
+                    <div id="hw-dock-issues"></div>
                     <div id="hardware-dock-body"></div>
                 </div>
             </div>

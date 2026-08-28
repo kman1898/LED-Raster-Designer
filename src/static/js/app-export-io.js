@@ -2521,6 +2521,20 @@ class _ExportIo {
                     this._mergeMenuAction.run();
                 }
                 break;
+            // Circuit sharing, same doctrine: armed at open time on the
+            // circuit the cursor named, re-checked here.
+            case 'hw-share':
+                if (this._shareMenuAction
+                        && typeof this._shareMenuAction.run === 'function') {
+                    this._shareMenuAction.run();
+                }
+                break;
+            case 'hw-unshare':
+                if (this._unshareMenuAction
+                        && typeof this._unshareMenuAction.run === 'function') {
+                    this._unshareMenuAction.run();
+                }
+                break;
             case 'bulk-set-blank':
                 this.setPanelsBlankBulk(this.getPixelMapSelectedPanels(), true);
                 break;

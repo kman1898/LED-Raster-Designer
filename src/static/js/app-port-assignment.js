@@ -1,15 +1,17 @@
-// app-port-assignment: the Port Numbering panel in the Signal sidebar.
+// app-port-assignment: the port numbering resolution, narrated on the
+// hardware dock (the Signal sidebar it used to panel in is retired).
 //
-// Since the hardware dock became the assignment gesture the panel no longer
-// carries per-port pin/move/release rows - pointing a socket at a screen is a
+// Since the hardware dock became the assignment gesture there are no
+// per-port pin/move/release rows - pointing a socket at a screen is a
 // drag, and taking an assignment back is a drag to the tray or a right-click
 // on the run or the chip. What stays here is the part a drag cannot replace:
 // the REPORTING. Looms are made up and labelled off the drawing days before
 // anything is hung, so a numbering that shifted on its own would hand back a
 // drawing that no longer matches what is in the truck. Every problem - a
-// clash, an overflow, a pin whose card is gone - is drawn as a line of text
-// with a button beside it, and the button is the only thing that moves
-// anything. The auto toggle and the per-card usage counts live here too.
+// clash, an overflow, a pin whose card is gone - is drawn as a slim strip
+// row under the dock's header with a button beside it, and the button is
+// the only thing that moves anything. The auto toggle is the dock header's
+// checkbox, and the per-card usage counts are the card headers' glance.
 //
 // KNOWN GAP: with the rows gone the data side, like the power side, has no
 // keyboard path for MAKING an assignment - the drag is the only gesture. The
@@ -221,34 +223,53 @@ class _PortAssignment {
     }
 
     // ── drawing ───────────────────────────────────────────────────────────
+    //
+    // The Port Numbering panel died with the Signal sidebar; the reporting
+    // re-hosted onto the hardware dock. The refuse-and-offer boxes became
+    // the slim strip under the dock's header (#hw-dock-issues, one row per
+    // issue with its buttons inline), the auto toggle became the header's
+    // own checkbox, and the per-card usage foot became the card headers'
+    // n/N + fill glance - so this render touches the strip and the
+    // checkbox, and the chips redraw on their own paths.
 
     renderPortAssignmentPanel() {
-        const issues = document.getElementById('port-assignment-issues');
-        const foot = document.getElementById('port-assignment-foot');
-        const note = document.getElementById('port-assignment-empty-note');
-        if (!issues || !foot) return;
+        const strip = document.getElementById('hw-dock-issues');
+        if (!strip) return;
+        // Only the Data view's strip is this panel's to write: the Power
+        // view fills the same strip with its own warnings from the dock
+        // render, and anywhere else the dock is out of layout anyway.
+        const mode = window.canvasRenderer
+            ? window.canvasRenderer.viewMode : '';
+        if (mode !== 'data-flow') return;
         this._preserveEditorFocus();
-        issues.innerHTML = '';
-        foot.innerHTML = '';
+        strip.innerHTML = '';
 
         const res = this._assignment;
-        if (note) {
-            note.style.display = (res && res.configured) ? 'none' : '';
+        const auto = document.getElementById('port-assignment-auto');
+        const autoWrap = document.getElementById('hw-dock-auto-wrap');
+        if (auto) auto.checked = !!(res && res.auto);
+        if (autoWrap) {
+            // The toggle means nothing before a processor exists - the old
+            // panel's foot only rendered once configured, and this keeps
+            // that rule.
+            autoWrap.classList.toggle('view-hidden',
+                                      !(res && res.configured));
         }
         if (!res || !res.configured) return;
 
         if (this._assignmentError) {
-            issues.appendChild(this._buildAssignmentNote(
-                this._assignmentError, '#d05a52'));
+            strip.appendChild(this._buildIssue(
+                { message: this._assignmentError }));
         }
         if (this._assignmentNote) {
-            issues.appendChild(this._buildAssignmentNote(
-                this._assignmentNote, '#8aa8c8'));
+            // A note is not a warning; it keeps its own quiet blue row.
+            const row = this._buildIssue({ message: this._assignmentNote });
+            row.classList.add('hw-dock-issue-note');
+            strip.appendChild(row);
         }
         (res.issues || []).forEach(issue => {
-            issues.appendChild(this._buildIssue(issue));
+            strip.appendChild(this._buildIssue(issue));
         });
-        foot.appendChild(this._buildAssignmentFoot(res));
     }
 
     _buildAssignmentNote(text, color) {
@@ -260,11 +281,13 @@ class _PortAssignment {
         return row;
     }
 
+    // One issue as one slim strip row: the message and its offer buttons on
+    // the same line, wrapping only when the tray is genuinely too narrow.
+    // Same machinery as the old panel boxes (_buildOffer / _takeOffer are
+    // untouched), re-hosted onto the dock.
     _buildIssue(issue) {
-        const box = document.createElement('div');
-        box.style.border = '1px solid #3a2a28';
-        box.style.borderRadius = '4px';
-        box.style.padding = '6px 8px';
+        const row = document.createElement('div');
+        row.className = 'hw-dock-issue';
         // An unknown port count, auto being off, and a card whose boxes cannot
         // reach its ceiling are all CONDITIONS - true, worth knowing, nothing
         // to answer right now. A clash, an overflow or a stranded pin is a
@@ -272,22 +295,15 @@ class _PortAssignment {
         // people to skim past the ones that matter.
         const mild = ['capacity-unknown', 'auto-off',
                       'card-short-of-its-ceiling'].includes(issue.kind);
-        box.style.background = mild ? '#14120c' : '#1a1010';
-        box.style.borderColor = mild ? '#3a3320' : '#3a2a28';
-        box.appendChild(this._buildAssignmentNote(
-            issue.message, mild ? '#c8a04a' : '#d08a82'));
-
-        const offers = issue.offers || [];
-        if (offers.length) {
-            const row = document.createElement('div');
-            row.style.display = 'flex';
-            row.style.flexWrap = 'wrap';
-            row.style.gap = '4px';
-            row.style.marginTop = '6px';
-            offers.forEach(offer => row.appendChild(this._buildOffer(offer)));
-            box.appendChild(row);
-        }
-        return box;
+        if (mild) row.classList.add('hw-dock-issue-mild');
+        const msg = document.createElement('span');
+        msg.className = 'hw-dock-issue-msg';
+        msg.textContent = issue.message;
+        row.appendChild(msg);
+        (issue.offers || []).forEach(offer => {
+            row.appendChild(this._buildOffer(offer));
+        });
+        return row;
     }
 
     _buildOffer(offer) {
@@ -381,56 +397,11 @@ class _PortAssignment {
             }, 'Place Port');
     }
 
-    _buildAssignmentFoot(res) {
-        const wrap = document.createElement('div');
-
-        const cards = document.createElement('div');
-        cards.style.display = 'grid';
-        cards.style.gridTemplateColumns = 'minmax(0, 1fr)';
-        cards.style.gap = '2px';
-        (res.cards || []).forEach(card => {
-            const row = document.createElement('div');
-            row.style.display = 'flex';
-            // A long card title meets the 180px clamp here too; the count
-            // drops under it rather than pushing past the panel's edge.
-            row.style.flexWrap = 'wrap';
-            row.style.justifyContent = 'space-between';
-            row.style.fontSize = '11px';
-            row.style.fontFamily = 'monospace';
-            row.style.color = card.free === 0 ? '#c8a04a' : '#888';
-            const name = document.createElement('span');
-            name.style.overflowWrap = 'anywhere';
-            name.textContent = card.title;
-            const use = document.createElement('span');
-            use.textContent = card.capacityKnown
-                ? `${card.used} / ${card.capacity}`
-                : `${card.used} / unknown`;
-            row.appendChild(name);
-            row.appendChild(use);
-            cards.appendChild(row);
-        });
-        wrap.appendChild(cards);
-
-        const toggle = document.createElement('label');
-        toggle.style.display = 'flex';
-        toggle.style.alignItems = 'center';
-        toggle.style.gap = '6px';
-        toggle.style.fontSize = '11px';
-        toggle.style.color = '#ccc';
-        toggle.style.marginTop = '8px';
-        const cb = document.createElement('input');
-        cb.type = 'checkbox';
-        cb.checked = !!res.auto;
-        cb.dataset.lrdField = 'port-assignment-auto';
-        cb.addEventListener('change', () => this._assignmentRequest(
-            '/api/port-assignments', 'PUT', { auto: cb.checked },
-            null, 'Toggle Auto Numbering'));
-        toggle.appendChild(cb);
-        toggle.appendChild(document.createTextNode(
-            'Number unpinned ports automatically'));
-        wrap.appendChild(toggle);
-        return wrap;
-    }
+    // The per-card usage foot the old panel drew is the card headers'
+    // n/N + fill glance now (app-dock.js _dockBuildCard reads the same
+    // assignment summary), and the auto toggle is the dock header's static
+    // checkbox, wired once in initHardwareDock. Nothing is left for a foot
+    // builder to build.
 }
 
 for (const k of Object.getOwnPropertyNames(_PortAssignment.prototype)) {

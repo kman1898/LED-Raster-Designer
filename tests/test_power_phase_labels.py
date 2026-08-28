@@ -46,6 +46,21 @@ Plus the splitter fan-out label placement fix: the shared circuit's ONE
 bubble sits centered across the span of its run-head panels, stubs
 radiating to every head; single-run circuits keep the first-panel label.
 
+Where the DOM surfaces live now (the sidebar consolidation): the Power
+middle sidebar is gone, and the hardware dock is the one hardware surface.
+A distro is a dock section - name inline on its header
+(distro-name-<id>), Balance on the header for 3-phase
+(distro-balance-<id>), the electrical setup (rating, voltage, phase,
+phasing + help, location, remove) behind the header's gear
+([data-hwpop="distro-<id>"] opens #hw-gear-popover). Per-leg amps render
+on the always-on .hw-dock-legs line under the header. A multi is a
+section of its distro whose header carries the member name/length fields
+(power-soca-name-<layerId>-<soca>), and each occupied tail is a circuit
+CHIP ([data-lrd-tile="ptail-<distroId>-<n>-<t>"]) whose face leads with
+the physical TAIL digit and whose editor holds the label override
+(power-label-<layerId>-<circuitNum>). The dock renders only while the
+power view is open, so the page fixture switches to it up front.
+
 Browser tests use the synthetic-project style of test_power_splitters.py.
 
 Run locally (ONE pytest at a time - the browser-test servers use fixed
@@ -91,6 +106,10 @@ def page(e2e_server, pw_browser):
     pg.goto(e2e_server, wait_until='domcontentloaded')
     pg.wait_for_timeout(2000)  # socket connect + app init
     pg.evaluate(HELPERS_JS)
+    # The dock only renders in the power view, and every DOM surface these
+    # tests read lives in the dock now - open it once for the module.
+    pg.locator('[data-mode="power"]').click()
+    pg.wait_for_timeout(600)
     yield pg
     context.close()
 
@@ -454,99 +473,120 @@ def test_balancer_picks_a_tail_subset_and_returns_it_sorted(page):
     assert out['store'] is None, 'suggest only suggests - nothing persisted'
 
 
-SHOW_PANELS_JS = """(store) => {
+# The dock is where the circuits show now. The retired sidebar listed the
+# CURRENT screen's circuits whether or not a distro existed; the dock hangs
+# a multi's chips under the distro the multi is assigned to (an unassigned
+# multi has no dock section), so the rig assigns its one multi to a distro
+# named 'S' - the derived multi name is then S1 and every label string the
+# old sidebar rows printed is unchanged.
+SHOW_DOCK_JS = """(store) => {
     const ph = window.__ph;
     const app = window.app;
     const S = ph.five(Object.assign({
-        powerSplitters: { enabled: true, maxWays: 2,
-                          manual: { merge: [], split: [] } },
+        powerSocaDistro: { 1: 'ds' },
     }, store || {}));
-    return ph.withProject({ layers: [S] }, () => {
+    return ph.withProject({ layers: [S], distros: [ph.box('ds', 'S')] },
+                          () => {
         const savedLayer = app.currentLayer;
         try {
             app.currentLayer = S;
-            // the stamp updatePowerCapacityDisplay writes for the selected
-            // layer - the editor sizes itself from it on auto screens
-            S._powerCircuitsRequired = app.screenCircuitCount(S);
-            app.refreshSocaRuns();
-            app.refreshSplitterPanel();
-            app.updatePowerLabelEditor();
-            const txt = el => el ? el.textContent.replace(/\\s+/g, ' ').trim() : null;
+            app._circuitTailCache = null;
+            app.refreshDistroPanel();   // the dock render, under its old name
+            const chips = [...document.querySelectorAll(
+                '#hardware-dock-body [data-lrd-tile^="ptail-ds-1-"]')];
+            const faceSpans = c => [...c.querySelectorAll(
+                '.lrd-tile-face .lrd-tile-line')][0].querySelectorAll('span');
+            const nameField = document.querySelector(
+                '#hardware-dock-body [data-lrd-field="power-soca-name-1-1"]');
+            const detail = nameField && nameField.closest('.hw-dock-head-row')
+                .querySelector('.hw-dock-unit-info');
             return {
                 authority: ph.labelsOf(S),
                 tails: app.getSocaPlan(S).flatMap(s => s.legs.map(l => l.leg)),
-                socaRows: [...document.querySelectorAll('#power-soca-runs label')]
-                    .map(txt).filter(t => t && / legs? /.test(t)),
-                splitterRows: [...document.querySelectorAll(
-                        '#power-splitters .splitter-circuit-row label')]
-                    .map(l => txt(l).split(' \\u00b7 ')[0]),
-                editor: [...document.querySelectorAll('#power-label-list > div')]
-                    .filter(r => r.querySelector('input[type=text]'))
-                    .map(r => ({
-                        col: txt(r.children[1]),
-                        title: r.querySelector('input[type=checkbox]').title,
-                        placeholder: r.querySelector('input[type=text]').placeholder,
-                    })),
+                chips: chips.map(c => ({
+                    tail: faceSpans(c)[0].textContent,
+                    label: faceSpans(c)[1].textContent,
+                    title: c.querySelector('.lrd-tile-face').title,
+                    key: c.querySelector('.lrd-tile-body input')
+                        .dataset.lrdField,
+                    placeholder: c.querySelector('.lrd-tile-body input')
+                        .placeholder,
+                })),
+                multiName: nameField ? nameField.placeholder : null,
+                multiDetail: detail
+                    ? detail.textContent.replace(/\\s+/g, ' ').trim() : null,
             };
         } finally {
             app.currentLayer = savedLayer;
+            app._circuitTailCache = null;
+            app.refreshDistroPanel();
         }
     });
 }"""
 
 
-# ── 6. the LEFT PANE panels print the authority's numbers ─────────────────
+# ── 6. the DOCK's circuit chips print the authority's numbers ─────────────
 
-def test_left_pane_panels_match_authority_for_balanced_multi(page):
+def test_dock_chips_match_authority_for_balanced_multi(page):
     """User report round 3: 'when balanced the circuit numbers should match
-    in the left pane too'. On a balanced multi (stored [6,2,5,1,3], wall
-    reads tails 1,2,3,5,6) every sidebar Power-panel row prints the
-    authority's numbers: splitter rows and label-editor placeholders carry
-    getPowerCircuitLabel verbatim, and the editor's number column and
-    checkbox tooltip show the PHYSICAL TAIL - 1, 2, 3, 5, 6 down the pane,
-    identical to the canvas bubbles - never the sequential 1..5."""
-    out = page.evaluate(SHOW_PANELS_JS,
+    in the left pane too' - the circuits' one editing surface is the dock's
+    chips now, and the pin moves with it. On a balanced multi (stored
+    [6,2,5,1,3], wall reads tails 1,2,3,5,6) the occupied chips sit on
+    tails 1, 2, 3, 5, 6 - the chip face's leading digit IS the physical
+    tail - their face labels and editor placeholders carry
+    getPowerCircuitLabel verbatim, identical to the canvas bubbles, and
+    each editor writes the holder circuit's own override key. Never the
+    sequential 1..5."""
+    out = page.evaluate(SHOW_DOCK_JS,
                         {"powerSocaPhasePos": {"1": STORED}})
     labels = ['S1-1', 'S1-2', 'S1-3', 'S1-5', 'S1-6']
     assert out['authority'] == labels
     assert out['tails'] == DISPLAYED
-    assert out['splitterRows'] == labels, \
-        'splitter rows must print the authority labels'
-    assert [r['placeholder'] for r in out['editor']] == labels, \
-        'editor placeholders must print the authority labels'
-    assert [r['col'] for r in out['editor']] == ['1', '2', '3', '5', '6'], \
-        'the editor number column lists the physical tails, wall order'
-    assert [r['title'] for r in out['editor']] == labels, \
-        'the row tooltip names the circuit like the canvas bubble does'
-    assert out['socaRows'] == ['S1 \u00b7 5 legs \u00b7 25.0 A'], \
-        'the multi header keeps its name and leg count'
+    assert [c['tail'] for c in out['chips']] == ['1', '2', '3', '5', '6'], \
+        'the occupied chips sit on the physical tails, wall order'
+    assert [c['label'] for c in out['chips']] == labels, \
+        'the chip faces must print the authority labels'
+    assert [c['placeholder'] for c in out['chips']] == labels, \
+        'the label editors must print the authority labels'
+    for c, label in zip(out['chips'], labels):
+        assert f'Tail {c["tail"]}' in c['title'], \
+            'the chip tooltip names the physical tail'
+        assert label in c['title'], \
+            'the chip tooltip names the circuit like the canvas bubble does'
+    assert [c['key'] for c in out['chips']] == [
+        f'power-label-1-{n}' for n in range(1, 6)], \
+        'each editor is keyed to its holder circuit, in wall order'
+    assert out['multiName'] == 'S1', \
+        'the multi header keeps its derived name (as the name placeholder)'
+    assert out['multiDetail'] == '5 tails \u00b7 25.0 A', \
+        'the multi header keeps its tail count and amps'
 
 
-def test_left_pane_editor_column_stays_sequential_when_unbalanced(page):
+def test_dock_chip_tails_stay_sequential_when_unbalanced(page):
     """Byte-identity pin for the today path: no phase positions stored, the
-    editor keeps its sequential number column and 'Circuit N' tooltips, and
-    the splitter rows keep the sequential labels."""
-    out = page.evaluate(SHOW_PANELS_JS, {})
+    five circuits occupy tails 1..5 - tail 6 stays a free chip, which grows
+    no editor - and the chips keep the sequential labels. (The retired
+    sidebar's 'Circuit N' checkbox tooltips died with its checkboxes; the
+    chip tooltip speaks the tail instead, pinned above.)"""
+    out = page.evaluate(SHOW_DOCK_JS, {})
     labels = ['S1-1', 'S1-2', 'S1-3', 'S1-4', 'S1-5']
-    assert out['splitterRows'] == labels
-    assert [r['col'] for r in out['editor']] == ['1', '2', '3', '4', '5']
-    assert [r['title'] for r in out['editor']] == [
-        'Circuit 1', 'Circuit 2', 'Circuit 3', 'Circuit 4', 'Circuit 5']
-    assert [r['placeholder'] for r in out['editor']] == labels
+    assert [c['tail'] for c in out['chips']] == ['1', '2', '3', '4', '5']
+    assert [c['label'] for c in out['chips']] == labels
+    assert [c['placeholder'] for c in out['chips']] == labels
 
 
 def test_balance_dialog_names_circuits_by_their_labels(page):
     """The Balance dialog's move rows name each circuit by its CURRENT
     authority label (the bubble on the canvas), never a re-derived 'circuit
-    N' ordinal - and clicking Apply repaints the splitter rows and the
-    label editor synchronously with the new tails."""
+    N' ordinal - and clicking Apply repaints the dock's circuit chips
+    (faces and label-editor placeholders) synchronously with the new
+    tails."""
     out = page.evaluate("""() => {
         const ph = window.__ph;
         const app = window.app;
-        const S = ph.unequal(
-            { powerSplitters: { enabled: false, maxWays: 2,
-                                manual: { merge: [], split: [] } } });
-        return ph.withProject({ layers: [S], distros: [ph.distro()] }, () => {
+        const S = ph.unequal();
+        const result = ph.withProject(
+            { layers: [S], distros: [ph.distro()] }, () => {
             const savedLayer = app.currentLayer;
             const savedUpdate = app.updateLayers;
             try {
@@ -557,24 +597,27 @@ def test_balance_dialog_names_circuits_by_their_labels(page):
                 const el = document.getElementById('balance-modal');
                 const body = el.textContent.replace(/\\s+/g, ' ');
                 el.querySelector('.balance-apply').click();
-                const txt = e => e.textContent.replace(/\\s+/g, ' ').trim();
+                // Apply's refresh renders the dock in place - read the
+                // chips it just repainted, before any round-trip.
+                const chips = [...document.querySelectorAll(
+                    '#hardware-dock-body [data-lrd-tile^="ptail-d1-1-"]')];
                 return {
                     moveLabels: r.moves.map(m => m.labels),
                     body,
                     ordinal: /circuit \\d/.test(body),
                     modalGone: !document.getElementById('balance-modal'),
-                    splitterAfter: [...document.querySelectorAll(
-                            '#power-splitters .splitter-circuit-row label')]
-                        .map(l => txt(l).split(' \\u00b7 ')[0]),
-                    editorAfter: [...document.querySelectorAll(
-                            '#power-label-list input[type=text]')]
-                        .map(i => i.placeholder),
+                    tailsAfter: chips.map(c => c.querySelector(
+                        '.lrd-tile-face .lrd-tile-line span').textContent),
+                    editorAfter: chips.map(c => c.querySelector(
+                        '.lrd-tile-body input').placeholder),
                 };
             } finally {
                 app.currentLayer = savedLayer;
                 app.updateLayers = savedUpdate;
             }
         });
+        app.refreshDistroPanel();   // put the real project's dock back
+        return result;
     }""")
     # This multi is on the distro named 'D', so it is D1 and its circuits
     # read D1-1..D1-6 - the distro naming its own load, the way a card names
@@ -587,10 +630,10 @@ def test_balance_dialog_names_circuits_by_their_labels(page):
     assert 'tail 4 \u2192' in out['body']
     assert not out['ordinal'], 'no "circuit N" ordinals anywhere in the dialog'
     assert out['modalGone']
-    assert out['splitterAfter'] == ['D1-1', 'D1-2', 'D1-3', 'D1-5', 'D1-6'], \
-        'Apply repaints the splitter rows with the new tails, no round-trip'
+    assert out['tailsAfter'] == ['1', '2', '3', '5', '6'], \
+        'Apply repaints the chips onto the new tails, no round-trip'
     assert out['editorAfter'] == ['D1-1', 'D1-2', 'D1-3', 'D1-5', 'D1-6'], \
-        'Apply repaints the label editor with the new tails, no round-trip'
+        'Apply repaints the label editors with the new tails, no round-trip'
 
 
 def test_wall_order_wins_brute_force_and_apply_stores_sorted(page):
@@ -711,22 +754,43 @@ def test_an_explicit_scheme_survives_a_voltage_change(page):
         'circuitV': 208, 'distro': {'phasing': 'paired-ll-alt'}})['derived'] == 'paired-ll'
 
 
+# The phasing select lives in the distro's gear popover now: render the
+# dock, click the header's gear ([data-hwpop="distro-<id>"]) and read the
+# select out of #hw-gear-popover. Same option values, same patch path.
 PHASING_SELECT_JS = """(opts) => {
     const ph = window.__ph;
+    const app = window.app;
     const d = Object.assign(ph.distro(), opts.distro || {});
+    const L = ph.unequal({ powerVoltage: opts.circuitV });
     const out = ph.withProject(
-        { layers: [ph.unequal({ powerVoltage: opts.circuitV })], distros: [d] },
+        { layers: [L], distros: [d] },
         () => {
-            window.app.refreshDistroPanel();
-            const sel = document.querySelector('#power-distros .distro-phasing');
-            if (!sel) return null;
-            return { value: sel.value,
-                     text: sel.options[sel.selectedIndex].text,
-                     firstValue: sel.options[0].value,
-                     firstText: sel.options[0].text,
-                     options: sel.options.length };
+            const savedLayer = app.currentLayer;
+            try {
+                app.currentLayer = L;
+                app._circuitTailCache = null;
+                app._hwPopoverClose();
+                app.refreshDistroPanel();
+                const gear = document.querySelector(
+                    '[data-hwpop="distro-' + d.id + '"]');
+                if (!gear) return null;
+                gear.click();
+                const sel = document.querySelector(
+                    '#hw-gear-popover [data-lrd-field="distro-phasing-'
+                    + d.id + '"]');
+                if (!sel) return null;
+                return { value: sel.value,
+                         text: sel.options[sel.selectedIndex].text,
+                         firstValue: sel.options[0].value,
+                         firstText: sel.options[0].text,
+                         options: sel.options.length };
+            } finally {
+                app._hwPopoverClose();
+                app.currentLayer = savedLayer;
+                app._circuitTailCache = null;
+            }
         });
-    window.app.refreshDistroPanel();   // put the real project's rows back
+    app.refreshDistroPanel();   // put the real project's dock back
     return out;
 }"""
 
@@ -736,7 +800,7 @@ def test_the_phasing_select_says_whether_it_is_deriving(page):
     and one because nobody has - and only the second follows a voltage change.
     The select has to be able to tell them apart, and to offer the way back."""
     ll = page.evaluate(PHASING_SELECT_JS, {'circuitV': 208})
-    assert ll, "the distro row built no phasing select"
+    assert ll, "the distro's gear popover built no phasing select"
     assert ll['value'] == '', f"a derived scheme is not shown as derived: {ll}"
     assert 'Line-to-line' in ll['text'], (
         f"the derived entry does not name what it resolves to: {ll}")
@@ -819,9 +883,12 @@ def test_a_mismatched_explicit_scheme_stays_selected_and_says_so(page):
 
 
 def test_choosing_a_scheme_and_choosing_the_voltage_again_round_trips(page):
-    """The whole workflow through the real panel: a 208V distro fed by 208V
-    circuits derives the line-to-line scheme, an explicit pick sticks across a
-    voltage change, and the follow-the-voltage entry hands the choice back."""
+    """The whole workflow through the real surface - the distro's gear
+    popover on the dock: a 208V distro fed by 208V circuits derives the
+    line-to-line scheme, an explicit pick sticks across a voltage change,
+    and the follow-the-voltage entry hands the choice back. The popover
+    stays open across the dock rebuilds every change triggers - its select
+    is refreshed in place, never left narrating stale state."""
     page.locator('[data-mode="power"]').click()
     page.wait_for_timeout(400)
     seeded = page.evaluate("""() => {
@@ -842,22 +909,31 @@ def test_choosing_a_scheme_and_choosing_the_voltage_again_round_trips(page):
         return d.id;
     }""")
     page.wait_for_timeout(600)
+    # The select lives in the gear popover: open it once off the distro's
+    # dock header and drive the same node through every rebuild.
+    sel_css = '#hw-gear-popover select[data-lrd-field^="distro-phasing-"]'
     read = """() => {
-        const sel = document.querySelector('#power-distros .distro-phasing');
+        const sel = document.querySelector(
+            '#hw-gear-popover select[data-lrd-field^="distro-phasing-"]');
         const d = window.app.getDistros()[0];
-        return { value: sel.value, text: sel.options[sel.selectedIndex].text,
+        return { open: !!sel,
+                 value: sel && sel.value,
+                 text: sel && sel.options[sel.selectedIndex].text,
                  stored: d.phasing === undefined ? '(undefined)' : d.phasing };
     }"""
     try:
+        page.locator(f'[data-hwpop="distro-{seeded}"]').click()
+        page.wait_for_timeout(200)
         derived = page.evaluate(read)
+        assert derived['open'], 'the gear did not open its popover'
         assert derived['value'] == '' and 'Line-to-line' in derived['text'], (
             f"208V circuits on a 208V distro did not derive the 208V scheme "
-            f"through the real panel: {derived}")
+            f"through the real popover: {derived}")
         assert derived['stored'] in (None, '(undefined)'), (
-            f"the panel stamped an explicit scheme just by rendering, which "
-            f"would stop the derivation ever firing again: {derived}")
+            f"the popover stamped an explicit scheme just by rendering, "
+            f"which would stop the derivation ever firing again: {derived}")
 
-        page.select_option('#power-distros .distro-phasing', 'rotating-ll')
+        page.select_option(sel_css, 'rotating-ll')
         page.wait_for_timeout(600)
         page.evaluate("""() => {
             window.app.updateDistro(window.app.getDistros()[0].id, { voltage: 240 });
@@ -865,13 +941,16 @@ def test_choosing_a_scheme_and_choosing_the_voltage_again_round_trips(page):
         }""")
         page.wait_for_timeout(400)
         kept = page.evaluate(read)
+        assert kept['open'], (
+            'the popover did not survive the dock rebuild the change '
+            f'triggered: {kept}')
         assert kept['value'] == 'rotating-ll' and kept['stored'] == 'rotating-ll', (
             f"changing the voltage overwrote a scheme somebody chose: {kept}")
         assert 'does not match' in kept['text'], (
             f"a kept scheme whose coupling the voltage no longer permits must "
             f"say so on its option: {kept}")
 
-        page.select_option('#power-distros .distro-phasing', '')
+        page.select_option(sel_css, '')
         page.wait_for_timeout(600)
         back = page.evaluate(read)
         assert back['value'] == '' and back['stored'] is None, (
@@ -879,6 +958,7 @@ def test_choosing_a_scheme_and_choosing_the_voltage_again_round_trips(page):
             f"the voltage: {back}")
     finally:
         page.evaluate("""(id) => {
+            window.app._hwPopoverClose();
             window.app.removeDistro(id);
             window.app.refreshDistroPanel();
         }""", seeded)
@@ -936,11 +1016,20 @@ NAMING_JS = """(opts) => {
     const ph = window.__ph;
     const app = window.app;
     const d = Object.assign(ph.distro(), opts.distro || {});
+    const L = ph.unequal({ powerVoltage: opts.circuitV });
     const out = ph.withProject(
-        { layers: [ph.unequal({ powerVoltage: opts.circuitV })], distros: [d] },
+        { layers: [L], distros: [d] },
         () => {
+            const savedLayer = app.currentLayer;
+            app.currentLayer = L;
+            app._circuitTailCache = null;
+            app._hwPopoverClose();
             app.refreshDistroPanel();
-            const sel = document.querySelector('#power-distros .distro-phasing');
+            document.querySelector('[data-hwpop="distro-' + d.id + '"]')
+                .click();
+            const sel = document.querySelector(
+                '#hw-gear-popover [data-lrd-field="distro-phasing-'
+                + d.id + '"]');
             app.showPhasingHelp();
             const modal = document.getElementById('phasing-help-modal');
             const cells = [...modal.querySelectorAll(
@@ -962,9 +1051,12 @@ NAMING_JS = """(opts) => {
                 modalText: modal.textContent.replace(/\\s+/g, ' '),
             };
             modal.remove();
+            app._hwPopoverClose();
+            app.currentLayer = savedLayer;
+            app._circuitTailCache = null;
             return res;
         });
-    app.refreshDistroPanel();   // put the real project's rows back
+    app.refreshDistroPanel();   // put the real project's dock back
     return out;
 }"""
 
@@ -1317,10 +1409,11 @@ def test_a_balanced_multi_under_a_named_distro_reads_true_tails(page):
         'the middle three name their tails, not a renumbered 1, 2, 3'
 
 
-def test_the_wall_the_sidebar_and_the_plan_all_read_the_same_names(page):
+def test_the_wall_the_dock_and_the_plan_all_read_the_same_names(page):
     """One authority, four surfaces. A wall on two distros named SL and SR:
-    the canvas bubbles, the label editor's placeholders, the splitter rows
-    and the soca plan's leg labels all print exactly the same strings."""
+    the canvas bubbles, the soca plan's leg labels, the dock chips' faces
+    and their label-editor placeholders all print exactly the same
+    strings."""
     out = page.evaluate("""() => {
         const ph = window.__ph;
         const app = window.app, cr = window.canvasRenderer;
@@ -1328,42 +1421,47 @@ def test_the_wall_the_sidebar_and_the_plan_all_read_the_same_names(page):
         const orig = CanvasRenderingContext2D.prototype.fillText;
         const savedLayer = app.currentLayer;
         try {
-            CanvasRenderingContext2D.prototype.fillText = function (t, ...a) {
-                texts.push(String(t));
-                return orig.call(this, t, ...a);
-            };
             const S = ph.col5(23, 'Wall', 8, {
                 powerSocaDistro: { 1: 'dl', 2: 'dr' },
-                powerSplitters: { enabled: true, maxWays: 2,
-                                  manual: { merge: [], split: [] } },
             });
             const distros = [ph.box('dl', 'SL'), ph.box('dr', 'SR')];
             return ph.withProject({ layers: [S], distros }, () => {
                 app.currentLayer = S;
-                S._powerCircuitsRequired = app.screenCircuitCount(S);
-                app.refreshSplitterPanel();
-                app.updatePowerLabelEditor();
+                app._circuitTailCache = null;
+                // The bubbles, captured around the one explicit draw so
+                // nothing else that paints text can leak into the list.
+                CanvasRenderingContext2D.prototype.fillText =
+                    function (t, ...a) {
+                        texts.push(String(t));
+                        return orig.call(this, t, ...a);
+                    };
                 cr.renderPowerArrows(S);
-                const txt = e => e.textContent.replace(/\\s+/g, ' ').trim();
+                CanvasRenderingContext2D.prototype.fillText = orig;
+                const canvas = texts.splice(0);
+                app.refreshDistroPanel();
+                const chips = [...document.querySelectorAll(
+                    '#hardware-dock-body [data-lrd-tile^="ptail-"]')];
                 return {
                     authority: ph.labelsOf(S),
                     planLegs: app.getSocaPlan(S).flatMap(
                         s => s.legs.map(l => l.label)),
-                    canvas: texts.splice(0),
-                    editor: [...document.querySelectorAll(
-                        '#power-label-list input[type=text]')]
+                    canvas,
+                    chips: chips.map(c => [...c.querySelectorAll(
+                        '.lrd-tile-face .lrd-tile-line')][0]
+                        .querySelectorAll('span')[1].textContent),
+                    editor: chips.map(c => c.querySelector(
+                        '.lrd-tile-body input').placeholder),
+                    multiNames: [...document.querySelectorAll(
+                        '#hardware-dock-body '
+                        + '[data-lrd-field^="power-soca-name-"]')]
                         .map(i => i.placeholder),
-                    splitterRows: [...document.querySelectorAll(
-                            '#power-splitters .splitter-circuit-row label')]
-                        .map(l => txt(l).split(' \\u00b7 ')[0]),
-                    socaRows: [...document.querySelectorAll(
-                            '#power-soca-runs label')]
-                        .map(txt).filter(t => t && / legs? /.test(t)),
                 };
             });
         } finally {
             CanvasRenderingContext2D.prototype.fillText = orig;
             app.currentLayer = savedLayer;
+            app._circuitTailCache = null;
+            app.refreshDistroPanel();
         }
     }""")
     expected = ['SL1-1', 'SL1-2', 'SL1-3', 'SL1-4', 'SL1-5', 'SL1-6',
@@ -1373,9 +1471,12 @@ def test_the_wall_the_sidebar_and_the_plan_all_read_the_same_names(page):
     assert out['planLegs'] == expected, 'the soca plan disagrees with the wall'
     assert [t for t in out['canvas'] if t in expected] == expected, (
         f"the canvas bubbles do not read the authority: {out['canvas']}")
-    assert out['editor'] == expected, 'the label editor disagrees with the wall'
-    assert out['splitterRows'] == expected, \
-        'the splitter rows disagree with the wall'
+    assert out['chips'] == expected, \
+        'the dock chips disagree with the wall'
+    assert out['editor'] == expected, \
+        'the label editors disagree with the wall'
+    assert out['multiNames'] == ['SL1', 'SR1'], \
+        'the dock names the multis the way the plan does'
 
 
 def test_a_multi_that_moves_distro_takes_the_new_distros_name(page):
@@ -1478,10 +1579,11 @@ def test_the_separator_is_the_templates_own(page):
     assert out['labels'] == ['DISTRO 1_1_1', 'DISTRO 1_1_2', 'DISTRO 1_1_3']
 
 
-def test_the_separated_name_reaches_panel_feeds_and_editor(page):
+def test_the_separated_name_reaches_dock_boxes_feeds_and_labels(page):
     """getSocaPlan and getPowerCircuitLabel are the only authorities, so the
-    soca panel headings, the name placeholder, the distro feeds list and the
-    label editor placeholders all print the separated name."""
+    dock's multi-box name placeholders (the derived name is what an unnamed
+    box reads as), the distro feeds list and the circuit labels all print
+    the separated name."""
     out = page.evaluate("""() => {
         const ph = window.__ph;
         const app = window.app;
@@ -1492,13 +1594,16 @@ def test_the_separated_name_reaches_panel_feeds_and_editor(page):
                 app.currentLayer = S;
                 app._circuitTailCache = null;
                 try {
-                    app.refreshSocaRuns();
-                    const host = document.getElementById('power-soca-runs');
+                    app.refreshDistroPanel();
+                    const host =
+                        document.getElementById('hardware-dock-body');
+                    const ph1 = host.querySelector(
+                        '[data-lrd-field="power-soca-name-35-1"]');
+                    const ph2 = host.querySelector(
+                        '[data-lrd-field="power-soca-name-35-2"]');
                     return {
-                        heads: [...host.querySelectorAll('.power-soca-row > label')]
-                            .map(l => l.textContent.trim()),
-                        placeholder: host.querySelector(
-                            '[data-lrd-field="power-soca-name-1"]').placeholder,
+                        placeholders: [ph1 && ph1.placeholder,
+                                       ph2 && ph2.placeholder],
                         feeds: app.getDistroLoads()
                             .map(d => d.socas.map(s => s.name)),
                         editorLabel: app.getPowerCircuitLabel(S, 7),
@@ -1506,23 +1611,23 @@ def test_the_separated_name_reaches_panel_feeds_and_editor(page):
                 } finally {
                     app.currentLayer = savedCur;
                     app._circuitTailCache = null;
-                    app.refreshSocaRuns();
+                    app.refreshDistroPanel();
                 }
             });
     }""")
-    assert out['heads'][0].startswith('DISTRO 1-1 ·'), out['heads']
-    assert out['heads'][1].startswith('DISTRO 1-2 ·'), out['heads']
-    assert out['placeholder'] == 'DISTRO 1-1'
+    assert out['placeholders'] == ['DISTRO 1-1', 'DISTRO 1-2'], \
+        'the dock boxes read as the separated derived names'
     assert ['DISTRO 1-1', 'DISTRO 1-2'] in out['feeds'], out['feeds']
     assert out['editorLabel'] == 'DISTRO 1-2-1'
 
 
-# ── per-distro balance: each distro's row carries its own button ──────────
+# ── per-distro balance: each distro's dock header carries its button ──────
 #
 # Legs never interact across services, so the show-wide Balance was N
 # independent problems behind one control - and it moved multis on distros
-# the user was not looking at. The button lives on the distro's row now,
-# the search and the dialog scope to that distro, and a no-op SAYS why.
+# the user was not looking at. The button lives on the distro's dock
+# header now (distro-balance-<id>, 3-phase only), the search and the
+# dialog scope to that distro, and a no-op SAYS why.
 
 BALANCE_SCOPE_JS = """(distroId) => {
     const ph = window.__ph;
@@ -1560,11 +1665,13 @@ def test_balance_scopes_targets_to_one_distro(page):
 
 
 def test_the_balance_button_is_per_distro_now(page):
-    """No show-wide #power-distro-balance survives; every 3-phase distro row
-    carries its own .distro-balance and a single-phase distro gets none -
-    there are no legs to balance on one phase."""
+    """No show-wide #power-distro-balance survives; every 3-phase distro's
+    DOCK HEADER carries its own Balance button (key distro-balance-<id>)
+    and a single-phase distro gets none - there are no legs to balance on
+    one phase."""
     out = page.evaluate("""() => {
         const ph = window.__ph;
+        const app = window.app;
         const A = ph.col5(64, 'WallA', 4, { powerSocaDistro: { 1: 'e1' } });
         const result = ph.withProject({
             layers: [A],
@@ -1572,22 +1679,35 @@ def test_the_balance_button_is_per_distro_now(page):
                       { id: 'e3', name: 'EDISON', ratingA: 100,
                         voltage: 120, phase: 1 }],
         }, () => {
-            window.app.refreshDistroPanel();
-            const rows = [...document.querySelectorAll(
-                '#power-distros .power-distro-row')];
-            return {
-                showWide: !!document.getElementById('power-distro-balance'),
-                perRow: rows.map(r => ({ id: r.dataset.id,
-                    balance: !!r.querySelector('.distro-balance') })),
-            };
+            const savedLayer = app.currentLayer;
+            try {
+                app.currentLayer = A;
+                app._circuitTailCache = null;
+                app.refreshDistroPanel();
+                const bal = (id) => document.querySelector(
+                    '#hardware-dock [data-lrd-field="distro-balance-'
+                    + id + '"]');
+                return {
+                    showWide:
+                        !!document.getElementById('power-distro-balance'),
+                    e1: !!bal('e1'),
+                    e1OnHeader: !!(bal('e1')
+                        && bal('e1').closest('.hw-dock-head-row')),
+                    e3: !!bal('e3'),
+                };
+            } finally {
+                app.currentLayer = savedLayer;
+                app._circuitTailCache = null;
+            }
         });
-        window.app.refreshDistroPanel();
+        app.refreshDistroPanel();
         return result;
     }""")
     assert out['showWide'] is False, 'the show-wide button is gone'
-    byId = {r['id']: r['balance'] for r in out['perRow']}
-    assert byId['e1'] is True, out
-    assert byId['e3'] is False, 'a single-phase distro has no legs to balance'
+    assert out['e1'] is True, out
+    assert out['e1OnHeader'] is True, \
+        'Balance rides the distro header, reachable without unfolding'
+    assert out['e3'] is False, 'a single-phase distro has no legs to balance'
 
 
 def test_scoped_dialog_reports_that_distro(page):
@@ -1642,172 +1762,197 @@ def test_a_scoped_no_op_states_why_nothing_is_movable(page):
     assert 'no longer reaches' in out['text'], out
 
 
-# ── distro rows are cards that fold to a glance line ──────────────────────
+# ── distro sections fold in the dock; the header stays the glance ─────────
+#
+# The sidebar's fold-to-a-glance-line rows died with the sidebar. In the
+# dock the header IS the glance - name inline, voltage/phase detail, the
+# amps-vs-rating readout and fill, Balance and the gear - and it never
+# hides; folding tucks away only the body (the multis and their chips),
+# while the always-on LEGS line stays visible so a folded distro still
+# reads its balance. Same section machinery and persistence as every dock
+# unit (fold key hwdock-distro-<id>).
 
 DISTRO_FOLD_JS = """(cfg) => {
     const ph = window.__ph;
+    const app = window.app;
     const A = ph.col5(68, 'WallA', 4, { powerSocaDistro: { 1: 'e1' } });
     const result = ph.withProject({
         layers: [A], distros: [ph.box('e1', 'E1')],
     }, () => {
-        const app = window.app;
-        app._circuitTailCache = null;
-        app.refreshDistroPanel();
-        const row = document.querySelector(
-            '#power-distros .power-distro-row[data-id="e1"]');
-        const head = row.querySelector('.lrd-sec-head');
-        const shown = el => !!el && getComputedStyle(el).display !== 'none';
-        const state = () => ({
-            folded: row.classList.contains('lrd-sec-collapsed'),
-            glance: shown(row.querySelector('.lrd-distro-glance')),
-            glanceText: (row.querySelector('.lrd-distro-glance') || {})
-                .textContent || '',
-            nameInput: shown(row.querySelector('.distro-name')),
-            del: shown(row.querySelector('.distro-del')),
-            balance: shown(row.querySelector('.distro-balance')),
-            body: shown(row.querySelector('.lrd-sec-body')),
-            key: localStorage.getItem('ledRasterPanelCollapsed_power-distro-e1'),
-        });
-        const open = state();
-        row.querySelector('.lrd-sec-head .lrd-sec-arrow').click();
-        const folded = state();
-        let rebuilt = null;
-        if (cfg && cfg.rebuild) {
+        const savedLayer = app.currentLayer;
+        try {
+            app.currentLayer = A;
+            app._circuitTailCache = null;
             app.refreshDistroPanel();
-            const row2 = document.querySelector(
-                '#power-distros .power-distro-row[data-id="e1"]');
-            rebuilt = { folded: row2.classList.contains('lrd-sec-collapsed') };
-            const btn = row2.querySelector('.lrd-sec-head .lrd-sec-arrow');
-            if (btn) btn.click();   // leave it open for whoever renders next
-        } else {
-            row.querySelector('.lrd-sec-head .lrd-sec-arrow').click();
+            const unitOf = () => document.querySelector(
+                '[data-lrd-sec="hwdock-distro-e1"]').parentElement;
+            const shown = el => !!el
+                && getComputedStyle(el).display !== 'none';
+            const state = () => {
+                const unit = unitOf();
+                return {
+                    folded: unit.classList.contains('lrd-sec-collapsed'),
+                    name: shown(unit.querySelector(
+                        '[data-lrd-field="distro-name-e1"]')),
+                    glanceText: (unit.querySelector('.hw-dock-unit-use')
+                        || {}).textContent || '',
+                    balance: shown(unit.querySelector(
+                        '[data-lrd-field="distro-balance-e1"]')),
+                    gear: shown(unit.querySelector(
+                        '[data-hwpop="distro-e1"]')),
+                    legs: shown(unit.querySelector('.hw-dock-legs')),
+                    body: shown(unit.querySelector('.lrd-sec-body')),
+                    height: unit.offsetHeight,
+                    key: localStorage.getItem(
+                        'ledRasterPanelCollapsed_hwdock-distro-e1'),
+                };
+            };
+            const open = state();
+            unitOf().querySelector('.lrd-sec-arrow').click();
+            const folded = state();
+            let rebuilt = null;
+            if (cfg && cfg.rebuild) {
+                app.refreshDistroPanel();
+                rebuilt = { folded: unitOf().classList
+                    .contains('lrd-sec-collapsed') };
+            }
+            if (unitOf().classList.contains('lrd-sec-collapsed')) {
+                // leave it open for whoever renders next
+                unitOf().querySelector('.lrd-sec-arrow').click();
+            }
+            return { open, folded, rebuilt };
+        } finally {
+            app.currentLayer = savedLayer;
+            app._circuitTailCache = null;
         }
-        return { open, folded, rebuilt };
     });
-    try { localStorage.removeItem('ledRasterPanelCollapsed_power-distro-e1'); }
+    try { localStorage.removeItem(
+        'ledRasterPanelCollapsed_hwdock-distro-e1'); }
     catch (e) {}
-    window.app.refreshDistroPanel();
+    app.refreshDistroPanel();
     return result;
 }"""
 
 
-def test_distro_rows_fold_to_a_glance_line(page):
-    """Open, the row is its editors; folded, the name field and the ✕ give
-    way to the glance line - name, rating, load, imbalance, multi count -
-    and Balance stays reachable in both states."""
+def test_distro_sections_fold_and_the_header_keeps_the_glance(page):
+    """Folding a distro tucks its multis away and nothing else. The retired
+    sidebar swapped its name field for a glance line; the dock header is
+    both at once, so the pin moves with it: the inline name, the
+    amps-vs-rating glance, Balance and the gear stay in BOTH states, the
+    fold hides exactly the body, and the folded unit stands shorter than
+    the open one - the fold stays a fold."""
     out = page.evaluate(DISTRO_FOLD_JS, {})
-    assert out['open']['folded'] is False
-    assert out['open']['glance'] is False and out['open']['nameInput'] is True
-    assert out['open']['body'] is True and out['open']['balance'] is True
-
-    f = out['folded']
-    assert f['folded'] is True and f['body'] is False
-    assert f['glance'] is True, 'the folded face is the glance line'
-    assert f['nameInput'] is False and f['del'] is False
-    assert f['balance'] is True, 'Balance works on a folded distro'
-    for piece in ('E1', '400 A', '%', 'multi'):
-        assert piece in f['glanceText'], (piece, f['glanceText'])
+    o, f = out['open'], out['folded']
+    assert o['folded'] is False and f['folded'] is True
+    assert o['body'] is True and f['body'] is False, \
+        'the fold hides exactly the body'
+    for st in (o, f):
+        assert st['name'] is True, 'the inline name never hides'
+        assert st['balance'] is True, 'Balance works on a folded distro'
+        assert st['gear'] is True, 'the gear stays reachable'
+        assert '/400 A' in st['glanceText'], \
+            'the header glance reads amps against the rating'
+    assert f['height'] < o['height'], \
+        'folded, the unit is its header and legs line, not the whole body'
 
 
 def test_distro_fold_persists_and_survives_a_rebuild(page):
-    """The fold writes its ledRasterPanelCollapsed_power-distro-<id> key and
-    a full panel rebuild re-reads it, exactly like the processor cards."""
+    """The fold writes its ledRasterPanelCollapsed_hwdock-distro-<id> key
+    and a full dock rebuild re-reads it, exactly like the processor
+    cards."""
     out = page.evaluate(DISTRO_FOLD_JS, {'rebuild': True})
     assert out['folded']['key'] == '1', out['folded']
     assert out['rebuilt']['folded'] is True, 'the rebuild dropped the fold'
 
 
-# The glance line's numbers, drawn: the folded face keeps the load bar and
-# the three per-leg minis (amps over each, the ± beside them), so a list of
-# folded distros still reads as levels and balance. Same .rack-bar markup
-# the open body draws - one bar implementation, two places it shows.
+# The levels, drawn: the header carries the load bar (.hw-dock-headbar)
+# and the always-on .hw-dock-legs line carries the three per-leg minis
+# (.hw-dock-legbar, amps beside each, the ± figure on the end), so a
+# folded distro still reads as levels and balance. They show in BOTH
+# states now - the sidebar's folded-only glance bars generalized to a
+# line that never hides. (The sidebar's 180px-clamp wrap test died with
+# the 180px sidebar clamp: the dock spans the window and has no narrow
+# host to clamp.)
 DISTRO_FOLD_BARS_JS = """(cfg) => {
     const ph = window.__ph;
+    const app = window.app;
     const A = ph.col5(69, 'WallA', 4, { powerSocaDistro: { 1: 'e1' } });
     const distro = Object.assign(ph.box('e1', 'E1'), cfg.distro || {});
     const result = ph.withProject({
         layers: [A], distros: [distro],
     }, () => {
-        const app = window.app;
-        app._circuitTailCache = null;
-        app.refreshDistroPanel();
-        const host = document.getElementById('power-distros');
-        const row = document.querySelector(
-            '#power-distros .power-distro-row[data-id="e1"]');
-        const shown = el => !!el && getComputedStyle(el).display !== 'none';
-        const state = () => {
-            const bars = row.querySelector('.lrd-distro-glance-bars');
-            return {
-                barsShown: shown(bars),
-                barCount: bars
-                    ? bars.querySelectorAll('.rack-bar').length : 0,
-                overCount: bars
-                    ? bars.querySelectorAll('.rack-bar-fill.over').length : 0,
-                barsText: bars ? bars.innerText : '',
-                balance: shown(row.querySelector('.distro-balance')),
-                height: row.offsetHeight,
+        const savedLayer = app.currentLayer;
+        try {
+            app.currentLayer = A;
+            app._circuitTailCache = null;
+            app.refreshDistroPanel();
+            const unitOf = () => document.querySelector(
+                '[data-lrd-sec="hwdock-distro-e1"]').parentElement;
+            const shown = el => !!el
+                && getComputedStyle(el).display !== 'none';
+            const state = () => {
+                const unit = unitOf();
+                const legs = unit.querySelector(':scope > .hw-dock-legs');
+                const bars = unit.querySelectorAll(
+                    ':scope > .hw-dock-head-row .hw-dock-headbar, '
+                    + ':scope > .hw-dock-legs .hw-dock-legbar');
+                return {
+                    legsShown: shown(legs),
+                    barCount: bars.length,
+                    overCount: [...bars].reduce((s, b) =>
+                        s + b.querySelectorAll('.hw-dock-bar-over').length,
+                        0),
+                    legsText: legs ? legs.innerText : '',
+                    balance: shown(unit.querySelector(
+                        '[data-lrd-field="distro-balance-e1"]')),
+                };
             };
-        };
-        const open = state();
-        row.querySelector('.lrd-sec-head .lrd-sec-arrow').click();
-        const folded = state();
-        let clamped = null;
-        if (cfg.clampPx) {
-            const was = host.style.width;
-            host.style.width = cfg.clampPx + 'px';
-            clamped = {
-                rowFits: row.scrollWidth <= row.clientWidth,
-                hostFits: host.scrollWidth <= host.clientWidth,
-            };
-            host.style.width = was;
+            const open = state();
+            unitOf().querySelector('.lrd-sec-arrow').click();
+            const folded = state();
+            unitOf().querySelector('.lrd-sec-arrow').click();
+            return { open, folded };
+        } finally {
+            app.currentLayer = savedLayer;
+            app._circuitTailCache = null;
         }
-        row.querySelector('.lrd-sec-head .lrd-sec-arrow').click();
-        return { open, folded, clamped };
     });
-    try { localStorage.removeItem('ledRasterPanelCollapsed_power-distro-e1'); }
+    try { localStorage.removeItem(
+        'ledRasterPanelCollapsed_hwdock-distro-e1'); }
     catch (e) {}
-    window.app.refreshDistroPanel();
+    app.refreshDistroPanel();
     return result;
 }"""
 
 
 def test_a_folded_distro_still_shows_levels_and_balance(page):
     """The user's ask, verbatim: "i would also like to be able to see the
-    power levels and balance when the distro is minimized". Folded, the face
-    carries the load bar plus the three per-leg minis with their amps and
-    the ± figure; open, the block stays hidden because the body already
-    draws the full set. The fold stays a fold - a couple of short rows, not
-    the whole body."""
+    power levels and balance when the distro is minimized". Folded, the
+    unit still carries the header's load bar plus the legs line's three
+    per-leg minis with their amps and the ± figure - the line rides between
+    the header and the foldable body, so it shows open too, one drawing in
+    both states."""
     out = page.evaluate(DISTRO_FOLD_BARS_JS, {})
-    assert out['open']['barsShown'] is False, 'open, the body owns the bars'
+    for name in ('open', 'folded'):
+        st = out[name]
+        assert st['legsShown'] is True, f'{name}: the legs line hid'
+        assert st['barCount'] == 4, 'one load bar plus three leg minis'
     f = out['folded']
-    assert f['barsShown'] is True, 'the folded face lost its bars'
-    assert f['barCount'] == 4, 'one load bar plus three leg minis'
     assert f['overCount'] == 0, 'a healthy distro reddens nothing'
-    for piece in ('X ', 'Y ', 'Z ', 'A'):
-        assert piece in f['barsText'], (piece, f['barsText'])
-    # ±% (or "even" when the legs agree) rides with the minis, so balance is
-    # readable off the fold, not just load.
-    assert ('±' in f['barsText']) or ('even' in f['barsText']), f['barsText']
+    for piece in ('X ', 'Y ', 'Z '):
+        assert piece in f['legsText'], (piece, f['legsText'])
+    assert 'A' in f['legsText'], f['legsText']
+    # ±% (or "even" when the legs agree) rides with the minis, so balance
+    # is readable off the fold, not just load.
+    assert ('±' in f['legsText']) or ('even' in f['legsText']), f['legsText']
     assert f['balance'] is True, 'Balance still works on a folded distro'
-    # Folded cards must still scan as a list: the bars add two short rows,
-    # nothing like the open body's height.
-    assert f['height'] < 120, f
 
 
 def test_a_folded_overloaded_distro_reddens_its_bars(page):
-    """The over case wears the same alarm folded as open: the load bar's
-    fill takes .over (the red gradient) when the distro is past its rating,
-    and the leg minis redden where a leg is past its share."""
+    """The over case wears the same alarm folded as open: the header load
+    bar's fill takes the over class when the distro is past its rating, and
+    the leg minis redden where a leg is past its share."""
     out = page.evaluate(DISTRO_FOLD_BARS_JS, {'distro': {'ratingA': 4}})
     f = out['folded']
-    assert f['barsShown'] is True
+    assert f['legsShown'] is True
     assert f['overCount'] >= 1, 'an over-capacity distro folded to green bars'
-
-
-def test_folded_bars_fit_the_narrow_clamp(page):
-    """At the 180px clamp the folded card wraps rather than clipping - the
-    same standard the processor cards' folded line meets."""
-    out = page.evaluate(DISTRO_FOLD_BARS_JS, {'clampPx': 180})
-    assert out['clamped']['rowFits'], 'the folded card clips sideways at 180px'
-    assert out['clamped']['hostFits'], 'the distro list scrolls sideways at 180px'

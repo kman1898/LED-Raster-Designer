@@ -1,8 +1,10 @@
-// app-processors: the Processors panel in the Signal sidebar.
+// app-processors: the processor device tree and its editors, all of which
+// live on the hardware dock now (the Signal sidebar this used to panel in
+// is retired).
 //
-// The panel draws the DEVICE tree - processor, slot, card, breakout box -
-// and every level of it earns its place. The CARD is where the port count
-// comes from, so the same H9 is a 100-port machine with RJ45 cards and a
+// The tree is processor -> slot -> card -> breakout box -> port, and every
+// level of it earns its place. The CARD is where the port count comes
+// from, so the same H9 is a 100-port machine with RJ45 cards and a
 // 160-port one with fiber cards; and a fiber card's ports arrive at a
 // breakout box, which is the thing a tech is standing in front of when they
 // read a port label off it. ("cvt" in ids and endpoints is the stored key,
@@ -10,10 +12,11 @@
 // name for theirs, the way Tessera XD is another's, so only actual model
 // names say it.)
 //
-// The PORTS themselves do not draw here. The hardware dock is the one place
-// ports appear - the same data twice was two surfaces to read apart - so the
-// per-port tiles and their editors live in app-dock.js, and this panel stops
-// at the card and its boxes: names, templates, modes, redundancy, capacity.
+// What this module owns is the STATE side - the catalog, the resolve
+// round-trips, the request/refusal/undo discipline - plus the content of
+// each level's ⚙ gear popover (templates, modes, redundancy, capacity,
+// boxes, removal). The dock (app-dock.js) draws the tree itself: section
+// headers carry the names inline, chips carry the ports.
 //
 // It deliberately derives nothing. Counts, labels and over-capacity flags all
 // come back from /api/processors, which resolves them in processor_catalog.py.
@@ -158,75 +161,30 @@ class _Processors {
         return mainId !== proc.id ? mainId : null;
     }
 
+    // The Processors panel died with the Signal sidebar. The dock is the
+    // one processor surface now - the header bar carries the add picker,
+    // the section headers carry the names inline, and each level's gear
+    // popover carries the configuration this panel used to draw - so a
+    // processor render IS a dock render. Kept under its old name because
+    // every "the tree changed" path already calls it.
     renderProcessorPanel() {
-        const list = document.getElementById('processor-list');
-        const addRow = document.getElementById('processor-add-row');
-        const note = document.getElementById('processor-empty-note');
-        if (!list || !addRow) return;
-        this._preserveEditorFocus();
-        list.innerHTML = '';
-        addRow.innerHTML = '';
-
-        const procEls = new Map();
-        (this._processorsResolved || []).forEach(proc => {
-            const el = this._buildProcessorCard(proc);
-            procEls.set(proc.id, el);
-            list.appendChild(el);
-        });
-        // A designated backup unit groups under its main - the same
-        // presentation the SX40's fixed box pairs get inside a card, one
-        // level up. Within a chassis the pairing stays on the cards' own
-        // fact lines instead: the slots read in slot order because that IS
-        // the allocation order, and regrouping them would make the
-        // numbering appear to come from nowhere.
-        (this._processorsResolved || []).forEach(proc => {
-            const mainId = this._backupUnitMainId(proc);
-            if (mainId) {
-                this._nestBackupUnder(procEls.get(mainId),
-                                      procEls.get(proc.id));
-            }
-        });
-        // Every card folds by the section machinery (app-core.js). The
-        // rebuild just wiped the wired nodes, so wire the fresh ones and
-        // re-apply each machine's stored state - the same call the Power
-        // panel's generated headings make after every rebuild.
-        if (typeof this._wireSectionCollapse === 'function') {
-            this._wireSectionCollapse(list);
-        }
-        const picker = this._buildDeviceSelect(
-            this._processorDevices('processor'), '', 'Add a processor...');
-        picker.dataset.lrdField = 'processor-add-device';
-        const addBtn = document.createElement('button');
-        addBtn.className = 'btn';
-        addBtn.textContent = 'Add';
-        addBtn.style.padding = '6px 12px';
-        addBtn.addEventListener('click', () => {
-            if (!picker.value) return;
-            sendClientLog('processor_add_clicked', { deviceId: picker.value });
-            this._processorRequest('/api/processors', 'POST',
-                                   { deviceId: picker.value },
-                                   'Add Processor');
-        });
-        addRow.appendChild(picker);
-        addRow.appendChild(addBtn);
-
-        if (note) {
-            note.style.display = (this._processorsResolved || []).length ? 'none' : '';
+        if (typeof this.renderHardwareDock === 'function') {
+            this.renderHardwareDock();
         }
     }
 
     // ── builders ──────────────────────────────────────────────────────────
 
-    _buildDeviceSelect(devices, selectedId, placeholder) {
-        const select = document.createElement('select');
-        select.style.flex = '1';
-        select.style.minWidth = '0';
+    // Fill a select with the device list, grouped by vendor because the
+    // list spans three of them and a flat list of forty devices is
+    // unreadable at popover width. Shared by the dock header's add picker
+    // (a static element refilled in place) and the popovers' own selects.
+    _fillDeviceSelect(select, devices, selectedId, placeholder) {
+        select.innerHTML = '';
         const blank = document.createElement('option');
         blank.value = '';
         blank.textContent = placeholder;
         select.appendChild(blank);
-        // Grouped by vendor because the list spans three of them and a flat
-        // list of forty devices is unreadable in a 260px sidebar.
         const vendors = [];
         devices.forEach(d => {
             if (!vendors.includes(d.vendor)) vendors.push(d.vendor);
@@ -244,6 +202,14 @@ class _Processors {
             select.appendChild(group);
         });
         return select;
+    }
+
+    _buildDeviceSelect(devices, selectedId, placeholder) {
+        const select = document.createElement('select');
+        select.style.flex = '1';
+        select.style.minWidth = '0';
+        return this._fillDeviceSelect(select, devices, selectedId,
+                                      placeholder);
     }
 
     _buildTextField(label, value, placeholder, fieldKey, onCommit) {
@@ -300,131 +266,51 @@ class _Processors {
         return row;
     }
 
-    // The one line a folded processor is: model, name, and the figures a
-    // tech reads at a glance - ports and the redundancy flag. Every number
-    // is the resolve's answer, read off the same fields the capacity row
-    // prints; deriving a second count here is the class of bug the panel's
-    // header comment forbids. Plain text that wraps at the 180px clamp, the
-    // way the soca headings do - never a sideways scroll.
-    _buildProcessorSummary(proc) {
-        const sum = document.createElement('div');
-        sum.className = 'lrd-proc-summary';
-        const parts = [proc.deviceName];
-        if (proc.name) parts.push(proc.name);
-        // What the machine DRIVES, read off the same occupancy the port
-        // rows print. One processor is often a whole show's worth of
-        // screens - an H series most of all - so the mapping is stated,
-        // never assumed one-to-one. Two names at most: the folded line
-        // wraps at the 180px clamp rather than clipping, and two names is
-        // the most that still reads as a glance line there; three or more
-        // become a count. A machine with nothing on it says so - an unused
-        // box in the rack list is a fact worth seeing.
-        const occ = (this._assignment && this._assignment.occupancy) || {};
-        const screens = [];
-        (proc.slots || []).forEach(slot => {
-            if (!slot.card) return;
-            Object.values(occ[slot.card.id] || {}).forEach(list => {
-                (list || []).forEach(o => {
-                    if (!screens.includes(o.name)) screens.push(o.name);
-                });
-            });
-        });
-        parts.push(!screens.length ? 'no screens'
-            : screens.length <= 2 ? screens.join(', ')
-                : `${screens.length} screens`);
-        parts.push(proc.ceilingKnown
-            ? `${proc.defined}/${proc.ceiling} ports`
-            : `${proc.defined} ports`);
-        if (proc.redundancy) parts.push('redundant');
-        sum.textContent = parts.join(' · ');
-        // The capacity row's own comparison: an over-capacity machine may
-        // not read as fine just because it is folded.
-        if (proc.ceilingKnown && proc.defined > proc.ceiling) {
-            sum.style.color = '#d05a52';
-            sum.title = 'Over capacity - open the processor for the figures.';
-        }
-        return sum;
+    // ── the gear popovers ─────────────────────────────────────────────────
+    //
+    // What the retired panel's cards carried, re-hosted behind each dock
+    // header's ⚙ (app-dock.js owns the popover shell and its open/close
+    // idiom; these only build the content). Same fields, same
+    // data-lrd-field keys, same requests and history actions - the popover
+    // is presentation over the same state, and _preserveEditorFocus finds
+    // the keys wherever the popover is anchored. The NAMES are not here:
+    // they edit inline on the dock headers themselves.
+
+    _popHeading(text) {
+        const h = document.createElement('div');
+        h.className = 'hw-pop-heading';
+        h.textContent = text;
+        return h;
     }
 
-    _buildProcessorCard(proc) {
-        const box = document.createElement('div');
-        box.style.border = '1px solid #333';
-        box.style.borderRadius = '4px';
-        box.style.padding = '8px';
-        box.style.background = '#111';
+    _popRemoveButton(label, title, onRun) {
+        const btn = document.createElement('button');
+        btn.className = 'btn hw-pop-remove';
+        btn.textContent = label;
+        btn.title = title;
+        btn.addEventListener('click', () => {
+            // The thing the popover describes is about to stop existing,
+            // so the popover goes first - a panel over a ghost would
+            // re-render into nothing.
+            if (typeof this._hwPopoverClose === 'function') {
+                this._hwPopoverClose();
+            }
+            onRun();
+        });
+        return btn;
+    }
 
-        // The head is the fold handle (.lrd-sec-head, wired by
-        // _wireSectionCollapse after the render): single click on the arrow,
-        // double-click on the head. It also holds the name field, so single
-        // clicks stay inert and a double-click landing on the input is the
-        // input's - both already the machinery's rules. Folded, the editors
-        // give way to the summary line (style.css .lrd-proc-live /
-        // .lrd-proc-summary) - hidden, never detached, so the focus-restore
-        // keys keep resolving into a folded card.
-        const head = document.createElement('div');
-        head.className = 'lrd-sec-head';
-        // What the fold persists under (ledRasterPanelCollapsed_processor-
-        // <id>). Ids never recur within a project, so a machine keeps its
-        // state for as long as it exists, and a NEW machine - no key yet -
-        // arrives open, which is right: it is about to be configured.
-        head.dataset.lrdSec = `processor-${proc.id}`;
-        head.style.display = 'flex';
-        head.style.gap = '6px';
-        head.style.alignItems = 'flex-end';
-        const name = this._buildTextField(
-            proc.deviceName, proc.name, 'unnamed',
-            `processor-name-${proc.id}`,
-            (val) => this._processorRequest(
-                `/api/processors/${proc.id}`, 'PUT', { name: val },
-                'Rename Processor'));
-        name.classList.add('lrd-proc-live');
-        head.appendChild(name);
-        const del = document.createElement('button');
-        del.className = 'btn lrd-proc-live';
-        del.textContent = '×';
-        del.title = 'Remove this processor';
-        del.style.padding = '6px 10px';
-        del.style.background = '#333';
-        del.addEventListener('click', () => this._processorRequest(
-            `/api/processors/${proc.id}`, 'DELETE', undefined,
-            'Remove Processor')
-            .then(() => {
-                // The machine is gone and its id never comes back, so its
-                // fold key goes with it. The other ways a processor leaves
-                // (undo of an add, another project loading over this one)
-                // just orphan their keys, harmlessly: no later processor in
-                // this project can inherit one.
-                try {
-                    localStorage.removeItem(
-                        `ledRasterPanelCollapsed_processor-${proc.id}`);
-                    // The dock's card and box sections fold under their own
-                    // ids; those ids die with the machine too.
-                    (proc.slots || []).forEach(slot => {
-                        const card = slot.card;
-                        if (!card) return;
-                        localStorage.removeItem(
-                            `ledRasterPanelCollapsed_hwdock-card-${card.id}`);
-                        (card.cvts || []).forEach(cvt => {
-                            localStorage.removeItem(
-                                'ledRasterPanelCollapsed_hwdock-box-'
-                                + cvt.id);
-                        });
-                    });
-                } catch (_) { /* blocked storage never held the key */ }
-            }));
-        head.appendChild(del);
-        head.appendChild(this._buildProcessorSummary(proc));
-        box.appendChild(head);
-
-        // Everything below the head folds as one body.
-        const bodyWrap = document.createElement('div');
-        bodyWrap.className = 'lrd-sec-body';
-        box.appendChild(bodyWrap);
+    // The processor's gear: the machine-level facts and switches - capacity,
+    // the redundancy toggle with its vendor-fixed pairing statement, the
+    // chassis slots' card pickers, and the remove.
+    _buildProcGearContent(proc) {
+        const wrap = document.createElement('div');
+        wrap.appendChild(this._popHeading(proc.name || proc.deviceName));
 
         const cap = document.createElement('div');
         cap.style.display = 'flex';
         cap.style.justifyContent = 'space-between';
-        cap.style.marginTop = '6px';
+        cap.style.gap = '8px';
         cap.appendChild(this._buildCapacityRow(
             proc.defined, proc.ceiling, proc.ceilingKnown, proc.note));
         if (proc.maxCards !== null && proc.maxCards !== undefined
@@ -439,7 +325,7 @@ class _Processors {
             cards.title = proc.note || '';
             cap.appendChild(cards);
         }
-        bodyWrap.appendChild(cap);
+        wrap.appendChild(cap);
 
         if (proc.redundancySupported) {
             const label = document.createElement('label');
@@ -462,7 +348,7 @@ class _Processors {
             // sequential halves this one, manual takes only what is picked -
             // and each mode states its own cost where it is chosen.
             label.appendChild(document.createTextNode('Redundancy'));
-            bodyWrap.appendChild(label);
+            wrap.appendChild(label);
 
             // WHERE THE VENDOR FIXES THE PAIRING, IT IS A FACT, NOT A FIELD.
             // Brompton pairs adjacent outputs automatically - A backs up to
@@ -481,28 +367,20 @@ class _Processors {
                 fact.textContent = proc.redundancyPairing.statement;
                 fact.title = 'Fixed pairing. This is how the device runs '
                     + 'redundancy; it is not a setting.';
-                bodyWrap.appendChild(fact);
+                wrap.appendChild(fact);
             }
         }
 
+        // The chassis's slots: which card sits in each. A fixed card (an
+        // all-in-one's own outputs) is a fact, not a pick, so it draws no
+        // row - its configuration lives behind the card's own gear.
         (proc.slots || []).forEach(slot => {
-            bodyWrap.appendChild(this._buildSlot(proc, slot));
-        });
-        return box;
-    }
-
-    _buildSlot(proc, slot) {
-        const wrap = document.createElement('div');
-        wrap.style.marginTop = '8px';
-        wrap.style.paddingTop = '8px';
-        wrap.style.borderTop = '1px solid #262626';
-
-        const isFixed = !!(slot.card && slot.card.fixed);
-        if (!isFixed) {
+            if (slot.card && slot.card.fixed) return;
             const row = document.createElement('div');
             row.style.display = 'flex';
             row.style.gap = '6px';
             row.style.alignItems = 'center';
+            row.style.marginTop = '6px';
             const num = document.createElement('div');
             num.style.fontSize = '11px';
             num.style.color = '#888';
@@ -522,32 +400,55 @@ class _Processors {
             row.appendChild(num);
             row.appendChild(picker);
             wrap.appendChild(row);
-        }
-        if (slot.card) wrap.appendChild(this._buildCard(proc, slot.card));
+        });
+
+        wrap.appendChild(this._popRemoveButton(
+            'Remove processor',
+            'Remove this processor. Its cards, boxes and every port on them '
+            + 'go with it; undo puts it back.',
+            () => this._processorRequest(
+                `/api/processors/${proc.id}`, 'DELETE', undefined,
+                'Remove Processor')
+                .then(() => {
+                    // The machine is gone and its id never comes back, so
+                    // its fold keys go with it - the dock's card and box
+                    // sections fold under their own ids, which die with the
+                    // machine too. The other ways a processor leaves (undo
+                    // of an add, another project loading over this one)
+                    // just orphan their keys, harmlessly: no later
+                    // processor in this project can inherit one.
+                    try {
+                        (proc.slots || []).forEach(slot => {
+                            const card = slot.card;
+                            if (!card) return;
+                            localStorage.removeItem(
+                                'ledRasterPanelCollapsed_hwdock-card-'
+                                + card.id);
+                            (card.cvts || []).forEach(cvt => {
+                                localStorage.removeItem(
+                                    'ledRasterPanelCollapsed_hwdock-box-'
+                                    + cvt.id);
+                            });
+                        });
+                    } catch (_) { /* blocked storage never held the keys */ }
+                })));
         return wrap;
     }
 
-    _buildCard(proc, card) {
+    // The card's gear: templates, mode, redundancy shape, capacity, and the
+    // breakout-box work - everything the panel's card block carried except
+    // the name, which edits inline on the card's dock header.
+    _buildCardGearContent(proc, card) {
         const wrap = document.createElement('div');
-        wrap.style.marginTop = '6px';
-        wrap.style.paddingLeft = '8px';
-        wrap.style.borderLeft = '2px solid #2a2a2a';
+        wrap.appendChild(this._popHeading(card.name || card.deviceName));
 
-        // Three captioned fields share a wrapping line: the card's name, the
-        // primary template, and the RETURN template - "a template spot for
-        // naming all backups the same way we do for primary". The wrap is
-        // what keeps all three usable at the panel's 180px clamp, exactly as
-        // the port rows' name fields wrap below.
+        // The two template fields share a wrapping line, the same reason
+        // the old panel wrapped them: at popover width two fields fit
+        // abreast and a third would sliver all of them.
         const names = document.createElement('div');
         names.style.display = 'flex';
         names.style.flexWrap = 'wrap';
         names.style.gap = '6px';
-        names.appendChild(this._buildTextField(
-            'Card name', card.name, proc.name || 'unnamed',
-            `processor-card-name-${card.id}`,
-            (val) => this._processorRequest(
-                `/api/processors/${proc.id}/cards/${card.id}`, 'PUT',
-                { name: val }, 'Rename Card')));
         names.appendChild(this._buildTextField(
             'Label', card.portLabelTemplate, '{name}-#',
             `processor-card-template-${card.id}`,
@@ -571,10 +472,7 @@ class _Processors {
                 { returnLabelTemplate: val },
                 'Edit Card Return Label Template')));
         names.querySelectorAll(':scope > div').forEach(cell => {
-            // A basis, not a bare grow: flex '1' never wraps its line, it
-            // only squeezes, and three squeezed fields at 180px are three
-            // unusable slivers.
-            cell.style.flex = '1 1 90px';
+            cell.style.flex = '1 1 90px';   // a basis, so the line can wrap
         });
         wrap.appendChild(names);
 
@@ -585,6 +483,7 @@ class _Processors {
         if ((card.modes || []).length > 1) {
             const select = document.createElement('select');
             select.style.marginTop = '6px';
+            select.style.width = '100%';
             select.dataset.lrdField = `processor-card-mode-${card.id}`;
             const device = this._processorDevice(card.deviceId);
             const conflict = !!(device && device.ports && device.ports.conflict);
@@ -717,53 +616,46 @@ class _Processors {
             }
         }
 
-        // A redundant pair of boxes is one group: the backup nests under
-        // the box it backs (A with B, C with D on a redundant SX40, and a
-        // NovaStar pair likewise) through the same rule the processor list
-        // uses for a designated backup unit. Boxes with no role stay the
-        // plain siblings they are.
-        const cvtEls = new Map();
-        (card.cvts || []).forEach(cvt => {
-            const el = this._buildCvt(proc, card, cvt);
-            cvtEls.set(cvt.id, el);
-            const main = cvt.backupOf && cvtEls.get(cvt.backupOf);
-            if (main) this._nestBackupUnder(main, el);
-            else wrap.appendChild(el);
-        });
-        // No port grid: the dock is the one place ports appear, editors
-        // included (app-dock.js). A second grid here was the same data
-        // twice, and the panel's copy is the one that went.
+        // A slotted card is removed by emptying its slot - the same PUT the
+        // slot picker sends, offered here so a card is removable where it
+        // is configured. A fixed card is the machine's own outputs and has
+        // no removal; the machine's gear carries that one.
+        const slot = (proc.slots || [])
+            .find(s => s.card && s.card.id === card.id);
+        if (slot && !card.fixed) {
+            wrap.appendChild(this._popRemoveButton(
+                'Remove card',
+                'Empty this slot. The card, its boxes and every port on '
+                + 'them go with it; undo puts it back.',
+                () => this._processorRequest(
+                    `/api/processors/${proc.id}/slots/${slot.index}`, 'PUT',
+                    { deviceId: null }, 'Change Slot Card')));
+        }
         return wrap;
     }
 
-    _buildCvt(proc, card, cvt) {
+    // The breakout box's gear: its templates, its facts, its removal. The
+    // name edits inline on the box's dock header.
+    _buildBoxGearContent(proc, card, cvt) {
         const wrap = document.createElement('div');
-        wrap.style.marginTop = '6px';
-        wrap.style.marginLeft = '8px';
-        wrap.style.paddingLeft = '8px';
-        wrap.style.borderLeft = '2px solid #2a2a2a';
+        wrap.appendChild(this._popHeading(
+            cvt.displayTitle || cvt.name || cvt.deviceName));
 
-        const head = document.createElement('div');
-        head.style.display = 'flex';
-        head.style.flexWrap = 'wrap';
-        head.style.gap = '6px';
-        head.style.alignItems = 'flex-end';
-        head.appendChild(this._buildTextField(
-            cvt.deviceName, cvt.name, 'unnamed',
-            `processor-cvt-name-${cvt.id}`,
-            (val) => this._processorRequest(
-                `/api/processors/${proc.id}/cvts/${cvt.id}`, 'PUT',
-                { name: val }, 'Rename Breakout Box')));
-        head.appendChild(this._buildTextField(
+        const names = document.createElement('div');
+        names.style.display = 'flex';
+        names.style.flexWrap = 'wrap';
+        names.style.gap = '6px';
+        names.appendChild(this._buildTextField(
             'Label', cvt.portLabelTemplate, '{name}-#',
             `processor-cvt-template-${cvt.id}`,
             (val) => this._processorRequest(
                 `/api/processors/${proc.id}/cvts/${cvt.id}`, 'PUT',
-                { portLabelTemplate: val }, 'Edit Breakout Box Label Template')));
+                { portLabelTemplate: val },
+                'Edit Breakout Box Label Template')));
         // The box's own backup template, one register up from the per-port
         // Return boxes: a box in front of the card names the ports, so it
         // gets the same return-side template spot the card has.
-        head.appendChild(this._buildTextField(
+        names.appendChild(this._buildTextField(
             'Return', cvt.returnLabelTemplate,
             this._derivedReturnPlaceholder(cvt.portLabelTemplate,
                                            cvt.name || card.name || proc.name),
@@ -772,20 +664,10 @@ class _Processors {
                 `/api/processors/${proc.id}/cvts/${cvt.id}`, 'PUT',
                 { returnLabelTemplate: val },
                 'Edit Breakout Box Return Label Template')));
-        head.querySelectorAll(':scope > div').forEach(cell => {
-            cell.style.flex = '1 1 90px';  // a basis, so the line can wrap
+        names.querySelectorAll(':scope > div').forEach(cell => {
+            cell.style.flex = '1 1 90px';   // a basis, so the line can wrap
         });
-        const del = document.createElement('button');
-        del.className = 'btn';
-        del.textContent = '×';
-        del.title = 'Remove this breakout box';
-        del.style.padding = '6px 10px';
-        del.style.background = '#333';
-        del.addEventListener('click', () => this._processorRequest(
-            `/api/processors/${proc.id}/cvts/${cvt.id}`, 'DELETE', undefined,
-            'Remove Breakout Box'));
-        head.appendChild(del);
-        wrap.appendChild(head);
+        wrap.appendChild(names);
 
         const info = document.createElement('div');
         info.style.fontSize = '11px';
@@ -832,8 +714,23 @@ class _Processors {
             info.textContent += ' again (copy)';
         }
         wrap.appendChild(info);
+
+        wrap.appendChild(this._popRemoveButton(
+            'Remove box',
+            'Remove this breakout box. Its sockets go with it; undo puts '
+            + 'it back.',
+            () => this._processorRequest(
+                `/api/processors/${proc.id}/cvts/${cvt.id}`, 'DELETE',
+                undefined, 'Remove Breakout Box')
+                .then(() => {
+                    try {
+                        localStorage.removeItem(
+                            `ledRasterPanelCollapsed_hwdock-box-${cvt.id}`);
+                    } catch (_) { /* blocked storage never held the key */ }
+                })));
         return wrap;
     }
+
 
     // Who is sitting on one card port, as the assignment last resolved it.
     // Read from the resolution rather than worked out here, for the same
