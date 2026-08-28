@@ -510,8 +510,9 @@ def test_the_issues_strip_warns_offers_and_hides_when_empty(dock_page):
 
     # the header's own switch turns auto off; the strip answers with the
     # amber condition and its offer button inline in the row - and with
-    # auto off every port is unplaced, so the overflow questions join it
-    # as RED rows carrying their own place offers
+    # auto off every port is unplaced, so the overflow rows join it in RED.
+    # Those rows only state the fact: attaching is a drag onto a card in
+    # the dock, so they carry no place buttons.
     page.locator('#port-assignment-auto').click()
     page.wait_for_timeout(700)
     assert page.evaluate(HIST_JS, 1) == ['Toggle Auto Numbering']
@@ -522,11 +523,10 @@ def test_the_issues_strip_warns_offers_and_hides_when_empty(dock_page):
         f'auto-off is a condition, so its row is amber: {st}')
     assert autoff[0]['buttons'] == ['Turn auto-numbering on'], st
     reds = [r for r in st['rows'] if not r['mild']]
-    assert reds and all('did not fit' in r['text'] for r in reds), (
-        f'the unplaced screens must ask their red questions: {st}')
-    assert all(any(b.startswith('Place on') for b in r['buttons'])
-               for r in reds), (
-        f'a red question carries its offers inline in the row: {st}')
+    assert reds and all('not attached' in r['text'] for r in reds), (
+        f'the unplaced screens must state their red facts: {st}')
+    assert all(r['buttons'] == [] for r in reds), (
+        f'an overflow row states the fact and offers nothing: {st}')
 
     page.locator(
         '#hw-dock-issues button:has-text("Turn auto-numbering on")').click()

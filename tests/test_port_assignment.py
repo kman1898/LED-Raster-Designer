@@ -797,18 +797,19 @@ def test_a_wall_bigger_than_its_card_is_reported_rather_than_spilled(one_card):
     assert over['layerId'] == 'Main'
     assert over['ports'] == [17], 'reported in the screen\'s own numbering'
     assert '17' in over['message']
+    assert 'not attached' in over['message']
+    # The row only states the fact. Attaching the spare ports is a drag onto
+    # a card in the dock, so the strip offers no place buttons for it.
+    assert over['offers'] == []
 
 
 def test_the_overflow_can_be_placed_on_a_different_card(two_cards):
     """A single screen's ports MAY span two cards - `.scr` stores the sending
     card per cabinet, so the format has no objection either. It just may not
-    happen unasked."""
+    happen unasked: the deciding gesture is the dock drag, which lands on
+    this same endpoint."""
     client, _pid, card_a, card_b = two_cards
     sc = screens(('Main', 17),)
-    res = resolve(client, ('Main', 17))
-    offer = next(o for o in issue(res, 'overflow')['offers']
-                 if o['cardId'] == card_b)
-    assert offer['action'] == 'place-overflow'
 
     resp = client.post('/api/port-assignments/place-overflow',
                        json={'layerId': 'Main', 'cardId': card_b, 'screens': sc})
@@ -836,13 +837,16 @@ def test_placed_overflow_survives_the_next_auto_pass(two_cards):
     assert spots(res, 'Side') == [(card_b, n) for n in (2, 3, 4, 5)]
 
 
-def test_an_overflow_with_no_card_anywhere_says_so(one_card):
+def test_an_overflow_with_no_card_anywhere_reads_the_same(one_card):
+    """Whether room exists elsewhere or nowhere, the row is the same plain
+    fact - the ports are not attached. The strip stopped weighing the
+    project's spare room the day it stopped offering places."""
     client, _pid, _card = one_card
     res = resolve(client, ('Main', 16), ('Side', 4))
     over = issue(res, 'overflow')
     assert over['layerId'] == 'Side'
-    assert over['offers'] == [], 'a card was offered that has no free ports'
-    assert 'full' in over['message']
+    assert over['offers'] == []
+    assert 'not attached' in over['message']
 
 
 # ── 5. Manual override, and it wins ───────────────────────────────────────

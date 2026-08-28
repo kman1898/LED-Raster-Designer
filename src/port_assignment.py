@@ -371,7 +371,7 @@ def resolve(processors, screens, state=None):
         })
 
     issues.extend(_overlap_issues(overlapping, claims, by_id, screens))
-    issues.extend(_overflow_issues(resolved_screens, cards, claims))
+    issues.extend(_overflow_issues(resolved_screens, cards))
     issues.extend(_capacity_issues(cards, screens, auto_on))
 
     occupancy = _occupancy(resolved_screens)
@@ -534,13 +534,16 @@ def _overlap_issues(overlapping, claims, by_id, screens):
     return out
 
 
-def _overflow_issues(resolved_screens, cards, claims):
+def _overflow_issues(resolved_screens, cards):
     """A screen with more ports than its card had left.
 
-    The ports that did not fit are simply not placed. Spilling them onto the
-    next card on their own would be the app deciding to split a run across two
-    machines, which is a patching decision with a physical consequence - two
-    trunks to one wall - and belongs to a person.
+    The ports that did not fit are simply not placed, and the row only says
+    so. Spilling them onto the next card on their own would be the app
+    deciding to split a run across two machines, which is a patching decision
+    with a physical consequence - two trunks to one wall - and belongs to a
+    person. The person's way to make it is the dock itself: drag the ports
+    (or the screen) onto the card they should land on. The strip carries no
+    place buttons for it.
     """
     # No cards at all is the default state of every project and not a problem
     # to nag about; no card with a settled count is already reported as such,
@@ -552,7 +555,6 @@ def _overflow_issues(resolved_screens, cards, claims):
     for scr in resolved_screens:
         if not scr['unplaced']:
             continue
-        somewhere = [c for c in cards if _free_ports(c, claims)]
         numbers = [i + 1 for i in scr['unplaced']]
         out.append({
             'kind': 'overflow',
@@ -562,16 +564,8 @@ def _overflow_issues(resolved_screens, cards, claims):
             'message': (
                 f'{scr["name"]} needs {scr["required"]} ports and '
                 f'{len(numbers)} of them '
-                f'({", ".join(str(n) for n in numbers)}) did not fit. Place '
-                f'them on another card, or free up room on this one.'
-                if somewhere else
-                f'{scr["name"]} needs {scr["required"]} ports and '
-                f'{len(numbers)} of them did not fit. Every card in this '
-                f'project is full.'),
-            'offers': [{'action': 'place-overflow', 'layerId': scr['layerId'],
-                        'cardId': c['cardId'],
-                        'label': f'Place on {_card_title(c)}'}
-                       for c in somewhere],
+                f'({", ".join(str(n) for n in numbers)}) are not attached.'),
+            'offers': [],
         })
     return out
 
