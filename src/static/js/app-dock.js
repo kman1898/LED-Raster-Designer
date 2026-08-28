@@ -3,8 +3,11 @@
 //
 // The dock is the ONE hardware surface now - the Signal and Power middle
 // sidebars retired into it. Its header bar carries the add controls and the
-// auto-numbering switch; a slim strip under the header carries the issues
-// and warnings with their fix buttons inline; every section header carries
+// attachment flag (red with a screen count while anything is unattached,
+// green when everything hardware could hold is held - its rows open under
+// the header on click, closed by default); a slim strip under the header
+// carries the issues and warnings with their fix buttons inline; every
+// section header carries
 // its thing's NAME inline and a ⚙ opening its configuration popover
 // (templates, modes, redundancy, electrical setup, removal - built by
 // app-processors.js and app-power.js, anchored here). Each port chip
@@ -69,6 +72,10 @@ class _HardwareDock {
         if (!dock) return;
         this._dockDrag = null;
         this._dockDropTarget = null;
+        // The attachment flag's rows are VIEW state, and closed is the
+        // feature: the dock stays quiet until the flag is asked. Session
+        // only, never localStorage - a new load always starts folded.
+        this._dockFlagOpen = false;
         // Fold and height are the sidebars' machinery transposed, not the
         // section machinery: initSidebarToggles (app-core.js) owns the
         // collapse - and settles the canvas after it - and theme.js's
@@ -80,8 +87,8 @@ class _HardwareDock {
 
     // The dock header's own controls, wired ONCE against the static markup:
     // with the middle sidebars retired the tray is the whole hardware
-    // surface, so adding a processor, adding a distro and the auto-numbering
-    // switch live on its header bar. The chevron proxies the existing fold
+    // surface, so adding a processor, adding a distro and the attachment
+    // flag live on its header bar. The chevron proxies the existing fold
     // toggle - one collapse mechanism, one stored state, just reachable
     // from inside the bar the eye is already on (the hanging tab stays as
     // the way back once the tray is folded to nothing).
@@ -100,10 +107,22 @@ class _HardwareDock {
                                    { deviceId: picker.value },
                                    'Add Processor');
         });
-        const auto = document.getElementById('port-assignment-auto');
-        if (auto) auto.addEventListener('change', () => this._assignmentRequest(
-            '/api/port-assignments', 'PUT', { auto: auto.checked },
-            null, 'Toggle Auto Numbering'));
+        // The flag pill toggles its rows open and closed - view state, no
+        // undo entry, no localStorage: only the session remembers, and only
+        // until the next load. Opening or closing moves the canvas's bottom
+        // edge, so the backing store settles the way the body render does.
+        const flag = document.getElementById('hw-dock-flag');
+        if (flag) flag.addEventListener('click', () => {
+            this._dockFlagOpen = !this._dockFlagOpen;
+            const dock = document.getElementById('hardware-dock');
+            const before = dock ? dock.offsetHeight : 0;
+            this._renderDockFlag(window.canvasRenderer
+                ? window.canvasRenderer.viewMode : '');
+            if (dock && dock.offsetHeight !== before
+                    && typeof this.settleLayout === 'function') {
+                this.settleLayout();
+            }
+        });
         const addDistro = document.getElementById('power-distro-add');
         if (addDistro) addDistro.addEventListener('click', () => {
             this.addDistro();
@@ -197,19 +216,20 @@ class _HardwareDock {
         }
     }
 
-    // ── the header bar and the issues strip ──────────────────────────────
+    // ── the header bar, the attachment flag and the issues strip ─────────
     //
-    // The dock's chrome: which add cluster the header shows, whether the
-    // auto toggle is offered, and what the strip under the header warns
+    // The dock's chrome: which add cluster the header shows, what the
+    // attachment flag says, and what the strip under the header warns
     // about. The strip is the refuse-and-offer surface the retired Port
-    // Numbering panel was - the data side re-hosts its issue rows whole
+    // Numbering panel was - the data side re-hosts its issue rows
     // (app-port-assignment.js renderPortAssignmentPanel), and the power
     // side fills the same rows with the clash / overflow / same-name
-    // warnings its sidebar tiles used to wear.
+    // warnings its sidebar tiles used to wear. The per-screen "not
+    // attached" story is the FLAG's, not the strip's: one pill instead of
+    // a wall of red rows, opened only when asked.
     _renderDockChrome(mode) {
         const dataCtl = document.getElementById('hw-dock-data-controls');
         const powerCtl = document.getElementById('hw-dock-power-controls');
-        const autoWrap = document.getElementById('hw-dock-auto-wrap');
         const strip = document.getElementById('hw-dock-issues');
         if (dataCtl) {
             dataCtl.classList.toggle('view-hidden', mode !== 'data-flow');
@@ -232,18 +252,19 @@ class _HardwareDock {
                                            'Add a processor…');
                 }
             }
-            // The strip and the auto toggle narrate the assignment; that
-            // render owns them (and hides the toggle until configured).
+            // The strip narrates the assignment; that render owns it.
             if (typeof this.renderPortAssignmentPanel === 'function') {
                 this.renderPortAssignmentPanel();
             }
         } else {
-            if (autoWrap) autoWrap.classList.add('view-hidden');
             if (strip) {
                 strip.innerHTML = '';
                 if (mode === 'power') this._dockPowerStrip(strip);
             }
         }
+        // The flag reads both views' attachment (and hides itself anywhere
+        // else), so it paints after whichever side just rendered.
+        this._renderDockFlag(mode);
     }
 
     // The power view's warnings, as strip rows: collected during the body
@@ -274,6 +295,172 @@ class _HardwareDock {
             }
             strip.appendChild(row);
         });
+    }
+
+    // ── the attachment flag ──────────────────────────────────────────────
+    //
+    // One pill on the header where per-screen "not attached" rows used to
+    // stack: red with a SCREEN count while any screen has unattached ports
+    // (Data) or circuits (Power), green once hardware exists and holds
+    // everything, hidden while there is nothing to attach TO - no card
+    // with a settled capacity, no distro - because no hardware is the
+    // default state of a project, not a problem to nag about (the gate the
+    // server's _overflow_issues keeps, read here off the same resolution).
+    // Clicking the red pill opens one row per unattached screen directly
+    // under the header; clicking a row centers the canvas on that screen.
+    // Closed is the default and the point: the count is the always-on
+    // part, and the screen-by-screen rows come out only when asked.
+
+    // What the flag says, or null for hidden. Each side reads its own one
+    // authority: the data side the server's assignment resolution
+    // (per-screen unplaced/required - placement is never re-derived on the
+    // client), the power side the soca plan (a multi with no distroId is
+    // unattached; a screen with no circuits at all has nothing to attach
+    // and does not count).
+    _dockFlagState(mode) {
+        if (mode === 'data-flow') {
+            const res = this._assignment;
+            if (!res || !res.configured
+                    || !(res.cards || []).some(c => c.capacity)) {
+                return null;
+            }
+            return {
+                unit: 'ports',
+                screens: (res.screens || [])
+                    .filter(scr => (scr.unplaced || []).length)
+                    .map(scr => ({
+                        layerId: scr.layerId,
+                        name: scr.name,
+                        numbers: scr.unplaced.map(i => i + 1),
+                        total: scr.required,
+                    })),
+            };
+        }
+        if (mode === 'power') {
+            const distros = this.getDistros ? this.getDistros() : [];
+            if (!distros.length) return null;
+            const screens = [];
+            for (const l of (this.project.layers || [])) {
+                if ((l.type || 'screen') !== 'screen') continue;
+                const plan = this.getSocaPlan(l);
+                if (!plan.length) continue;
+                const numbers = plan.filter(s => !s.distroId)
+                    .flatMap(s => s.legs.map(g => g.circuit))
+                    .sort((a, b) => a - b);
+                if (!numbers.length) continue;
+                screens.push({
+                    layerId: l.id, name: l.name, numbers,
+                    total: plan.reduce((n, s) => n + s.legs.length, 0),
+                });
+            }
+            return { unit: 'circuits', screens };
+        }
+        return null;
+    }
+
+    _renderDockFlag(mode) {
+        const flag = document.getElementById('hw-dock-flag');
+        const rows = document.getElementById('hw-dock-attach');
+        if (!flag || !rows) return;
+        const state = this._dockFlagState(mode);
+        rows.innerHTML = '';
+        if (!state) {
+            // Nothing to attach to: the flag has nothing to say. The open
+            // state drops too, or rows left open over vanished hardware
+            // would reopen unasked the moment hardware returns.
+            flag.classList.add('view-hidden');
+            this._dockFlagOpen = false;
+            return;
+        }
+        flag.classList.remove('view-hidden');
+        const n = state.screens.length;
+        flag.classList.toggle('hw-dock-flag-ok', n === 0);
+        flag.innerHTML = '';
+        const mark = document.createElement('span');
+        mark.textContent = n ? '⚑' : '✓';
+        flag.appendChild(mark);
+        const word = document.createElement('span');
+        word.textContent = n ? 'not all attached' : 'all attached';
+        flag.appendChild(word);
+        const badge = document.createElement('span');
+        badge.className = 'hw-dock-flag-n';
+        badge.textContent = String(n);
+        flag.appendChild(badge);
+        flag.title = n
+            ? `${n} screen${n === 1 ? '' : 's'} with ${state.unit} not `
+                + 'attached. Click to list them; click a row to find its '
+                + 'screen on the canvas.'
+            : `Every screen's ${state.unit} are attached.`;
+        if (!n) {
+            // Green closes the book: the look is finished, so the open
+            // state drops rather than lying in wait to reopen the rows
+            // unasked the next time something comes unattached.
+            this._dockFlagOpen = false;
+            return;
+        }
+        if (!this._dockFlagOpen) return;
+        state.screens.forEach(scr => {
+            rows.appendChild(this._dockBuildFlagRow(scr, state.unit));
+        });
+    }
+
+    // One unattached screen as one row: bold name, the count, the numbers
+    // as small chips - a long run elided to its first three and its last,
+    // the way a hand would say it ("1 2 3 … 7"). The whole row is one
+    // gesture: name or chip, the click centers the canvas on the screen
+    // (per-port targeting can come later; today every chip's answer is
+    // "over there").
+    _dockBuildFlagRow(scr, unit) {
+        const row = document.createElement('div');
+        row.className = 'hw-dock-attach-row';
+        const name = document.createElement('span');
+        name.className = 'hw-dock-attach-name';
+        name.textContent = scr.name;
+        row.appendChild(name);
+        const cnt = document.createElement('span');
+        cnt.className = 'hw-dock-attach-cnt';
+        cnt.textContent = `${scr.numbers.length} of ${scr.total} ${unit}`;
+        row.appendChild(cnt);
+        const chips = document.createElement('span');
+        chips.className = 'hw-dock-attach-chips';
+        const shown = scr.numbers.length > 5
+            ? [...scr.numbers.slice(0, 3), '…',
+               scr.numbers[scr.numbers.length - 1]]
+            : scr.numbers;
+        shown.forEach(v => {
+            const chip = document.createElement('span');
+            chip.className = 'hw-dock-attach-chip';
+            chip.textContent = String(v);
+            chips.appendChild(chip);
+        });
+        row.appendChild(chips);
+        row.title = `${scr.name} - ${scr.numbers.length} of ${scr.total} `
+            + `${unit} not attached. Click to center the canvas on it.`;
+        row.addEventListener('click', () => {
+            this.centerCanvasOnLayer(scr.layerId);
+        });
+        return row;
+    }
+
+    // Pan (never zoom) so the layer's bounds sit centered in the viewport,
+    // then pulse it - the flag rows' answer to "which one is that". View
+    // state through and through: the pan is the pan the hand makes, so it
+    // earns no undo entry, exactly as dragging the canvas earns none. The
+    // walk is zoomActual's own (active-view bounds plus the layer's canvas
+    // workspace offset) minus its zoom math - one coordinate pipeline, not
+    // a second one.
+    centerCanvasOnLayer(layerId) {
+        const r = window.canvasRenderer;
+        const layer = (this.project.layers || [])
+            .find(l => String(l.id) === String(layerId));
+        if (!r || !layer) return;
+        const bounds = r.getLayerBoundsInActiveView(layer);
+        const ws = r._layerCanvasOffset(layer);
+        const cx = bounds.x + ws.wx + bounds.width / 2;
+        const cy = bounds.y + ws.wy + bounds.height / 2;
+        r.panX = r.canvas.width / 2 - cx * r.zoom;
+        r.panY = r.canvas.height / 2 - cy * r.zoom;
+        r.pulseLayer(layer.id);
     }
 
     // ── the gear popover ─────────────────────────────────────────────────
@@ -2078,8 +2265,8 @@ class _HardwareDock {
             if (!pinned.length) {
                 this._dockSay(
                     `${occupants[0].name} is numbered automatically - there `
-                    + 'is no pin to release. Turn off auto-numbering to '
-                    + 'empty the port.');
+                    + 'is no pin to release; drag its ports where they '
+                    + 'belong instead.');
                 return;
             }
             // One release per claimant, one history entry for the gesture:
@@ -2412,7 +2599,8 @@ class _HardwareDock {
             return {
                 label: `Clear port ${label}`, disabled: true,
                 title: `${label} is numbered automatically - there is no pin `
-                    + 'to release. Turn off auto-numbering to empty the port.',
+                    + 'to release; drag the screen\'s ports where they '
+                    + 'belong instead.',
             };
         }
         return {
@@ -2705,8 +2893,8 @@ class _HardwareDock {
                 return {
                     label, disabled: true,
                     title: `${occupants[0].name} is numbered automatically - `
-                        + 'there is no pin to release. Turn off '
-                        + 'auto-numbering to empty the port.',
+                        + 'there is no pin to release; drag the screen\'s '
+                        + 'ports where they belong instead.',
                 };
             }
             return {

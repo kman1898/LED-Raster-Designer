@@ -21,8 +21,8 @@ What these tests pin, now that the consolidation has happened:
   Power hosts and the processor list are in no document at all - a leftover
   copy would answer the same getElementById and data-lrd-field lookups as the
   new home and fight it for state and focus.
-* The dock's header chrome (add pickers, the auto toggle, the fold chevron,
-  the issues strip) lives exactly once, inside #hardware-dock.
+* The dock's header chrome (add pickers, the attachment flag, the fold
+  chevron, the issues strip) lives exactly once, inside #hardware-dock.
 * Editing a field on a dock header and pressing Tab still leaves focus in a
   real keyed control after the rebuild that follows - the same
   _preserveEditorFocus contract the middle panels' editors carried, now
@@ -279,13 +279,17 @@ RETIRED_IDS = [
     'port-assignment-issues', 'port-assignment-foot',
     'processor-list', 'processor-add-row',
     'power-soca-runs', 'power-splitters', 'power-distros',
+    # The auto-numbering switch left the UI whole: the server keeps its
+    # auto state, the strip's amber auto-off row is the one recovery path,
+    # and a resurrected checkbox would re-offer the trip.
+    'port-assignment-auto', 'hw-dock-auto-wrap',
 ]
 
-# The dock header bar's chrome - the retired panels' add rows and the auto
-# toggle, re-homed onto the one hardware surface.
+# The dock header bar's chrome - the retired panels' add rows and the
+# attachment flag, re-homed onto the one hardware surface.
 DOCK_HEAD_IDS = [
     'processor-add-device', 'processor-add-btn', 'power-distro-add',
-    'port-assignment-auto', 'hw-dock-fold', 'hw-dock-issues',
+    'hw-dock-flag', 'hw-dock-attach', 'hw-dock-fold', 'hw-dock-issues',
 ]
 
 

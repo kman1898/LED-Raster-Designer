@@ -8,10 +8,16 @@
 // the REPORTING. Looms are made up and labelled off the drawing days before
 // anything is hung, so a numbering that shifted on its own would hand back a
 // drawing that no longer matches what is in the truck. Every problem - a
-// clash, an overflow, a pin whose card is gone - is drawn as a slim strip
-// row under the dock's header with a button beside it, and the button is
-// the only thing that moves anything. The auto toggle is the dock header's
-// checkbox, and the per-card usage counts are the card headers' glance.
+// clash, a pin whose card is gone - is drawn as a slim strip row under the
+// dock's header with a button beside it, and the button is the only thing
+// that moves anything. The per-screen OVERFLOW story lives under the dock
+// header's attachment flag now (app-dock.js _renderDockFlag), not in the
+// strip: one pill with a screen count instead of a wall of red rows, so
+// the strip filters kind 'overflow' out below. The per-card usage counts
+// are the card headers' glance. There is no auto toggle in the UI any
+// more; the server keeps its auto state, and the amber auto-off strip row
+// (with its turn-back-on offer) stays as the recovery path for a legacy
+// project saved with auto off.
 //
 // KNOWN GAP: with the rows gone the data side, like the power side, has no
 // keyboard path for MAKING an assignment - the drag is the only gesture. The
@@ -227,10 +233,9 @@ class _PortAssignment {
     // The Port Numbering panel died with the Signal sidebar; the reporting
     // re-hosted onto the hardware dock. The refuse-and-offer boxes became
     // the slim strip under the dock's header (#hw-dock-issues, one row per
-    // issue with its buttons inline), the auto toggle became the header's
-    // own checkbox, and the per-card usage foot became the card headers'
-    // n/N + fill glance - so this render touches the strip and the
-    // checkbox, and the chips redraw on their own paths.
+    // issue with its buttons inline) and the per-card usage foot became
+    // the card headers' n/N + fill glance - so this render touches the
+    // strip, and the chips redraw on their own paths.
 
     renderPortAssignmentPanel() {
         const strip = document.getElementById('hw-dock-issues');
@@ -245,16 +250,6 @@ class _PortAssignment {
         strip.innerHTML = '';
 
         const res = this._assignment;
-        const auto = document.getElementById('port-assignment-auto');
-        const autoWrap = document.getElementById('hw-dock-auto-wrap');
-        if (auto) auto.checked = !!(res && res.auto);
-        if (autoWrap) {
-            // The toggle means nothing before a processor exists - the old
-            // panel's foot only rendered once configured, and this keeps
-            // that rule.
-            autoWrap.classList.toggle('view-hidden',
-                                      !(res && res.configured));
-        }
         if (!res || !res.configured) return;
 
         if (this._assignmentError) {
@@ -267,9 +262,15 @@ class _PortAssignment {
             row.classList.add('hw-dock-issue-note');
             strip.appendChild(row);
         }
-        (res.issues || []).forEach(issue => {
-            strip.appendChild(this._buildIssue(issue));
-        });
+        // The overflow rows moved under the header's attachment flag
+        // (app-dock.js _renderDockFlag reads the same resolution's
+        // per-screen unplaced) - the strip repeating them would be the
+        // wall of red the flag exists to fold away. Every other kind
+        // stays a strip row, offers and all.
+        (res.issues || []).filter(i => i.kind !== 'overflow')
+            .forEach(issue => {
+                strip.appendChild(this._buildIssue(issue));
+            });
     }
 
     _buildAssignmentNote(text, color) {
@@ -399,9 +400,11 @@ class _PortAssignment {
 
     // The per-card usage foot the old panel drew is the card headers'
     // n/N + fill glance now (app-dock.js _dockBuildCard reads the same
-    // assignment summary), and the auto toggle is the dock header's static
-    // checkbox, wired once in initHardwareDock. Nothing is left for a foot
-    // builder to build.
+    // assignment summary). Nothing is left for a foot builder to build.
+    // The auto-on offer above is the ONLY auto lever in the UI: the PUT
+    // endpoint still takes auto either way, but nothing here ever turns
+    // auto OFF - the amber strip row exists to recover a legacy project
+    // saved that way, not to offer the trip.
 }
 
 for (const k of Object.getOwnPropertyNames(_PortAssignment.prototype)) {

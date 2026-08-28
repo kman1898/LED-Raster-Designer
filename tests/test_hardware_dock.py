@@ -3,9 +3,11 @@
 The Data and Power views' hardware sits in a tray between the canvas and the
 status bar, and dragging it onto the canvas is how assignments are made. The
 dock is the ONE hardware surface: its header bar carries each view's add
-cluster and the auto-numbering switch, the issues strip under the header
-carries the warnings with their fix buttons inline, and every section header
-names its thing inline beside a ⚙ that opens its configuration popover.
+cluster and the attachment flag (red with a screen count while anything is
+unattached, green when everything is held, rows on demand), the issues strip
+under the header carries the warnings with their fix buttons inline, and
+every section header names its thing inline beside a ⚙ that opens its
+configuration popover.
 Every drop goes through the same operations the retired panels' controls
 fired (place, move-block, place-overflow, setSocaDistro, setSocaNumber), so
 the refusals, the conflict question and the history entries are the ones
@@ -39,11 +41,14 @@ What is pinned here, with real pointer drags (mouse down/move/up):
     past _dockArmDrag's 4px threshold - never opens it, and an open chip
     still drags (deep editor coverage lives in test_port_tiles.py); an
     occupied circuit chip is a tile the same way, holding its label editor
-  * the header bar shows each view's own add cluster, offers the auto
-    switch only once the assignment is configured, and folds the tray from
+  * the header bar shows each view's own add cluster, wears the attachment
+    flag only once there is hardware to attach to, and folds the tray from
     its own chevron through the one stored collapse state
   * the issues strip under the header holds one row per issue with its fix
-    buttons inline, and leaves layout entirely (display:none) when empty
+    buttons inline, and leaves layout entirely (display:none) when empty -
+    and it never carries the per-screen overflow rows, which live under
+    the attachment flag (red pill, screen count, rows on click, a row
+    click centers the canvas on its screen)
   * a header's ⚙ opens the gear popover, which survives the tray's
     wholesale rebuilds while open (its fields keep focus by key), closes on
     outside mousedown, Escape or its anchor vanishing - and a press on a
@@ -408,12 +413,12 @@ def test_folding_the_dock_hands_the_room_back_to_the_canvas(dock_page):
 # ── the header bar, the issues strip and the gear popover ─────────────────
 #
 # The tray's chrome, now that the dock is the whole hardware surface: the
-# header bar carries each view's add cluster, the auto switch and the fold
-# chevron; the strip under it is the refuse-and-offer surface; every section
-# header names its thing inline beside a ⚙ popover. Pinned here: what shows
-# in which view, that the strip vanishes when empty, the popover's lifecycle
-# across the tray's wholesale rebuilds, and that a press on a header control
-# is the control's gesture - never a drag pickup.
+# header bar carries each view's add cluster, the attachment flag and the
+# fold chevron; the strip under it is the refuse-and-offer surface; every
+# section header names its thing inline beside a ⚙ popover. Pinned here:
+# what shows in which view, that the strip vanishes when empty, the
+# popover's lifecycle across the tray's wholesale rebuilds, and that a
+# press on a header control is the control's gesture - never a drag pickup.
 
 HEADBAR_JS = """() => {
     const vis = (id) => {
@@ -423,7 +428,7 @@ HEADBAR_JS = """() => {
     return {
         data: vis('hw-dock-data-controls'),
         power: vis('hw-dock-power-controls'),
-        auto: vis('hw-dock-auto-wrap'),
+        flag: vis('hw-dock-flag'),
         fold: vis('hw-dock-fold'),
         options: document.querySelectorAll(
             '#processor-add-device option').length,
@@ -455,50 +460,60 @@ POP_JS = """(field) => {
 
 
 def test_the_header_bar_shows_each_views_own_controls(dock_page):
-    """Data view offers the processor picker + Add and the auto switch;
-    power view offers + Add distro; neither shows the other's cluster.
-    The switch is offered only once the assignment is configured (a
-    processor exists) - the rule the render reads off the assignment's
-    own configured flag."""
+    """Data view offers the processor picker + Add; power view offers
+    + Add distro; neither shows the other's cluster. The attachment flag
+    shows in both views once there is hardware to attach to (a card with
+    a settled capacity, a distro) and hides with the hardware - and the
+    retired auto switch stays gone."""
     page, ids = dock_page
     open_view(page, 'data-flow')
     page.wait_for_timeout(300)
     out = page.evaluate(HEADBAR_JS)
     assert out['data'] and not out['power'], out
-    assert out['auto'], (
-        f'a configured assignment must offer the auto switch: {out}')
+    assert out['flag'], (
+        f'a settled card must raise the attachment flag: {out}')
     assert out['fold'], out
     assert out['options'] > 1, (
         f'the add picker must fill from the processor catalog: {out}')
+    assert page.evaluate(
+        "() => !document.getElementById('port-assignment-auto')"
+        " && !document.getElementById('hw-dock-auto-wrap')"), (
+        'the retired auto switch is back in the header')
 
-    # before a processor exists the switch means nothing
+    # with nothing to attach to - no card with a settled capacity - the
+    # flag says nothing: no hardware is the default state of a project,
+    # not a problem to nag about (the _overflow_issues gate)
     hid = page.evaluate("""() => {
         const app = window.app;
         const saved = app._assignment;
-        app._assignment = { configured: false, auto: true, issues: [] };
-        app.renderPortAssignmentPanel();
-        const wrap = document.getElementById('hw-dock-auto-wrap');
-        const hidden = wrap.classList.contains('view-hidden');
+        app._assignment = { configured: true, auto: true, issues: [],
+                            cards: [], screens: [] };
+        app.renderHardwareDock();
+        const flag = document.getElementById('hw-dock-flag');
+        const hidden = flag.classList.contains('view-hidden');
         app._assignment = saved;
-        app.renderPortAssignmentPanel();
-        return { hidden, back: !wrap.classList.contains('view-hidden') };
+        app.renderHardwareDock();
+        return { hidden, back: !flag.classList.contains('view-hidden') };
     }""")
-    assert hid['hidden'], 'an unconfigured assignment still offered auto'
-    assert hid['back'], 'restoring the assignment did not restore the switch'
+    assert hid['hidden'], 'a hardware-less view still waved the flag'
+    assert hid['back'], 'restoring the assignment did not restore the flag'
 
     open_view(page, 'power')
     page.wait_for_timeout(300)
     out = page.evaluate(HEADBAR_JS)
     assert out['power'] and not out['data'], out
-    assert not out['auto'], (
-        f'the auto switch has no business in the power view: {out}')
+    assert out['flag'], (
+        f'a distro exists, so the power view wears the flag too: {out}')
 
 
 def test_the_issues_strip_warns_offers_and_hides_when_empty(dock_page):
     """The refuse-and-offer surface: empty, it leaves layout entirely
-    (CSS :empty -> display:none). The auto-off condition renders as an
-    amber row whose inline button is the one-click way back, and a tail
-    claimed twice renders as a red power row through the same rows."""
+    (CSS :empty -> display:none). A project arriving with auto off (the
+    endpoint, driven the way a legacy save arrives - the UI carries no
+    toggle any more) renders the amber condition row whose inline button
+    is the one-click way back; the per-screen "not attached" rows do NOT
+    join it, because that story lives under the header's attachment flag.
+    A tail claimed twice still renders as a red power row."""
     page, ids = dock_page
     open_view(page, 'data-flow')
     page.evaluate(RESET_DATA_JS, ids)
@@ -508,31 +523,31 @@ def test_the_issues_strip_warns_offers_and_hides_when_empty(dock_page):
     assert st['rows'] == [] and st['display'] == 'none', (
         f'an empty strip must leave layout: {st}')
 
-    # the header's own switch turns auto off; the strip answers with the
-    # amber condition and its offer button inline in the row - and with
-    # auto off every port is unplaced, so the overflow rows join it in RED.
-    # Those rows only state the fact: attaching is a drag onto a card in
-    # the dock, so they carry no place buttons.
-    page.locator('#port-assignment-auto').click()
+    # auto lands off at the endpoint; the strip answers with the amber
+    # condition and its offer button inline in the row. With auto off
+    # every port is unplaced, but the strip stays free of red per-screen
+    # rows - the flag wears that count instead.
+    page.evaluate(
+        "() => window.app._assignmentRequest("
+        "'/api/port-assignments', 'PUT', {auto: false})")
     page.wait_for_timeout(700)
-    assert page.evaluate(HIST_JS, 1) == ['Toggle Auto Numbering']
     st = page.evaluate(STRIP_JS)
     assert st['display'] != 'none', st
     autoff = [r for r in st['rows'] if 'Auto-numbering is off' in r['text']]
     assert autoff and autoff[0]['mild'], (
         f'auto-off is a condition, so its row is amber: {st}')
     assert autoff[0]['buttons'] == ['Turn auto-numbering on'], st
-    reds = [r for r in st['rows'] if not r['mild']]
-    assert reds and all('not attached' in r['text'] for r in reds), (
-        f'the unplaced screens must state their red facts: {st}')
-    assert all(r['buttons'] == [] for r in reds), (
-        f'an overflow row states the fact and offers nothing: {st}')
+    assert not any('not attached' in r['text'] for r in st['rows']), (
+        f'the overflow rows are back in the strip - they belong under the '
+        f'attachment flag: {st}')
+    assert all(r['mild'] for r in st['rows']), (
+        f'nothing red belongs in the strip here - the unattached story is '
+        f'the flag\'s: {st}')
 
     page.locator(
         '#hw-dock-issues button:has-text("Turn auto-numbering on")').click()
     page.wait_for_timeout(700)
-    assert page.evaluate(
-        "() => document.getElementById('port-assignment-auto').checked"), (
+    assert page.evaluate("() => !!window.app._assignment.auto"), (
         'taking the offer did not turn auto back on')
     assert page.evaluate(HIST_JS, 1) == ['Toggle Auto Numbering']
     st = page.evaluate(STRIP_JS)
@@ -567,6 +582,250 @@ def test_the_issues_strip_warns_offers_and_hides_when_empty(dock_page):
     assert 'PD 1 tail 1' in clash[0]['text'], st
     assert 'WALL A' in clash[0]['text'] and 'WALL B' in clash[0]['text'], st
     page.evaluate(RESET_POWER_JS, ids)
+    page.wait_for_timeout(300)
+
+
+# ── the attachment flag ───────────────────────────────────────────────────
+#
+# One pill on the header where the per-screen overflow rows used to stack:
+# red with a SCREEN count while any screen has unattached ports (Data) or
+# circuits (Power), green when hardware holds everything, hidden while
+# there is no hardware to attach to (the header-bar test above pins the
+# hidden state). Its rows open on click - closed by default, which is the
+# feature - and a row click centers the canvas on the row's screen with a
+# transient pulse. All of it is view state: no undo entries, nothing in
+# localStorage.
+
+FLAG_JS = """() => {
+    const flag = document.getElementById('hw-dock-flag');
+    const rows = document.getElementById('hw-dock-attach');
+    const strip = document.getElementById('hw-dock-issues');
+    const badge = flag && flag.querySelector('.hw-dock-flag-n');
+    return {
+        shown: !!flag && flag.offsetParent !== null,
+        ok: !!flag && flag.classList.contains('hw-dock-flag-ok'),
+        text: flag ? flag.textContent : '',
+        count: badge ? badge.textContent : null,
+        rowsShown: !!rows && getComputedStyle(rows).display !== 'none',
+        rows: rows ? Array.from(
+            rows.querySelectorAll('.hw-dock-attach-row')).map(r => ({
+                name: r.querySelector('.hw-dock-attach-name').textContent,
+                cnt: r.querySelector('.hw-dock-attach-cnt').textContent,
+                chips: Array.from(
+                    r.querySelectorAll('.hw-dock-attach-chip'))
+                    .map(c => c.textContent),
+            })) : [],
+        stripNotAttached: strip ? Array.from(
+            strip.querySelectorAll('.hw-dock-issue'))
+            .filter(r => r.textContent.includes('not attached')).length : 0,
+    };
+}"""
+
+# Where the layer's center landed on screen, measured through the
+# renderer's own transform (bounds + workspace offset, zoom, pan): dx/dy
+# are its distance from the viewport's center in client px.
+CENTER_JS = """(layerId) => {
+    const r = window.canvasRenderer;
+    const l = window.app.project.layers.find(x => x.id === layerId);
+    const b = r.getLayerBoundsInActiveView(l);
+    const off = r._layerCanvasOffset(l);
+    return {
+        dx: (b.x + off.wx + b.width / 2) * r.zoom + r.panX
+            - r.canvas.width / 2,
+        dy: (b.y + off.wy + b.height / 2) * r.zoom + r.panY
+            - r.canvas.height / 2,
+        pulsing: !!(r._pulse && String(r._pulse.layerId) === String(l.id)),
+    };
+}"""
+
+SET_AUTO_JS = ("(on) => window.app._assignmentRequest("
+               "'/api/port-assignments', 'PUT', {auto: on})")
+
+RESET_PAN_JS = ("() => { const r = window.canvasRenderer; "
+                "r.zoom = 0.28; r.panX = 60; r.panY = 40; r.render(); }")
+
+
+def test_the_flag_counts_screens_and_opens_its_rows_on_demand(dock_page):
+    """Data view: auto off leaves every port unattached, so the flag turns
+    red counting TWO screens (never six ports), its rows stay closed until
+    the pill is clicked, the open rows carry each screen's count and port
+    chips (a long run elided), and the strip holds no overflow row while
+    the flag speaks. A rebuild mid-look keeps the rows open - session view
+    state, no localStorage, no undo entries - and everything attached
+    again turns the pill green with nothing left to open."""
+    page, ids = dock_page
+    open_view(page, 'data-flow')
+    page.evaluate(RESET_DATA_JS, ids)
+    page.wait_for_timeout(500)
+
+    # everything attached: green, and nothing to open
+    st = page.evaluate(FLAG_JS)
+    assert st['shown'] and st['ok'], st
+    assert 'all attached' in st['text'] and 'not all' not in st['text'], st
+    assert st['rows'] == [] and not st['rowsShown'], st
+
+    page.evaluate(SET_AUTO_JS, False)
+    page.wait_for_timeout(700)
+    st = page.evaluate(FLAG_JS)
+    assert st['shown'] and not st['ok'], st
+    assert 'not all attached' in st['text'], st
+    assert st['count'] == '2', (
+        f'the badge counts screens, not ports: {st}')
+    assert st['rows'] == [] and not st['rowsShown'], (
+        f'the rows must default CLOSED - that is the feature: {st}')
+    assert st['stripNotAttached'] == 0, (
+        f'the strip must not repeat the flag\'s story: {st}')
+
+    hist = page.evaluate(HIST_LEN_JS)
+    page.locator('#hw-dock-flag').click()
+    page.wait_for_timeout(400)
+    st = page.evaluate(FLAG_JS)
+    assert st['rowsShown'], f'the click did not open the rows: {st}'
+    got = {r['name']: r for r in st['rows']}
+    assert set(got) == {'WALL A', 'WALL B'}, st
+    assert got['WALL A']['cnt'] == '5 of 5 ports', st
+    assert got['WALL A']['chips'] == ['1', '2', '3', '4', '5'], st
+    assert got['WALL B']['cnt'] == '1 of 1 ports', st
+    assert got['WALL B']['chips'] == ['1'], st
+    assert page.evaluate(HIST_LEN_JS) == hist, (
+        'opening the rows is view state - no undo entry')
+
+    # a rebuild mid-look must not slam the rows shut
+    page.evaluate("() => window.app.renderHardwareDock()")
+    page.wait_for_timeout(300)
+    st = page.evaluate(FLAG_JS)
+    assert st['rowsShown'] and len(st['rows']) == 2, (
+        f'the rebuild slammed the rows shut mid-look: {st}')
+
+    # nothing persisted: the open state lives on the app, not in storage
+    assert page.evaluate("""() => Object.keys(localStorage)
+        .filter(k => k.toLowerCase().includes('flag')).length""") == 0
+
+    # a long run elides the way a hand says it: 1 2 3 … 9
+    chips = page.evaluate("""() => Array.from(window.app._dockBuildFlagRow(
+        {layerId: 'x', name: 'X', numbers: [1, 2, 3, 4, 5, 6, 7, 8, 9],
+         total: 9}, 'ports')
+        .querySelectorAll('.hw-dock-attach-chip'))
+        .map(c => c.textContent)""")
+    assert chips == ['1', '2', '3', '…', '9'], chips
+
+    # the same click closes them again
+    page.locator('#hw-dock-flag').click()
+    page.wait_for_timeout(300)
+    st = page.evaluate(FLAG_JS)
+    assert not st['rowsShown'] and not st['ok'], st
+
+    # recovery through the strip's offer: green, nothing to open
+    page.locator(
+        '#hw-dock-issues button:has-text("Turn auto-numbering on")').click()
+    page.wait_for_timeout(700)
+    st = page.evaluate(FLAG_JS)
+    assert st['ok'] and st['rows'] == [], st
+
+
+def test_a_flag_row_click_centers_the_canvas_and_earns_no_undo(dock_page):
+    """Clicking a row - the screen's name or one of its chips - pans the
+    canvas (zoom untouched) so that screen's bounds sit centered in the
+    viewport, arms the ~1.2s landing pulse, and writes NOTHING: no undo
+    entry, no project change. Measured through the renderer's own
+    transform, never a second implementation of it."""
+    page, ids = dock_page
+    open_view(page, 'data-flow')
+    page.evaluate(RESET_DATA_JS, ids)
+    page.evaluate(RESET_PAN_JS)
+    page.evaluate(SET_AUTO_JS, False)
+    page.wait_for_timeout(700)
+    page.locator('#hw-dock-flag').click()
+    page.wait_for_timeout(300)
+
+    before = page.evaluate(CENTER_JS, ids['bId'])
+    assert abs(before['dx']) > 5 or abs(before['dy']) > 5, (
+        f'WALL B is already centered - the assertion would prove '
+        f'nothing: {before}')
+    zoom = page.evaluate("() => window.canvasRenderer.zoom")
+    hist = page.evaluate(HIST_LEN_JS)
+    page.locator('.hw-dock-attach-row:has-text("WALL B")').click()
+    page.wait_for_timeout(300)
+    after = page.evaluate(CENTER_JS, ids['bId'])
+    assert abs(after['dx']) < 1 and abs(after['dy']) < 1, (
+        f'the row click did not center WALL B: {after}')
+    assert page.evaluate("() => window.canvasRenderer.zoom") == zoom, (
+        'centering must pan, never zoom')
+    assert after['pulsing'], 'the landing pulse never armed'
+    assert page.evaluate(HIST_LEN_JS) == hist, (
+        'centering is view state - it must not be an undo entry')
+    page.wait_for_timeout(1600)
+    assert not page.evaluate("() => !!window.canvasRenderer._pulse"), (
+        'the pulse must clear itself')
+
+    # a chip is the same gesture aimed at the same screen
+    beforeA = page.evaluate(CENTER_JS, ids['aId'])
+    assert abs(beforeA['dx']) > 5 or abs(beforeA['dy']) > 5, beforeA
+    page.locator('.hw-dock-attach-row:has-text("WALL A") '
+                 '.hw-dock-attach-chip').first.click()
+    page.wait_for_timeout(300)
+    afterA = page.evaluate(CENTER_JS, ids['aId'])
+    assert abs(afterA['dx']) < 1 and abs(afterA['dy']) < 1, afterA
+
+    # put the module state back: auto on, flag green, pan re-seeded
+    page.locator(
+        '#hw-dock-issues button:has-text("Turn auto-numbering on")').click()
+    page.wait_for_timeout(700)
+    page.evaluate(RESET_PAN_JS)
+    st = page.evaluate(FLAG_JS)
+    assert st['ok'] and not st['rowsShown'], st
+
+
+def test_the_flag_reads_circuits_in_the_power_view(dock_page):
+    """Power view: the flag counts screens whose circuits' multis are on
+    no distro, read off the same soca plan the chips draw from. The rows
+    speak circuits, a row click centers the same way, feeding every multi
+    turns the pill green, and a screen with no circuits at all never
+    counts - nothing to attach is not unattached."""
+    page, ids = dock_page
+    open_view(page, 'power')
+    page.evaluate(RESET_POWER_JS, ids)
+    page.wait_for_timeout(500)
+
+    st = page.evaluate(FLAG_JS)
+    assert st['shown'] and not st['ok'], st
+    assert st['count'] == '2', st
+    assert st['rows'] == [] and not st['rowsShown'], (
+        f'closed by default here too: {st}')
+
+    page.locator('#hw-dock-flag').click()
+    page.wait_for_timeout(400)
+    st = page.evaluate(FLAG_JS)
+    got = {r['name']: r for r in st['rows']}
+    assert set(got) == {'WALL A', 'WALL B'}, st
+    assert got['WALL A']['cnt'] == '3 of 3 circuits', st
+    assert got['WALL A']['chips'] == ['1', '2', '3'], st
+    assert got['WALL B']['cnt'] == '1 of 1 circuits', st
+
+    # a row click centers here too - the same helper, the same rule
+    page.evaluate(RESET_PAN_JS)
+    hist = page.evaluate(HIST_LEN_JS)
+    page.locator('.hw-dock-attach-row:has-text("WALL B")').click()
+    page.wait_for_timeout(300)
+    after = page.evaluate(CENTER_JS, ids['bId'])
+    assert abs(after['dx']) < 1 and abs(after['dy']) < 1, after
+    assert page.evaluate(HIST_LEN_JS) == hist
+
+    # every multi fed, through the existing setters: green
+    page.evaluate("""(ids) => {
+        const app = window.app;
+        const a = app.project.layers.find(x => x.id === ids.aId);
+        const b = app.project.layers.find(x => x.id === ids.bId);
+        app.setSocaDistro(a, 1, ids.distroId);
+        app.setSocaDistro(b, 1, ids.distroId);
+    }""", ids)
+    page.wait_for_timeout(500)
+    st = page.evaluate(FLAG_JS)
+    assert st['ok'] and st['rows'] == [], st
+    assert 'all attached' in st['text'] and 'not all' not in st['text'], st
+
+    page.evaluate(RESET_POWER_JS, ids)
+    page.evaluate(RESET_PAN_JS)
     page.wait_for_timeout(300)
 
 

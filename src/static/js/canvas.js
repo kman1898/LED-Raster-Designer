@@ -4181,7 +4181,47 @@ class CanvasRenderer {
                 this.ctx.setLineDash([]);
                 this.ctx.restore();
             }
-            
+
+            // The landing pulse (pulseLayer): a transient outline that grows
+            // and fades over the pulsed layer for ~1.2s, so "center on this
+            // screen" ends with the eye on the right wall. Pure view state -
+            // it self-clears by time, never touches the project, and skips
+            // exports entirely. The animation rides ONE queued frame at a
+            // time rather than a timer: render() is called from everywhere,
+            // and a second scheduler would double-draw.
+            if (!this.exportMode && this._pulse) {
+                const now = performance.now();
+                if (now >= this._pulse.until) {
+                    this._pulse = null;
+                } else {
+                    const layer = window.app.project.layers.find(
+                        l => String(l.id) === String(this._pulse.layerId));
+                    if (layer && layer.visible) {
+                        _withLayerWs(layer, () => {
+                            const b = this.getLayerFootprintInActiveView(layer);
+                            // 0 at the click, 1 at the fade's end.
+                            const t = 1 - (this._pulse.until - now)
+                                / this._pulse.span;
+                            const grow = (4 + 16 * t) / this.zoom;
+                            this.ctx.save();
+                            this.ctx.strokeStyle =
+                                `rgba(255, 85, 85, ${0.85 * (1 - t)})`;
+                            this.ctx.lineWidth = 3 / this.zoom;
+                            this.ctx.strokeRect(b.x - grow, b.y - grow,
+                                                b.width + grow * 2,
+                                                b.height + grow * 2);
+                            this.ctx.restore();
+                        });
+                    }
+                    if (!this._pulseFrame) {
+                        this._pulseFrame = requestAnimationFrame(() => {
+                            this._pulseFrame = null;
+                            this.render();
+                        });
+                    }
+                }
+            }
+
             // Final pass: render pixel grid ON TOP of everything (all view modes, 1000%+ zoom)
             if (this.zoom >= 10) {
                 window.app.project.layers.forEach(layer => {
@@ -4333,6 +4373,18 @@ class CanvasRenderer {
         this.panX = (this.canvas.width - w * this.zoom) / 2 - bb.x * this.zoom;
         this.panY = (this.canvas.height - h * this.zoom) / 2 - bb.y * this.zoom;
         document.getElementById('zoom-level').value = `${this._zoomToPercent(this.zoom)}%`;
+        this.render();
+    }
+
+    /**
+     * Arm the landing pulse on a layer for ~1.2s and kick a frame; the
+     * render pass draws (and eventually clears) it. View state only - the
+     * caller centering the canvas (app-dock.js centerCanvasOnLayer) has
+     * already moved the pan, and neither half earns an undo entry.
+     */
+    pulseLayer(layerId) {
+        const span = 1200;
+        this._pulse = { layerId, span, until: performance.now() + span };
         this.render();
     }
 

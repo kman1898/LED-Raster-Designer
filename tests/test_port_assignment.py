@@ -21,10 +21,12 @@ The four behaviours, and the reason each is awkward:
 
 The reporting surface moved with the consolidation round: the retired Port
 Numbering panel's issue boxes are rows on the hardware dock's issues strip
-(#hw-dock-issues), the auto toggle is the dock header's own checkbox, and the
-per-card usage foot is the card headers' used/capacity glance. The numbering
-itself never left the server, which is why almost everything here still
-drives the API and re-points cleanly.
+(#hw-dock-issues) and the per-card usage foot is the card headers'
+used/capacity glance. The auto toggle is gone from the UI - the server
+keeps its auto state and this file's Flask-level auto tests still drive it
+at the endpoint, but the only UI lever left is the strip's turn-back-on
+offer. The numbering itself never left the server, which is why almost
+everything here still drives the API and re-points cleanly.
 
 Values are asserted as they come BACK from the server, never as they were
 sent - this codebase drops unlisted fields silently in two separate places and
@@ -1118,12 +1120,13 @@ def test_the_per_screen_port_templates_are_untouched(client_with_layer):
 def test_the_docks_assignment_controls_stay_out_of_the_field_sweep():
     """tests/test_all_fields_sweep.py drives every control declared inside a
     .tab-panel straight at the selected LAYER. Assignment is project state,
-    and since the consolidation its two declared controls - the dock header's
-    auto checkbox and the add-processor picker - live in the dock's static
-    markup, OUTSIDE every panel, so the sweep must never find them; swept,
-    they would fail for a reason that has nothing to do with them. The issue
-    rows themselves are still built in JS, onto #hw-dock-issues, and the
-    retired panel's #port-assignment-issues host must stay gone."""
+    and since the consolidation its one declared control - the
+    add-processor picker - lives in the dock's static markup, OUTSIDE every
+    panel, so the sweep must never find it; swept, it would fail for a
+    reason that has nothing to do with it. The issue rows themselves are
+    still built in JS, onto #hw-dock-issues, and the retired panel's
+    #port-assignment-issues host must stay gone - as must the retired auto
+    checkbox, whose only UI remnant is the strip's turn-back-on offer."""
     from html.parser import HTMLParser
 
     template = os.path.join(os.path.dirname(__file__), '..', 'src',
@@ -1170,17 +1173,20 @@ def test_the_docks_assignment_controls_stay_out_of_the_field_sweep():
 
     scan = Scan()
     scan.feed(html)
-    for key in ('port-assignment-auto', 'processor-add-device'):
-        assert key in scan.declared, f'{key} is missing from the template'
-        assert key not in scan.swept, (
-            f'{key} is declared inside a .tab-panel - the field sweep would '
-            f'drive project state at the selected layer')
-    # The focus guard restores by this key across dock rebuilds, so the
-    # static checkbox has to carry it.
-    assert 'data-lrd-field="port-assignment-auto"' in html
+    key = 'processor-add-device'
+    assert key in scan.declared, f'{key} is missing from the template'
+    assert key not in scan.swept, (
+        f'{key} is declared inside a .tab-panel - the field sweep would '
+        f'drive project state at the selected layer')
     assert 'id="hw-dock-issues"' in html, 'the issues strip host is gone'
+    assert 'id="hw-dock-flag"' in html, 'the attachment flag pill is gone'
+    assert 'id="hw-dock-attach"' in html, 'the flag rows host is gone'
     assert 'id="port-assignment-issues"' not in html, (
         'the retired Port Numbering issue host is back')
+    # The auto checkbox is retired whole: a resurrected declaration would
+    # re-offer the auto:false trip the UI no longer takes.
+    assert 'id="port-assignment-auto"' not in html
+    assert 'id="hw-dock-auto-wrap"' not in html
 
 
 # ── 8. Labels come from the one place that owns them ──────────────────────
@@ -1291,14 +1297,23 @@ def test_the_per_port_rows_stay_out_of_the_assignment_module():
     assert 'processor-port-assign-' not in js('app-dock.js'), (
         'the stripped chooser reappeared in the dock chip editor')
     # What deliberately STAYS: the refuse-and-offer surface, re-hosted as
-    # rows on the dock's issues strip, and the header checkbox it syncs.
-    # The dock does not replace warnings.
+    # rows on the dock's issues strip. The dock does not replace warnings.
     assert '_buildIssue(issue) {' in panel
     assert '_buildOffer(offer) {' in panel
     assert "getElementById('hw-dock-issues')" in panel, (
         'the issue rows stopped rendering onto the dock strip')
-    assert "getElementById('port-assignment-auto')" in panel, (
-        'the render no longer syncs the dock header auto checkbox')
+    # The auto checkbox left the UI: nothing may sync it, and nothing may
+    # ever send auto:false - the PUT with auto:true (the strip's recovery
+    # offer) is the one auto request the module still makes.
+    assert "port-assignment-auto" not in panel, (
+        'the retired auto checkbox is back in the assignment module')
+    assert 'auto: false' not in panel and 'auto:false' not in panel, (
+        'the assignment module must never send auto:false - the toggle is '
+        'retired and only the recovery offer (auto: true) remains')
+    # The overflow story lives under the attachment flag, not the strip.
+    assert "kind !== 'overflow'" in panel, (
+        'the strip is rendering overflow rows again - that story belongs '
+        'to the dock header flag')
 
 
 def test_the_backup_template_rides_the_return_labels_here_too(one_card):

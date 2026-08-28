@@ -1485,7 +1485,7 @@ def test_the_dock_declares_its_controls_outside_every_tab_panel():
     """tests/test_all_fields_sweep.py drives every control declared inside a
     .tab-panel straight at the selected LAYER. The processor controls are
     PROJECT state, so their only static declarations - the add picker, the
-    Add button and the auto-numbering switch - live on the hardware dock's
+    Add button and the attachment flag - live on the hardware dock's
     header bar, outside every tab panel, and everything deeper (names,
     templates, modes) is built at render time by app-dock/app-processors.
     A second declaration inside a panel would be swept and would fail for a
@@ -1497,16 +1497,18 @@ def test_the_dock_declares_its_controls_outside_every_tab_panel():
     dock = html[html.index('id="hardware-dock"'):
                 html.index('id="hardware-dock-body"')]
     for control in ('id="processor-add-device"', 'id="processor-add-btn"',
-                    'id="port-assignment-auto"'):
+                    'id="hw-dock-flag"'):
         assert html.count(control) == 1, (
             f'{control} is declared more than once - the copy outside the '
             f'dock would be swept at the selected layer')
         assert control in dock, (
             f'{control} left the dock header - its one legitimate home')
-    # The retired Signal panel hosts stay gone: a resurrected panel would
-    # split the fields between two surfaces again.
+    # The retired Signal panel hosts stay gone - and so does the retired
+    # auto checkbox: a resurrected panel or switch would split the fields
+    # between two surfaces again.
     for gone in ('id="processor-list"', '<h2>Processors</h2>',
-                 '<h2>Port Numbering</h2>'):
+                 '<h2>Port Numbering</h2>', 'id="port-assignment-auto"',
+                 'id="hw-dock-auto-wrap"'):
         assert gone not in html, f'{gone} is back in the template'
 
 
@@ -2399,12 +2401,14 @@ def test_dock_scroll_alone_reaches_all_twenty_ports(panel_page):
 
 # ── 12. The issue strip is the refuse-and-offer surface ───────────────────
 #
-# The Port Numbering panel's issue boxes, foot and auto toggle re-homed:
-# the issues are the slim strip rows under the dock's header
-# (#hw-dock-issues, offers as inline buttons, same wording from the
-# server), the auto toggle is the header's own checkbox (hidden until the
-# assignment is configured - the old foot's rule), and the per-card usage
-# foot is the card headers' used/capacity glance.
+# The Port Numbering panel's issue boxes and foot re-homed: the issues are
+# the slim strip rows under the dock's header (#hw-dock-issues, offers as
+# inline buttons, same wording from the server) and the per-card usage
+# foot is the card headers' used/capacity glance. The auto toggle is
+# retired from the UI entirely - the strip's amber auto-off row (and its
+# turn-back-on offer) is the one recovery path for a legacy project saved
+# with auto off, and per-screen overflow lives under the header's
+# attachment flag (test_hardware_dock.py owns that surface).
 
 ASSIGNMENT_FIT_JS = """(hostId) => {
     const host = document.getElementById(hostId);
@@ -2440,8 +2444,13 @@ def test_the_issue_strip_fits_at_both_widths(panel_page, width):
     panel_page.set_viewport_size({'width': width, 'height': 720})
     panel_page.wait_for_timeout(400)
     try:
-        # auto off raises the one issue every seeded project can have
-        panel_page.locator('[data-lrd-field="port-assignment-auto"]').click()
+        # auto off raises the one issue every seeded project can have. The
+        # UI no longer offers the trip (the toggle is retired), so this
+        # drives the endpoint the way a legacy project's saved state would
+        # arrive - and the amber row is exactly the recovery path for that.
+        panel_page.evaluate(
+            "() => window.app._assignmentRequest("
+            "'/api/port-assignments', 'PUT', {auto: false})")
         panel_page.wait_for_timeout(800)
         m = panel_page.evaluate(ASSIGNMENT_FIT_JS, 'hw-dock-issues')
         assert m, '#hw-dock-issues is not in the document'
@@ -2455,47 +2464,42 @@ def test_the_issue_strip_fits_at_both_widths(panel_page, width):
             f"the strip scrolls sideways at {width}px: content "
             f"{m['scrollW']}px in a {m['clientW']}px tray")
     finally:
-        panel_page.evaluate("""() => {
-            const auto = document.querySelector(
-                '[data-lrd-field="port-assignment-auto"]');
-            if (auto && !auto.checked) auto.click();
-        }""")
+        panel_page.evaluate(
+            "() => window.app._assignmentRequest("
+            "'/api/port-assignments', 'PUT', {auto: true})")
         panel_page.wait_for_timeout(800)
         panel_page.set_viewport_size({'width': 1280, 'height': 720})
         panel_page.wait_for_timeout(300)
 
 
-def test_the_dock_strip_reports_offers_and_the_header_toggles(panel_page):
+def test_the_dock_strip_reports_offers_and_recovers_auto(panel_page):
     """The Port Numbering panel's remains, in their dock homes: the issue
     rows with their offer buttons on the strip, the per-card usage as the
-    card headers' used/capacity glance, the auto toggle on the header bar -
-    and no per-port rows at all (assignment is the dock's drag). The
-    refuse-and-offer surface is the part a drag cannot replace, so it is
-    proven live end to end: turning auto off through the real checkbox
-    raises the auto-off issue with its offer, and taking the offer turns
-    auto back on."""
+    card headers' used/capacity glance, the attachment flag on the header
+    bar - and no per-port rows and no auto toggle at all (assignment is
+    the dock's drag, and the UI never offers the auto:false trip). The
+    refuse-and-offer surface is the part a drag cannot replace, so the
+    legacy path is proven live end to end: a project arriving with auto
+    off (driven at the endpoint, the way a saved file arrives) raises the
+    amber auto-off row with its offer, and taking the offer turns auto
+    back on."""
     pytest.importorskip("playwright.sync_api", reason="playwright not installed")
     ids = panel_page.evaluate(RESET_PROCESSORS_JS)
     panel_page.wait_for_timeout(800)
 
     shape = panel_page.evaluate("""(cardId) => {
         const strip = document.getElementById('hw-dock-issues');
-        const wrap = document.getElementById('hw-dock-auto-wrap');
-        const toggle = document.querySelector(
-            '[data-lrd-field="port-assignment-auto"]');
+        const flag = document.getElementById('hw-dock-flag');
         const head = document.querySelector(
             `[data-lrd-sec="hwdock-card-${cardId}"]`);
         const use = head && head.querySelector('.hw-dock-unit-use');
         return {
             stripInDock: !!strip && !!strip.closest('#hardware-dock'),
             retiredHosts: ['processor-list', 'port-assignment-issues',
-                           'port-assignment-foot', 'port-assignment-list']
+                           'port-assignment-foot', 'port-assignment-list',
+                           'port-assignment-auto', 'hw-dock-auto-wrap']
                 .filter(id => document.getElementById(id)),
-            toggle: !!toggle,
-            toggleInHeader: !!(toggle && wrap && wrap.contains(toggle)
-                && toggle.closest('.hw-dock-head')),
-            toggleShown: !!(wrap && !wrap.classList.contains('view-hidden')),
-            toggleOn: toggle ? toggle.checked : null,
+            flagInHeader: !!(flag && flag.closest('.hw-dock-head')),
             cardGlance: use ? use.textContent : null,
             rowButtons: [...(strip ? strip.querySelectorAll('button') : [])]
                 .map(b => b.textContent.trim())
@@ -2506,17 +2510,19 @@ def test_the_dock_strip_reports_offers_and_the_header_toggles(panel_page):
     }""", ids['cardId'])
     assert shape['stripInDock'], shape
     assert shape['retiredHosts'] == [], (
-        f"retired Signal panel hosts are back: {shape['retiredHosts']}")
+        f"retired Signal panel hosts (or the retired auto toggle) are "
+        f"back: {shape['retiredHosts']}")
     assert shape['rowButtons'] == [], (
         f"per-port assignment controls are back: {shape['rowButtons']}")
-    assert shape['toggle'] and shape['toggleInHeader'], shape
-    assert shape['toggleShown'] and shape['toggleOn'], (
-        f'the auto toggle should show once a processor exists: {shape}')
+    assert shape['flagInHeader'], (
+        f'the attachment flag left the dock header: {shape}')
     assert shape['cardGlance'] and '/' in shape['cardGlance'], (
         f'the per-card usage glance is gone from the card header: {shape}')
 
-    # the toggle is live: off raises the auto-off issue and its offer
-    panel_page.locator('[data-lrd-field="port-assignment-auto"]').click()
+    # a legacy project's auto:false raises the auto-off issue and its offer
+    panel_page.evaluate(
+        "() => window.app._assignmentRequest("
+        "'/api/port-assignments', 'PUT', {auto: false})")
     panel_page.wait_for_timeout(800)
     issue = panel_page.evaluate("""() => {
         const strip = document.getElementById('hw-dock-issues');
@@ -2539,8 +2545,7 @@ def test_the_dock_strip_reports_offers_and_the_header_toggles(panel_page):
     }""")
     panel_page.wait_for_timeout(800)
     after = panel_page.evaluate("""() => ({
-        on: document.querySelector(
-            '[data-lrd-field="port-assignment-auto"]').checked,
+        on: !!(window.app._assignment && window.app._assignment.auto),
         issues: document.getElementById('hw-dock-issues').textContent,
     })""")
     assert after['on'], f'the offer did not turn auto back on: {after}'

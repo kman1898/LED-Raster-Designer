@@ -1721,17 +1721,22 @@
                             <button id="power-distro-add" class="btn" data-lrd-field="power-distro-add" data-tooltip="Add a power distro, A project-level power source. Its multis appear in this tray to drag onto circuits, and the load rolls up on its header.">+ Add distro</button>
                         </span>
                         <span class="hw-dock-head-sp"></span>
-                        <label id="hw-dock-auto-wrap" class="view-hidden" title="Number unpinned ports automatically. Off, the numbering freezes exactly as drawn and only pinned moves change it.">
-                            <input type="checkbox" id="port-assignment-auto" data-lrd-field="port-assignment-auto"> Auto-number
-                        </label>
+                        <button type="button" id="hw-dock-flag" class="view-hidden" data-lrd-field="hw-dock-flag" aria-label="Attachment flag"></button>
                         <button id="hw-dock-fold" title="Collapse the hardware tray" aria-label="Collapse hardware tray">▾</button>
                     </div>
+                    <!-- The attachment flag's rows: one row per screen with
+                         unattached ports (Data) or circuits (Power), opened
+                         by the header's flag pill and CLOSED by default -
+                         that is the feature. Built per render by app-dock.js
+                         _renderDockFlag; :empty keeps it out of layout. -->
+                    <div id="hw-dock-attach"></div>
                     <!-- The refuse-and-offer surface, re-hosted from the old
                          Port Numbering panel: one slim row per issue with its
                          fix buttons inline (red = waiting on a person, amber
                          = a condition worth knowing), drawn only when issues
-                         exist. Power view's clash / overflow / same-name
-                         warnings render here through the same rows. -->
+                         exist. Power view's clash / same-name warnings render
+                         here through the same rows; the per-screen overflow
+                         story lives under the header's attachment flag. -->
                     <div id="hw-dock-issues"></div>
                     <div id="hardware-dock-body"></div>
                 </div>
