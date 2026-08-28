@@ -739,15 +739,28 @@ def test_an_explicit_scheme_survives_a_voltage_change(page):
     """Somebody read the box. A later voltage change moves the DEFAULT and
     must not overwrite a choice - that choice is paperwork about how a real
     distro is wired, and 208V is predominantly but not always paired XY ZX
-    YZ."""
+    YZ.
+
+    The choice governs the leg maths only while the circuits' own coupling
+    matches it. A 120V circuit is a leg and a neutral - no wiring choice can
+    pair two legs into it - so under the single-leg ruling (2026-08-28) the
+    rollup falls back to the derived line-to-neutral walk at 120V while the
+    select keeps showing the choice (and its mismatch). At 208V the choice
+    is physically expressible and the leg maths obey it."""
     for circuit_v in (120, 208):
         out = page.evaluate(PHASING_STATE_JS, {
             'circuitV': circuit_v, 'distro': {'phasing': 'paired-ll-alt'}})
         assert out['scheme'] == 'paired-ll-alt', (
             f"an explicit scheme was overwritten at {circuit_v}V circuits: {out}")
         assert out['explicit'], out
-        assert out['rollup'] == 'paired-ll-alt', (
-            f"the leg maths ignored the explicit scheme at {circuit_v}V: {out}")
+    assert page.evaluate(PHASING_STATE_JS, {
+        'circuitV': 208, 'distro': {'phasing': 'paired-ll-alt'}})['rollup'] \
+        == 'paired-ll-alt', 'the leg maths ignored the explicit scheme at 208V'
+    assert page.evaluate(PHASING_STATE_JS, {
+        'circuitV': 120, 'distro': {'phasing': 'paired-ll-alt'}})['rollup'] \
+        == 'rotating-ln', (
+        'a line-to-line choice paired up 120V single-leg circuits - the '
+        'physics the single-leg ruling forbids')
     # and the derivation is still there underneath, which is what the panel
     # shows on the entry that hands the choice back to the voltage
     assert page.evaluate(PHASING_STATE_JS, {
