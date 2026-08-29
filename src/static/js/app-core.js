@@ -711,6 +711,7 @@ export class LEDRasterApp {
             portLabelOverridesReturn: layer.portLabelOverridesReturn,
             customPortPaths: layer.customPortPaths,
             customPortIndex: layer.customPortIndex,
+            customPortOverrides: layer.customPortOverrides,
             screenNameSizeCabinet: layer.screenNameSizeCabinet,
             screenNameSizeDataFlow: layer.screenNameSizeDataFlow,
             screenNameSizePower: layer.screenNameSizePower,
@@ -764,6 +765,7 @@ export class LEDRasterApp {
             powerLabelOverrides: layer.powerLabelOverrides,
             powerCustomPaths: layer.powerCustomPaths,
             powerCustomIndex: layer.powerCustomIndex,
+            powerCustomOverrides: layer.powerCustomOverrides,
             powerSplitters: layer.powerSplitters,
             border_color_pixel: layer.border_color_pixel,
             border_color_cabinet: layer.border_color_cabinet,
@@ -1065,6 +1067,7 @@ export class LEDRasterApp {
                         if (layerProps.portLabelOverridesReturn !== undefined) layer.portLabelOverridesReturn = layerProps.portLabelOverridesReturn;
                         if (layerProps.customPortPaths !== undefined) layer.customPortPaths = layerProps.customPortPaths;
                         if (layerProps.customPortIndex !== undefined) layer.customPortIndex = layerProps.customPortIndex;
+                        if (layerProps.customPortOverrides !== undefined) layer.customPortOverrides = layerProps.customPortOverrides;
                         if (layerProps.powerVoltage !== undefined) layer.powerVoltage = layerProps.powerVoltage;
                         if (layerProps.powerVoltageCustom !== undefined) layer.powerVoltageCustom = layerProps.powerVoltageCustom;
                         if (layerProps.powerAmperage !== undefined) layer.powerAmperage = layerProps.powerAmperage;
@@ -1087,6 +1090,7 @@ export class LEDRasterApp {
                         if (layerProps.powerLabelOverrides !== undefined) layer.powerLabelOverrides = layerProps.powerLabelOverrides;
                         if (layerProps.powerCustomPaths !== undefined) layer.powerCustomPaths = layerProps.powerCustomPaths;
                         if (layerProps.powerCustomIndex !== undefined) layer.powerCustomIndex = layerProps.powerCustomIndex;
+                        if (layerProps.powerCustomOverrides !== undefined) layer.powerCustomOverrides = layerProps.powerCustomOverrides;
                         if (layerProps.powerSplitters !== undefined) layer.powerSplitters = layerProps.powerSplitters;
                         if (layerProps.border_color_pixel !== undefined) layer.border_color_pixel = layerProps.border_color_pixel;
                         if (layerProps.border_color_cabinet !== undefined) layer.border_color_cabinet = layerProps.border_color_cabinet;
@@ -1172,6 +1176,7 @@ export class LEDRasterApp {
             if (layer.portLabelOverridesReturn === undefined) layer.portLabelOverridesReturn = {};
             if (layer.customPortPaths === undefined) layer.customPortPaths = {};
             if (layer.customPortIndex === undefined) layer.customPortIndex = 1;
+            if (layer.customPortOverrides === undefined) layer.customPortOverrides = [];
             if (layer.screenNameSizeCabinet === undefined) layer.screenNameSizeCabinet = 14;
             if (layer.screenNameSizeDataFlow === undefined) layer.screenNameSizeDataFlow = 14;
             if (layer.screenNameSizePower === undefined) layer.screenNameSizePower = 14;
@@ -1205,6 +1210,7 @@ export class LEDRasterApp {
             this.migrateSocaKeying(layer);
                 if (layer.powerCustomPaths === undefined) layer.powerCustomPaths = {};
             if (layer.powerCustomIndex === undefined) layer.powerCustomIndex = 1;
+            if (layer.powerCustomOverrides === undefined) layer.powerCustomOverrides = [];
             // Power splitters (circuit sharing): off by default, 3fer max
             // (2fer/3fer out of the box), no manual overrides. See
             // getPowerSplitters for the normalized read.
@@ -1355,6 +1361,7 @@ export class LEDRasterApp {
                 portLabelOverridesReturn: layer.portLabelOverridesReturn,
                 customPortPaths: layer.customPortPaths,
                 customPortIndex: layer.customPortIndex,
+                customPortOverrides: layer.customPortOverrides,
                 screenNameSizeCabinet: layer.screenNameSizeCabinet,
                 screenNameSizeDataFlow: layer.screenNameSizeDataFlow,
                 screenNameSizePower: layer.screenNameSizePower,
@@ -1434,6 +1441,7 @@ export class LEDRasterApp {
                 powerLabelTextColor: layer.powerLabelTextColor,
                 powerCustomPaths: layer.powerCustomPaths,
                 powerCustomIndex: layer.powerCustomIndex,
+                powerCustomOverrides: layer.powerCustomOverrides,
                 powerSplitters: layer.powerSplitters,
                 border_color_pixel: layer.border_color_pixel,
                 border_color_cabinet: layer.border_color_cabinet,
@@ -2912,7 +2920,12 @@ export class LEDRasterApp {
         document.querySelectorAll('.flow-pattern-btn:not(.power-flow-pattern-btn)').forEach(btn => {
             btn.addEventListener('click', () => {
                 const pattern = btn.getAttribute('data-pattern');
-                if (this.currentLayer && this.isCustomFlow(this.currentLayer) && this.customSelection.size > 0) {
+                // Editing predicate: with an overridden port open and a
+                // selection made, the tile applies the pattern to the
+                // selection exactly as it does in whole-screen custom -
+                // falling through here would silently change the SCREEN's
+                // flow pattern mid-edit.
+                if (this.currentLayer && this.isCustomFlowEditing(this.currentLayer) && this.customSelection.size > 0) {
                     this.applyPatternToSelection(pattern);
                     return;
                 }
@@ -2942,7 +2955,8 @@ export class LEDRasterApp {
         document.querySelectorAll('.power-flow-pattern-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 const pattern = btn.getAttribute('data-pattern');
-                if (this.currentLayer && this.isCustomPower(this.currentLayer) && this.powerCustomSelection.size > 0) {
+                // Editing predicate - same reason as the data tiles above.
+                if (this.currentLayer && this.isCustomPowerEditing(this.currentLayer) && this.powerCustomSelection.size > 0) {
                     this.applyPowerPatternToSelection(pattern);
                     return;
                 }
@@ -3097,35 +3111,24 @@ export class LEDRasterApp {
                 }
             });
         }
+        // Routed through stepCustomPort so there is ONE stepping rule shared
+        // with Tab and the brackets: it saves, PUTs (v0.8.2 - without that,
+        // local mutations accumulate only on the client until some other PUT
+        // contradicts them), and while an overridden port is open for
+        // redrawing it walks the layer's override list instead of the open
+        // number line.
         if (customPrevPortBtn) {
             customPrevPortBtn.addEventListener('click', () => {
                 if (!this.currentLayer) return;
                 this.ensureCustomFlowState(this.currentLayer);
-                this.currentLayer.customPortIndex = Math.max(1, (this.currentLayer.customPortIndex || 1) - 1);
-                this.saveState('Custom Port Change');
-                this.saveClientSideProperties();
-                // v0.8.2: PUT to the server. Without this, all the local
-                // mutations (Next/Prev/Clear/Apply) accumulate only on the
-                // client; the next time something else triggers a real PUT
-                // (Mode Toggle, tab switch with stale state, etc.) the
-                // client's view collapses or contradicts the server's.
-                this.updateLayers(this.getSelectedLayers());
-                this.updateCustomFlowUI();
-                this.updatePortLabelEditor();
-                window.canvasRenderer.render();
+                this.stepCustomPort(-1);
             });
         }
         if (customNextPortBtn) {
             customNextPortBtn.addEventListener('click', () => {
                 if (!this.currentLayer) return;
                 this.ensureCustomFlowState(this.currentLayer);
-                this.currentLayer.customPortIndex = (this.currentLayer.customPortIndex || 1) + 1;
-                this.saveState('Custom Port Change');
-                this.saveClientSideProperties();
-                this.updateLayers(this.getSelectedLayers());
-                this.updateCustomFlowUI();
-                this.updatePortLabelEditor();
-                window.canvasRenderer.render();
+                this.stepCustomPort(1);
             });
         }
         if (customClearPortBtn) {
@@ -3148,6 +3151,15 @@ export class LEDRasterApp {
                 this.ensureCustomFlowState(this.currentLayer);
                 this.currentLayer.customPortPaths = {};
                 this.currentLayer.customPortIndex = 1;
+                // The per-run overrides go with their paths: a reserved number
+                // whose path was just wiped would leave an invisible gap in
+                // the automatic numbering with nothing on the wall to show
+                // for it. Clear All means back to auto, all of it.
+                this.currentLayer.customPortOverrides = [];
+                if (this._overrideEditing && this._overrideEditing.kind === 'data'
+                        && this._overrideEditing.layerId === this.currentLayer.id) {
+                    this._overrideEditing = null;
+                }
                 this.customSelection.clear();
                 this.saveState('Custom Clear All');
                 this.saveClientSideProperties();
@@ -3169,8 +3181,20 @@ export class LEDRasterApp {
                 if (!this.currentLayer) return;
                 this.ensureCustomFlowState(this.currentLayer);
                 const nextVal = parseInt(customActivePortInput.value, 10);
+                // With an overridden port open, the editable ports ARE the
+                // layer's overrides - typing a number outside that list would
+                // aim the next click at a port the user never took over.
+                if (this._isOverrideEditing(this.currentLayer, 'data')
+                        && !this.getOverrideNums(this.currentLayer, 'data').includes(nextVal)) {
+                    customActivePortInput.value = `${this.currentLayer.customPortIndex || 1}`;
+                    return;
+                }
                 if (Number.isFinite(nextVal) && nextVal >= 1) {
                     this.currentLayer.customPortIndex = nextVal;
+                    if (this._overrideEditing && this._overrideEditing.kind === 'data'
+                            && this._overrideEditing.layerId === this.currentLayer.id) {
+                        this._overrideEditing.num = nextVal;
+                    }
                     this.saveState('Custom Port Change');
                     this.saveClientSideProperties();
                     this.updateLayers(this.getSelectedLayers());
@@ -3600,33 +3624,22 @@ export class LEDRasterApp {
                 }
             });
         }
+        // Routed through stepCustomPort - see the matching comment on the
+        // data-flow Prev/Next above. It carries the v0.8.2 PUT (without it a
+        // Mode Toggle would PUT a single-circuit collapsed view of
+        // layer.powerCustomPaths) and the override-list pinning.
         if (powerCustomPrev) {
             powerCustomPrev.addEventListener('click', () => {
                 if (!this.currentLayer) return;
                 this.ensureCustomPowerState(this.currentLayer);
-                this.currentLayer.powerCustomIndex = Math.max(1, (this.currentLayer.powerCustomIndex || 1) - 1);
-                this.saveState('Power Custom Circuit Change');
-                this.saveClientSideProperties();
-                // v0.8.2: PUT to the server. See matching comment on the data-
-                // flow Custom handlers above. Without this, every Next/Prev/
-                // Clear Circuit/Clear All/Pattern Apply mutated only the
-                // client; the next Mode Toggle would then PUT a single-circuit
-                // collapsed view of layer.powerCustomPaths.
-                this.updateLayers(this.getSelectedLayers());
-                this.updateCustomPowerUI();
-                window.canvasRenderer.render();
+                this.stepCustomPort(-1);
             });
         }
         if (powerCustomNext) {
             powerCustomNext.addEventListener('click', () => {
                 if (!this.currentLayer) return;
                 this.ensureCustomPowerState(this.currentLayer);
-                this.currentLayer.powerCustomIndex = (this.currentLayer.powerCustomIndex || 1) + 1;
-                this.saveState('Power Custom Circuit Change');
-                this.saveClientSideProperties();
-                this.updateLayers(this.getSelectedLayers());
-                this.updateCustomPowerUI();
-                window.canvasRenderer.render();
+                this.stepCustomPort(1);
             });
         }
         if (powerCustomClearCircuit) {
@@ -3648,6 +3661,12 @@ export class LEDRasterApp {
                 this.ensureCustomPowerState(this.currentLayer);
                 this.currentLayer.powerCustomPaths = {};
                 this.currentLayer.powerCustomIndex = 1;
+                // Overrides go with their paths - see the data Clear All.
+                this.currentLayer.powerCustomOverrides = [];
+                if (this._overrideEditing && this._overrideEditing.kind === 'power'
+                        && this._overrideEditing.layerId === this.currentLayer.id) {
+                    this._overrideEditing = null;
+                }
                 this.powerCustomSelection.clear();
                 this.saveState('Power Custom Clear All');
                 this.saveClientSideProperties();
@@ -3668,8 +3687,19 @@ export class LEDRasterApp {
                 if (!this.currentLayer) return;
                 this.ensureCustomPowerState(this.currentLayer);
                 const nextVal = parseInt(powerCustomActive.value, 10);
+                // Pinned to the override list while one is open - see the
+                // data-flow input above.
+                if (this._isOverrideEditing(this.currentLayer, 'power')
+                        && !this.getOverrideNums(this.currentLayer, 'power').includes(nextVal)) {
+                    powerCustomActive.value = `${this.currentLayer.powerCustomIndex || 1}`;
+                    return;
+                }
                 if (Number.isFinite(nextVal) && nextVal >= 1) {
                     this.currentLayer.powerCustomIndex = nextVal;
+                    if (this._overrideEditing && this._overrideEditing.kind === 'power'
+                            && this._overrideEditing.layerId === this.currentLayer.id) {
+                        this._overrideEditing.num = nextVal;
+                    }
                     this.saveState('Power Custom Circuit Change');
                     this.saveClientSideProperties();
                     this.updateLayers(this.getSelectedLayers());

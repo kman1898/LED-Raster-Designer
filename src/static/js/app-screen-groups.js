@@ -84,8 +84,10 @@ class _ScreenGroups {
     //                     derive columns/rows, so they are grid, not wall
     //   panels            per-panel blank / hidden / half-tile state
     //   customPortPaths / customPortIndex / powerCustomPath /
-    //   portLabelOverrides*   hand-drawn per-grid paths (cross-member paths
-    //                     are explicitly out of scope)
+    //   customPortOverrides / powerCustomOverrides /
+    //   portLabelOverrides*   hand-drawn per-grid paths and the per-run
+    //                     overrides that reserve their numbers - a redrawn
+    //                     port is one physical cable on ONE member
     //   screenName*Offset*   label POSITIONS. The canvas draws one label per
     //                     group from the first member's config, so a peer's
     //                     stored offset must not be overwritten

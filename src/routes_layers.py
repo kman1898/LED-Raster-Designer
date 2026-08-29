@@ -57,6 +57,12 @@ def add_layer():
         'portLabelTemplatePrimary', 'portLabelTemplateReturn',
         'portLabelOverridesPrimary', 'portLabelOverridesReturn',
         'customPortPaths', 'customPortIndex',
+        # Per-run overrides: the port/circuit numbers the user has taken over
+        # for hand redrawing on an otherwise automatic screen. Plain arrays of
+        # ints; the drawn paths themselves ride in customPortPaths /
+        # powerCustomPaths above. Must be listed or a duplicate/paste drops
+        # the redraw on the floor.
+        'customPortOverrides', 'powerCustomOverrides',
         'randomDataColors',
         'showOffsetX', 'showOffsetY',
         # v0.8.5: per-layer override for which canvas the layer belongs to
@@ -331,6 +337,11 @@ def update_layer(layer_id):
                 'portLabelTemplatePrimary', 'portLabelTemplateReturn',
                 'portLabelOverridesPrimary', 'portLabelOverridesReturn',
                 'customPortPaths', 'customPortIndex',
+                # Per-run overrides (data ports / power circuits): the numbers
+                # the user has taken over for hand redrawing. Must be listed
+                # or every per-layer PUT drops the redraw the way processorType
+                # used to be dropped.
+                'customPortOverrides', 'powerCustomOverrides',
                 'screenNameOffsetX', 'screenNameOffsetY',
                 'screenNameOffsetXCabinet', 'screenNameOffsetYCabinet',
                 'screenNameOffsetXDataFlow', 'screenNameOffsetYDataFlow',

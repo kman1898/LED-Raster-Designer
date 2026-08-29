@@ -1109,9 +1109,11 @@ class CanvasRenderer {
         // unreachable. You could not rubber-band several screens without
         // leaving custom mode first. Pixel Map has always done this properly
         // (hit-test, otherwise fall through); this brings custom mode in line.
-        if (e.button === 0 && window.app && window.app.currentLayer && this.viewMode === 'data-flow') {
+        // `!e.altKey`: Alt+press is the override gesture (take the run under
+        // the cursor over), never a path marquee - see the alt branch below.
+        if (e.button === 0 && !e.altKey && window.app && window.app.currentLayer && this.viewMode === 'data-flow') {
             const layer = window.app.currentLayer;
-            if (window.app.isCustomFlow(layer) && this._customDrawStartsInScope(worldX, worldY)) {
+            if (window.app.isCustomFlowEditing(layer) && this._customDrawStartsInScope(worldX, worldY)) {
                 this.isSelectingPanels = true;
                 this.selectionRect = { x1: worldX, y1: worldY, x2: worldX, y2: worldY };
                 if (typeof sendClientLog === 'function') {
@@ -1120,9 +1122,9 @@ class CanvasRenderer {
                 return;
             }
         }
-        if (e.button === 0 && window.app && window.app.currentLayer && this.viewMode === 'power') {
+        if (e.button === 0 && !e.altKey && window.app && window.app.currentLayer && this.viewMode === 'power') {
             const layer = window.app.currentLayer;
-            if (window.app.isCustomPower(layer) && this._customDrawStartsInScope(worldX, worldY)) {
+            if (window.app.isCustomPowerEditing(layer) && this._customDrawStartsInScope(worldX, worldY)) {
                 this.isSelectingPanels = true;
                 this.selectionRect = { x1: worldX, y1: worldY, x2: worldX, y2: worldY };
                 if (typeof sendClientLog === 'function') {
@@ -1337,6 +1339,17 @@ class CanvasRenderer {
                 }
             }
         } else if (e.button === 0 && e.altKey) {
+            // Data / Power: Alt+click takes the run under the cursor over for
+            // hand-redrawing (or reopens one already taken). The highlight the
+            // held Alt paints (see handleMouseMove) is the affordance; the
+            // click is the commitment.
+            if (this.viewMode === 'data-flow' || this.viewMode === 'power') {
+                if (window.app && typeof window.app.handleOverrideClick === 'function') {
+                    e.preventDefault();
+                    window.app.handleOverrideClick(worldX, worldY);
+                }
+                return;
+            }
             // Alt+click/drag toggles "blank" (hidden) on the panel.
             // When a multi-selection is active, apply to the entire selection
             // in one shot (no drag-painting in that mode, the selection is
@@ -1465,9 +1478,9 @@ class CanvasRenderer {
             // in a group is always in that state, because the flow pattern is
             // shared across members.
             if (window.app && window.app.currentLayer && this.viewMode === 'data-flow'
-                && window.app.isCustomFlow(window.app.currentLayer)) {
+                && window.app.isCustomFlowEditing(window.app.currentLayer)) {
                 window.app.selectPanelsInRect(window.app.currentLayer, this.selectionRect);
-            } else if (window.app && window.app.currentLayer && this.viewMode === 'power' && window.app.isCustomPower(window.app.currentLayer)) {
+            } else if (window.app && window.app.currentLayer && this.viewMode === 'power' && window.app.isCustomPowerEditing(window.app.currentLayer)) {
                 window.app.selectPowerPanelsInRect(window.app.currentLayer, this.selectionRect);
             }
             this.render();
@@ -1492,7 +1505,15 @@ class CanvasRenderer {
         }
         
         document.getElementById('cursor-position').textContent = `X: ${Math.round(worldX)}, Y: ${Math.round(worldY)}`;
-        
+
+        // Held Alt over a wired view: light the run under the cursor, the way
+        // a dock drag lights the run it is about to land on. The update is a
+        // no-op (no render) unless the lit run actually changes.
+        if ((this.viewMode === 'data-flow' || this.viewMode === 'power')
+                && window.app && typeof window.app.updateOverrideHover === 'function') {
+            window.app.updateOverrideHover(!!e.altKey, worldX, worldY);
+        }
+
         if (this.isDragging) {
             const dx = mouseX - this.dragStartX;
             const dy = mouseY - this.dragStartY;
@@ -1803,14 +1824,14 @@ class CanvasRenderer {
                 const w = Math.abs(this.selectionRect.x2 - this.selectionRect.x1);
                 const h = Math.abs(this.selectionRect.y2 - this.selectionRect.y1);
                 if (w < 0.5 && h < 0.5) {
-                    if (this.viewMode === 'power' && window.app.isCustomPower(window.app.currentLayer) && window.app.powerCustomSelection.size > 0) {
+                    if (this.viewMode === 'power' && window.app.isCustomPowerEditing(window.app.currentLayer) && window.app.powerCustomSelection.size > 0) {
                         window.app.powerCustomSelection.clear();
                         window.app.updateCustomPowerUI();
                         this.selectionRect = null;
                         this.render();
                         return;
                     }
-                    if (this.viewMode === 'data-flow' && window.app.isCustomFlow(window.app.currentLayer) && window.app.customSelection.size > 0) {
+                    if (this.viewMode === 'data-flow' && window.app.isCustomFlowEditing(window.app.currentLayer) && window.app.customSelection.size > 0) {
                         window.app.clearCustomSelection();
                         this.selectionRect = null;
                         this.render();
@@ -1839,7 +1860,7 @@ class CanvasRenderer {
                             ? !!(clickedLayer && window.app.canPathReachLayer(
                                 window.app.currentLayer, clickedLayer))
                             : clickedPanel.layerId === window.app.currentLayer.id;
-                        if (isPower && window.app.isCustomPower(window.app.currentLayer) && reachable) {
+                        if (isPower && window.app.isCustomPowerEditing(window.app.currentLayer) && reachable) {
                             if (window.app.powerCustomSelection.size > 0) {
                                 window.app.powerCustomSelection.clear();
                                 window.app.updateCustomPowerUI();
@@ -1850,21 +1871,21 @@ class CanvasRenderer {
                                 // owner, which is every pre-group project.
                                 window.app.addPanelToCustomPowerPath(clickedPanel.panel, clickedLayer);
                             }
-                        } else if (!isPower && window.app.isCustomFlow(window.app.currentLayer) && reachable) {
+                        } else if (!isPower && window.app.isCustomFlowEditing(window.app.currentLayer) && reachable) {
                             if (window.app.customSelection.size > 0) {
                                 window.app.clearCustomSelection();
                             } else {
                                 window.app.addPanelToCustomPath(clickedPanel.panel, clickedLayer);
                             }
-                        } else if (!window.app.isCustomFlow(window.app.currentLayer) && !window.app.isCustomPower(window.app.currentLayer)) {
+                        } else if (!window.app.isCustomFlowEditing(window.app.currentLayer) && !window.app.isCustomPowerEditing(window.app.currentLayer)) {
                             window.app.togglePanelSelection(clickedPanel.panel);
                         }
                     } else {
-                        if (this.viewMode === 'power' && window.app.isCustomPower(window.app.currentLayer) && window.app.powerCustomSelection.size > 0) {
+                        if (this.viewMode === 'power' && window.app.isCustomPowerEditing(window.app.currentLayer) && window.app.powerCustomSelection.size > 0) {
                             window.app.powerCustomSelection.clear();
                             window.app.updateCustomPowerUI();
                         }
-                        if (this.viewMode === 'data-flow' && window.app.isCustomFlow(window.app.currentLayer) && window.app.customSelection.size > 0) {
+                        if (this.viewMode === 'data-flow' && window.app.isCustomFlowEditing(window.app.currentLayer) && window.app.customSelection.size > 0) {
                             window.app.clearCustomSelection();
                         }
                         this.selectionRect = null;
@@ -2331,7 +2352,27 @@ class CanvasRenderer {
             e.preventDefault();
             return;
         }
-        
+
+        // Esc closes an open per-run override edit (the override and its path
+        // stay - only the editing session ends). Checked ahead of everything
+        // else so a stray Esc cannot fall through to some other consumer while
+        // an edit is open.
+        if (e.code === 'Escape' && !isTyping && window.app && window.app._overrideEditing) {
+            e.preventDefault();
+            window.app.endOverrideEdit();
+            return;
+        }
+
+        // Holding Alt lights the run under the cursor for the override
+        // gesture; recompute at the last known cursor position so the
+        // highlight appears without waiting for the mouse to move.
+        // preventDefault keeps the key from focusing the browser menu bar.
+        if (e.key === 'Alt' && !isTyping
+                && (this.viewMode === 'data-flow' || this.viewMode === 'power')) {
+            e.preventDefault();
+            this._overrideHoverFromClient(true);
+        }
+
         // Space - only prevent default and pan if NOT typing
         if (e.code === 'Space' && !isTyping) {
             e.preventDefault();
@@ -2412,8 +2453,8 @@ class CanvasRenderer {
                 && window.app && window.app.currentLayer) {
             const layer = window.app.currentLayer;
             const handled =
-                (this.viewMode === 'data-flow' && window.app.isCustomFlow(layer))
-                || (this.viewMode === 'power' && window.app.isCustomPower(layer));
+                (this.viewMode === 'data-flow' && window.app.isCustomFlowEditing(layer))
+                || (this.viewMode === 'power' && window.app.isCustomPowerEditing(layer));
             if (handled) {
                 e.preventDefault();
                 window.app.stepCustomPort(e.shiftKey ? -1 : 1);
@@ -2433,8 +2474,8 @@ class CanvasRenderer {
                 && window.app && window.app.currentLayer) {
             const layer = window.app.currentLayer;
             const handled =
-                (this.viewMode === 'data-flow' && window.app.isCustomFlow(layer))
-                || (this.viewMode === 'power' && window.app.isCustomPower(layer));
+                (this.viewMode === 'data-flow' && window.app.isCustomFlowEditing(layer))
+                || (this.viewMode === 'power' && window.app.isCustomPowerEditing(layer));
             if (handled) {
                 e.preventDefault();
                 window.app.stepCustomPort(e.code === 'BracketLeft' ? -1 : 1);
@@ -2467,6 +2508,25 @@ class CanvasRenderer {
             this.spacePressed = false;
             if (!this.isDragging) this.canvas.style.cursor = 'default';
         }
+        if (e.key === 'Alt') {
+            this._overrideHoverFromClient(false);
+        }
+    }
+
+    // The run-under-cursor highlight, recomputed from the last known mouse
+    // position - for the moment Alt goes down or up without the mouse moving.
+    // Same client-to-world walk handleMouseMove makes, mirror included.
+    _overrideHoverFromClient(active) {
+        if (!window.app || typeof window.app.updateOverrideHover !== 'function') return;
+        if (this.viewMode !== 'data-flow' && this.viewMode !== 'power') {
+            window.app.updateOverrideHover(false, 0, 0);
+            return;
+        }
+        const rect = this.canvas.getBoundingClientRect();
+        const worldY = (((this._lastClientY || 0) - rect.top) - this.panY) / this.zoom;
+        const worldX = this._unmirrorWorldX(
+            (((this._lastClientX || 0) - rect.left) - this.panX) / this.zoom, worldY);
+        window.app.updateOverrideHover(active, worldX, worldY);
     }
 
     // Focus loss eats the release events that end whatever is held right
@@ -2481,6 +2541,12 @@ class CanvasRenderer {
     // those moves unpersisted with no undo snapshot.
     _releaseTransientInput() {
         this.spacePressed = false;
+        // The Alt keyup goes with the focus too, so the run highlight would
+        // otherwise stay lit until the next mouse move.
+        if (window.app && window.app._overrideHover
+                && typeof window.app.updateOverrideHover === 'function') {
+            window.app.updateOverrideHover(false, 0, 0);
+        }
         const armed = this.isDragging || this.isDraggingLayer
             || this.isDraggingScreenName || this.isDraggingGroupName
             || this.isDraggingCanvas || this.isAltPainting
@@ -2915,8 +2981,10 @@ class CanvasRenderer {
         if (!app || !hitLayer) return false;
         const owner = app.currentLayer;
         if (!owner || owner.id === hitLayer.id) return false;
-        const drawing = (this.viewMode === 'data-flow' && app.isCustomFlow && app.isCustomFlow(owner))
-            || (this.viewMode === 'power' && app.isCustomPower && app.isCustomPower(owner));
+        // The EDITING predicate, not the pattern: an overridden port open for
+        // redrawing draws with exactly the gestures whole-screen custom does.
+        const drawing = (this.viewMode === 'data-flow' && app.isCustomFlowEditing && app.isCustomFlowEditing(owner))
+            || (this.viewMode === 'power' && app.isCustomPowerEditing && app.isCustomPowerEditing(owner));
         if (!drawing) return false;
         if (typeof app.canPathReachLayer !== 'function') return false;
         return !!app.canPathReachLayer(owner, hitLayer);
@@ -3230,13 +3298,7 @@ class CanvasRenderer {
     // the hit test computed one; without it the target stays what it says
     // (one run, or the whole screen).
     _dockRunUnderlay(panels, layer, num) {
-        const t = window.app && window.app._dockDropTarget;
-        if (!t || t.layerId !== layer.id) return;
-        if (t.kind !== 'run' && t.kind !== 'screen') return;
-        const nums = Array.isArray(t.nums) ? t.nums : null;
-        if (t.kind === 'run'
-                && !(nums ? nums.includes(num) : t.num === num)) return;
-        if (t.kind === 'screen' && nums && !nums.includes(num)) return;
+        if (!this._runUnderlayLit(layer, num)) return;
         if (!panels || !panels.length) return;
         this.ctx.save();
         this.ctx.strokeStyle = 'rgba(120, 180, 255, 0.55)';
@@ -3258,6 +3320,27 @@ class CanvasRenderer {
         }
         this.ctx.stroke();
         this.ctx.restore();
+    }
+
+    // Should this run's underlay light up? Two askers share the one paint:
+    // the dock drag's drop target, exactly as before, and the held-Alt
+    // override hover (app.updateOverrideHover), which names one run in one
+    // view - the same highlight for both because they mean the same thing,
+    // "this is the run the gesture lands on".
+    _runUnderlayLit(layer, num) {
+        const hov = window.app && window.app._overrideHover;
+        if (hov && hov.layerId === layer.id && hov.num === num
+                && ((hov.kind === 'power') === (this.viewMode === 'power'))) {
+            return true;
+        }
+        const t = window.app && window.app._dockDropTarget;
+        if (!t || t.layerId !== layer.id) return false;
+        if (t.kind !== 'run' && t.kind !== 'screen') return false;
+        const nums = Array.isArray(t.nums) ? t.nums : null;
+        if (t.kind === 'run'
+                && !(nums ? nums.includes(num) : t.num === num)) return false;
+        if (t.kind === 'screen' && nums && !nums.includes(num)) return false;
+        return true;
     }
 
     getPanelAt(worldX, worldY) {
@@ -4736,6 +4819,17 @@ class CanvasRenderer {
     }
     
     setViewMode(mode) {
+        // An open override edit is a gesture of the view it began in; a tab
+        // switch closes it (the override itself stays). The hover highlight
+        // goes with it.
+        if (window.app && window.app._overrideEditing
+                && typeof window.app.endOverrideEdit === 'function') {
+            window.app.endOverrideEdit();
+        }
+        if (window.app && window.app._overrideHover
+                && typeof window.app.updateOverrideHover === 'function') {
+            window.app.updateOverrideHover(false, 0, 0);
+        }
         this.viewMode = mode;
         // Slice 6: rasterWidth/Height now read view-aware from the active
         // canvas via getters (pixel raster on pixel-map/cabinet-id, show
@@ -5821,6 +5915,10 @@ class CanvasRenderer {
             error = assignments.error;
             circuits = assignments.circuits || [];
             circuitRuns = assignments.runs || null;
+            // Per-run overrides: the engine numbers the rows itself (auto rows
+            // skip the overridden numbers, override rows keep theirs). Null on
+            // every screen without overrides, so idx + 1 stays the number.
+            circuitNumKeys = assignments.nums || null;
             // v0.12: an automatic circuit that crosses into a group peer names
             // the screen each cabinet is on. Null for every non-crossing plan,
             // which keeps the unscoped `${row},${col}` map below - and therefore
@@ -5970,6 +6068,7 @@ class CanvasRenderer {
                 const assignments = window.app.calculatePowerAssignments(layer);
                 layer._powerError = assignments.error;
                 layer._powerCircuits = assignments.circuits || [];
+                layer._powerCircuitNumKeys = assignments.nums || null;
             }
             if (layer._powerError || !Array.isArray(layer._powerCircuits)) {
                 this.ctx.restore();
@@ -6162,6 +6261,7 @@ class CanvasRenderer {
             layer._powerError = assignments.error;
             layer._powerCircuits = assignments.circuits || [];
             layer._powerCircuitRuns = assignments.runs || null;
+            layer._powerCircuitNumKeys = assignments.nums || null;
             layer._powerCircuitOwners = this._powerOwnerIdRows(layer, assignments.layers);
         }
         if (layer._powerError) {
@@ -6174,8 +6274,10 @@ class CanvasRenderer {
         const ownerById = (window.app && typeof window.app.getPathScopeLayers === 'function')
             ? new Map(window.app.getPathScopeLayers(layer).map(l => [l.id, l]))
             : null;
+        const autoNumKeys = layer._powerCircuitNumKeys;
         layer._powerCircuits.forEach((circuitPanels, idx) => {
             if (!circuitPanels || circuitPanels.length === 0) return;
+            const circuitNum = autoNumKeys ? autoNumKeys[idx] : idx + 1;
             const owners = layer._powerCircuitOwners && layer._powerCircuitOwners[idx];
             const crosses = Array.isArray(owners)
                 && owners.some(id => id != null && id !== layer.id);
@@ -6199,10 +6301,10 @@ class CanvasRenderer {
             if (counts && counts.length > 1) {
                 let off = 0;
                 drawCircuitBranches(
-                    counts.map(n => drawPanels.slice(off, off += n)), idx + 1);
+                    counts.map(n => drawPanels.slice(off, off += n)), circuitNum);
                 return;
             }
-            drawCircuit(drawPanels, idx + 1);
+            drawCircuit(drawPanels, circuitNum);
         });
 
         this.ctx.restore();
@@ -7857,7 +7959,7 @@ class CanvasRenderer {
     renderCustomSelectionOverlay() {
         if (!window.app || !window.app.currentLayer) return;
         const layer = window.app.currentLayer;
-        if (!window.app.isCustomFlow(layer)) return;
+        if (!window.app.isCustomFlowEditing(layer)) return;
 
         const selection = window.app.customSelection || new Set();
         if (selection.size === 0) return;
@@ -7868,7 +7970,7 @@ class CanvasRenderer {
     renderPowerSelectionOverlay() {
         if (!window.app || !window.app.currentLayer) return;
         const layer = window.app.currentLayer;
-        if (!window.app.isCustomPower(layer)) return;
+        if (!window.app.isCustomPowerEditing(layer)) return;
 
         const selection = window.app.powerCustomSelection || new Set();
         if (selection.size === 0) return;
@@ -8071,7 +8173,7 @@ class CanvasRenderer {
     renderCustomActivePortBadge() {
         if (!window.app || !window.app.currentLayer) return;
         const layer = window.app.currentLayer;
-        if (!window.app.isCustomFlow(layer)) return;
+        if (!window.app.isCustomFlowEditing(layer)) return;
         const portNum = layer.customPortIndex || 1;
         const label = window.app.getPortLabelText(layer, portNum, 'primary');
         const committedCount = this._getCustomPortPanelCount(layer, portNum);
@@ -8082,7 +8184,7 @@ class CanvasRenderer {
     renderPowerActiveCircuitBadge() {
         if (!window.app || !window.app.currentLayer) return;
         const layer = window.app.currentLayer;
-        if (!window.app.isCustomPower(layer)) return;
+        if (!window.app.isCustomPowerEditing(layer)) return;
         const circuitNum = layer.powerCustomIndex || 1;
         const label = window.app.getPowerCircuitLabel(layer, circuitNum);
         const committedCount = this._getCustomPowerCircuitPanelCount(layer, circuitNum);

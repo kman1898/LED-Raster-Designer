@@ -111,6 +111,16 @@
                  An impossible clear stays visible but disabled, with the
                  reason as its title - a row that cannot be clicked and does
                  not say why teaches nothing. -->
+            <!-- Per-run override: redraw the port/circuit run under the
+                 cursor by hand, or hand an overridden one back to the
+                 automatic walk. Armed by _prepareOverrideMenu (app-power.js)
+                 only when the right-click lands on a drawn run in Data Flow
+                 or Power; "back to auto" appears only where an override
+                 exists to drop. No data-label: the text names the run and is
+                 written at open time. -->
+            <div class="menu-divider ovr-redraw-only" style="display: none;"></div>
+            <div class="menu-option ovr-redraw-only" data-action="ovr-redraw" style="display: none;"></div>
+            <div class="menu-option ovr-auto-only" data-action="ovr-auto" style="display: none;"></div>
             <div class="menu-divider hw-clear-only" style="display: none;"></div>
             <div class="menu-option hw-clear-only" data-action="hw-clear" style="display: none;"></div>
             <!-- Merge-back: the reverse of the drop-implied multi split.

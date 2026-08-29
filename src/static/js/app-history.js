@@ -484,6 +484,10 @@ class _History {
                 source.customPortPaths, source.id, idMap);
             clone.powerCustomPaths = this.copyPathsForNewOwner(
                 source.powerCustomPaths, source.id, idMap);
+            // Per-run overrides ride with their paths; plain number arrays,
+            // nothing in them names a peer.
+            clone.customPortOverrides = (source.customPortOverrides || []).slice();
+            clone.powerCustomOverrides = (source.powerCustomOverrides || []).slice();
         });
         return list.length;
     }
@@ -713,6 +717,9 @@ class _History {
             powerLabelOverrides: JSON.parse(JSON.stringify(layer.powerLabelOverrides || {})),
             powerCustomPaths: dupPowerCustomPaths,
             powerCustomIndex: layer.powerCustomIndex,
+            // Per-run overrides travel with their paths. Plain number
+            // arrays - nothing in them names a peer, so no idMap pass.
+            powerCustomOverrides: (layer.powerCustomOverrides || []).slice(),
             // v0.11.0: the appearance block was listed ONLY in clientProps
             // below, which is applied to the response in the browser and never
             // sent. The copy therefore looked right and the server held a
@@ -825,6 +832,7 @@ class _History {
             powerLabelOverrides: JSON.parse(JSON.stringify(layer.powerLabelOverrides || {})),
             powerCustomPaths: dupPowerCustomPaths,
             powerCustomIndex: layer.powerCustomIndex,
+            powerCustomOverrides: (layer.powerCustomOverrides || []).slice(),
             showPowerCircuitInfo: !!layer.showPowerCircuitInfo,
             showDataFlowPortInfo: !!layer.showDataFlowPortInfo,
             showDataFlowPortLoad: !!layer.showDataFlowPortLoad,
@@ -837,6 +845,9 @@ class _History {
             portLabelOverridesReturn: JSON.parse(JSON.stringify(layer.portLabelOverridesReturn || {})),
             customPortPaths: dupCustomPortPaths,
             customPortIndex: layer.customPortIndex,
+            // Per-run overrides travel with their paths. Plain number
+            // arrays - nothing in them names a peer, so no idMap pass.
+            customPortOverrides: (layer.customPortOverrides || []).slice(),
             randomDataColors: !!layer.randomDataColors,
             arrowSize: layer.arrowSize,
             ..._carryShow(layer, 50, 50),
