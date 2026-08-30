@@ -267,6 +267,8 @@ def test_modal_fits_theme_and_offers_walkthrough(page):
         " return !!h && h.textContent.length > 0; }")
     first_title = page.evaluate(
         "() => document.querySelector('#qs-callout h3').textContent")
-    assert "What's new" in first_title, (
+    # Matched apostrophe-free: the title's curly quote is not the fact under
+    # test, the destination tour is.
+    assert "new in 0.12" in first_title, (
         f'the splash handed off to the wrong tour: {first_title!r}')
     page.evaluate("window.QuickStart.end()")
