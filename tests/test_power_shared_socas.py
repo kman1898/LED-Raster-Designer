@@ -515,7 +515,7 @@ def test_no_pins_keeps_todays_numbering_and_labels(page):
 # onto the hardware dock. One multi SECTION per box: when occupied its
 # header carries every member's inline name field (keys
 # power-soca-name-<layerId>-<socaIdx> - both on ONE header is what "one
-# physical box" looks like now), the detail reads "<legs> tails · <amps> A"
+# physical box" looks like now), the detail reads "<legs> circuits · <amps> A"
 # and the glance "<used>/6". The six circuit chips name holder and label per
 # tail, and clashes go red on the chips, on the section
 # (hw-dock-multi-clash) and as rows on the issue strip (#hw-dock-issues).
@@ -595,7 +595,7 @@ def test_dock_multi_reads_one_box_not_two_multis(page):
         'an unnamed member reads as the shared derived name'
     assert not out['staticLabel'], \
         'an occupied box wears its members, not a static slot label'
-    assert out['detail'] == '6 tails · 30.0 A', out
+    assert out['detail'] == '6 circuits · 30.0 A', out
     assert out['glance'] == '6/6', out
     assert not out['clashClass']
     assert [c['box'] for c in out['chips']] == ['multi-d1-3'] * 6, (
@@ -627,7 +627,7 @@ def test_dock_wears_the_clash(page):
     assert len(reds) == 3, f'one strip row per claimed tail: {out["strip"]}'
     assert all(not r['mild'] for r in reds), 'a clash is a red question'
     for t, r in zip((1, 2, 3), reds):
-        assert f'C2 3 tail {t} is claimed twice' in r['text'], r
+        assert f'C2 3 circuit {t} is claimed twice' in r['text'], r
         assert f'ON SL STRIP C2-3-{t}' in r['text'] \
             and f'CEN SL STRIP C2-3-{t}' in r['text'], r
 

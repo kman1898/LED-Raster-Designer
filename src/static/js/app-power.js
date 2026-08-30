@@ -1711,8 +1711,8 @@ class _Power {
                 `${b.full.map(f => esc(f.name)).join(', ')} ${b.full.length === 1 ? 'is' : 'are'} full — a full box balances itself, there is nothing to choose.`);
             b.clashed.forEach(c => lines.push(
                 `${esc(c.name)} (${esc(c.layers)}) is a shared box ${c.overflow
-                    ? 'with more circuits than its six tails hold'
-                    : 'with a tail claimed twice'} — resolve the clash first.`));
+                    ? 'with more circuits than the six it holds'
+                    : 'with a circuit claimed twice'} — resolve the clash first.`));
             b.phantom.forEach(p => lines.push(
                 `${esc(p.layers)} assigns ${p.count === 1 ? 'a multi' : p.count + ' multis'} to this distro but ${esc(p.reason)}`));
             noTargets = `<p style="margin:0 0 6px; color:#a6b0bb;">Nothing on this distro can move${lines.length ? ':' : ' — no partly-filled multi lands on it.'}</p>`
@@ -1731,7 +1731,7 @@ class _Power {
                  <span style="font-size:22px; color:#5fa85f;">${r.after.toFixed(1)}%</span>
                  <span style="color:#8fa0b2; font-size:11px;">worst-leg imbalance · ${gain.toFixed(1)} points better</span>
                </div>
-               <div style="font-size:11px; color:#8a949f; margin-bottom:6px;">Plug these circuits into different tails of the same
+               <div style="font-size:11px; color:#8a949f; margin-bottom:6px;">Re-plug these circuits along the same
                fan — no rewiring, no re-patching:</div>
                ${r.moves.map(m => `
                  <div style="margin-bottom:10px;">
@@ -1741,13 +1741,13 @@ class _Power {
                      ${m.to.map((p, k) => p === m.from[k] ? '' : `<tr>
                        <td style="padding:2px 8px; color:#a6b0bb; width:40%;">${esc((m.labels || [])[k] || `circuit ${k + 1}`)}
                          <span style="color:#6d7681;">(${m.amps[k].toFixed(1)} A)</span></td>
-                       <td style="padding:2px 8px; color:#a6b0bb;">tail ${m.from[k]} → <strong style="color:#e8eef5;">tail ${p}</strong></td>
+                       <td style="padding:2px 8px; color:#a6b0bb;">socket ${m.from[k]} → <strong style="color:#e8eef5;">socket ${p}</strong></td>
                      </tr>`).join('')}
                    </table>
                  </div>`).join('')}
-               <div style="margin-top:12px; font-size:11px; color:#7d8894;">Balancing picks WHICH tails of the fan a partly-filled
-               multi uses — skipping a different tail lands the remainder on
-               different legs. Circuits keep wall order on the chosen tails,
+               <div style="margin-top:12px; font-size:11px; color:#7d8894;">Balancing picks WHICH sockets of the fan a partly-filled
+               multi uses — skipping one lands the remainder on different
+               legs. Circuits keep wall order across the chosen sockets,
                so the labels still read in order across the wall.
                Evaluated ${r.searched} arrangements.</div>`;
 
@@ -2188,7 +2188,7 @@ class _Power {
             store[socaNum] = sorted;
         }
         this._circuitTailCache = null;
-        this.updateLayers([layer], true, 'Move Circuit Tails');
+        this.updateLayers([layer], true, 'Move Circuits');
         return true;
     }
 

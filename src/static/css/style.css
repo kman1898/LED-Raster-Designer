@@ -1530,3 +1530,46 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 .lrd-red-pair > .lrd-sec-collapsed:first-child ~ .lrd-red-backup {
     display: none !important;
 }
+
+/* ── power density pass (2026-08-30: "power is wayyy too cramped") ────────
+   The no-clip doctrine: figures never wrap mid-number, names flex instead
+   of clipping, and each surface owns an honest minimum width. */
+/* the amps glance and the voltage/figure tags hold their shape - a
+   "295.3/400 A" that breaks into "400 / A" is worse than a scrollbar */
+.hw-dock-unit-use, .hw-dock-unit-info { white-space: nowrap; flex: 0 0 auto; }
+/* inline names on a single-line header flex with the row, never below a
+   readable floor (the names-row variants below carry their own) */
+.hw-dock-head-row > .hw-dock-name {
+    flex: 1 1 64px; min-width: 56px; max-width: 220px;
+}
+/* The multi header reflows onto two lines: title/glance line, then the
+   member name + home-run length pairs on a full-width line of their own -
+   still inside the header, so fold and drag keep their one scope. */
+.hw-dock-multi > .hw-dock-head-row { flex-wrap: wrap; row-gap: 2px; }
+.hw-dock-names {
+    flex: 1 1 100%; display: flex; gap: 6px; align-items: baseline;
+    min-width: 0;
+}
+.hw-dock-names .hw-dock-name {
+    flex: 1 1 90px; min-width: 64px; max-width: 260px;
+}
+.hw-dock-names .hw-dock-name-len { flex: 0 1 56px; min-width: 44px; }
+/* A multi's chips render TWO per row - the rule, not an accident of
+   container width: 2 x 3 for a six-circuit box, chips wide enough that a
+   label + occupant never truncates. */
+.hw-dock-multi .lrd-tile-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+/* the distro unit's honest floor: one header line of name + amps +
+   Balance + bar + voltage + gear, none of it clipped */
+/* Three distros across, and the fourth WRAPS to a new row (user pick,
+   2026-08-30, from the rendered width options): a third of the tray each
+   is the width where nothing clips, and wrapping keeps every service
+   visible - a five-distro show just gets taller, never hides one
+   sideways. No grow: a lone distro on the last row keeps the same
+   third-width column instead of ballooning across the tray. */
+.hw-dock-distro {
+    flex: 0 0 calc((100% - 20px) / 3);
+    min-width: 380px;
+    max-width: 100%;
+}

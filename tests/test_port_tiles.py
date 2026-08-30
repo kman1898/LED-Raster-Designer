@@ -889,8 +889,8 @@ def test_the_multi_header_carries_the_inline_name_and_length(power_page):
     assert not out['staticLabel'], (
         f'an occupied multi still draws a static label beside its name '
         f'field: {out}')
-    assert re.match(r'^\d+ tails? · [\d.]+ A$', out['detail'] or ''), (
-        f'the detail is not "<legs> tails · <amps> A": {out}')
+    assert re.match(r'^\d+ circuits? · [\d.]+ A$', out['detail'] or ''), (
+        f'the detail is not "<legs> circuits · <amps> A": {out}')
     assert out['glance'] == f"{len(seeded['legs'])}/6", out
     # the demand-driven spare after the occupied box: static label, free
     assert out['spareDetail'] == 'free' and out['spareStatic'], out

@@ -240,7 +240,7 @@ WRITE_PATHS = [
         app.setSocaPhaseOffset(l, 1, 1, 4); }""",
      """(ids) => { const l = window.app.project.layers.find(x => x.id === ids[0]);
         return JSON.stringify(l.powerSocaPhaseOffset || {}); }"""),
-    ("Move Circuit Tails",
+    ("Move Circuits",
      None,
      """(ids) => { const app = window.app;
         const l = app.project.layers.find(x => x.id === ids[0]);

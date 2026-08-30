@@ -1301,7 +1301,9 @@ class _HardwareDock {
 
     _dockBuildDistro(d, load) {
         const unit = document.createElement('div');
-        unit.className = 'hw-dock-unit';
+        // hw-dock-distro is presentation only: the density pass gives the
+        // power units a wider no-clip floor than the data cards need.
+        unit.className = 'hw-dock-unit hw-dock-distro';
         const phase = Number(d.phase) === 3 ? '3φ' : '1φ';
         const head = this._dockBuildHandle(
             { type: 'distro', distroId: d.id, title: d.name || d.id },
@@ -1325,9 +1327,13 @@ class _HardwareDock {
         // so each distro carries its own), and the electrical setup -
         // rating, voltage, phase, phasing, location, remove - lives behind
         // the ⚙. The name edits inline where the header reads it.
-        const controls = [];
+        // Order settled 2026-08-30, second pass: the figures read first,
+        // the action sits with the gear - name · amps · bar · 208V·3φ ·
+        // Balance · ⚙. (The first pass tried Balance ahead of the bar;
+        // seeing it real, the user swapped it back.)
+        let bal = null;
         if (Number(d.phase) === 3) {
-            const bal = document.createElement('button');
+            bal = document.createElement('button');
             bal.className = 'btn hw-dock-btn';
             bal.textContent = 'Balance';
             bal.dataset.lrdField = `distro-balance-${d.id}`;
@@ -1339,7 +1345,6 @@ class _HardwareDock {
                 e.stopPropagation();
                 this.showBalanceDialog(d.id);
             });
-            controls.push(bal);
         }
         this._dockHeadAugment(head, {
             name: {
@@ -1353,7 +1358,6 @@ class _HardwareDock {
                     this._restateNaming();
                 },
             },
-            controls,
             gear: {
                 id: `distro-${d.id}`,
                 title: 'Configure this distro - rating, voltage, phase, '
@@ -1364,6 +1368,12 @@ class _HardwareDock {
                 },
             },
         });
+        if (bal) {
+            // after the voltage tag, before the gear: the gear is the
+            // header's last child, so inserting before it lands Balance
+            // beside it (a gearless header appends, harmlessly)
+            head.insertBefore(bal, head.querySelector('.hw-dock-gear'));
+        }
         unit.appendChild(head);
         // The LEGS line rides between the header and the foldable body, so
         // a folded distro still reads its balance at a glance - the
@@ -1490,7 +1500,7 @@ class _HardwareDock {
         if (overflow) {
             this._dockPowerWarnings.push({
                 text: `${boxName} — more circuits than the `
-                    + `${boxSize === 3 ? 'three' : 'six'} tails hold.`,
+                    + `${boxSize === 3 ? 'three' : 'six'} the box holds.`,
             });
         }
         // An L21-30 box's feed is rated per leg (30 A), and the box's
@@ -1514,7 +1524,7 @@ class _HardwareDock {
         byTail.forEach((list, t) => {
             if (list.length > 1) {
                 this._dockPowerWarnings.push({
-                    text: `${boxName} tail ${t} is claimed twice (`
+                    text: `${boxName} circuit ${t} is claimed twice (`
                         + `${list.map(h => `${h.who} ${h.label}`).join(' + ')}`
                         + ').',
                 });
@@ -1525,13 +1535,13 @@ class _HardwareDock {
             + (members.length
                 ? `${members.map(m => m.layerName).join(' and ')}, `
                     + (free.length
-                        ? `tails ${this._fmtTails(free)} free`
-                        : 'no tails free')
+                        ? `circuits ${this._fmtTails(free)} free`
+                        : 'no circuits free')
                 : 'free')
             + (feedLegA > 0
                 ? `. L21-30 feed, ${feedLegA} A per leg` : '')
             + (overflow ? `. OVERFLOW - more circuits than the `
-                + `${boxSize === 3 ? 'three' : 'six'} tails hold` : '')
+                + `${boxSize === 3 ? 'three' : 'six'} the box holds` : '')
             + '. Drag onto a circuit to land that circuit\'s multi here - '
             + 'the first circuit takes the whole multi, a later circuit '
             + 'splits it there and this box takes the rest'
@@ -1545,7 +1555,7 @@ class _HardwareDock {
             `slot-${d.id}-${n}`,
             memberRecs.length ? '' : `${d.name || d.id} ${n}`,
             memberRecs.length
-                ? `${legs} tail${legs === 1 ? '' : 's'} · `
+                ? `${legs} circuit${legs === 1 ? '' : 's'} · `
                     + `${boxAmps.toFixed(1)} A`
                 : 'free',
             tip,
@@ -1565,33 +1575,42 @@ class _HardwareDock {
         // (following the distro), so an unnamed box still reads as its
         // identity; typed text stops following. Usually one member; a
         // shared box carries one pair per member, told apart by title.
-        memberRecs.forEach(({ layer, m, s }) => {
-            const nameField = this._dockHeadName({
-                value: (layer.powerSocaNames || {})[m.soca],
-                placeholder: (s && s.name) || `${d.name || d.id} ${n}`,
-                key: `power-soca-name-${layer.id}-${m.soca}`,
-                title: `Name ${layer.name}'s multi by hand. Left blank it `
-                    + 'follows its distro - multis on a distro named SL are '
-                    + 'SL1, SL2 - so renaming the distro renames them all.',
-                onCommit: (val) => {
-                    this.setSocaName(layer, m.soca, val);
-                    this._restateNaming();
-                },
+        // The fields live on a LINE of their own under the glance line
+        // (density pass, 2026-08-30: one row could not hold two member
+        // pairs plus the figures without clipping something) - still
+        // inside the header, so the fold and the drag keep their scope.
+        if (memberRecs.length) {
+            const namesRow = document.createElement('span');
+            namesRow.className = 'hw-dock-names';
+            memberRecs.forEach(({ layer, m, s }) => {
+                const nameField = this._dockHeadName({
+                    value: (layer.powerSocaNames || {})[m.soca],
+                    placeholder: (s && s.name) || `${d.name || d.id} ${n}`,
+                    key: `power-soca-name-${layer.id}-${m.soca}`,
+                    title: `Name ${layer.name}'s multi by hand. Left blank `
+                        + 'it follows its distro - multis on a distro named '
+                        + 'SL are SL1, SL2 - so renaming the distro renames '
+                        + 'them all.',
+                    onCommit: (val) => {
+                        this.setSocaName(layer, m.soca, val);
+                        this._restateNaming();
+                    },
+                });
+                namesRow.appendChild(nameField);
+                const len = this._dockHeadName({
+                    value: (layer.powerSocaLengths || {})[m.soca]
+                        || (s && s.length) || '',
+                    placeholder: '100ft',
+                    key: `power-soca-length-${layer.id}-${m.soca}`,
+                    title: `${layer.name}'s home-run length for this multi - `
+                        + 'it flows into the gear checklist and report.',
+                    onCommit: (val) => this.setSocaLength(layer, m.soca, val),
+                });
+                len.classList.add('hw-dock-name-len');
+                namesRow.appendChild(len);
             });
-            head.insertBefore(nameField, head.querySelector(
-                '.hw-dock-unit-use, .hw-dock-headbar, .hw-dock-unit-info'));
-            const len = this._dockHeadName({
-                value: (layer.powerSocaLengths || {})[m.soca]
-                    || (s && s.length) || '',
-                placeholder: '100ft',
-                key: `power-soca-length-${layer.id}-${m.soca}`,
-                title: `${layer.name}'s home-run length for this multi - `
-                    + 'it flows into the gear checklist and report.',
-                onCommit: (val) => this.setSocaLength(layer, m.soca, val),
-            });
-            len.classList.add('hw-dock-name-len');
-            head.appendChild(len);
-        });
+            head.appendChild(namesRow);
+        }
         sec.appendChild(head);
         const body = this._dockSectionBody(sec, head,
                                            `hwdock-multi-${d.id}-${n}`);
@@ -1647,11 +1666,11 @@ class _HardwareDock {
         face.appendChild(who);
         tile.appendChild(face);
 
-        face.title = `Tail ${t} - ` + (holders.length
+        face.title = `Circuit ${t} - ` + (holders.length
             ? holders.map(h => `${h.who} ${h.label}`).join(', ')
                 + (holders.length > 1 ? ' (claimed twice)' : '')
             : 'free')
-            + '. Drag onto a circuit to put that ONE circuit on this tail'
+            + '. Drag onto a circuit to land that ONE circuit here'
             + (holders.length ? '; click to edit its label.' : '.');
 
         // An occupied chip is the circuit's editor too, the port chips'
@@ -2380,7 +2399,7 @@ class _HardwareDock {
                     // The place-overflow refusal, in tails: a box with no
                     // free tail takes nothing, and the split does not
                     // happen for nothing.
-                    this._dockSay(`${payload.title} has no free tails - `
+                    this._dockSay(`${payload.title} has no free circuits - `
                         + `the ${r.tailLen} circuit`
                         + `${r.tailLen === 1 ? '' : 's'} from ${label} on `
                         + `stay with ${rec.name || 'their multi'}.`);
@@ -2390,7 +2409,7 @@ class _HardwareDock {
                     // Take-what-fits, said out loud - the same convention
                     // place-overflow follows with spare ports.
                     this._dockSay(`${payload.title} had ${r.free} free `
-                        + `tail${r.free === 1 ? '' : 's'} - took ${r.took} `
+                        + `circuit${r.free === 1 ? '' : 's'} - took ${r.took} `
                         + `of the ${r.tailLen} circuits from ${label} on; `
                         + 'the rest stay as their own unassigned multi.');
                 }

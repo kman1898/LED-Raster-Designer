@@ -549,7 +549,7 @@ def test_dock_chips_match_authority_for_balanced_multi(page):
     assert [c['placeholder'] for c in out['chips']] == labels, \
         'the label editors must print the authority labels'
     for c, label in zip(out['chips'], labels):
-        assert f'Tail {c["tail"]}' in c['title'], \
+        assert f'Circuit {c["tail"]}' in c['title'], \
             'the chip tooltip names the physical tail'
         assert label in c['title'], \
             'the chip tooltip names the circuit like the canvas bubble does'
@@ -558,8 +558,8 @@ def test_dock_chips_match_authority_for_balanced_multi(page):
         'each editor is keyed to its holder circuit, in wall order'
     assert out['multiName'] == 'S1', \
         'the multi header keeps its derived name (as the name placeholder)'
-    assert out['multiDetail'] == '5 tails \u00b7 25.0 A', \
-        'the multi header keeps its tail count and amps'
+    assert out['multiDetail'] == '5 circuits \u00b7 25.0 A', \
+        'the multi header keeps its circuit count and amps'
 
 
 def test_dock_chip_tails_stay_sequential_when_unbalanced(page):
@@ -627,7 +627,7 @@ def test_balance_dialog_names_circuits_by_their_labels(page):
     # natural [1..5] -> best [1,2,3,5,6]: circuits 4 and 5 move, and the
     # dialog names them D1-4 and D1-5 - their labels on the canvas today
     assert 'D1-4 (' in out['body'] and 'D1-5 (' in out['body']
-    assert 'tail 4 \u2192' in out['body']
+    assert 'socket 4 \u2192' in out['body']
     assert not out['ordinal'], 'no "circuit N" ordinals anywhere in the dialog'
     assert out['modalGone']
     assert out['tailsAfter'] == ['1', '2', '3', '5', '6'], \

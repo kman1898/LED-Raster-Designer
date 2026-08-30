@@ -584,7 +584,7 @@ def test_the_issues_strip_warns_offers_and_hides_when_empty(dock_page):
     clash = [r for r in st['rows'] if 'claimed twice' in r['text']]
     assert clash and not clash[0]['mild'], (
         f'the twice-claimed tail must warn red: {st}')
-    assert 'PD 1 tail 1' in clash[0]['text'], st
+    assert 'PD 1 circuit 1' in clash[0]['text'], st
     assert 'WALL A' in clash[0]['text'] and 'WALL B' in clash[0]['text'], st
     page.evaluate(RESET_POWER_JS, ids)
     page.wait_for_timeout(300)
@@ -2266,7 +2266,7 @@ def test_a_multi_section_wears_six_circuit_chips(dock_page):
     # the chip face says tail number + derived label + occupant screen
     assert 'C2-2-1' in occ[0]['text'] and 'OFF SL' in occ[0]['text'], occ
     assert 'OFF SL' in occ[0]['title'] and 'C2-2-1' in occ[0]['title'], occ
-    assert 'Tail 5 - free' in occ[4]['title'], occ
+    assert 'Circuit 5 - free' in occ[4]['title'], occ
     assert 'free' in occ[4]['text'], occ
     empty = out['empty']
     assert empty and len(empty) == 6 and all(empty), out
@@ -2485,7 +2485,7 @@ def test_a_drop_on_a_box_with_no_free_tail_refuses_with_the_counts(dock_page):
     }""", st)
     assert out['splits'] == [] and out['distro'] == {}, (
         f'a refused drop mutated the wall: {out}')
-    assert 'no free tails' in out['said'], out
+    assert 'no free circuits' in out['said'], out
     assert page.evaluate(HIST_LEN_JS) == before, (
         'a refusal must write no history entry')
     split_clean(page, ids, st)
