@@ -3099,8 +3099,12 @@ def test_every_dock_section_kind_folds_and_persists(dock_page):
         st = page.evaluate(FOLD_STATE_JS, sec)
         assert st['collapsed'] and st['bodyHidden'], (
             f'{sec} forgot its fold across a rebuild: {st}')
-        # double-click anywhere on the header is the other unfold gesture
-        page.locator(f'[data-lrd-sec="{sec}"]').dblclick()
+        # double-click on the header is the other unfold gesture - aimed at
+        # the grip, because a dblclick landing on a header CONTROL is that
+        # control's by design (the name input selects text, it never
+        # folds), and a folded section now shrinks to its natural width,
+        # which puts the header's center on the name input
+        page.locator(f'[data-lrd-sec="{sec}"] .hw-dock-grip').dblclick()
         page.wait_for_timeout(250)
         st = page.evaluate(FOLD_STATE_JS, sec)
         assert not st['collapsed'] and st['stored'] == '0', (

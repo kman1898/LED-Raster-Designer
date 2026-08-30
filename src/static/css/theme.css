@@ -481,10 +481,20 @@ select, .info-select {
 
 /* ---- units and boxes: framed tiles on the tray, headers as mini
    titlebars. Grounds stay DARK below the chips' #0d0d0d/#1e1e1e rungs so
-   an occupied chip keeps reading as the lit one. ---- */
+   an occupied chip keeps reading as the lit one. ----
+   Outline pass (2026-08-30: "outline each processors and distro...right
+   now they are all grey and it is hard to read"): the hierarchy must read
+   at a squint - UNIT > box > chip. A top-level unit (a processor card, a
+   distro) wears the brightest frame on the tray plus a dark moat (a
+   spread ring in the ground tone) so adjacent units separate even where
+   the gap is thin; a nested box keeps a clearly quieter grey one rung up
+   from invisible. State colours (clash red, backup gold) are declared
+   AFTER these rules and still win. */
 .hw-dock-unit {
-  background:var(--ps-inset) !important; border:1px solid var(--ps-dark) !important;
-  border-radius:4px !important; box-shadow:inset 0 1px 0 rgba(255,255,255,0.05), 0 1px 3px rgba(0,0,0,0.4);
+  background:var(--ps-inset) !important; border:1px solid #565656 !important;
+  border-radius:4px !important;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.05),
+             0 0 0 2px rgba(0,0,0,0.45), 0 2px 5px rgba(0,0,0,0.5);
   padding:0 0 5px !important; overflow:hidden;
 }
 .hw-dock-unit > .hw-dock-head-row,
@@ -497,7 +507,7 @@ select, .info-select {
 .hw-dock-unit.lrd-sec-collapsed { padding-bottom:0 !important; }
 .hw-dock-unit.lrd-sec-collapsed > .hw-dock-head-row { border-bottom:none; }
 .hw-dock-box {
-  background:var(--ps-inset) !important; border:1px solid var(--ps-dark) !important;
+  background:var(--ps-inset) !important; border:1px solid #383838 !important;
   border-left:2px solid #4a4a4a !important; border-radius:4px !important;
   padding:0 0 5px !important; overflow:hidden;
 }

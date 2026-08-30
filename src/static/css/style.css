@@ -1566,10 +1566,32 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
    2026-08-30, from the rendered width options): a third of the tray each
    is the width where nothing clips, and wrapping keeps every service
    visible - a five-distro show just gets taller, never hides one
-   sideways. No grow: a lone distro on the last row keeps the same
-   third-width column instead of ballooning across the tray. */
+   sideways. Grow is capped, not banned (fold pass, same day): an expanded
+   distro may take the room a folded neighbour freed, but the max-width
+   keeps a lone distro from ballooning the full tray. */
 .hw-dock-distro {
-    flex: 0 0 calc((100% - 20px) / 3);
+    flex: 1 1 calc((100% - 20px) / 3);
     min-width: 380px;
-    max-width: 100%;
+    max-width: 600px;
+}
+/* ── fold reflow (2026-08-30: "SR is collapsed and SL is not filling the
+   empty space") ──────────────────────────────────────────────────────────
+   A folded unit is just its header (plus the distro's always-on LEGS
+   line), so it stops claiming a full column: basis auto lets it sit at
+   its natural width, and the expanded neighbours' grow soaks up the room
+   it frees. The max-width caps the natural width (a name input's
+   intrinsic size runs wide); the header's own min-widths (name floor,
+   nowrap figures) are what protect it from clipping, since wrap layout
+   never shrinks an item below its hypothetical size. */
+#hardware-dock-body .hw-dock-unit.lrd-sec-collapsed {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 300px;
+}
+/* the distro's folded floor is wider: name + amps + bar + voltage +
+   Balance + gear on one line, then the LEGS line - none of it clipped */
+#hardware-dock-body .hw-dock-distro.lrd-sec-collapsed {
+    flex: 0 1 auto;
+    min-width: 360px;
+    max-width: 380px;
 }
