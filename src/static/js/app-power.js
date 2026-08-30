@@ -1363,7 +1363,10 @@ class _Power {
     // A multi named by hand. Per-MULTI, so unlike the bracket toggle and the
     // breakout type it never sweeps the selection (_socaPanelTargets): a name
     // belongs to one multi on one screen. Blank hands it back to the distro.
-    setSocaName(layer, socaIndex, name) {
+    // `record` mirrors setSocaDistro's: false lets a composite gesture (the
+    // dock's one-field-per-box header writing through to every member of a
+    // shared box) fold this write into its own single history entry.
+    setSocaName(layer, socaIndex, name, record = true) {
         if (!layer) return;
         // Always leave an object behind, never delete the property: an absent
         // key is simply missing from the update payload and the server keeps
@@ -1372,7 +1375,9 @@ class _Power {
         const v = String(name || '').trim();
         if (v) store[socaIndex] = v; else delete store[socaIndex];
         this._circuitTailCache = null;
-        this.updateLayers([layer], true, 'Rename Multi');
+        if (record) {
+            this.updateLayers([layer], true, 'Rename Multi');
+        }
     }
 
     // Every PARTLY-FILLED multi that lands on a 3-phase distro, with the
@@ -2427,12 +2432,16 @@ class _Power {
 
     // Keyed by the multi's stable index, like every other per-multi store, so
     // a home run stays with its multi when the distro renumbers it.
-    setSocaLength(layer, socaIndex, length) {
+    // `record` mirrors setSocaName's: false for the dock's shared-box
+    // write-through, which issues one updateLayers over every member itself.
+    setSocaLength(layer, socaIndex, length, record = true) {
         if (!layer) return;
         const store = layer.powerSocaLengths || (layer.powerSocaLengths = {});
         const v = String(length || '').trim();
         if (v) store[socaIndex] = v; else delete store[socaIndex];
-        this.updateLayers([layer], true, 'Set Multi Home Run');
+        if (record) {
+            this.updateLayers([layer], true, 'Set Multi Home Run');
+        }
     }
 
     // The distro list died with the Power sidebar: the dock's distro

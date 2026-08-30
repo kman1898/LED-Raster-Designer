@@ -1584,46 +1584,62 @@ class _HardwareDock {
                     || (capA > 0 && boxAmps > capA * boxSize),
                 text: `${boxSize - free.length}/${boxSize}`,
             });
-        // An occupied box's header carries its members' NAME and home-run
-        // LENGTH inline - the fields the retired soca tiles held, on the
-        // box they describe. The name's placeholder is the derived name
-        // (following the distro), so an unnamed box still reads as its
-        // identity; typed text stops following. Usually one member; a
-        // shared box carries one pair per member, told apart by title.
-        // The fields live on a LINE of their own under the glance line
-        // (density pass, 2026-08-30: one row could not hold two member
-        // pairs plus the figures without clipping something) - still
-        // inside the header, so the fold and the drag keep their scope.
+        // An occupied box's header carries its NAME and home-run LENGTH
+        // inline - the fields the retired soca tiles held, on the box they
+        // describe. ONE pair regardless of member count (2026-08-30, user
+        // screenshot of "SR1 [100ft] SR1 [100ft] SR1 [100ft]": a multi
+        // shared by N screens is ONE physical box with ONE home run, so N
+        // identical pairs were N-1 too many). The fields show the FIRST
+        // member's stored values and every commit writes through to ALL
+        // members as one undo entry, so disagreeing legacy values converge
+        // on the first edit. Keys stay the first member's, so focus-restore
+        // and the key-based lookups keep a stable anchor; the other
+        // members' field keys simply no longer exist in the DOM.
+        // The name's placeholder is the derived name (following the
+        // distro), so an unnamed box still reads as its identity; typed
+        // text stops following. The fields live on a LINE of their own
+        // under the glance line (density pass, 2026-08-30) - still inside
+        // the header, so the fold and the drag keep their scope.
         if (memberRecs.length) {
             const namesRow = document.createElement('span');
             namesRow.className = 'hw-dock-names';
-            memberRecs.forEach(({ layer, m, s }) => {
-                const nameField = this._dockHeadName({
-                    value: (layer.powerSocaNames || {})[m.soca],
-                    placeholder: (s && s.name) || `${d.name || d.id} ${n}`,
-                    key: `power-soca-name-${layer.id}-${m.soca}`,
-                    title: `Name ${layer.name}'s multi by hand. Left blank `
-                        + 'it follows its distro - multis on a distro named '
-                        + 'SL are SL1, SL2 - so renaming the distro renames '
-                        + 'them all.',
-                    onCommit: (val) => {
-                        this.setSocaName(layer, m.soca, val);
-                        this._restateNaming();
-                    },
+            const first = memberRecs[0];
+            const writeThrough = (setter, action, val) => {
+                memberRecs.forEach(({ layer, m }) => {
+                    setter.call(this, layer, m.soca, val, false);
                 });
-                namesRow.appendChild(nameField);
-                const len = this._dockHeadName({
-                    value: (layer.powerSocaLengths || {})[m.soca]
-                        || (s && s.length) || '',
-                    placeholder: '100ft',
-                    key: `power-soca-length-${layer.id}-${m.soca}`,
-                    title: `${layer.name}'s home-run length for this multi - `
-                        + 'it flows into the gear checklist and report.',
-                    onCommit: (val) => this.setSocaLength(layer, m.soca, val),
-                });
-                len.classList.add('hw-dock-name-len');
-                namesRow.appendChild(len);
+                this.updateLayers(memberRecs.map(r => r.layer), true, action);
+            };
+            const nameField = this._dockHeadName({
+                value: (first.layer.powerSocaNames || {})[first.m.soca],
+                placeholder: (first.s && first.s.name)
+                    || `${d.name || d.id} ${n}`,
+                key: `power-soca-name-${first.layer.id}-${first.m.soca}`,
+                title: 'Name this multi by hand - all screens sharing the '
+                    + 'box follow. Left blank it follows its distro - '
+                    + 'multis on a distro named SL are SL1, SL2 - so '
+                    + 'renaming the distro renames them all.',
+                onCommit: (val) => {
+                    writeThrough(this.setSocaName, 'Rename Multi', val);
+                    this._restateNaming();
+                },
             });
+            namesRow.appendChild(nameField);
+            const len = this._dockHeadName({
+                value: (first.layer.powerSocaLengths || {})[first.m.soca]
+                    || (first.s && first.s.length) || '',
+                placeholder: '100ft',
+                key: `power-soca-length-${first.layer.id}-${first.m.soca}`,
+                title: 'The box\'s home-run length - one run for every '
+                    + 'screen sharing it. It flows into the gear checklist '
+                    + 'and report.',
+                onCommit: (val) => {
+                    writeThrough(this.setSocaLength,
+                                 'Set Multi Home Run', val);
+                },
+            });
+            len.classList.add('hw-dock-name-len');
+            namesRow.appendChild(len);
             head.appendChild(namesRow);
         }
         sec.appendChild(head);

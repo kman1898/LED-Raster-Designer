@@ -512,13 +512,16 @@ def test_no_pins_keeps_todays_numbering_and_labels(page):
 # ── 8. the dock says one box, and the strip says what is wrong ────────────
 #
 # The soca tiles died with the Power sidebar; the shared box's facts moved
-# onto the hardware dock. One multi SECTION per box: when occupied its
-# header carries every member's inline name field (keys
-# power-soca-name-<layerId>-<socaIdx> - both on ONE header is what "one
-# physical box" looks like now), the detail reads "<legs> circuits · <amps> A"
-# and the glance "<used>/6". The six circuit chips name holder and label per
-# tail, and clashes go red on the chips, on the section
-# (hw-dock-multi-clash) and as rows on the issue strip (#hw-dock-issues).
+# onto the hardware dock. One multi SECTION per box, and (ruling 2026-08-30,
+# user screenshot of "SR1 [100ft] SR1 [100ft] SR1 [100ft]") ONE name field
+# and ONE home-run length field regardless of member count - a multi shared
+# by N screens is ONE physical box with ONE home run. The fields anchor on
+# the FIRST member's keys (power-soca-name-<layerId>-<socaIdx>) and write
+# through to every member; the other members' field keys no longer exist in
+# the DOM. The detail reads "<legs> circuits · <amps> A" and the glance
+# "<used>/6". The six circuit chips name holder and label per tail, and
+# clashes go red on the chips, on the section (hw-dock-multi-clash) and as
+# rows on the issue strip (#hw-dock-issues).
 
 SHOW_BOX_JS = """(cfg) => {
     const sh = window.__sh;
@@ -554,8 +557,8 @@ SHOW_BOX_JS = """(cfg) => {
                     };
                 }) : null;
             return {
-                oneHeader: !!(head && nameB && head.contains(nameB)),
-                placeholders: [nameA, nameB].map(i => i && i.placeholder),
+                oneField: !!(nameA && !nameB),
+                placeholder: nameA && nameA.placeholder,
                 staticLabel: !!(head
                     && head.querySelector('.hw-dock-unit-name')),
                 detail: sec
@@ -580,19 +583,23 @@ SHOW_BOX_JS = """(cfg) => {
 
 
 def test_dock_multi_reads_one_box_not_two_multis(page):
-    """The shared box is ONE multi section on the dock: both members' name
-    fields ride one header (placeholder = the derived shared name), the
-    detail and glance carry the combined figures, and the chips name each
-    member on exactly its tails. The slot is stated by the chips' own box
-    key (multi-<distro>-<n>) - the old Distro/No. selects and their panel
-    are gone: picking a slot is the dock's drag."""
+    """The shared box is ONE multi section on the dock with ONE name field
+    (ruling 2026-08-30: one physical box, one home run - N identical
+    member pairs were N-1 too many), keyed by the FIRST member and
+    wearing the derived shared name as placeholder; the second member's
+    field key exists nowhere. The detail and glance carry the combined
+    figures, and the chips name each member on exactly its tails. The
+    slot is stated by the chips' own box key (multi-<distro>-<n>) - the
+    old Distro/No. selects and their panel are gone: picking a slot is
+    the dock's drag."""
     out = page.evaluate(SHOW_BOX_JS, {})
     assert not out['retiredPanel'], \
         'the retired Power sidebar soca panel is back'
-    assert out['oneHeader'], (
-        f'both members must share ONE multi header: {out}')
-    assert out['placeholders'] == ['C2-3', 'C2-3'], \
-        'an unnamed member reads as the shared derived name'
+    assert out['oneField'], (
+        f'the shared box must carry exactly ONE name field, anchored on '
+        f'the first member\'s key: {out}')
+    assert out['placeholder'] == 'C2-3', \
+        'the one field reads as the shared derived name'
     assert not out['staticLabel'], \
         'an occupied box wears its members, not a static slot label'
     assert out['detail'] == '6 circuits · 30.0 A', out
@@ -678,6 +685,97 @@ def test_pin_round_trips_and_undoes_on_the_real_server(page):
     assert out['serverPin'] == {'1': 4}, \
         'the pin must survive the PUT allow-list and the echo re-stamp'
     assert out['clientAfterUndo'] == {}, 'one undo removes the pin'
+
+
+def test_one_field_writes_through_every_member_and_one_undo_walks_back(page):
+    """Ruling 2026-08-30 (user screenshot of "SR1 [100ft] SR1 [100ft]
+    SR1 [100ft]"): a shared box is ONE physical box with ONE home run, so
+    its header carries ONE name field and ONE length field, anchored on
+    the FIRST member's keys. The field shows the first member's stored
+    value even when legacy per-member values disagree, and a commit
+    writes through to EVERY member - one history entry, one PUT batch -
+    so the first edit converges the disagreement and one undo walks all
+    members back."""
+    out = page.evaluate("""async () => {
+        const app = window.app;
+        const mk = (name, ox) => fetch('/api/layer/add', { method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, columns: 3, rows: 5,
+                cabinet_width: 128, cabinet_height: 128,
+                offset_x: ox, offset_y: 0 }) }).then(r => r.json());
+        const a = await mk('ShareOneA', 3000);
+        const b = await mk('ShareOneB', 3700);
+        app.project = await (await fetch('/api/project')).json();
+        const A = app.project.layers.find(l => l.id === a.id);
+        const B = app.project.layers.find(l => l.id === b.id);
+        for (const L of [A, B]) {
+            L.powerVoltage = '100'; L.powerAmperage = '5';
+            L.panelWatts = '100'; L.powerOrganized = true;
+            L.powerMaximize = false; L.powerFlowPattern = 'tl-v';
+        }
+        if (!app.project.distros) app.project.distros = [];
+        app.project.distros.push({ id: 'd78', name: 'WT', ratingA: 400,
+                                   voltage: 208, phase: 3 });
+        // one box - both pinned to (d78, 1) - with DISAGREEING legacy
+        // per-member values, the state the old two-field header could
+        // leave behind
+        A.powerSocaDistro = { 1: 'd78' }; A.powerSocaNumber = { 1: 1 };
+        B.powerSocaDistro = { 1: 'd78' }; B.powerSocaNumber = { 1: 1 };
+        A.powerSocaNames = { 1: 'FIRST' };
+        B.powerSocaNames = { 1: 'SECOND' };
+        A.powerSocaLengths = { 1: '50ft' };
+        B.powerSocaLengths = { 1: '75ft' };
+        app._circuitTailCache = null;
+        app.renderHardwareDock();
+        // Baseline the hand-stamped seed state: undo restores the PREVIOUS
+        // history entry, and the direct mutations above never snapshotted.
+        app.saveState('Seed Shared Box');
+        const q = (k) => document.querySelector(
+            `[data-lrd-field="${k}"]`);
+        const nameField = q(`power-soca-name-${a.id}-1`);
+        const lenField = q(`power-soca-length-${a.id}-1`);
+        const shown = {
+            name: nameField && nameField.value,
+            len: lenField && lenField.value,
+            secondMemberField: !!q(`power-soca-name-${b.id}-1`)
+                || !!q(`power-soca-length-${b.id}-1`),
+        };
+        const h0 = app.history.length;
+        nameField.value = 'HOUSE';
+        nameField.dispatchEvent(new Event('change'));
+        await new Promise(r => setTimeout(r, 800));
+        const entries = app.history.slice(h0).map(e => e.action);
+        const client = [A, B].map(L => (L.powerSocaNames || {})['1']
+                                        || (L.powerSocaNames || {})[1]);
+        const server = await (await fetch('/api/project')).json();
+        const sVals = [a.id, b.id].map(id => {
+            const l = server.layers.find(x => x.id === id) || {};
+            return (l.powerSocaNames || {})['1'];
+        });
+        await app.undo();
+        await new Promise(r => setTimeout(r, 800));
+        const walked = [a.id, b.id].map(id => {
+            const l = app.project.layers.find(x => x.id === id);
+            return ((l && l.powerSocaNames) || {})['1']
+                || ((l && l.powerSocaNames) || {})[1];
+        });
+        await fetch('/api/layer/' + a.id, { method: 'DELETE' });
+        await fetch('/api/layer/' + b.id, { method: 'DELETE' });
+        return { shown, entries, client, sVals, walked };
+    }""")
+    assert not out['shown']['secondMemberField'], (
+        f'the second member grew its own field - one box, one pair: {out}')
+    assert out['shown'] == {'name': 'FIRST', 'len': '50ft',
+                            'secondMemberField': False}, (
+        f'disagreeing legacy values must show the FIRST member\'s: {out}')
+    assert out['entries'] == ['Rename Multi'], (
+        f'one commit must be exactly one history entry: {out["entries"]}')
+    assert out['client'] == ['HOUSE', 'HOUSE'], (
+        f'the commit must write through to every member: {out}')
+    assert out['sVals'] == ['HOUSE', 'HOUSE'], (
+        f'the write-through must land on the server for both members: {out}')
+    assert out['walked'] == ['FIRST', 'SECOND'], (
+        f'one undo must walk every member back: {out}')
 
 
 # ── 10. multi splits: a chosen boundary, not fixed arithmetic ─────────────
@@ -1132,7 +1230,6 @@ SAME_NAME_JS = """(joinThem) => {
                 '[data-lrd-field="power-soca-name-49-1"]');
             const nameB = document.querySelector(
                 '[data-lrd-field="power-soca-name-50-1"]');
-            const headA = nameA && nameA.closest('.hw-dock-head-row');
             return {
                 rows: [...document.querySelectorAll(
                     '#hw-dock-issues .hw-dock-issue')].map(r => ({
@@ -1140,7 +1237,7 @@ SAME_NAME_JS = """(joinThem) => {
                         mild: r.classList.contains('hw-dock-issue-mild'),
                     })),
                 values: [nameA && nameA.value, nameB && nameB.value],
-                oneHeader: !!(headA && nameB && headA.contains(nameB)),
+                fields: [!!nameA, !!nameB],
             };
         } finally { app.currentLayer = savedLayer; }
     });
@@ -1154,8 +1251,10 @@ def test_same_name_on_two_numbers_warns_amber_and_the_join_clears_it(page):
     block) naming both holders, their numbers, and the way out - stated
     once per (distro, name) because the collision is symmetric. Pinning
     both to one number - the shared-box gesture - clears the row and the
-    two headers become one: both members' name fields on one multi
-    section."""
+    two headers become one section with ONE name field (ruling
+    2026-08-30: one physical box, one field pair - the field anchors on
+    the first member's key and the second member's key leaves the
+    DOM)."""
     out = page.evaluate(SAME_NAME_JS, False)
     warns = [r for r in out['rows'] if 'names two multis' in r['text']]
     assert len(warns) == 1, (
@@ -1165,17 +1264,17 @@ def test_same_name_on_two_numbers_warns_amber_and_the_join_clears_it(page):
     for piece in ('K1 names two multis on SR', 'WallA at No. 1',
                   'WallB at No. 2', 'Same box? Pin both to No. 1.'):
         assert piece in row['text'], f'{piece!r} missing: {row["text"]}'
+    assert out['fields'] == [True, True], \
+        'two numbers are two boxes - a field on each header'
     assert out['values'] == ['K1', 'K1'], out
-    assert not out['oneHeader'], \
-        'two numbers are two boxes - two dock headers'
 
     joined = page.evaluate(SAME_NAME_JS, True)
     assert not any('names two multis' in r['text']
                    for r in joined['rows']), joined['rows']
-    assert joined['oneHeader'], (
-        'pinned to one number they are one box - both name fields on one '
-        f'header: {joined}')
-    assert joined['values'] == ['K1', 'K1'], joined
+    assert joined['fields'] == [True, False], (
+        'pinned to one number they are one box - ONE name field, the '
+        f'first member\'s: {joined}')
+    assert joined['values'][0] == 'K1', joined
 
 
 # ── 12. stored tails are law; joining materializes the incumbents ─────────
