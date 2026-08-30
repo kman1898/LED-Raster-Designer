@@ -260,11 +260,13 @@ def test_modal_fits_theme_and_offers_walkthrough(page):
     # the fallback for a quickstart without the tour registry).
     page.click('#whatsnew-tour')
     assert not _modal_visible(page)
+    # The catch overlay shows a beat before the callout paints, so wait for
+    # the title itself, not the catch.
     page.wait_for_function(
-        "() => { const c = document.getElementById('qs-catch');"
-        " return !!c && c.style.display !== 'none'; }")
+        "() => { const h = document.querySelector('#qs-callout h3');"
+        " return !!h && h.textContent.length > 0; }")
     first_title = page.evaluate(
-        "() => (document.querySelector('#qs-callout h3') || {}).textContent || ''")
+        "() => document.querySelector('#qs-callout h3').textContent")
     assert "What's new" in first_title, (
         f'the splash handed off to the wrong tour: {first_title!r}')
     page.evaluate("window.QuickStart.end()")
