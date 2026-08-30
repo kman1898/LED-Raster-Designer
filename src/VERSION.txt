@@ -1,8 +1,89 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
-v0.12.0 - August 21, 2026 (BETA)
+v0.12.0 - August 30, 2026 (BETA)
 ----------------------------
+
+THE HARDWARE TRAY - one home for all the hardware
+
+- NEW: The hardware tray under the canvas is now the one place processors,
+  cards, breakout boxes and ports (Data) and distros, multis and circuits
+  (Power) live. The middle sidebars are gone and the canvas gets the whole
+  width back. Name things right on their headers; everything electrical or
+  structural sits behind each unit's gear; problems land on a slim strip
+  under the tray's header.
+
+- NEW: Wire by dragging. Drag a port, a box, a card or a whole processor
+  onto a screen and it lands in order from the first unassigned; drag a
+  circuit chip, a multi or a distro the same way on the power side. Drop a
+  multi on a later circuit and it splits there. Right-click clears, and
+  right-click on a circuit shares it with the next run through a splitter.
+
+- NEW: The attachment flag. The tray header carries one flag per view:
+  red with a count while screens have unattached ports or circuits, green
+  when everything is attached. Click it to see the screens; click a screen
+  or one of its numbers and the canvas flies there.
+
+- NEW: Redundancy the way each maker does it. Brompton pairs fixed
+  (A backs B, C backs D on an SX40; adjacent on an S8); other gear picks
+  1:1 to a backup unit, sequential, or manual per port. Backup boxes fill
+  automatically when their primaries map, and every box shows its own
+  silkscreen numbers - a backup's socket 1 backs its primary's socket 1.
+
+- NEW: Take over one run. Hold Alt and the cable run under the cursor
+  lights up; Alt-click takes that one port or circuit over for hand
+  redrawing while the rest of the wall keeps auto-cabling around it -
+  right-click hands it back to auto. Works on grouped walls without
+  breaking the group's combined routing.
+
+- NEW: Screens only land on gear their platform can drive. A NovaStar
+  Legacy screen never maps onto COEX or Brompton hardware and so on -
+  automatic numbering skips foreign gear, hand placement is refused with
+  a plain explanation, and a file that already violates the rule gets a
+  warning instead of a silent rewire.
+
+- NEW: Every port and circuit chip carries a fill meter, finished boxes
+  fold away, folded distros tuck into columns so the next one slides up,
+  and a multi shows one name and one home-run length however many screens
+  share the box.
+
+- CHANGE: The tray speaks the shop's language - circuits, never "tails";
+  breakout boxes, not vendor names, except on actual vendor devices.
+
+POWER AT 110V, AND THE L21-30
+
+- NEW: A 110V screen takes 110V Edison only, and each of its circuits
+  rides ONE leg of the same three-phase distro - balancing spreads them
+  across X, Y and Z, and mixed 110V and 208V screens on one distro sum
+  correctly per leg.
+
+- NEW: The L21-30 breakout: three 208V circuits on True1 or powerCON off
+  a 30A-per-leg feed. Not a multi - a three-circuit box that hangs on a
+  distro number, with the feed legs checked by real phasor math and
+  flagged when over.
+
+GUIDANCE
+
+- NEW: A What's New panel introduces each update once (and lives in Help
+  after that), a 19-step walkthrough tours everything new in 0.12, and
+  the Advanced Guide doubled to 39 steps covering the whole app as it is
+  today. Labels on the drawing wrap at spaces instead of ballooning.
+
+FIXES THAT CHANGE NUMBERS ON DRAWINGS YOU ALREADY HAVE
+
+- FIX (IMPORTANT): Cancelling a save or export now saves NOTHING. On Mac,
+  pressing Cancel in the file dialog used to send the export to Downloads
+  anyway; a cancel is now a cancel on every platform, and only a genuinely
+  broken dialog falls back to a browser download.
+
+- FIX (IMPORTANT): Undo means undone. One drag is one undo step, undoing
+  during a drag sticks, File > New can no longer resurrect the previous
+  project on the first undo, processor ids can't collide after an undo,
+  and the eye toggle finally persists. Redo replays exactly what undo
+  removed.
+
+- FIX: A project saved before breakout boxes existed gets its boxes back
+  the moment it loads - an SX40 always carries its four 10-port boxes.
 
 POWER DISTRIBUTION
 
