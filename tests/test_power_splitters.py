@@ -128,6 +128,24 @@ window.__sp = {
         return { enabled: true, maxWays: maxWays || 3,
                  manual: manual || { merge: [], split: [] } };
     },
+    // the reference-show tower: 6 wide, 7 full rows over 4 half-HEIGHT
+    // rows (half the pixel area = 0.65 load factor), 344W tiles on a
+    // 208V x 20A circuit (4160W capacity), organized tr-h. Row loads:
+    // full 2064W, half 1341.6W - so the plain filler closes circuit 4 at
+    // {row6 full, row7 half} (3405.6W) and circuit 5 takes the last
+    // three half rows (4024.8W).
+    srrr_tower(extra) {
+        const s = this.screen(Object.assign({
+            id: 1, name: 'Tower', columns: 6, rows: 11,
+            cabinet_width: 104, cabinet_height: 208,
+            panelWatts: 344, powerVoltage: 208, powerAmperage: 20,
+            powerFlowPattern: 'tr-h', powerOrganized: true,
+        }, extra || {}));
+        s.panels.forEach(p => {
+            if (p.row >= 7) { p.halfTile = 'height'; p.height = 104; }
+        });
+        return s;
+    },
     withProject(project, fn) {
         const saved = window.app.project;
         window.app.project = Object.assign(
@@ -347,6 +365,197 @@ def test_manual_split_pin_defeats_auto_pack(page):
     assert out['packed'] == [[5, 5, 5]], 'without the pin the wall packs'
     assert out['pinned']['runs'] == [[5], [5], [5]], 'the pin defeats packing'
     assert out['pinned']['count'] == 3
+
+
+# ── 6b. half-tile walls & the manual id-space seam ────────────────────────
+#
+# The reference show (2026 NCMF, "CEN SRRR TOWER"): a 6x11 tower whose
+# bottom four rows are half-height tiles, at watts that close the plain
+# filler's circuit 4 on {full row, half row} and circuit 5 on the last
+# three half rows. The screen also carried DORMANT custom circuits (12
+# per-row paths from a retired 12-row custom routing) and manual splitter
+# merges [[7,8,9],[10,11,12]] authored against those drawn numbers. Turning
+# packing on then re-ganged AUTO run ordinals 7-9 into an over-capacity
+# 3fer (rows 6-8, 4747.2W on a 4160W circuit) and left rows 9-10 a 2fer -
+# the exact flip and wrong panel counts reported from the show floor.
+
+TOWER_JS = """() => {
+    const sp = window.__sp;
+    const shape = (S) => sp.withProject({ layers: [S] }, () => {
+        const app = window.app;
+        const res = app.calculatePowerAssignments(S);
+        const cap = (parseFloat(S.powerVoltage) || 0)
+            * (parseFloat(S.powerAmperage) || 0);
+        return {
+            panels: (res.circuits || []).map(c => c.length),
+            rows: (res.circuits || []).map(c =>
+                [...new Set(c.map(p => p.row))].sort((a, b) => a - b)),
+            runs: res.runs || null, runIds: res.runIds || null,
+            loads: (res.circuits || []).map(c => Math.round(10 * c.reduce(
+                (s, p) => s + S.panelWatts * app.getPanelLoadFactor(S, p),
+                0)) / 10),
+            cap,
+        };
+    });
+    window.__towerShape = shape;
+    return true;
+}"""
+
+
+def _tower_shape(page, build_js):
+    page.evaluate(TOWER_JS)
+    return page.evaluate(
+        "(build) => window.__towerShape(eval(build)(window.__sp))", build_js)
+
+
+def test_half_tile_runs_pack_by_watt_equivalents_not_panel_count(page):
+    """Packing capacity is WATTS (half tiles derated by load factor), not a
+    raw panel count: the tower's last circuit gangs three 6-panel half rows
+    - 18 panels where only 12 FULL tiles fit the 4160W circuit - because
+    their watt-equivalent load is 4024.8W. And no packed circuit exceeds
+    capacity."""
+    out = _tower_shape(page, """(sp) =>
+        sp.srrr_tower({ powerSplitters: sp.splitters(3) })""")
+    assert out['runs'] == [[6, 6], [6, 6], [6, 6], [6, 6], [6, 6, 6]]
+    assert out['panels'][-1] == 18, 'three half rows share one circuit'
+    assert out['loads'] == [4128, 4128, 4128, 3405.6, 4024.8]
+    assert all(load <= out['cap'] for load in out['loads']), \
+        'auto packing must never build an over-capacity circuit'
+
+
+def test_fer_sizes_land_on_the_same_row_groups_the_plain_filler_makes(page):
+    """Splitters on (maxWays 3) must gang exactly the row groups the plain
+    filler already put on each circuit: the {full,half} 2-row circuit is
+    the 2fer, the 3-half-row circuit is the 3fer. Total panels per circuit
+    do not move when packing turns on."""
+    off = _tower_shape(page, "(sp) => sp.srrr_tower()")
+    on = _tower_shape(page, """(sp) =>
+        sp.srrr_tower({ powerSplitters: sp.splitters(3) })""")
+    assert off['rows'] == [[0, 1], [2, 3], [4, 5], [6, 7], [8, 9, 10]]
+    assert on['rows'] == off['rows'], \
+        'packing must regroup nothing the filler decided'
+    assert on['panels'] == off['panels'] == [12, 12, 12, 12, 18]
+    assert on['runIds'] == [[1, 2], [3, 4], [5, 6], [7, 8], [9, 10, 11]], \
+        '2fer on rows 6-7, 3fer on rows 8-10'
+
+
+def test_cen_srrr_tower_stale_custom_merges_stay_dormant_in_auto_pack(page):
+    """THE show-floor regression: the tower still carrying its retired
+    per-row drawn circuits and the merges authored against them (no space
+    stamp - a legacy file). Auto packing must leave those groups dormant
+    with the paths: same circuits as a tower with no manual state at all,
+    nothing over capacity. (Before the fix: runIds [..., [7,8,9], [10,11]]
+    - rows 6-8 ganged at 4747.2W on the 4160W circuit, rows 9-10 a 2fer.)"""
+    stale = """(sp) => {
+        const paths = {};
+        for (let r = 0; r < 12; r++) {   // 12 rows once, path 12 now stale
+            paths[r + 1] = [0, 1, 2, 3, 4, 5].map(c => ({ row: r, col: c }));
+        }
+        return sp.srrr_tower({
+            powerCustomPaths: paths,
+            powerSplitters: sp.splitters(3, {
+                merge: [[7, 8, 9], [10, 11, 12]], split: [] }),
+        });
+    }"""
+    out = _tower_shape(page, stale)
+    clean = _tower_shape(page, """(sp) =>
+        sp.srrr_tower({ powerSplitters: sp.splitters(3) })""")
+    assert out == clean, 'custom-space merges must not steer auto packing'
+    assert out['runIds'] == [[1, 2], [3, 4], [5, 6], [7, 8], [9, 10, 11]]
+    assert all(load <= out['cap'] for load in out['loads'])
+
+
+def test_stamped_manual_space_is_the_authority_on_both_sides(page):
+    """manual.space names the id space a group was authored in. A
+    custom-stamped group applies to the drawn circuits and goes dormant
+    (not deleted) when the screen routes auto; an auto-stamped group keeps
+    steering the packer even while dormant drawn paths sit on the layer
+    (the stamp beats the legacy inference)."""
+    out = page.evaluate("""() => {
+        const sp = window.__sp;
+        const app = window.app;
+        const paths = { 1: [{row:0,col:0},{row:1,col:0}],
+                        2: [{row:0,col:1},{row:1,col:1}] };
+        const mkCustom = (space) => sp.screen({ id: 1, name: 'Sp',
+            columns: 2, rows: 2,
+            powerFlowPattern: 'custom', powerCustomIndex: 3,
+            powerCustomPaths: paths,
+            powerSplitters: { enabled: false, maxWays: 3,
+                manual: { merge: [[1, 2]], split: [], space } } });
+        const customStamped = mkCustom('custom');
+        // ...the same screen flipped back to an auto pattern: 1500W tiles
+        // put one 2-tile column inside the 4160W circuit and two columns
+        // over it, so the columns pack apart UNLESS a merge gangs them.
+        const customInAuto = mkCustom('custom');
+        customInAuto.powerFlowPattern = 'tl-v';
+        customInAuto.powerOrganized = true;
+        customInAuto.panelWatts = 1500;
+        customInAuto.powerSplitters.enabled = true;
+        // a 3-column wall packing [5,5,5] on its own; merge [[1,2]] caps
+        // the group at its two members, so [5,5],[5] proves it applied.
+        const autoStamped = sp.column_wall(3, {
+            powerCustomPaths: paths,     // dormant leftovers
+            powerSplitters: sp.splitters(3, {
+                merge: [[1, 2]], split: [], space: 'auto' }) });
+        return {
+            customApplies: sp.withProject({ layers: [customStamped] }, () =>
+                app.screenCircuits(customStamped).map(c =>
+                    (c.branches || []).length)),
+            autoIgnoresCustomStamp: sp.withProject(
+                { layers: [customInAuto] }, () =>
+                    app.calculatePowerAssignments(customInAuto).runs),
+            autoStampBeatsInference: sp.withProject(
+                { layers: [autoStamped] }, () =>
+                    app.calculatePowerAssignments(autoStamped).runs),
+        };
+    }""")
+    assert out['customApplies'] == [2], 'custom stamp: drawn circuits merge'
+    assert out['autoIgnoresCustomStamp'] == [[2], [2]], \
+        'custom-stamped groups are dormant for the auto packer'
+    assert out['autoStampBeatsInference'] == [[5, 5], [5]], \
+        'auto stamp applies even with dormant drawn paths on the layer'
+
+
+def test_a_manual_edit_writes_its_own_space_and_clears_the_foreign_one(page):
+    """Editing the manual groups happens in the CURRENT id space: on the
+    tower still holding legacy custom-space merges, a Share gesture over
+    the packed auto circuits starts from a clean store, records the ganged
+    run ordinals, and stamps space 'auto' - the retired custom groups do
+    not survive into the new space."""
+    out = page.evaluate("""() => {
+        const sp = window.__sp;
+        const app = window.app;
+        const paths = {};
+        for (let r = 0; r < 12; r++) {
+            paths[r + 1] = [0, 1, 2, 3, 4, 5].map(c => ({ row: r, col: c }));
+        }
+        const S = sp.srrr_tower({
+            powerCustomPaths: paths,
+            powerSplitters: sp.splitters(3, {
+                merge: [[7, 8, 9], [10, 11, 12]], split: [] }),
+        });
+        const savedUL = app.updateLayers;
+        const savedRG = app._rebuildAfterGesture;
+        app.updateLayers = () => {};        // model-level: no server write
+        app._rebuildAfterGesture = () => {};
+        try {
+            return sp.withProject({ layers: [S] }, () => {
+                app.mergeSplitterCircuits(S, [4, 5]);   // gang rows 6-10
+                return {
+                    manual: S.powerSplitters.manual,
+                    runIds: app.calculatePowerAssignments(S).runIds,
+                };
+            });
+        } finally {
+            app.updateLayers = savedUL;
+            app._rebuildAfterGesture = savedRG;
+        }
+    }""")
+    assert out['manual'] == {'merge': [[7, 8, 9, 10, 11]], 'split': [],
+                             'space': 'auto'}, \
+        'the edit stamps its space and drops the foreign-space groups'
+    assert out['runIds'] == [[1, 2], [3, 4], [5, 6], [7, 8, 9, 10, 11]], \
+        'the new auto-space gang steers the packer'
 
 
 # ── 7. schematic power sheet ──────────────────────────────────────────────

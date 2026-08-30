@@ -2907,11 +2907,20 @@ class _Power {
 
     _writeSplitterManual(layer, fn) {
         const cur = this.getPowerSplitters(layer);
+        // An edit is made in the CURRENT id space. Groups stored from the
+        // other space cannot be edited alongside it - one store, one space -
+        // so the edit starts clean and the write stamps the space it was
+        // authored in. Reads never get here, so merely flipping a screen
+        // between custom and auto keeps the other space's groups dormant.
+        const space = this._splitterIdSpace(layer);
+        const foreign = this._splitterManualSpace(layer) !== space;
         const manual = {
-            merge: cur.manual.merge.map(g => (Array.isArray(g) ? g.slice() : [])),
-            split: cur.manual.split.slice(),
+            merge: foreign ? []
+                : cur.manual.merge.map(g => (Array.isArray(g) ? g.slice() : [])),
+            split: foreign ? [] : cur.manual.split.slice(),
         };
         fn(manual);
+        manual.space = space;
         layer.powerSplitters = { ...cur, manual };
         this.updateLayers([layer], true, 'Edit Splitter Groups');
         this._rebuildAfterGesture(() => {
@@ -2947,7 +2956,14 @@ class _Power {
     //     },
     //   }
     // Run ids: the pre-packing run ordinal (1-based, traversal order) for
-    // auto modes; the drawn circuit number for custom screens.
+    // auto modes; the drawn circuit number for custom screens. Those are two
+    // DIFFERENT id spaces sharing one store, so `manual.space` records which
+    // one a group was authored in ('auto' | 'custom') and the groups go
+    // dormant - not deleted - while the screen reads the other space. The
+    // reference show proved why: a tower's 3fer merges, drawn over its 12
+    // per-row custom circuits, rode along after the screen went back to an
+    // auto pattern and silently re-ganged auto run ordinals 7-9 into an
+    // over-capacity 3fer the user never asked for.
 
     // Normalized read - the raw field may be absent or partial.
     getPowerSplitters(layer) {
@@ -2960,15 +2976,51 @@ class _Power {
             manual: {
                 merge: Array.isArray(manual.merge) ? manual.merge : [],
                 split: Array.isArray(manual.split) ? manual.split : [],
+                space: (manual.space === 'auto' || manual.space === 'custom')
+                    ? manual.space : null,
             },
         };
+    }
+
+    // The id space the layer's circuits read RIGHT NOW: drawn circuit
+    // numbers for a screen routing custom, pre-packing run ordinals for
+    // every auto pattern.
+    _splitterIdSpace(layer) {
+        return this.usesCustomCircuits(layer) ? 'custom' : 'auto';
+    }
+
+    // The id space the STORED manual groups belong to. Stamped on every
+    // manual edit; a legacy file carries no stamp, so the space is inferred
+    // from the only evidence the file holds: a screen routing custom read
+    // its groups against the drawn numbers (unchanged), a pure auto screen
+    // against its run ordinals (unchanged) - but an auto screen still
+    // carrying DORMANT drawn circuits (non-empty custom power paths outside
+    // its override numbers, kept from a retired custom routing) authored its
+    // groups against those drawn numbers, so the groups stay dormant with
+    // the paths instead of being misapplied to run ordinals that merely
+    // share the digits.
+    _splitterManualSpace(layer) {
+        const stamped = this.getPowerSplitters(layer).manual.space;
+        if (stamped) return stamped;
+        if (this.usesCustomCircuits(layer)) return 'custom';
+        const overridden = new Set(this.getOverrideNums(layer, 'power'));
+        const paths = (layer && layer.powerCustomPaths) || {};
+        const dormantDrawn = Object.keys(paths).some(n =>
+            (paths[n] || []).length > 0 && !overridden.has(parseInt(n, 10)));
+        return dormantDrawn ? 'custom' : 'auto';
     }
 
     // Validated-on-read manual groups against the run ids that currently
     // exist. Ids that no longer resolve are silently dropped; a group left
     // with fewer than two members dissolves; a run can sit in only one group
     // (first wins), and a run inside a group cannot also be split-pinned.
+    // Groups authored in the OTHER id space (see the run-id doctrine above)
+    // are dormant here: an id is a number, not a circuit, and only its own
+    // space can say which circuit it named.
     appliedSplitterGroups(layer, validIds) {
+        if (this._splitterManualSpace(layer) !== this._splitterIdSpace(layer)) {
+            return { merge: [], split: [] };
+        }
         const sp = this.getPowerSplitters(layer);
         const valid = new Set((validIds || []).map(n => parseInt(n, 10)));
         const used = new Set();
