@@ -2664,6 +2664,9 @@ class _ExportIo {
             case 'quick-start':
                 if (window.QuickStart) window.QuickStart.start();
                 break;
+            case 'whats-new-tour':
+                if (window.QuickStart) window.QuickStart.startWhatsNew();
+                break;
             case 'advanced-guide':
                 if (window.QuickStart) window.QuickStart.startAdvanced();
                 break;
