@@ -2398,11 +2398,21 @@ class _HardwareDock {
             // distro), then the pin. Landing on an occupied slot is the join
             // gesture, exactly as picking the number was - the incumbents'
             // tails freeze and this multi deals into what is free.
+            //
+            // Undo audit: record=false + ONE updateLayers, the convention the
+            // split-drop above and _dockDropTail below already keep. As two
+            // recorded setter calls, one drag cost two Ctrl+Z presses and the
+            // first landed on a half-state (new distro, pin gone) the user
+            // never made.
+            const touched = new Set();
             const current = (layer.powerSocaDistro || {})[target.socaIndex];
             if (current !== payload.distroId) {
-                this.setSocaDistro(layer, target.socaIndex, payload.distroId);
+                this.setSocaDistro(layer, target.socaIndex, payload.distroId,
+                                   false).forEach(l => touched.add(l));
             }
-            this.setSocaNumber(layer, target.socaIndex, payload.number);
+            this.setSocaNumber(layer, target.socaIndex, payload.number, false)
+                .forEach(l => touched.add(l));
+            this.updateLayers([...touched], true, 'Assign Multi Distro');
             this._restateNaming();
             return;
         }
@@ -2412,15 +2422,23 @@ class _HardwareDock {
             if (!members.length) return;
             // Unassign every multi the chip names - the chip is the box, and
             // pulling the box off the wall pulls all its feeds. Same two
-            // setters the panel's selects drove, so the entries undo the way
-            // every other power edit does.
+            // setters the panel's selects drove - but as ONE gesture with ONE
+            // history entry, the same promise _clearMultis makes for the
+            // right-click clear of this very chip: pulling the box off is one
+            // decision, and Ctrl+Z puts every feed back at once.
+            const touched = new Set();
             members.forEach(m => {
                 const layer = (this.project.layers || [])
                     .find(l => l.id === m.layerId);
                 if (!layer) return;
-                this.setSocaNumber(layer, m.soca, null);
-                this.setSocaDistro(layer, m.soca, null);
+                this.setSocaNumber(layer, m.soca, null, false)
+                    .forEach(l => touched.add(l));
+                this.setSocaDistro(layer, m.soca, null, false)
+                    .forEach(l => touched.add(l));
             });
+            if (touched.size) {
+                this.updateLayers([...touched], true, 'Clear Multi');
+            }
             this._restateNaming();
         }
     }
@@ -2523,9 +2541,16 @@ class _HardwareDock {
         }
         // The existing per-multi assignment, once per unassigned multi, in
         // plan order - the numbers fall out of the distro's own sequence.
+        // Undo audit: one drag, one entry. The handle's own tooltip calls
+        // this one act ("its unassigned multis ALL land on this distro");
+        // recorded per-multi it cost N Ctrl+Z presses through half-cabled
+        // intermediate walls.
+        const touched = new Set();
         unassigned.forEach(s => {
-            this.setSocaDistro(layer, s.soca, payload.distroId);
+            this.setSocaDistro(layer, s.soca, payload.distroId, false)
+                .forEach(l => touched.add(l));
         });
+        this.updateLayers([...touched], true, 'Assign Multi Distro');
         this._restateNaming();
     }
 

@@ -144,7 +144,17 @@ class _PortAssignment {
                 this._assignmentError = null;
                 this._assignmentNote = (data.moved && data.moved.note) || null;
                 if (data.resolution) this._assignment = data.resolution;
-                if (data.state && this.project) {
+                // Undo audit: the server holds the read-must-not-create-the-
+                // key line three times over (_working/_store in
+                // routes_port_assignment.py), and this unconditional store
+                // defeated it from the client side - the boot-time /resolve
+                // stamped {auto:true, pins:[]} onto a project that never had
+                // the key, and every snapshot and save carried it from then
+                // on. A MUTATING call (one that names a history action) always
+                // stores its state; a read stores it only where the key
+                // already exists to update.
+                if (data.state && this.project
+                        && (action || this.project.port_assignments !== undefined)) {
                     this.project.port_assignments = data.state;
                 }
                 this._applyAssignmentResolution();

@@ -1358,11 +1358,11 @@ def test_a_slot_chip_lands_on_the_circuit_it_is_dropped_on(dock_page):
     }""", ids['aId'])
     assert out['distro'] == {'1': ids['distroId']}, out
     assert out['num'] == {'1': 1}, out
-    # the two existing setters, the two existing entries, in their order
-    assert page.evaluate(HIST_JS, 2) == \
-        ['Assign Multi Distro', 'Set Multi Number']
-    page.evaluate("() => window.app.undo()")
-    page.wait_for_timeout(700)
+    # 2026-08-29 undo audit: one drag is ONE entry. The drop still drives the
+    # two setters, but in record=false mode with a single updateLayers - so
+    # one Ctrl+Z takes the whole gesture back and there is no half-state
+    # (new distro, pin gone) the user never made.
+    assert page.evaluate(HIST_JS, 1) == ['Assign Multi Distro']
     page.evaluate("() => window.app.undo()")
     page.wait_for_timeout(700)
     out = page.evaluate("""(aId) => {
@@ -1370,7 +1370,7 @@ def test_a_slot_chip_lands_on_the_circuit_it_is_dropped_on(dock_page):
         return {distro: l.powerSocaDistro || {}, num: l.powerSocaNumber || {}};
     }""", ids['aId'])
     assert out == {'distro': {}, 'num': {}}, (
-        f'two undos did not walk the drop back: {out}')
+        f'one undo did not walk the drop back: {out}')
     page.evaluate(RESET_POWER_JS, ids)
 
 
@@ -1465,11 +1465,10 @@ def test_drag_back_to_the_dock_unassigns_the_multi(dock_page):
     }""", ids['aId'])
     assert out == {'distro': {}, 'num': {}}, (
         f'the drag-back did not unassign the multi: {out}')
-    # the two existing setters again, so undo walks it back the same way
-    assert page.evaluate(HIST_JS, 2) == \
-        ['Set Multi Number', 'Assign Multi Distro']
-    page.evaluate("() => window.app.undo()")
-    page.wait_for_timeout(700)
+    # 2026-08-29 undo audit: pulling the box off the wall is ONE decision and
+    # ONE entry - the same promise the right-click clear (_clearMultis) makes
+    # for this very chip - so a single Ctrl+Z puts every feed back at once.
+    assert page.evaluate(HIST_JS, 1) == ['Clear Multi']
     page.evaluate("() => window.app.undo()")
     page.wait_for_timeout(700)
     out = page.evaluate("""(aId) => {
@@ -1477,7 +1476,7 @@ def test_drag_back_to_the_dock_unassigns_the_multi(dock_page):
         return {distro: l.powerSocaDistro || {}, num: l.powerSocaNumber || {}};
     }""", ids['aId'])
     assert out['distro'] == {'1': ids['distroId']} and out['num'] == {'1': 1}, (
-        f'two undos did not restore the assignment: {out}')
+        f'one undo did not restore the assignment: {out}')
     page.evaluate(RESET_POWER_JS, ids)
 
 
@@ -2365,9 +2364,9 @@ def test_the_six_two_shape_lands_whole_on_the_grid_boundary(dock_page):
     assert out['num'] == {'2': 2}, out
     assert out['labels'][6:] == ['C2-2-5', 'C2-2-6'], out
     assert out['tails'] == [[1, 2, 3, 4], [5, 6]], out
-    # the whole-multi path is untouched: the two setters, their two entries
-    assert page.evaluate(HIST_JS, 2) == \
-        ['Assign Multi Distro', 'Set Multi Number']
+    # the whole-multi path still drives the two setters - but as ONE entry
+    # since the 2026-08-29 undo audit (one drag, one Ctrl+Z).
+    assert page.evaluate(HIST_JS, 1) == ['Assign Multi Distro']
     split_clean(page, ids, st)
 
 

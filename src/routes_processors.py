@@ -229,12 +229,20 @@ def _set_port_backup(card, card_id, number, spec):
 def _state(status=200):
     """Every mutating route answers with the whole resolved tree. A caller that
     only got back what it sent could not tell a stored edit from a dropped one,
-    which is the failure mode the layer routes' allow-list keeps producing."""
+    which is the failure mode the layer routes' allow-list keeps producing.
+
+    The seq counter rides along so the CLIENT's project copy carries it into
+    undo snapshots. Without it, undo's whole-project PUT dropped the counter,
+    and a retired processor id was handed straight back out - delete proc3,
+    add a machine, get proc3 again, then undo the delete and two machines
+    both answer to it. Same lesson sync_next_group_seq records for groups,
+    whose counter lives on the project for exactly this reason."""
     app.current_project['is_pristine'] = False
     socketio.emit('project_updated', app.current_project)
     return jsonify({
         'processors': _processors(),
         'resolved': catalog.resolve_all(_processors()),
+        'next_processor_seq': app.current_project.get('next_processor_seq'),
     }), status
 
 

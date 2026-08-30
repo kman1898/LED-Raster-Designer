@@ -26,6 +26,7 @@ Three things here are deliberately awkward, and all three are the hardware:
 """
 import json
 import os
+import re
 
 # The nearest named device upstream supplies both halves of a port's label, so
 # the default template names it and numbers within it: card "SR" -> SR-1, SR-2.
@@ -449,6 +450,55 @@ def new_cvt(device_id, seq, name=''):
         'name': name or '',
         'mode': (device.get('ports') or {}).get('defaultMode'),
     }
+
+
+def sync_next_processor_seq(project):
+    """Rebase ``project['next_processor_seq']`` so no tree id is ever reused.
+
+    The processor counterpart to app.py's sync_next_group_seq, for the same
+    reason: the counter lives ON the project, but the mutating routes answer
+    with only the resolved tree, so the client's copy - the one undo/redo
+    PUTs back through the restore funnel - can carry a stale counter or none
+    at all. Without this, add proc1 and proc2, undo once, add again: _next_seq
+    falls back to 1 and mints a second ``proc1``, and every edit after that
+    lands on whichever of the two _find_processor meets first.
+
+    Seeds above the highest run already minted anywhere in the tree - proc,
+    card and cvt ids all draw from the one counter, and the heal's boxes
+    carry it inside a ``cvt<N>f<i>`` id. Never lowers a counter that is
+    ahead, so restoring the same project twice does not change it. A project
+    with no processors and no counter is left byte-for-byte untouched - the
+    same read-must-not-stamp rule the processor routes hold themselves to.
+    """
+    if not isinstance(project, dict):
+        return 1
+    processors = project.get('processors') or []
+    if not processors and 'next_processor_seq' not in project:
+        return 1
+    max_n = 0
+
+    def _note(raw_id):
+        nonlocal max_n
+        m = re.match(r'^(?:proc|card|cvt)(\d+)', raw_id or '')
+        if m:
+            n = int(m.group(1))
+            if n > max_n:
+                max_n = n
+
+    for proc in processors:
+        _note((proc or {}).get('id'))
+        for slot in (proc or {}).get('slots') or []:
+            card = (slot or {}).get('card')
+            if card:
+                _note(card.get('id'))
+                for cvt in card.get('cvts') or []:
+                    _note((cvt or {}).get('id'))
+    try:
+        stored = int(project.get('next_processor_seq'))
+    except (TypeError, ValueError):
+        stored = 0
+    project['next_processor_seq'] = max(stored, max_n + 1)
+    return project['next_processor_seq']
 
 
 def stock_default_cvts(project):

@@ -175,11 +175,15 @@ def test_grouped_power_render_leaves_project_serializable(page):
 
 
 def test_save_state_records_after_grouped_power_render(page):
+    # The probe must CHANGE something: saveState skips a snapshot identical
+    # to the entry the user stands on (the 2026-08-29 no-op dedupe), and a
+    # skipped no-op would let this test pass without testing the poisoning.
     reset_project(page)
     out = page.evaluate("""() => {
         const app = window.app;
         window.canvasRenderer.render();
         const before = app.history.length;
+        app.project.name = (app.project.name || '') + ' poisonprobe';
         app.saveState('poison probe');
         const snap = app.history[app.history.length - 1];
         const layer = snap.project.layers[0];

@@ -16,7 +16,6 @@ class CanvasRenderer {
         this.isDragging = false;
         this.isDraggingLayer = false;
         this.isDraggingScreenName = false;
-        this.screenNameDragHistorySaved = false;
         // The 'both' name display's group headline drag (see _groupNameMode).
         this.isDraggingGroupName = false;
         this._dragGroupNameGroup = null;
@@ -1794,14 +1793,30 @@ class CanvasRenderer {
             if (window.app && this.altPaintedPanelIds && this.altPaintedPanelIds.size > 0) {
                 const layer = window.app.project.layers.find(l => l.id === this.altPaintLayerId);
                 if (layer) {
-                    window.app.saveState('Toggle Panel Visibility');
+                    // Undo audit: same contract as setPanelsBlankBulk (the
+                    // sidebar twin of this gesture). Hiding a panel re-anchors
+                    // neighbouring half-tiles and that rebuild only happens
+                    // server-side, so the snapshot must wait for the rebuilt
+                    // layer - taken here it paired the new flags with the old
+                    // geometry, and it recorded even when the POST failed.
+                    // Merge the response first, snapshot second.
                     const newHidden = this.altPaintMode === 'hide';
                     const panels = [...this.altPaintedPanelIds].map(id => ({ id, hidden: newHidden }));
                     fetch(`/api/layer/${this.altPaintLayerId}/panels/set_hidden`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ panels })
-                    });
+                    })
+                        .then(res => res.json())
+                        .then(data => {
+                            if (data && data.layer && window.app) {
+                                const applied = window.app.applyServerLayer(
+                                    data.layer, 'alt_paint_set_hidden');
+                                this.render();
+                                if (applied) window.app.saveState('Toggle Panel Visibility');
+                            }
+                        })
+                        .catch(err => console.error('Alt-paint set_hidden failed', err));
                     if (typeof sendClientLog === 'function') {
                         sendClientLog('bulk_toggle_panels', {
                             layerId: this.altPaintLayerId,
@@ -2241,6 +2256,14 @@ class CanvasRenderer {
                 const moved = currentOffsetX !== this.screenNameStartOffset.x || currentOffsetY !== this.screenNameStartOffset.y;
                 if (moved && typeof window.app.saveState === 'function') {
                     window.app.saveState('Move Screen Name');
+                    // Undo audit: the group-headline drag below persists to
+                    // the server; this drag only wrote localStorage, so the
+                    // moved label lived on the client until some unrelated
+                    // updateLayers carried it up. The offsets are on the
+                    // layer-PUT allow-list; send them the same way.
+                    if (typeof window.app.updateLayers === 'function') {
+                        window.app.updateLayers([layer], false);
+                    }
                 }
                 window.app.saveClientSideProperties();
             }
@@ -2392,13 +2415,23 @@ class CanvasRenderer {
         if ((e.metaKey || e.ctrlKey) && e.code === 'KeyZ' && !e.shiftKey) {
             if (e.repeat) return;
             e.preventDefault();
+            // Undo audit: an undo fired mid-gesture was silently reverted -
+            // the next mousemove re-derived positions from offsets captured
+            // at mousedown against the pre-undo project, and the eventual
+            // mouseup's snapshot truncated the redo stack. Commit whatever is
+            // held through the normal finalizer first, so Ctrl+Z steps back
+            // over the gesture the user was making - the same rule the
+            // debounced-save flush inside undo() applies to typed edits.
+            this._releaseTransientInput();
             if (window.app) window.app.undo();
         }
-        
+
         // Cmd/Ctrl+Shift+Z - Redo (works everywhere)
         if ((e.metaKey || e.ctrlKey) && e.code === 'KeyZ' && e.shiftKey) {
             if (e.repeat) return;
             e.preventDefault();
+            // Same mid-gesture commit as undo above.
+            this._releaseTransientInput();
             if (window.app) window.app.redo();
         }
         

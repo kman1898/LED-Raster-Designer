@@ -1178,8 +1178,12 @@ class _Power {
     // `socaIndex` is the multi's stable index within its screen, never its
     // displayed number - the number is what this call CHANGES, since it comes
     // out of the distro's own sequence.
-    setSocaDistro(layer, socaIndex, distroId) {
-        if (!layer) return;
+    // `record` (default true) is for composite gestures only: a dock drop
+    // that drives this setter alongside others passes false and issues ONE
+    // updateLayers(..., true, action) itself over every returned layer, so
+    // the whole drop is one undo entry. Returns the touched layers either way.
+    setSocaDistro(layer, socaIndex, distroId, record = true) {
+        if (!layer) return [];
         const map = layer.powerSocaDistro || (layer.powerSocaDistro = {});
         // A multi that carries its pin onto another distro can land on an
         // occupied box there - the same join as pinning, spelled as an
@@ -1194,8 +1198,11 @@ class _Power {
         // show can move. Stale labels for a frame is a bug this has already
         // been bitten by once.
         this._circuitTailCache = null;
-        this.updateLayers([...new Set([layer, ...stamped])], true,
-                          'Assign Multi Distro');
+        const touched = [...new Set([layer, ...stamped])];
+        if (record) {
+            this.updateLayers(touched, true, 'Assign Multi Distro');
+        }
+        return touched;
     }
 
     // Pin a multi to a NUMBER under its distro - the "which output of the
@@ -1209,8 +1216,10 @@ class _Power {
     // onto a twin multi that the rollup then counted twice. There is no
     // separate link to manage: picking the number joins, re-picking (or
     // Auto, or another distro) separates.
-    setSocaNumber(layer, socaIndex, number) {
-        if (!layer) return;
+    // `record` mirrors setSocaDistro's: false lets a composite dock gesture
+    // fold this write into its own single history entry.
+    setSocaNumber(layer, socaIndex, number, record = true) {
+        if (!layer) return [];
         // Always leave an object behind, never delete the property: an
         // absent key is missing from the update payload and the server
         // keeps whatever it had, so "back to Auto" would silently not clear.
@@ -1229,8 +1238,11 @@ class _Power {
         // A pin renumbers the whole distro bucket (autos deal around it) and
         // can merge or split a shared box, so every label can move.
         this._circuitTailCache = null;
-        this.updateLayers([...new Set([layer, ...stamped])], true,
-                          'Set Multi Number');
+        const touched = [...new Set([layer, ...stamped])];
+        if (record) {
+            this.updateLayers(touched, true, 'Set Multi Number');
+        }
+        return touched;
     }
 
     // The shared-box record for one multi, or null when it shares with

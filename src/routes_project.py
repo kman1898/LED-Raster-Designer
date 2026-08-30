@@ -79,6 +79,9 @@ def save_project():
     # Same funnel duty for the processor tree: a payload can carry a
     # pre-stocking SX40 through this route too, and a boxless one is a
     # legacy shape, never a choice. Idempotent like the pass above it.
+    # The seq sync runs FIRST so the heal's boxes mint above every id the
+    # payload already holds.
+    processor_catalog.sync_next_processor_seq(app.current_project)
     processor_catalog.stock_default_cvts(app.current_project)
     app.sync_next_layer_id()
     log_event('save_project', {'name': app.current_project.get('name')})
@@ -162,6 +165,12 @@ def restore_project():
     # default boxes arrives with an empty cvts list - a pre-stocking save,
     # not an arrangement. This funnel (file load, undo/redo) is where it is
     # healed, because a read must not mutate and the panel may never open.
+    # Before it runs, re-seed the processor id counter: an undo snapshot can
+    # carry a stale counter or none at all (snapshots taken before the routes
+    # echoed it, hand-edited files), and _next_seq falling back would mint a
+    # duplicate proc/card/cvt id - the resurrection sync_next_group_seq
+    # exists for.
+    processor_catalog.sync_next_processor_seq(app.current_project)
     processor_catalog.stock_default_cvts(app.current_project)
     app.sync_next_layer_id()
     log_event('restore_project', {

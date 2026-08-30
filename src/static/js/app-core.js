@@ -668,6 +668,17 @@ export class LEDRasterApp {
         });
         this.socket.on('layer_updated', (layer) => {
             console.log('WEBSOCKET layer_updated received for layer:', layer.id);
+            // Undo audit: while an undo/redo restore PUT is on its way to the
+            // server, a layer_updated broadcast describes the PRE-restore
+            // server state (typically the very edit being undone - e.g. the
+            // just-committed drag's offsets). Applying it re-imposed the
+            // undone edit on the restored client project; the restore PUT's
+            // own adopted response is the reconciliation for this window.
+            if (this._restorePutPending) {
+                sendClientLog('socket_layer_updated_suppressed_during_restore',
+                              { id: layer.id });
+                return;
+            }
             sendClientLog('socket_layer_updated', { id: layer.id });
             this.applyServerLayer(layer, 'socket_layer_updated');
             this.updateUI();
@@ -1648,6 +1659,14 @@ export class LEDRasterApp {
                 document.getElementById('toolbar-raster-width').value = prefs.rasterWidth;
                 document.getElementById('toolbar-raster-height').value = prefs.rasterHeight;
 
+                // Undo audit: resetApplicationState() above snapshotted the
+                // OLD project (it runs before the fetch), so the first Ctrl+Z
+                // in the new project restored - and PUT back - the project the
+                // user had just left. Reset again now that this.project IS the
+                // new project, the same post-load reset File > Open and Recent
+                // Files perform.
+                this.resetHistory('Initial State');
+
                 // Save the default raster size to localStorage
                 // This way refresh after "New" will show defaults
                 this.saveRasterSize();
@@ -1888,6 +1907,12 @@ export class LEDRasterApp {
                 } else {
                     this.refreshPerspectiveButtons();
                     this.saveProject();
+                    // Undo audit: on a pre-multi-canvas project the history
+                    // entry lived only inside updateCanvas, so this branch
+                    // mutated and saved with no entry at all.
+                    if (typeof this.saveState === 'function') {
+                        this.saveState('Change Perspective');
+                    }
                     if (window.canvasRenderer) window.canvasRenderer.render();
                 }
                 if (typeof sendClientLog === 'function') {
@@ -2384,7 +2409,10 @@ export class LEDRasterApp {
                         }
                         if (Object.keys(patch).length === 0) return;
                         Object.assign(c, patch);
-                        this.updateCanvas(cid, patch);
+                        // Undo audit: skipHistory, or every touched canvas's
+                        // PUT recorded its own async entry on top of the one
+                        // below - one click cost 2..N+1 Ctrl+Z presses.
+                        this.updateCanvas(cid, patch, { skipHistory: true });
                     });
                 }
                 this.saveState('Reset Show Look Position');
@@ -2436,7 +2464,9 @@ export class LEDRasterApp {
                         }
                         if (Object.keys(patch).length === 0) return;
                         Object.assign(c, patch);
-                        this.updateCanvas(c.id, patch);
+                        // Undo audit: same skipHistory as the single reset
+                        // above - one click, one entry.
+                        this.updateCanvas(c.id, patch, { skipHistory: true });
                     });
                 }
                 this.saveState('Reset Entire Show Look');

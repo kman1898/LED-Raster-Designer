@@ -64,6 +64,14 @@ class _Processors {
         if (this.project
                 && ((data.processors || []).length || this.project.processors)) {
             this.project.processors = data.processors || [];
+            // The counter travels with the tree it numbers, so undo
+            // snapshots carry it and the restore PUT cannot reset it - a
+            // dropped counter handed retired ids back out (see _state's
+            // note in routes_processors.py). Guarded the same way as the
+            // tree itself: never stamped onto a project with no processors.
+            if (data.next_processor_seq != null) {
+                this.project.next_processor_seq = data.next_processor_seq;
+            }
         }
         this.renderProcessorPanel();
         // A PROCESSOR EDIT IS A LABEL EDIT. The drawing's port labels come out
