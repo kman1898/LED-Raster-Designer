@@ -60,6 +60,7 @@
             <div class="menu-option" data-action="quick-start" data-label="Quick Start Guide…"></div>
             <div class="menu-option" data-action="whats-new-tour" data-label="What&rsquo;s New in 0.12…"></div>
             <div class="menu-option" data-action="advanced-guide" data-label="Advanced Guide…"></div>
+            <div class="menu-option" data-action="whats-new" data-label="What’s New…"></div>
             <div class="menu-divider"></div>
             <div class="menu-option" data-action="keyboard-shortcuts" data-label="Keyboard Shortcuts"></div>
             <div class="menu-option" data-action="show-logs" data-label="Show Logs…"></div>
@@ -2369,5 +2370,10 @@
     <script type="module" src="/static/js/main.js"></script>
     <script src="/static/js/updater.js"></script>
     <script src="/static/js/quickstart.js"></script>
+    <!-- "What's New" splash: curated highlights (whatsnew_content.js) shown
+         once when MAJOR.MINOR changes; whatsnew.js gates and renders it.
+         Loads after quickstart.js so the splash can defer to the tour. -->
+    <script src="/static/js/whatsnew_content.js"></script>
+    <script src="/static/js/whatsnew.js"></script>
 </body>
 </html>

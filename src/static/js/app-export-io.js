@@ -2670,6 +2670,9 @@ class _ExportIo {
             case 'advanced-guide':
                 if (window.QuickStart) window.QuickStart.startAdvanced();
                 break;
+            case 'whats-new':
+                if (window.WhatsNew) window.WhatsNew.open();
+                break;
             case 'keyboard-shortcuts':
                 this.openShortcutsModal();
                 break;
