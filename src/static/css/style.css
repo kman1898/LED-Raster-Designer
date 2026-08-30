@@ -67,51 +67,28 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 /* Collapsed: shrink the sidebar to nothing but keep it in the DOM so
    layout/interactions stay intact. */
 #left-sidebar.collapsed,
-#right-sidebar.collapsed,
-#data-sidebar.collapsed,
-#power-sidebar.collapsed {
+#right-sidebar.collapsed {
     width: 0;
     min-width: 0;
     padding: 0;
     border-right: none;
     border-left: none;
 }
-
-/* ── Signal panel (Data view) and Power panel (Power view) ───────────── */
-/* Middle docked panels between the left sidebar and the canvas: signal (port
-   labelling and the processors behind it) in one, power distribution (multis,
-   splitters, distros) in the other. Only ever one of them is in layout, and
-   both carry the left sidebar's geometry deliberately, so whichever is showing
-   reads as one column of panels with it rather than a panel and an add-on. */
-#data-sidebar,
-#power-sidebar {
-    background: #252525;
-    width: 260px;
-    flex: 0 0 auto;
-    overflow-y: auto;
-    overflow-x: hidden;
-    scrollbar-gutter: stable;
-    padding: 10px;
-    border-right: 1px solid #3a3a3a;
-    box-sizing: border-box;
-    transition: width 0.18s ease, padding 0.18s ease, border-color 0.18s ease;
+/* The hardware dock's toggle is the same chevron turned on its side: a wide,
+   short tab hanging above the tray's top edge. JS (initSidebarToggles) pins
+   left to the dock's centre and top to its top edge; the translate makes
+   those the tab's centre and bottom, so it sits flush ON the edge the way
+   the side toggles hug theirs. */
+#hardware-dock-toggle {
+    width: 56px;
+    height: 15px;
+    font-size: 11px;
+    transform: translate(-50%, -100%);
+    border-bottom: none;
+    border-radius: 4px 4px 0 0;
+    transition: background 0.15s, color 0.15s, left 0.18s ease, top 0.18s ease;
 }
-/* Outside its own view a panel is removed from layout entirely rather than
-   collapsed to zero width: collapsed still occupies a flex slot and still
-   renders its border, and the bar for both panels is that anyone who never
-   opens that view sees no change at all. The toggle goes with it - a button
-   for a panel that isn't there is worse than no button. */
-#data-sidebar.view-hidden,
-#data-sidebar-toggle.view-hidden,
-#power-sidebar.view-hidden,
-#power-sidebar-toggle.view-hidden { display: none; }
-/* Both toggles hug the same vertical edge once a middle panel is collapsed
-   flush against the left sidebar, so the middle one sits below the midline;
-   otherwise it lands on top of the left sidebar's and only one is clickable.
-   Signal and Power can share the offset because they are never both in
-   layout. */
-#data-sidebar-toggle,
-#power-sidebar-toggle { border-left: none; border-radius: 0 4px 4px 0; top: calc(50% + 70px); }
+#hardware-dock-toggle.view-hidden { display: none; }
 #right-sidebar > .panel { margin: 0 10px 0 10px; flex: 1; overflow: hidden; min-height: 0; display: flex; flex-direction: column; }
 #right-sidebar > .panel > .panel-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 #right-sidebar > .panel > .panel-content > #layers-list { flex: 1; min-height: 0; overflow-y: auto; }
@@ -656,6 +633,19 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     background: #2a2a2a;
 }
 
+/* A menu item that cannot act right now. It keeps pointer events - the
+   title carries the REASON and a tooltip needs hover - so the click guard
+   lives in handleMenuClick, and this only takes away the affordances.
+   !important because theme.css sets .menu-option colours with it. */
+.menu-option.menu-disabled {
+    color: #666 !important;
+    cursor: default;
+}
+.menu-option.menu-disabled:hover {
+    background: none !important;
+    color: #666 !important;
+}
+
 .menu-divider {
     height: 1px;
     background: #333;
@@ -1116,11 +1106,6 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 }
 .canvas-color-hex-row .canvas-color-apply:hover { background: #3a5d96; }
 
-/* Distro load bars (Power panel) */
-.rack-bar { height: 8px; border-radius: 4px; background: #1a1a1a; border: 1px solid #333; overflow: hidden; }
-.rack-bar-fill { height: 100%; background: linear-gradient(90deg, #2e7d4f, #37c15f); transition: width 0.25s ease; }
-.rack-bar-fill.over { background: linear-gradient(90deg, #a03030, #e05050); }
-
 /* Collapsible sections (app-core.js initSectionCollapse). The body HIDES,
    it is never detached - getElementById lookups and live references into a
    folded section must keep working. !important because the Screens panel's
@@ -1153,60 +1138,9 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 .lrd-sec-head .lrd-sec-arrow { margin-right: 4px; padding-left: 0; vertical-align: -1px; }
 .lrd-sec-collapsed > .lrd-sec-head .lrd-sec-arrow { transform: rotate(-90deg); }
 
-/* A processor card folds to one line (app-processors.js
-   _buildProcessorCard). The machinery above hides the card's .lrd-sec-body;
-   the head then swaps its editors (.lrd-proc-live: the name field, the ×)
-   for the summary, so folded reads as glance data rather than an orphaned
-   input. Swapped by display, never detached - the focus-restore keys must
-   keep resolving into a folded card, and the restore's auto-expand is what
-   brings the field back. */
-.lrd-proc-summary {
-    display: none;
-    font-size: 11px; font-family: monospace; color: #ccc;
-    line-height: 1.4; min-width: 0;
-}
-.lrd-sec-collapsed > .lrd-sec-head > .lrd-proc-summary {
-    display: block; flex: 1 1 auto;
-}
-.lrd-sec-collapsed > .lrd-sec-head > .lrd-proc-live { display: none; }
-/* the no-smear rule guards the double-click TITLE gesture; the name field
-   in this head is a real editor and keeps real text selection */
+/* the no-smear rule guards the double-click TITLE gesture; a name field
+   in a section head is a real editor and keeps real text selection */
 .lrd-sec-click input { user-select: text; -webkit-user-select: text; }
-
-/* A distro row is a card (the register the processor cards wear), so the
-   boundary between distros is a drawn edge rather than a guessed gap - the
-   old rows ran together as one column of bars. Each folds through the same
-   head/body machinery; folded, the name field and the ✕ swap for the glance
-   line (.lrd-distro-glance: name · rating · load% · imbalance · multis).
-   The live pair sits INSIDE the head's title label - the arrow anchors
-   there too - so these selectors reach one level deeper than the processor
-   card's direct children. */
-.lrd-distro-card {
-    border: 1px solid #333;
-    border-radius: 4px;
-    padding: 8px;
-    background: #111;
-    margin-bottom: 8px;
-}
-.lrd-distro-glance { display: none; }
-.lrd-distro-card.lrd-sec-collapsed .lrd-sec-head .lrd-distro-glance {
-    display: inline;
-}
-.lrd-distro-card.lrd-sec-collapsed .lrd-sec-head .lrd-distro-live {
-    display: none;
-}
-/* The glance line's numbers, drawn: folded, the head keeps the load bar and
-   the three per-leg minis under the text line, because a list of folded
-   distros should still read as levels and balance. The block sits in the
-   head (the body is what the fold hides) and takes the head's full width -
-   flex-basis 100% drops it below the title row in the head's wrap flow.
-   Same hide-never-detach rule as the glance text above it. */
-.lrd-distro-glance-bars { display: none; }
-.lrd-distro-card.lrd-sec-collapsed .lrd-sec-head .lrd-distro-glance-bars {
-    display: block;
-    flex: 1 1 100%;
-    min-width: 0;
-}
 
 /* Tiles (app-core.js _wireTiles): a port or a multi drawn as one dense cell
    of a wrapping grid, its editor folded inside it. Clicking the face opens
@@ -1261,3 +1195,410 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
    badge. A clash keeps the issue boxes' red ground. */
 .lrd-tile-occupied { background: #1e1e1e; border-color: #4a4a4a; }
 .lrd-tile-clash { background: #1a1010; border-color: #3a2a28; }
+
+/* ── Hardware dock ─────────────────────────────────────────────────────────
+   The tray under the canvas (app-dock.js). A flex child of #canvas-container
+   after #canvas-wrapper, so it steals height from the canvas purely by being
+   in the column - no height arithmetic anywhere, the same rule the sidebars
+   follow for width. Out of its views it leaves layout entirely
+   (.view-hidden), the middle sidebars' doctrine: anyone who never opens Data
+   or Power sees no change at all.
+
+   Its height is the sidebars' width story transposed: a fixed size driven by
+   a CSS var (set/persisted by theme.js's dock row), the body scrolling
+   vertically inside it, and .collapsed folding it to nothing while the
+   chevron above its top edge (initSidebarToggles) stays as the way back.
+   172px default = the 21px header + 1px border + the 150px body the tray
+   always capped itself at. */
+#hardware-dock {
+    flex: 0 0 auto; border-top: 1px solid #131313;
+    display: flex; flex-direction: column;
+    box-sizing: border-box;
+    height: var(--lrd-dock-h, 172px);
+    transition: height 0.18s ease;
+}
+#hardware-dock.view-hidden { display: none; }
+#hardware-dock.collapsed {
+    height: 0;
+    min-height: 0;
+    border-top: none;
+    overflow: hidden;
+}
+/* The body scrolls VERTICALLY inside whatever height the tray has - the
+   canvas is the star of this column. Sideways it reflows (the tile grid's
+   own rule), never scrolls. */
+#hardware-dock-body {
+    flex: 1 1 auto; min-height: 0;
+    overflow-y: auto; overflow-x: hidden;
+    padding: 6px 8px;
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start;
+    align-content: flex-start;
+}
+#hardware-dock .hw-dock-head { font-size: 11px; flex: 0 0 auto; }
+.hw-dock-note { font-size: 11px; color: #888; padding: 2px 0; }
+/* Units GROW along the tray: this is a horizontal strip under a wide canvas,
+   so a 40-port card spreads into a wide shallow grid rather than stacking
+   twenty rows deep and scrolling out of its own body. */
+.hw-dock-proc {
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start;
+    flex: 1 1 300px; min-width: 0;
+}
+.hw-dock-proc-name {
+    flex: 1 1 100%; font-size: 10px; color: #888;
+    text-transform: uppercase; letter-spacing: 0.4px;
+}
+.hw-dock-unit {
+    border: 1px solid #262626; border-radius: 3px; background: #0d0d0d;
+    padding: 4px 6px; flex: 1 1 240px; min-width: 170px; max-width: 100%;
+}
+.hw-dock-head-row {
+    display: flex; align-items: baseline; gap: 6px; cursor: grab;
+    padding: 1px 2px; border-radius: 3px;
+}
+.hw-dock-head-row:active { cursor: grabbing; }
+.hw-dock-grip { color: #555; font-size: 10px; letter-spacing: -1px; }
+.hw-dock-unit-name {
+    font-size: 11px; color: #ccc; font-family: monospace;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    min-width: 0;
+}
+.hw-dock-unit-info { font-size: 10px; color: #666; font-family: monospace; margin-left: auto; }
+/* One breakout box = one bounded section of its card: its own ground and
+   frame around the header ("Tessera XD A · ports 1-10") and its span of
+   chips, so where one box ends and the next begins is read at a glance -
+   a lone left border was invisible between two ten-chip grids. The backup
+   half of a pair keeps this frame and adds the pair rule's gold edge and
+   indent (.lrd-red-backup below beats the left border). */
+.hw-dock-box {
+    margin-top: 6px; padding: 2px 6px 5px;
+    background: #111; border: 1px solid #262626; border-radius: 3px;
+    border-left: 2px solid #3a3a3a;
+}
+.hw-dock-grid { margin-top: 4px; }
+/* A redundant pair reads as ONE group everywhere "X backs up Y" is drawn -
+   the SX40's fixed A/B and C/D boxes, a designated 1:1 backup unit - so the
+   backup element nests under its main inside a pair wrapper instead of
+   standing as a sibling, indented off an edge in the role's gold family
+   (the same gold the backup tiles and fact lines wear). Layout only: the
+   fold and tile machinery inside either element is untouched. */
+.lrd-red-pair { min-width: 0; }
+.lrd-red-backup {
+    /* !important because several nested surfaces carry their base border
+       and margins as inline styles (the panel's boxes and breakout rows),
+       and the role's edge must beat each of them without a per-surface
+       copy of this rule. */
+    margin-left: 10px !important;
+    margin-top: 2px !important;
+    border-left: 2px solid #6b5626 !important;
+    padding-left: 6px !important;
+}
+/* In the tray the pair wrapper takes the flex place its main had: a pair
+   of processors sits where one processor sat, a pair of card units where
+   one unit sat, the two halves stacking inside. */
+#hardware-dock-body > .lrd-red-pair { flex: 1 1 300px; }
+.hw-dock-proc > .lrd-red-pair {
+    flex: 1 1 240px; min-width: 170px; max-width: 100%;
+}
+/* Dock chips are drag handles first and the cursor says so - and the
+   chips are ALSO their things' folding editors, since the dock is the one
+   hardware surface: a press released without movement is the click that
+   opens the editor in place (a port's name boxes, an occupied circuit's
+   label override), press-and-move is the drag (app-dock.js _dockArmDrag's
+   4px split). A free circuit chip has nothing to edit and stays a pure
+   handle (_wireTiles skips editor-less tiles). */
+.hw-dock-tile > .lrd-tile-face { cursor: grab; }
+.hw-dock-tile > .lrd-tile-face:active { cursor: grabbing; }
+/* ── chip load fill (app-dock.js _dockChipFill) ───────────────────────────
+   Two readings of one figure, the user's pick: the chip's GROUND fills
+   left-to-right like a meter, and a crisp rack-bar row sits along the
+   chip's bottom. The ground fill is a translucent layer INSIDE the face -
+   above the tile's occupied/clash ground, below the text - so it TINTS the
+   state colour instead of replacing it: an occupied chip stays lit grey
+   under green, a clash stays red-grounded (and the fill itself turns the
+   red family when the load is over). pointer-events off so the meter never
+   swallows the face's click/drag. */
+.hw-dock-tile > .lrd-tile-face { position: relative; }
+.hw-dock-fill {
+    position: absolute; left: 0; top: 0; bottom: 0;
+    background: rgba(55, 193, 95, .16);
+    border-right: 1px solid rgba(55, 193, 95, .55);
+    pointer-events: none;
+}
+.hw-dock-fill-over {
+    background: rgba(224, 80, 80, .18);
+    border-right-color: rgba(224, 80, 80, .7);
+}
+/* text rides above the meter */
+.hw-dock-tile .lrd-tile-line { position: relative; }
+.hw-dock-bar {
+    position: relative; height: 4px; border-radius: 2px;
+    background: #1a1a1a; border: 1px solid #333;
+    overflow: hidden; margin-top: 2px;
+}
+.hw-dock-bar > i {
+    display: block; height: 100%;
+    background: linear-gradient(90deg, #2e7d4f, #37c15f);
+}
+.hw-dock-bar > i.hw-dock-bar-over {
+    background: linear-gradient(90deg, #a03030, #e05050);
+}
+/* The header's glance (app-dock.js _dockBuildHandle): a compact count and
+   a slim fill line, so a section folded away still says how full it is -
+   a finished card folds to a thin green-filled line. */
+.hw-dock-unit-use { font-size: 10px; color: #888; font-family: monospace; }
+.hw-dock-headbar {
+    flex: 0 1 44px; min-width: 16px; height: 3px; border-radius: 2px;
+    background: #1a1a1a; border: 1px solid #333;
+    overflow: hidden; align-self: center;
+}
+.hw-dock-headbar > i {
+    display: block; height: 100%;
+    background: linear-gradient(90deg, #2e7d4f, #37c15f);
+}
+.hw-dock-headbar > i.hw-dock-bar-over {
+    background: linear-gradient(90deg, #a03030, #e05050);
+}
+/* A multi section past its six tails, or a tail claimed twice, wears the
+   clash family on its frame - the box-level reading of the chip grounds. */
+.hw-dock-multi-clash { background: #1a1010; border-color: #3a2a28; }
+
+/* ── dock header bar, issues strip, inline names, gears ───────────────────
+   The consolidation chrome: with the middle sidebars retired, the dock's
+   header carries the add controls and the auto switch, a slim strip under
+   it carries the issues, and each section header carries its thing's name
+   inline plus a ⚙ opening its configuration popover. */
+#hardware-dock .hw-dock-head {
+    display: flex; align-items: center; gap: 8px;
+    border-bottom: 1px solid #131313;
+}
+.hw-dock-ctl { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.hw-dock-ctl.view-hidden { display: none; }
+#processor-add-device { max-width: 220px; min-width: 0; font-size: 11px; }
+#processor-add-btn, #power-distro-add { padding: 2px 10px; font-size: 11px; }
+.hw-dock-head-sp { flex: 1 1 auto; }
+/* The attachment flag pill (app-dock.js _renderDockFlag): red while any
+   screen has unattached ports / circuits, green when everything hardware
+   could hold is held. The count badge counts SCREENS, not ports - the
+   rows under the flag carry the port-by-port story when opened. */
+#hw-dock-flag {
+    display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+    background: #3a1414; border: 1px solid #7a2727; color: #ff9a9a;
+    border-radius: 12px; padding: 2px 10px 2px 8px;
+    font-size: 11px; font-weight: 400; line-height: 1.4;
+    white-space: nowrap; user-select: none;
+}
+#hw-dock-flag .hw-dock-flag-n {
+    background: #c23b3b; color: #fff; border-radius: 9px;
+    min-width: 16px; height: 16px; display: inline-flex;
+    align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 700; padding: 0 4px;
+}
+#hw-dock-flag.hw-dock-flag-ok {
+    background: #15301b; border-color: #2c5c38; color: #7fce93;
+    cursor: default;
+}
+#hw-dock-flag.hw-dock-flag-ok .hw-dock-flag-n { background: #2f9c4c; }
+#hw-dock-flag.view-hidden { display: none; }
+/* The flag's rows, directly under the header: one per unattached screen,
+   name + count + the unattached numbers as small chips. Closed (empty) by
+   default - :empty keeps the section out of layout the way the issues
+   strip stays out. Clicking a row (name or chip) centers the canvas on
+   that screen. */
+#hw-dock-attach {
+    flex: 0 0 auto; max-height: 30%; overflow-y: auto;
+    background: #241111; border-bottom: 1px solid #3a1a1a;
+}
+#hw-dock-attach:empty { display: none; }
+.hw-dock-attach-row {
+    display: flex; align-items: center; gap: 8px; padding: 4px 12px;
+    border-bottom: 1px solid #331717; cursor: pointer;
+    font-size: 12px; color: #f0b9b9;
+}
+.hw-dock-attach-row:last-child { border-bottom: none; }
+.hw-dock-attach-row:hover { background: #2e1515; }
+.hw-dock-attach-name { font-weight: 600; color: #ffdcdc; }
+.hw-dock-attach-cnt { color: #cc9988; font-size: 11px; }
+.hw-dock-attach-chips {
+    display: flex; gap: 3px; margin-left: auto; flex-wrap: wrap;
+}
+.hw-dock-attach-chip {
+    background: #3a1c1c; border: 1px solid #6a2c2c; border-radius: 3px;
+    padding: 1px 5px; font-size: 10px; color: #ffb0b0;
+}
+.hw-dock-attach-row:hover .hw-dock-attach-chip { background: #5a2424; }
+#hw-dock-fold {
+    background: none; border: none; color: #999; cursor: pointer;
+    font-size: 12px; padding: 0 4px; line-height: 1;
+}
+#hw-dock-fold:hover { color: #fff; }
+/* One slim row per issue, its offer buttons inline: red rows are questions
+   waiting on a person, amber rows are conditions worth knowing, and the
+   note row is neither. :empty keeps the strip out of layout entirely when
+   nothing is wrong - the whole point of a strip over a panel. */
+#hw-dock-issues { flex: 0 0 auto; max-height: 30%; overflow-y: auto; }
+#hw-dock-issues:empty { display: none; }
+.hw-dock-issue {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+    padding: 2px 8px; font-size: 11px; line-height: 1.4;
+    background: #1a1010; border-bottom: 1px solid #3a2a28;
+    color: #d08a82;
+}
+.hw-dock-issue-mild { background: #14120c; border-bottom-color: #3a3320; color: #c8a04a; }
+.hw-dock-issue-note { background: #0e1218; border-bottom-color: #22303e; color: #8aa8c8; }
+.hw-dock-issue-msg { min-width: 0; }
+.hw-dock-issue .btn { padding: 1px 8px; font-size: 10px; background: #333; }
+/* The inline name field: dashed underline = click to type, transparent
+   ground so the header reads as a line of text. Placeholder = the derived
+   name (the hint step of the ladder); typed text = named by hand. */
+.hw-dock-name {
+    background: transparent; border: none;
+    border-bottom: 1px dashed #4a4a4a; border-radius: 0;
+    color: #f0f0f0; font-size: 11px; font-family: monospace;
+    padding: 0 1px; min-width: 0;
+}
+.hw-dock-name:focus {
+    outline: none; border-bottom-color: #3a5d96; background: #0d0d0d;
+}
+.hw-dock-proc-name .hw-dock-name { font-size: 10px; }
+.hw-dock-proc-name { display: flex; align-items: center; gap: 6px; }
+/* The gear is the way into a unit's configuration (redundancy, templates,
+   ratings, remove) - at name-text size it disappeared next to the name it
+   belongs to, so it gets glyph size and a real hit area of its own. */
+.hw-dock-gear {
+    background: none; border: none; color: #a8a8a8; cursor: pointer;
+    font-size: 15px; padding: 1px 5px; line-height: 1; flex: 0 0 auto;
+    border-radius: 3px;
+}
+.hw-dock-gear:hover { color: #fff; background: #333; }
+.hw-dock-btn { padding: 1px 8px; font-size: 10px; flex: 0 0 auto; white-space: nowrap; }
+/* over-loaded figures keep the red the bars wear */
+.hw-dock-unit-use-over { color: #e05050; }
+/* The distro's LEGS line: per-leg amps + mini meters + imbalance, always
+   on (it sits between the header and the foldable body). */
+.hw-dock-legs {
+    display: flex; align-items: center; gap: 5px;
+    padding: 1px 2px 2px; font: 9px ui-monospace, Menlo, monospace;
+    color: #b8b8b8; min-width: 0;
+}
+.hw-dock-legs-warn { color: #d8a13c; }
+.hw-dock-legs-bad { color: #e05050; }
+.hw-dock-legs-cap { letter-spacing: 0.5px; color: #777; }
+.hw-dock-legbar {
+    flex: 1 1 18px; min-width: 10px; height: 3px; border-radius: 2px;
+    background: #1a1a1a; border: 1px solid #333; overflow: hidden;
+}
+.hw-dock-legbar > i {
+    display: block; height: 100%;
+    background: linear-gradient(90deg, #2e7d4f, #37c15f);
+}
+.hw-dock-legbar > i.hw-dock-bar-over {
+    background: linear-gradient(90deg, #a03030, #e05050);
+}
+/* ── the gear popover ─────────────────────────────────────────────────────
+   The menu idiom worn by a configuration panel: anchored at the gear,
+   floating over everything, closed by click-away/Escape
+   (app-dock.js _hwPopoverToggle and friends own the behaviour). */
+#hw-gear-popover {
+    position: fixed; z-index: 1000; display: none;
+    width: 300px; max-width: calc(100vw - 24px);
+    max-height: 60vh; overflow-y: auto;
+    background: #252525; border: 1px solid #3a3a3a; border-radius: 6px;
+    padding: 10px; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55);
+    font-size: 11px; color: #ccc;
+}
+#hw-gear-popover input, #hw-gear-popover select {
+    background: #111; border: 1px solid #333; color: #fff;
+    border-radius: 4px; padding: 3px 4px; font-size: 11px;
+    box-sizing: border-box;
+}
+.hw-pop-heading {
+    font-weight: 600; font-size: 11px; color: #f0f0f0;
+    margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.3px;
+}
+.hw-pop-remove {
+    display: block; width: 100%; margin-top: 8px; padding: 5px 10px;
+    background: #333; color: #d08a82;
+}
+.hw-pop-remove:hover { background: #4a2a2a; }
+/* a home-run length beside the multi name reads one step dimmer - it is a
+   figure, not an identity */
+.hw-dock-name-len { color: #b8b8b8; }
+/* A folded MAIN folds its nested backup with it - a redundant pair is one
+   thing, and half a folded thing must not stay open beside it. The backup
+   still folds alone through its own header. First-child guard: only the
+   pair's main hides its backups; a folded backup hides nobody. */
+.lrd-red-pair > .lrd-sec-collapsed:first-child ~ .lrd-red-backup {
+    display: none !important;
+}
+
+/* ── power density pass (2026-08-30: "power is wayyy too cramped") ────────
+   The no-clip doctrine: figures never wrap mid-number, names flex instead
+   of clipping, and each surface owns an honest minimum width. */
+/* the amps glance and the voltage/figure tags hold their shape - a
+   "295.3/400 A" that breaks into "400 / A" is worse than a scrollbar */
+.hw-dock-unit-use, .hw-dock-unit-info { white-space: nowrap; flex: 0 0 auto; }
+/* inline names on a single-line header flex with the row, never below a
+   readable floor (the names-row variants below carry their own) */
+.hw-dock-head-row > .hw-dock-name {
+    flex: 1 1 64px; min-width: 56px; max-width: 220px;
+}
+/* The multi header reflows onto two lines: title/glance line, then the
+   member name + home-run length pairs on a full-width line of their own -
+   still inside the header, so fold and drag keep their one scope. */
+.hw-dock-multi > .hw-dock-head-row { flex-wrap: wrap; row-gap: 2px; }
+.hw-dock-names {
+    flex: 1 1 100%; display: flex; gap: 6px; align-items: baseline;
+    min-width: 0;
+}
+.hw-dock-names .hw-dock-name {
+    flex: 1 1 90px; min-width: 64px; max-width: 260px;
+}
+.hw-dock-names .hw-dock-name-len { flex: 0 1 56px; min-width: 44px; }
+/* A multi's chips render TWO per row - the rule, not an accident of
+   container width: 2 x 3 for a six-circuit box, chips wide enough that a
+   label + occupant never truncates. */
+.hw-dock-multi .lrd-tile-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+/* the distro unit's honest floor: one header line of name + amps +
+   Balance + bar + voltage + gear, none of it clipped */
+/* Three COLUMNS of distros (2026-08-30, second fold pass: "see this big
+   blank area directly under SR? And how SL doesn't automatically jump up
+   to be directly under SR when it's collapsed?"): the distros deal into
+   up to three vertical columns (app-dock.js _dockRenderPower, index
+   i % 3 - stable across re-renders, so units never jump columns as
+   loads change). Distros 1-3 read left to right, 4 sits UNDER 1, and
+   within a column everything stacks naturally: a folded distro is just
+   SHORT and the unit below it slides straight up - flex-wrap's
+   uniform-height rows left a dead blank under every folded header. Each
+   column carries the width discipline the units used to: a third of the
+   tray, the 380px no-clip floor (name + amps + bar + voltage + Balance +
+   gear, then LEGS), and a cap so a lone distro never balloons the full
+   tray. */
+.hw-dock-col {
+    flex: 1 1 calc((100% - 20px) / 3);
+    min-width: 380px;
+    max-width: 600px;
+    min-height: 0;
+    display: flex; flex-direction: column; gap: 10px;
+    align-items: stretch;
+}
+/* Inside its column a distro is a stacked block, folded or not - it
+   keeps the column's full width (the stack, not a width change, is what
+   reclaims a folded unit's room). Restated flex because the unit base
+   rule's row-flex basis would read as HEIGHT in the column context. */
+.hw-dock-col > .hw-dock-distro { flex: 0 0 auto; min-width: 0; }
+/* ── fold reflow, data side (2026-08-30) ─────────────────────────────────
+   A folded CARD is just its header, so it stops claiming a grown share
+   of its processor's row: basis auto sits it at its natural width and
+   the expanded neighbours grow into the room. Scoped to the proc wraps -
+   a folded DISTRO stays column-wide, the column stack above handles it.
+   The max-width caps the natural width (a name input's intrinsic size
+   runs wide); the header's own min-widths (name floor, nowrap figures)
+   protect it from clipping, since wrap layout never shrinks an item
+   below its hypothetical size. */
+#hardware-dock-body .hw-dock-proc .hw-dock-unit.lrd-sec-collapsed {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 300px;
+}

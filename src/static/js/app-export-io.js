@@ -126,11 +126,14 @@ class _ExportIo {
             // The wall's ports belong to the group's first member and are
             // counted there. A peer reporting its own figure as well would put
             // the same cable on the order sheet twice - the same reason a member
-            // fully served by a peer's hand-drawn path reports zero.
+            // fully served by a peer's hand-drawn path reports zero. The one
+            // exception is the member's own per-run OVERRIDES: a redrawn port
+            // is a physical output on THIS member's processor, so it is
+            // reported here, by the layer that owns it, and nowhere else.
             layer._capacityError = null;
             layer._lowLatencyDerate = null;
             layer._autoPortsRequired = 0;
-            return [];
+            return this._appendOverridePortItems(layer, [], plan);
         }
 
         const bitDepth = layer.bitDepth || 8;
@@ -190,14 +193,27 @@ class _ExportIo {
                 return p => owners.get(p) || layer;
             })()
             : (() => layer);
-        const orderedByPattern = includeHidden => (plan
-            ? plan.ordered
-                .filter(c => includeHidden || !c.panel.hidden)
-                .map(c => c.panel)
-            : this.getOrderedPanelsByPattern(layer, pattern, includeHidden));
+        // Per-run overrides: a cabinet on a hand-drawn override anywhere in
+        // the path scope is already fed, so the automatic walk lays over
+        // everything else and the overridden port numbers are skipped when the
+        // walk's ports are numbered (see the assignment loop at the bottom).
+        // The claim set is empty for every project without overrides, and
+        // every list below is then byte-identical to what it always was.
+        const claimed = (typeof this._overrideClaims === 'function')
+            ? this._overrideClaims(layer, 'data') : new Set();
+        const orderedByPattern = includeHidden => {
+            const ordered = plan
+                ? plan.ordered
+                    .filter(c => includeHidden || !c.panel.hidden)
+                    .map(c => c.panel)
+                : this.getOrderedPanelsByPattern(layer, pattern, includeHidden);
+            return claimed.size === 0 ? ordered : ordered.filter(p => !claimed.has(p));
+        };
 
         const orderedForCapacity = orderedByPattern(usesRectangle);
-        if (orderedForCapacity.length === 0) return [];
+        if (orderedForCapacity.length === 0) {
+            return this._appendOverridePortItems(layer, [], plan);
+        }
 
         const ports = [];
 
@@ -311,7 +327,9 @@ class _ExportIo {
             // drop out so a port's load is only what actually lights up.
             const llPanels = orderedByPattern(false)
                 .filter(p => this.getPanelPixelArea(p) > 0);
-            if (llPanels.length === 0) return [];
+            if (llPanels.length === 0) {
+                return this._appendOverridePortItems(layer, [], plan);
+            }
 
             let current = null;
             llPanels.forEach(panel => {
@@ -624,17 +642,34 @@ class _ExportIo {
 
         const assignments = [];
         layer._autoPortsRequired = ports.length;
-        ports.forEach((port, idx) => {
+        // Per-run overrides reserve their numbers: the walk's ports take
+        // 1, 2, 3... skipping every overridden number, so a port whose
+        // cabinets the walk never touched keeps the number it always had and
+        // nothing reshuffles beyond the cabinets the user actually took.
+        const reserved = (typeof this.getOverrideNums === 'function'
+            && !this.isCustomFlow(layer))
+            ? this.getOverrideNums(layer, 'data') : [];
+        let nextPortNum = 1;
+        const takePortNum = () => {
+            while (reserved.includes(nextPortNum)) nextPortNum++;
+            return nextPortNum++;
+        };
+        ports.forEach((port) => {
             // v0.11.0: only the Organized branch stores row/column indices;
             // the Low Latency branch carries its own ordered panel list.
-            const portPanels = (isOrganized && !llGeometry)
+            // The Organized list is re-derived from the grid here, so the
+            // override claims are dropped from it the same way the capacity
+            // walk dropped them above.
+            const portPanels = ((isOrganized && !llGeometry)
                 ? this.getOrganizedPanelsForUnits(layer, pattern, isHorizontalFirst, port.unitIndices || [], false, plan)
-                : (port.panels || []);
+                : (port.panels || []))
+                .filter(p => claimed.size === 0 || !claimed.has(p));
+            const portNum = takePortNum();
             let pixelIndex = 0;
             portPanels.forEach((panel, panelIdx) => {
                 const item = {
                     panel,
-                    port: idx + 1,
+                    port: portNum,
                     isPortStart: panelIdx === 0,
                     pixelIndex
                 };
@@ -649,6 +684,47 @@ class _ExportIo {
                 pixelIndex += this.getPanelPixelArea(panel);
             });
         });
+        return this._appendOverridePortItems(layer, assignments, plan);
+    }
+
+    // Fold this layer's overridden ports into an automatic assignment, in the
+    // item shape every consumer already reads. `_autoPortsRequired` becomes
+    // the highest port number in use - the number-skip can leave gaps, and a
+    // processor has to have output 11 for a run labelled P11, so the highest
+    // number is the honest requirement (the same highest-drawn convention
+    // whole-screen custom has always reported). A no-op returning the
+    // assignment untouched for every layer without overrides.
+    _appendOverridePortItems(layer, assignments, plan) {
+        // Gate on the RESERVED numbers, not just the drawn paths: an override
+        // whose path is empty still reserves its number and shifts the walk's
+        // numbering, so the highest-in-use figure has to be recomputed for it
+        // too - ports.length would report one port short across the gap.
+        const reserves = (typeof this.getOverrideNums === 'function'
+            && !this.isCustomFlow(layer))
+            ? this.getOverrideNums(layer, 'data') : [];
+        if (reserves.length === 0) return assignments;
+        const overrides = this._ownOverrideRuns(layer, 'data');
+        overrides.forEach(o => {
+            let pixelIndex = 0;
+            o.hits.forEach((hit, i) => {
+                const item = {
+                    panel: hit.panel,
+                    port: o.num,
+                    isPortStart: i === 0,
+                    pixelIndex
+                };
+                if (plan || hit.layer.id !== layer.id) item.layerId = hit.layer.id;
+                assignments.push(item);
+                pixelIndex += this.getPanelPixelArea(hit.panel);
+            });
+        });
+        layer._autoPortsRequired = assignments.reduce(
+            (max, x) => Math.max(max, (x && x.port) || 0), 0);
+        // Ascending port order, the shape the pure walk has always produced -
+        // a consumer walking the list to find "the first port" must not find
+        // an override parked at the end. The sort is stable, so cabinets
+        // within a port keep their feed order.
+        assignments.sort((a, b) => a.port - b.port);
         return assignments;
     }
     
@@ -2323,6 +2399,10 @@ class _ExportIo {
             if (!target) return;
             // Don't close menu when hovering over submenu parent
             if (target.classList.contains('menu-has-submenu')) return;
+            // A disabled item is a sentence, not a control: it stays put so
+            // its title (the reason) can be read, and clicking it neither
+            // acts nor closes the menu - native menu behaviour.
+            if (target.classList.contains('menu-disabled')) return;
             const action = target.dataset.action;
             if (!action) return;
             hideMenus();
@@ -2497,6 +2577,54 @@ class _ExportIo {
             case 'prev-port':
                 this.stepCustomPort(-1);
                 break;
+            // The assignment clear armed for this opening of the menu
+            // (showContextMenu stored it). Re-checked here rather than
+            // trusted: the disabled guard in handleMenuClick already blocks
+            // the click, but a keyboard-driven call must not clear either.
+            case 'hw-clear':
+                if (this._clearMenuAction && !this._clearMenuAction.disabled
+                        && typeof this._clearMenuAction.run === 'function') {
+                    this._clearMenuAction.run();
+                }
+                break;
+            // The merge-back armed for this opening of the menu, same
+            // doctrine as the clear above: stored at open time, re-checked
+            // here so a keyboard-driven call cannot merge what the cursor
+            // never named.
+            case 'hw-merge':
+                if (this._mergeMenuAction
+                        && typeof this._mergeMenuAction.run === 'function') {
+                    this._mergeMenuAction.run();
+                }
+                break;
+            // Circuit sharing, same doctrine: armed at open time on the
+            // circuit the cursor named, re-checked here.
+            case 'hw-share':
+                if (this._shareMenuAction
+                        && typeof this._shareMenuAction.run === 'function') {
+                    this._shareMenuAction.run();
+                }
+                break;
+            case 'hw-unshare':
+                if (this._unshareMenuAction
+                        && typeof this._unshareMenuAction.run === 'function') {
+                    this._unshareMenuAction.run();
+                }
+                break;
+            // Per-run override, same doctrine as the clears above: armed at
+            // open time on the run the cursor named, re-checked here.
+            case 'ovr-redraw':
+                if (this._overrideMenuActions && this._overrideMenuActions.redraw
+                        && typeof this._overrideMenuActions.redraw.run === 'function') {
+                    this._overrideMenuActions.redraw.run();
+                }
+                break;
+            case 'ovr-auto':
+                if (this._overrideMenuActions && this._overrideMenuActions.backToAuto
+                        && typeof this._overrideMenuActions.backToAuto.run === 'function') {
+                    this._overrideMenuActions.backToAuto.run();
+                }
+                break;
             case 'bulk-set-blank':
                 this.setPanelsBlankBulk(this.getPixelMapSelectedPanels(), true);
                 break;
@@ -2536,8 +2664,14 @@ class _ExportIo {
             case 'quick-start':
                 if (window.QuickStart) window.QuickStart.start();
                 break;
+            case 'whats-new-tour':
+                if (window.QuickStart) window.QuickStart.startWhatsNew();
+                break;
             case 'advanced-guide':
                 if (window.QuickStart) window.QuickStart.startAdvanced();
+                break;
+            case 'whats-new':
+                if (window.WhatsNew) window.WhatsNew.open();
                 break;
             case 'keyboard-shortcuts':
                 this.openShortcutsModal();

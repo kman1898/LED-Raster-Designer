@@ -1,31 +1,37 @@
-"""The middle panels: a docked column that exists in exactly one view.
+"""The middle panels are gone: the dock and the left sidebar split the estate.
 
-The left sidebar had no room left for the processor work Data view is about to
-grow, so signal got its own panel between the left sidebar and the canvas, and
-the port labelling UI moved into it. Power distribution - the home-run multis,
-the splitters that gang circuits onto one of them, and the distros they land on
-- ran out of the same room and got the second one, in the same slot, driven by
-the same three tables (collapse in app-core.js initSidebarToggles, resize in
-theme.js PANELS, view scoping in app-core.js updateViewSidebars).
+The Signal and Power middle sidebars were a stop on the way to the hardware
+dock. The per-thing editors they held - processor cards, port label rows, the
+soca tiles, splitter rows, distro cards - live on the dock's own sections and
+chips now, where the thing being edited is the thing on screen; the per-screen
+knobs (fallback label templates, breakout type, splitter packing, brackets)
+moved into the left sidebar's Data Settings / Power Settings panels; and the
+issue boxes became the slim strip under the dock's header. The canvas gets the
+whole middle back in every view.
 
-What these tests pin, for BOTH panels:
+What these tests pin, now that the consolidation has happened:
 
-* The panel is in layout in its own view and OUT of layout everywhere else -
-  which means display:none rather than a zero-width collapse (a collapsed panel
-  still takes a flex slot and still draws a border). The two never appear
-  together.
-* It collapses and expands on its own toggle, and the state survives a reload
-  the same way the left and right sidebars' does.
-* The editors really are inside it, the ids are still unique, and nothing was
-  left behind in the left sidebar.
-* Editing a field and pressing Tab still leaves focus in a real field after the
-  rebuild that follows. This deliberately overlaps
-  tests/test_label_editor_focus.py: moving the markup is precisely the change
-  that could break _preserveEditorFocus.
-* The distro list, which is project-level and blanks itself for nothing, is
-  painted in Power view and nowhere else. Before the move it was hidden only by
-  the Power Settings panel it happened to sit inside.
-* Collapsing one panel does not move the others.
+* The retired sidebars left NO markup behind - no #data-sidebar, no
+  #power-sidebar, no toggles - in any view, and the canvas starts at the left
+  sidebar's right edge everywhere. The dock is in layout only in the two
+  hardware views (its deep geometry lives in tests/test_sidebar_resize.py and
+  tests/test_hardware_dock.py; here only the light check).
+* The editors that survived moved WHOLE: each id exists exactly once, in the
+  left sidebar. The ids of the per-port / per-circuit list editors, the three
+  Power hosts and the processor list are in no document at all - a leftover
+  copy would answer the same getElementById and data-lrd-field lookups as the
+  new home and fight it for state and focus.
+* The dock's header chrome (add pickers, the attachment flag, the fold
+  chevron, the issues strip) lives exactly once, inside #hardware-dock.
+* Editing a field on a dock header and pressing Tab still leaves focus in a
+  real keyed control after the rebuild that follows - the same
+  _preserveEditorFocus contract the middle panels' editors carried, now
+  proved against the dock's inline name fields.
+* The one section-collapse machinery works on the left sidebar's named
+  headers AND on the dock's generated sections (cards, distros, multis),
+  with per-id persistence that is independent of the dock's own collapse.
+  The deep dock-section coverage lives in tests/test_hardware_dock.py; the
+  checks here pin that the SAME machinery reached the new homes.
 
 Run locally:
     python3 -m pytest tests/test_data_sidebar.py -v --browser chromium
@@ -47,26 +53,23 @@ def _restore_server_project(server_project_guard):
     (see conftest.server_project_guard)."""
 
 
-# One row per view-scoped middle panel - the same table the app itself is
-# driven from, so a third panel is a row here rather than a copy of the file.
-MIDDLE = {
-    'data': {'sidebar': 'data-sidebar', 'toggle': 'data-sidebar-toggle',
-             'mode': 'data-flow', 'label': 'Signal'},
-    'power': {'sidebar': 'power-sidebar', 'toggle': 'power-sidebar-toggle',
-              'mode': 'power', 'label': 'Power'},
-}
 ALL_VIEWS = ['pixel-map', 'cabinet-id', 'show-look', 'data-flow', 'power']
-ABSENT = [(key, mode) for key, p in MIDDLE.items() for mode in ALL_VIEWS
-          if mode != p['mode']]
+DOCK_VIEWS = ['data-flow', 'power']
+
+# Every element of the two retired sidebars' shells. None of these may exist
+# in ANY view: the consolidation removed the panels outright, it did not hide
+# them, and a hidden husk would still answer id lookups.
+RETIRED_SHELL_IDS = ['data-sidebar', 'data-sidebar-toggle',
+                     'power-sidebar', 'power-sidebar-toggle']
 
 
 # Build our OWN project through the real endpoints. The live server is shared
 # with every other browser test file, and inheriting whatever the previous one
 # left behind has produced "passes alone, fails together" twice in this repo.
 #
-# 4x4 of 128px cabinets is deliberate: it builds at least two ports, so the
-# editor has a Port 1 Return for Tab to move INTO. On a screen small enough to
-# need one port, Tab leaves the editor and the focus test proves nothing.
+# 4x4 of 128px cabinets is deliberate: it builds at least two ports and, at
+# the power seed's 208V/20A/400W, more than one circuit - so the dock has
+# real chips and multi sections to test against.
 RESET_JS = """async () => {
     const app = window.app;
     let project = await (await fetch('/api/project')).json();
@@ -91,19 +94,22 @@ RESET_JS = """async () => {
     app.lastSelectedLayerId = screen.id;
     app.renderLayers();
     app.loadLayerToInputs(screen);
-    // The editor sizes itself from _portsRequired, which is a client-side
-    // computation - a layer fetched straight from the server carries none.
     app.updatePortCapacityDisplay();
+    // The per-port list editor died with the Signal sidebar; the entry point
+    // survives as a deliberate no-op so every "labels moved" path keeps
+    // working. Calling it here pins exactly that: safe to call, does nothing.
     app.updatePortLabelEditor();
     if (window.canvasRenderer) window.canvasRenderer.render();
     return screen.id;
 }"""
 
 
-# The Power panel's three hosts only build rows once the screen has circuits,
-# and the distro list only has rows once there is a distro. Driven through the
-# real static fields rather than by writing the model, so the change handlers
-# (and the deferred rebuild they schedule) are the things under test.
+# The dock's power side only has sections once the screen has circuits AND a
+# multi has a distro under it: an unassigned multi has no dock section, so
+# no inline name/length editor exists until the assignment is made. Settings
+# go through the real static fields (their change handlers and the deferred
+# rebuild they schedule are things under test), the assignment through the
+# same app calls the drag-drop path uses.
 POWER_SEED_JS = """() => {
     const app = window.app;
     const set = (id, v) => {
@@ -116,10 +122,16 @@ POWER_SEED_JS = """() => {
     set('power-amperage-select', '20');
     set('power-panel-watts', '400');
     if (!app.getDistros().length) app.addDistro();
+    const d = app.getDistros()[0];
+    const layer = app.currentLayer;
+    if (((layer.powerSocaDistro || {})[1]) !== d.id) {
+        app.setSocaDistro(layer, 1, d.id);
+    }
     app.refreshSocaRuns();
-    app.refreshSplitterPanel();
-    app.refreshDistroPanel();
+    app.renderHardwareDock();
     return { distros: app.getDistros().length,
+             distroId: d.id, layerId: layer.id,
+             phase: Number(d.phase),
              circuits: app.screenCircuitCount(app.currentLayer) };
 }"""
 
@@ -149,24 +161,16 @@ STATE_JS = """() => {
             displayed: getComputedStyle(el).display !== 'none',
             collapsed: el.classList.contains('collapsed'),
             width: Math.round(r.width),
+            height: Math.round(r.height),
             left: Math.round(r.left),
             right: Math.round(r.right),
         };
     };
-    const toggle = (id) => {
-        const b = document.getElementById(id);
-        return b ? getComputedStyle(b).display !== 'none' : null;
-    };
     return {
-        data: read('data-sidebar'),
-        power: read('power-sidebar'),
         left: read('left-sidebar'),
         right: read('right-sidebar'),
         canvas: read('canvas-container'),
-        toggleShown: {
-            data: toggle('data-sidebar-toggle'),
-            power: toggle('power-sidebar-toggle'),
-        },
+        dock: read('hardware-dock'),
     };
 }"""
 
@@ -180,321 +184,154 @@ def state(page):
     return page.evaluate(STATE_JS)
 
 
-def set_panel_collapsed(page, key, collapsed):
-    """Drive the real toggle button, not the class, so the click handler and
-    its localStorage write are the things under test."""
-    if state(page)[key]['collapsed'] == collapsed:
-        return
-    page.locator(f'#{MIDDLE[key]["toggle"]}').click()
-    page.wait_for_timeout(400)
-    assert state(page)[key]['collapsed'] == collapsed
-
-
-# ── one view each ─────────────────────────────────────────────────────────
-
-@pytest.mark.parametrize('key', sorted(MIDDLE))
-def test_the_panel_is_in_layout_in_its_own_view(page, key):
-    open_view(page, MIDDLE[key]['mode'])
-    s = state(page)
-    assert s[key]['displayed'], f"the {MIDDLE[key]['label']} panel is missing"
-    assert s[key]['width'] > 0, f"in layout but zero width: {s[key]}"
-    assert s['toggleShown'][key], "the panel is shown but its toggle is not"
-
-
-@pytest.mark.parametrize('key,mode', ABSENT)
-def test_the_panel_is_absent_from_every_other_view(page, key, mode):
-    """The regression bar for both panels: anyone who never opens that view
-    sees no change at all. Out of layout, not merely collapsed."""
-    open_view(page, mode)
-    s = state(page)
-    label = MIDDLE[key]['label']
-    assert not s[key]['displayed'], (
-        f"the {label} panel is still in layout in {mode}: {s[key]}")
-    assert s[key]['width'] == 0, f"it still takes width in {mode}: {s[key]}"
-    assert not s['toggleShown'][key], (
-        f"a toggle for a panel that is not there, in {mode}")
-
-
-@pytest.mark.parametrize('mode', ALL_VIEWS)
-def test_the_canvas_starts_where_the_visible_panels_end(page, mode):
-    """A collapsed-but-present panel would leave its border behind, and two
-    middle panels in layout at once would push the canvas twice."""
-    open_view(page, mode)
-    s = state(page)
-    shown = [s[k] for k in MIDDLE if s[k]['displayed']]
-    assert len(shown) <= 1, (
-        f"more than one middle panel is in layout in {mode}: {s}")
-    edge = shown[0]['right'] if shown else s['left']['right']
-    assert abs(s['canvas']['left'] - edge) <= 1, (
-        f"the canvas does not start at the last panel's edge in {mode}: "
-        f"canvas left {s['canvas']['left']}, edge {edge}")
-
-
-@pytest.mark.parametrize('key', sorted(MIDDLE))
-def test_the_panel_sits_between_the_left_sidebar_and_the_canvas(page, key):
-    open_view(page, MIDDLE[key]['mode'])
-    s = state(page)
-    assert s['left']['right'] <= s[key]['left'] + 1, (
-        f"the {MIDDLE[key]['label']} panel is not right of the left sidebar: {s}")
-    assert s[key]['right'] <= s['canvas']['left'] + 1, (
-        f"the {MIDDLE[key]['label']} panel is not left of the canvas: {s}")
-
-
-# ── Collapse ──────────────────────────────────────────────────────────────
-
-@pytest.mark.parametrize('key', sorted(MIDDLE))
-def test_it_collapses_and_expands_on_its_own_toggle(page, key):
-    open_view(page, MIDDLE[key]['mode'])
-    set_panel_collapsed(page, key, True)
-    # <= 1, not == 0: the theme keeps each docked panel's 1px inner border at
-    # full width even when the panel itself is zero, so a collapsed panel is a
-    # hairline seam. The left and right sidebars have always behaved this way
-    # and these match them on purpose.
-    assert state(page)[key]['width'] <= 1, "collapsed but still taking width"
-    set_panel_collapsed(page, key, False)
-    assert state(page)[key]['width'] > 100, "expanded but still not a panel"
-
-
-@pytest.mark.parametrize('key', sorted(MIDDLE))
-def test_the_collapsed_state_survives_a_reload(page, key):
-    mode = MIDDLE[key]['mode']
-    open_view(page, mode)
-    set_panel_collapsed(page, key, True)
-
-    page.reload(wait_until='domcontentloaded')
-    page.wait_for_timeout(2000)
-    open_view(page, mode)
-    assert state(page)[key]['collapsed'], (
-        f"the {MIDDLE[key]['label']} panel came back expanded after a reload")
-
-    # And the other way round, so the test cannot pass on a panel that is
-    # simply always collapsed.
-    set_panel_collapsed(page, key, False)
-    page.reload(wait_until='domcontentloaded')
-    page.wait_for_timeout(2000)
-    open_view(page, mode)
-    assert not state(page)[key]['collapsed'], (
-        f"the {MIDDLE[key]['label']} panel came back collapsed after a reload")
-    page.evaluate(RESET_JS)
-    page.wait_for_timeout(600)
-
-
-def test_the_two_middle_panels_collapse_independently(page):
-    """They share a slot and are never both in layout, so a shared collapse key
-    would look right until the user switched tabs."""
-    open_view(page, 'data-flow')
-    set_panel_collapsed(page, 'data', True)
-
-    open_view(page, 'power')
-    assert not state(page)['power']['collapsed'], (
-        "collapsing Signal collapsed Power with it")
-    set_panel_collapsed(page, 'power', False)
-
-    open_view(page, 'data-flow')
-    assert state(page)['data']['collapsed'], (
-        "the Signal panel expanded itself while Power was being used")
-    set_panel_collapsed(page, 'data', False)
-
-    stored = page.evaluate(
-        """() => ({ data: localStorage.getItem('ledRasterSidebarCollapsed_data'),
-                    power: localStorage.getItem('ledRasterSidebarCollapsed_power') })""")
-    assert stored['data'] is not None and stored['power'] is not None, (
-        f"one of the panels is not persisting its own collapsed state: {stored}")
-
-
-@pytest.mark.parametrize('key', sorted(MIDDLE))
-def test_the_panels_in_a_view_collapse_independently(page, key):
-    open_view(page, MIDDLE[key]['mode'])
-    set_panel_collapsed(page, key, False)
-
-    def collapse(toggle_id):
-        page.locator(f'#{toggle_id}').click()
-        page.wait_for_timeout(400)
-
-    middle_toggle = MIDDLE[key]['toggle']
-
-    collapse('left-sidebar-toggle')
-    s = state(page)
-    assert s['left']['collapsed'], "the left sidebar did not collapse"
-    assert not s[key]['collapsed'], "collapsing left took the middle panel"
-    assert not s['right']['collapsed'], "collapsing left took the right sidebar"
-
-    collapse(middle_toggle)
-    s = state(page)
-    assert s[key]['collapsed'], "the middle panel did not collapse"
-    assert not s['right']['collapsed'], "collapsing it took the right sidebar"
-
-    collapse('right-sidebar-toggle')
-    assert state(page)['right']['collapsed'], "the right sidebar did not collapse"
-
-    # Back out, one at a time, and each must come back alone.
-    collapse('left-sidebar-toggle')
-    s = state(page)
-    assert not s['left']['collapsed'], "the left sidebar did not expand"
-    assert s[key]['collapsed'], "expanding left dragged the middle panel back"
-    assert s['right']['collapsed'], "expanding left dragged the right sidebar back"
-
-    collapse(middle_toggle)
-    collapse('right-sidebar-toggle')
-    s = state(page)
-    assert not s[key]['collapsed'] and not s['right']['collapsed'], s
-
-
-# ── the editors came with the panels ──────────────────────────────────────
-
-PORT_LABEL_IDS = [
-    'port-label-template-primary',
-    'port-label-template-return',
-    'port-label-bulk-primary',
-    'port-label-bulk-return',
-    'port-label-apply-selected',
-    'port-label-clear-selected',
-    'port-label-select-all',
-    'port-label-deselect-all',
-    'port-label-list',
-]
-
-# The three hosts app-power.js builds into, plus the circuit label editor
-# that joined them: naming a circuit now starts at the distro and runs down
-# through the multi, so the whole chain reads in one panel.
-#
-# They were MOVED, not copied: a second element with one of these ids would
-# split document.getElementById from the focus-restore lookup and break
-# editing without failing anything. Two circuit-label editors bound to one set
-# of data-lrd-field keys is the sharper version of the same bug - they would
-# fight over the focus restore, and you would type into one while the other
-# held the state.
-POWER_HOST_IDS = [
-    'power-soca-runs', 'power-splitters', 'power-distros',
-    'power-label-template', 'power-label-bulk',
-    'power-label-apply-selected', 'power-label-clear-selected',
-    'power-label-select-all', 'power-label-deselect-all',
-    'power-label-list',
-]
-
-MOVED = ([('data', element_id) for element_id in PORT_LABEL_IDS]
-         + [('power', element_id) for element_id in POWER_HOST_IDS])
-
-
-@pytest.mark.parametrize('key,element_id', MOVED)
-def test_the_markup_moved_whole_and_kept_its_ids(page, key, element_id):
-    open_view(page, MIDDLE[key]['mode'])
-    found = page.evaluate(
-        """([id, sidebar]) => {
-            const all = document.querySelectorAll('[id="' + id + '"]');
-            const inPanel = document.querySelectorAll(
-                '#' + sidebar + ' [id="' + id + '"]').length;
-            const inLeft = document.querySelectorAll(
-                '#left-sidebar [id="' + id + '"]').length;
-            return { total: all.length, inPanel, inLeft };
-        }""", [element_id, MIDDLE[key]['sidebar']])
-    assert found['total'] == 1, (
-        f"#{element_id} is not unique in the document: {found}")
-    assert found['inPanel'] == 1, (
-        f"#{element_id} is not in the {MIDDLE[key]['label']} panel")
-    assert found['inLeft'] == 0, f"#{element_id} was left in the left sidebar"
-
-
-def test_the_editor_builds_its_rows_inside_the_signal_panel(page):
-    open_view(page, 'data-flow')
-    page.wait_for_timeout(300)
-    fields = page.evaluate(
-        """() => [...document.querySelectorAll('#data-sidebar [data-lrd-field]')]
-               .map(el => el.dataset.lrdField)""")
-    assert 'port-primary-1' in fields, f"no Port 1 Primary field: {fields}"
-    assert 'port-return-1' in fields, (
-        f"no Port 1 Return field - Tab out of Primary would leave the editor "
-        f"and the focus test below would prove nothing: {fields}")
-
-
-def test_the_power_hosts_build_their_rows_inside_the_power_panel(page):
+def seed_power(page):
     open_view(page, 'power')
     seeded = page.evaluate(POWER_SEED_JS)
     page.wait_for_timeout(600)
     assert seeded['circuits'] > 0, f"the test screen drew no circuits: {seeded}"
-    assert seeded['distros'] > 0, f"no distro was added: {seeded}"
-    built = page.evaluate(
-        """() => {
-            const inside = (host) => document.querySelectorAll(
-                '#power-sidebar #' + host + ' *').length;
-            window.app.updatePowerLabelEditor();
-            return {
-                soca: inside('power-soca-runs'),
-                splitters: inside('power-splitters'),
-                distros: inside('power-distros'),
-                labels: inside('power-label-list'),
-                fields: [...document.querySelectorAll(
-                    '#power-sidebar [data-lrd-field]')].map(
-                        el => el.dataset.lrdField),
-                leftFields: [...document.querySelectorAll(
-                    '#left-sidebar [data-lrd-field]')].map(
-                        el => el.dataset.lrdField),
-            };
-        }""")
-    assert built['soca'] > 0, f"the soca host built nothing: {built}"
-    assert built['splitters'] > 0, f"the splitter host built nothing: {built}"
-    assert built['distros'] > 0, f"the distro host built nothing: {built}"
-    assert built['labels'] > 0, f"the circuit label editor built nothing: {built}"
-    assert 'power-distro-add' in built['fields'], (
-        f"the distro controls are not in the Power panel: {built['fields']}")
-    assert any(f.startswith('power-soca-length-') for f in built['fields']), (
-        f"no soca length field in the Power panel: {built['fields']}")
-    assert any(f.startswith('power-soca-name-') for f in built['fields']), (
-        f"no multi name field in the Power panel: {built['fields']}")
-    assert any(f.startswith('power-label-') for f in built['fields']), (
-        f"no circuit label field in the Power panel: {built['fields']}")
-    # The rows too, not just the markup they build into: a copy of the editor
-    # left behind in the left sidebar would answer to the same
-    # data-lrd-field keys and fight this one for the focus restore.
-    assert not [f for f in built['leftFields'] if f.startswith('power-label-')], (
-        f"a circuit label editor is still building in the left sidebar: "
-        f"{built['leftFields']}")
+    assert seeded['distros'] > 0, f"no distro exists: {seeded}"
+    return seeded
 
 
-# ── the distro list is project-level and blanks itself for nothing ────────
+# ── the retired sidebars are gone, and the canvas got the room back ───────
 
-PAINTED_JS = """() => {
-    const host = document.getElementById('power-distros');
-    const rows = [...document.querySelectorAll('.power-distro-row')];
-    return {
-        hostPainted: !!(host && host.offsetParent),
-        rowsInDom: rows.length,
-        rowsPainted: rows.filter(r => r.getClientRects().length > 0).length,
-    };
-}"""
-
-
-def test_the_distro_list_is_painted_in_power_view(page):
-    open_view(page, 'power')
-    page.evaluate(POWER_SEED_JS)
-    page.wait_for_timeout(600)
-    painted = page.evaluate(PAINTED_JS)
-    assert painted['hostPainted'], f"the distro host is not painted: {painted}"
-    assert painted['rowsPainted'] > 0, f"no distro rows are drawn: {painted}"
-
-
-@pytest.mark.parametrize('mode', ['pixel-map', 'cabinet-id', 'show-look',
-                                  'data-flow'])
-def test_the_distro_list_does_not_render_outside_power_view(page, mode):
-    """refreshDistroPanel never blanks itself - the list is project-level, so
-    there is no layer it is wrong for. Before the move it was hidden only by
-    the Power Settings panel it happened to sit inside; take that ancestor
-    away without replacing it and the distros draw on every tab."""
-    open_view(page, 'power')
-    page.evaluate(POWER_SEED_JS)
-    page.wait_for_timeout(600)
-    assert page.evaluate(PAINTED_JS)['rowsPainted'] > 0, (
-        "the fixture built no distro rows, so this would prove nothing")
-
+@pytest.mark.parametrize('mode', ALL_VIEWS)
+def test_the_retired_sidebars_left_no_markup_behind(page, mode):
+    """Absent from the DOM entirely - not hidden, not collapsed. A husk left
+    in the markup would still win getElementById races and still carry the
+    old localStorage-driven collapse state nobody can see."""
     open_view(page, mode)
-    painted = page.evaluate(PAINTED_JS)
-    assert not painted['hostPainted'], (
-        f"the distro host is still painted in {mode}: {painted}")
-    assert painted['rowsPainted'] == 0, (
-        f"distro rows are drawn in {mode}: {painted}")
+    found = page.evaluate(
+        """(ids) => ids.filter(
+               id => document.querySelectorAll('#' + id).length)""",
+        RETIRED_SHELL_IDS)
+    assert found == [], (
+        f"retired sidebar markup still in the DOM in {mode}: {found}")
 
 
-# ── focus survives the rebuilds ───────────────────────────────────────────
+@pytest.mark.parametrize('mode', ALL_VIEWS)
+def test_the_canvas_starts_at_the_left_sidebars_edge(page, mode):
+    """The width the middle panels took is returned in EVERY view - the dock
+    steals height in its two views, never width."""
+    open_view(page, mode)
+    s = state(page)
+    assert abs(s['canvas']['left'] - s['left']['right']) <= 1, (
+        f"the canvas does not start at the left sidebar's edge in {mode}: "
+        f"canvas left {s['canvas']['left']}, sidebar right {s['left']['right']}")
+
+
+def test_the_dock_is_in_layout_only_in_the_hardware_views(page):
+    """The light check only - the deep dock geometry (height stolen and
+    returned, fold behaviour) lives in tests/test_sidebar_resize.py and
+    tests/test_hardware_dock.py. Plus the outcome the old distro-list test
+    pinned: project-level power hardware paints in Power view and nowhere
+    else, even though the project still has its distro."""
+    seed_power(page)
+    assert page.evaluate(
+        """() => document.querySelectorAll(
+               '[data-lrd-sec^="hwdock-distro-"]').length""") > 0, (
+        "the seeded distro built no dock section, so this would prove nothing")
+    for mode in ALL_VIEWS:
+        open_view(page, mode)
+        s = state(page)
+        if mode in DOCK_VIEWS:
+            assert s['dock']['displayed'], f"no dock in {mode}: {s['dock']}"
+            assert s['dock']['height'] > 0, (
+                f"the dock is in layout but flat in {mode}: {s['dock']}")
+        else:
+            assert not s['dock']['displayed'], (
+                f"the dock is still in layout in {mode}: {s['dock']}")
+            painted = page.evaluate(
+                """() => [...document.querySelectorAll(
+                       '[data-lrd-sec^="hwdock-distro-"]')]
+                       .filter(el => el.getClientRects().length > 0).length""")
+            assert painted == 0, (
+                f"distro hardware is drawn in {mode}: {painted} sections")
+
+
+# ── every editor id has exactly one home ──────────────────────────────────
+
+# The per-screen knobs that survived the consolidation, all re-homed into the
+# left sidebar's Data Settings / Power Settings panels. They were MOVED, not
+# copied: a second element with one of these ids would split
+# document.getElementById from the focus-restore lookup and break editing
+# without failing anything.
+LEFT_SIDEBAR_IDS = [
+    # Data Settings - Fallback Labels
+    'port-label-template-primary', 'port-label-template-return',
+    'port-label-bulk-primary', 'port-label-bulk-return',
+    'port-label-apply-selected', 'port-label-clear-selected',
+    # Power Settings - Circuit Labels
+    'power-label-template', 'power-label-bulk',
+    'power-label-apply-selected', 'power-label-clear-selected',
+    # Power Settings - Multis & Splitters
+    'power-breakout-type', 'power-splitters-enabled',
+    'power-splitters-maxways', 'show-soca-brackets',
+]
+
+# The list editors and hosts that died with the sidebars. The checkbox
+# select/deselect pairs go with the lists they selected in: Apply/Clear now
+# target ALL ports / circuits of the current screen (the consolidation's
+# re-pinned contract - there are no per-row checkboxes anywhere to subset).
+RETIRED_IDS = [
+    'port-label-list', 'port-label-select-all', 'port-label-deselect-all',
+    'power-label-list', 'power-label-select-all', 'power-label-deselect-all',
+    'port-assignment-issues', 'port-assignment-foot',
+    'processor-list', 'processor-add-row',
+    'power-soca-runs', 'power-splitters', 'power-distros',
+    # The auto-numbering switch left the UI whole: the server keeps its
+    # auto state, the strip's amber auto-off row is the one recovery path,
+    # and a resurrected checkbox would re-offer the trip.
+    'port-assignment-auto', 'hw-dock-auto-wrap',
+]
+
+# The dock header bar's chrome - the retired panels' add rows and the
+# attachment flag, re-homed onto the one hardware surface.
+DOCK_HEAD_IDS = [
+    'processor-add-device', 'processor-add-btn', 'power-distro-add',
+    'hw-dock-flag', 'hw-dock-attach', 'hw-dock-fold', 'hw-dock-issues',
+]
+
+
+@pytest.mark.parametrize('element_id', LEFT_SIDEBAR_IDS)
+def test_the_surviving_knobs_live_once_in_the_left_sidebar(page, element_id):
+    found = page.evaluate(
+        """(id) => ({
+            total: document.querySelectorAll('[id="' + id + '"]').length,
+            inLeft: document.querySelectorAll(
+                '#left-sidebar [id="' + id + '"]').length,
+        })""", element_id)
+    assert found['total'] == 1, (
+        f"#{element_id} is not unique in the document: {found}")
+    assert found['inLeft'] == 1, (
+        f"#{element_id} is not in the left sidebar: {found}")
+
+
+@pytest.mark.parametrize('element_id', RETIRED_IDS)
+def test_the_retired_editor_markup_is_gone(page, element_id):
+    count = page.evaluate(
+        "(id) => document.querySelectorAll('[id=\"' + id + '\"]').length",
+        element_id)
+    assert count == 0, (
+        f"#{element_id} still exists ({count}) - the consolidation retired "
+        f"it, and a leftover would answer the old lookups")
+
+
+@pytest.mark.parametrize('element_id', DOCK_HEAD_IDS)
+def test_the_dock_chrome_lives_once_inside_the_dock(page, element_id):
+    found = page.evaluate(
+        """(id) => ({
+            total: document.querySelectorAll('[id="' + id + '"]').length,
+            inDock: document.querySelectorAll(
+                '#hardware-dock [id="' + id + '"]').length,
+        })""", element_id)
+    assert found['total'] == 1, (
+        f"#{element_id} is not unique in the document: {found}")
+    assert found['inDock'] == 1, (
+        f"#{element_id} is not inside #hardware-dock: {found}")
+
+
+# ── focus survives the dock rebuilds ──────────────────────────────────────
 
 FOCUS_JS = """() => {
     const a = document.activeElement;
@@ -503,81 +340,131 @@ FOCUS_JS = """() => {
         id: a ? (a.id || null) : null,
         key: (a && a.dataset) ? (a.dataset.lrdField || null) : null,
         isBody: a === document.body,
-        inPanel: !!(a && a.closest && a.closest('#data-sidebar')),
-        inPowerPanel: !!(a && a.closest && a.closest('#power-sidebar')),
+        inDock: !!(a && a.closest && a.closest('#hardware-dock')),
+        inLeft: !!(a && a.closest && a.closest('#left-sidebar')),
         stamped: !!(a && a.__stamp),
     };
 }"""
 
+# Stamp the dock's live controls. Element identity does not survive a
+# rebuild, so a still-stamped control afterwards would mean no rebuild
+# happened and the focus assertion would be passing for the wrong reason.
+STAMP_DOCK_JS = """() => {
+    const els = document.querySelectorAll(
+        '#hardware-dock input, #hardware-dock button');
+    els.forEach(el => { el.__stamp = 1; });
+    return els.length;
+}"""
 
-def test_typing_a_label_and_pressing_tab_keeps_focus_in_a_real_field(page):
-    """The editor wipes itself with innerHTML = '' on every server round-trip,
-    so the field Tab just moved into is destroyed under the user's fingers.
-    _preserveEditorFocus (app-power.js) restores it by data-lrd-field key -
-    moving the markup is exactly what could have broken that."""
-    open_view(page, 'data-flow')
-    page.evaluate("""() => {
-        const l = window.app.currentLayer;
-        l.portLabelOverridesPrimary = {};
-        l.portLabelOverridesReturn = {};
-        window.app.updatePortLabelEditor();
-    }""")
-    page.wait_for_timeout(200)
 
-    # Stamp the current fields. Element identity does not survive a rebuild,
-    # so a still-stamped field afterwards would mean no rebuild happened and
-    # the focus assertion would be passing for the wrong reason.
-    stamped = page.evaluate(
-        """() => {
-            const els = document.querySelectorAll('#port-label-list input');
-            els.forEach(el => { el.__stamp = 1; });
-            return els.length;
-        }""")
-    assert stamped >= 2, f"the editor built no fields to test: {stamped}"
+def test_renaming_a_distro_and_tabbing_keeps_focus_in_a_real_control(page):
+    """The distro's name edits inline on its dock header now. Its change
+    handler writes the model synchronously and defers the dock rebuild one
+    macrotask (_restateNaming -> _rebuildAfterGesture), so Tab lands on the
+    header's Balance button first and _preserveEditorFocus restores it by
+    data-lrd-field key after the wipe - the exact contract the retired
+    distro rows carried, proved against their new home."""
+    seeded = seed_power(page)
+    assert seeded['phase'] == 3, (
+        f"the seeded distro is not 3-phase, so its header carries no Balance "
+        f"button for Tab to land on: {seeded}")
+    name_key = f"distro-name-{seeded['distroId']}"
+    # Tab's next stop after the name: the header's own Balance button.
+    next_key = f"distro-balance-{seeded['distroId']}"
+
+    stamped = page.evaluate(STAMP_DOCK_JS)
+    assert stamped >= 2, f"the dock built no controls to test: {stamped}"
 
     page.evaluate(
-        """() => document.querySelector(
-               '[data-lrd-field="port-primary-1"]').focus()""")
-    page.keyboard.type("SIG-A")
+        """(key) => document.querySelector(
+               '[data-lrd-field="' + key + '"]').focus()""", name_key)
+    page.keyboard.press("Control+A" if sys.platform != "darwin" else "Meta+A")
+    page.keyboard.type("BEACH 1")
     page.keyboard.press("Tab")
-    assert page.evaluate(FOCUS_JS)['key'] == 'port-return-1', (
-        "Tab did not move to Port 1 Return - the moved markup changed the "
-        "tab order inside the editor")
 
     page.wait_for_function(
-        """() => {
-            const el = document.querySelector('[data-lrd-field="port-return-1"]');
+        """(key) => {
+            const el = document.querySelector('[data-lrd-field="' + key + '"]');
             return !!el && !el.__stamp;
-        }""",
-        timeout=5000,
-    )
+        }""", arg=next_key, timeout=5000)
+
     after = page.evaluate(FOCUS_JS)
     assert not after['isBody'], (
-        f"focus fell to <body> after the rebuild: {after}")
-    assert after['tag'] == 'INPUT', f"focus left the editor entirely: {after}"
-    assert after['key'] == 'port-return-1', f"focus moved elsewhere: {after}"
-    assert after['inPanel'], (
-        f"focus is outside the Signal panel, so the field it landed on is not "
-        f"the moved editor's: {after}")
+        f"focus fell to <body> after the dock rebuild: {after}")
+    assert after['key'] == next_key, (
+        f"focus is not back on the header's Balance button: {after}")
+    assert after['inDock'], (
+        f"focus is outside the dock, so the control it landed on is not the "
+        f"re-homed editor's: {after}")
     assert not after['stamped'], (
-        "the editor never rebuilt, so this proved nothing - the fixture or "
-        "the round-trip changed")
+        "the dock never rebuilt, so this proved nothing")
 
-    stored = page.evaluate(
-        "() => window.app.currentLayer.portLabelOverridesPrimary")
-    assert stored.get('1') == 'SIG-A', (
-        f"the edit did not survive the move: {stored}")
+    assert page.evaluate(
+        "() => window.app.getDistros()[0].name") == 'BEACH 1', (
+        "the distro rename did not survive the move to the dock")
+
+
+def test_renaming_a_multi_and_tabbing_keeps_focus_in_a_real_control(page):
+    """The soca tiles' name and home-run length fields ride the occupied
+    multi's dock header now, layer-qualified (the dock shows every screen
+    where the old sidebar showed the current one). Same deferred-rebuild,
+    restore-by-key doctrine as the distro rename above."""
+    seeded = seed_power(page)
+    name_key = f"power-soca-name-{seeded['layerId']}-1"
+    len_key = f"power-soca-length-{seeded['layerId']}-1"
+
+    built = page.evaluate(
+        """() => [...document.querySelectorAll(
+               '#hardware-dock [data-lrd-field]')].map(
+                   el => el.dataset.lrdField)""")
+    assert name_key in built, (
+        f"no inline multi name field on the dock - was the multi assigned to "
+        f"a distro? an unassigned multi has no dock section: {built}")
+    assert len_key in built, f"no multi length field on the dock: {built}"
+    # The circuit label editor came to the dock too - each occupied circuit
+    # chip folds the override field the retired Circuit Labels list held.
+    assert any(f.startswith('power-label-') for f in built), (
+        f"no circuit label field on any dock chip: {built}")
+
+    stamped = page.evaluate(STAMP_DOCK_JS)
+    assert stamped >= 2, f"the dock built no controls to test: {stamped}"
+
+    page.evaluate(
+        """(key) => document.querySelector(
+               '[data-lrd-field="' + key + '"]').focus()""", name_key)
+    page.keyboard.press("Control+A" if sys.platform != "darwin" else "Meta+A")
+    page.keyboard.type("FOH A")
+    page.keyboard.press("Tab")
+
+    page.wait_for_function(
+        """(key) => {
+            const el = document.querySelector('[data-lrd-field="' + key + '"]');
+            return !!el && !el.__stamp;
+        }""", arg=len_key, timeout=5000)
+
+    after = page.evaluate(FOCUS_JS)
+    assert not after['isBody'], (
+        f"focus fell to <body> after the dock rebuild: {after}")
+    assert after['key'] == len_key, (
+        f"Tab did not move from the multi's name to its length field: {after}")
+    assert after['inDock'], f"focus left the dock entirely: {after}"
+    assert not after['stamped'], (
+        "the dock never rebuilt, so this proved nothing")
+
+    assert page.evaluate(
+        """(lid) => {
+            const l = window.app.project.layers.find(x => x.id === lid);
+            return (l.powerSocaNames || {})['1'] || null;
+        }""", seeded['layerId']) == 'FOH A', (
+        "the multi rename did not survive the move to the dock")
 
 
 def test_tabbing_out_of_the_last_static_power_field_lands_somewhere_real(page):
-    """Watts per Panel used to be followed by the soca host; the hosts are in
-    the Power panel now, so Tab walks on to the Flow Pattern buttons under it
-    instead. Either way its change handler schedules a rebuild of all three
-    hosts, and an inline one would have destroyed the stop Tab was moving
-    into."""
-    open_view(page, 'power')
-    page.evaluate(POWER_SEED_JS)
-    page.wait_for_timeout(600)
+    """Watts per Panel used to be followed by the Power sidebar; its change
+    handler still schedules rebuilds of the surfaces that read it (now the
+    static knobs' sync and the dock), and an inline one would have destroyed
+    the stop Tab was moving into."""
+    seed_power(page)
 
     page.evaluate(
         "() => document.getElementById('power-panel-watts').focus()")
@@ -593,95 +480,40 @@ def test_tabbing_out_of_the_last_static_power_field_lands_somewhere_real(page):
         """() => {
             const a = document.activeElement;
             if (!a) return null;
-            const sidebar = a.closest('#left-sidebar') ? 'left'
-                : a.closest('#power-sidebar') ? 'power' : 'elsewhere';
-            return { sidebar, tag: a.tagName, cls: a.className,
+            const home = a.closest('#left-sidebar') ? 'left'
+                : a.closest('#hardware-dock') ? 'dock' : 'elsewhere';
+            return { home, tag: a.tagName, cls: a.className,
                      visible: a.getClientRects().length > 0 };
         }""")
     assert landed['visible'], f"Tab landed on something not drawn: {landed}"
-    assert landed['sidebar'] in ('left', 'power'), (
+    assert landed['home'] in ('left', 'dock'), (
         f"Tab left the Power UI entirely: {landed}")
     assert page.evaluate(
         "() => parseFloat(window.app.currentLayer.panelWatts)") == 450, (
         "the edit did not commit when focus left the field")
 
 
-def test_editing_a_distro_name_and_tabbing_keeps_focus_in_a_real_control(page):
-    """The distro rows rebuild synchronously from their own change handlers, so
-    the restate is deferred one macrotask and the rebuild that follows goes
-    through _preserveEditorFocus. That restore is a document-global
-    [data-lrd-field] lookup, which is why the rows kept working from a new
-    parent - this proves it rather than assuming it."""
-    open_view(page, 'power')
-    page.evaluate(POWER_SEED_JS)
-    page.wait_for_timeout(600)
-
-    distro_id = page.evaluate("() => window.app.getDistros()[0].id")
-    name_key = f'distro-name-{distro_id}'
-    # Tab's next stop after the name: the row's own Balance button - the
-    # per-distro balance sits between the name and the ✕ on a 3-phase row.
-    del_key = f'distro-balance-{distro_id}'
-
-    stamped = page.evaluate(
-        """() => {
-            const els = document.querySelectorAll('#power-distros input, '
-                + '#power-distros button');
-            els.forEach(el => { el.__stamp = 1; });
-            return els.length;
-        }""")
-    assert stamped >= 2, f"the distro panel built no controls to test: {stamped}"
-
-    page.evaluate(
-        """(key) => document.querySelector(
-               '[data-lrd-field="' + key + '"]').focus()""", name_key)
-    page.keyboard.press("Control+A" if sys.platform != "darwin" else "Meta+A")
-    page.keyboard.type("BEACH 1")
-    page.keyboard.press("Tab")
-
-    page.wait_for_function(
-        """(key) => {
-            const el = document.querySelector('[data-lrd-field="' + key + '"]');
-            return !!el && !el.__stamp;
-        }""", arg=del_key, timeout=5000)
-
-    after = page.evaluate(FOCUS_JS)
-    assert not after['isBody'], (
-        f"focus fell to <body> after the distro rebuild: {after}")
-    assert after['key'] == del_key, (
-        f"focus is not back on the row's Balance button: {after}")
-    assert after['inPowerPanel'], (
-        f"focus is outside the Power panel, so the control it landed on is not "
-        f"the moved editor's: {after}")
-    assert not after['stamped'], (
-        "the distro panel never rebuilt, so this proved nothing")
-
-    assert page.evaluate(
-        "() => window.app.getDistros()[0].name") == 'BEACH 1', (
-        "the distro rename did not survive the move")
-
-
 # ── collapsible sections: the ▾ works everywhere it appears ───────────────
 #
 # Every titled section bar carried a decorative ▾ (theme.css ::after) that
-# did nothing. It is now a real arrow button with ONE behaviour everywhere
+# did nothing. It is a real arrow button with ONE behaviour everywhere
 # (user spec, exact): a single click on the ARROW toggles the section, a
 # DOUBLE-click anywhere on the header does the same, and a single click on
 # the header does NOTHING - stray clicks are harmless. State persists per
 # section (ledRasterPanelCollapsed_<id>), survives a reload, and is
 # independent of the sidebar-level collapse. The body hides but never
 # leaves the DOM, and a focus restore into a folded section auto-expands
-# it. The Power panel's generated block headings (soca / splitters /
-# distros / circuit labels) are wired by the same mechanism at every
-# rebuild.
+# it. The dock's generated sections (cards, boxes, distros, multis) are
+# wired by the same mechanism at every renderHardwareDock.
 
-# (view, panel title) for the headers the user named; the same wiring
-# reaches every other .panel-header for free.
+# (view, panel title) for the left-sidebar headers that survived the
+# consolidation; the same wiring reaches every other .panel-header for free.
+# The retired panels' headers (Processors, Port Numbering, Port Labels,
+# Power Distribution) are covered by the retired-id tests above - they no
+# longer exist to fold.
 NAMED_HEADERS = [
     ('data-flow', 'Data Settings'),
-    ('data-flow', 'Processors'),
-    ('data-flow', 'Port Assignment'),
-    ('data-flow', 'Port Labels'),
-    ('power', 'Power Distribution'),
+    ('power', 'Power Settings'),
 ]
 
 
@@ -752,8 +584,7 @@ def test_arrow_click_collapses_and_header_single_click_is_inert(page, mode, titl
     assert header_state(page, title)['collapsed'] is False
 
 
-@pytest.mark.parametrize('mode,title', [('data-flow', 'Port Labels'),
-                                        ('power', 'Power Distribution')])
+@pytest.mark.parametrize('mode,title', NAMED_HEADERS)
 def test_double_click_anywhere_on_the_header_toggles(page, mode, title):
     open_view(page, mode)
     hdr = header_of(page, title)
@@ -770,98 +601,111 @@ def test_double_click_anywhere_on_the_header_toggles(page, mode, title):
 
 def test_the_section_collapsed_state_survives_a_reload(page):
     open_view(page, 'data-flow')
-    hdr = header_of(page, 'Port Labels')
+    hdr = header_of(page, 'Data Settings')
     hdr.locator('.lrd-sec-arrow').click()
     page.wait_for_timeout(100)
-    assert header_state(page, 'Port Labels')['collapsed'] is True
+    assert header_state(page, 'Data Settings')['collapsed'] is True
     page.reload(wait_until='domcontentloaded')
     page.wait_for_timeout(2000)
     open_view(page, 'data-flow')
-    s = header_state(page, 'Port Labels')
+    s = header_state(page, 'Data Settings')
     assert s['collapsed'] is True, (
-        f"Port Labels came back expanded after a reload: {s}")
-    header_of(page, 'Port Labels').locator('.lrd-sec-arrow').click()
+        f"Data Settings came back expanded after a reload: {s}")
+    header_of(page, 'Data Settings').locator('.lrd-sec-arrow').click()
     page.wait_for_timeout(100)
-    assert header_state(page, 'Port Labels')['collapsed'] is False
+    assert header_state(page, 'Data Settings')['collapsed'] is False
 
 
-POWER_BLOCK_JS = """(hostId) => {
-    const host = document.getElementById(hostId);
-    if (!host) return null;
-    const head = host.querySelector(':scope > .lrd-sec-head');
-    const body = host.querySelector(':scope > .lrd-sec-body');
-    const arrow = host.querySelector('.lrd-sec-arrow');
+# The dock sections' state, addressed by their declared data-lrd-sec id -
+# the generated cousins of the static headers above.
+DOCK_SEC_JS = """(secId) => {
+    const head = document.querySelector('[data-lrd-sec="' + secId + '"]');
+    if (!head) return null;
+    const box = head.parentElement;
+    const body = box.querySelector(':scope > .lrd-sec-body');
+    const arrow = head.querySelector('.lrd-sec-arrow');
     return {
-        wired: !!(head && body && arrow),
+        wired: !!head.dataset.lrdSecWired,
+        arrowPainted: !!arrow && arrow.getClientRects().length > 0,
+        key: box.dataset.lrdSecId || null,
         collapsed: body ? getComputedStyle(body).display === 'none' : null,
         bodyInDom: !!body && body.isConnected,
+        stored: localStorage.getItem('ledRasterPanelCollapsed_' + secId),
     };
 }"""
 
 
-def test_the_power_blocks_collapse_and_survive_their_rebuilds(page):
-    """The soca / splitter / distro blocks rebuild with innerHTML on every
-    refresh; the generation wires the same collapse and re-applies the
-    persisted state, so a folded block stays folded across a rebuild."""
-    open_view(page, 'power')
-    page.evaluate(POWER_SEED_JS)
-    page.wait_for_timeout(600)
-    for host in ('power-soca-runs', 'power-splitters', 'power-distros'):
-        s = page.evaluate(POWER_BLOCK_JS, host)
-        assert s and s['wired'], f"#{host} built no collapsible heading: {s}"
-        assert s['collapsed'] is False, f"#{host} started collapsed: {s}"
-    # the static Circuit Labels block is wired by the same init
-    assert page.evaluate("""() => {
-        const head = document.querySelector('[data-lrd-sec="power-circuit-labels"]');
-        return !!(head && head.querySelector('.lrd-sec-arrow'));
-    }"""), "the Circuit Labels block has no collapse arrow"
+def test_a_distro_dock_section_folds_and_survives_its_rebuilds(page):
+    """The light check that the dock's distro section folds by the same
+    machinery and re-applies its state across the innerHTML wipe every
+    renderHardwareDock performs - the deep dock-section coverage lives in
+    tests/test_hardware_dock.py."""
+    seeded = seed_power(page)
+    sec = f"hwdock-distro-{seeded['distroId']}"
+    s = page.evaluate(DOCK_SEC_JS, sec)
+    assert s and s['wired'], f"{sec} is not wired by the section machinery: {s}"
+    assert s['arrowPainted'], f"{sec} carries no live arrow: {s}"
+    assert s['key'] == sec, (
+        f"{sec} persists outside the ledRasterPanelCollapsed_ convention: {s}")
+    assert s['collapsed'] is False, f"{sec} started collapsed: {s}"
 
-    page.locator('#power-soca-runs .lrd-sec-arrow').click()
+    page.locator(f'[data-lrd-sec="{sec}"] .lrd-sec-arrow').click()
     page.wait_for_timeout(100)
-    assert page.evaluate(POWER_BLOCK_JS, 'power-soca-runs')['collapsed'] is True
-    survived = page.evaluate("""async () => {
-        window.app.refreshSocaRuns();
-        await new Promise(r => setTimeout(r, 50));
-        const body = document.querySelector('#power-soca-runs > .lrd-sec-body');
-        return getComputedStyle(body).display === 'none';
-    }""")
-    assert survived, "a rebuild re-expanded the folded soca block"
-    page.locator('#power-soca-runs .lrd-sec-arrow').click()
+    s = page.evaluate(DOCK_SEC_JS, sec)
+    assert s['collapsed'] is True, f"the arrow did not fold {sec}: {s}"
+    assert s['bodyInDom'], (
+        f"{sec}'s body left the DOM - collapse must hide, never detach")
+    assert s['stored'] == '1', f"the fold did not persist for {sec}: {s}"
+
+    # The wipe-and-rewire: a folded section stays folded across a rebuild.
+    page.evaluate("() => window.app.renderHardwareDock()")
     page.wait_for_timeout(100)
-    assert page.evaluate(POWER_BLOCK_JS, 'power-soca-runs')['collapsed'] is False
+    s = page.evaluate(DOCK_SEC_JS, sec)
+    assert s['collapsed'] is True, f"a rebuild re-expanded {sec}: {s}"
+
+    page.locator(f'[data-lrd-sec="{sec}"] .lrd-sec-arrow').click()
+    page.wait_for_timeout(100)
+    assert page.evaluate(DOCK_SEC_JS, sec)['collapsed'] is False
 
 
-def test_focus_restore_into_a_collapsed_section_expands_it(page):
-    """The stated rule: a field the app programmatically focuses (the
-    _preserveEditorFocus restore after a rebuild) must be visible, so the
-    folded section it lives in opens rather than swallowing the focus."""
-    open_view(page, 'power')
-    page.evaluate(POWER_SEED_JS)
-    page.wait_for_timeout(600)
-    out = page.evaluate("""async () => {
+def test_focus_restore_into_a_folded_multi_section_expands_it(page):
+    """The stated rule, against the dock: a field the app programmatically
+    focuses (the _preserveEditorFocus restore after a rebuild) must be
+    visible, so the folded multi section its circuit chip lives in opens
+    rather than swallowing the focus - and the opening persists, or the next
+    rebuild folds the field away again."""
+    seeded = seed_power(page)
+    sec = f"hwdock-multi-{seeded['distroId']}-1"
+    out = page.evaluate("""async (sec) => {
         const app = window.app;
-        const host = document.getElementById('power-soca-runs');
-        // The soca fields live inside tiles now, so the field a user would
-        // be standing in is one whose tile is open - open it the way they
-        // would, through the face.
-        const tile = host.querySelector('.lrd-tile');
+        const head = document.querySelector('[data-lrd-sec="' + sec + '"]');
+        if (!head) return { missing: sec };
+        const box = head.parentElement;
+        // The circuit label fields live inside chips now, so the field a
+        // user would be standing in is one whose chip is open - open it the
+        // way they would, through the face.
+        const tile = box.querySelector('.lrd-tile[data-lrd-tile]');
         if (tile && !tile.classList.contains('lrd-tile-open')) {
             tile.querySelector(':scope > .lrd-tile-face').click();
         }
-        const el = host.querySelector('input[data-lrd-field]');
+        const el = box.querySelector('.lrd-tile-body input[data-lrd-field]');
         if (!el) return { skipped: true };
         el.focus();
-        app._preserveEditorFocus();           // captures key + schedules restore
-        app._setSectionCollapsed(host, true); // fold before the restore lands
+        app._preserveEditorFocus();          // captures key + schedules restore
+        app._setSectionCollapsed(box, true); // fold before the restore lands
         if (document.activeElement) document.activeElement.blur();
         await new Promise(r => setTimeout(r, 20));
-        const body = host.querySelector(':scope > .lrd-sec-body');
-        const reopened = getComputedStyle(body).display !== 'none';
-        const focusedBack = document.activeElement === el;
-        return { reopened, focusedBack,
-                 stored: localStorage.getItem('ledRasterPanelCollapsed_power-soca-runs') };
-    }""")
-    assert not out.get('skipped'), "the soca panel built no field to focus"
+        const body = box.querySelector(':scope > .lrd-sec-body');
+        return {
+            reopened: getComputedStyle(body).display !== 'none',
+            focusedBack: document.activeElement === el,
+            stored: localStorage.getItem('ledRasterPanelCollapsed_' + sec),
+        };
+    }""", sec)
+    assert not out.get('missing'), (
+        f"no dock section for the assigned multi: {out}")
+    assert not out.get('skipped'), (
+        "the multi's chips built no field to focus")
     assert out['reopened'], (
         f"the restore left the section folded around the focused field: {out}")
     assert out['focusedBack'], f"focus was not restored into the field: {out}"
@@ -870,41 +714,45 @@ def test_focus_restore_into_a_collapsed_section_expands_it(page):
         f"field away again: {out}")
 
 
-def test_section_collapse_is_independent_of_the_sidebar_collapse(page):
-    """Folding the Power panel and reopening it must not touch a folded
-    section inside it - the two states live under different keys."""
-    open_view(page, 'power')
-    page.evaluate(POWER_SEED_JS)
-    page.wait_for_timeout(600)
-    # the distro CARDS carry arrows of their own now, so address the
-    # panel section's OWN head - the host's direct child
-    page.locator('#power-distros > .lrd-sec-head .lrd-sec-arrow').click()
+def test_section_collapse_is_independent_of_the_dock_collapse(page):
+    """Folding the dock (the sidebar-level collapse, hardware-dock-toggle)
+    and reopening it must not touch a folded section inside it - the two
+    states live under different keys."""
+    seeded = seed_power(page)
+    sec = f"hwdock-distro-{seeded['distroId']}"
+    page.locator(f'[data-lrd-sec="{sec}"] .lrd-sec-arrow').click()
     page.wait_for_timeout(100)
-    assert page.evaluate(POWER_BLOCK_JS, 'power-distros')['collapsed'] is True
-    set_panel_collapsed(page, 'power', True)
-    set_panel_collapsed(page, 'power', False)
-    s = page.evaluate(POWER_BLOCK_JS, 'power-distros')
+    assert page.evaluate(DOCK_SEC_JS, sec)['collapsed'] is True
+
+    page.locator('#hardware-dock-toggle').click()
+    page.wait_for_timeout(400)
+    assert page.evaluate(
+        "() => document.getElementById('hardware-dock')"
+        ".classList.contains('collapsed')"), "the dock did not collapse"
+    page.locator('#hardware-dock-toggle').click()
+    page.wait_for_timeout(400)
+
+    s = page.evaluate(DOCK_SEC_JS, sec)
     assert s['collapsed'] is True, (
-        f"collapsing the sidebar re-expanded the section inside it: {s}")
-    keys = page.evaluate("""() => ({
-        section: localStorage.getItem('ledRasterPanelCollapsed_power-distros'),
-        sidebar: localStorage.getItem('ledRasterSidebarCollapsed_power'),
-    })""")
-    assert keys['section'] == '1' and keys['sidebar'] == '0', keys
-    # the distro CARDS carry arrows of their own now, so address the
-    # panel section's OWN head - the host's direct child
-    page.locator('#power-distros > .lrd-sec-head .lrd-sec-arrow').click()
+        f"collapsing the dock re-expanded the section inside it: {s}")
+    keys = page.evaluate("""(sec) => ({
+        section: localStorage.getItem('ledRasterPanelCollapsed_' + sec),
+        dock: localStorage.getItem('ledRasterSidebarCollapsed_dock'),
+    })""", sec)
+    assert keys['section'] == '1' and keys['dock'] == '0', keys
+
+    page.locator(f'[data-lrd-sec="{sec}"] .lrd-sec-arrow').click()
     page.wait_for_timeout(100)
-    assert page.evaluate(POWER_BLOCK_JS, 'power-distros')['collapsed'] is False
+    assert page.evaluate(DOCK_SEC_JS, sec)['collapsed'] is False
 
 
 def test_the_processor_cards_fold_by_the_same_machinery(page):
-    """The generated per-processor heads in the Signal panel are wired by the
-    SAME _wireSectionCollapse as every bar this file pins: a real arrow per
-    card, per-id keys under the ledRasterPanelCollapsed_ convention, one
-    behaviour. Folded, a card is its one-line summary; the deep coverage
-    (persistence, focus restore, the chooser reveal) lives in
-    tests/test_processor_panel.py."""
+    """The processor hardware folds on the dock now: each card unit's header
+    is a generated section head (data-lrd-sec="hwdock-card-<cardId>") wired
+    by the SAME _wireSectionCollapse as every bar this file pins - a real
+    arrow per card, per-id keys under the ledRasterPanelCollapsed_
+    convention, one behaviour, one card at a time. The deep dock coverage
+    (drags, glances, gear popovers) lives in tests/test_hardware_dock.py."""
     open_view(page, 'data-flow')
     ids = page.evaluate("""async () => {
         const mk = async (deviceId) => {
@@ -918,47 +766,59 @@ def test_the_processor_cards_fold_by_the_same_machinery(page):
         const a = await mk('brompton-sx40');
         const b = await mk('brompton-sx40');
         await window.app.refreshProcessors();
-        return [a, b];
+        const cardOf = (pid) => {
+            const p = (window.app._processorsResolved || [])
+                .find(x => x.id === pid);
+            return p.slots.map(s => s.card).find(Boolean).id;
+        };
+        return { procs: [a, b], cards: [cardOf(a), cardOf(b)] };
     }""")
     page.wait_for_timeout(600)
     try:
-        cards = page.evaluate("""(ids) => ids.map(pid => {
+        cards = page.evaluate("""(cardIds) => cardIds.map(cid => {
             const head = document.querySelector(
-                `[data-lrd-sec="processor-${pid}"]`);
-            const box = head && head.parentElement;
-            const arrow = head && head.querySelector('.lrd-sec-arrow');
+                `[data-lrd-sec="hwdock-card-${cid}"]`);
+            if (!head) return { missing: cid };
+            const box = head.parentElement;
+            const arrow = head.querySelector('.lrd-sec-arrow');
             return {
-                wired: !!(head && head.dataset.lrdSecWired),
+                wired: !!head.dataset.lrdSecWired,
                 arrowPainted: !!arrow && arrow.getClientRects().length > 0,
-                key: box ? box.dataset.lrdSecId : null,
+                key: box.dataset.lrdSecId || null,
             };
-        })""", ids)
-        for pid, card in zip(ids, cards):
-            assert card['wired'], f'{pid} not wired by the section machinery'
-            assert card['arrowPainted'], f'{pid} carries no live arrow'
-            assert card['key'] == f'processor-{pid}', (
-                f'{pid} persists outside the ledRasterPanelCollapsed_ '
+        })""", ids['cards'])
+        for cid, card in zip(ids['cards'], cards):
+            assert not card.get('missing'), (
+                f'card {cid} built no dock section')
+            assert card['wired'], (
+                f'card {cid} not wired by the section machinery')
+            assert card['arrowPainted'], f'card {cid} carries no live arrow'
+            assert card['key'] == f'hwdock-card-{cid}', (
+                f'card {cid} persists outside the ledRasterPanelCollapsed_ '
                 f'convention: {card}')
 
         page.locator(
-            f'[data-lrd-sec="processor-{ids[0]}"] .lrd-sec-arrow').click()
+            f'[data-lrd-sec="hwdock-card-{ids["cards"][0]}"] '
+            f'.lrd-sec-arrow').click()
         page.wait_for_timeout(100)
-        folded = page.evaluate("""(ids) => ids.map(pid => {
+        folded = page.evaluate("""(cardIds) => cardIds.map(cid => {
             const head = document.querySelector(
-                `[data-lrd-sec="processor-${pid}"]`);
+                `[data-lrd-sec="hwdock-card-${cid}"]`);
             const box = head.parentElement;
             const body = box.querySelector(':scope > .lrd-sec-body');
-            const sum = head.querySelector('.lrd-proc-summary');
             return {
                 collapsed: getComputedStyle(body).display === 'none',
                 bodyInDom: body.isConnected,
-                summaryPainted: !!sum && sum.getClientRects().length > 0,
+                headPainted: head.getClientRects().length > 0,
                 stored: localStorage.getItem(
-                    'ledRasterPanelCollapsed_processor-' + pid),
+                    'ledRasterPanelCollapsed_hwdock-card-' + cid),
             };
-        })""", ids)
-        assert folded[0]['collapsed'] and folded[0]['summaryPainted'], (
-            f'the arrow did not fold the card to its summary: {folded[0]}')
+        })""", ids['cards'])
+        assert folded[0]['collapsed'], (
+            f'the arrow did not fold the card: {folded[0]}')
+        assert folded[0]['headPainted'], (
+            f'the folded card lost its header - folded, a card must still '
+            f'read as its one-line glance: {folded[0]}')
         assert folded[0]['bodyInDom'], (
             'the folded body left the DOM - collapse must hide, never detach')
         assert folded[0]['stored'] == '1', folded[0]
@@ -967,10 +827,12 @@ def test_the_processor_cards_fold_by_the_same_machinery(page):
     finally:
         # the shared server serves every module after this one
         page.evaluate("""async (ids) => {
-            for (const pid of ids) {
+            for (const pid of ids.procs) {
                 await fetch(`/api/processors/${pid}`, { method: 'DELETE' });
+            }
+            for (const cid of ids.cards) {
                 localStorage.removeItem(
-                    'ledRasterPanelCollapsed_processor-' + pid);
+                    'ledRasterPanelCollapsed_hwdock-card-' + cid);
             }
             await window.app.refreshProcessors();
         }""", ids)

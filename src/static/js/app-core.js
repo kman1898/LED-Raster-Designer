@@ -87,6 +87,11 @@ export class LEDRasterApp {
             if (typeof this.initPortAssignmentPanel === 'function') {
                 try { this.initPortAssignmentPanel(); } catch (_) {}
             }
+            // The hardware dock draws the same processor and distro state
+            // the panels do, so it initialises alongside them.
+            if (typeof this.initHardwareDock === 'function') {
+                try { this.initHardwareDock(); } catch (_) {}
+            }
             sendClientLog('app_init', { ua: navigator.userAgent });
             // Background-check upstream panel catalog after the rest of boot
             // settles so we don't slow first paint. Failure is silent.
@@ -108,13 +113,17 @@ export class LEDRasterApp {
      * same thing as `key`: the Signal and Power panels are middle columns that
      * dock left like the left sidebar, so their toggles hug their right-hand
      * edges the same way, but their storage keys have to stay their own.
+     * The hardware dock is the horizontal member of the family - it docks to
+     * the BOTTOM of the canvas column, so its chevrons point down/up and its
+     * toggle hugs its top edge, the sidebars' rule turned on its side.
      */
     initSidebarToggles() {
         const sides = [
+            // The Signal and Power middle rows retired with their sidebars:
+            // the hardware dock is the one view-scoped member left.
             { key: 'left', edge: 'left', label: 'left', sidebarId: 'left-sidebar', toggleId: 'left-sidebar-toggle', expandSym: '›', collapseSym: '‹' },
-            { key: 'data', edge: 'left', label: 'signal', sidebarId: 'data-sidebar', toggleId: 'data-sidebar-toggle', expandSym: '›', collapseSym: '‹' },
-            { key: 'power', edge: 'left', label: 'power', sidebarId: 'power-sidebar', toggleId: 'power-sidebar-toggle', expandSym: '›', collapseSym: '‹' },
             { key: 'right', edge: 'right', label: 'right', sidebarId: 'right-sidebar', toggleId: 'right-sidebar-toggle', expandSym: '‹', collapseSym: '›' },
+            { key: 'dock', edge: 'bottom', label: 'hardware', sidebarId: 'hardware-dock', toggleId: 'hardware-dock-toggle', expandSym: '▴', collapseSym: '▾' },
         ];
         // Kept so a panel entering or leaving layout (see
         // updateViewSidebars) can re-pin every toggle at once.
@@ -129,9 +138,17 @@ export class LEDRasterApp {
                 if (edge === 'left') {
                     btn.style.left = `${Math.round(rect.right)}px`;
                     btn.style.right = '';
-                } else {
+                } else if (edge === 'right') {
                     btn.style.right = `${Math.round(window.innerWidth - rect.left)}px`;
                     btn.style.left = '';
+                } else {
+                    // Bottom-docked: the toggle hangs above the tray's top
+                    // edge, centred on it - "hug the inner edge" turned on
+                    // its side. The CSS translate(-50%, -100%) makes these
+                    // coordinates the tab's centre and bottom.
+                    btn.style.left = `${Math.round(rect.left + rect.width / 2)}px`;
+                    btn.style.top = `${Math.round(rect.top)}px`;
+                    btn.style.right = '';
                 }
             };
             const apply = (collapsed) => {
@@ -297,6 +314,29 @@ export class LEDRasterApp {
             if (n.classList.contains('lrd-sec-collapsed')) {
                 this._setSectionCollapsed(n, false);
             }
+            // A backup nested in a redundant pair hides WHOLE when its main
+            // folds (the pair is one thing), so a restore aiming inside the
+            // backup must open the MAIN - a sibling, which the ancestor
+            // walk alone would never touch.
+            if (n.classList.contains('lrd-red-pair')) {
+                const main = n.firstElementChild;
+                if (main && main.classList
+                        && main.classList.contains('lrd-sec-collapsed')
+                        && !main.contains(el)) {
+                    this._setSectionCollapsed(main, false);
+                }
+            }
+            // The dock folds by the SIDEBAR machinery, not the section
+            // machinery, and the port chips' editors live inside it - so a
+            // restore aiming into a collapsed tray reopens it through its
+            // own toggle, which is what persists the state and settles the
+            // canvas around the returning height.
+            if (n.id === 'hardware-dock'
+                    && n.classList.contains('collapsed')) {
+                const toggle =
+                    document.getElementById('hardware-dock-toggle');
+                if (toggle) toggle.click();
+            }
         }
     }
 
@@ -309,10 +349,9 @@ export class LEDRasterApp {
      * Which tile is open lives HERE (`_openTiles`, boxId -> tileId), never
      * in the DOM: both panels that draw tiles rebuild wholesale on every
      * resolution, and the open editor has to come back by id through the
-     * wipe - the same reason the fold state and the half-made choosers
-     * (_assigningPort, _movingPort) live off the markup. In memory only, on
-     * purpose: an editor is a gesture, not a preference, so unlike the fold
-     * it does not outlive the page.
+     * wipe - the same reason the fold state lives off the markup. In memory
+     * only, on purpose: an editor is a gesture, not a preference, so unlike
+     * the fold it does not outlive the page.
      */
     _tileOpenId(boxId) {
         return (this._openTiles || {})[boxId] || null;
@@ -340,6 +379,14 @@ export class LEDRasterApp {
             delete this._openTiles[boxId];
         }
         tile.classList.toggle('lrd-tile-open', open);
+        // Opening grows the tile, and in a scrolling host (the dock's body
+        // caps its height) the editor can land partly outside the visible
+        // area - open half-off-screen, with the face no longer clickable
+        // where the eye left it. Nearest-edge scrolling keeps the opened
+        // tile in view and is a no-op when it already is.
+        if (open && tile.scrollIntoView) {
+            tile.scrollIntoView({ block: 'nearest' });
+        }
         const face = tile.querySelector(':scope > .lrd-tile-face');
         if (face) {
             face.setAttribute('aria-expanded', String(open));
@@ -355,6 +402,11 @@ export class LEDRasterApp {
             if (tile.dataset.lrdTileWired) return;
             const face = tile.querySelector(':scope > .lrd-tile-face');
             if (!face) return;
+            // A tile with no editor folded inside it (a FREE circuit chip -
+            // there is no override to edit until a circuit holds the tail)
+            // is a plain drag handle: wiring it would make its face toggle
+            // an empty body open and closed.
+            if (!tile.querySelector(':scope > .lrd-tile-body')) return;
             tile.dataset.lrdTileWired = '1';
             // The face is a real tab stop: the old rows were keyboard-
             // reachable through their inputs, and a tile whose fields are
@@ -422,41 +474,47 @@ export class LEDRasterApp {
     }
 
     /**
-     * The middle panels each belong to ONE view and nowhere else. Port
-     * labelling - and the processor work that joins it - describes how signal
-     * reaches the cabinets; the multis, splitters and distros describe how
-     * power does. Neither means anything in Pixel Map, Cabinet ID or Show
-     * Look, or in each other's view, so a panel and its toggle leave layout
+     * The hardware dock belongs to the two hardware views and nowhere else:
+     * processors and ports describe how signal reaches the cabinets, distros
+     * and multis how power does, and neither means anything in Pixel Map,
+     * Cabinet ID or Show Look - so the tray and its toggle leave layout
      * completely everywhere else (.view-hidden is display:none, not a
-     * collapse). That is the whole reason a user who only ever opens Pixel Map
-     * sees nothing new.
+     * collapse). That is the whole reason a user who only ever opens Pixel
+     * Map sees nothing new. The Signal and Power middle sidebars used to be
+     * two more rows of this table; they retired when the dock absorbed the
+     * hardware surfaces, and the canvas got their width back.
      *
-     * One row per view-scoped panel, the same table shape as the collapse and
-     * resize tables it sits between (initSidebarToggles above, PANELS in
-     * theme.js): a fourth panel is a row here rather than a fourth near-copy
-     * of this function.
+     * The table shape stays (one row per view-scoped panel, the same shape
+     * as the collapse and resize tables in initSidebarToggles above and
+     * theme.js's PANELS): a future view-scoped panel is a row here rather
+     * than a near-copy of this function.
      *
-     * Collapsed state is untouched here: collapsing a panel and then leaving
-     * its view must not silently re-expand it on the way back.
+     * Collapsed state is untouched here: collapsing the tray and then
+     * leaving its views must not silently re-expand it on the way back.
      */
     updateViewSidebars(mode) {
         const panels = [
-            { sidebarId: 'data-sidebar', toggleId: 'data-sidebar-toggle', mode: 'data-flow' },
-            { sidebarId: 'power-sidebar', toggleId: 'power-sidebar-toggle', mode: 'power' },
+            { sidebarId: 'hardware-dock', toggleId: 'hardware-dock-toggle', modes: ['data-flow', 'power'] },
         ];
         let touched = false;
-        panels.forEach(({ sidebarId, toggleId, mode: owns }) => {
+        panels.forEach(({ sidebarId, toggleId, modes }) => {
             const sidebar = document.getElementById(sidebarId);
             if (!sidebar) return;
             touched = true;
-            const btn = document.getElementById(toggleId);
-            const visible = mode === owns;
+            const btn = toggleId ? document.getElementById(toggleId) : null;
+            const visible = modes.includes(mode);
             sidebar.classList.toggle('view-hidden', !visible);
             if (btn) btn.classList.toggle('view-hidden', !visible);
         });
+        // The dock's CONTENT is per-view too - processors in Data, distros
+        // in Power - so entering either view redraws it for that view.
+        if (typeof this.renderHardwareDock === 'function') {
+            try { this.renderHardwareDock(); } catch (_) {}
+        }
         if (!touched) return;
         // A whole flex column appearing or disappearing changes the width the
-        // canvas has to fill, and moves every toggle.
+        // canvas has to fill, and moves every toggle - and the dock changes
+        // the HEIGHT the canvas has to fill the same way.
         this.settleLayout();
     }
 
@@ -610,6 +668,17 @@ export class LEDRasterApp {
         });
         this.socket.on('layer_updated', (layer) => {
             console.log('WEBSOCKET layer_updated received for layer:', layer.id);
+            // Undo audit: while an undo/redo restore PUT is on its way to the
+            // server, a layer_updated broadcast describes the PRE-restore
+            // server state (typically the very edit being undone - e.g. the
+            // just-committed drag's offsets). Applying it re-imposed the
+            // undone edit on the restored client project; the restore PUT's
+            // own adopted response is the reconciliation for this window.
+            if (this._restorePutPending) {
+                sendClientLog('socket_layer_updated_suppressed_during_restore',
+                              { id: layer.id });
+                return;
+            }
             sendClientLog('socket_layer_updated', { id: layer.id });
             this.applyServerLayer(layer, 'socket_layer_updated');
             this.updateUI();
@@ -653,6 +722,7 @@ export class LEDRasterApp {
             portLabelOverridesReturn: layer.portLabelOverridesReturn,
             customPortPaths: layer.customPortPaths,
             customPortIndex: layer.customPortIndex,
+            customPortOverrides: layer.customPortOverrides,
             screenNameSizeCabinet: layer.screenNameSizeCabinet,
             screenNameSizeDataFlow: layer.screenNameSizeDataFlow,
             screenNameSizePower: layer.screenNameSizePower,
@@ -706,6 +776,7 @@ export class LEDRasterApp {
             powerLabelOverrides: layer.powerLabelOverrides,
             powerCustomPaths: layer.powerCustomPaths,
             powerCustomIndex: layer.powerCustomIndex,
+            powerCustomOverrides: layer.powerCustomOverrides,
             powerSplitters: layer.powerSplitters,
             border_color_pixel: layer.border_color_pixel,
             border_color_cabinet: layer.border_color_cabinet,
@@ -1007,6 +1078,7 @@ export class LEDRasterApp {
                         if (layerProps.portLabelOverridesReturn !== undefined) layer.portLabelOverridesReturn = layerProps.portLabelOverridesReturn;
                         if (layerProps.customPortPaths !== undefined) layer.customPortPaths = layerProps.customPortPaths;
                         if (layerProps.customPortIndex !== undefined) layer.customPortIndex = layerProps.customPortIndex;
+                        if (layerProps.customPortOverrides !== undefined) layer.customPortOverrides = layerProps.customPortOverrides;
                         if (layerProps.powerVoltage !== undefined) layer.powerVoltage = layerProps.powerVoltage;
                         if (layerProps.powerVoltageCustom !== undefined) layer.powerVoltageCustom = layerProps.powerVoltageCustom;
                         if (layerProps.powerAmperage !== undefined) layer.powerAmperage = layerProps.powerAmperage;
@@ -1029,6 +1101,7 @@ export class LEDRasterApp {
                         if (layerProps.powerLabelOverrides !== undefined) layer.powerLabelOverrides = layerProps.powerLabelOverrides;
                         if (layerProps.powerCustomPaths !== undefined) layer.powerCustomPaths = layerProps.powerCustomPaths;
                         if (layerProps.powerCustomIndex !== undefined) layer.powerCustomIndex = layerProps.powerCustomIndex;
+                        if (layerProps.powerCustomOverrides !== undefined) layer.powerCustomOverrides = layerProps.powerCustomOverrides;
                         if (layerProps.powerSplitters !== undefined) layer.powerSplitters = layerProps.powerSplitters;
                         if (layerProps.border_color_pixel !== undefined) layer.border_color_pixel = layerProps.border_color_pixel;
                         if (layerProps.border_color_cabinet !== undefined) layer.border_color_cabinet = layerProps.border_color_cabinet;
@@ -1114,6 +1187,7 @@ export class LEDRasterApp {
             if (layer.portLabelOverridesReturn === undefined) layer.portLabelOverridesReturn = {};
             if (layer.customPortPaths === undefined) layer.customPortPaths = {};
             if (layer.customPortIndex === undefined) layer.customPortIndex = 1;
+            if (layer.customPortOverrides === undefined) layer.customPortOverrides = [];
             if (layer.screenNameSizeCabinet === undefined) layer.screenNameSizeCabinet = 14;
             if (layer.screenNameSizeDataFlow === undefined) layer.screenNameSizeDataFlow = 14;
             if (layer.screenNameSizePower === undefined) layer.screenNameSizePower = 14;
@@ -1147,6 +1221,7 @@ export class LEDRasterApp {
             this.migrateSocaKeying(layer);
                 if (layer.powerCustomPaths === undefined) layer.powerCustomPaths = {};
             if (layer.powerCustomIndex === undefined) layer.powerCustomIndex = 1;
+            if (layer.powerCustomOverrides === undefined) layer.powerCustomOverrides = [];
             // Power splitters (circuit sharing): off by default, 3fer max
             // (2fer/3fer out of the box), no manual overrides. See
             // getPowerSplitters for the normalized read.
@@ -1297,6 +1372,7 @@ export class LEDRasterApp {
                 portLabelOverridesReturn: layer.portLabelOverridesReturn,
                 customPortPaths: layer.customPortPaths,
                 customPortIndex: layer.customPortIndex,
+                customPortOverrides: layer.customPortOverrides,
                 screenNameSizeCabinet: layer.screenNameSizeCabinet,
                 screenNameSizeDataFlow: layer.screenNameSizeDataFlow,
                 screenNameSizePower: layer.screenNameSizePower,
@@ -1376,6 +1452,7 @@ export class LEDRasterApp {
                 powerLabelTextColor: layer.powerLabelTextColor,
                 powerCustomPaths: layer.powerCustomPaths,
                 powerCustomIndex: layer.powerCustomIndex,
+                powerCustomOverrides: layer.powerCustomOverrides,
                 powerSplitters: layer.powerSplitters,
                 border_color_pixel: layer.border_color_pixel,
                 border_color_cabinet: layer.border_color_cabinet,
@@ -1581,6 +1658,14 @@ export class LEDRasterApp {
                 window.canvasRenderer.showRasterHeight = prefs.rasterHeight;
                 document.getElementById('toolbar-raster-width').value = prefs.rasterWidth;
                 document.getElementById('toolbar-raster-height').value = prefs.rasterHeight;
+
+                // Undo audit: resetApplicationState() above snapshotted the
+                // OLD project (it runs before the fetch), so the first Ctrl+Z
+                // in the new project restored - and PUT back - the project the
+                // user had just left. Reset again now that this.project IS the
+                // new project, the same post-load reset File > Open and Recent
+                // Files perform.
+                this.resetHistory('Initial State');
 
                 // Save the default raster size to localStorage
                 // This way refresh after "New" will show defaults
@@ -1822,6 +1907,12 @@ export class LEDRasterApp {
                 } else {
                     this.refreshPerspectiveButtons();
                     this.saveProject();
+                    // Undo audit: on a pre-multi-canvas project the history
+                    // entry lived only inside updateCanvas, so this branch
+                    // mutated and saved with no entry at all.
+                    if (typeof this.saveState === 'function') {
+                        this.saveState('Change Perspective');
+                    }
                     if (window.canvasRenderer) window.canvasRenderer.render();
                 }
                 if (typeof sendClientLog === 'function') {
@@ -2318,7 +2409,10 @@ export class LEDRasterApp {
                         }
                         if (Object.keys(patch).length === 0) return;
                         Object.assign(c, patch);
-                        this.updateCanvas(cid, patch);
+                        // Undo audit: skipHistory, or every touched canvas's
+                        // PUT recorded its own async entry on top of the one
+                        // below - one click cost 2..N+1 Ctrl+Z presses.
+                        this.updateCanvas(cid, patch, { skipHistory: true });
                     });
                 }
                 this.saveState('Reset Show Look Position');
@@ -2370,7 +2464,9 @@ export class LEDRasterApp {
                         }
                         if (Object.keys(patch).length === 0) return;
                         Object.assign(c, patch);
-                        this.updateCanvas(c.id, patch);
+                        // Undo audit: same skipHistory as the single reset
+                        // above - one click, one entry.
+                        this.updateCanvas(c.id, patch, { skipHistory: true });
                     });
                 }
                 this.saveState('Reset Entire Show Look');
@@ -2854,7 +2950,12 @@ export class LEDRasterApp {
         document.querySelectorAll('.flow-pattern-btn:not(.power-flow-pattern-btn)').forEach(btn => {
             btn.addEventListener('click', () => {
                 const pattern = btn.getAttribute('data-pattern');
-                if (this.currentLayer && this.isCustomFlow(this.currentLayer) && this.customSelection.size > 0) {
+                // Editing predicate: with an overridden port open and a
+                // selection made, the tile applies the pattern to the
+                // selection exactly as it does in whole-screen custom -
+                // falling through here would silently change the SCREEN's
+                // flow pattern mid-edit.
+                if (this.currentLayer && this.isCustomFlowEditing(this.currentLayer) && this.customSelection.size > 0) {
                     this.applyPatternToSelection(pattern);
                     return;
                 }
@@ -2884,7 +2985,8 @@ export class LEDRasterApp {
         document.querySelectorAll('.power-flow-pattern-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 const pattern = btn.getAttribute('data-pattern');
-                if (this.currentLayer && this.isCustomPower(this.currentLayer) && this.powerCustomSelection.size > 0) {
+                // Editing predicate - same reason as the data tiles above.
+                if (this.currentLayer && this.isCustomPowerEditing(this.currentLayer) && this.powerCustomSelection.size > 0) {
                     this.applyPowerPatternToSelection(pattern);
                     return;
                 }
@@ -2922,8 +3024,6 @@ export class LEDRasterApp {
         const portBulkReturnInput = document.getElementById('port-label-bulk-return');
         const portApplySelectedBtn = document.getElementById('port-label-apply-selected');
         const portClearSelectedBtn = document.getElementById('port-label-clear-selected');
-        const portSelectAllBtn = document.getElementById('port-label-select-all');
-        const portDeselectAllBtn = document.getElementById('port-label-deselect-all');
         const customModeToggle = document.getElementById('custom-flow-toggle');
         const customPrevPortBtn = document.getElementById('custom-prev-port');
         const customNextPortBtn = document.getElementById('custom-next-port');
@@ -2953,22 +3053,17 @@ export class LEDRasterApp {
             });
         }
 
+        // The per-port list died with the Signal panel, and its checkboxes
+        // were the only selection there was - so Apply Style restyles the
+        // WHOLE run now: every port the shown screen needs, in order. One
+        // port is renamed on its chip in the hardware dock instead.
         const getSelectedPortNumbers = () => {
-            const list = document.getElementById('port-label-list');
-            if (!list) return [];
-            const selected = [];
-            list.querySelectorAll('input[type=\"checkbox\"][data-port]').forEach(cb => {
-                if (cb.checked) selected.push(parseInt(cb.getAttribute('data-port'), 10));
-            });
-            return selected;
-        };
-
-        const setAllPortCheckboxes = (checked) => {
-            const list = document.getElementById('port-label-list');
-            if (!list) return;
-            list.querySelectorAll('input[type=\"checkbox\"][data-port]').forEach(cb => {
-                cb.checked = checked;
-            });
+            const layer = this.currentLayer;
+            if (!layer || (layer.type || 'screen') !== 'screen') return [];
+            const count = layer._portsRequired
+                || (typeof this.getLayerPortsRequired === 'function'
+                    ? this.getLayerPortsRequired(layer) : 0) || 0;
+            return Array.from({ length: count }, (_, i) => i + 1);
         };
 
         if (portApplySelectedBtn) {
@@ -3028,18 +3123,6 @@ export class LEDRasterApp {
             });
         }
 
-        if (portSelectAllBtn) {
-            portSelectAllBtn.addEventListener('click', () => {
-                setAllPortCheckboxes(true);
-            });
-        }
-
-        if (portDeselectAllBtn) {
-            portDeselectAllBtn.addEventListener('click', () => {
-                setAllPortCheckboxes(false);
-            });
-        }
-
         if (customModeToggle) {
             customModeToggle.addEventListener('change', () => {
                 if (!this.currentLayer) return;
@@ -3058,35 +3141,24 @@ export class LEDRasterApp {
                 }
             });
         }
+        // Routed through stepCustomPort so there is ONE stepping rule shared
+        // with Tab and the brackets: it saves, PUTs (v0.8.2 - without that,
+        // local mutations accumulate only on the client until some other PUT
+        // contradicts them), and while an overridden port is open for
+        // redrawing it walks the layer's override list instead of the open
+        // number line.
         if (customPrevPortBtn) {
             customPrevPortBtn.addEventListener('click', () => {
                 if (!this.currentLayer) return;
                 this.ensureCustomFlowState(this.currentLayer);
-                this.currentLayer.customPortIndex = Math.max(1, (this.currentLayer.customPortIndex || 1) - 1);
-                this.saveState('Custom Port Change');
-                this.saveClientSideProperties();
-                // v0.8.2: PUT to the server. Without this, all the local
-                // mutations (Next/Prev/Clear/Apply) accumulate only on the
-                // client; the next time something else triggers a real PUT
-                // (Mode Toggle, tab switch with stale state, etc.) the
-                // client's view collapses or contradicts the server's.
-                this.updateLayers(this.getSelectedLayers());
-                this.updateCustomFlowUI();
-                this.updatePortLabelEditor();
-                window.canvasRenderer.render();
+                this.stepCustomPort(-1);
             });
         }
         if (customNextPortBtn) {
             customNextPortBtn.addEventListener('click', () => {
                 if (!this.currentLayer) return;
                 this.ensureCustomFlowState(this.currentLayer);
-                this.currentLayer.customPortIndex = (this.currentLayer.customPortIndex || 1) + 1;
-                this.saveState('Custom Port Change');
-                this.saveClientSideProperties();
-                this.updateLayers(this.getSelectedLayers());
-                this.updateCustomFlowUI();
-                this.updatePortLabelEditor();
-                window.canvasRenderer.render();
+                this.stepCustomPort(1);
             });
         }
         if (customClearPortBtn) {
@@ -3109,6 +3181,15 @@ export class LEDRasterApp {
                 this.ensureCustomFlowState(this.currentLayer);
                 this.currentLayer.customPortPaths = {};
                 this.currentLayer.customPortIndex = 1;
+                // The per-run overrides go with their paths: a reserved number
+                // whose path was just wiped would leave an invisible gap in
+                // the automatic numbering with nothing on the wall to show
+                // for it. Clear All means back to auto, all of it.
+                this.currentLayer.customPortOverrides = [];
+                if (this._overrideEditing && this._overrideEditing.kind === 'data'
+                        && this._overrideEditing.layerId === this.currentLayer.id) {
+                    this._overrideEditing = null;
+                }
                 this.customSelection.clear();
                 this.saveState('Custom Clear All');
                 this.saveClientSideProperties();
@@ -3130,8 +3211,20 @@ export class LEDRasterApp {
                 if (!this.currentLayer) return;
                 this.ensureCustomFlowState(this.currentLayer);
                 const nextVal = parseInt(customActivePortInput.value, 10);
+                // With an overridden port open, the editable ports ARE the
+                // layer's overrides - typing a number outside that list would
+                // aim the next click at a port the user never took over.
+                if (this._isOverrideEditing(this.currentLayer, 'data')
+                        && !this.getOverrideNums(this.currentLayer, 'data').includes(nextVal)) {
+                    customActivePortInput.value = `${this.currentLayer.customPortIndex || 1}`;
+                    return;
+                }
                 if (Number.isFinite(nextVal) && nextVal >= 1) {
                     this.currentLayer.customPortIndex = nextVal;
+                    if (this._overrideEditing && this._overrideEditing.kind === 'data'
+                            && this._overrideEditing.layerId === this.currentLayer.id) {
+                        this._overrideEditing.num = nextVal;
+                    }
                     this.saveState('Custom Port Change');
                     this.saveClientSideProperties();
                     this.updateLayers(this.getSelectedLayers());
@@ -3197,8 +3290,6 @@ export class LEDRasterApp {
         const powerLabelBulkInput = document.getElementById('power-label-bulk');
         const powerLabelApplyBtn = document.getElementById('power-label-apply-selected');
         const powerLabelClearBtn = document.getElementById('power-label-clear-selected');
-        const powerLabelSelectAllBtn = document.getElementById('power-label-select-all');
-        const powerLabelDeselectAllBtn = document.getElementById('power-label-deselect-all');
         const showDataFlowPortInfoEl = document.getElementById('show-data-flow-port-info');
         const showDataFlowPortLoadEl = document.getElementById('show-data-flow-port-load');
         const showPowerCircuitInfoEl = document.getElementById('show-power-circuit-info');
@@ -3477,22 +3568,15 @@ export class LEDRasterApp {
             });
         }
 
+        // Same rule as the ports side: the per-circuit list died with the
+        // Power sidebar, so Apply Style restyles every circuit the shown
+        // screen has. One circuit is renamed on its chip in the dock.
         const getSelectedPowerCircuits = () => {
-            const list = document.getElementById('power-label-list');
-            if (!list) return [];
-            const selected = [];
-            list.querySelectorAll('input[type="checkbox"][data-circuit]').forEach(cb => {
-                if (cb.checked) selected.push(parseInt(cb.getAttribute('data-circuit'), 10));
-            });
-            return selected;
-        };
-
-        const setAllPowerCheckboxes = (checked) => {
-            const list = document.getElementById('power-label-list');
-            if (!list) return;
-            list.querySelectorAll('input[type="checkbox"][data-circuit]').forEach(cb => {
-                cb.checked = checked;
-            });
+            const layer = this.currentLayer;
+            if (!layer || (layer.type || 'screen') !== 'screen') return [];
+            const count = (typeof this.getLayerCircuitsRequired === 'function'
+                ? this.getLayerCircuitsRequired(layer) : 0) || 0;
+            return Array.from({ length: count }, (_, i) => i + 1);
         };
 
         if (powerLabelTemplateInput) {
@@ -3554,13 +3638,6 @@ export class LEDRasterApp {
             });
         }
 
-        if (powerLabelSelectAllBtn) {
-            powerLabelSelectAllBtn.addEventListener('click', () => setAllPowerCheckboxes(true));
-        }
-        if (powerLabelDeselectAllBtn) {
-            powerLabelDeselectAllBtn.addEventListener('click', () => setAllPowerCheckboxes(false));
-        }
-
         if (powerCustomToggle) {
             powerCustomToggle.addEventListener('change', () => {
                 if (!this.currentLayer) return;
@@ -3577,33 +3654,22 @@ export class LEDRasterApp {
                 }
             });
         }
+        // Routed through stepCustomPort - see the matching comment on the
+        // data-flow Prev/Next above. It carries the v0.8.2 PUT (without it a
+        // Mode Toggle would PUT a single-circuit collapsed view of
+        // layer.powerCustomPaths) and the override-list pinning.
         if (powerCustomPrev) {
             powerCustomPrev.addEventListener('click', () => {
                 if (!this.currentLayer) return;
                 this.ensureCustomPowerState(this.currentLayer);
-                this.currentLayer.powerCustomIndex = Math.max(1, (this.currentLayer.powerCustomIndex || 1) - 1);
-                this.saveState('Power Custom Circuit Change');
-                this.saveClientSideProperties();
-                // v0.8.2: PUT to the server. See matching comment on the data-
-                // flow Custom handlers above. Without this, every Next/Prev/
-                // Clear Circuit/Clear All/Pattern Apply mutated only the
-                // client; the next Mode Toggle would then PUT a single-circuit
-                // collapsed view of layer.powerCustomPaths.
-                this.updateLayers(this.getSelectedLayers());
-                this.updateCustomPowerUI();
-                window.canvasRenderer.render();
+                this.stepCustomPort(-1);
             });
         }
         if (powerCustomNext) {
             powerCustomNext.addEventListener('click', () => {
                 if (!this.currentLayer) return;
                 this.ensureCustomPowerState(this.currentLayer);
-                this.currentLayer.powerCustomIndex = (this.currentLayer.powerCustomIndex || 1) + 1;
-                this.saveState('Power Custom Circuit Change');
-                this.saveClientSideProperties();
-                this.updateLayers(this.getSelectedLayers());
-                this.updateCustomPowerUI();
-                window.canvasRenderer.render();
+                this.stepCustomPort(1);
             });
         }
         if (powerCustomClearCircuit) {
@@ -3625,6 +3691,12 @@ export class LEDRasterApp {
                 this.ensureCustomPowerState(this.currentLayer);
                 this.currentLayer.powerCustomPaths = {};
                 this.currentLayer.powerCustomIndex = 1;
+                // Overrides go with their paths - see the data Clear All.
+                this.currentLayer.powerCustomOverrides = [];
+                if (this._overrideEditing && this._overrideEditing.kind === 'power'
+                        && this._overrideEditing.layerId === this.currentLayer.id) {
+                    this._overrideEditing = null;
+                }
                 this.powerCustomSelection.clear();
                 this.saveState('Power Custom Clear All');
                 this.saveClientSideProperties();
@@ -3645,8 +3717,19 @@ export class LEDRasterApp {
                 if (!this.currentLayer) return;
                 this.ensureCustomPowerState(this.currentLayer);
                 const nextVal = parseInt(powerCustomActive.value, 10);
+                // Pinned to the override list while one is open - see the
+                // data-flow input above.
+                if (this._isOverrideEditing(this.currentLayer, 'power')
+                        && !this.getOverrideNums(this.currentLayer, 'power').includes(nextVal)) {
+                    powerCustomActive.value = `${this.currentLayer.powerCustomIndex || 1}`;
+                    return;
+                }
                 if (Number.isFinite(nextVal) && nextVal >= 1) {
                     this.currentLayer.powerCustomIndex = nextVal;
+                    if (this._overrideEditing && this._overrideEditing.kind === 'power'
+                            && this._overrideEditing.layerId === this.currentLayer.id) {
+                        this._overrideEditing.num = nextVal;
+                    }
                     this.saveState('Power Custom Circuit Change');
                     this.saveClientSideProperties();
                     this.updateLayers(this.getSelectedLayers());

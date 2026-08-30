@@ -16,7 +16,6 @@ class CanvasRenderer {
         this.isDragging = false;
         this.isDraggingLayer = false;
         this.isDraggingScreenName = false;
-        this.screenNameDragHistorySaved = false;
         // The 'both' name display's group headline drag (see _groupNameMode).
         this.isDraggingGroupName = false;
         this._dragGroupNameGroup = null;
@@ -127,32 +126,32 @@ class CanvasRenderer {
     setupEventListeners() {
         this.canvas.addEventListener('mousedown', this.handleMouseDown.bind(this));
         this.canvas.addEventListener('mousemove', this.handleMouseMove.bind(this));
-        this.canvas.addEventListener('mouseup', this.handleMouseUp.bind(this));
+        // mouseup listens on the WINDOW, not the canvas. A drag that starts
+        // on the canvas routinely ends over the sidebar, a toolbar, or
+        // outside the browser window entirely; a canvas-scoped listener
+        // never heard that release, so whichever flag the mousedown had
+        // armed (space/middle pan, shift layer drag, shift screen-name
+        // drag, alt paint, canvas drag, the marquees) stayed latched, and
+        // the next time the cursor crossed the raster mousemove resumed the
+        // drag with no button held. Every branch of handleMouseUp is gated
+        // on state only a canvas mousedown can set, so hearing every
+        // release in the document is safe: with nothing in flight it falls
+        // straight through. This also retires the old window-level
+        // "clear stuck selection box" fallback, which knew how to CANCEL
+        // the two marquee flags but nothing else - the full finalizer now
+        // runs for off-canvas releases, so a marquee released past the
+        // edge commits exactly like one released on the canvas.
+        window.addEventListener('mouseup', this.handleMouseUp.bind(this));
         this.canvas.addEventListener('wheel', this.handleWheel.bind(this));
         this.canvas.addEventListener('contextmenu', this.handleContextMenu.bind(this));
         document.addEventListener('keydown', this.handleKeyDown.bind(this));
         document.addEventListener('keyup', this.handleKeyUp.bind(this));
-        window.addEventListener('mouseup', () => {
-            const hadLayerRect = !!this.layerSelectionRect;
-            const hadPanelRect = !!this.selectionRect;
-            if (!this.isSelectingLayers && !this.isSelectingPanels && !hadLayerRect && !hadPanelRect) return;
-            // Clear stuck selection box if mouseup happens off-canvas or flags get out of sync
-            if (this.isSelectingLayers || hadLayerRect) {
-                this.isSelectingLayers = false;
-                this.layerSelectionRect = null;
-            }
-            if (this.isSelectingPanels || hadPanelRect) {
-                this.isSelectingPanels = false;
-                this.selectionRect = null;
-            }
-            if (typeof sendClientLog === 'function') {
-                sendClientLog('selection_cleared_off_canvas', {
-                    viewMode: this.viewMode,
-                    hadLayerRect,
-                    hadPanelRect
-                });
-            }
-            this.render();
+        // Focus loss (cmd-tab, window switch, tab hide) delivers the
+        // matching keyup/mouseup to some OTHER app, never to us - see
+        // _releaseTransientInput.
+        window.addEventListener('blur', () => this._releaseTransientInput());
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) this._releaseTransientInput();
         });
         window.addEventListener('resize', () => this.setupCanvas());
     }
@@ -262,6 +261,125 @@ class CanvasRenderer {
         } else {
             if (maxWidth !== undefined) this.ctx.strokeText(text, x, y, maxWidth);
             else this.ctx.strokeText(text, x, y);
+        }
+    }
+
+    // Leading for a label stacked inside a circular marker. Kept as one
+    // definition because _layoutCircleLabel sizes the circle from it and
+    // _fillWrappedLabel places the lines with it - if the two disagreed a
+    // wrapped label would poke out of its circle. Same fontPx + 4 leading
+    // the screen-label info block uses.
+    _circleLabelLineHeight(fontPx) {
+        return fontPx + 4;
+    }
+
+    /**
+     * Lay a port/circuit label out for its circular marker. The marker
+     * grows to fit its text (labels are never clipped), so a renamed port
+     * like "SR A1" used to inflate the circle until it swallowed the
+     * neighboring cabinets. A label with spaces may instead stack at the
+     * spaces ("SR" over "A1"), keeping the text at the user's label size
+     * AND the circle near its natural size. Rules:
+     *   - break only at whitespace, never inside a token - a single long
+     *     token keeps the old grow-to-fit behaviour unchanged;
+     *   - a label that fits the natural radius on one line never wraps;
+     *   - among the candidate splits the smallest circle wins, and only
+     *     beats the single line by a clear margin, so line count balances
+     *     itself (a tall narrow stack needs a bigger circle than a
+     *     slightly wider pair, and loses).
+     * The caller must have ctx.font set to the label font already (widths
+     * are measured with it). `minRadius` is the site's natural radius and
+     * `padding` its text padding, so the no-wrap result reproduces the
+     * site's old max(minRadius, textWidth/2 + padding) exactly.
+     * Returns { lines, radius }; draw the lines via _fillWrappedLabel.
+     */
+    _layoutCircleLabel(label, fontPx, minRadius, padding) {
+        const text = String(label);
+        const widthOf = (s) => this.ctx.measureText(s).width;
+        const oneLine = {
+            lines: [text],
+            radius: Math.max(minRadius, widthOf(text) / 2 + padding)
+        };
+        // Fits already, or nowhere legal to break: keep the single line.
+        const tokens = text.trim().split(/\s+/).filter(t => t.length > 0);
+        if (tokens.length < 2 || oneLine.radius <= minRadius) return oneLine;
+
+        const lineHeight = this._circleLabelLineHeight(fontPx);
+        // Smallest circle containing every line's text box: each line is a
+        // fontPx-tall box centered on its slot, and the box corner farthest
+        // from the circle center is what the radius must reach.
+        const radiusOfLines = (lines) => {
+            const n = lines.length;
+            let r = 0;
+            for (let i = 0; i < n; i++) {
+                const halfW = widthOf(lines[i]) / 2;
+                const yEdge = Math.abs(i - (n - 1) / 2) * lineHeight + fontPx / 2;
+                r = Math.max(r, Math.hypot(halfW, yEdge));
+            }
+            return Math.max(minRadius, r + padding);
+        };
+        // Greedy width-balanced split into n lines. Optimal-enough for the
+        // handful of tokens a port name has, without enumerating every
+        // partition of a pathological label.
+        const splitInto = (n) => {
+            const target = widthOf(text) / n;
+            const lines = [];
+            let cur = tokens[0];
+            for (let i = 1; i < tokens.length; i++) {
+                const joined = cur + ' ' + tokens[i];
+                if (lines.length < n - 1 && widthOf(joined) > target) {
+                    lines.push(cur);
+                    cur = tokens[i];
+                } else {
+                    cur = joined;
+                }
+            }
+            lines.push(cur);
+            return lines;
+        };
+        let best = oneLine;
+        // 4 stacked lines is already a tall circle; more never reads well
+        // and the radius math would reject it anyway.
+        for (let n = 2; n <= Math.min(tokens.length, 4); n++) {
+            const lines = splitInto(n);
+            const r = radiusOfLines(lines);
+            // Strictly-better only (half-px margin): ties keep fewer lines,
+            // and a wrap that doesn't shrink the circle isn't worth reading
+            // the label in pieces.
+            if (r < best.radius - 0.5) best = { lines, radius: r };
+        }
+        return best;
+    }
+
+    /**
+     * Draw the lines from _layoutCircleLabel centered on (x, y). One line
+     * delegates to _fillText so an unwrapped label renders exactly as it
+     * always has. A stack applies the mirror/upright un-transform ONCE for
+     * the whole block: per-line _fillText would counter-rotate each line
+     * about its own anchor and stagger the stack diagonally on a rotated
+     * screen, while the block belongs upright around the circle center.
+     */
+    _fillWrappedLabel(lines, x, y, fontPx) {
+        if (lines.length === 1) {
+            this._fillText(lines[0], x, y);
+            return;
+        }
+        const lineHeight = this._circleLabelLineHeight(fontPx);
+        const n = lines.length;
+        const upright = this._keepTextUpright && this._activeRotationRad;
+        if (this._mirror || upright) {
+            this.ctx.save();
+            this.ctx.translate(x, y);
+            if (upright) this.ctx.rotate(-this._activeRotationRad);
+            if (this._mirror) this.ctx.scale(-1, 1);
+            for (let i = 0; i < n; i++) {
+                this.ctx.fillText(lines[i], 0, (i - (n - 1) / 2) * lineHeight);
+            }
+            this.ctx.restore();
+        } else {
+            for (let i = 0; i < n; i++) {
+                this.ctx.fillText(lines[i], x, y + (i - (n - 1) / 2) * lineHeight);
+            }
         }
     }
 
@@ -749,6 +867,10 @@ class CanvasRenderer {
     }
 
     handleMouseDown(e) {
+        // Last known cursor position, for the focus-loss finalizer
+        // (_releaseTransientInput) which has no event to read it from.
+        this._lastClientX = e.clientX;
+        this._lastClientY = e.clientY;
         const rect = this.canvas.getBoundingClientRect();
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
@@ -986,9 +1108,11 @@ class CanvasRenderer {
         // unreachable. You could not rubber-band several screens without
         // leaving custom mode first. Pixel Map has always done this properly
         // (hit-test, otherwise fall through); this brings custom mode in line.
-        if (e.button === 0 && window.app && window.app.currentLayer && this.viewMode === 'data-flow') {
+        // `!e.altKey`: Alt+press is the override gesture (take the run under
+        // the cursor over), never a path marquee - see the alt branch below.
+        if (e.button === 0 && !e.altKey && window.app && window.app.currentLayer && this.viewMode === 'data-flow') {
             const layer = window.app.currentLayer;
-            if (window.app.isCustomFlow(layer) && this._customDrawStartsInScope(worldX, worldY)) {
+            if (window.app.isCustomFlowEditing(layer) && this._customDrawStartsInScope(worldX, worldY)) {
                 this.isSelectingPanels = true;
                 this.selectionRect = { x1: worldX, y1: worldY, x2: worldX, y2: worldY };
                 if (typeof sendClientLog === 'function') {
@@ -997,9 +1121,9 @@ class CanvasRenderer {
                 return;
             }
         }
-        if (e.button === 0 && window.app && window.app.currentLayer && this.viewMode === 'power') {
+        if (e.button === 0 && !e.altKey && window.app && window.app.currentLayer && this.viewMode === 'power') {
             const layer = window.app.currentLayer;
-            if (window.app.isCustomPower(layer) && this._customDrawStartsInScope(worldX, worldY)) {
+            if (window.app.isCustomPowerEditing(layer) && this._customDrawStartsInScope(worldX, worldY)) {
                 this.isSelectingPanels = true;
                 this.selectionRect = { x1: worldX, y1: worldY, x2: worldX, y2: worldY };
                 if (typeof sendClientLog === 'function') {
@@ -1214,6 +1338,17 @@ class CanvasRenderer {
                 }
             }
         } else if (e.button === 0 && e.altKey) {
+            // Data / Power: Alt+click takes the run under the cursor over for
+            // hand-redrawing (or reopens one already taken). The highlight the
+            // held Alt paints (see handleMouseMove) is the affordance; the
+            // click is the commitment.
+            if (this.viewMode === 'data-flow' || this.viewMode === 'power') {
+                if (window.app && typeof window.app.handleOverrideClick === 'function') {
+                    e.preventDefault();
+                    window.app.handleOverrideClick(worldX, worldY);
+                }
+                return;
+            }
             // Alt+click/drag toggles "blank" (hidden) on the panel.
             // When a multi-selection is active, apply to the entire selection
             // in one shot (no drag-painting in that mode, the selection is
@@ -1273,6 +1408,8 @@ class CanvasRenderer {
     }
     
     handleMouseMove(e) {
+        this._lastClientX = e.clientX;
+        this._lastClientY = e.clientY;
         const rect = this.canvas.getBoundingClientRect();
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
@@ -1340,9 +1477,9 @@ class CanvasRenderer {
             // in a group is always in that state, because the flow pattern is
             // shared across members.
             if (window.app && window.app.currentLayer && this.viewMode === 'data-flow'
-                && window.app.isCustomFlow(window.app.currentLayer)) {
+                && window.app.isCustomFlowEditing(window.app.currentLayer)) {
                 window.app.selectPanelsInRect(window.app.currentLayer, this.selectionRect);
-            } else if (window.app && window.app.currentLayer && this.viewMode === 'power' && window.app.isCustomPower(window.app.currentLayer)) {
+            } else if (window.app && window.app.currentLayer && this.viewMode === 'power' && window.app.isCustomPowerEditing(window.app.currentLayer)) {
                 window.app.selectPowerPanelsInRect(window.app.currentLayer, this.selectionRect);
             }
             this.render();
@@ -1367,7 +1504,15 @@ class CanvasRenderer {
         }
         
         document.getElementById('cursor-position').textContent = `X: ${Math.round(worldX)}, Y: ${Math.round(worldY)}`;
-        
+
+        // Held Alt over a wired view: light the run under the cursor, the way
+        // a dock drag lights the run it is about to land on. The update is a
+        // no-op (no render) unless the lit run actually changes.
+        if ((this.viewMode === 'data-flow' || this.viewMode === 'power')
+                && window.app && typeof window.app.updateOverrideHover === 'function') {
+            window.app.updateOverrideHover(!!e.altKey, worldX, worldY);
+        }
+
         if (this.isDragging) {
             const dx = mouseX - this.dragStartX;
             const dy = mouseY - this.dragStartY;
@@ -1648,14 +1793,30 @@ class CanvasRenderer {
             if (window.app && this.altPaintedPanelIds && this.altPaintedPanelIds.size > 0) {
                 const layer = window.app.project.layers.find(l => l.id === this.altPaintLayerId);
                 if (layer) {
-                    window.app.saveState('Toggle Panel Visibility');
+                    // Undo audit: same contract as setPanelsBlankBulk (the
+                    // sidebar twin of this gesture). Hiding a panel re-anchors
+                    // neighbouring half-tiles and that rebuild only happens
+                    // server-side, so the snapshot must wait for the rebuilt
+                    // layer - taken here it paired the new flags with the old
+                    // geometry, and it recorded even when the POST failed.
+                    // Merge the response first, snapshot second.
                     const newHidden = this.altPaintMode === 'hide';
                     const panels = [...this.altPaintedPanelIds].map(id => ({ id, hidden: newHidden }));
                     fetch(`/api/layer/${this.altPaintLayerId}/panels/set_hidden`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ panels })
-                    });
+                    })
+                        .then(res => res.json())
+                        .then(data => {
+                            if (data && data.layer && window.app) {
+                                const applied = window.app.applyServerLayer(
+                                    data.layer, 'alt_paint_set_hidden');
+                                this.render();
+                                if (applied) window.app.saveState('Toggle Panel Visibility');
+                            }
+                        })
+                        .catch(err => console.error('Alt-paint set_hidden failed', err));
                     if (typeof sendClientLog === 'function') {
                         sendClientLog('bulk_toggle_panels', {
                             layerId: this.altPaintLayerId,
@@ -1678,14 +1839,14 @@ class CanvasRenderer {
                 const w = Math.abs(this.selectionRect.x2 - this.selectionRect.x1);
                 const h = Math.abs(this.selectionRect.y2 - this.selectionRect.y1);
                 if (w < 0.5 && h < 0.5) {
-                    if (this.viewMode === 'power' && window.app.isCustomPower(window.app.currentLayer) && window.app.powerCustomSelection.size > 0) {
+                    if (this.viewMode === 'power' && window.app.isCustomPowerEditing(window.app.currentLayer) && window.app.powerCustomSelection.size > 0) {
                         window.app.powerCustomSelection.clear();
                         window.app.updateCustomPowerUI();
                         this.selectionRect = null;
                         this.render();
                         return;
                     }
-                    if (this.viewMode === 'data-flow' && window.app.isCustomFlow(window.app.currentLayer) && window.app.customSelection.size > 0) {
+                    if (this.viewMode === 'data-flow' && window.app.isCustomFlowEditing(window.app.currentLayer) && window.app.customSelection.size > 0) {
                         window.app.clearCustomSelection();
                         this.selectionRect = null;
                         this.render();
@@ -1714,7 +1875,7 @@ class CanvasRenderer {
                             ? !!(clickedLayer && window.app.canPathReachLayer(
                                 window.app.currentLayer, clickedLayer))
                             : clickedPanel.layerId === window.app.currentLayer.id;
-                        if (isPower && window.app.isCustomPower(window.app.currentLayer) && reachable) {
+                        if (isPower && window.app.isCustomPowerEditing(window.app.currentLayer) && reachable) {
                             if (window.app.powerCustomSelection.size > 0) {
                                 window.app.powerCustomSelection.clear();
                                 window.app.updateCustomPowerUI();
@@ -1725,21 +1886,21 @@ class CanvasRenderer {
                                 // owner, which is every pre-group project.
                                 window.app.addPanelToCustomPowerPath(clickedPanel.panel, clickedLayer);
                             }
-                        } else if (!isPower && window.app.isCustomFlow(window.app.currentLayer) && reachable) {
+                        } else if (!isPower && window.app.isCustomFlowEditing(window.app.currentLayer) && reachable) {
                             if (window.app.customSelection.size > 0) {
                                 window.app.clearCustomSelection();
                             } else {
                                 window.app.addPanelToCustomPath(clickedPanel.panel, clickedLayer);
                             }
-                        } else if (!window.app.isCustomFlow(window.app.currentLayer) && !window.app.isCustomPower(window.app.currentLayer)) {
+                        } else if (!window.app.isCustomFlowEditing(window.app.currentLayer) && !window.app.isCustomPowerEditing(window.app.currentLayer)) {
                             window.app.togglePanelSelection(clickedPanel.panel);
                         }
                     } else {
-                        if (this.viewMode === 'power' && window.app.isCustomPower(window.app.currentLayer) && window.app.powerCustomSelection.size > 0) {
+                        if (this.viewMode === 'power' && window.app.isCustomPowerEditing(window.app.currentLayer) && window.app.powerCustomSelection.size > 0) {
                             window.app.powerCustomSelection.clear();
                             window.app.updateCustomPowerUI();
                         }
-                        if (this.viewMode === 'data-flow' && window.app.isCustomFlow(window.app.currentLayer) && window.app.customSelection.size > 0) {
+                        if (this.viewMode === 'data-flow' && window.app.isCustomFlowEditing(window.app.currentLayer) && window.app.customSelection.size > 0) {
                             window.app.clearCustomSelection();
                         }
                         this.selectionRect = null;
@@ -2095,6 +2256,14 @@ class CanvasRenderer {
                 const moved = currentOffsetX !== this.screenNameStartOffset.x || currentOffsetY !== this.screenNameStartOffset.y;
                 if (moved && typeof window.app.saveState === 'function') {
                     window.app.saveState('Move Screen Name');
+                    // Undo audit: the group-headline drag below persists to
+                    // the server; this drag only wrote localStorage, so the
+                    // moved label lived on the client until some unrelated
+                    // updateLayers carried it up. The offsets are on the
+                    // layer-PUT allow-list; send them the same way.
+                    if (typeof window.app.updateLayers === 'function') {
+                        window.app.updateLayers([layer], false);
+                    }
                 }
                 window.app.saveClientSideProperties();
             }
@@ -2206,7 +2375,27 @@ class CanvasRenderer {
             e.preventDefault();
             return;
         }
-        
+
+        // Esc closes an open per-run override edit (the override and its path
+        // stay - only the editing session ends). Checked ahead of everything
+        // else so a stray Esc cannot fall through to some other consumer while
+        // an edit is open.
+        if (e.code === 'Escape' && !isTyping && window.app && window.app._overrideEditing) {
+            e.preventDefault();
+            window.app.endOverrideEdit();
+            return;
+        }
+
+        // Holding Alt lights the run under the cursor for the override
+        // gesture; recompute at the last known cursor position so the
+        // highlight appears without waiting for the mouse to move.
+        // preventDefault keeps the key from focusing the browser menu bar.
+        if (e.key === 'Alt' && !isTyping
+                && (this.viewMode === 'data-flow' || this.viewMode === 'power')) {
+            e.preventDefault();
+            this._overrideHoverFromClient(true);
+        }
+
         // Space - only prevent default and pan if NOT typing
         if (e.code === 'Space' && !isTyping) {
             e.preventDefault();
@@ -2226,13 +2415,23 @@ class CanvasRenderer {
         if ((e.metaKey || e.ctrlKey) && e.code === 'KeyZ' && !e.shiftKey) {
             if (e.repeat) return;
             e.preventDefault();
+            // Undo audit: an undo fired mid-gesture was silently reverted -
+            // the next mousemove re-derived positions from offsets captured
+            // at mousedown against the pre-undo project, and the eventual
+            // mouseup's snapshot truncated the redo stack. Commit whatever is
+            // held through the normal finalizer first, so Ctrl+Z steps back
+            // over the gesture the user was making - the same rule the
+            // debounced-save flush inside undo() applies to typed edits.
+            this._releaseTransientInput();
             if (window.app) window.app.undo();
         }
-        
+
         // Cmd/Ctrl+Shift+Z - Redo (works everywhere)
         if ((e.metaKey || e.ctrlKey) && e.code === 'KeyZ' && e.shiftKey) {
             if (e.repeat) return;
             e.preventDefault();
+            // Same mid-gesture commit as undo above.
+            this._releaseTransientInput();
             if (window.app) window.app.redo();
         }
         
@@ -2287,8 +2486,8 @@ class CanvasRenderer {
                 && window.app && window.app.currentLayer) {
             const layer = window.app.currentLayer;
             const handled =
-                (this.viewMode === 'data-flow' && window.app.isCustomFlow(layer))
-                || (this.viewMode === 'power' && window.app.isCustomPower(layer));
+                (this.viewMode === 'data-flow' && window.app.isCustomFlowEditing(layer))
+                || (this.viewMode === 'power' && window.app.isCustomPowerEditing(layer));
             if (handled) {
                 e.preventDefault();
                 window.app.stepCustomPort(e.shiftKey ? -1 : 1);
@@ -2308,8 +2507,8 @@ class CanvasRenderer {
                 && window.app && window.app.currentLayer) {
             const layer = window.app.currentLayer;
             const handled =
-                (this.viewMode === 'data-flow' && window.app.isCustomFlow(layer))
-                || (this.viewMode === 'power' && window.app.isCustomPower(layer));
+                (this.viewMode === 'data-flow' && window.app.isCustomFlowEditing(layer))
+                || (this.viewMode === 'power' && window.app.isCustomPowerEditing(layer));
             if (handled) {
                 e.preventDefault();
                 window.app.stepCustomPort(e.code === 'BracketLeft' ? -1 : 1);
@@ -2342,6 +2541,63 @@ class CanvasRenderer {
             this.spacePressed = false;
             if (!this.isDragging) this.canvas.style.cursor = 'default';
         }
+        if (e.key === 'Alt') {
+            this._overrideHoverFromClient(false);
+        }
+    }
+
+    // The run-under-cursor highlight, recomputed from the last known mouse
+    // position - for the moment Alt goes down or up without the mouse moving.
+    // Same client-to-world walk handleMouseMove makes, mirror included.
+    _overrideHoverFromClient(active) {
+        if (!window.app || typeof window.app.updateOverrideHover !== 'function') return;
+        if (this.viewMode !== 'data-flow' && this.viewMode !== 'power') {
+            window.app.updateOverrideHover(false, 0, 0);
+            return;
+        }
+        const rect = this.canvas.getBoundingClientRect();
+        const worldY = (((this._lastClientY || 0) - rect.top) - this.panY) / this.zoom;
+        const worldX = this._unmirrorWorldX(
+            (((this._lastClientX || 0) - rect.left) - this.panX) / this.zoom, worldY);
+        window.app.updateOverrideHover(active, worldX, worldY);
+    }
+
+    // Focus loss eats the release events that end whatever is held right
+    // now: cmd-tab with space down delivers the keyup to the other app, and
+    // a mouse button let go over another window is never reported here
+    // either. Without this, spacePressed (and any armed drag) stayed
+    // latched until the user rediscovered the magic unstick tap. Called on
+    // window blur and on tab-hide. Held-key state is dropped outright;
+    // an in-flight drag is pushed through the normal mouseup finalizer at
+    // the last known cursor position, because layer/canvas drags mutate
+    // offsets live during mousemove and just clearing the flag would strand
+    // those moves unpersisted with no undo snapshot.
+    _releaseTransientInput() {
+        this.spacePressed = false;
+        // The Alt keyup goes with the focus too, so the run highlight would
+        // otherwise stay lit until the next mouse move.
+        if (window.app && window.app._overrideHover
+                && typeof window.app.updateOverrideHover === 'function') {
+            window.app.updateOverrideHover(false, 0, 0);
+        }
+        const armed = this.isDragging || this.isDraggingLayer
+            || this.isDraggingScreenName || this.isDraggingGroupName
+            || this.isDraggingCanvas || this.isAltPainting
+            || this.isSelectingPanels || this.isSelectingPixelMapPanels
+            || this.isSelectingLayers
+            || this.selectionRect || this.layerSelectionRect;
+        if (armed) {
+            this.handleMouseUp({
+                button: 0,
+                clientX: this._lastClientX || 0,
+                clientY: this._lastClientY || 0,
+                shiftKey: false,
+                altKey: false,
+                metaKey: false,
+                ctrlKey: false
+            });
+        }
+        this.canvas.style.cursor = 'default';
     }
     
     /**
@@ -2758,8 +3014,10 @@ class CanvasRenderer {
         if (!app || !hitLayer) return false;
         const owner = app.currentLayer;
         if (!owner || owner.id === hitLayer.id) return false;
-        const drawing = (this.viewMode === 'data-flow' && app.isCustomFlow && app.isCustomFlow(owner))
-            || (this.viewMode === 'power' && app.isCustomPower && app.isCustomPower(owner));
+        // The EDITING predicate, not the pattern: an overridden port open for
+        // redrawing draws with exactly the gestures whole-screen custom does.
+        const drawing = (this.viewMode === 'data-flow' && app.isCustomFlowEditing && app.isCustomFlowEditing(owner))
+            || (this.viewMode === 'power' && app.isCustomPowerEditing && app.isCustomPowerEditing(owner));
         if (!drawing) return false;
         if (typeof app.canPathReachLayer !== 'function') return false;
         return !!app.canPathReachLayer(owner, hitLayer);
@@ -3057,6 +3315,84 @@ class CanvasRenderer {
             if (n) return { owner: peer, circuitNum: n };
         }
         return null;
+    }
+
+    // The hardware dock's live drop highlight, drawn UNDER a run's own lines
+    // from inside the pass that draws them - so it inherits every transform
+    // the run itself gets (canvas workspace, mirror, rotation, cross-member
+    // shims) instead of re-deriving them and disagreeing on the wall that
+    // matters. `num` is the port number in Data view and the circuit number
+    // in Power view; a screen-wide target lights every run of the screen.
+    //
+    // The preview must light the drop's WHOLE reach before release: a multi
+    // slot takes every circuit of the multi (or the split-off tail), a
+    // distro takes every unassigned multi - lighting only the hovered run
+    // made those drops look like one circuit. `t.nums` is that reach where
+    // the hit test computed one; without it the target stays what it says
+    // (one run, or the whole screen).
+    _dockRunUnderlay(panels, layer, num) {
+        if (!this._runUnderlayLit(layer, num)) return;
+        if (!panels || !panels.length) return;
+        this.ctx.save();
+        this.ctx.strokeStyle = this._accentUnderlayColor();
+        this.ctx.lineWidth = Math.max(10, 14 / Math.max(this.zoom, 0.01));
+        this.ctx.lineCap = 'round';
+        this.ctx.lineJoin = 'round';
+        this.ctx.beginPath();
+        panels.forEach((p, i) => {
+            const x = p.x + p.width / 2;
+            const y = p.y + p.height / 2;
+            if (i === 0) this.ctx.moveTo(x, y);
+            else this.ctx.lineTo(x, y);
+        });
+        if (panels.length === 1) {
+            // a one-panel run has no line to widen; ring the panel instead
+            const p = panels[0];
+            this.ctx.arc(p.x + p.width / 2, p.y + p.height / 2,
+                         Math.min(p.width, p.height) * 0.4, 0, Math.PI * 2);
+        }
+        this.ctx.stroke();
+        this.ctx.restore();
+    }
+
+    // The underlay's colour is the app's accent - the same "target of the
+    // gesture" the dock's drop outline and the selected tiles wear - read
+    // from the theme's variable at paint time so it follows the accent
+    // picker. Translucent so it stays an underlay, not a line; the old
+    // fixed blue remains the fallback for a themeless page.
+    _accentUnderlayColor() {
+        try {
+            const hex = getComputedStyle(document.documentElement)
+                .getPropertyValue('--ps-accent-hi').trim();
+            const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+            if (m) {
+                const v = parseInt(m[1], 16);
+                return `rgba(${(v >> 16) & 255}, ${(v >> 8) & 255}, `
+                    + `${v & 255}, 0.55)`;
+            }
+        } catch (e) { /* fall through to the fixed colour */ }
+        return 'rgba(120, 180, 255, 0.55)';
+    }
+
+    // Should this run's underlay light up? Two askers share the one paint:
+    // the dock drag's drop target, exactly as before, and the held-Alt
+    // override hover (app.updateOverrideHover), which names one run in one
+    // view - the same highlight for both because they mean the same thing,
+    // "this is the run the gesture lands on".
+    _runUnderlayLit(layer, num) {
+        const hov = window.app && window.app._overrideHover;
+        if (hov && hov.layerId === layer.id && hov.num === num
+                && ((hov.kind === 'power') === (this.viewMode === 'power'))) {
+            return true;
+        }
+        const t = window.app && window.app._dockDropTarget;
+        if (!t || t.layerId !== layer.id) return false;
+        if (t.kind !== 'run' && t.kind !== 'screen') return false;
+        const nums = Array.isArray(t.nums) ? t.nums : null;
+        if (t.kind === 'run'
+                && !(nums ? nums.includes(num) : t.num === num)) return false;
+        if (t.kind === 'screen' && nums && !nums.includes(num)) return false;
+        return true;
     }
 
     getPanelAt(worldX, worldY) {
@@ -4099,7 +4435,47 @@ class CanvasRenderer {
                 this.ctx.setLineDash([]);
                 this.ctx.restore();
             }
-            
+
+            // The landing pulse (pulseLayer): a transient outline that grows
+            // and fades over the pulsed layer for ~1.2s, so "center on this
+            // screen" ends with the eye on the right wall. Pure view state -
+            // it self-clears by time, never touches the project, and skips
+            // exports entirely. The animation rides ONE queued frame at a
+            // time rather than a timer: render() is called from everywhere,
+            // and a second scheduler would double-draw.
+            if (!this.exportMode && this._pulse) {
+                const now = performance.now();
+                if (now >= this._pulse.until) {
+                    this._pulse = null;
+                } else {
+                    const layer = window.app.project.layers.find(
+                        l => String(l.id) === String(this._pulse.layerId));
+                    if (layer && layer.visible) {
+                        _withLayerWs(layer, () => {
+                            const b = this.getLayerFootprintInActiveView(layer);
+                            // 0 at the click, 1 at the fade's end.
+                            const t = 1 - (this._pulse.until - now)
+                                / this._pulse.span;
+                            const grow = (4 + 16 * t) / this.zoom;
+                            this.ctx.save();
+                            this.ctx.strokeStyle =
+                                `rgba(255, 85, 85, ${0.85 * (1 - t)})`;
+                            this.ctx.lineWidth = 3 / this.zoom;
+                            this.ctx.strokeRect(b.x - grow, b.y - grow,
+                                                b.width + grow * 2,
+                                                b.height + grow * 2);
+                            this.ctx.restore();
+                        });
+                    }
+                    if (!this._pulseFrame) {
+                        this._pulseFrame = requestAnimationFrame(() => {
+                            this._pulseFrame = null;
+                            this.render();
+                        });
+                    }
+                }
+            }
+
             // Final pass: render pixel grid ON TOP of everything (all view modes, 1000%+ zoom)
             if (this.zoom >= 10) {
                 window.app.project.layers.forEach(layer => {
@@ -4251,6 +4627,18 @@ class CanvasRenderer {
         this.panX = (this.canvas.width - w * this.zoom) / 2 - bb.x * this.zoom;
         this.panY = (this.canvas.height - h * this.zoom) / 2 - bb.y * this.zoom;
         document.getElementById('zoom-level').value = `${this._zoomToPercent(this.zoom)}%`;
+        this.render();
+    }
+
+    /**
+     * Arm the landing pulse on a layer for ~1.2s and kick a frame; the
+     * render pass draws (and eventually clears) it. View state only - the
+     * caller centering the canvas (app-dock.js centerCanvasOnLayer) has
+     * already moved the pan, and neither half earns an undo entry.
+     */
+    pulseLayer(layerId) {
+        const span = 1200;
+        this._pulse = { layerId, span, until: performance.now() + span };
         this.render();
     }
 
@@ -4483,6 +4871,17 @@ class CanvasRenderer {
     }
     
     setViewMode(mode) {
+        // An open override edit is a gesture of the view it began in; a tab
+        // switch closes it (the override itself stays). The hover highlight
+        // goes with it.
+        if (window.app && window.app._overrideEditing
+                && typeof window.app.endOverrideEdit === 'function') {
+            window.app.endOverrideEdit();
+        }
+        if (window.app && window.app._overrideHover
+                && typeof window.app.updateOverrideHover === 'function') {
+            window.app.updateOverrideHover(false, 0, 0);
+        }
         this.viewMode = mode;
         // Slice 6: rasterWidth/Height now read view-aware from the active
         // canvas via getters (pixel raster on pixel-map/cabinet-id, show
@@ -5206,7 +5605,10 @@ class CanvasRenderer {
         const drawPort = (portPanels, portNum, loadPanels) => {
             if (portPanels.length === 0) return;
             const scoredPanels = (loadPanels === undefined) ? portPanels : loadPanels;
-            
+
+            // dock drag: the run under the cursor lights up before its lines
+            this._dockRunUnderlay(portPanels, layer, portNum);
+
             const currentLineColor = useRandomColors ? randomColors[(portNum - 1) % randomColors.length] : lineColor;
             this.ctx.strokeStyle = currentLineColor;
             this.ctx.lineWidth = lineWidth;
@@ -5267,12 +5669,14 @@ class CanvasRenderer {
             // to fit text width so the label is never clipped. If the
             // label would overflow the screen edge, shift the CENTER
             // inward so it stays fully inside the screen.
+            // A spaced label ("SR A1") stacks at the spaces instead of
+            // inflating the circle - see _layoutCircleLabel.
             const sizeLabel = (label) => {
                 this.ctx.font = `bold ${labelSize}px ${projectFontFamily()}`;
-                const textWidth = this.ctx.measureText(label).width;
                 const padding = Math.max(4, labelSize * 0.2);
-                const radius = Math.max(labelSize * 1.2, textWidth / 2 + padding);
-                return { size: labelSize, radius };
+                const layout = this._layoutCircleLabel(
+                    label, labelSize, labelSize * 1.2, padding);
+                return { size: labelSize, radius: layout.radius, lines: layout.lines };
             };
             const primaryFit = sizeLabel(primaryLabel);
             const returnFit = sizeLabel(returnLabel);
@@ -5308,7 +5712,7 @@ class CanvasRenderer {
                 this.ctx.font = `bold ${returnFit.size}px ${projectFontFamily()}`;
                 this.ctx.textAlign = 'center';
                 this.ctx.textBaseline = 'middle';
-                this._fillText(returnLabel, rx, ry);
+                this._fillWrappedLabel(returnFit.lines, rx, ry, returnFit.size);
             }
 
             this.ctx.fillStyle = primaryColor;
@@ -5320,7 +5724,7 @@ class CanvasRenderer {
             this.ctx.font = `bold ${primaryFit.size}px ${projectFontFamily()}`;
             this.ctx.textAlign = 'center';
             this.ctx.textBaseline = 'middle';
-            this._fillText(primaryLabel, px, py);
+            this._fillWrappedLabel(primaryFit.lines, px, py, primaryFit.size);
 
             if (portPanels.length > 1) {
                 this.ctx.fillStyle = backupColor;
@@ -5330,7 +5734,7 @@ class CanvasRenderer {
 
                 this.ctx.fillStyle = backupTextColor;
                 this.ctx.font = `bold ${returnFit.size}px ${projectFontFamily()}`;
-                this._fillText(returnLabel, rx, ry);
+                this._fillWrappedLabel(returnFit.lines, rx, ry, returnFit.size);
             }
 
             // v0.11.0: how close this port is to its limit, under the primary
@@ -5563,6 +5967,10 @@ class CanvasRenderer {
             error = assignments.error;
             circuits = assignments.circuits || [];
             circuitRuns = assignments.runs || null;
+            // Per-run overrides: the engine numbers the rows itself (auto rows
+            // skip the overridden numbers, override rows keep theirs). Null on
+            // every screen without overrides, so idx + 1 stays the number.
+            circuitNumKeys = assignments.nums || null;
             // v0.12: an automatic circuit that crosses into a group peer names
             // the screen each cabinet is on. Null for every non-crossing plan,
             // which keeps the unscoped `${row},${col}` map below - and therefore
@@ -5670,11 +6078,14 @@ class CanvasRenderer {
         // v0.12.0: placement split from drawing so the splitter fan-out can
         // place ONE bubble centered over its run heads (see
         // drawCircuitBranches); the single-run path is unchanged.
-        const labelRadius = (label) => {
+        // A spaced label ("SR A1") stacks at the spaces instead of
+        // inflating the circle - see _layoutCircleLabel. The layout (lines
+        // + radius) travels together so the bubble and its text agree.
+        const labelLayout = (label) => {
             this.ctx.font = `bold ${labelSize}px ${projectFontFamily()}`;
-            const textWidth = this.ctx.measureText(label).width;
             const padding = Math.max(6, labelSize * 0.25);
-            return Math.max(labelSize * 0.7, lineWidth * 1.4, textWidth / 2 + padding);
+            return this._layoutCircleLabel(
+                label, labelSize, Math.max(labelSize * 0.7, lineWidth * 1.4), padding);
         };
         const clampLabelCenter = (px, py, circleRadius) => {
             // Shift to keep circle fully within screen bounds.
@@ -5684,24 +6095,24 @@ class CanvasRenderer {
             if (py + circleRadius > layerBottom) py = layerBottom - circleRadius;
             return { px: this.snap(px), py: this.snap(py) };
         };
-        const drawLabelBubble = (label, px, py, circleRadius) => {
+        const drawLabelBubble = (layout, px, py) => {
             this.ctx.fillStyle = powerLabelBgColor;
             this.ctx.beginPath();
-            this.ctx.arc(px, py, circleRadius, 0, Math.PI * 2);
+            this.ctx.arc(px, py, layout.radius, 0, Math.PI * 2);
             this.ctx.fill();
 
             this.ctx.fillStyle = powerLabelTextColor;
             this.ctx.textAlign = 'center';
             this.ctx.textBaseline = 'middle';
-            this._fillText(label, px, py);
+            this._fillWrappedLabel(layout.lines, px, py, labelSize);
         };
         const drawCircuitLabel = (panelStart, panelNext, circuitNum) => {
             const label = window.app ? window.app.getPowerCircuitLabel(layer, circuitNum) : `S1-${circuitNum}`;
-            const circleRadius = labelRadius(label);
+            const layout = labelLayout(label);
             const { px, py } = clampLabelCenter(
                 panelStart.x + panelStart.width / 2,
-                panelStart.y + panelStart.height / 2, circleRadius);
-            drawLabelBubble(label, px, py, circleRadius);
+                panelStart.y + panelStart.height / 2, layout.radius);
+            drawLabelBubble(layout, px, py);
         };
 
         if (useColorCodedView) {
@@ -5709,6 +6120,7 @@ class CanvasRenderer {
                 const assignments = window.app.calculatePowerAssignments(layer);
                 layer._powerError = assignments.error;
                 layer._powerCircuits = assignments.circuits || [];
+                layer._powerCircuitNumKeys = assignments.nums || null;
             }
             if (layer._powerError || !Array.isArray(layer._powerCircuits)) {
                 this.ctx.restore();
@@ -5738,6 +6150,9 @@ class CanvasRenderer {
                     this._deferCrossMemberPath(layer, path);
                     return;
                 }
+                // dock drag: colour-coded view draws no daisy, so the
+                // underlay is the whole of the run highlight here
+                this._dockRunUnderlay(circuitPanels, layer, circuitNum);
                 drawCircuitLabel(circuitPanels[0], circuitPanels[1], circuitNum);
             });
             this.ctx.restore();
@@ -5795,6 +6210,8 @@ class CanvasRenderer {
 
         const drawCircuit = (circuitPanels, circuitNum) => {
             if (circuitPanels.length === 0) return;
+            // dock drag: the circuit under the cursor lights up first
+            this._dockRunUnderlay(circuitPanels, layer, circuitNum);
             const currentLineColor = useRandomColors ? randomColors[(circuitNum - 1) % randomColors.length] : lineColor;
             drawDaisyLines(circuitPanels, currentLineColor);
             drawCircuitLabel(circuitPanels[0], circuitPanels[1], circuitNum);
@@ -5811,6 +6228,8 @@ class CanvasRenderer {
         const drawCircuitBranches = (branches, circuitNum) => {
             const live = (branches || []).filter(b => b && b.length > 0);
             if (!live.length) return;
+            // dock drag: every branch of the circuit lights together
+            live.forEach(b => this._dockRunUnderlay(b, layer, circuitNum));
             const currentLineColor = useRandomColors ? randomColors[(circuitNum - 1) % randomColors.length] : lineColor;
             live.forEach(b => drawDaisyLines(b, currentLineColor));
             if (live.length === 1) {
@@ -5821,10 +6240,10 @@ class CanvasRenderer {
             const hx = heads.map(h => h.x + h.width / 2);
             const hy = heads.map(h => h.y + h.height / 2);
             const label = window.app ? window.app.getPowerCircuitLabel(layer, circuitNum) : `S1-${circuitNum}`;
-            const circleRadius = labelRadius(label);
+            const layout = labelLayout(label);
             const { px, py } = clampLabelCenter(
                 (Math.min(...hx) + Math.max(...hx)) / 2,
-                (Math.min(...hy) + Math.max(...hy)) / 2, circleRadius);
+                (Math.min(...hy) + Math.max(...hy)) / 2, layout.radius);
             this.ctx.save();
             this.ctx.strokeStyle = currentLineColor;
             this.ctx.lineWidth = Math.max(1, lineWidth * 0.6);
@@ -5836,7 +6255,7 @@ class CanvasRenderer {
                 this.ctx.stroke();
             }
             this.ctx.restore();
-            drawLabelBubble(label, px, py, circleRadius);
+            drawLabelBubble(layout, px, py);
         };
 
         if (isCustom && layer.powerCustomPaths) {
@@ -5894,6 +6313,7 @@ class CanvasRenderer {
             layer._powerError = assignments.error;
             layer._powerCircuits = assignments.circuits || [];
             layer._powerCircuitRuns = assignments.runs || null;
+            layer._powerCircuitNumKeys = assignments.nums || null;
             layer._powerCircuitOwners = this._powerOwnerIdRows(layer, assignments.layers);
         }
         if (layer._powerError) {
@@ -5906,8 +6326,10 @@ class CanvasRenderer {
         const ownerById = (window.app && typeof window.app.getPathScopeLayers === 'function')
             ? new Map(window.app.getPathScopeLayers(layer).map(l => [l.id, l]))
             : null;
+        const autoNumKeys = layer._powerCircuitNumKeys;
         layer._powerCircuits.forEach((circuitPanels, idx) => {
             if (!circuitPanels || circuitPanels.length === 0) return;
+            const circuitNum = autoNumKeys ? autoNumKeys[idx] : idx + 1;
             const owners = layer._powerCircuitOwners && layer._powerCircuitOwners[idx];
             const crosses = Array.isArray(owners)
                 && owners.some(id => id != null && id !== layer.id);
@@ -5931,10 +6353,10 @@ class CanvasRenderer {
             if (counts && counts.length > 1) {
                 let off = 0;
                 drawCircuitBranches(
-                    counts.map(n => drawPanels.slice(off, off += n)), idx + 1);
+                    counts.map(n => drawPanels.slice(off, off += n)), circuitNum);
                 return;
             }
-            drawCircuit(drawPanels, idx + 1);
+            drawCircuit(drawPanels, circuitNum);
         });
 
         this.ctx.restore();
@@ -6930,7 +7352,24 @@ class CanvasRenderer {
                 // null and the label says so instead of printing a blended
                 // figure nobody can act on.
                 const circuits = groupTotals.circuits;
-                const multis = circuits > 0 ? Math.ceil(circuits / 6) : 0;
+                // Split-aware and box-size-aware, per member: socaCountFor
+                // reads each screen's own split points and breakout box
+                // size (three tails on an L21-30, six on a soca), so the
+                // group line agrees with the dock. A peer-served member
+                // reports zero circuits and therefore zero boxes.
+                let multis = 0;
+                if (circuits > 0 && window.app
+                        && typeof window.app.socaCountFor === 'function'
+                        && typeof window.app.screenCircuitCount === 'function'
+                        && typeof window.app.getGroupMembers === 'function') {
+                    (window.app.getGroupMembers(gplan.group) || []).forEach(m => {
+                        if (!m || (m.type || 'screen') !== 'screen') return;
+                        multis += window.app.socaCountFor(
+                            m, window.app.screenCircuitCount(m));
+                    });
+                } else if (circuits > 0) {
+                    multis = Math.ceil(circuits / 6);
+                }
                 if (groupTotals.voltageMismatch) {
                     const volts = groupTotals.voltages.filter(v => v > 0).join(' / ');
                     centerLines.push(`${multis} Multi, ${circuits} Circuits | Mixed voltage: ${volts} V`);
@@ -7572,7 +8011,7 @@ class CanvasRenderer {
     renderCustomSelectionOverlay() {
         if (!window.app || !window.app.currentLayer) return;
         const layer = window.app.currentLayer;
-        if (!window.app.isCustomFlow(layer)) return;
+        if (!window.app.isCustomFlowEditing(layer)) return;
 
         const selection = window.app.customSelection || new Set();
         if (selection.size === 0) return;
@@ -7583,7 +8022,7 @@ class CanvasRenderer {
     renderPowerSelectionOverlay() {
         if (!window.app || !window.app.currentLayer) return;
         const layer = window.app.currentLayer;
-        if (!window.app.isCustomPower(layer)) return;
+        if (!window.app.isCustomPowerEditing(layer)) return;
 
         const selection = window.app.powerCustomSelection || new Set();
         if (selection.size === 0) return;
@@ -7786,7 +8225,7 @@ class CanvasRenderer {
     renderCustomActivePortBadge() {
         if (!window.app || !window.app.currentLayer) return;
         const layer = window.app.currentLayer;
-        if (!window.app.isCustomFlow(layer)) return;
+        if (!window.app.isCustomFlowEditing(layer)) return;
         const portNum = layer.customPortIndex || 1;
         const label = window.app.getPortLabelText(layer, portNum, 'primary');
         const committedCount = this._getCustomPortPanelCount(layer, portNum);
@@ -7797,7 +8236,7 @@ class CanvasRenderer {
     renderPowerActiveCircuitBadge() {
         if (!window.app || !window.app.currentLayer) return;
         const layer = window.app.currentLayer;
-        if (!window.app.isCustomPower(layer)) return;
+        if (!window.app.isCustomPowerEditing(layer)) return;
         const circuitNum = layer.powerCustomIndex || 1;
         const label = window.app.getPowerCircuitLabel(layer, circuitNum);
         const committedCount = this._getCustomPowerCircuitPanelCount(layer, circuitNum);

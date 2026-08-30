@@ -57,14 +57,31 @@ class _History {
         // would later snapshot a state that already includes this action).
         this._flushPendingSaveState();
 
+        const json = JSON.stringify(this.project, this._snapshotReplacer);
+
+        // Undo audit: an action that changed nothing must not grow a step.
+        // Several commit handlers snapshot unconditionally (blurring an
+        // untouched field fires 'Update Properties', a locked selection skips
+        // its own writes), and each no-op entry makes one Ctrl+Z that visibly
+        // does nothing - and shifts a real step off the front once history is
+        // full. Comparing serialized forms is exact: both sides went through
+        // the same stringify with the same replacer.
+        const current = this.history[this.historyIndex];
+        if (current && JSON.stringify(current.project) === json) {
+            sendClientLog('save_state_skipped_noop', {
+                action, historyIndex: this.historyIndex,
+            });
+            return;
+        }
+
         // Save current project state
         const state = {
             action: action,
-            project: JSON.parse(JSON.stringify(this.project, this._snapshotReplacer)),
+            project: JSON.parse(json),
             timestamp: Date.now()
         };
 
-        
+
         // Remove any future states if we're not at the end
         if (this.historyIndex < this.history.length - 1) {
             this.history = this.history.slice(0, this.historyIndex + 1);
@@ -180,22 +197,109 @@ class _History {
                 try { this.syncRasterFromProject(); } catch (_) {}
             }
 
-            // Sync the restored state to the backend
-            fetch('/api/project', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(this.project)
-            })
-            .then(response => {
-                return response.json();
-            })
-            .then(() => {
+            // Sync the restored state to the backend - AFTER any layer PUT
+            // still in flight has settled. The server is threaded, so a
+            // drag's commit PUT racing past this one would re-write the
+            // dragged offsets over the restored project server-side, and the
+            // funnel's response would faithfully hand the un-undone drag
+            // back for adoption. See _syncRestoredProject.
+            this._syncRestoredProject(state, 'Undo');
+        } else {
+        }
+    }
+
+    // The restore PUT both undo() and redo() make, sequenced behind the
+    // in-flight layer PUTs updateLayers/updateLayer registered.
+    _syncRestoredProject(entry, label) {
+        const inflight = [...(this._inflightLayerPuts || [])];
+        // While this restore is on its way to the server, layer_updated
+        // broadcasts describe the pre-restore server state (usually the very
+        // edit being undone) - app-core's socket handler drops them while
+        // this counter is up, and the adopted response below reconciles.
+        this._restorePutPending = (this._restorePutPending || 0) + 1;
+        const done = () => {
+            this._restorePutPending = Math.max(0, (this._restorePutPending || 1) - 1);
+        };
+        const send = () => fetch('/api/project', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            // Serialized at send time: this.project is exactly the restored
+            // snapshot (nothing else mutates it between the restore and the
+            // settle - a NEW user edit would snapshot and re-PUT itself).
+            body: JSON.stringify(this.project)
+        })
+            .then(response => response.json())
+            .then(repaired => {
+                done();
+                this._adoptRestoredProjectRepair(entry, repaired);
                 this.updateUI();
             })
             .catch(error => {
-                console.error('Undo backend sync failed:', error);
+                done();
+                console.error(label + ' backend sync failed:', error);
             });
-        } else {
+        if (inflight.length === 0) return send();
+        return Promise.all(inflight).then(send, send);
+    }
+
+    // The PUT above is not a pure store: restore_project re-derives panel
+    // geometry, enforces group integrity, re-stocks a boxless SX40's default
+    // boxes and re-seeds the id counters - and returns the repaired body.
+    // Throwing that body away (as undo/redo did before this) let this.project
+    // silently diverge from the server's truth: the next refreshProcessors()
+    // adopted the healed tree with no snapshot, and every repeat of the same
+    // undo re-healed from scratch, minting fresh box ids each pass.
+    // _commitGroupChange already adopts its repaired response for exactly this
+    // reason; this is the same move for the restore funnel. The history entry
+    // is rewritten too, so restoring it again round-trips to itself and the
+    // walk stays deterministic.
+    // Order-insensitive serialization for "did the funnel actually change
+    // anything": Flask's jsonify sorts object keys, the client's stringify
+    // keeps insertion order, so a plain string compare of the two calls every
+    // response a repair and adoption would churn on every undo. Underscore
+    // caches are dropped here for the same reason _snapshotReplacer drops
+    // them from snapshots.
+    _canonicalJson(value) {
+        const walk = (v) => {
+            if (Array.isArray(v)) return '[' + v.map(walk).join(',') + ']';
+            if (v && typeof v === 'object') {
+                const keys = Object.keys(v).filter(k =>
+                    !(k.length > 1 && k.charAt(0) === '_')
+                    && v[k] !== undefined).sort();
+                return '{' + keys.map(k =>
+                    JSON.stringify(k) + ':' + walk(v[k])).join(',') + '}';
+            }
+            return JSON.stringify(v) === undefined ? 'null' : JSON.stringify(v);
+        };
+        return walk(value);
+    }
+
+    _adoptRestoredProjectRepair(entry, repaired) {
+        if (!repaired || !Array.isArray(repaired.layers)) return;  // error body
+        // Another undo/redo (or a new edit) moved the index while this PUT was
+        // in flight - its own round-trip owns the client state now.
+        if (this.history[this.historyIndex] !== entry) return;
+        // No repair -> no adoption. Canonical compare, or the server's sorted
+        // key order alone would count as one.
+        if (this._canonicalJson(repaired)
+                === this._canonicalJson(entry.project)) return;
+        const healed = JSON.stringify(repaired, this._snapshotReplacer);
+        sendClientLog('restore_repair_adopted', {
+            action: entry.action, historyIndex: this.historyIndex,
+        });
+        this.project = JSON.parse(healed);
+        this.dedupeProjectLayers('restore_repair');
+        entry.project = JSON.parse(healed);
+        if (this.currentLayer) {
+            this.currentLayer = this.project.layers.find(
+                l => l.id === this.currentLayer.id) || null;
+        }
+        this._refreshPowerPanelsAfterRestore();
+        if (typeof this.loadLayerToInputs === 'function') {
+            try { this.loadLayerToInputs(); } catch (_) {}
+        }
+        if (typeof this.syncRasterFromProject === 'function') {
+            try { this.syncRasterFromProject(); } catch (_) {}
         }
     }
 
@@ -206,7 +310,7 @@ class _History {
     _refreshPowerPanelsAfterRestore() {
         this._circuitTailCache = null;
         ['refreshDistroPanel', 'refreshSocaRuns', 'refreshSplitterPanel',
-            'updatePowerLabelEditor'].forEach(fn => {
+            'updatePowerLabelEditor', 'renderHardwareDock'].forEach(fn => {
             if (typeof this[fn] === 'function') {
                 try { this[fn](); } catch (_) { /* host absent outside Power */ }
             }
@@ -256,21 +360,8 @@ class _History {
                 try { this.syncRasterFromProject(); } catch (_) {}
             }
             
-            // Sync the restored state to the backend
-            fetch('/api/project', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(this.project)
-            })
-            .then(response => {
-                return response.json();
-            })
-            .then(() => {
-                this.updateUI();
-            })
-            .catch(error => {
-                console.error('Redo backend sync failed:', error);
-            });
+            // Same sequenced sync-and-adopt as undo - see _syncRestoredProject.
+            this._syncRestoredProject(state, 'Redo');
         } else {
         }
     }
@@ -484,6 +575,10 @@ class _History {
                 source.customPortPaths, source.id, idMap);
             clone.powerCustomPaths = this.copyPathsForNewOwner(
                 source.powerCustomPaths, source.id, idMap);
+            // Per-run overrides ride with their paths; plain number arrays,
+            // nothing in them names a peer.
+            clone.customPortOverrides = (source.customPortOverrides || []).slice();
+            clone.powerCustomOverrides = (source.powerCustomOverrides || []).slice();
         });
         return list.length;
     }
@@ -713,6 +808,9 @@ class _History {
             powerLabelOverrides: JSON.parse(JSON.stringify(layer.powerLabelOverrides || {})),
             powerCustomPaths: dupPowerCustomPaths,
             powerCustomIndex: layer.powerCustomIndex,
+            // Per-run overrides travel with their paths. Plain number
+            // arrays - nothing in them names a peer, so no idMap pass.
+            powerCustomOverrides: (layer.powerCustomOverrides || []).slice(),
             // v0.11.0: the appearance block was listed ONLY in clientProps
             // below, which is applied to the response in the browser and never
             // sent. The copy therefore looked right and the server held a
@@ -825,6 +923,7 @@ class _History {
             powerLabelOverrides: JSON.parse(JSON.stringify(layer.powerLabelOverrides || {})),
             powerCustomPaths: dupPowerCustomPaths,
             powerCustomIndex: layer.powerCustomIndex,
+            powerCustomOverrides: (layer.powerCustomOverrides || []).slice(),
             showPowerCircuitInfo: !!layer.showPowerCircuitInfo,
             showDataFlowPortInfo: !!layer.showDataFlowPortInfo,
             showDataFlowPortLoad: !!layer.showDataFlowPortLoad,
@@ -837,6 +936,9 @@ class _History {
             portLabelOverridesReturn: JSON.parse(JSON.stringify(layer.portLabelOverridesReturn || {})),
             customPortPaths: dupCustomPortPaths,
             customPortIndex: layer.customPortIndex,
+            // Per-run overrides travel with their paths. Plain number
+            // arrays - nothing in them names a peer, so no idMap pass.
+            customPortOverrides: (layer.customPortOverrides || []).slice(),
             randomDataColors: !!layer.randomDataColors,
             arrowSize: layer.arrowSize,
             ..._carryShow(layer, 50, 50),

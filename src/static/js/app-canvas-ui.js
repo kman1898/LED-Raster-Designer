@@ -204,7 +204,11 @@ class _CanvasUi {
     // -------------------------------------------------------------------
 
     _applyProjectUpdate(data) {
-        if (!data) return;
+        // Undo audit: same shape guard _adoptRepairedProject applies. The
+        // canvas/layer routes return {'error': ...} bodies on a stale id, and
+        // callers reach here without checking r.ok - adopting one as
+        // this.project let the very next saveState record an empty project.
+        if (!data || !Array.isArray(data.layers)) return;
         // Preserve client-side properties that may be on existing layers
         // before we overwrite the project reference.
         const savedClientProps = {};
@@ -308,7 +312,8 @@ class _CanvasUi {
         if (keys.includes('name')) label = 'Rename Canvas';
         else if (keys.includes('color')) label = 'Change Canvas Color';
         else if (keys.includes('visible')) label = 'Toggle Canvas Visibility';
-        else if (keys.includes('workspace_x') || keys.includes('workspace_y')) label = 'Move Canvas';
+        else if (keys.includes('workspace_x') || keys.includes('workspace_y')
+            || keys.includes('show_workspace_x') || keys.includes('show_workspace_y')) label = 'Move Canvas';
         else if (keys.includes('raster_width') || keys.includes('raster_height')
             || keys.includes('show_raster_width') || keys.includes('show_raster_height')) label = 'Resize Canvas';
         else if (keys.includes('data_flow_perspective') || keys.includes('power_perspective')) label = 'Change Perspective';
@@ -1399,6 +1404,10 @@ class _CanvasUi {
             if (e.key === 'Enter') {
                 finishRename();
             } else if (e.key === 'Escape') {
+                // Undo audit: mark finished BEFORE tearing down, or the blur
+                // this re-render fires commits the typed name the user just
+                // cancelled - PUT, history entry and all.
+                renameFinished = true;
                 layer.name = currentName;
                 this.renderLayers();
             }

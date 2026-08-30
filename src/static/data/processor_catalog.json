@@ -346,6 +346,7 @@
       "name": "H2",
       "kind": "processor",
       "form": "chassis",
+      "family": "novastar-h",
       "accepts": ["novastar-h"],
       "slots": {"count": 2},
       "note": "Documented as max OUTPUT CARDS, not physical slots - no NovaStar document states a slot count for any chassis."
@@ -356,6 +357,7 @@
       "name": "H5",
       "kind": "processor",
       "form": "chassis",
+      "family": "novastar-h",
       "accepts": ["novastar-h"],
       "slots": {"count": 3}
     },
@@ -365,6 +367,7 @@
       "name": "H9",
       "kind": "processor",
       "form": "chassis",
+      "family": "novastar-h",
       "accepts": ["novastar-h"],
       "slots": {"count": 5}
     },
@@ -374,6 +377,7 @@
       "name": "H9 Enhanced",
       "kind": "processor",
       "form": "chassis",
+      "family": "novastar-h",
       "accepts": ["novastar-h"],
       "slots": {"count": 10, "countByConnector": {"fiber": 10, "rj45": 5}},
       "note": "10 for fiber/video cards, 5 for RJ45 sending cards - the sole card-type-dependent limit in the H series, so the chassis offers ten places and the limit drops to five as soon as an RJ45 card is in one. The 'two slots' explanation for it is unconfirmed."
@@ -384,6 +388,7 @@
       "name": "H15",
       "kind": "processor",
       "form": "chassis",
+      "family": "novastar-h",
       "accepts": ["novastar-h"],
       "slots": {"count": 10}
     },
@@ -393,6 +398,7 @@
       "name": "H15 Enhanced",
       "kind": "processor",
       "form": "chassis",
+      "family": "novastar-h",
       "accepts": ["novastar-h"],
       "slots": {"count": 16}
     },
@@ -402,6 +408,7 @@
       "name": "H20",
       "kind": "processor",
       "form": "chassis",
+      "family": "novastar-h",
       "accepts": ["novastar-h"],
       "slots": {"count": 20},
       "note": "20U. No Enhanced variant exists."
@@ -412,6 +419,7 @@
       "name": "MX2000 Pro",
       "kind": "processor",
       "form": "chassis",
+      "family": "novastar-mx",
       "accepts": ["novastar-mx"],
       "slots": {"count": 2}
     },
@@ -421,6 +429,7 @@
       "name": "MX6000 Pro",
       "kind": "processor",
       "form": "chassis",
+      "family": "novastar-mx",
       "accepts": ["novastar-mx"],
       "slots": {"count": 8}
     },
@@ -571,9 +580,10 @@
       "trunks": 4,
       "portsPerTrunk": 10,
       "requiresDistribution": true,
+      "defaultCvt": "brompton-xd",
       "redundancy": {"supported": true, "halvesPorts": true, "pairing": "adjacent"},
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 40}]},
-      "note": "8 physical 10G connectors = 4 logical trunks, each auto-switching between the copper and fibre of a pair. It has NO 1G fixture ports of its own; fixtures hang off XD boxes, 10 per trunk. Redundancy is opt-in per pair and halves the usable count to 20; a backup port is never a hidden extra port. Pairing is fixed adjacent pairs - A backs up to B, C backs up to D - automatically; that is the only way redundancy runs on this device."
+      "note": "8 physical 10G connectors = 4 logical trunks, each auto-switching between the copper and fibre of a pair. It has NO 1G fixture ports of its own; fixtures hang off 10-port boxes, 10 per trunk - the XD by default (ruling, 2026-08-25: 'The sx40 by default has to use 10 port breakout boxes'), and the 12-port XD-S/XD-T still deliver only their first 10 here. Redundancy is opt-in per pair and pairs whole boxes, fixed adjacent - A backs up to B, C backs up to D - automatically; that is the only way redundancy runs on this device. It halves what is USABLE to 20 (10 per primary box), never the socket numbering: boxes A and C stay ports 1-10 and 21-30, and B (11-20) and D (31-40) carry their returns, because a tech patching socket 21 must find socket 21 on the drawing."
     },
     {
       "id": "brompton-s8",
@@ -582,8 +592,9 @@
       "kind": "processor",
       "form": "all-in-one",
       "family": "brompton",
-      "redundancy": {"supported": true, "halvesPorts": true},
-      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 8}]}
+      "redundancy": {"supported": true, "halvesPorts": true, "pairing": "adjacent"},
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 8}]},
+      "note": "Redundancy pairs fixed adjacent ports - 1 backed by 2, 3 by 4, and so on - automatically; that is the only way this device pairs. The rule arrived by name (2026-08-23): the SX40 does A to B and C to D, 'and S8 does 1to2 and so on'. It names the S8 only: the S4 and M2 still halve and still claim no pairing shape."
     },
     {
       "id": "brompton-s4",

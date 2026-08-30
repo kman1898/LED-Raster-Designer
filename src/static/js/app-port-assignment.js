@@ -1,12 +1,29 @@
-// app-port-assignment: the Port Assignment panel in the Signal sidebar.
+// app-port-assignment: the port numbering resolution, narrated on the
+// hardware dock (the Signal sidebar it used to panel in is retired).
 //
-// It answers one question per screen - which sending-card port does each of my
-// ports sit on - and it answers it without ever changing the answer by itself.
-// Looms are made up and labelled off the drawing days before anything is hung,
-// so a numbering that shifted on its own would hand back a drawing that no
-// longer matches what is in the truck. Every problem is drawn as a line of
-// text with a button beside it, and the button is the only thing that moves
-// anything.
+// Since the hardware dock became the assignment gesture there are no
+// per-port pin/move/release rows - pointing a socket at a screen is a
+// drag, and taking an assignment back is a drag to the tray or a right-click
+// on the run or the chip. What stays here is the part a drag cannot replace:
+// the REPORTING. Looms are made up and labelled off the drawing days before
+// anything is hung, so a numbering that shifted on its own would hand back a
+// drawing that no longer matches what is in the truck. Every problem - a
+// clash, a pin whose card is gone - is drawn as a slim strip row under the
+// dock's header with a button beside it, and the button is the only thing
+// that moves anything. The per-screen OVERFLOW story lives under the dock
+// header's attachment flag now (app-dock.js _renderDockFlag), not in the
+// strip: one pill with a screen count instead of a wall of red rows, so
+// the strip filters kind 'overflow' out below. The per-card usage counts
+// are the card headers' glance. There is no auto toggle in the UI any
+// more; the server keeps its auto state, and the amber auto-off strip row
+// (with its turn-back-on offer) stays as the recovery path for a legacy
+// project saved with auto off.
+//
+// KNOWN GAP: with the rows gone the data side, like the power side, has no
+// keyboard path for MAKING an assignment - the drag is the only gesture. The
+// offer buttons below stay real buttons, so the recovery paths (resolve a
+// clash, place an overflow, release a stranded pin, turn auto back on) are
+// still reachable by keyboard.
 //
 // It derives nothing. The allocation order, the clashes, the overflow and the
 // port labels all come back from /api/port-assignments, which resolves them in
@@ -33,12 +50,6 @@ class _PortAssignment {
         this._processorPortLabels = {};
         this._processorPortReturnLabels = {};
         this._occupancyRaw = '';
-        // Which port has its chooser open, in either panel. Held here rather
-        // than in the DOM because both panels are rebuilt wholesale on every
-        // resolution and a half-made choice would be thrown away by a screen
-        // being resized on the other side of the app.
-        this._movingPort = null;
-        this._assigningPort = null;
         this._assignmentError = null;
         this._assignmentNote = null;
         this.refreshPortAssignment();
@@ -52,6 +63,12 @@ class _PortAssignment {
         return JSON.stringify([
             (this.project && this.project.processors) || [],
             screens || this._assignmentScreens(),
+            // The stored pins are part of the picture too: undo/redo swaps
+            // the whole project - pins included - under an unchanged set of
+            // processors and screens, and without this term updateUI's
+            // compare would skip the re-resolve and the panel would keep
+            // narrating the pre-undo numbering.
+            (this.project && this.project.port_assignments) || null,
         ]);
     }
 
@@ -67,6 +84,12 @@ class _PortAssignment {
                 name: l.name || `Screen ${l.id}`,
                 ports: (typeof this.getLayerPortsRequired === 'function'
                     ? this.getLayerPortsRequired(l) : 0) || 0,
+                // The layer's Processing setting rides with the count, so
+                // the server can hold the platform wall (a Legacy screen
+                // never lands on COEX gear) in the one place the matrix
+                // lives. Which cards accept what comes BACK on each card
+                // summary's `platforms`; nothing here re-derives it.
+                platform: l.processorType || null,
             }))
             // A screen needing no ports has nothing to assign and would only
             // draw an empty row. Text layers are already gone above.
@@ -85,7 +108,13 @@ class _PortAssignment {
     // rather than a fact ("Side port 2 is already there") and the answer is a
     // person, not a retry - and the alternative was a second request path that
     // did not go through _applyAssignmentResolution on the way back.
-    _assignmentRequest(url, method, body, onRefused) {
+    //
+    // `action` names the history entry a MUTATING call earns, the same
+    // post-mutation snapshot _processorRequest takes: the new state has
+    // already been folded into this.project by the time it runs, so redo can
+    // re-apply it. Reads pass no action, and a refused edit changed nothing
+    // and earns no entry - Ctrl+Z must never grow no-op steps.
+    _assignmentRequest(url, method, body, onRefused, action) {
         const payload = Object.assign({ screens: this._assignmentScreens() },
                                       body || {});
         return fetch(url, {
@@ -115,10 +144,23 @@ class _PortAssignment {
                 this._assignmentError = null;
                 this._assignmentNote = (data.moved && data.moved.note) || null;
                 if (data.resolution) this._assignment = data.resolution;
-                if (data.state && this.project) {
+                // Undo audit: the server holds the read-must-not-create-the-
+                // key line three times over (_working/_store in
+                // routes_port_assignment.py), and this unconditional store
+                // defeated it from the client side - the boot-time /resolve
+                // stamped {auto:true, pins:[]} onto a project that never had
+                // the key, and every snapshot and save carried it from then
+                // on. A MUTATING call (one that names a history action) always
+                // stores its state; a read stores it only where the key
+                // already exists to update.
+                if (data.state && this.project
+                        && (action || this.project.port_assignments !== undefined)) {
                     this.project.port_assignments = data.state;
                 }
                 this._applyAssignmentResolution();
+                if (action && typeof this.saveState === 'function') {
+                    this.saveState(action);
+                }
             })
             .catch(err => sendClientLog('port_assignment_request_failed',
                                         { url, method, error: String(err) }));
@@ -152,6 +194,11 @@ class _PortAssignment {
         // Nothing else redraws the canvas on this path - the panel's own
         // render only touches the sidebar.
         if (window.canvasRenderer) window.canvasRenderer.render();
+        // The dock's port tiles are a picture of the same occupancy the
+        // Processors panel reads, so a new resolution redraws them too.
+        if (typeof this.renderHardwareDock === 'function') {
+            this.renderHardwareDock();
+        }
     }
 
     // Flatten the resolution into layerId -> portNumber -> label, once.
@@ -198,39 +245,48 @@ class _PortAssignment {
     }
 
     // ── drawing ───────────────────────────────────────────────────────────
+    //
+    // The Port Numbering panel died with the Signal sidebar; the reporting
+    // re-hosted onto the hardware dock. The refuse-and-offer boxes became
+    // the slim strip under the dock's header (#hw-dock-issues, one row per
+    // issue with its buttons inline) and the per-card usage foot became
+    // the card headers' n/N + fill glance - so this render touches the
+    // strip, and the chips redraw on their own paths.
 
     renderPortAssignmentPanel() {
-        const list = document.getElementById('port-assignment-list');
-        const issues = document.getElementById('port-assignment-issues');
-        const foot = document.getElementById('port-assignment-foot');
-        const note = document.getElementById('port-assignment-empty-note');
-        if (!list || !issues || !foot) return;
+        const strip = document.getElementById('hw-dock-issues');
+        if (!strip) return;
+        // Only the Data view's strip is this panel's to write: the Power
+        // view fills the same strip with its own warnings from the dock
+        // render, and anywhere else the dock is out of layout anyway.
+        const mode = window.canvasRenderer
+            ? window.canvasRenderer.viewMode : '';
+        if (mode !== 'data-flow') return;
         this._preserveEditorFocus();
-        list.innerHTML = '';
-        issues.innerHTML = '';
-        foot.innerHTML = '';
+        strip.innerHTML = '';
 
         const res = this._assignment;
-        if (note) {
-            note.style.display = (res && res.configured) ? 'none' : '';
-        }
         if (!res || !res.configured) return;
 
         if (this._assignmentError) {
-            issues.appendChild(this._buildAssignmentNote(
-                this._assignmentError, '#d05a52'));
+            strip.appendChild(this._buildIssue(
+                { message: this._assignmentError }));
         }
         if (this._assignmentNote) {
-            issues.appendChild(this._buildAssignmentNote(
-                this._assignmentNote, '#8aa8c8'));
+            // A note is not a warning; it keeps its own quiet blue row.
+            const row = this._buildIssue({ message: this._assignmentNote });
+            row.classList.add('hw-dock-issue-note');
+            strip.appendChild(row);
         }
-        (res.issues || []).forEach(issue => {
-            issues.appendChild(this._buildIssue(issue));
-        });
-        (res.screens || []).forEach(scr => {
-            list.appendChild(this._buildAssignmentScreen(scr, res));
-        });
-        foot.appendChild(this._buildAssignmentFoot(res));
+        // The overflow rows moved under the header's attachment flag
+        // (app-dock.js _renderDockFlag reads the same resolution's
+        // per-screen unplaced) - the strip repeating them would be the
+        // wall of red the flag exists to fold away. Every other kind
+        // stays a strip row, offers and all.
+        (res.issues || []).filter(i => i.kind !== 'overflow')
+            .forEach(issue => {
+                strip.appendChild(this._buildIssue(issue));
+            });
     }
 
     _buildAssignmentNote(text, color) {
@@ -242,11 +298,13 @@ class _PortAssignment {
         return row;
     }
 
+    // One issue as one slim strip row: the message and its offer buttons on
+    // the same line, wrapping only when the tray is genuinely too narrow.
+    // Same machinery as the old panel boxes (_buildOffer / _takeOffer are
+    // untouched), re-hosted onto the dock.
     _buildIssue(issue) {
-        const box = document.createElement('div');
-        box.style.border = '1px solid #3a2a28';
-        box.style.borderRadius = '4px';
-        box.style.padding = '6px 8px';
+        const row = document.createElement('div');
+        row.className = 'hw-dock-issue';
         // An unknown port count, auto being off, and a card whose boxes cannot
         // reach its ceiling are all CONDITIONS - true, worth knowing, nothing
         // to answer right now. A clash, an overflow or a stranded pin is a
@@ -254,22 +312,15 @@ class _PortAssignment {
         // people to skim past the ones that matter.
         const mild = ['capacity-unknown', 'auto-off',
                       'card-short-of-its-ceiling'].includes(issue.kind);
-        box.style.background = mild ? '#14120c' : '#1a1010';
-        box.style.borderColor = mild ? '#3a3320' : '#3a2a28';
-        box.appendChild(this._buildAssignmentNote(
-            issue.message, mild ? '#c8a04a' : '#d08a82'));
-
-        const offers = issue.offers || [];
-        if (offers.length) {
-            const row = document.createElement('div');
-            row.style.display = 'flex';
-            row.style.flexWrap = 'wrap';
-            row.style.gap = '4px';
-            row.style.marginTop = '6px';
-            offers.forEach(offer => row.appendChild(this._buildOffer(offer)));
-            box.appendChild(row);
-        }
-        return box;
+        if (mild) row.classList.add('hw-dock-issue-mild');
+        const msg = document.createElement('span');
+        msg.className = 'hw-dock-issue-msg';
+        msg.textContent = issue.message;
+        row.appendChild(msg);
+        (issue.offers || []).forEach(offer => {
+            row.appendChild(this._buildOffer(offer));
+        });
+        return row;
     }
 
     _buildOffer(offer) {
@@ -301,20 +352,32 @@ class _PortAssignment {
     _takeOffer(offer) {
         sendClientLog('port_assignment_offer_taken', offer);
         if (offer.action === 'move-block') {
-            this._assignmentRequest('/api/port-assignments/move-block', 'POST',
-                                    { layerId: offer.layerId,
-                                      cardId: offer.cardId || undefined });
+            return this._assignmentRequest(
+                '/api/port-assignments/move-block', 'POST',
+                { layerId: offer.layerId,
+                  cardId: offer.cardId || undefined,
+                  // The dock's box drops bound the move to the box's span of
+                  // card ports; panel offers never carry a window.
+                  firstPort: offer.firstPort || undefined,
+                  lastPort: offer.lastPort || undefined },
+                null, 'Move Port Block');
         } else if (offer.action === 'place-overflow') {
-            this._assignmentRequest('/api/port-assignments/place-overflow',
-                                    'POST', { layerId: offer.layerId,
-                                              cardId: offer.cardId });
+            return this._assignmentRequest(
+                '/api/port-assignments/place-overflow',
+                'POST', { layerId: offer.layerId,
+                          cardId: offer.cardId,
+                          firstPort: offer.firstPort || undefined,
+                          lastPort: offer.lastPort || undefined },
+                null, 'Fill Ports In Order');
         } else if (offer.action === 'release') {
-            this._assignmentRequest('/api/port-assignments/unpin', 'POST',
-                                    { layerId: offer.layerId,
-                                      index: offer.index });
+            return this._assignmentRequest(
+                '/api/port-assignments/unpin', 'POST',
+                { layerId: offer.layerId, index: offer.index },
+                null, 'Release Ports');
         } else if (offer.action === 'auto-on') {
-            this._assignmentRequest('/api/port-assignments', 'PUT',
-                                    { auto: true });
+            return this._assignmentRequest('/api/port-assignments', 'PUT',
+                                           { auto: true }, null,
+                                           'Toggle Auto Numbering');
         }
     }
 
@@ -348,439 +411,16 @@ class _PortAssignment {
                     this.renderPortAssignmentPanel();
                 }
                 return true;
-            });
+            }, 'Place Port');
     }
 
-    _buildAssignmentScreen(scr, res) {
-        const box = document.createElement('div');
-        box.style.border = '1px solid #333';
-        box.style.borderRadius = '4px';
-        box.style.padding = '8px';
-        box.style.background = '#111';
-
-        const head = document.createElement('div');
-        head.style.display = 'flex';
-        head.style.flexWrap = 'wrap';
-        head.style.justifyContent = 'space-between';
-        head.style.alignItems = 'center';
-        head.style.gap = '6px';
-        const title = document.createElement('div');
-        title.style.fontSize = '12px';
-        title.style.color = '#ccc';
-        title.style.minWidth = '0';
-        title.style.overflowWrap = 'anywhere';
-        title.textContent = scr.name;
-        const count = document.createElement('div');
-        count.style.fontSize = '11px';
-        count.style.fontFamily = 'monospace';
-        count.style.color = scr.unplaced.length ? '#d05a52' : '#888';
-        count.textContent = `${scr.required - scr.unplaced.length}`
-            + `/${scr.required} ports`;
-        head.appendChild(title);
-        head.appendChild(count);
-        box.appendChild(head);
-
-        if (scr.split) {
-            // Worth calling out rather than leaving to be spotted: a screen on
-            // two cards is two trunks to one wall, which is a real thing on
-            // site and never something the app did on its own.
-            box.appendChild(this._buildAssignmentNote(
-                'This screen spans two cards.', '#c8a04a'));
-        }
-
-        const grid = document.createElement('div');
-        grid.style.marginTop = '6px';
-        grid.style.display = 'grid';
-        // Pinned to the column: a bare auto track takes its rows' min-content
-        // and pushes the whole screen box past the 180px clamp.
-        grid.style.gridTemplateColumns = 'minmax(0, 1fr)';
-        grid.style.gap = '2px';
-        scr.ports.forEach(port => {
-            grid.appendChild(this._buildAssignmentPort(scr, port, res));
-        });
-        box.appendChild(grid);
-
-        const tools = document.createElement('div');
-        tools.style.display = 'flex';
-        // "Move whole block" and "Release all pins" together outgrow the
-        // 180px clamp; they wrap rather than being clipped.
-        tools.style.flexWrap = 'wrap';
-        tools.style.gap = '4px';
-        tools.style.marginTop = '6px';
-        tools.appendChild(this._buildOffer({
-            action: 'move-block', layerId: scr.layerId,
-            label: 'Move whole block',
-        }));
-        if (scr.ports.some(p => p.source === 'pin')) {
-            tools.appendChild(this._buildOffer({
-                action: 'release', layerId: scr.layerId,
-                label: 'Release all pins',
-            }));
-        }
-        box.appendChild(tools);
-        return box;
-    }
-
-    _buildAssignmentPort(scr, port, res) {
-        const wrap = document.createElement('div');
-        const row = document.createElement('div');
-        // A wrapping flex row, not a five-column grid: the number, the
-        // placement, the PINNED/auto mark and two buttons total ~200px of
-        // hard minimum, and the panel clamps at 180 - where the sidebar's
-        // overflow-x:hidden simply cut the buttons off. Same treatment the
-        // distro and soca rows got: one line at the default width, and the
-        // controls drop to a second line together at the clamp.
-        row.style.display = 'flex';
-        row.style.flexWrap = 'wrap';
-        row.style.gap = '4px';
-        row.style.alignItems = 'center';
-        row.style.fontSize = '11px';
-        row.style.fontFamily = 'monospace';
-
-        const own = document.createElement('div');
-        own.style.flex = '0 0 22px';
-        own.style.color = '#666';
-        own.textContent = String(port.number);
-        row.appendChild(own);
-
-        const where = document.createElement('div');
-        // The one elastic cell: it grows to hold the line together at the
-        // default width and shrinks to its 60px basis before anything wraps.
-        where.style.flex = '1 1 60px';
-        where.style.minWidth = '0';
-        where.style.overflow = 'hidden';
-        where.style.textOverflow = 'ellipsis';
-        where.style.whiteSpace = 'nowrap';
-        if (!port.cardId) {
-            where.style.color = '#d05a52';
-            where.textContent = 'no card';
-        } else {
-            where.style.color = port.overlap ? '#d05a52' : '#ccc';
-            // The label the catalog derived wins the space when there is one,
-            // because it is what is silkscreened on the box the tech is
-            // standing in front of. The raw number is still there behind it.
-            where.textContent = port.label
-                ? `${port.cardName} ${port.label}`
-                : `${port.cardName} port ${port.port}`;
-            if (port.overlap) where.textContent += ' - clash';
-        }
-        row.appendChild(where);
-
-        // Pinned and auto have to be told apart at a glance: one of them is a
-        // decision somebody made and the other is the app's arithmetic, and
-        // they look identical once they are numbers on a page.
-        const mark = document.createElement('div');
-        mark.style.fontSize = '10px';
-        mark.style.color = port.source === 'pin' ? '#c8a04a' : '#555';
-        mark.textContent = port.source === 'pin' ? 'PINNED' : 'auto';
-        mark.title = port.source === 'pin'
-            ? 'Held here by hand. Auto-numbering will not move it.'
-            : 'Numbered automatically. Will re-pack as screens change.';
-        row.appendChild(mark);
-
-        row.appendChild(this._buildMoveControl(scr, port, res));
-
-        if (port.source === 'pin') {
-            const act = document.createElement('button');
-            act.className = 'btn';
-            act.style.padding = '1px 6px';
-            act.style.fontSize = '10px';
-            act.style.background = '#2a2a2a';
-            act.textContent = 'release';
-            act.title = 'Hand this port back to auto-numbering';
-            act.addEventListener('click', () => this._assignmentRequest(
-                '/api/port-assignments/unpin', 'POST',
-                { layerId: scr.layerId, index: port.index }));
-            row.appendChild(act);
-        } else {
-            row.appendChild(this._buildPinControl(scr, port, res));
-        }
-        wrap.appendChild(row);
-
-        // The chooser opens UNDER the row it belongs to rather than in a
-        // dialog: which sockets are free is the thing being decided, and the
-        // rest of the screen's run is the context for deciding it.
-        const moving = this._movingPort;
-        if (moving && moving.layerId === scr.layerId
-                && moving.index === port.index) {
-            wrap.appendChild(this._buildPortMover(scr, port, res));
-        }
-        return wrap;
-    }
-
-    // "Move whole block" relocates a screen's entire run, which is right when
-    // a screen is cabled as one. This is for the port that is not like its
-    // neighbours - the spare patched across the room, the run the house rig
-    // was already made up to - and it moves that one and nothing else.
-    _buildMoveControl(scr, port, res) {
-        const btn = document.createElement('button');
-        btn.className = 'btn';
-        btn.style.padding = '1px 6px';
-        btn.style.fontSize = '10px';
-        btn.style.background = '#2a2a2a';
-        const open = !!(this._movingPort
-            && this._movingPort.layerId === scr.layerId
-            && this._movingPort.index === port.index);
-        btn.textContent = open ? 'close' : 'move';
-        btn.disabled = !(res.cards || []).length;
-        // Said before it is pressed, not after: holding the rest of the run is
-        // what makes "only this port moved" true, and it turns this screen's
-        // auto ports into pins that no longer re-pack.
-        btn.title = 'Place this one port on a card and port you choose. The '
-            + 'screen\'s other ports are held where they are, so only this one '
-            + 'moves.';
-        btn.addEventListener('click', () => {
-            this._movingPort = open
-                ? null : { layerId: scr.layerId, index: port.index };
-            this.renderPortAssignmentPanel();
-        });
-        return btn;
-    }
-
-    _buildPortMover(scr, port, res) {
-        const box = document.createElement('div');
-        box.style.margin = '2px 0 4px 26px';
-        box.style.padding = '6px';
-        box.style.border = '1px solid #333';
-        box.style.borderRadius = '4px';
-        box.style.background = '#0d0d0d';
-        box.style.display = 'grid';
-        box.style.gap = '4px';
-
-        const cards = res.cards || [];
-        // Where it is now is the sensible thing to open on: most placements
-        // are a nudge along one card, not a jump to another machine.
-        const chosen = {
-            cardId: port.cardId || (cards[0] && cards[0].cardId) || '',
-            port: port.port || 1,
-        };
-
-        const cardSelect = document.createElement('select');
-        cardSelect.style.fontSize = '10px';
-        cardSelect.style.width = '100%';
-        cardSelect.dataset.lrdField =
-            `port-move-card-${scr.layerId}-${port.index}`;
-        cards.forEach(card => {
-            const opt = document.createElement('option');
-            opt.value = card.cardId;
-            opt.textContent = card.capacityKnown
-                ? `${card.title} - ${card.free} free` : card.title;
-            if (card.cardId === chosen.cardId) opt.selected = true;
-            cardSelect.appendChild(opt);
-        });
-        box.appendChild(cardSelect);
-
-        const portWrap = document.createElement('div');
-        const drawPorts = () => {
-            portWrap.innerHTML = '';
-            portWrap.appendChild(this._buildPortNumberControl(
-                res, chosen, `port-move-port-${scr.layerId}-${port.index}`));
-        };
-        cardSelect.addEventListener('change', () => {
-            chosen.cardId = cardSelect.value;
-            // A number that meant something on the old card means nothing on
-            // this one, so it starts at the top rather than carrying over.
-            chosen.port = 1;
-            drawPorts();
-        });
-        drawPorts();
-        box.appendChild(portWrap);
-
-        const buttons = document.createElement('div');
-        buttons.style.display = 'flex';
-        buttons.style.gap = '4px';
-        const go = document.createElement('button');
-        go.className = 'btn';
-        go.style.padding = '2px 8px';
-        go.style.fontSize = '10px';
-        go.textContent = 'Place';
-        go.addEventListener('click', () => {
-            // Closed before the request rather than after it: the placement can
-            // come back as a question, and a chooser still sitting open behind
-            // the answer reads as though nothing had been sent.
-            this._movingPort = null;
-            this.renderPortAssignmentPanel();
-            this._placePort({ layerId: scr.layerId, index: port.index,
-                              cardId: chosen.cardId, port: chosen.port });
-        });
-        const cancel = document.createElement('button');
-        cancel.className = 'btn';
-        cancel.style.padding = '2px 8px';
-        cancel.style.fontSize = '10px';
-        cancel.style.background = '#2a2a2a';
-        cancel.textContent = 'Cancel';
-        cancel.addEventListener('click', () => {
-            this._movingPort = null;
-            this.renderPortAssignmentPanel();
-        });
-        buttons.appendChild(go);
-        buttons.appendChild(cancel);
-        box.appendChild(buttons);
-        return box;
-    }
-
-    // Which socket, named the way the card names it, with whoever is already
-    // on it spelled out beside it. Occupied ports are offered rather than
-    // greyed out: two screens on one port is a state this app supports and
-    // reports, and the refusal that comes back names what is there - which is
-    // more use than a row that cannot be clicked and does not say why.
-    //
-    // A card whose port count nobody ever settled cannot be listed at all.
-    // Guessing a ceiling to fill the list with is the one failure the catalog
-    // exists to prevent, so it gets a plain number box instead.
-    _buildPortNumberControl(res, chosen, fieldKey) {
-        const card = (res.cards || []).find(c => c.cardId === chosen.cardId);
-        const occupancy = (res.occupancy || {})[chosen.cardId] || {};
-        if (!card || !card.capacityKnown || !card.capacity) {
-            const input = document.createElement('input');
-            input.type = 'number';
-            input.min = '1';
-            input.value = String(chosen.port || 1);
-            input.dataset.lrdField = fieldKey;
-            input.style.fontSize = '10px';
-            input.style.width = '100%';
-            input.style.boxSizing = 'border-box';
-            input.addEventListener('change', () => {
-                chosen.port = Math.max(1, parseInt(input.value, 10) || 1);
-            });
-            return input;
-        }
-        const select = document.createElement('select');
-        select.style.fontSize = '10px';
-        select.style.width = '100%';
-        select.dataset.lrdField = fieldKey;
-        for (let n = 1; n <= card.capacity; n++) {
-            const opt = document.createElement('option');
-            opt.value = String(n);
-            const label = (card.labels || {})[String(n)];
-            const here = occupancy[String(n)] || [];
-            opt.textContent = (label ? `${n} ${label}` : `port ${n}`) + ' - '
-                + (here.length
-                    ? here.map(o => `${o.name} p${o.number}`).join(', ')
-                    : 'free');
-            if (n === chosen.port) opt.selected = true;
-            select.appendChild(opt);
-        }
-        select.addEventListener('change', () => {
-            chosen.port = parseInt(select.value, 10) || 1;
-        });
-        return select;
-    }
-
-    // ANY port of ANY screen, onto a card the user names. With one card in the
-    // project that is just "hold it where it is", so it stays a button; with
-    // more, the card has to be choosable, because the whole point of a pin is
-    // that the app's choice was not the right one.
-    //
-    // Which free NUMBER it lands on is left to the server. Working it out here
-    // would be a second implementation of "which ports are free", and it gets
-    // it wrong the first time a pin leaves a hole in the middle of a card.
-    _buildPinControl(scr, port, res) {
-        const cards = res.cards || [];
-        const pin = (cardId) => this._assignmentRequest(
-            '/api/port-assignments/pin', 'POST',
-            { layerId: scr.layerId, index: port.index, cardId,
-              // Pinning a port that already has a number holds THAT number.
-              // The common case is not "move this", it is "the numbering is
-              // right, stop it moving when the next screen arrives".
-              port: (port.cardId === cardId && port.port) || undefined });
-
-        if (cards.length < 2) {
-            const act = document.createElement('button');
-            act.className = 'btn';
-            act.style.padding = '1px 6px';
-            act.style.fontSize = '10px';
-            act.style.background = '#2a2a2a';
-            act.textContent = 'pin';
-            act.title = port.cardId
-                ? 'Hold this port where it is'
-                : 'Pin this port to the card by hand';
-            act.disabled = !cards.length;
-            act.addEventListener('click', () => {
-                if (cards.length) pin(port.cardId || cards[0].cardId);
-            });
-            return act;
-        }
-
-        const select = document.createElement('select');
-        select.style.fontSize = '10px';
-        select.style.padding = '0 2px';
-        select.style.maxWidth = '92px';
-        select.title = 'Pin this port to a card and hold it there';
-        select.dataset.lrdField = `port-pin-${scr.layerId}-${port.index}`;
-        const blank = document.createElement('option');
-        blank.value = '';
-        blank.textContent = 'pin…';
-        select.appendChild(blank);
-        if (port.cardId) {
-            const here = document.createElement('option');
-            here.value = port.cardId;
-            here.textContent = `here (${port.cardName} ${port.port})`;
-            select.appendChild(here);
-        }
-        cards.filter(c => c.cardId !== port.cardId).forEach(card => {
-            const opt = document.createElement('option');
-            opt.value = card.cardId;
-            opt.textContent = card.free === 0
-                ? `${card.title} (full)` : card.title;
-            opt.disabled = card.free === 0;
-            select.appendChild(opt);
-        });
-        select.addEventListener('change', () => {
-            if (select.value) pin(select.value);
-        });
-        return select;
-    }
-
-    _buildAssignmentFoot(res) {
-        const wrap = document.createElement('div');
-
-        const cards = document.createElement('div');
-        cards.style.display = 'grid';
-        cards.style.gridTemplateColumns = 'minmax(0, 1fr)';
-        cards.style.gap = '2px';
-        (res.cards || []).forEach(card => {
-            const row = document.createElement('div');
-            row.style.display = 'flex';
-            // A long card title meets the 180px clamp here too; the count
-            // drops under it rather than pushing past the panel's edge.
-            row.style.flexWrap = 'wrap';
-            row.style.justifyContent = 'space-between';
-            row.style.fontSize = '11px';
-            row.style.fontFamily = 'monospace';
-            row.style.color = card.free === 0 ? '#c8a04a' : '#888';
-            const name = document.createElement('span');
-            name.style.overflowWrap = 'anywhere';
-            name.textContent = card.title;
-            const use = document.createElement('span');
-            use.textContent = card.capacityKnown
-                ? `${card.used} / ${card.capacity}`
-                : `${card.used} / unknown`;
-            row.appendChild(name);
-            row.appendChild(use);
-            cards.appendChild(row);
-        });
-        wrap.appendChild(cards);
-
-        const toggle = document.createElement('label');
-        toggle.style.display = 'flex';
-        toggle.style.alignItems = 'center';
-        toggle.style.gap = '6px';
-        toggle.style.fontSize = '11px';
-        toggle.style.color = '#ccc';
-        toggle.style.marginTop = '8px';
-        const cb = document.createElement('input');
-        cb.type = 'checkbox';
-        cb.checked = !!res.auto;
-        cb.dataset.lrdField = 'port-assignment-auto';
-        cb.addEventListener('change', () => this._assignmentRequest(
-            '/api/port-assignments', 'PUT', { auto: cb.checked }));
-        toggle.appendChild(cb);
-        toggle.appendChild(document.createTextNode(
-            'Number unpinned ports automatically'));
-        wrap.appendChild(toggle);
-        return wrap;
-    }
+    // The per-card usage foot the old panel drew is the card headers'
+    // n/N + fill glance now (app-dock.js _dockBuildCard reads the same
+    // assignment summary). Nothing is left for a foot builder to build.
+    // The auto-on offer above is the ONLY auto lever in the UI: the PUT
+    // endpoint still takes auto either way, but nothing here ever turns
+    // auto OFF - the amber strip row exists to recover a legacy project
+    // saved that way, not to offer the trip.
 }
 
 for (const k of Object.getOwnPropertyNames(_PortAssignment.prototype)) {

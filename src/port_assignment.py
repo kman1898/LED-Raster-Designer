@@ -19,9 +19,11 @@ THE ALLOCATION RULE, in full, because everything else is a consequence of it:
     Pins are placed first and nothing may move them. Then each screen's
     remaining ports go, as one run, onto the FIRST card - processors in order,
     slots in order - with enough free ports for ALL of them; failing that, onto
-    the first card with any free port at all. Within that card they take the
-    lowest-numbered free ports, ascending, in the screen's own port order.
-    Whatever does not fit is left unplaced and reported.
+    the first card with any free port at all. A card the screen's processing
+    platform cannot drive is skipped like a full one (the platform wall - see
+    "Who may drive whom" below). Within that card they take the lowest-
+    numbered free ports, ascending, in the screen's own port order. Whatever
+    does not fit is left unplaced and reported.
 
 So six ports take 1-6 and the next screen starts at 7, which is the behaviour
 this was asked for by name.
@@ -66,6 +68,126 @@ def new_state():
     return {'auto': True, 'pins': []}
 
 
+# ── Who may drive whom ────────────────────────────────────────────────────
+#
+# A screen's processing platform (the Processing setting on the layer) and a
+# card's product line have to agree before a port may land. The ruling
+# (user, 2026-08-28): "any screen programmed with say Novastar cannot be
+# mapped to a Brompton processor and vice versa, etc. etc. all examples like
+# that. A Novastar legacy processor cannot be mapped to an MX 40 since that
+# is a coex processor."
+#
+# THE MATRIX LIVES HERE AND NOWHERE ELSE. The card side is data-driven off
+# the catalog's `family` field, the screen side is the value the Processing
+# dropdown stores on the layer, and the client gates off the `platforms`
+# list each card summary carries back - never off a copy of this table.
+
+# What the Processing dropdown calls each value. A refusal speaks the label
+# the user picked, not the stored token.
+PLATFORM_LABELS = {
+    'novastar-armor': 'NovaStar (Legacy)',
+    'novastar-coex-1g': 'NovaStar COEX A10s/A8s (1G)',
+    'novastar-5g': 'NovaStar COEX CX40 (5G)',
+    'brompton': 'Brompton Tessera',
+    'megapixel-1g': 'Megapixel HELIOS (1G)',
+    'megapixel-2.5g': 'Megapixel HELIOS (2.5G)',
+}
+
+# platform -> the catalog families whose ports may carry it. The Legacy row
+# is the ruling by name - "VX, MCTRL, NovaPro, MSD, H", every non-COEX
+# NovaStar line (the MSD300 files under novastar-mctrl) - and the COEX rows
+# are "CX only map to 5G" with the 1G COEX all-in-ones keeping the 1G COEX
+# setting to themselves.
+PLATFORM_FAMILIES = {
+    'novastar-armor': {'novastar-vx', 'novastar-mctrl', 'novastar-novapro',
+                       'novastar-h'},
+    'novastar-coex-1g': {'novastar-mx'},
+    'novastar-5g': {'novastar-cx'},
+    # ASSUMPTION (pending user confirmation): every Tessera is one family,
+    # so any Brompton device drives a screen set to Brompton.
+    'brompton': {'brompton'},
+    # ASSUMPTION (pending user confirmation): both Megapixel settings accept
+    # every Megapixel processor - 1G vs 2.5G is a port rate on the tile, not
+    # a different product line.
+    'megapixel-1g': {'megapixel'},
+    'megapixel-2.5g': {'megapixel'},
+}
+
+# Devices whose compatibility crosses their family's line, by device id.
+# An entry here replaces the family answer outright.
+DEVICE_PLATFORMS = {
+    # Ruled COEX (user, 2026-08-28, hedged: "ku20 is coex i beleive"). The
+    # 1G-vs-5G sub-split is UNRULED, so both COEX settings pass until it is.
+    'novastar-ku20': {'novastar-coex-1g', 'novastar-5g'},
+    # The 40G MX-chassis card feeds the CVT8-5G and only the CVT8-5G, so its
+    # ports are 5GBASE-T: "mx6000 and 2000 with 5g fiber only work with 5g
+    # settings" (user, 2026-08-28).
+    'novastar-card-mx-1x40g': {'novastar-5g'},
+}
+
+# What a refusal calls the card's side of the disagreement.
+_FAMILY_GEAR = {
+    'novastar-mx': 'COEX gear',
+    'novastar-cx': '5G COEX gear',
+    'novastar-vx': 'NovaStar legacy gear',
+    'novastar-mctrl': 'NovaStar legacy gear',
+    'novastar-novapro': 'NovaStar legacy gear',
+    'novastar-h': 'NovaStar legacy gear',
+    'brompton': 'Brompton gear',
+    'megapixel': 'Megapixel gear',
+}
+_DEVICE_GEAR = {
+    'novastar-card-mx-1x40g': '5G fiber gear',
+}
+
+# The dropdown's retired tokens, folded onto their successors the same way
+# app-core folds them on load - a project saved before a rename still has to
+# land on the right side of the wall.
+_PLATFORM_ALIASES = {
+    'novastar-1g': 'novastar-coex-1g',
+    'novastar-armor-1g': 'novastar-armor',
+    'brompton-ull': 'brompton',
+}
+
+
+def accepted_platforms(device_id):
+    """The platform values a device's ports accept, or None for no
+    restriction.
+
+    None, not "everything": a device the matrix does not know - no family,
+    or a family no platform names - refuses nobody, because a wrong refusal
+    strands a real rig on site and a missed one only skips a warning.
+    """
+    if device_id in DEVICE_PLATFORMS:
+        return set(DEVICE_PLATFORMS[device_id])
+    family = (catalog.get_device(device_id) or {}).get('family')
+    accepted = {p for p, fams in PLATFORM_FAMILIES.items() if family in fams}
+    return accepted or None
+
+
+def _gear(device_id):
+    if device_id in _DEVICE_GEAR:
+        return _DEVICE_GEAR[device_id]
+    family = (catalog.get_device(device_id) or {}).get('family')
+    return _FAMILY_GEAR.get(family, "a different line's gear")
+
+
+def platform_allows(card, platform):
+    """May a screen on this platform land on this card? A screen carrying no
+    platform is never refused - old payloads carry none, and the safe side
+    of that gap is a warning missed, not a wall stranded."""
+    accepted = card.get('platforms')
+    return not platform or accepted is None or platform in accepted
+
+
+def _platform_refusal(name, platform, card):
+    """The refusal, naming both sides in the user's own words for each:
+    "IMAG SR is programmed NovaStar (Legacy); MX40 Pro is COEX gear." """
+    label = PLATFORM_LABELS.get(platform, platform)
+    return (f'{name} is programmed {label}; '
+            f'{_card_title(card)} is {card["gear"]}.')
+
+
 # ── The cards ports can land on ───────────────────────────────────────────
 
 def cards_in(processors):
@@ -93,6 +215,13 @@ def cards_in(processors):
                 'cardId': card['id'],
                 'name': card['name'] or '',
                 'deviceName': card['deviceName'],
+                'deviceId': card['deviceId'],
+                # Which processing platforms this card's ports may carry
+                # (None = no restriction), and what a refusal calls the
+                # card. Resolved here once so auto, every manual placement
+                # and the panel's gating all read the same word.
+                'platforms': accepted_platforms(card['deviceId']),
+                'gear': _gear(card['deviceId']),
                 'slot': slot.get('index'),
                 'capacity': card['ceiling'] if card['ceilingKnown'] else None,
                 'capacityKnown': card['ceilingKnown'],
@@ -111,6 +240,32 @@ def cards_in(processors):
                 # them from the same resolution instead of re-deriving one.
                 'returnLabels': {p['number']: p['returnLabel']
                                  for p in card['ports']},
+                # The number written beside each socket: the box's own 1..N
+                # where a box delivers it (the 2026-08-27 silkscreen ruling),
+                # the card-wide number where none does. Every message that
+                # names a bare socket speaks THIS number - the card-wide one
+                # stays the bookkeeping key and nothing more.
+                'localNumbers': {p['number']: p['localNumber']
+                                 for p in card['ports']},
+                # Which box delivers each socket, by the box's display name
+                # (its typed name, or model + trunk letter - resolve_card's
+                # displayTitle). A bare local number only means something
+                # beside its box's name, so a message naming an unlabeled
+                # box-owned socket says both.
+                'boxTitles': {
+                    p['number']: next(
+                        (c.get('displayTitle')
+                         for c in card.get('cvts') or []
+                         if c['id'] == p['cvtId']), None)
+                    for p in card['ports'] if p.get('cvtId')},
+                # Ports consumed as another main's return - the even half of
+                # a sequential card, every port of a 1to1 backup unit, a
+                # manual pick. Resolved with the labels above and carried
+                # whole, because a backing port is CLAIMED BY ROLE: not free
+                # to auto, refused to a hand placement, and the refusal has
+                # to say which main it returns.
+                'backupRoles': {p['number']: p['backsUp']
+                                for p in card['ports'] if p.get('backsUp')},
             })
     return out
 
@@ -133,7 +288,15 @@ def _port_title(card, port):
     label = (card.get('labels') or {}).get(port)
     title = _card_title(card)
     if not label:
-        return f'{title} port {port}'
+        # A bare number is the LOCAL one - the number silkscreened beside
+        # the socket (a box's own 1..N behind a box). The card-wide ordinal
+        # is a key, not a thing anyone can read off metal - and since every
+        # box counts from 1, the box's name rides along or the number names
+        # four different sockets.
+        spoken = (card.get('localNumbers') or {}).get(port, port)
+        box = (card.get('boxTitles') or {}).get(port)
+        where = f'{title} {box}' if box else title
+        return f'{where} port {spoken}'
     # A label is usually built out of the card's own name - the template is
     # {name}-# - so naming both would read "SR SR-1". Where it is not, because
     # a box in front of the card named it or somebody typed it, both halves are
@@ -161,10 +324,21 @@ def _clean_screens(screens):
             count = int(scr.get('ports') or 0)
         except (TypeError, ValueError):
             count = 0
+        # The layer's Processing setting rides with the port count, because
+        # the two travel from the same place (the client owns the layer the
+        # same way it owns the port maths) and compatibility needs it on
+        # every path. Absent stays absent - platform_allows treats a screen
+        # with no platform as free to land anywhere.
+        platform = scr.get('platform')
+        if isinstance(platform, str):
+            platform = _PLATFORM_ALIASES.get(platform, platform)
+        else:
+            platform = None
         out.append({
             'layerId': str(layer_id),
             'name': scr.get('name') or str(layer_id),
             'ports': max(0, count),
+            'platform': platform or None,
         })
     return out
 
@@ -203,8 +377,9 @@ def _free_ports(card, claims):
     capacity = card['capacity']
     if not capacity:
         return []
+    roles = card.get('backupRoles') or {}
     return [n for n in range(1, capacity + 1)
-            if (card['cardId'], n) not in claims]
+            if (card['cardId'], n) not in claims and n not in roles]
 
 
 def resolve(processors, screens, state=None):
@@ -278,7 +453,13 @@ def resolve(processors, screens, state=None):
                       if (scr['layerId'], i) not in placed]
             if not wanted:
                 continue
-            free_by_card = [(c, _free_ports(c, claims)) for c in cards]
+            # A card the screen's platform cannot drive is skipped the same
+            # way a full one is: a Brompton wall does not spill onto the
+            # NovaStar card beside it, it stays unplaced and the overflow
+            # report says so.
+            usable = [c for c in cards
+                      if platform_allows(c, scr['platform'])]
+            free_by_card = [(c, _free_ports(c, claims)) for c in usable]
             target = next((pair for pair in free_by_card
                            if len(pair[1]) >= len(wanted)), None)
             if target is None:
@@ -328,6 +509,7 @@ def resolve(processors, screens, state=None):
         resolved_screens.append({
             'layerId': scr['layerId'],
             'name': scr['name'],
+            'platform': scr['platform'],
             'ports': ports,
             'required': scr['ports'],
             'unplaced': unplaced,
@@ -336,15 +518,19 @@ def resolve(processors, screens, state=None):
         })
 
     issues.extend(_overlap_issues(overlapping, claims, by_id, screens))
-    issues.extend(_overflow_issues(resolved_screens, cards, claims))
+    issues.extend(_platform_issues(resolved_screens, by_id))
+    issues.extend(_overflow_issues(resolved_screens, cards))
     issues.extend(_capacity_issues(cards, screens, auto_on))
+
+    occupancy = _occupancy(resolved_screens)
+    _mirror_returns(cards, occupancy)
 
     return {
         'configured': bool(cards),
         'auto': auto_on,
         'cards': [_card_summary(c, claims) for c in cards],
         'screens': resolved_screens,
-        'occupancy': _occupancy(resolved_screens),
+        'occupancy': occupancy,
         'issues': issues,
     }
 
@@ -380,9 +566,55 @@ def _occupancy(resolved_screens):
     return out
 
 
+def _mirror_returns(cards, occupancy):
+    """A backup socket displays the occupancy of the socket it backs.
+
+    Assign main A-1 to a screen and its return loom lands on B-1, so B-1
+    reading "free" (or only "backs up A-1") understates a socket that is
+    now physically carrying that screen's return. The display follows the
+    main through the same backedBy/backsUp link every pairing shape wires
+    (fixed SX40 boxes, sequential, 1:1, manual): one rule, whatever put the
+    link there.
+
+    DERIVED, NEVER STORED. The mirrored entry is the main's own occupant
+    read through the link on every resolve, so un-assigning the main clears
+    the backup's display with it and there is nothing extra to undo. It is
+    also display-only by construction: `claims` never sees it (used/free
+    counts stand), and its source is 'return' - never 'pin' - so no release
+    path can mistake the mirrored claim for one it may act on. `role` marks
+    it for the tiles, and `main` names the socket it follows, because a
+    refusal on the backup end has to say where the clear actually lands.
+    """
+    for card in cards:
+        for number, role in (card.get('backupRoles') or {}).items():
+            here = occupancy.get(role['cardId'], {}).get(str(role['port']))
+            for occupant in here or []:
+                if occupant.get('role'):
+                    continue  # a mirrored entry is never itself mirrored
+                occupancy.setdefault(card['cardId'], {}) \
+                    .setdefault(str(number), []).append({
+                        'layerId': occupant['layerId'],
+                        'name': occupant['name'],
+                        'number': occupant['number'],
+                        'source': 'return',
+                        'overlap': occupant['overlap'],
+                        'role': 'return',
+                        'main': {'cardId': role['cardId'],
+                                 'port': role['port'],
+                                 'localPort': role.get('localPort',
+                                                       role['port']),
+                                 'boxTitle': role.get('boxTitle'),
+                                 'label': role.get('label')},
+                    })
+
+
 def _card_summary(card, claims):
     used = sum(1 for key in claims if key[0] == card['cardId'])
     capacity = card['capacity']
+    # Ports consumed as returns are not free, and not "used" either - they
+    # are spoken for by a role, so they come off the free count the same way
+    # they come out of _free_ports.
+    backing = len(card.get('backupRoles') or {})
     return {
         'cardId': card['cardId'],
         'processorId': card['processorId'],
@@ -391,12 +623,18 @@ def _card_summary(card, claims):
         'capacity': capacity,
         'capacityKnown': card['capacityKnown'],
         'used': used,
-        'free': None if capacity is None else max(0, capacity - used),
+        'backing': backing,
+        'free': None if capacity is None
+        else max(0, capacity - used - backing),
         # The names the ports carry, so a panel offering somebody a choice of
         # sockets can call each one what the box calls it. Without them a port
         # picker reads "1, 2, 3..." while the card in the rack reads
         # "SR-1, SR-2", and the two have to be matched up by counting.
         'labels': dict(card['labels']),
+        # The server's word on which platforms may land here, for any client-
+        # side gating - None means no restriction. The matrix itself never
+        # crosses the wire; only its answer does.
+        'platforms': sorted(card['platforms']) if card['platforms'] else None,
     }
 
 
@@ -448,13 +686,57 @@ def _overlap_issues(overlapping, claims, by_id, screens):
     return out
 
 
-def _overflow_issues(resolved_screens, cards, claims):
+def _platform_issues(resolved_screens, by_id):
+    """A pin holding a screen on gear its platform cannot drive.
+
+    Auto never builds this state - it skips an incompatible card the way it
+    skips a full one - and every manual path refuses it outright, so the
+    only ways in are a project pinned before the wall existed and a layer
+    whose Processing changed after the pin went down. Same treatment as
+    every other found problem: reported red, NOTHING UNPINNED, and the
+    offers are the only thing that moves anything - silently releasing the
+    pin would renumber a drawing the truck was packed to.
+    """
+    out = []
+    for scr in resolved_screens:
+        if not scr.get('platform'):
+            continue
+        flagged = []
+        for port in scr['ports']:
+            card = by_id.get(port['cardId']) if port['cardId'] else None
+            if card is None or platform_allows(card, scr['platform']):
+                continue
+            if card['cardId'] in flagged:
+                continue
+            flagged.append(card['cardId'])
+            out.append({
+                'kind': 'platform-mismatch',
+                'layerId': scr['layerId'],
+                'cardId': card['cardId'],
+                'message': (
+                    f'{_platform_refusal(scr["name"], scr["platform"], card)}'
+                    f' Nothing has been unpinned - move the run to matching '
+                    f'gear, or release the pins.'),
+                'offers': [
+                    {'action': 'move-block', 'layerId': scr['layerId'],
+                     'label': f'Move {scr["name"]}'},
+                    {'action': 'release', 'layerId': scr['layerId'],
+                     'label': 'Release pins'},
+                ],
+            })
+    return out
+
+
+def _overflow_issues(resolved_screens, cards):
     """A screen with more ports than its card had left.
 
-    The ports that did not fit are simply not placed. Spilling them onto the
-    next card on their own would be the app deciding to split a run across two
-    machines, which is a patching decision with a physical consequence - two
-    trunks to one wall - and belongs to a person.
+    The ports that did not fit are simply not placed, and the row only says
+    so. Spilling them onto the next card on their own would be the app
+    deciding to split a run across two machines, which is a patching decision
+    with a physical consequence - two trunks to one wall - and belongs to a
+    person. The person's way to make it is the dock itself: drag the ports
+    (or the screen) onto the card they should land on. The strip carries no
+    place buttons for it.
     """
     # No cards at all is the default state of every project and not a problem
     # to nag about; no card with a settled count is already reported as such,
@@ -466,7 +748,6 @@ def _overflow_issues(resolved_screens, cards, claims):
     for scr in resolved_screens:
         if not scr['unplaced']:
             continue
-        somewhere = [c for c in cards if _free_ports(c, claims)]
         numbers = [i + 1 for i in scr['unplaced']]
         out.append({
             'kind': 'overflow',
@@ -476,16 +757,8 @@ def _overflow_issues(resolved_screens, cards, claims):
             'message': (
                 f'{scr["name"]} needs {scr["required"]} ports and '
                 f'{len(numbers)} of them '
-                f'({", ".join(str(n) for n in numbers)}) did not fit. Place '
-                f'them on another card, or free up room on this one.'
-                if somewhere else
-                f'{scr["name"]} needs {scr["required"]} ports and '
-                f'{len(numbers)} of them did not fit. Every card in this '
-                f'project is full.'),
-            'offers': [{'action': 'place-overflow', 'layerId': scr['layerId'],
-                        'cardId': c['cardId'],
-                        'label': f'Place on {_card_title(c)}'}
-                       for c in somewhere],
+                f'({", ".join(str(n) for n in numbers)}) are not attached.'),
+            'offers': [],
         })
     return out
 
@@ -603,6 +876,13 @@ def pin_to_card(processors, screens, state, layer_id, index, card_id,
     card = by_id.get(str(card_id))
     if card is None:
         return None, 'That card is not in this project.'
+    # Wrong-line gear is refused outright, with both sides named. No confirm
+    # path, unlike an occupied port: sharing a socket is a real rig, driving
+    # a Brompton wall off a NovaStar card is not.
+    scr = next((s for s in _clean_screens(screens)
+                if s['layerId'] == str(layer_id)), None)
+    if scr and not platform_allows(card, scr['platform']):
+        return None, _platform_refusal(scr['name'], scr['platform'], card)
     if port is None:
         _res, taken = _foreign_claims(processors, screens, state, layer_id,
                                       int(index))
@@ -733,6 +1013,13 @@ def place_port(processors, screens, state, layer_id, index, card_id, port,
         return None, f'{scr["name"]} has no port {index + 1}.', None
     if port < 1:
         return None, 'Port numbers start at 1.', None
+    # Wrong-line gear is refused OUTRIGHT, like the return-end refusal below
+    # and unlike the occupied-port question: two screens on one socket is a
+    # rig somebody may mean, a Legacy screen on COEX gear is not a rig at
+    # all. The refusal names both sides so the fix is legible from the strip.
+    if not platform_allows(card, scr['platform']):
+        return None, _platform_refusal(scr['name'], scr['platform'],
+                                       card), None
     # A card whose count nobody settled takes any number, which is the whole of
     # what "ports can still be pinned to it by hand" means. A card with a
     # settled one is a fact about metal and there is no port past it to place
@@ -740,6 +1027,18 @@ def place_port(processors, screens, state, layer_id, index, card_id, port,
     if card['capacity'] and port > card['capacity']:
         return None, (f'{_card_title(card)} has {card["capacity"]} ports, so '
                       f'there is no port {port} on it.'), None
+    # A port consumed as a return is refused OUTRIGHT - no confirm, unlike
+    # the occupied-port question below. Sharing a socket with another screen
+    # is a real rig (a hot spare); sharing it with its own backup role is
+    # not a rig at all, because the socket's job is carrying a main's return
+    # loom. The refusal names the main it returns.
+    role = (card.get('backupRoles') or {}).get(port)
+    if role:
+        main = role.get('label') \
+            or (f'port {role.get("localPort", role.get("port"))} on '
+                f'{role.get("boxTitle") or role.get("cardTitle")}')
+        return None, (f'{_port_title(card, port)} backs up {main} - it is '
+                      f'that port\'s return end, not a free port.'), None
 
     before, taken = _foreign_claims(processors, screens, state, layer_id, index)
     if (card['cardId'], port) in taken and not confirm:
@@ -785,12 +1084,13 @@ def _fits(card, start, size, taken):
     capacity = card['capacity']
     if not capacity or start < 1 or start + size - 1 > capacity:
         return False
-    return all((card['cardId'], n) not in taken
+    roles = card.get('backupRoles') or {}
+    return all((card['cardId'], n) not in taken and n not in roles
                for n in range(start, start + size))
 
 
 def move_block(processors, screens, state, layer_id, card_id=None,
-               start_port=None):
+               start_port=None, first_port=None, last_port=None):
     """Move a screen's WHOLE set of ports to the next free block.
 
     Whole set, in the same relative order, or not at all. A screen is cabled as
@@ -802,6 +1102,12 @@ def move_block(processors, screens, state, layer_id, card_id=None,
     pins would mean moving only the auto ports and tearing the run in two,
     which defeats the purpose of the move. Other screens' pins are never
     touched - they are obstacles the block has to clear.
+
+    `first_port`/`last_port` bound the search to one window of the card - a
+    breakout box is a contiguous span of card ports, so "move onto that box"
+    is this move with the box's span as the window. Only meaningful with a
+    card_id; the block must land wholly inside the window, because a run that
+    half-leaves the box is not on the box.
     """
     layer_id = str(layer_id)
     cards = cards_in(processors)
@@ -824,11 +1130,19 @@ def move_block(processors, screens, state, layer_id, card_id=None,
 
     if card_id and card_id not in by_id:
         return None, 'That card is not in this project.'
+    # A named destination on the wrong side of the platform wall is refused
+    # before any fit is looked for - a free run on gear the screen cannot
+    # drive is not an answer.
+    if card_id and not platform_allows(by_id[card_id], scr['platform']):
+        return None, _platform_refusal(scr['name'], scr['platform'],
+                                       by_id[card_id])
 
     # An explicit destination is an instruction, not a hint: place it there or
     # say why not, rather than sliding it somewhere nearby that does fit.
     if start_port is not None:
         card = by_id.get(card_id or current_card or cards[0]['cardId'])
+        if not platform_allows(card, scr['platform']):
+            return None, _platform_refusal(scr['name'], scr['platform'], card)
         if not _fits(card, int(start_port), size, taken):
             return None, (f'Ports {start_port}-{int(start_port) + size - 1} on '
                           f'{_card_title(card)} are not all free.')
@@ -846,16 +1160,40 @@ def move_block(processors, screens, state, layer_id, card_id=None,
     else:
         pivot = order.index(current_card) if current_card in order else 0
         search = order[pivot:] + order[:pivot]
+        # The search only walks cards the screen's platform can drive - the
+        # same skip auto makes, or "next free block" would relocate a run
+        # onto gear it cannot use. When that leaves nowhere at all, say the
+        # real reason rather than "no run free".
+        search = [cid for cid in search
+                  if platform_allows(by_id[cid], scr['platform'])]
+        if not search:
+            label = PLATFORM_LABELS.get(scr['platform'], scr['platform'])
+            return None, (f'{scr["name"]} is programmed {label}, and no card '
+                          f'in this project matches it.')
+
+    # A window narrows the scan to the box's span of card ports; outside it
+    # the loop below simply never starts a block.
+    lo = int(first_port) if first_port is not None else None
+    hi = int(last_port) if last_port is not None else None
 
     for position, cid in enumerate(search):
         card = by_id[cid]
         lowest = current_start + 1 if (position == 0 and cid == current_card
                                        and not card_id) else 1
+        if lo is not None:
+            lowest = max(lowest, lo)
         capacity = card['capacity'] or 0
-        for start in range(lowest, capacity - size + 2):
+        highest = capacity - size + 1
+        if hi is not None:
+            highest = min(highest, hi - size + 1)
+        for start in range(lowest, highest + 1):
             if _fits(card, start, size, taken):
                 return _pin_block(state, layer_id, cid, start, size), None
 
+    if lo is not None or hi is not None:
+        return None, (f'No run of {size} consecutive free ports between ports '
+                      f'{lo or 1}-{hi or "end"} on that card. Free up a run, '
+                      f'or place the ports by hand.')
     return None, (f'No card has {size} consecutive free ports. Free up a run, '
                   f'or place the ports by hand.')
 
@@ -867,7 +1205,8 @@ def _pin_block(state, layer_id, card_id, start, size):
     return {'cardId': card_id, 'startPort': start, 'ports': size}
 
 
-def place_overflow(processors, screens, state, layer_id, card_id):
+def place_overflow(processors, screens, state, layer_id, card_id,
+                   first_port=None, last_port=None):
     """Put the ports that did not fit onto a different card.
 
     One of the two paths by which a screen's ports end up on two cards - the
@@ -876,6 +1215,10 @@ def place_overflow(processors, screens, state, layer_id, card_id):
     is a real thing someone builds. `.scr` stores the sending card per CABINET,
     so the format has no objection either; it is only the app that must not do
     it unasked.
+
+    `first_port`/`last_port` bound the fill to one window of the card: a
+    breakout box is a contiguous span of card ports, so "fill onto that box"
+    is this fill with the box's span as the window.
     """
     layer_id = str(layer_id)
     by_id = {c['cardId']: c for c in cards_in(processors)}
@@ -888,6 +1231,11 @@ def place_overflow(processors, screens, state, layer_id, card_id):
                     if s['layerId'] == layer_id), None)
     if current is None:
         return None, 'That screen is not in this project.'
+    # The tail of a run obeys the same wall its head does: overflow may
+    # cross onto a second card, never onto a second product line.
+    if not platform_allows(card, current.get('platform')):
+        return None, _platform_refusal(current['name'],
+                                       current['platform'], card)
     spare = [i for i in current['unplaced']]
     if not spare:
         return None, 'Every port on that screen already has a card.'
@@ -895,9 +1243,15 @@ def place_overflow(processors, screens, state, layer_id, card_id):
     # The overflow keeps its own order and is packed from the card's lowest
     # free port, so ports 17-20 of a wall read as a block on the new card
     # rather than being scattered through its gaps.
-    free = [n for n in range(1, (card['capacity'] or 0) + 1)
+    lo = max(1, int(first_port)) if first_port is not None else 1
+    hi = min((card['capacity'] or 0), int(last_port)) \
+        if last_port is not None else (card['capacity'] or 0)
+    free = [n for n in range(lo, hi + 1)
             if (card['cardId'], n) not in taken]
     if not free:
+        if first_port is not None or last_port is not None:
+            return None, (f'No free ports between {lo} and {hi} on '
+                          f'{_card_title(card)}.')
         return None, f'{_card_title(card)} has no free ports.'
 
     moved = []

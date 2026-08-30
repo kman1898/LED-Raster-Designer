@@ -1,7 +1,12 @@
-"""The processor tree behind the Signal panel: catalog, ports, labels, storage.
+"""The processor tree behind the hardware dock: catalog, ports, labels, storage.
 
-A processor drives the wall, and the panel has to model it the way the hardware
-is actually built, so these tests are mostly about the four things that make
+The dock is the one hardware surface (the Signal sidebar and its Processors /
+Port Numbering panels retired into it): the tree renders as dock sections whose
+headers carry the names inline, each level's configuration lives behind its
+header's ⚙ gear popover, the issues render as the strip under the dock's
+header, and adding a processor is the header bar's own picker. A processor
+drives the wall, and that surface has to model it the way the hardware is
+actually built, so these tests are mostly about the four things that make
 that awkward:
 
 * THE CARD DECIDES THE PORT COUNT, NOT THE CHASSIS. An H9 of H_20xRJ45 cards
@@ -40,6 +45,24 @@ import processor_catalog as catalog  # noqa: E402
 
 PORT_TABLE = os.path.join(os.path.dirname(__file__), '..', 'docs',
                           'processor-port-table.md')
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _guard(server_project_guard):
+    """Leave the shared server project the way this module found it.
+
+    Autouse, NOT a panel_page dependency: this module's Flask `client`
+    tests rebuild the shared module-global project (TestScreen, no
+    Screen1) before the first browser test runs. A guard created only
+    when panel_page is first requested snapshots AFTER that pollution
+    whenever an earlier module already forced e2e_server up - and then
+    dutifully "restores" the polluted state over the session seed at
+    module end, handing every later browser module a project whose only
+    screen is TestScreen. Autouse pins the snapshot to module start,
+    where the seeded Screen1 project still stands (and, first thing in
+    the session, forces e2e_server up so there is a seed to snapshot),
+    the same shape every other browser module uses (see
+    tests/conftest.py's inter-suite isolation notes)."""
 
 
 # ── helpers ───────────────────────────────────────────────────────────────
@@ -722,13 +745,13 @@ def test_a_copy_opts_box_delivers_the_ports_the_card_already_has(client):
     assert [p['number'] for p in card['cvts'][0]['ports']] == list(range(1, 9))
     assert [p['number'] for p in card['cvts'][1]['ports']] == list(range(9, 17))
     assert card['trunksCopyOwnPorts'] is True, (
-        'the panel has no way to tell the user these OPTs add nothing')
+        'the card gear has no way to tell the user these OPTs add nothing')
 
 
 def test_a_copy_trunk_card_is_offered_boxes_in_the_first_place(client):
     """It is an RJ45 card with fiber OPTs on it, and the OPTs get used. The
-    panel gates its CVT picker on the card having trunks, so a card with no
-    declared trunks would never offer one."""
+    card's gear gates its box picker on the card having trunks, so a card
+    with no declared trunks would never offer one."""
     pid, card_id = with_card(client, 'novastar-h9',
                              'novastar-card-h-16xrj45-2xfiber')
     card = first_card(only(client.get('/api/processors').get_json()))
@@ -816,11 +839,12 @@ def test_one_two_opt_box_fills_a_two_opt_card_on_its_own(client):
 
 def test_a_copper_only_card_takes_no_box_at_all(client):
     """H_20xRJ45 has no OPT. Its ports come out on copper and there is nothing
-    to hang a box off, so the panel must not offer one."""
+    to hang a box off, so the card's gear must not offer one."""
     pid, card_id = with_card(client, 'novastar-h9', 'novastar-card-h-20xrj45')
     card = first_card(only(client.get('/api/processors').get_json()))
     assert card['trunks'] == 0, (
-        'the panel gates its CVT picker on trunks, so this must be a real zero')
+        'the card gear gates its box picker on trunks, so this must be a '
+        'real zero')
     resp = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
                        json={'deviceId': 'novastar-cvt10'})
     assert resp.status_code == 400
@@ -863,6 +887,11 @@ def test_a_backup_box_does_not_rename_the_ports_the_primary_named(client):
         ['CVT-A-1', 'CVT-A-2', 'CVT-A-3']
     # The backup still carries them - it is a real cable to a real box.
     assert [p['number'] for p in card['cvts'][2]['ports']] == list(range(1, 9))
+    # And it carries them under the same local numbers its main shows
+    # (2026-08-27: "Same with default backups for any breakout boxes") -
+    # the default backup is a mirror, so the numbers never differ.
+    assert [p['localNumber'] for p in card['cvts'][2]['ports']] == \
+        list(range(1, 9))
 
 
 # ── 3c. A box takes trunks IN, and that is what caps it ───────────────────
@@ -1090,10 +1119,17 @@ def test_a_copy_trunk_card_never_reports_a_shortfall(client):
     assert card['shortfall'] is None
 
 
-def test_two_unnamed_boxes_do_not_print_the_same_labels_twice(client):
-    """A port is numbered within whatever names it. With the boxes unnamed the
-    CARD is doing the naming, so its numbering is the card's - numbering both
-    boxes from 1 would silkscreen SR-1 through SR-8 onto two different runs."""
+def test_box_owned_ports_number_off_the_boxs_own_face_whoever_names_them(
+        client):
+    """REVERSED on 2026-08-27, by ruling after live testing: "all cvt's are
+    1-10 or 1-16" - every breakout box's face is silkscreened 1..N whichever
+    trunk it hangs on, so a label numbered past N points at a socket no box
+    has. This test used to pin the opposite (card-wide numbers when the CARD
+    names, so two unnamed boxes never print the same labels twice), and the
+    duplicates it guarded against are now the physically true reading: both
+    boxes really do have a port 1, and telling them apart is the box's job -
+    its name, or the trunk letter the resolve stamps on displayTitle. Ports
+    on no box still number off the card, whose face IS their silkscreen."""
     state = add_processor(client, 'novastar-h9')
     pid = only(state)['id']
     state = set_card(client, pid, 0, 'novastar-card-h-4xfiber')
@@ -1104,8 +1140,14 @@ def test_two_unnamed_boxes_do_not_print_the_same_labels_twice(client):
                             json={'deviceId': 'novastar-cvt10'}).get_json()
     card = first_card(only(state))
     labels = [p['label'] for p in card['ports'][:16]]
-    assert len(set(labels)) == 16, f'duplicate port labels: {labels}'
-    assert labels[8] == 'SR-9'
+    assert labels[:8] == [f'SR-{n}' for n in range(1, 9)]
+    assert labels[8:] == [f'SR-{n}' for n in range(1, 9)], (
+        'the second box must read its own 1-8, not the card-wide 9-16')
+    # The disambiguators: each box's resolved display name carries its
+    # trunk letter, and each port says which local number it wears.
+    assert [c['displayTitle'] for c in card['cvts']] == ['CVT10 A', 'CVT10 B']
+    assert [p['localNumber'] for p in card['ports'][:16]] == \
+        list(range(1, 9)) * 2
 
 
 def test_an_unnamed_tree_produces_no_labels_at_all(client):
@@ -1148,10 +1190,11 @@ def test_a_label_template_is_editable_and_comes_back_from_the_server(client):
 def test_a_new_card_stores_no_label_template(client):
     """The default template is a fallback, not a value. A card used to be
     stamped with '{name}-#' at birth, which put the app's own fallback into
-    every saved file and drew it in the panel's Label box as text nobody
+    every saved file and drew it in the old panel's Label box as text nobody
     could tell from a choice - the same derived-as-value disease a port name
     box would have if it held the resolved label. Unset stores nothing,
-    resolves to '' for the panel (value empty, placeholder doing the work),
+    resolves to '' for the gear's Label box (value empty, placeholder
+    doing the work),
     and still labels the ports off the default."""
     state = add_processor(client, 'novastar-mx20')
     pid = only(state)['id']
@@ -1424,7 +1467,7 @@ def test_bad_ids_are_refused_rather_than_half_applied(client):
 
 def test_a_project_with_no_processors_is_shaped_exactly_as_before(client):
     """Anyone who never opens the Data view, or who defines no processor, sees
-    no change - including in the file they save. Reading the panel's endpoint
+    no change - including in the file they save. Reading the tree's endpoint
     must not stamp the key onto a project that has none."""
     before = client.get('/api/project').get_json()
     assert 'processors' not in before
@@ -1456,34 +1499,45 @@ def test_the_per_screen_port_templates_are_untouched(client_with_layer):
     assert 'processors' not in client_with_layer.get('/api/project').get_json()
 
 
-def test_the_panel_ships_no_declared_fields_into_the_field_sweep():
+def test_the_dock_declares_its_controls_outside_every_tab_panel():
     """tests/test_all_fields_sweep.py drives every control declared inside a
-    .tab-panel straight at the selected LAYER. The processor panel's fields are
-    project state and are built by app-processors.js for that reason; a control
-    declared in the template here would be swept and would fail for a reason
-    that has nothing to do with it."""
+    .tab-panel straight at the selected LAYER. The processor controls are
+    PROJECT state, so their only static declarations - the add picker, the
+    Add button and the attachment flag - live on the hardware dock's
+    header bar, outside every tab panel, and everything deeper (names,
+    templates, modes) is built at render time by app-dock/app-processors.
+    A second declaration inside a panel would be swept and would fail for a
+    reason that has nothing to do with it."""
     template = os.path.join(os.path.dirname(__file__), '..', 'src',
                             'templates', 'index.html')
     with open(template, encoding='utf-8') as fh:
         html = fh.read()
-    start = html.index('<h2>Processors</h2>')
-    end = html.index('<h2>Port Labels</h2>')
-    panel = html[start:end]
-    for tag in ('<input', '<select', '<textarea'):
-        assert tag not in panel, (
-            f'{tag} declared in the Processors panel markup - the field sweep '
-            f'would drive it at the selected layer')
-    assert 'id="processor-list"' in panel
+    dock = html[html.index('id="hardware-dock"'):
+                html.index('id="hardware-dock-body"')]
+    for control in ('id="processor-add-device"', 'id="processor-add-btn"',
+                    'id="hw-dock-flag"'):
+        assert html.count(control) == 1, (
+            f'{control} is declared more than once - the copy outside the '
+            f'dock would be swept at the selected layer')
+        assert control in dock, (
+            f'{control} left the dock header - its one legitimate home')
+    # The retired Signal panel hosts stay gone - and so does the retired
+    # auto checkbox: a resurrected panel or switch would split the fields
+    # between two surfaces again.
+    for gone in ('id="processor-list"', '<h2>Processors</h2>',
+                 '<h2>Port Numbering</h2>', 'id="port-assignment-auto"',
+                 'id="hw-dock-auto-wrap"'):
+        assert gone not in html, f'{gone} is back in the template'
 
 
 # ── 7. The return end on the port row ─────────────────────────────────────
 #
 # A port row names both ends of its socket now: the primary, and the
-# redundancy run that leaves it and comes back. The rows are rebuilt
-# wholesale on every change and squeezed down to the panel's 180px clamp, so
-# what is pinned here is the machinery that keeps two fields usable there:
-# stable focus keys, captions, and the wrap that stacks them where they no
-# longer fit abreast.
+# redundancy run that leaves it and comes back. The row lives in the dock
+# chip's editor (app-dock.js) - the dock is the one place ports appear -
+# and is rebuilt wholesale on every change, so what is pinned here is the
+# machinery that keeps two fields usable there: stable focus keys, captions,
+# and the wrap that stacks them where they no longer fit abreast.
 
 JS_DIR = os.path.join(os.path.dirname(__file__), '..', 'src', 'static', 'js')
 
@@ -1494,11 +1548,11 @@ def js_source(filename):
 
 
 def test_the_port_row_offers_the_return_end_beside_the_primary():
-    """Both fields, each with its own stable focus key (the panel is rebuilt
+    """Both fields, each with its own stable focus key (the dock is rebuilt
     under the user's fingers), each captioned (two unlabeled boxes holding
     different ends of the same cable read as noise), sharing a line that
-    wraps rather than a grid that overflows the 180px clamp."""
-    source = js_source('app-processors.js')
+    wraps rather than a grid that overflows a squeezed chip."""
+    source = js_source('app-dock.js')
     assert 'processor-port-name-${card.id}-${port.number}' in source
     assert 'processor-port-return-${card.id}-${port.number}' in source
     assert '(card.returnPortNames || {})[String(port.number)]' in source
@@ -1507,7 +1561,7 @@ def test_the_port_row_offers_the_return_end_beside_the_primary():
     body = source[source.index('_buildPortRow(proc, card, port) {'):]
     body = body[:body.index('\n    }')]
     assert "names.style.flexWrap = 'wrap';" in body, (
-        'the name fields do not wrap at the narrow clamp')
+        'the name fields do not wrap where the chip squeezes them')
     assert "{ returnName: val }" in body
     # The commit goes through the same PUT the primary uses - one route, one
     # rule about what a port-name edit is.
@@ -1518,17 +1572,66 @@ def test_processor_edits_take_post_mutation_history_snapshots():
     """The undo contract: a processor edit lands in history AFTER the server
     answers and the new tree is folded into this.project - the post-mutation
     snapshot every other action takes - and a refused edit takes none. Both
-    ends of a port enter history under their own names, identically."""
+    ends of a port enter history under their own names, identically - the
+    port actions living in the dock module now, through the same
+    _processorRequest. The ACTIONS live where their drivers live: the
+    inline renames and the header's Add on the dock (app-dock.js), the
+    gear popovers' remove in the content builders (app-processors.js)."""
     source = js_source('app-processors.js')
     assert 'if (applied && action) this.saveState(action);' in source
+    assert "'Remove Processor'" in source, (
+        "'Remove Processor' takes no history snapshot")
+    dock = js_source('app-dock.js')
     for action in ("'Add Processor'", "'Rename Processor'",
-                   "'Remove Processor'", "'Rename Card'",
-                   "'Rename Processor Port'",
+                   "'Rename Card'", "'Rename Processor Port'",
                    "'Rename Processor Port Return'"):
-        assert action in source, f'{action} takes no history snapshot'
+        assert action in dock, f'{action} takes no history snapshot'
 
 
 # ── 8. The row in a real browser, at both widths ──────────────────────────
+
+# The browser section asserts against the layer the e2e server seeds at ITS
+# first boot - a screen literally named Screen1. But when an earlier browser
+# module already started that server, this module's own Flask-client tests
+# have reset app_module.current_project by the time panel_page opens, and the
+# served project holds TestScreen or nothing. So the fixture rebuilds the
+# project it asserts against through the real endpoints - the RESET_JS idiom
+# test_data_sidebar.py documents - rather than trusting boot order.
+RESET_LAYERS_JS = """async () => {
+    const project = await (await fetch('/api/project')).json();
+    project.layers = [];
+    project.groups = [];
+    await fetch('/api/project', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(project),
+    });
+    await fetch('/api/layer/add', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Screen1', columns: 4, rows: 3,
+                               cabinet_width: 128, cabinet_height: 128 }),
+    });
+    window.app.project = await (await fetch('/api/project')).json();
+    const screen = window.app.project.layers.find(
+        l => (l.type || 'screen') === 'screen');
+    // The module's stock machine is a COEX MX20, and since the platform
+    // wall (2026-08-28) a screen only lands on gear its Processing setting
+    // matches - left unset, selecting it below would stamp the prefs
+    // default (Legacy) onto it and its ports would have nowhere to land.
+    screen.processorType = 'novastar-coex-1g';
+    await fetch(`/api/layer/${screen.id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ processorType: 'novastar-coex-1g' }),
+    });
+    window.app.currentLayer = screen;
+    window.app.selectedLayerIds = new Set([screen.id]);
+    window.app.lastSelectedLayerId = screen.id;
+    window.app.renderLayers();
+    window.app.loadLayerToInputs(screen);
+    window.app.updatePortCapacityDisplay();
+    if (window.canvasRenderer) window.canvasRenderer.render();
+    return screen.id;
+}"""
+
 
 RESET_PROCESSORS_JS = """async () => {
     const state = await (await fetch('/api/processors')).json();
@@ -1553,13 +1656,24 @@ RESET_PROCESSORS_JS = """async () => {
     return { procId: proc.id, cardId: card.id };
 }"""
 
-SET_WIDTH_JS = """(width) => {
-    document.documentElement.style.setProperty('--lrd-data-w', width + 'px');
+# A gear popover's fields only exist while the popover is open, so a driver
+# aiming at one opens the gear first - through the gear button itself, the
+# way a user does. Clicking the SAME gear again would toggle it closed, so
+# openers check the popover actually came up.
+OPEN_GEAR_JS = """(popId) => {
+    const gear = document.querySelector(`[data-hwpop="${popId}"]`);
+    if (!gear) return false;
+    const pop = document.getElementById('hw-gear-popover');
+    const open = !!(pop && pop.style.display !== 'none'
+        && window.app._hwPopover && window.app._hwPopover.id === popId);
+    if (!open) gear.click();
+    const after = document.getElementById('hw-gear-popover');
+    return !!(after && after.style.display !== 'none');
 }"""
 
-# The ports render as tiles and a port's editor only shows while its tile is
-# open, so a driver that measures or types into the editor first opens the
-# tile the way a user does - through its face.
+# The ports render as dock chips and a port's editor only shows while its
+# chip is open, so a driver that measures or types into the editor first
+# opens the chip the way a user does - through its face.
 OPEN_TILE_JS = """(tileId) => {
     const tile = document.querySelector(`[data-lrd-tile="${tileId}"]`);
     if (!tile) return false;
@@ -1570,72 +1684,81 @@ OPEN_TILE_JS = """(tileId) => {
 }"""
 
 MEASURE_ROW_JS = """(args) => {
-    const sidebar = document.getElementById('data-sidebar');
-    const list = document.getElementById('processor-list');
+    const body = document.getElementById('hardware-dock-body');
     const field = (kind) => document.querySelector(
         `[data-lrd-field="processor-port-${kind}-${args.cardId}-1"]`);
     const name = field('name');
     const ret = field('return');
     const vis = (el) => !!el && el.offsetWidth > 0 && el.offsetHeight > 0;
-    const limit = sidebar.getBoundingClientRect().right;
+    const limit = body.getBoundingClientRect().right;
     const inside = (el) => !!el
         && el.getBoundingClientRect().right <= limit + 0.5;
     return {
-        sidebarWidth: Math.round(sidebar.getBoundingClientRect().width),
         nameVisible: vis(name),
         returnVisible: vis(ret),
         nameInside: inside(name),
         returnInside: inside(ret),
         namePlaceholder: name ? name.placeholder : null,
         returnPlaceholder: ret ? ret.placeholder : null,
-        listClipped: list.scrollWidth > list.clientWidth,
+        listClipped: body.scrollWidth > body.clientWidth,
     };
 }"""
 
 
 @pytest.fixture(scope="module")
-def panel_page(e2e_server, pw_browser, server_project_guard):
-    # server_project_guard: these tests seed processors into the SHARED live
-    # server; the guard hands the project back the way the module found it
-    # (see tests/conftest.py).
+def panel_page(e2e_server, pw_browser):
+    # These tests seed processors into the SHARED live server; the module's
+    # autouse _guard (top of file) hands the project back the way the module
+    # found it - autouse so the snapshot lands BEFORE this module's Flask
+    # client tests rebuild the shared project (see tests/conftest.py).
     context = pw_browser.new_context()
     context.add_init_script(
         "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
     pg.wait_for_timeout(2000)  # socket connect + app init
+    assert pg.evaluate(RESET_LAYERS_JS), "test project was not created"
+    pg.wait_for_timeout(600)
     pg.locator('[data-mode="data-flow"]').click()
     pg.wait_for_timeout(400)
     yield pg
     context.close()
 
 
-@pytest.mark.parametrize('width', [260, 180])
+@pytest.mark.parametrize('width', [1280, 860])
 def test_the_port_row_renders_both_fields(panel_page, width):
-    """At the panel's usual width and at its 180px clamp: both boxes in
-    layout, both placeholders carrying the RESOLVED label for their own end
-    (SR-1 out, SR-1R back), both inside the panel's right edge, and the port
-    list not scrolling sideways - scrollWidth over clientWidth is exactly the
-    off-the-panel overflow the clamp forbids. The Port Assignment rows below
-    them are measured by their own test further down."""
+    """In the dock chip's open editor, at the usual window and a squeezed
+    one: both boxes in layout, both placeholders carrying the RESOLVED
+    label for their own end (SR-1 out, SR-1R back), both inside the tray's
+    right edge, and the tray not scrolling sideways - scrollWidth over
+    clientWidth is exactly the overflow the reflow rule forbids. The dock's
+    issue strip is measured by its own test further down."""
     pytest.importorskip("playwright.sync_api", reason="playwright not installed")
     ids = panel_page.evaluate(RESET_PROCESSORS_JS)
     panel_page.wait_for_timeout(600)
-    # The width change rides the panels' own transition, so it is set first
-    # and measured once the animation has landed.
-    panel_page.evaluate(SET_WIDTH_JS, width)
-    panel_page.wait_for_timeout(500)
-    assert panel_page.evaluate(OPEN_TILE_JS, f"port-{ids['cardId']}-1"), (
-        'port 1 has no tile to open')
-    panel_page.wait_for_timeout(100)
-    out = panel_page.evaluate(MEASURE_ROW_JS,
-                              {'cardId': ids['cardId'], 'width': width})
-    assert out['sidebarWidth'] == width, out
-    assert out['nameVisible'] and out['returnVisible'], out
-    assert out['nameInside'] and out['returnInside'], out
-    assert out['namePlaceholder'] == 'SR-1', out
-    assert out['returnPlaceholder'] == 'SR-1R', out
-    assert not out['listClipped'], 'the port list scrolls sideways'
+    panel_page.set_viewport_size({'width': width, 'height': 720})
+    panel_page.wait_for_timeout(400)
+    try:
+        assert panel_page.evaluate(OPEN_TILE_JS, f"port-{ids['cardId']}-1"), (
+            'port 1 has no chip to open')
+        panel_page.wait_for_timeout(100)
+        out = panel_page.evaluate(MEASURE_ROW_JS,
+                                  {'cardId': ids['cardId'], 'width': width})
+        assert out['nameVisible'] and out['returnVisible'], out
+        assert out['nameInside'] and out['returnInside'], out
+        assert out['namePlaceholder'] == 'SR-1', out
+        assert out['returnPlaceholder'] == 'SR-1R', out
+        assert not out['listClipped'], 'the dock body scrolls sideways'
+    finally:
+        # leave the chip closed for the next test - CLOSE, not toggle-open
+        panel_page.evaluate("""(tid) => {
+            const tile = document.querySelector(`[data-lrd-tile="${tid}"]`);
+            if (tile && tile.classList.contains('lrd-tile-open')) {
+                window.app._setTileOpen(tile, false);
+            }
+        }""", f"port-{ids['cardId']}-1")
+        panel_page.set_viewport_size({'width': 1280, 'height': 720})
+        panel_page.wait_for_timeout(300)
 
 
 def test_renaming_either_end_round_trips_through_undo(panel_page):
@@ -1718,10 +1841,13 @@ def test_the_add_control_offers_a_breakout_box_not_a_cvt():
     assert "'Add a breakout box...'" in source
     assert 'Add a CVT' not in source, (
         'the generic add control wears one vendor\'s product name')
-    for action in ("'Add Breakout Box'", "'Rename Breakout Box'",
-                   "'Remove Breakout Box'",
+    for action in ("'Add Breakout Box'", "'Remove Breakout Box'",
                    "'Edit Breakout Box Label Template'"):
         assert action in source, f'{action} missing from the history actions'
+    # The rename is the dock header's inline field now, so its action lives
+    # with its driver - still the generic device, never the vendor's.
+    assert "'Rename Breakout Box'" in js_source('app-dock.js'), (
+        "'Rename Breakout Box' missing from the dock's history actions")
     assert "'Add CVT'" not in source and "'Rename CVT'" not in source
 
 
@@ -1741,15 +1867,21 @@ def test_the_shared_trunk_messages_name_no_vendors_silkscreen():
     assert 'trunks' in why
 
 
-def test_the_panel_markup_says_breakout_box_generically():
+def test_the_dock_markup_says_box_generically():
+    """The dock's static markup - the tray's tooltip and its header bar -
+    is the generic surface now, so it speaks of boxes and never wears one
+    vendor's product name."""
     template = os.path.join(os.path.dirname(__file__), '..', 'src',
                             'templates', 'index.html')
     with open(template, encoding='utf-8') as fh:
         html = fh.read()
     assert 'CVT breakout boxes' not in html
-    start = html.index('<h2>Processors</h2>')
-    tooltip = html[html.rindex('data-tooltip', 0, start):start]
-    assert 'breakout box' in tooltip and 'CVT' not in tooltip
+    dock = html[html.index('id="hardware-dock"'):
+                html.index('id="hardware-dock-body"')]
+    assert 'CVT' not in dock, (
+        'the dock\'s generic markup wears one vendor\'s product name')
+    assert 'box' in dock, (
+        'the dock\'s tooltip no longer mentions the boxes it holds')
 
 
 # ── 10. Redundancy pairing, per vendor, no extrapolation ──────────────────
@@ -1758,7 +1890,8 @@ def test_the_panel_markup_says_breakout_box_generically():
 #
 # * BROMPTON (SX40, SQ200, and its breakout boxes): fixed adjacent pairs -
 #   "A back up to B, C back up to D automatically; that is the only way it
-#   works" - stated as a fact, enforced in the trunk blocks, never editable.
+#   works" - stated as a fact, wired port-to-port at box granularity (main
+#   socket n returns on n + 10 in the paired box), never editable.
 # * NOVASTAR: a primary box and a backup box is the DEFAULT when a card's
 #   mode has trunks backing trunks - created as a pair, freely overridden.
 # * MEGAPIXEL: nothing. No rule is documented, so no default is invented -
@@ -1799,42 +1932,245 @@ def test_brompton_pairing_is_a_fact_not_a_field(client):
         'the pairing leaked into stored state, where an edit could reach it')
 
 
-def test_brompton_boxes_pair_adjacent_and_the_pairing_is_enforced(client):
-    """Four XDs on a redundant SX40: the second box carries the FIRST box's
-    ports again (A backs up to B), the fourth carries the third's (C backs up
-    to D). Interleaving them - the NovaStar shape - would pair A with C,
-    which is not how Brompton runs. Redundancy off, the same four boxes are
-    four distinct blocks again."""
+def test_the_sx40_arrives_stocked_with_10_port_xd_boxes(client):
+    """The ruling, verbatim (2026-08-25): "The sx40 by default has to use 10
+    port breakout boxes." The SX40 has no fixture ports of its own, so a
+    fresh one arrives the way it leaves the shop: four 10-port XDs, one per
+    trunk, sockets 1-10 / 11-20 / 21-30 / 31-40. A default and nothing more
+    - each box deletes like any box - and the 12-port XD-S/XD-T stay
+    selectable in its place, still delivering only their first 10 behind
+    this device (the trunk cap), so 10 per box is the shape either way."""
+    state = add_processor(client, 'brompton-sx40')
+    card = first_card(only(state))
+    assert [c['deviceId'] for c in card['cvts']] == ['brompton-xd'] * 4
+    assert [c['portCount'] for c in card['cvts']] == [10, 10, 10, 10]
+    assert [c['firstPort'] for c in card['cvts']] == [1, 11, 21, 31]
+    assert card['trunksFree'] == 0
+    assert card['ceiling'] == 40 and card['delivered'] == 40
+    # Deleting a stocked box and hanging an XD-S on the freed trunk still
+    # lands at 10 ports: the sheets allow the box, not a bigger count.
+    pid = only(state)['id']
+    gone = card['cvts'][3]['id']
+    client.delete(f'/api/processors/{pid}/cvts/{gone}')
+    state = client.post(
+        f'/api/processors/{pid}/cards/{card["id"]}/cvts',
+        json={'deviceId': 'brompton-xd-s'}).get_json()
+    swapped = first_card(only(state))['cvts'][3]
+    assert (swapped['deviceId'], swapped['portCount']) == ('brompton-xd-s', 10)
+
+
+def test_a_pre_stocking_save_gets_its_default_boxes_back_on_load(client):
+    """Projects saved before new_processor stocked the defaults carry an
+    SX40 with an empty cvts list. That is never a state anyone chose - the
+    device has no fixture ports of its own, so a boxless SX40 drives
+    nothing (the 2026-08-25 ruling again: "The sx40 by default has to use
+    10 port breakout boxes"). Loading such a file restocks the fixed card
+    with exactly what a fresh add gets: four XDs, one per trunk A-D."""
+    add_processor(client, 'brompton-sx40')
+    saved = client.get('/api/project').get_json()
+    saved['processors'][0]['slots'][0]['card']['cvts'] = []
+    assert client.put('/api/project', json=saved).status_code == 200
+
+    card = first_card(only(client.get('/api/processors').get_json()))
+    assert [c['deviceId'] for c in card['cvts']] == ['brompton-xd'] * 4
+    assert [c['trunkLetter'] for c in card['cvts']] == ['A', 'B', 'C', 'D']
+    assert [c['firstPort'] for c in card['cvts']] == [1, 11, 21, 31]
+    assert card['ceiling'] == 40 and card['delivered'] == 40
+    # The heal reached STORED state, not just the resolved answer: the next
+    # save writes a stocked file, and this file never heals again.
+    stored = client.get('/api/project').get_json()['processors'][0]
+    assert len(stored['slots'][0]['card']['cvts']) == 4
+
+
+def test_a_card_with_even_one_box_is_somebodys_arrangement(client):
+    """The heal is exactly as narrow as the birth rule: one box on the card
+    means somebody arranged it, and a reload hands back precisely what was
+    saved - no topping up to four."""
     state = add_processor(client, 'brompton-sx40')
     pid = only(state)['id']
-    card_id = first_card(only(state))['id']
-    client.put(f'/api/processors/{pid}', json={'redundancy': True})
-    state = add_boxes(client, pid, card_id, 4, 'brompton-xd')
     card = first_card(only(state))
-    assert [c['firstPort'] for c in card['cvts']] == [1, 1, 11, 11]
-    assert [c['duplicateOf'] for c in card['cvts']] == [
-        None, card['cvts'][0]['id'], None, card['cvts'][2]['id']]
+    for box in card['cvts'][1:]:
+        client.delete(f'/api/processors/{pid}/cvts/{box["id"]}')
+    kept = card['cvts'][0]['id']
+
+    saved = client.get('/api/project').get_json()
+    assert client.put('/api/project', json=saved).status_code == 200
+    cvts = first_card(only(client.get('/api/processors').get_json()))['cvts']
+    assert [c['id'] for c in cvts] == [kept]
+
+
+def test_a_device_with_no_documented_default_gains_nothing_on_load(client):
+    """The HELIOS 8K needs distribution too, but no default box is
+    documented for it - and an invented one is still invented on the load
+    path. Its empty card is its normal state, before and after."""
+    add_processor(client, 'megapixel-helios-8k')
+    saved = client.get('/api/project').get_json()
+    assert saved['processors'][0]['slots'][0]['card']['cvts'] == []
+    assert client.put('/api/project', json=saved).status_code == 200
+    assert first_card(only(client.get('/api/processors').get_json()))['cvts'] \
+        == []
+    stored = client.get('/api/project').get_json()['processors'][0]
+    assert stored['slots'][0]['card']['cvts'] == []
+
+
+def test_healed_ids_never_land_on_ids_the_file_already_holds(client):
+    """A legacy file can carry other boxes AND a counter that trails the
+    ids in it (or lost it outright, as here). Restocked ids must dodge
+    every id already in the tree - a reused id would land edits on the
+    wrong box."""
+    add_processor(client, 'brompton-sx40')  # keeps its cvt1f0..cvt1f3
+    add_processor(client, 'brompton-sx40')  # stripped below
+    saved = client.get('/api/project').get_json()
+    saved['processors'][1]['slots'][0]['card']['cvts'] = []
+    saved.pop('next_processor_seq', None)
+    assert client.put('/api/project', json=saved).status_code == 200
+
+    stored = client.get('/api/project').get_json()['processors']
+    ids = [c['id'] for proc in stored for slot in proc['slots']
+           for c in slot['card']['cvts']]
+    assert len(ids) == 8, 'the stripped SX40 was not restocked'
+    assert len(set(ids)) == 8, f'an id was minted twice: {sorted(ids)}'
+    resolved = client.get('/api/processors').get_json()['resolved']
+    assert all(first_card(p)['delivered'] == 40 for p in resolved)
+
+
+def test_the_heal_runs_at_the_project_funnel_never_on_a_read(client):
+    """Deleting every box in one session is an edit in progress - mid-swap
+    to a different box type, say - and a GET must not restock behind it.
+    The heal lives only where a whole project enters server state."""
+    state = add_processor(client, 'brompton-sx40')
+    pid = only(state)['id']
+    for box in first_card(only(state))['cvts']:
+        client.delete(f'/api/processors/{pid}/cvts/{box["id"]}')
+    assert first_card(only(client.get('/api/processors').get_json()))['cvts'] \
+        == []
+    stored = client.get('/api/project').get_json()['processors'][0]
+    assert stored['slots'][0]['card']['cvts'] == [], (
+        'a read restocked the card mid-edit')
+
+
+def test_redundancy_on_no_longer_limits_the_sx40_to_20_renumbered_primaries(
+        client):
+    """The reported defect (2026-08-25): "setting redundancy on limits to 20
+    primaries but it should be 10 per box." The old model halved the ceiling
+    to 20 and renumbered - box C read sockets 11-20 instead of its own
+    21-30, box D repeated them, and sockets 21-40 left the drawing, so a
+    tech patching socket 21 could not find socket 21. Redundancy is a
+    patching plan, never a renumbering: all 40 sockets stay, what halves is
+    what is USABLE - 20, ten per primary box."""
+    state = add_processor(client, 'brompton-sx40')
+    pid = only(state)['id']
+    state = client.put(f'/api/processors/{pid}',
+                       json={'redundancy': True}).get_json()
+    proc = only(state)
+    card = first_card(proc)
+    assert proc['ceiling'] == 40 and card['ceiling'] == 40
+    assert [p['number'] for p in card['ports']] == list(range(1, 41))
+    assert [c['firstPort'] for c in card['cvts']] == [1, 11, 21, 31], (
+        'a box was renumbered off its own sockets')
+    assert all(c['duplicateOf'] is None for c in card['cvts']), (
+        'a backup box was drawn as a second delivery of its primary\'s ports')
+    assert card['redundancyShape'] == {'mode': 'sequential', 'forced': True,
+                                       'level': 'trunk', 'usable': 20}
+
+
+def test_brompton_boxes_pair_adjacent_and_the_pairing_is_enforced(client):
+    """The four XDs on a redundant SX40 pair as WHOLE boxes, adjacent - A
+    backs up to B, C backs up to D - so the primaries are boxes A (sockets
+    1-10) and C (21-30) and each main returns on the same socket of the box
+    beside it: 1 on 11, 10 on 20, 21 on 31, 30 on 40. Interleaving them -
+    the NovaStar shape - would pair A with C, which is not how Brompton
+    runs. Redundancy off, the same four boxes are four plain blocks with no
+    roles at all."""
+    state = add_processor(client, 'brompton-sx40')
+    pid = only(state)['id']
+    state = client.put(f'/api/processors/{pid}',
+                       json={'redundancy': True}).get_json()
+    card = first_card(only(state))
+    a, b, c, d = card['cvts']
+    assert [v['backupOf'] for v in (a, b, c, d)] == [
+        None, a['id'], None, c['id']]
+    ports = {p['number']: p for p in card['ports']}
+    for main in list(range(1, 11)) + list(range(21, 31)):
+        assert ports[main]['backedBy']['port'] == main + 10, ports[main]
+        assert ports[main + 10]['backsUp']['port'] == main, ports[main + 10]
+        # The 1:1 mirror in the numbers a hand can find (2026-08-27: "B is
+        # 1-10 and D is 1-10"): A-n returns on B's OWN socket n, so both
+        # ends of every link wear the same local number, and the link names
+        # the box that number counts on.
+        local = (main - 1) % 10 + 1
+        assert ports[main]['backedBy']['localPort'] == local, ports[main]
+        assert ports[main + 10]['backsUp']['localPort'] == local, \
+            ports[main + 10]
+    assert [ports[n]['backedBy']['boxTitle'] for n in (1, 21)] == \
+        ['Tessera XD B', 'Tessera XD D']
+    assert not any(ports[n].get('backedBy') for n in range(11, 21)), (
+        'a backing socket was given a backup of its own')
+    # The four faces as drawn: every box is 1-10 on its own silkscreen.
+    assert all([p['localNumber'] for p in box['ports']] == list(range(1, 11))
+               for box in card['cvts'])
 
     state = client.put(f'/api/processors/{pid}',
                        json={'redundancy': False}).get_json()
     card = first_card(only(state))
-    assert [c['firstPort'] for c in card['cvts']] == [1, 11, 21, 31]
-    assert all(c['duplicateOf'] is None for c in card['cvts'])
+    assert [v['firstPort'] for v in card['cvts']] == [1, 11, 21, 31]
+    assert all(v['backupOf'] is None for v in card['cvts'])
+    assert not any(p.get('backedBy') or p.get('backsUp')
+                   for p in card['ports'])
+
+
+def test_brompton_return_labels_resolve_to_the_backing_boxs_own_sockets(
+        client):
+    """Name the boxes what the truck calls them and the loom reads itself:
+    main A-1 returns on B-1 because socket 11 IS box B's first socket - the
+    mapped socket's own label, through the same ladder every mapping uses,
+    so a name typed on one return end still wins over it."""
+    state = add_processor(client, 'brompton-sx40')
+    pid = only(state)['id']
+    card = first_card(only(state))
+    for box, name in zip(card['cvts'], ('A', 'B', 'C', 'D')):
+        client.put(f'/api/processors/{pid}/cvts/{box["id"]}',
+                   json={'name': name})
+    state = client.put(f'/api/processors/{pid}',
+                       json={'redundancy': True}).get_json()
+    ports = {p['number']: p for p in first_card(only(state))['ports']}
+    assert (ports[1]['label'], ports[1]['returnLabel']) == ('A-1', 'B-1')
+    assert (ports[10]['label'], ports[10]['returnLabel']) == ('A-10', 'B-10')
+    assert (ports[21]['label'], ports[21]['returnLabel']) == ('C-1', 'D-1')
+    assert (ports[30]['label'], ports[30]['returnLabel']) == ('C-10', 'D-10')
+    # The backing sockets' own primary labels count on their own faces too
+    # (2026-08-27: "B is 1-10 and D is 1-10") - B's first socket is B-1,
+    # never B-11.
+    assert ports[11]['label'] == 'B-1' and ports[31]['label'] == 'D-1'
+    assert all(ports[n]['returnLabelSource'] == 'backup'
+               for n in (1, 10, 21, 30))
+    # A typed return name still beats the mapping - the ladder is untouched.
+    resp = client.put(f'/api/processors/{pid}/cards/{card["id"]}/ports/1',
+                      json={'returnName': 'SPARE-1'})
+    ports = {p['number']: p for p in first_card(only(resp.get_json()))['ports']}
+    assert (ports[1]['returnLabel'], ports[1]['returnLabelSource']) == \
+        ('SPARE-1', 'manual')
+    assert ports[2]['returnLabel'] == 'B-2'
 
 
 def test_brompton_adds_one_box_per_add(client):
     """The enforcement is the SHAPE, not extra units: Brompton gets no
-    auto-created backup box - the second box someone adds IS the backup,
-    because adjacent pairing leaves it nothing else to be."""
+    auto-created backup box - a box added onto the second trunk of a pair
+    IS the backup, because adjacent pairing leaves it nothing else to be.
+    Two trunks are freed here so there is room to see exactly one arrive."""
     state = add_processor(client, 'brompton-sx40')
     pid = only(state)['id']
-    card_id = first_card(only(state))['id']
+    card = first_card(only(state))
+    for box in card['cvts'][2:]:
+        client.delete(f'/api/processors/{pid}/cvts/{box["id"]}')
     client.put(f'/api/processors/{pid}', json={'redundancy': True})
-    state = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
+    state = client.post(f'/api/processors/{pid}/cards/{card["id"]}/cvts',
                         json={'deviceId': 'brompton-xd'}).get_json()
     card = first_card(only(state))
-    assert len(card['cvts']) == 1
-    assert card['cvts'][0]['backupOf'] is None
+    assert len(card['cvts']) == 3
+    raw = state['processors'][0]['slots'][0]['card']
+    assert all('backupOf' not in v for v in raw['cvts']), (
+        'a pairing fact leaked into stored state')
 
 
 def test_the_sq200_states_the_rule_without_lettering_unknown_outputs(client):
@@ -1854,16 +2190,64 @@ def test_the_sq200_states_the_rule_without_lettering_unknown_outputs(client):
     assert proc['ceilingKnown'] is False, 'the pairing invented a count'
 
 
-def test_the_other_tesseras_halve_but_claim_no_pairing_shape(client):
-    """The rule was given for the SX40 and SQ200 by name. The S8 still halves
-    - that much is documented - but no pairing statement is extrapolated onto
-    it, not even the plausible one."""
+def test_the_s8_pairs_fixed_adjacent_ports_by_the_2026_08_23_ruling(client):
+    """The second pairing rule arrived by name (2026-08-23): the SX40 "does
+    A to B and C to D on one sx40", "and S8 does 1to2 and so on". Port-level
+    this time - the S8 has no trunks to letter, its eight RJ45s pair
+    directly - so the statement numbers the ports, the even ports resolve as
+    the odd ones' returns, and the ceiling stays 8: port 2 still EXISTS, it
+    is the socket main 1's return loom lands on, and a tech patching it
+    needs it on the drawing. Usable is what halves."""
     state = add_processor(client, 'brompton-s8')
     pid = only(state)['id']
     resp = client.put(f'/api/processors/{pid}', json={'redundancy': True})
     proc = only(resp.get_json())
-    assert proc['ceiling'] == 4
-    assert proc['redundancyPairing'] is None
+    pairing = proc['redundancyPairing']
+    assert pairing['fixed'] is True
+    assert pairing['pairs'] == [{'primary': '1', 'backup': '2'},
+                                {'primary': '3', 'backup': '4'},
+                                {'primary': '5', 'backup': '6'},
+                                {'primary': '7', 'backup': '8'}]
+    assert '1 backs up to 2' in pairing['statement']
+    assert proc['ceiling'] == 8
+    card = first_card(proc)
+    assert card['redundancyShape'] == {'mode': 'sequential', 'forced': True,
+                                       'level': 'port', 'usable': 4}
+    evens = [p for p in card['ports'] if p['number'] % 2 == 0]
+    assert [p['backsUp']['port'] for p in evens] == [1, 3, 5, 7]
+    # Fixed means fixed: the mode select's PUT is refused, not stored.
+    card_id = card['id']
+    resp = client.put(f'/api/processors/{pid}/cards/{card_id}',
+                      json={'redundancyMode': 'manual'})
+    assert resp.status_code == 400
+    assert 'fact of the device' in resp.get_json()['error']
+
+
+def test_the_s4_and_m2_stay_unruled_and_present_the_modes(client):
+    """The ruling named the S8 only - "and so on" is the port sequence
+    1 to 2, 3 to 4, not the rest of the range - so the S4 and M2 still claim
+    no pairing shape, and under the data modes an unforced device presents
+    the mode select: 1:1 by default, which consumes a BACKUP unit and halves
+    nothing on the main. The documented halving still holds where the
+    on-unit loop is chosen: sequential leaves 2 of 4 usable."""
+    for device_id in ('brompton-s4', 'brompton-m2'):
+        state = add_processor(client, device_id)
+        proc = state['resolved'][-1]
+        pid = proc['id']
+        resp = client.put(f'/api/processors/{pid}', json={'redundancy': True})
+        proc = next(p for p in resp.get_json()['resolved'] if p['id'] == pid)
+        assert proc['redundancyPairing'] is None, device_id
+        card = first_card(proc)
+        assert card['redundancyShape']['mode'] == '1to1', device_id
+        assert card['redundancyShape']['forced'] is False, device_id
+        assert card['ceiling'] == 4, (
+            f'{device_id}: 1:1 halved the main - the backup unit is what it '
+            f'consumes')
+        resp = client.put(f'/api/processors/{pid}/cards/{card["id"]}',
+                          json={'redundancyMode': 'sequential'})
+        card = first_card(next(p for p in resp.get_json()['resolved']
+                               if p['id'] == pid))
+        assert card['redundancyShape']['usable'] == 2, device_id
 
 
 def test_a_novastar_box_in_redundancy_defaults_to_a_pair(client):
@@ -1980,16 +2364,21 @@ def test_a_copy_own_ports_card_gets_no_pair(client):
 
 def test_megapixel_gets_no_default_and_no_claimed_pairing(client):
     """"I'm not sure about how megapixel works" is an instruction: no
-    redundancy toggle, no pairing statement, no auto-created backup unit.
-    Manual wiring only - the absence is asserted so nobody fills it in as a
-    tidy-up."""
+    pairing statement, no auto-created backup unit, no device rule invented.
+    The redundancy TOGGLE does appear now - with the data modes it stopped
+    being a claim about the device and became a plan for the loom (any unit
+    can be mirrored 1:1 by a second unit) - but everything vendor-documented
+    stays absent, and that absence is asserted so nobody fills it in as a
+    tidy-up. Only an explicit "supported: false" (the T1) keeps the toggle
+    away."""
     assert 'redundancy' not in catalog.get_device('megapixel-helios-8k')
     assert catalog.default_backup_pair(
         {'deviceId': 'megapixel-helios-8k'}) is False
     state = add_processor(client, 'megapixel-helios-8k')
     proc = only(state)
-    assert proc['redundancySupported'] is False, (
-        'a redundancy toggle appeared for a vendor with no documented rule')
+    assert proc['redundancySupported'] is True, (
+        'the loom-level toggle should reach every device not documented '
+        'unable')
     assert proc['redundancyPairing'] is None
     pid = proc['id']
     card_id = first_card(proc)['id']
@@ -2001,33 +2390,42 @@ def test_megapixel_gets_no_default_and_no_claimed_pairing(client):
     assert card['redundancyPairing'] is None
 
 
-def test_the_panel_states_the_pairing_and_offers_no_control_for_it():
-    """The pairing renders as text under the redundancy switch - the server's
-    statement, verbatim - and as a 'backs up X' line on the backup box row.
-    No select, no input, no lrd-field: a fact, not a setting."""
+def test_the_gear_states_the_pairing_and_offers_no_control_for_it():
+    """The pairing renders as text under the redundancy switch inside the
+    processor's gear popover - the server's statement, verbatim - and as a
+    'backs up X' line in the backup box's gear. No select, no input, no
+    lrd-field: a fact, not a setting."""
     source = js_source('app-processors.js')
     assert 'proc.redundancyPairing' in source
     assert 'pairing.statement' in source or \
         'redundancyPairing.statement' in source
     assert 'backs up ${who}' in source
+    # The statement lives in the PROCESSOR gear's content, under the switch.
+    assert source.index('_buildProcGearContent') \
+        < source.index('redundancyPairing') \
+        < source.index('_buildCardGearContent'), (
+        'the pairing statement left the processor gear popover')
     section = source[source.index('redundancyPairing'):]
-    head = section[:section.index('_buildSlot')]
+    head = section[:section.index('_buildCardGearContent')]
     assert 'lrdField' not in head.split('appendChild(fact)')[0].rsplit(
         'const fact', 1)[-1], 'the pairing fact grew a focus key - a control'
 
 
-# ── 11. The port list is the sidebar's height, not its own ────────────────
+# ── 11. The ports live on the dock; its body is their scroll context ──────
 
-def test_the_port_list_has_no_inner_scroll_cap():
-    """The sidebar is the ONE scroll context. The list used to cap itself at
-    190px - two and a half ports of twenty, a scrollbox nested inside the
-    scrolling sidebar - and the fold on the section header is the way to put
-    a long list away, not an inner scrollbar."""
+def test_the_processors_module_builds_no_port_grid():
+    """The dock is the one place ports appear, so the processors module
+    (which owns the state side and the gear popovers' content) builds no
+    port list, no port tile and no port field - a second grid would be the
+    same data twice, and it must not quietly come back and split the focus
+    keys between two surfaces."""
     source = js_source('app-processors.js')
-    body = source[source.index('_buildPortList(proc, card) {'):]
-    body = body[:body.index('\n    }')]
-    assert 'maxHeight' not in body, 'the port list capped itself again'
-    assert 'overflow' not in body, 'the port list scrolls inside the sidebar'
+    for gone in ('_buildPortList', '_buildPortTile', '_buildPortRow',
+                 'processor-port-name-', 'processor-port-return-',
+                 'processor-port-backup-'):
+        assert gone not in source, (
+            f'{gone!r} is back in the processors module - ports belong to '
+            f'the dock now')
 
 
 PORT_LIST_SEED_JS = """async () => {
@@ -2050,14 +2448,14 @@ PORT_LIST_SEED_JS = """async () => {
 }"""
 
 MEASURE_PORT_LIST_JS = """(args) => {
-    const sidebar = document.getElementById('data-sidebar');
+    const body = document.getElementById('hardware-dock-body');
     const rows = document.querySelectorAll(
         `[data-lrd-field^="processor-port-name-${args.cardId}-"]`);
     const last = rows[rows.length - 1];
-    // Any scrolling ancestor STRICTLY between a port row and the sidebar is
-    // a nested scrollbox - the double scroll this test exists to forbid.
+    // Any scrolling ancestor STRICTLY between a port chip and the dock body
+    // is a nested scrollbox - the double scroll this test exists to forbid.
     const nested = [];
-    for (let el = last.parentElement; el && el !== sidebar;
+    for (let el = last.parentElement; el && el !== body;
          el = el.parentElement) {
         const cs = getComputedStyle(el);
         if ((cs.overflowY === 'auto' || cs.overflowY === 'scroll')
@@ -2065,53 +2463,70 @@ MEASURE_PORT_LIST_JS = """(args) => {
             nested.push(el.id || el.className || el.tagName);
         }
     }
-    // Reaching port 20 must be the SIDEBAR's scroll and nobody else's:
-    // scroll the row into view, then check it landed inside the sidebar's
-    // box and that the sidebar is the thing that moved.
-    sidebar.scrollTop = 0;
+    // Reaching port 20 must be the DOCK BODY's scroll and nobody else's:
+    // scroll the field into view, then check it landed inside the body's
+    // box and that the body is the thing that moved.
+    body.scrollTop = 0;
     last.scrollIntoView({ block: 'nearest' });
-    const s = sidebar.getBoundingClientRect();
+    const s = body.getBoundingClientRect();
     const r = last.getBoundingClientRect();
     return {
         ports: rows.length,
         nested: nested,
-        sidebarScrolls: sidebar.scrollHeight > sidebar.clientHeight + 1,
-        sidebarMoved: sidebar.scrollTop > 0,
+        bodyScrolls: body.scrollHeight > body.clientHeight + 1,
+        bodyMoved: body.scrollTop > 0,
         lastReachable: r.top >= s.top - 0.5 && r.bottom <= s.bottom + 0.5,
     };
 }"""
 
 
-def test_sidebar_scroll_alone_reaches_all_twenty_ports(panel_page):
-    """A 20-port card, drawn at its natural height: every port row is reached
-    by scrolling the SIDEBAR, and nothing between a row and the sidebar
-    scrolls on its own - the wall of ports is one list in one column, foldable
-    by its section header rather than trapped in a 190px window."""
+def test_dock_scroll_alone_reaches_all_twenty_ports(panel_page):
+    """A 20-port card in the tray: every port chip - the open editor at the
+    far end included - is reached by scrolling the DOCK BODY, and nothing
+    between a chip and the body scrolls on its own. The tray is squeezed to
+    its resize floor first so it actually has something to scroll."""
     pytest.importorskip("playwright.sync_api", reason="playwright not installed")
     ids = panel_page.evaluate(PORT_LIST_SEED_JS)
     panel_page.wait_for_timeout(600)
-    panel_page.evaluate(SET_WIDTH_JS, 260)
+    # the dock's own height var (theme.js's resize row), floored at 100px
+    panel_page.evaluate("""() => document.documentElement.style
+        .setProperty('--lrd-dock-h', '100px')""")
     panel_page.wait_for_timeout(400)
-    # port 20's editor is the far end of the walk, so it is the one opened
-    assert panel_page.evaluate(OPEN_TILE_JS, f"port-{ids['cardId']}-20"), (
-        'port 20 has no tile to open')
-    panel_page.wait_for_timeout(100)
-    out = panel_page.evaluate(MEASURE_PORT_LIST_JS, {'cardId': ids['cardId']})
-    assert out['ports'] == 20, out
-    assert not out['nested'], (
-        f"a scrollbox sits between the port rows and the sidebar: "
-        f"{out['nested']}")
-    assert out['sidebarScrolls'], (
-        'the sidebar has nothing to scroll - the list is not at natural '
-        'height, so this test proves nothing')
-    assert out['sidebarMoved'], (
-        'port 20 came into view without the sidebar scrolling - something '
-        'else is doing the scrolling')
-    assert out['lastReachable'], (
-        'scrolling the sidebar does not bring port 20 into view')
+    try:
+        # port 20's editor is the far end of the walk, so it is the one opened
+        assert panel_page.evaluate(OPEN_TILE_JS, f"port-{ids['cardId']}-20"), (
+            'port 20 has no chip to open')
+        panel_page.wait_for_timeout(100)
+        out = panel_page.evaluate(MEASURE_PORT_LIST_JS,
+                                  {'cardId': ids['cardId']})
+        assert out['ports'] == 20, out
+        assert not out['nested'], (
+            f"a scrollbox sits between the port chips and the dock body: "
+            f"{out['nested']}")
+        assert out['bodyScrolls'], (
+            'the dock body has nothing to scroll at its 100px floor, so '
+            'this test proves nothing')
+        assert out['bodyMoved'], (
+            'port 20 came into view without the dock body scrolling - '
+            'something else is doing the scrolling')
+        assert out['lastReachable'], (
+            'scrolling the dock body does not bring port 20 into view')
+    finally:
+        panel_page.evaluate("""() => document.documentElement.style
+            .removeProperty('--lrd-dock-h')""")
+        panel_page.wait_for_timeout(300)
 
 
-# ── 12. The Port Assignment rows fit the clamp ────────────────────────────
+# ── 12. The issue strip is the refuse-and-offer surface ───────────────────
+#
+# The Port Numbering panel's issue boxes and foot re-homed: the issues are
+# the slim strip rows under the dock's header (#hw-dock-issues, offers as
+# inline buttons, same wording from the server) and the per-card usage
+# foot is the card headers' used/capacity glance. The auto toggle is
+# retired from the UI entirely - the strip's amber auto-off row (and its
+# turn-back-on offer) is the one recovery path for a legacy project saved
+# with auto off, and per-screen overflow lives under the header's
+# attachment flag (test_hardware_dock.py owns that surface).
 
 ASSIGNMENT_FIT_JS = """(hostId) => {
     const host = document.getElementById(hostId);
@@ -2134,41 +2549,142 @@ ASSIGNMENT_FIT_JS = """(hostId) => {
 }"""
 
 
-@pytest.mark.parametrize('width', [260, 180])
-def test_the_port_assignment_rows_fit_at_both_widths(panel_page, width):
-    """The move/pin rows and the Move whole block tools measured at the
-    default and at the clamp: nothing hangs past the panel's edge and the
-    list does not scroll sideways. Before the wrap treatment the rows'
-    scrollWidth was 203 in a 165px column at the clamp - the same overflow
-    the distro and soca rows were taught out of."""
+@pytest.mark.parametrize('width', [1280, 860])
+def test_the_issue_strip_fits_at_both_widths(panel_page, width):
+    """The strip with a real issue in it - the auto-off row and its offer
+    button - measured at the usual window and a squeezed one: nothing hangs
+    past the strip's edge and nothing scrolls sideways. (The old widths
+    were the retired sidebar's clamp; the strip spans the window now, so
+    the squeeze is the viewport's.)"""
     pytest.importorskip("playwright.sync_api", reason="playwright not installed")
     panel_page.evaluate(RESET_PROCESSORS_JS)
     panel_page.wait_for_timeout(800)
-    panel_page.evaluate(SET_WIDTH_JS, width)
-    panel_page.wait_for_timeout(500)
-    for host in ('port-assignment-list', 'port-assignment-foot'):
-        m = panel_page.evaluate(ASSIGNMENT_FIT_JS, host)
-        assert m, f'#{host} is not in the document'
-        if host == 'port-assignment-list':
-            assert m['rows'] > 0, (
-                'no assignment rows rendered - the seed screen carries no '
-                'ports, so this test proves nothing')
+    panel_page.set_viewport_size({'width': width, 'height': 720})
+    panel_page.wait_for_timeout(400)
+    try:
+        # auto off raises the one issue every seeded project can have. The
+        # UI no longer offers the trip (the toggle is retired), so this
+        # drives the endpoint the way a legacy project's saved state would
+        # arrive - and the amber row is exactly the recovery path for that.
+        panel_page.evaluate(
+            "() => window.app._assignmentRequest("
+            "'/api/port-assignments', 'PUT', {auto: false})")
+        panel_page.wait_for_timeout(800)
+        m = panel_page.evaluate(ASSIGNMENT_FIT_JS, 'hw-dock-issues')
+        assert m, '#hw-dock-issues is not in the document'
+        assert m['rows'] > 0, (
+            'the strip rendered nothing - the auto-off issue never came up, '
+            'so this test proves nothing')
         assert not m['strays'], (
-            f"#{host} controls hang outside the panel at {width}px: "
+            f"strip content hangs outside the tray at {width}px: "
             f"{m['strays']} (host clientWidth {m['clientW']}px)")
         assert m['scrollW'] <= m['clientW'], (
-            f"#{host} scrolls sideways at {width}px: content {m['scrollW']}px "
-            f"in a {m['clientW']}px column")
+            f"the strip scrolls sideways at {width}px: content "
+            f"{m['scrollW']}px in a {m['clientW']}px tray")
+    finally:
+        panel_page.evaluate(
+            "() => window.app._assignmentRequest("
+            "'/api/port-assignments', 'PUT', {auto: true})")
+        panel_page.wait_for_timeout(800)
+        panel_page.set_viewport_size({'width': 1280, 'height': 720})
+        panel_page.wait_for_timeout(300)
+
+
+def test_the_dock_strip_reports_offers_and_recovers_auto(panel_page):
+    """The Port Numbering panel's remains, in their dock homes: the issue
+    rows with their offer buttons on the strip, the per-card usage as the
+    card headers' used/capacity glance, the attachment flag on the header
+    bar - and no per-port rows and no auto toggle at all (assignment is
+    the dock's drag, and the UI never offers the auto:false trip). The
+    refuse-and-offer surface is the part a drag cannot replace, so the
+    legacy path is proven live end to end: a project arriving with auto
+    off (driven at the endpoint, the way a saved file arrives) raises the
+    amber auto-off row with its offer, and taking the offer turns auto
+    back on."""
+    pytest.importorskip("playwright.sync_api", reason="playwright not installed")
+    ids = panel_page.evaluate(RESET_PROCESSORS_JS)
+    panel_page.wait_for_timeout(800)
+
+    shape = panel_page.evaluate("""(cardId) => {
+        const strip = document.getElementById('hw-dock-issues');
+        const flag = document.getElementById('hw-dock-flag');
+        const head = document.querySelector(
+            `[data-lrd-sec="hwdock-card-${cardId}"]`);
+        const use = head && head.querySelector('.hw-dock-unit-use');
+        return {
+            stripInDock: !!strip && !!strip.closest('#hardware-dock'),
+            retiredHosts: ['processor-list', 'port-assignment-issues',
+                           'port-assignment-foot', 'port-assignment-list',
+                           'port-assignment-auto', 'hw-dock-auto-wrap']
+                .filter(id => document.getElementById(id)),
+            flagInHeader: !!(flag && flag.closest('.hw-dock-head')),
+            cardGlance: use ? use.textContent : null,
+            rowButtons: [...(strip ? strip.querySelectorAll('button') : [])]
+                .map(b => b.textContent.trim())
+                .filter(t => ['move', 'pin', 'release', 'close',
+                              'Move whole block',
+                              'Release all pins'].includes(t)),
+        };
+    }""", ids['cardId'])
+    assert shape['stripInDock'], shape
+    assert shape['retiredHosts'] == [], (
+        f"retired Signal panel hosts (or the retired auto toggle) are "
+        f"back: {shape['retiredHosts']}")
+    assert shape['rowButtons'] == [], (
+        f"per-port assignment controls are back: {shape['rowButtons']}")
+    assert shape['flagInHeader'], (
+        f'the attachment flag left the dock header: {shape}')
+    assert shape['cardGlance'] and '/' in shape['cardGlance'], (
+        f'the per-card usage glance is gone from the card header: {shape}')
+
+    # a legacy project's auto:false raises the auto-off issue and its offer
+    panel_page.evaluate(
+        "() => window.app._assignmentRequest("
+        "'/api/port-assignments', 'PUT', {auto: false})")
+    panel_page.wait_for_timeout(800)
+    issue = panel_page.evaluate("""() => {
+        const strip = document.getElementById('hw-dock-issues');
+        const offer = [...strip.querySelectorAll('button')]
+            .find(b => b.textContent.includes('auto-numbering on'));
+        const row = offer && offer.closest('.hw-dock-issue');
+        return {text: strip.textContent, offer: !!offer,
+                mild: !!(row && row.classList.contains(
+                    'hw-dock-issue-mild'))};
+    }""")
+    assert issue['offer'], f'the auto-off issue carries no offer: {issue}'
+    assert issue['mild'], (
+        f'auto-off is a condition, not a question - it wears the amber '
+        f'row: {issue}')
+
+    # taking the offer is the recovery path - auto back on, issue gone
+    panel_page.evaluate("""() => {
+        [...document.querySelectorAll('#hw-dock-issues button')]
+            .find(b => b.textContent.includes('auto-numbering on')).click();
+    }""")
+    panel_page.wait_for_timeout(800)
+    after = panel_page.evaluate("""() => ({
+        on: !!(window.app._assignment && window.app._assignment.auto),
+        issues: document.getElementById('hw-dock-issues').textContent,
+    })""")
+    assert after['on'], f'the offer did not turn auto back on: {after}'
+    assert 'auto' not in after['issues'].lower() or after['issues'] == '', (
+        f'the auto-off issue is still up: {after}')
 
 
 def test_the_return_template_round_trips_through_undo(panel_page):
-    """The backup template through the real input: the edit lands on the
-    server, earns its own named history entry, and undo/redo walk the whole
-    card's returns back to <primary>R and forward to the template again."""
+    """The backup template through the real input - which lives in the
+    card's gear popover now, so the driver opens the gear the way a user
+    does: the edit lands on the server, earns its own named history entry,
+    survives the dock rebuild the round trip causes (the popover re-renders
+    in place while it stays open), and undo/redo walk the whole card's
+    returns back to <primary>R and forward to the template again."""
     pytest.importorskip("playwright.sync_api", reason="playwright not installed")
     ids = panel_page.evaluate(RESET_PROCESSORS_JS)
     panel_page.wait_for_timeout(600)
 
+    assert panel_page.evaluate(OPEN_GEAR_JS, f"card-{ids['cardId']}"), (
+        'the card gear did not open')
+    panel_page.wait_for_timeout(200)
     panel_page.evaluate("""(args) => {
         const input = document.querySelector(
             `[data-lrd-field="processor-card-return-template-${args.cardId}"]`);
@@ -2176,6 +2692,18 @@ def test_the_return_template_round_trips_through_undo(panel_page):
         input.dispatchEvent(new Event('change', { bubbles: true }));
     }""", {'cardId': ids['cardId']})
     panel_page.wait_for_timeout(800)
+
+    # The rebuild the round trip caused re-rendered the popover in place:
+    # still open, the field back under its key with the stored value.
+    survived = panel_page.evaluate("""(cardId) => {
+        const pop = document.getElementById('hw-gear-popover');
+        const input = pop && pop.querySelector(
+            `[data-lrd-field="processor-card-return-template-${cardId}"]`);
+        return { open: !!pop && pop.style.display !== 'none',
+                 field: !!input, value: input ? input.value : null };
+    }""", ids['cardId'])
+    assert survived['open'], f'the rebuild closed the open popover: {survived}'
+    assert survived['field'] and survived['value'] == 'BU-#', survived
 
     def stored():
         state = panel_page.evaluate(
@@ -2199,56 +2727,73 @@ def test_the_return_template_round_trips_through_undo(panel_page):
     panel_page.evaluate("() => window.app.redo()")
     panel_page.wait_for_timeout(1000)
     assert stored() == ('BU-#', 'BU-1'), 'redo did not restore the template'
+    # leave the popover closed for the next test - Escape is its teardown
+    panel_page.keyboard.press('Escape')
+    panel_page.wait_for_timeout(100)
 
 
-def test_the_sidebar_hosts_pin_their_grid_track():
-    """Headless scrollbars are overlay, so the browser fit test above measures
-    a wider column than a real window has - a classic scrollbar gutter leaves
-    the hosts ~119px at the clamp. The real-window failure mode was an AUTO
-    grid track sizing itself to its rows' min-content and carrying the whole
-    screen box past the panel's edge; the fix is the track pinned to the
-    column, so the pin is asserted as source where the measurement cannot
-    reach it."""
+def test_the_reporting_left_the_retired_hosts_for_the_strip():
+    """The old pinned-grid-track assertion has no home any more: the
+    sidebar hosts it measured (#processor-list, #port-assignment-issues,
+    the foot) retired with the Signal sidebar, and the strip rows are flex
+    lines with nothing to pin. What replaces the pin is the consolidation
+    itself, asserted as source: the assignment module renders ONLY the
+    strip (no foot builder, no per-screen list), and the template declares
+    the strip between the dock's header and its body."""
     source = js_source('app-port-assignment.js')
-    assert source.count("gridTemplateColumns = 'minmax(0, 1fr)'") >= 2, (
-        'the assignment row grids lost their pinned track')
+    for gone in ('_buildAssignmentFoot', 'port-assignment-foot',
+                 'port-assignment-list', 'processor-list'):
+        assert gone not in source, (
+            f'{gone!r} is back in the assignment module - the strip is the '
+            f'one reporting surface')
+    assert "getElementById('hw-dock-issues')" in source, (
+        'the assignment render no longer writes the dock strip')
     template = os.path.join(os.path.dirname(__file__), '..', 'src',
                             'templates', 'index.html')
     with open(template, encoding='utf-8') as fh:
         html = fh.read()
-    for host in ('processor-list', 'port-assignment-issues',
-                 'port-assignment-list'):
-        start = html.index(f'id="{host}"')
-        tag = html[html.rindex('<div', 0, start):html.index('>', start)]
-        assert 'minmax(0, 1fr)' in tag, (
-            f'#{host} is back on an auto grid track, which overflows the '
-            f'clamp in a real window')
+    assert html.index('id="hardware-dock"') \
+        < html.index('id="hw-dock-issues"') \
+        < html.index('id="hardware-dock-body"'), (
+        'the issue strip left its slot between the dock header and body')
+    for host in ('id="processor-list"', 'id="port-assignment-issues"',
+                 'id="port-assignment-foot"'):
+        assert host not in html, f'the retired host {host} is back'
 
 
-# ── 13. Each processor folds to one line ──────────────────────────────────
+# ── 13. Each hardware section folds on the dock ───────────────────────────
 #
-# Eight screens is eight processors, and eight expanded SX40 trees - name
-# field, redundancy block, card fields, a 20-port list each - is a wall no
-# sidebar scroll makes readable. Each card now folds by the SAME section
-# machinery the panel headers and the Power blocks use (app-core.js
+# Eight screens is eight processors, and eight expanded SX40 trees - boxes
+# and a 40-chip grid each - is a tray no scroll makes readable. The dock's
+# sections fold by the SAME machinery the sidebar blocks use (app-core.js
 # _wireSectionCollapse): single click on the arrow, double-click on the
-# head, state per processor id under ledRasterPanelCollapsed_processor-<id>.
-# Folded, the head swaps its editors for one line of glance data read off
-# the resolve - model, name, ports used/ceiling, the redundancy flag.
+# head, state per section under ledRasterPanelCollapsed_hwdock-card-<id> /
+# hwdock-box-<id>. The header never swaps anything out: it always carries
+# the model text, the inline name field and the used/capacity glance
+# (.hw-dock-unit-use + .hw-dock-headbar fill), so a folded card still says
+# what it is and how full it is - the retired panel's summary line and
+# usage foot, worn permanently.
 
-def test_the_processor_card_wires_the_shared_fold_machinery():
-    """One mechanism, not a copy: the cards go through _wireSectionCollapse
-    on every rebuild, keyed per processor id, and the × takes the deleted
-    machine's key with it - every other way a processor leaves (undo, a
-    project loading over this one) merely orphans a key, which nothing can
-    inherit because ids never recur within a project."""
-    source = js_source('app-processors.js')
-    assert 'this._wireSectionCollapse(list)' in source
-    assert 'head.dataset.lrdSec = `processor-${proc.id}`' in source
-    assert "head.className = 'lrd-sec-head'" in source
-    assert "bodyWrap.className = 'lrd-sec-body'" in source
-    assert 'ledRasterPanelCollapsed_processor-${proc.id}' in source, (
-        'the deleted processor key is not cleaned up')
+def test_the_dock_wires_the_shared_fold_machinery():
+    """One mechanism, not a copy: the dock's sections go through
+    _wireSectionCollapse on every rebuild, keyed per card/box id, and the
+    gear's Remove takes the deleted machine's keys with it - every other
+    way a processor leaves (undo, a project loading over this one) merely
+    orphans a key, which nothing can inherit because ids never recur
+    within a project."""
+    source = js_source('app-dock.js')
+    assert 'this._wireSectionCollapse(body)' in source
+    assert 'head.dataset.lrdSec = secId' in source
+    assert "body.className = 'lrd-sec-body'" in source
+    assert 'hwdock-card-${card.id}' in source
+    assert 'hwdock-box-${cvt.id}' in source
+    # The remove lives in the gear popovers' content, so the key cleanup
+    # lives with it in the processors module.
+    procs = js_source('app-processors.js')
+    assert 'ledRasterPanelCollapsed_hwdock-card-' in procs, (
+        'the deleted card key is not cleaned up')
+    assert 'ledRasterPanelCollapsed_hwdock-box-' in procs, (
+        'the deleted box key is not cleaned up')
 
 
 FOLD_SEED_JS = """async () => {
@@ -2274,170 +2819,212 @@ FOLD_SEED_JS = """async () => {
     // so independence is provable.
     const sx = await mk('brompton-sx40', { name: 'SL IMAG', redundancy: true });
     const mx = await mk('novastar-mx20', null);
-    await window.app.refreshProcessors();
+    // These tests need the live screen ON the SX40 (used > 0) and OFF the
+    // MX20 (0/6). Since the platform wall (2026-08-28) that is the
+    // Processing setting's call, so re-stamp the module's screen from the
+    // stock COEX to Brompton for this section.
+    const screen = window.app.project.layers.find(
+        l => (l.type || 'screen') === 'screen');
+    screen.processorType = 'brompton';
+    await fetch(`/api/layer/${screen.id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ processorType: 'brompton' }),
+    });
     const resolved = (await (await fetch('/api/processors')).json()).resolved;
-    return { sx, mx,
-             sxCard: resolved[0].slots.map(s => s.card).find(Boolean).id,
-             resolved };
+    const cardOf = (p) => p.slots.map(s => s.card).find(Boolean);
+    const sxCard = cardOf(resolved[0]);
+    const mxCard = cardOf(resolved[1]);
+    // Ids can RECUR here: the reload test PUTs a saved project back, which
+    // rewinds next_processor_seq, so a card minted now can wear an id whose
+    // fold key an earlier test stored as collapsed. Shed any inherited key
+    // BEFORE the render applies it.
+    try {
+        for (const c of [sxCard, mxCard]) {
+            localStorage.removeItem(
+                'ledRasterPanelCollapsed_hwdock-card-' + c.id);
+            for (const v of (c.cvts || [])) {
+                localStorage.removeItem(
+                    'ledRasterPanelCollapsed_hwdock-box-' + v.id);
+            }
+        }
+    } catch (e) { /* blocked storage never held the keys */ }
+    await window.app.refreshProcessors();
+    return { sx, mx, sxCard: sxCard.id, mxCard: mxCard.id, resolved };
 }"""
 
-FOLD_STATE_JS = """(procId) => {
-    const head = document.querySelector(
-        `[data-lrd-sec="processor-${procId}"]`);
+FOLD_STATE_JS = """(secId) => {
+    const head = document.querySelector(`[data-lrd-sec="${secId}"]`);
     if (!head) return null;
     const box = head.parentElement;
     const body = box.querySelector(':scope > .lrd-sec-body');
     const arrow = head.querySelector('.lrd-sec-arrow');
-    const summary = head.querySelector('.lrd-proc-summary');
-    const name = head.querySelector(
-        `input[data-lrd-field="processor-name-${procId}"]`);
+    const use = head.querySelector('.hw-dock-unit-use');
+    const bar = head.querySelector('.hw-dock-headbar');
+    const name = head.querySelector('input.hw-dock-name');
     const vis = (el) => !!el && el.getClientRects().length > 0;
     return {
         wired: !!(arrow && body),
         collapsed: body ? getComputedStyle(body).display === 'none' : null,
         bodyInDom: !!body && body.isConnected,
         arrowVisible: vis(arrow),
-        summaryVisible: vis(summary),
-        summaryText: summary ? summary.textContent : null,
-        summaryFits: summary
-            ? summary.scrollWidth <= summary.clientWidth : null,
+        glanceText: use ? use.textContent : null,
+        glanceVisible: vis(use) && vis(bar),
         nameVisible: vis(name),
+        nameKey: name ? name.dataset.lrdField : null,
+        headFits: head.scrollWidth <= head.clientWidth + 1,
         boxHeight: Math.round(box.getBoundingClientRect().height),
-        boxFits: box.scrollWidth <= box.clientWidth,
-        stored: localStorage.getItem(
-            'ledRasterPanelCollapsed_processor-' + procId),
+        stored: localStorage.getItem('ledRasterPanelCollapsed_' + secId),
     };
 }"""
 
 
-def fold_state(page, proc_id):
-    return page.evaluate(FOLD_STATE_JS, proc_id)
+def fold_state(page, sec_id):
+    return page.evaluate(FOLD_STATE_JS, sec_id)
 
 
-def proc_arrow(page, proc_id):
-    return page.locator(
-        f'[data-lrd-sec="processor-{proc_id}"] .lrd-sec-arrow')
+def sec_arrow(page, sec_id):
+    return page.locator(f'[data-lrd-sec="{sec_id}"] .lrd-sec-arrow')
+
+
+def card_sec(ids, which):
+    return f'hwdock-card-{ids[which]}'
 
 
 def seed_fold(panel_page):
     ids = panel_page.evaluate(FOLD_SEED_JS)
     panel_page.wait_for_timeout(600)
-    panel_page.evaluate(SET_WIDTH_JS, 260)
-    panel_page.wait_for_timeout(400)
     return ids
 
 
-def test_the_arrow_folds_a_processor_and_nothing_leaves_the_dom(panel_page):
-    """Fresh ids have no stored state, so both machines arrive expanded; the
-    arrow folds one to its summary line while the other stands, the folded
-    body hides but never detaches (the focus keys must keep resolving), and
-    the state lands under the processor's own key."""
+def test_the_arrow_folds_a_card_and_nothing_leaves_the_dom(panel_page):
+    """Fresh ids have no stored state, so both machines' cards arrive
+    expanded; the arrow folds one while the other stands, the folded body
+    hides but never detaches (the focus keys must keep resolving), and the
+    state lands under the card's own key. The header keeps its inline name
+    field and glance either way - the consolidation put the editors ON the
+    header, so folding hides the chips, never the identity (the old panel
+    swapped editors for a summary line; that swap retired with it)."""
     pytest.importorskip("playwright.sync_api", reason="playwright not installed")
     ids = seed_fold(panel_page)
-    for pid in (ids['sx'], ids['mx']):
-        s = fold_state(panel_page, pid)
-        assert s and s['wired'], f'{pid} was not wired for folding: {s}'
-        assert s['collapsed'] is False, f'a NEW processor arrived folded: {s}'
-        assert s['arrowVisible'], f'{pid} has no visible arrow: {s}'
-        assert not s['summaryVisible'], (
-            f'the summary shows on an OPEN card: {s}')
+    for which in ('sxCard', 'mxCard'):
+        sec = card_sec(ids, which)
+        s = fold_state(panel_page, sec)
+        assert s and s['wired'], f'{sec} was not wired for folding: {s}'
+        assert s['collapsed'] is False, f'a NEW card arrived folded: {s}'
+        assert s['arrowVisible'], f'{sec} has no visible arrow: {s}'
+        assert s['glanceVisible'], (
+            f'the glance is permanent header furniture, open or folded: {s}')
+        assert s['nameKey'] == f'processor-card-name-{ids[which]}', s
 
-    proc_arrow(panel_page, ids['sx']).click()
-    panel_page.wait_for_timeout(100)
-    s = fold_state(panel_page, ids['sx'])
+    sec_arrow(panel_page, card_sec(ids, 'sxCard')).click()
+    panel_page.wait_for_timeout(200)
+    s = fold_state(panel_page, card_sec(ids, 'sxCard'))
     assert s['collapsed'] is True, f'the arrow did not fold the card: {s}'
     assert s['bodyInDom'], 'the folded body left the DOM'
-    assert s['summaryVisible'] and not s['nameVisible'], (
-        f'folded must read as the summary line, not the editors: {s}')
+    assert s['nameVisible'] and s['glanceVisible'], (
+        f'the folded header lost its inline name or glance: {s}')
     assert s['stored'] == '1', f'the fold did not persist: {s}'
-    assert fold_state(panel_page, ids['mx'])['collapsed'] is False, (
-        'folding one processor took its neighbour')
+    assert fold_state(panel_page,
+                      card_sec(ids, 'mxCard'))['collapsed'] is False, (
+        'folding one card took its neighbour')
     # hidden, never detached: a port field inside the folded body still
-    # answers the focus-restore lookup
+    # answers the focus-restore lookup by its unchanged key
     assert panel_page.evaluate(
         """(cardId) => !!document.querySelector(
-               `[data-lrd-field="processor-port-name-${cardId}-1"]`)""",
-        ids['sxCard']), 'a folded port field no longer resolves by its key'
+               `#hardware-dock [data-lrd-field=`
+               + `"processor-port-name-${cardId}-1"]`)""",
+        ids['sxCard']), 'a folded card\'s port field no longer resolves'
 
-    proc_arrow(panel_page, ids['sx']).click()
-    panel_page.wait_for_timeout(100)
-    s = fold_state(panel_page, ids['sx'])
+    sec_arrow(panel_page, card_sec(ids, 'sxCard')).click()
+    panel_page.wait_for_timeout(200)
+    s = fold_state(panel_page, card_sec(ids, 'sxCard'))
     assert s['collapsed'] is False and s['stored'] == '0', s
 
 
-def test_the_summary_line_reads_model_name_screens_ports_redundancy(panel_page):
-    """The glance line, read off the resolve and the occupancy and nothing
-    else: model, the name, what the machine DRIVES, defined over ceiling,
-    and the redundancy flag - the SX40's halved 20/20, not the datasheet
-    40. The screens segment is the occupancy's answer, never a one-to-one
-    assumption: the live screen sits on the first machine's card, so the
-    second machine says so - 'no screens', an unused box stated as such. An
-    unnamed, non-redundant machine states neither an empty name segment nor
-    a flag."""
+def test_the_glance_reads_the_occupancy_and_never_renumbers(panel_page):
+    """The header's glance, read off the assignment summary and nothing
+    else: used over capacity, on the same header that carries the model
+    text and the inline name. The redundant SX40 reads /40 - redundancy is
+    a patching plan, never a renumbering, so the socket count stands (the
+    'redundant' flag of the retired summary line lives in the gear's
+    checkbox now). The used side is the occupancy's answer, never a
+    one-to-one assumption: the live screen sits on the first machine's
+    card, so the second machine's card reads 0/6 - an unused box stated as
+    such."""
     pytest.importorskip("playwright.sync_api", reason="playwright not installed")
     ids = seed_fold(panel_page)
-    sx = ids['resolved'][0]
-    mx = ids['resolved'][1]
+    summary = panel_page.evaluate("""(ids) => {
+        const byCard = {};
+        (window.app._assignment.cards || []).forEach(c => {
+            byCard[c.cardId] = c;
+        });
+        const strip = document.querySelector(
+            `[data-lrd-field="processor-name-${ids.sx}"]`)
+            .closest('.hw-dock-proc-name');
+        return {
+            sx: byCard[ids.sxCard] || null,
+            mx: byCard[ids.mxCard] || null,
+            stripModel: strip.querySelector('span').textContent,
+            stripName: strip.querySelector('input').value,
+        };
+    }""", ids)
+    assert summary['sx'], 'the assignment resolved no summary for the SX40'
+    sx_glance = fold_state(panel_page, card_sec(ids, 'sxCard'))['glanceText']
+    assert sx_glance == (f"{summary['sx']['used']}/"
+                         f"{summary['sx']['capacity']}"), (
+        f'the glance is not the assignment summary\'s own count: '
+        f'{sx_glance} vs {summary["sx"]}')
+    assert sx_glance.endswith('/40'), (
+        f'redundancy renumbered the sockets out of the glance: {sx_glance}')
+    assert summary['sx']['used'] > 0, (
+        'the live screen never landed on the first machine, so this test '
+        'proves nothing')
+    mx_glance = fold_state(panel_page, card_sec(ids, 'mxCard'))['glanceText']
+    assert mx_glance == '0/6', f'an unused card should read 0/6: {mx_glance}'
+    # The identity half of the retired summary line: the processor strip
+    # speaks the model as static text and the name in its inline field.
+    assert summary['stripModel'] == ids['resolved'][0]['deviceName']
+    assert summary['stripName'] == 'SL IMAG'
 
-    proc_arrow(panel_page, ids['sx']).click()
-    proc_arrow(panel_page, ids['mx']).click()
-    panel_page.wait_for_timeout(100)
 
-    text = fold_state(panel_page, ids['sx'])['summaryText']
-    assert text == (f"{sx['deviceName']} · SL IMAG · Screen1 · "
-                    f"{sx['defined']}/{sx['ceiling']} ports · redundant"), text
-    assert '20/20 ports' in text, (
-        f'the summary does not carry the redundancy-halved figures: {text}')
-
-    text = fold_state(panel_page, ids['mx'])['summaryText']
-    assert text == (f"{mx['deviceName']} · no screens · "
-                    f"{mx['defined']}/{mx['ceiling']} ports"), text
-    assert 'redundant' not in text and '· ·' not in text, text
-
-
-def test_the_summary_names_two_screens_and_counts_three_or_more(panel_page):
-    """One machine, many screens - the H-series shape. Up to two screens are
-    NAMED (the folded line wraps at the clamp rather than clipping, and two
-    names is the most that still reads as a glance line there); three or
-    more become a count, still read off the same occupancy. The folded
-    summary follows the occupancy as screens arrive, because the occupancy
-    change is what re-renders the panel."""
+def test_the_glance_follows_the_occupancy_as_screens_arrive(panel_page):
+    """One machine, more screens - the glance follows the occupancy as they
+    arrive, because the occupancy change is what re-renders the dock. (The
+    retired summary's screen-NAMES segment has no dock home - the chips
+    themselves say who sits where - so what is pinned is the count moving
+    with the resolution.)"""
     pytest.importorskip("playwright.sync_api", reason="playwright not installed")
     ids = seed_fold(panel_page)
     snapshot = panel_page.evaluate(
         "async () => await (await fetch('/api/project')).json()")
     try:
-        def add_screen(name):
-            panel_page.evaluate("""async (name) => {
-                await fetch('/api/layer/add', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name, columns: 2, rows: 2,
-                                           cabinet_width: 128,
-                                           cabinet_height: 128 }),
-                });
-                window.app.project =
-                    await (await fetch('/api/project')).json();
-                await window.app.refreshPortAssignment();
-            }""", name)
-            panel_page.wait_for_timeout(500)
-
-        proc_arrow(panel_page, ids['sx']).click()
-        panel_page.wait_for_timeout(100)
-
-        add_screen('WallB')
-        text = fold_state(panel_page, ids['sx'])['summaryText']
-        assert ' · Screen1, WallB · ' in text, (
-            f'two screens should be named outright: {text}')
-
-        add_screen('WallC')
-        add_screen('WallD')
-        text = fold_state(panel_page, ids['sx'])['summaryText']
-        assert ' · 4 screens · ' in text, (
-            f'three or more screens should fold to a count: {text}')
-        assert 'WallB' not in text, f'a count and a name at once: {text}'
+        before = panel_page.evaluate(
+            """(ids) => (window.app._assignment.cards || [])
+                   .find(c => c.cardId === ids.sxCard)""", ids)
+        panel_page.evaluate("""async () => {
+            await fetch('/api/layer/add', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: 'WallB', columns: 2, rows: 2,
+                                       cabinet_width: 128,
+                                       cabinet_height: 128 }),
+            });
+            window.app.project =
+                await (await fetch('/api/project')).json();
+            await window.app.refreshPortAssignment();
+        }""")
+        panel_page.wait_for_timeout(500)
+        after = panel_page.evaluate(
+            """(ids) => (window.app._assignment.cards || [])
+                   .find(c => c.cardId === ids.sxCard)""", ids)
+        assert after['used'] > before['used'], (
+            f'the new screen took no ports: {before} -> {after}')
+        glance = fold_state(panel_page,
+                            card_sec(ids, 'sxCard'))['glanceText']
+        assert glance == f"{after['used']}/{after['capacity']}", (
+            f'the glance did not follow the occupancy: {glance} vs {after}')
     finally:
-        # the added layers would haunt every later seed's occupancy
+        # the added layer would haunt every later seed's occupancy
         panel_page.evaluate("""async (project) => {
             await fetch('/api/project', {
                 method: 'PUT',
@@ -2450,41 +3037,50 @@ def test_the_summary_names_two_screens_and_counts_three_or_more(panel_page):
         panel_page.wait_for_timeout(400)
 
 
-@pytest.mark.parametrize('width', [260, 180])
-def test_the_folded_line_fits_both_widths(panel_page, width):
-    """One line of glance data that wraps at the clamp the way the soca
-    headings do - the folded card never scrolls sideways, and eight of these
-    is a panel of summary lines, not a wall."""
+@pytest.mark.parametrize('width', [1280, 860])
+def test_the_folded_header_fits_both_widths(panel_page, width):
+    """The folded card is its header alone - one glance row that never
+    scrolls sideways, at the usual window and a squeezed one. (The old
+    widths were the retired sidebar's clamp; the dock spans the window, so
+    the squeeze is the viewport's.) Eight of these is a tray of glance
+    rows, not a wall."""
     pytest.importorskip("playwright.sync_api", reason="playwright not installed")
     ids = seed_fold(panel_page)
-    proc_arrow(panel_page, ids['sx']).click()
-    proc_arrow(panel_page, ids['mx']).click()
-    panel_page.wait_for_timeout(100)
-    panel_page.evaluate(SET_WIDTH_JS, width)
-    panel_page.wait_for_timeout(500)
-    for pid in (ids['sx'], ids['mx']):
-        s = fold_state(panel_page, pid)
-        assert s['summaryFits'], (
-            f'{pid} summary clips sideways at {width}px: {s}')
-        assert s['boxFits'], f'{pid} card scrolls sideways at {width}px: {s}'
-        # One line at the usual width; at the clamp the line WRAPS rather
-        # than clipping (the soca-heading treatment), so the budget is a
-        # couple of short lines there - against ~1700px expanded.
-        assert s['boxHeight'] <= (80 if width >= 260 else 120), (
-            f'{pid} folded is not a glance line at {width}px: {s}')
+    sec_arrow(panel_page, card_sec(ids, 'sxCard')).click()
+    sec_arrow(panel_page, card_sec(ids, 'mxCard')).click()
+    panel_page.wait_for_timeout(200)
+    panel_page.set_viewport_size({'width': width, 'height': 720})
+    panel_page.wait_for_timeout(400)
+    try:
+        for which in ('sxCard', 'mxCard'):
+            sec = card_sec(ids, which)
+            s = fold_state(panel_page, sec)
+            assert s['collapsed'] is True, f'{sec} lost its fold: {s}'
+            assert s['headFits'], (
+                f'{sec} header clips sideways at {width}px: {s}')
+            # Header furniture only - name, glance, gear on one wrappable
+            # row - against a few hundred px of chips expanded.
+            assert s['boxHeight'] <= 90, (
+                f'{sec} folded is not a glance row at {width}px: {s}')
+    finally:
+        panel_page.set_viewport_size({'width': 1280, 'height': 720})
+        panel_page.wait_for_timeout(300)
 
 
-def test_a_single_click_is_inert_and_the_name_field_still_edits(panel_page):
-    """The head holds the name field, so the fold must never eat a click:
-    a single click anywhere on the head does nothing, and typing into the
-    field commits through the same PUT it always did."""
+def test_a_single_click_is_inert_and_the_names_edit_inline(panel_page):
+    """The head holds the inline name field and is the unit's drag handle,
+    so the fold must never eat a click: a single click on head surface does
+    nothing, and typing into the header fields commits through the same
+    PUTs the panel's editors made - the processor's name on its strip, the
+    card's name on its section head."""
     pytest.importorskip("playwright.sync_api", reason="playwright not installed")
     ids = seed_fold(panel_page)
-    head = panel_page.locator(f'[data-lrd-sec="processor-{ids["sx"]}"]')
-    # the caption label is head surface that is neither the arrow nor an input
-    head.locator('label').first.click()
+    sec = card_sec(ids, 'sxCard')
+    # the static model span is head surface that is neither arrow nor input
+    panel_page.locator(
+        f'[data-lrd-sec="{sec}"] .hw-dock-unit-name').first.click()
     panel_page.wait_for_timeout(100)
-    assert fold_state(panel_page, ids['sx'])['collapsed'] is False, (
+    assert fold_state(panel_page, sec)['collapsed'] is False, (
         'a single click on the header folded the card')
 
     field = panel_page.locator(
@@ -2498,81 +3094,114 @@ def test_a_single_click_is_inert_and_the_name_field_still_edits(panel_page):
         "async () => (await (await fetch('/api/processors')).json())"
         ".processors[0].name")
     assert stored == 'SL WALL', 'the rename never reached the server'
-    assert fold_state(panel_page, ids['sx'])['collapsed'] is False, (
+    assert fold_state(panel_page, sec)['collapsed'] is False, (
         'editing the name folded the card')
+
+    # the card's own inline name, on the section head itself
+    field = panel_page.locator(
+        f'[data-lrd-field="processor-card-name-{ids["sxCard"]}"]')
+    field.click()
+    field.fill('SL')
+    panel_page.keyboard.press('Tab')
+    panel_page.wait_for_timeout(800)
+    stored = panel_page.evaluate(
+        "async () => (await (await fetch('/api/processors')).json())"
+        ".processors[0].slots.map(s => s.card).find(Boolean).name")
+    assert stored == 'SL', 'the card rename never reached the server'
+    assert fold_state(panel_page, sec)['collapsed'] is False, (
+        'editing the card name folded the section')
 
 
 def test_double_click_toggles_except_on_the_name_field(panel_page):
-    """Double-click on head surface folds; double-click on the folded
-    summary unfolds; a double-click that lands IN the name input is the
-    input's word-select, never a fold."""
+    """Double-click on head surface folds; the head stays painted while
+    folded (it IS the folded card), so double-click there unfolds too; a
+    double-click that lands IN the inline name input is the input's
+    word-select, never a fold."""
     pytest.importorskip("playwright.sync_api", reason="playwright not installed")
     ids = seed_fold(panel_page)
-    head = panel_page.locator(f'[data-lrd-sec="processor-{ids["sx"]}"]')
+    sec = card_sec(ids, 'sxCard')
+    head = panel_page.locator(f'[data-lrd-sec="{sec}"]')
 
-    head.locator('label').first.dblclick()
-    panel_page.wait_for_timeout(100)
-    assert fold_state(panel_page, ids['sx'])['collapsed'] is True, (
+    head.locator('.hw-dock-unit-name').first.dblclick()
+    panel_page.wait_for_timeout(200)
+    assert fold_state(panel_page, sec)['collapsed'] is True, (
         'double-click on the header did not fold the card')
 
-    head.locator('.lrd-proc-summary').dblclick()
-    panel_page.wait_for_timeout(100)
-    assert fold_state(panel_page, ids['sx'])['collapsed'] is False, (
-        'double-click on the summary line did not unfold the card')
+    head.locator('.hw-dock-unit-name').first.dblclick()
+    panel_page.wait_for_timeout(200)
+    assert fold_state(panel_page, sec)['collapsed'] is False, (
+        'double-click on the folded header did not unfold the card')
 
-    head.locator(f'[data-lrd-field="processor-name-{ids["sx"]}"]').dblclick()
-    panel_page.wait_for_timeout(100)
-    assert fold_state(panel_page, ids['sx'])['collapsed'] is False, (
+    head.locator(
+        f'[data-lrd-field="processor-card-name-{ids["sxCard"]}"]').dblclick()
+    panel_page.wait_for_timeout(200)
+    assert fold_state(panel_page, sec)['collapsed'] is False, (
         'double-click inside the name field folded the card under the caret')
 
 
-def test_fold_state_survives_reload_and_new_processors_arrive_open(panel_page):
-    """Per-machine persistence: the folded SX40 comes back folded, its open
-    neighbour open, and a processor added afterwards - about to be
-    configured - arrives expanded without touching either."""
+def test_fold_state_survives_reload_and_new_cards_arrive_open(panel_page):
+    """Per-section persistence: the folded SX40 card comes back folded, its
+    open neighbour open, and a processor added afterwards - about to be
+    configured - arrives with its card expanded without touching either."""
     pytest.importorskip("playwright.sync_api", reason="playwright not installed")
     ids = seed_fold(panel_page)
-    proc_arrow(panel_page, ids['sx']).click()
-    panel_page.wait_for_timeout(100)
+    sec_arrow(panel_page, card_sec(ids, 'sxCard')).click()
+    panel_page.wait_for_timeout(200)
 
     panel_page.reload(wait_until='domcontentloaded')
     panel_page.wait_for_timeout(2000)
     panel_page.locator('[data-mode="data-flow"]').click()
     panel_page.wait_for_timeout(600)
-    assert fold_state(panel_page, ids['sx'])['collapsed'] is True, (
-        'the folded processor came back expanded after a reload')
-    assert fold_state(panel_page, ids['mx'])['collapsed'] is False, (
-        'the open processor came back folded after a reload')
+    assert fold_state(panel_page,
+                      card_sec(ids, 'sxCard'))['collapsed'] is True, (
+        'the folded card came back expanded after a reload')
+    assert fold_state(panel_page,
+                      card_sec(ids, 'mxCard'))['collapsed'] is False, (
+        'the open card came back folded after a reload')
 
-    new_id = panel_page.evaluate("""async () => {
+    new_card = panel_page.evaluate("""async () => {
         const add = await (await fetch('/api/processors', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ deviceId: 'brompton-s8' }),
         })).json();
+        const proc = add.resolved[add.resolved.length - 1];
+        const card = proc.slots.map(s => s.card).find(Boolean);
+        // shed any fold key an earlier test left on this recycled id -
+        // the seed's rule, applied to the card minted mid-test
+        try {
+            localStorage.removeItem(
+                'ledRasterPanelCollapsed_hwdock-card-' + card.id);
+        } catch (e) { /* blocked storage never held the key */ }
         await window.app.refreshProcessors();
-        return add.resolved[add.resolved.length - 1].id;
+        return card.id;
     }""")
     panel_page.wait_for_timeout(400)
-    assert fold_state(panel_page, new_id)['collapsed'] is False, (
-        'a brand-new processor arrived folded')
-    assert fold_state(panel_page, ids['sx'])['collapsed'] is True, (
-        'adding a processor unfolded an existing one')
+    assert fold_state(panel_page,
+                      f'hwdock-card-{new_card}')['collapsed'] is False, (
+        'a brand-new card arrived folded')
+    assert fold_state(panel_page,
+                      card_sec(ids, 'sxCard'))['collapsed'] is True, (
+        'adding a processor unfolded an existing card')
 
 
-def test_a_rebuild_keeps_each_processors_own_state(panel_page):
-    """The panel is rebuilt wholesale on every change; the fold rides the
-    per-id keys through the wipe, both on a bare re-render and on a real
-    server round-trip that changes the tree."""
+def test_a_rebuild_keeps_each_sections_own_state(panel_page):
+    """The dock is rebuilt wholesale on every change; the fold rides the
+    per-id keys through the wipe, both on a bare re-render (through
+    renderProcessorPanel, which every "the tree changed" path still calls
+    and which delegates to the dock) and on a real server round-trip that
+    changes the tree."""
     pytest.importorskip("playwright.sync_api", reason="playwright not installed")
     ids = seed_fold(panel_page)
-    proc_arrow(panel_page, ids['sx']).click()
-    panel_page.wait_for_timeout(100)
+    sec_arrow(panel_page, card_sec(ids, 'sxCard')).click()
+    panel_page.wait_for_timeout(200)
 
     panel_page.evaluate("() => window.app.renderProcessorPanel()")
     panel_page.wait_for_timeout(200)
-    assert fold_state(panel_page, ids['sx'])['collapsed'] is True, (
+    assert fold_state(panel_page,
+                      card_sec(ids, 'sxCard'))['collapsed'] is True, (
         'a bare re-render dropped the fold')
-    assert fold_state(panel_page, ids['mx'])['collapsed'] is False
+    assert fold_state(panel_page,
+                      card_sec(ids, 'mxCard'))['collapsed'] is False
 
     panel_page.evaluate("""async (args) => {
         await fetch(`/api/processors/${args.sx}/cards/${args.sxCard}`, {
@@ -2582,29 +3211,34 @@ def test_a_rebuild_keeps_each_processors_own_state(panel_page):
         await window.app.refreshProcessors();
     }""", {'sx': ids['sx'], 'sxCard': ids['sxCard']})
     panel_page.wait_for_timeout(400)
-    assert fold_state(panel_page, ids['sx'])['collapsed'] is True, (
+    assert fold_state(panel_page,
+                      card_sec(ids, 'sxCard'))['collapsed'] is True, (
         'a server round-trip re-expanded the folded card')
-    assert fold_state(panel_page, ids['mx'])['collapsed'] is False
+    assert fold_state(panel_page,
+                      card_sec(ids, 'mxCard'))['collapsed'] is False
 
 
-def test_focus_restore_into_a_folded_processor_unfolds_it(panel_page):
-    """The stated rule from the section machinery, one level down: a field
-    the app is putting the caret back into must not be display:none, so the
-    restore opens the processor - and persists the opening, or the next
-    rebuild folds the field away again."""
+def test_focus_restore_into_a_folded_section_unfolds_it(panel_page):
+    """The stated rule from the section machinery, on the dock: a field the
+    app is putting the caret back into must not be display:none, so the
+    restore opens the folded card section - and persists the opening, or
+    the next rebuild folds the field away again. Driven through a port
+    Name field, a field that actually lives in the foldable body (the
+    header's own inline name never folds away, so it cannot prove this)."""
     pytest.importorskip("playwright.sync_api", reason="playwright not installed")
     ids = seed_fold(panel_page)
-    assert panel_page.evaluate(OPEN_TILE_JS, f"port-{ids['sxCard']}-1"), (
-        'port 1 has no tile to open')
+    assert panel_page.evaluate(OPEN_TILE_JS, f"port-{ids['mxCard']}-1"), (
+        'port 1 has no chip to open')
+    panel_page.wait_for_timeout(100)
     out = panel_page.evaluate("""async (args) => {
         const app = window.app;
         const el = document.querySelector(
-            `[data-lrd-field="processor-port-name-${args.sxCard}-1"]`);
+            `[data-lrd-field="processor-port-name-${args.mxCard}-1"]`);
         if (!el) return { skipped: true };
         el.focus();
         app._preserveEditorFocus();            // captures key + schedules restore
         const box = document.querySelector(
-            `[data-lrd-sec-id="processor-${args.sx}"]`);
+            `[data-lrd-sec-id="hwdock-card-${args.mxCard}"]`);
         app._setSectionCollapsed(box, true);   // fold before the restore lands
         if (document.activeElement) document.activeElement.blur();
         await new Promise(r => setTimeout(r, 20));
@@ -2613,91 +3247,765 @@ def test_focus_restore_into_a_folded_processor_unfolds_it(panel_page):
             reopened: getComputedStyle(body).display !== 'none',
             focusedBack: document.activeElement === el,
             stored: localStorage.getItem(
-                'ledRasterPanelCollapsed_processor-' + args.sx),
+                'ledRasterPanelCollapsed_hwdock-card-' + args.mxCard),
         };
-    }""", {'sx': ids['sx'], 'sxCard': ids['sxCard']})
-    assert not out.get('skipped'), 'the card built no port field to focus'
+    }""", {'mxCard': ids['mxCard']})
+    assert not out.get('skipped'), 'the chip built no name field to focus'
     assert out['reopened'], (
-        f'the restore left the processor folded around the field: {out}')
+        f'the restore left the section folded around the field: {out}')
     assert out['focusedBack'], f'focus was not restored into the field: {out}'
     assert out['stored'] == '0', f'the auto-expansion did not persist: {out}'
+    # leave the chip closed for the next test
+    panel_page.evaluate("""(tid) => {
+        const tile = document.querySelector(`[data-lrd-tile="${tid}"]`);
+        if (tile && tile.classList.contains('lrd-tile-open')) {
+            window.app._setTileOpen(tile, false);
+        }
+    }""", f"port-{ids['mxCard']}-1")
 
 
-def test_the_port_chooser_reveal_unfolds_its_processor(panel_page):
-    """The set/place chooser opens under a port row; under a folded
-    processor it would open display:none and the gesture would look like
-    nothing happened. The render that reveals it unfolds the machine
-    first."""
+def test_the_chips_are_the_assignment_surface_and_no_chooser_survives(
+        panel_page):
+    """The set/place chooser is gone - assignment is the dock's drag - so
+    no chooser field exists anywhere, and every port chip is armed as a
+    drag handle. Folding the card section hides its chips (the old
+    'panel fold never touches the dock' outcome retired with the panel:
+    the dock section IS the visibility now) but detaches nothing - and the
+    folded HEADER still drags the whole card, which test_hardware_dock.py
+    pins as a live drop."""
     pytest.importorskip("playwright.sync_api", reason="playwright not installed")
     ids = seed_fold(panel_page)
-    proc_arrow(panel_page, ids['sx']).click()
-    panel_page.wait_for_timeout(100)
-    assert fold_state(panel_page, ids['sx'])['collapsed'] is True
-
     out = panel_page.evaluate("""(args) => {
-        const app = window.app;
-        app._assigningPort = { cardId: args.sxCard, port: 1 };
-        app.renderProcessorPanel();
-        const picker = document.querySelector(
-            `[data-lrd-field="processor-port-assign-${args.sxCard}-1"]`);
-        const box = document.querySelector(
-            `[data-lrd-sec-id="processor-${args.sx}"]`);
-        const body = box.querySelector(':scope > .lrd-sec-body');
-        const result = {
-            expanded: getComputedStyle(body).display !== 'none',
-            pickerPainted: !!picker && picker.getClientRects().length > 0,
+        const tile = document.querySelector(
+            `#hardware-dock [data-hwdock="port-${args.sxCard}-1"]`);
+        return {
+            pickerAnywhere: !!document.querySelector(
+                '[data-lrd-field^="processor-port-assign-"]'),
+            tilePainted: !!tile && tile.getClientRects().length > 0,
+            tileArmed: !!(tile && tile.dataset.hwdockPayload),
         };
-        app._assigningPort = null;             // leave the panel as found
-        app.renderProcessorPanel();
-        return result;
-    }""", {'sx': ids['sx'], 'sxCard': ids['sxCard']})
-    assert out['expanded'], f'the chooser opened into a folded card: {out}'
-    assert out['pickerPainted'], f'the chooser itself is not drawn: {out}'
+    }""", {'sxCard': ids['sxCard']})
+    assert not out['pickerAnywhere'], f'the old chooser survives: {out}'
+    assert out['tilePainted'] and out['tileArmed'], (
+        f'the open card\'s chip is not a drawn drag handle: {out}')
+
+    sec_arrow(panel_page, card_sec(ids, 'sxCard')).click()
+    panel_page.wait_for_timeout(200)
+    out = panel_page.evaluate("""(args) => {
+        const tile = document.querySelector(
+            `#hardware-dock [data-hwdock="port-${args.sxCard}-1"]`);
+        const head = document.querySelector(
+            `[data-lrd-sec="hwdock-card-${args.sxCard}"]`);
+        return {
+            tileInDom: !!tile,
+            tileHidden: !!tile && tile.getClientRects().length === 0,
+            headArmed: !!(head && head.dataset.hwdockPayload
+                && head.getClientRects().length > 0),
+        };
+    }""", {'sxCard': ids['sxCard']})
+    assert out['tileInDom'] and out['tileHidden'], (
+        f'the folded body detached or kept painting its chips: {out}')
+    assert out['headArmed'], (
+        f'the folded header lost its whole-card drag arming: {out}')
 
 
-def test_the_panel_fold_hides_all_and_gives_each_card_back_its_state(panel_page):
-    """Folding PROCESSORS folds everything; unfolding it is not a reset -
-    the folded SX40 is still folded, its open neighbour still open. Two
-    levels, two sets of keys."""
+def test_the_dock_fold_hides_all_and_gives_each_section_back_its_state(
+        panel_page):
+    """Two levels, two sets of keys: the header's chevron folds the WHOLE
+    tray (proxying the one dock collapse the hanging tab owns), and
+    unfolding it is not a reset - the folded SX40 card is still folded,
+    its open neighbour still open."""
     pytest.importorskip("playwright.sync_api", reason="playwright not installed")
     ids = seed_fold(panel_page)
-    proc_arrow(panel_page, ids['sx']).click()
-    panel_page.wait_for_timeout(100)
+    sec_arrow(panel_page, card_sec(ids, 'sxCard')).click()
+    panel_page.wait_for_timeout(200)
 
-    hdr = panel_page.locator('.panel-header:has(h2:text-is("Processors"))')
-    hdr.locator('.lrd-sec-arrow').click()
-    panel_page.wait_for_timeout(100)
-    hidden = panel_page.evaluate("""() => {
-        const list = document.getElementById('processor-list');
-        return list.getClientRects().length === 0;
-    }""")
-    assert hidden, 'folding the PROCESSORS section left the cards painted'
+    try:
+        panel_page.locator('#hw-dock-fold').click()
+        panel_page.wait_for_timeout(300)
+        dock = panel_page.evaluate("""() => {
+            const el = document.getElementById('hardware-dock');
+            return {
+                collapsed: el.classList.contains('collapsed'),
+                height: Math.round(el.getBoundingClientRect().height),
+            };
+        }""")
+        assert dock['collapsed'] and dock['height'] == 0, (
+            f'the chevron did not fold the tray to nothing: {dock}')
+    finally:
+        # the hanging tab is the way back - the same toggle the chevron
+        # proxies, so this exercises the round trip either way
+        panel_page.evaluate("""() => {
+            if (document.getElementById('hardware-dock')
+                    .classList.contains('collapsed')) {
+                document.getElementById('hardware-dock-toggle').click();
+            }
+        }""")
+        panel_page.wait_for_timeout(300)
 
-    hdr.locator('.lrd-sec-arrow').click()
-    panel_page.wait_for_timeout(100)
-    assert fold_state(panel_page, ids['sx'])['collapsed'] is True, (
-        'unfolding the section reset a folded processor')
-    assert fold_state(panel_page, ids['mx'])['collapsed'] is False, (
-        'unfolding the section folded an open processor')
+    assert not panel_page.evaluate(
+        """() => document.getElementById('hardware-dock')
+               .classList.contains('collapsed')"""), (
+        'the tray did not come back')
+    assert fold_state(panel_page,
+                      card_sec(ids, 'sxCard'))['collapsed'] is True, (
+        'unfolding the tray reset a folded card')
+    assert fold_state(panel_page,
+                      card_sec(ids, 'mxCard'))['collapsed'] is False, (
+        'unfolding the tray folded an open card')
 
 
-def test_deleting_a_processor_takes_its_fold_key_with_it(panel_page):
+def test_deleting_a_processor_takes_its_fold_keys_with_it(panel_page):
     """The id never comes back, so the key must not sit in localStorage
-    forever. The × removes both; every other leaving path just orphans a
-    key, which no later processor can inherit."""
+    forever. The gear's Remove takes the machine's card and box keys with
+    it; every other leaving path just orphans a key, which no later
+    processor can inherit."""
     pytest.importorskip("playwright.sync_api", reason="playwright not installed")
     ids = seed_fold(panel_page)
-    proc_arrow(panel_page, ids['mx']).click()
-    proc_arrow(panel_page, ids['mx']).click()   # key now exists, card open
-    panel_page.wait_for_timeout(100)
-    assert fold_state(panel_page, ids['mx'])['stored'] == '0'
+    sec = card_sec(ids, 'mxCard')
+    sec_arrow(panel_page, sec).click()
+    sec_arrow(panel_page, sec).click()   # key now exists, card open
+    panel_page.wait_for_timeout(200)
+    assert fold_state(panel_page, sec)['stored'] == '0'
 
-    panel_page.locator(
-        f'[data-lrd-sec="processor-{ids["mx"]}"] button.btn').click()
+    assert panel_page.evaluate(OPEN_GEAR_JS, f"proc-{ids['mx']}"), (
+        'the processor gear did not open')
+    panel_page.locator('#hw-gear-popover .hw-pop-remove').click()
     panel_page.wait_for_timeout(800)
-    assert fold_state(panel_page, ids['mx']) is None, (
-        'the deleted processor is still drawn')
+    assert fold_state(panel_page, sec) is None, (
+        'the deleted processor\'s card is still drawn')
     left = panel_page.evaluate(
-        """(pid) => localStorage.getItem(
-               'ledRasterPanelCollapsed_processor-' + pid)""", ids['mx'])
-    assert left is None, f'the deleted processor left its fold key: {left}'
+        """(sec) => localStorage.getItem(
+               'ledRasterPanelCollapsed_' + sec)""", sec)
+    assert left is None, f'the deleted card left its fold key: {left}'
+
+
+# ── 14. The data-redundancy modes, as stored and as refused ───────────────
+#
+# The user's design, verbatim: "so for data by default do redundancy as 1 to
+# 1 aka the way brompton does it and novastar when using a second sending
+# card and then give the option for sequential where 1 is backed up by 2 on
+# the same unit/ sending card and also give the option for say 1 is backed
+# up to whatever port you want". Three modes per card, 1:1 the default; the
+# mode is stored on the card, the 1:1 partner is a per-main pick, manual is
+# a sparse per-port map. Every impossible arrangement is refused with the
+# reason, never stored.
+
+def add_two(client, device='novastar-mx20'):
+    state = add_processor(client, device)
+    a_pid = state['resolved'][0]['id']
+    a_card = first_card(state['resolved'][0])['id']
+    state = add_processor(client, device)
+    b_pid = state['resolved'][1]['id']
+    b_card = first_card(state['resolved'][1])['id']
+    return a_pid, a_card, b_pid, b_card
+
+
+def card_of(state, pid):
+    return first_card(next(p for p in state['resolved'] if p['id'] == pid))
+
+
+def test_1to1_is_the_default_and_is_stored_as_absence(client):
+    """The default mode is what an ABSENT key means, exactly like the label
+    templates: choosing sequential stores it, choosing 1:1 back deletes it,
+    and an untouched card stores nothing at all."""
+    a_pid, a_card, _b, _bc = add_two(client)
+    client.put(f'/api/processors/{a_pid}', json={'redundancy': True})
+    state = client.get('/api/processors').get_json()
+    assert card_of(state, a_pid)['redundancyShape']['mode'] == '1to1'
+    assert 'redundancyMode' not in state['processors'][0]['slots'][0]['card']
+
+    client.put(f'/api/processors/{a_pid}/cards/{a_card}',
+               json={'redundancyMode': 'sequential'})
+    state = client.get('/api/processors').get_json()
+    assert state['processors'][0]['slots'][0]['card']['redundancyMode'] == \
+        'sequential'
+    client.put(f'/api/processors/{a_pid}/cards/{a_card}',
+               json={'redundancyMode': '1to1'})
+    state = client.get('/api/processors').get_json()
+    assert 'redundancyMode' not in state['processors'][0]['slots'][0]['card']
+
+    resp = client.put(f'/api/processors/{a_pid}/cards/{a_card}',
+                      json={'redundancyMode': 'free-for-all'})
+    assert resp.status_code == 400
+    assert 'Unknown redundancy mode' in resp.get_json()['error']
+
+
+def test_the_1to1_partner_pick_is_validated_with_the_counts(client):
+    """A 1:1 backup mirrors port for port, so the pick is refused where the
+    mirror cannot hold: itself, a card that is not there, a count that does
+    not match (both counts in the reason), a count nobody settled."""
+    a_pid, a_card, _b_pid, b_card = add_two(client)
+    client.put(f'/api/processors/{a_pid}', json={'redundancy': True})
+
+    resp = client.put(f'/api/processors/{a_pid}/cards/{a_card}',
+                      json={'backupCardId': a_card})
+    assert resp.status_code == 400
+    assert 'cannot back itself' in resp.get_json()['error']
+
+    resp = client.put(f'/api/processors/{a_pid}/cards/{a_card}',
+                      json={'backupCardId': 'card999'})
+    assert resp.status_code == 400
+    assert resp.get_json()['error'] == 'That card is not in this project.'
+
+    state = add_processor(client, 'novastar-mx40-pro')
+    big_card = first_card(state['resolved'][2])['id']
+    resp = client.put(f'/api/processors/{a_pid}/cards/{a_card}',
+                      json={'backupCardId': big_card})
+    assert resp.status_code == 400
+    why = resp.get_json()['error']
+    assert 'has 40 ports' in why and 'has 6' in why, why
+    assert 'counts must match' in why, why
+
+    state = add_processor(client, 'brompton-sq200')
+    unknown_card = first_card(state['resolved'][3])['id']
+    resp = client.put(f'/api/processors/{a_pid}/cards/{a_card}',
+                      json={'backupCardId': unknown_card})
+    assert resp.status_code == 400
+    assert 'no settled port count' in resp.get_json()['error']
+
+    # The valid pick stores, and clears back to nothing.
+    resp = client.put(f'/api/processors/{a_pid}/cards/{a_card}',
+                      json={'backupCardId': b_card})
+    assert resp.status_code == 200
+    assert client.get('/api/processors').get_json()['processors'][0][
+        'slots'][0]['card']['backupCardId'] == b_card
+    client.put(f'/api/processors/{a_pid}/cards/{a_card}',
+               json={'backupCardId': ''})
+    assert 'backupCardId' not in client.get('/api/processors').get_json()[
+        'processors'][0]['slots'][0]['card']
+
+
+def test_a_backup_unit_backs_one_main_and_takes_no_backup_of_its_own(client):
+    """Consumed means consumed: a unit already backing a main is refused to
+    a second main by the role it holds, and cannot name a backup for itself
+    while it holds it - both stated, neither stored."""
+    a_pid, a_card, b_pid, b_card = add_two(client)
+    state = add_processor(client, 'novastar-mx20')
+    c_pid = state['resolved'][2]['id']
+    c_card = first_card(state['resolved'][2])['id']
+    client.put(f'/api/processors/{a_pid}/cards/{a_card}', json={'name': 'A'})
+    client.put(f'/api/processors/{b_pid}/cards/{b_card}', json={'name': 'B'})
+    client.put(f'/api/processors/{a_pid}', json={'redundancy': True})
+    client.put(f'/api/processors/{c_pid}', json={'redundancy': True})
+    resp = client.put(f'/api/processors/{a_pid}/cards/{a_card}',
+                      json={'backupCardId': b_card})
+    assert resp.status_code == 200
+
+    resp = client.put(f'/api/processors/{c_pid}/cards/{c_card}',
+                      json={'backupCardId': b_card})
+    assert resp.status_code == 400
+    assert 'B already backs up A' in resp.get_json()['error']
+
+    client.put(f'/api/processors/{b_pid}', json={'redundancy': True})
+    resp = client.put(f'/api/processors/{b_pid}/cards/{b_card}',
+                      json={'backupCardId': c_card})
+    assert resp.status_code == 400
+    assert 'cannot take a backup of its own' in resp.get_json()['error']
+
+
+def test_backup_links_never_dangle(client):
+    """Deleting the backup's processor clears the pick, exactly as deleting
+    a primary box clears backupOf - a link into reused ids is a trap."""
+    a_pid, a_card, b_pid, b_card = add_two(client)
+    client.put(f'/api/processors/{a_pid}', json={'redundancy': True})
+    client.put(f'/api/processors/{a_pid}/cards/{a_card}',
+               json={'backupCardId': b_card})
+    client.put(f'/api/processors/{a_pid}/cards/{a_card}',
+               json={'redundancyMode': 'manual'})
+    resp = client.put(f'/api/processors/{a_pid}/cards/{a_card}/ports/1',
+                      json={'backup': {'cardId': b_card, 'port': 2}})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+
+    client.delete(f'/api/processors/{b_pid}')
+    stored = client.get('/api/processors').get_json()['processors'][0][
+        'slots'][0]['card']
+    assert 'backupCardId' not in stored, 'the 1:1 pick outlived its unit'
+    assert 'backupPorts' not in stored, 'a manual pick outlived its unit'
+
+
+def test_the_manual_pick_is_validated_like_a_placement(client):
+    """The same situations read the same way: a port past the ceiling, a
+    port backing itself, a port already spoken for by another main."""
+    a_pid, a_card, _b, _bc = add_two(client)
+    client.put(f'/api/processors/{a_pid}/cards/{a_card}', json={'name': 'SR'})
+    client.put(f'/api/processors/{a_pid}', json={'redundancy': True})
+    client.put(f'/api/processors/{a_pid}/cards/{a_card}',
+               json={'redundancyMode': 'manual'})
+
+    resp = client.put(f'/api/processors/{a_pid}/cards/{a_card}/ports/1',
+                      json={'backup': {'cardId': a_card, 'port': 9}})
+    assert resp.status_code == 400
+    assert 'has 6 ports, so there is no port 9' in resp.get_json()['error']
+
+    resp = client.put(f'/api/processors/{a_pid}/cards/{a_card}/ports/1',
+                      json={'backup': {'cardId': a_card, 'port': 1}})
+    assert resp.status_code == 400
+    assert 'cannot back itself' in resp.get_json()['error']
+
+    resp = client.put(f'/api/processors/{a_pid}/cards/{a_card}/ports/1',
+                      json={'backup': {'cardId': a_card, 'port': 5}})
+    assert resp.status_code == 200
+    resp = client.put(f'/api/processors/{a_pid}/cards/{a_card}/ports/2',
+                      json={'backup': {'cardId': a_card, 'port': 5}})
+    assert resp.status_code == 400
+    assert 'already backs up SR-1' in resp.get_json()['error']
+    # Re-stating the same pick is a no-op, not a conflict with itself.
+    resp = client.put(f'/api/processors/{a_pid}/cards/{a_card}/ports/1',
+                      json={'backup': {'cardId': a_card, 'port': 5}})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+
+
+def test_the_halves_mode_backs_the_front_half_with_the_back_half(client):
+    """The 2026-08-27 arrangement, in the user's own numbers: "say i have
+    1-8 on processor 1 and 9-16 as backups? i need to be able to set those
+    to backup and add then accordingly" - a MODE, one gesture, not eight
+    manual picks. Within one card, port N returns on port N + half: 1 on 9,
+    8 on 16. This is the one shape whose main and return genuinely wear
+    DIFFERENT numbers, so the mapping states both ends plainly - and the
+    return labels resolve to the backing sockets' own labels through the
+    same ladder every mapping uses."""
+    state = add_processor(client, 'novastar-h9')
+    pid = only(state)['id']
+    state = set_card(client, pid, 0, 'novastar-card-h-16xrj45-2xfiber')
+    card_id = first_card(only(state))['id']
+    client.put(f'/api/processors/{pid}/cards/{card_id}', json={'name': 'P1'})
+    client.put(f'/api/processors/{pid}', json={'redundancy': True})
+    resp = client.put(f'/api/processors/{pid}/cards/{card_id}',
+                      json={'redundancyMode': 'halves'})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    state = resp.get_json()
+    assert state['processors'][0]['slots'][0]['card']['redundancyMode'] == \
+        'halves'
+    card = first_card(only(state))
+    assert card['redundancyShape'] == {'mode': 'halves', 'forced': False,
+                                       'level': 'port', 'usable': 8}
+    ports = {p['number']: p for p in card['ports']}
+    for main in range(1, 9):
+        assert ports[main]['backedBy']['port'] == main + 8, ports[main]
+        assert ports[main + 8]['backsUp']['port'] == main, ports[main + 8]
+    assert not any(ports[n].get('backedBy') for n in range(9, 17)), (
+        'a backing socket was given a backup of its own')
+    # P1-1 out, P1-9 back: the mapped socket's own label, exactly the
+    # sequential and SX40 treatment.
+    assert (ports[1]['label'], ports[1]['returnLabel']) == ('P1-1', 'P1-9')
+    assert ports[1]['returnLabelSource'] == 'backup'
+    assert (ports[8]['label'], ports[8]['returnLabel']) == ('P1-8', 'P1-16')
+
+
+def test_the_halves_mode_splits_smaller_cards_the_same_way(client):
+    """The split is the card's own ceiling, not a fixed 8/8: an MX20's six
+    ports go 1-3 mains, 4-6 returns, and the usable arithmetic matches
+    sequential's (an odd count would round the mains up, leaving the middle
+    port a main with no backup - the same way sequential leaves the last
+    odd port unpaired)."""
+    a_pid, a_card, _b, _bc = add_two(client)
+    client.put(f'/api/processors/{a_pid}', json={'redundancy': True})
+    resp = client.put(f'/api/processors/{a_pid}/cards/{a_card}',
+                      json={'redundancyMode': 'halves'})
+    card = card_of(resp.get_json(), a_pid)
+    assert card['redundancyShape']['usable'] == 3
+    ports = {p['number']: p for p in card['ports']}
+    assert [ports[n + 3]['backsUp']['port'] for n in (1, 2, 3)] == [1, 2, 3]
+    assert not ports[1].get('backsUp') and not ports[3].get('backsUp')
+
+
+def test_the_toggle_reaches_every_vendor_except_a_documented_no(client):
+    """Redundancy became a plan for the loom, so the switch is offered
+    everywhere - the user's own 1:1 case is NovaStar with a second sending
+    card - except where the sheet says the device cannot (T1)."""
+    state = add_processor(client, 'novastar-mx40-pro')
+    assert state['resolved'][0]['redundancySupported'] is True
+    state = add_processor(client, 'brompton-t1')
+    assert state['resolved'][1]['redundancySupported'] is False
+    pid = state['resolved'][1]['id']
+    resp = client.put(f'/api/processors/{pid}', json={'redundancy': True})
+    t1 = next(p for p in resp.get_json()['resolved'] if p['id'] == pid)
+    assert first_card(t1)['redundancyShape'] is None, (
+        'a shape appeared on a device documented unable')
+
+
+def test_the_gear_wires_the_modes_the_house_way():
+    """Source-text pins, same register as sections 7 and 10: the mode row
+    (built for the card's gear popover) never draws for a vendor-fixed
+    pairing, every new edit takes a named history snapshot, and a
+    refusal's reason is surfaced instead of swallowed."""
+    source = js_source('app-processors.js')
+    body = source[source.index('_buildCardRedundancyRow(proc, card) {'):]
+    body = body[:body.index('\n    }')]
+    assert 'if (!shape || shape.forced) return null;' in body, (
+        'a fixed pairing grew a mode select')
+    for action in ("'Change Redundancy Mode'", "'Change Backup Unit'"):
+        assert action in source, f'{action} takes no history snapshot'
+    # the per-port manual pick lives in the dock chip's editor now
+    assert "'Change Port Backup'" in js_source('app-dock.js'), (
+        "'Change Port Backup' takes no history snapshot")
+    assert 'data.error' in source, 'refusals are swallowed silently again'
+
+
+# ── 14b. The mode row in the real gear popover ────────────────────────────
+#
+# The redundancy controls kept their keys and moved into the card's ⚙ gear
+# popover, so every driver here opens the gear first (OPEN_GEAR_JS) and
+# reads the popover, not a panel list. The popover closes on outside
+# mousedown and Escape, and re-renders in place across the dock rebuilds
+# each commit causes.
+
+REDUNDANCY_SEED_JS = """
+async () => {
+    const state = await (await fetch('/api/processors')).json();
+    for (const p of state.processors) {
+        await fetch(`/api/processors/${p.id}`, { method: 'DELETE' });
+    }
+    const send = (url, method, body) => fetch(url, {
+        method, headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    }).then(r => r.json());
+    let st = await send('/api/processors', 'POST',
+                        { deviceId: 'novastar-mx20' });
+    const mx = st.resolved[st.resolved.length - 1];
+    const mxCard = mx.slots[0].card;
+    await send(`/api/processors/${mx.id}/cards/${mxCard.id}`, 'PUT',
+               { name: 'SR' });
+    await send(`/api/processors/${mx.id}`, 'PUT', { redundancy: true });
+    st = await send('/api/processors', 'POST',
+                    { deviceId: 'novastar-mx20' });
+    const bk = st.resolved[st.resolved.length - 1];
+    const bkCard = bk.slots[0].card;
+    await send(`/api/processors/${bk.id}/cards/${bkCard.id}`, 'PUT',
+               { name: 'BK' });
+    st = await send('/api/processors', 'POST',
+                    { deviceId: 'brompton-sx40' });
+    const sx = st.resolved[st.resolved.length - 1];
+    await send(`/api/processors/${sx.id}`, 'PUT', { redundancy: true });
+    // A NEW machine's sections must arrive open - but ids can RECUR here:
+    // the reload test above PUTs a saved project back, which rewinds
+    // next_processor_seq, so a card minted now can wear an id whose fold
+    // key an earlier fold test stored as collapsed. Shed any inherited
+    // key BEFORE the render applies it, or which test fails depends on
+    // how many machines every test before it happened to seed.
+    for (const card of [mxCard, bkCard, sx.slots[0].card]) {
+        try {
+            localStorage.removeItem(
+                'ledRasterPanelCollapsed_hwdock-card-' + card.id);
+            for (const v of (card.cvts || [])) {
+                localStorage.removeItem(
+                    'ledRasterPanelCollapsed_hwdock-box-' + v.id);
+            }
+        } catch (e) { /* blocked storage never held the key */ }
+    }
+    await window.app.refreshProcessors();
+    window.app.saveState('Seed Redundancy');
+    return { mxId: mx.id, mxCardId: mxCard.id, bkId: bk.id,
+             bkCardId: bkCard.id, sxId: sx.id,
+             sxCardId: sx.slots[0].card.id };
+}
+"""
+
+STORED_CARD_JS = """
+async (pid) => {
+    const state = await (await fetch('/api/processors')).json();
+    const proc = state.processors.find(p => p.id === pid);
+    return proc.slots.find(s => s.card).card;
+}
+"""
+
+
+def test_the_mode_select_draws_only_where_the_vendor_does_not_fix(panel_page):
+    """The MX20's card gear gets the four modes; the SX40's card gear gets
+    NO select, and its processor gear states the fixed pairing under the
+    redundancy switch - a fact is not a setting, in the DOM either."""
+    pytest.importorskip("playwright.sync_api",
+                        reason="playwright is not installed")
+    page = panel_page
+    ids = page.evaluate(REDUNDANCY_SEED_JS)
+    page.wait_for_timeout(800)
+    assert page.evaluate(OPEN_GEAR_JS, f"card-{ids['mxCardId']}"), (
+        'the MX20 card gear did not open')
+    out = page.evaluate("""(ids) => {
+        const pop = document.getElementById('hw-gear-popover');
+        const mx = pop.querySelector(
+            `[data-lrd-field="processor-card-redundancy-${ids.mxCardId}"]`);
+        const partner = pop.querySelector(
+            `[data-lrd-field="processor-card-backup-${ids.mxCardId}"]`);
+        return {
+            mxSelect: !!mx,
+            mxOptions: mx ? Array.from(mx.options).map(o => o.value) : [],
+            partner: !!partner,
+            partnerTexts: partner
+                ? Array.from(partner.options).map(o => o.textContent) : [],
+        };
+    }""", ids)
+    assert out['mxSelect'], out
+    assert out['mxOptions'] == ['1to1', 'sequential', 'halves', 'manual'], out
+    assert out['partner'], 'the default 1:1 offers no partner pick'
+    assert any('BK - 6 ports' in t for t in out['partnerTexts']), out
+
+    assert page.evaluate(OPEN_GEAR_JS, f"card-{ids['sxCardId']}"), (
+        'the SX40 card gear did not open')
+    out = page.evaluate("""(ids) => {
+        const pop = document.getElementById('hw-gear-popover');
+        return {
+            sxSelect: !!pop.querySelector(
+                `[data-lrd-field="processor-card-redundancy-`
+                + `${ids.sxCardId}"]`),
+        };
+    }""", ids)
+    assert not out['sxSelect'], 'the fixed pairing grew a mode select'
+
+    assert page.evaluate(OPEN_GEAR_JS, f"proc-{ids['sxId']}"), (
+        'the SX40 processor gear did not open')
+    out = page.evaluate("""() => {
+        const pop = document.getElementById('hw-gear-popover');
+        const texts = Array.from(pop.querySelectorAll('div'))
+            .map(d => d.textContent || '');
+        return {
+            statement: texts.some(t => t.includes('A backs up to B')),
+            control: !!pop.querySelector(
+                'select[data-lrd-field*="redundancy"], '
+                + 'input[data-lrd-field*="pairing"]'),
+        };
+    }""")
+    assert out['statement'], (
+        f'the fixed pairing statement left the processor gear: {out}')
+    page.keyboard.press('Escape')
+    page.wait_for_timeout(100)
+
+
+def test_the_mode_change_round_trips_through_undo(panel_page):
+    """Same contract as every processor edit, driven through the gear:
+    a named post-mutation snapshot, walked back and forward with the
+    stored key following."""
+    pytest.importorskip("playwright.sync_api",
+                        reason="playwright is not installed")
+    page = panel_page
+    ids = page.evaluate(REDUNDANCY_SEED_JS)
+    page.wait_for_timeout(800)
+    assert page.evaluate(OPEN_GEAR_JS, f"card-{ids['mxCardId']}"), (
+        'the card gear did not open')
+    page.evaluate("""(ids) => {
+        const sel = document.getElementById('hw-gear-popover').querySelector(
+            `[data-lrd-field="processor-card-redundancy-${ids.mxCardId}"]`);
+        sel.value = 'sequential';
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+    }""", ids)
+    page.wait_for_timeout(800)
+    assert page.evaluate(
+        "() => window.app.history.map(h => h.action).slice(-1)") == \
+        ['Change Redundancy Mode']
+    assert page.evaluate(STORED_CARD_JS, ids['mxId']).get(
+        'redundancyMode') == 'sequential'
+    page.evaluate("() => window.app.undo()")
+    page.wait_for_timeout(1000)
+    assert 'redundancyMode' not in page.evaluate(STORED_CARD_JS, ids['mxId'])
+    page.evaluate("() => window.app.redo()")
+    page.wait_for_timeout(1000)
+    assert page.evaluate(STORED_CARD_JS, ids['mxId']).get(
+        'redundancyMode') == 'sequential'
+    page.keyboard.press('Escape')
+    page.wait_for_timeout(100)
+
+
+def test_the_halves_mode_commits_from_the_select_and_states_its_split(
+        panel_page):
+    """The 2026-08-27 arrangement as ONE gesture: pick "Halves" in the
+    card gear's mode select and the back half backs the front half -
+    stored, mapped (an MX20's port 4 carries port 1's return), and stated
+    under the select with both spans, because this is the one mode whose
+    main and return wear different numbers. The popover re-renders in
+    place across the commit's rebuild, so the statement is read from the
+    same open popover the select lives in."""
+    pytest.importorskip("playwright.sync_api",
+                        reason="playwright is not installed")
+    page = panel_page
+    ids = page.evaluate(REDUNDANCY_SEED_JS)
+    page.wait_for_timeout(800)
+    assert page.evaluate(OPEN_GEAR_JS, f"card-{ids['mxCardId']}"), (
+        'the card gear did not open')
+    page.evaluate("""(ids) => {
+        const sel = document.getElementById('hw-gear-popover').querySelector(
+            `[data-lrd-field="processor-card-redundancy-${ids.mxCardId}"]`);
+        sel.value = 'halves';
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+    }""", ids)
+    page.wait_for_timeout(800)
+    assert page.evaluate(STORED_CARD_JS, ids['mxId']).get(
+        'redundancyMode') == 'halves'
+    assert page.evaluate(
+        "() => window.app.history.map(h => h.action).slice(-1)") == \
+        ['Change Redundancy Mode']
+    out = page.evaluate("""(ids) => {
+        const card = window.app._processorsResolved
+            .find(p => p.id === ids.mxId).slots[0].card;
+        const ports = Object.fromEntries(
+            card.ports.map(p => [p.number, p]));
+        const pop = document.getElementById('hw-gear-popover');
+        const texts = Array.from(pop.querySelectorAll('div'))
+            .map(d => d.textContent || '');
+        return {
+            popOpen: pop.style.display !== 'none',
+            fourBacks: ports[4] && ports[4].backsUp
+                ? ports[4].backsUp.port : null,
+            oneBackedOn: ports[1] && ports[1].backedBy
+                ? ports[1].backedBy.port : null,
+            stated: texts.some(t =>
+                t.includes('Ports 4-6 carry the returns of 1-3')),
+        };
+    }""", ids)
+    assert out['popOpen'], f'the commit\'s rebuild closed the popover: {out}'
+    assert out['fourBacks'] == 1 and out['oneBackedOn'] == 4, out
+    assert out['stated'], out
+    page.keyboard.press('Escape')
+    page.wait_for_timeout(100)
+    # Leave the module's shared server the way this test found it: the
+    # later pair-presentation test folds a nested unit under live refresh
+    # traffic, and every extra machine in the list stretches that window.
+    page.evaluate("""async (ids) => {
+        for (const id of [ids.sxId, ids.bkId, ids.mxId]) {
+            await fetch(`/api/processors/${id}`, { method: 'DELETE' });
+        }
+        await window.app.refreshProcessors();
+    }""", ids)
+    page.wait_for_timeout(600)
+
+
+def test_the_partner_pick_and_the_manual_picker_commit(panel_page):
+    """The 1:1 partner select (in the card's gear) stores the pick and the
+    consumed unit states its role on its own dock header; manual mode
+    unfolds a per-port picker in the port's DOCK CHIP that stores the
+    sparse map - each through its own named action."""
+    pytest.importorskip("playwright.sync_api",
+                        reason="playwright is not installed")
+    page = panel_page
+    ids = page.evaluate(REDUNDANCY_SEED_JS)
+    page.wait_for_timeout(800)
+    assert page.evaluate(OPEN_GEAR_JS, f"card-{ids['mxCardId']}"), (
+        'the card gear did not open')
+    page.evaluate("""(ids) => {
+        const sel = document.getElementById('hw-gear-popover').querySelector(
+            `[data-lrd-field="processor-card-backup-${ids.mxCardId}"]`);
+        sel.value = ids.bkCardId;
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+    }""", ids)
+    page.wait_for_timeout(800)
+    assert page.evaluate(STORED_CARD_JS, ids['mxId']).get(
+        'backupCardId') == ids['bkCardId']
+    assert page.evaluate(
+        "() => window.app.history.map(h => h.action).slice(-1)") == \
+        ['Change Backup Unit']
+    # The consumed unit says so where it reads: its card header wears the
+    # role tag (the old panel's 'Backs up SR' line, on the dock header).
+    consumed = page.evaluate("""(ids) => {
+        const head = document.querySelector(
+            `[data-lrd-sec="hwdock-card-${ids.bkCardId}"]`);
+        return !!head && head.textContent.includes('backs up SR');
+    }""", ids)
+    assert consumed, 'the consumed unit does not state its role'
+
+    # Manual mode: the mode select stays in the still-open gear; the pick
+    # itself lives in the port's dock chip editor.
+    page.evaluate("""(ids) => {
+        const sel = document.getElementById('hw-gear-popover').querySelector(
+            `[data-lrd-field="processor-card-redundancy-${ids.mxCardId}"]`);
+        sel.value = 'manual';
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+    }""", ids)
+    page.wait_for_timeout(800)
+    page.evaluate(
+        "(tid) => document.querySelector(`[data-lrd-tile=\"${tid}\"]`)"
+        + ".querySelector('.lrd-tile-face').click()",
+        f"port-{ids['mxCardId']}-1")
+    page.wait_for_timeout(400)
+    box = page.locator(
+        f'[data-lrd-field="processor-port-backup-port-{ids["mxCardId"]}-1"]')
+    assert box.count() == 1, 'manual mode drew no per-port picker'
+    box.click()
+    box.fill('5')
+    page.keyboard.press('Tab')
+    page.wait_for_timeout(800)
+    stored = page.evaluate(STORED_CARD_JS, ids['mxId'])
+    assert stored.get('backupPorts', {}).get('1') == \
+        {'cardId': ids['mxCardId'], 'port': 5}
+    assert page.evaluate(
+        "() => window.app.history.map(h => h.action).slice(-1)") == \
+        ['Change Port Backup']
+
+
+def test_a_redundant_pair_presents_as_one_group_on_the_dock(panel_page):
+    """A redundant pair is ONE loom and draws as ONE group, at both levels
+    that state a backup: the redundant SX40's boxes nest as A-with-B and
+    C-with-D pairs inside the card - two brackets, not four sibling boxes
+    - and a designated 1:1 backup unit nests whole (proc strip and all)
+    under its main's block in the tray. One presentation rule for "X backs
+    up Y", never an SX40 special case - and layout only: the fold
+    machinery keeps working on the nested unit's card."""
+    pytest.importorskip("playwright.sync_api",
+                        reason="playwright is not installed")
+    page = panel_page
+    ids = page.evaluate(REDUNDANCY_SEED_JS)
+    page.wait_for_timeout(800)
+    # Designate BK as SR's 1:1 backup through the real partner select,
+    # opened in the card's gear the way a user reaches it.
+    assert page.evaluate(OPEN_GEAR_JS, f"card-{ids['mxCardId']}"), (
+        'the card gear did not open')
+    page.evaluate("""(ids) => {
+        const sel = document.getElementById('hw-gear-popover').querySelector(
+            `[data-lrd-field="processor-card-backup-${ids.mxCardId}"]`);
+        sel.value = ids.bkCardId;
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+    }""", ids)
+    page.wait_for_timeout(1000)
+    page.keyboard.press('Escape')
+    page.wait_for_timeout(100)
+    out = page.evaluate("""(ids) => {
+        const sxCvts = window.app._processorsResolved
+            .find(p => p.id === ids.sxId).slots[0].card.cvts.map(c => c.id);
+        const field = (id) => document.querySelector(
+            `[data-lrd-field="processor-cvt-name-${id}"]`);
+        const [a, b, c, d] = sxCvts.map(field);
+        const pairOf = (el) => el && el.closest('.lrd-red-pair');
+        const wrapOf = (pid) => {
+            const strip = document.querySelector(
+                `[data-lrd-field="processor-name-${pid}"]`);
+            return strip && strip.closest('.hw-dock-proc');
+        };
+        const bkWrap = wrapOf(ids.bkId);
+        const mxWrap = wrapOf(ids.mxId);
+        const bkCardHead = document.querySelector(
+            `[data-lrd-sec="hwdock-card-${ids.bkCardId}"]`);
+        return {
+            built: !!(a && b && c && d && bkWrap && mxWrap && bkCardHead),
+            bNested: !!(b && b.closest('.lrd-red-backup')),
+            aPlain: !!(a && !a.closest('.lrd-red-backup')),
+            abPaired: !!(pairOf(a) && pairOf(a) === pairOf(b)),
+            cdPaired: !!(pairOf(c) && pairOf(c) === pairOf(d)),
+            pairsDistinct: !!(pairOf(a) && pairOf(a) !== pairOf(c)),
+            unitNested: !!(bkWrap
+                && bkWrap.classList.contains('lrd-red-backup')),
+            unitPairHoldsMain: !!(bkWrap
+                && bkWrap.parentElement.classList.contains('lrd-red-pair')
+                && bkWrap.parentElement.contains(mxWrap)),
+            nestedArrow: !!(bkCardHead
+                && bkCardHead.querySelector('.lrd-sec-arrow')),
+        };
+    }""", ids)
+    assert out['built'], out
+    assert out['bNested'] and out['aPlain'], out
+    assert out['abPaired'] and out['cdPaired'], out
+    assert out['pairsDistinct'], (
+        f'A/B and C/D collapsed into one bracket: {out}')
+    assert out['unitNested'] and out['unitPairHoldsMain'], out
+    assert out['nestedArrow'], 'the nested unit lost its fold machinery'
+    # The nested unit's card still folds: the pair is presentation, not
+    # state.
+    page.locator(f'[data-lrd-sec="hwdock-card-{ids["bkCardId"]}"] '
+                 '.lrd-sec-arrow').click()
+    page.wait_for_timeout(200)
+    folded = page.evaluate("""(ids) => {
+        const head = document.querySelector(
+            `[data-lrd-sec="hwdock-card-${ids.bkCardId}"]`);
+        const body = head.parentElement
+            .querySelector(':scope > .lrd-sec-body');
+        return getComputedStyle(body).display === 'none';
+    }""", ids)
+    assert folded, 'the nested backup unit\'s card no longer folds'

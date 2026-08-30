@@ -1,34 +1,48 @@
-"""The ports and multis render as tiles, and the tile is where they edit.
+"""The ports and circuits render as tiles, and the tile is where they edit.
 
-A 20-port card drawn as twenty stacked editors was a wall; drawn as tiles it
-is a grid a glance can sweep - number, resolved label, and who is on it -
-and clicking a tile opens that port's own controls IN the tile, because the
-box a port lives in is where changes to it are made. One open editor per
-box; Escape or the face closes it; the same fields, handlers and history
-actions as the rows they replace, because the tiles are presentation over
-the same state. The multis in the Power panel wear the identical shape.
+Both tile families live on the HARDWARE DOCK - the one place hardware
+appears at all, now that the Signal and Power sidebars are retired. In
+data view each port chip is the dense cell a glance can sweep - number,
+resolved label, and who is on it - and clicking the chip (a press released
+without movement; press-and-move is the drag) opens that port's own
+controls IN the chip. In power view an OCCUPIED circuit chip wears the
+identical shape: tail number, derived label, the holder screen, and a
+click opens the circuit's label override in place. A free tail has no
+circuit to label, so its chip stays a plain drag handle. One open editor
+per box; Escape or the face closes it; the same fields, handlers and
+history actions as the panel rows they replace, because the tiles are
+presentation over the same state. The multis themselves are dock sections
+now: a multi ON a distro gets a box whose header carries its name and
+home-run length inline, layer-qualified, since the dock shows every
+screen.
 
 What is pinned here:
-  * the tile states its number, its label and its state, and idle vs
-    occupied read apart at a squint
-  * a click opens exactly one editor; opening another closes the first
-  * edits through the open editor land on the server under the SAME history
-    actions the rows used, and walk back through undo
+  * the chip states its number, its label and its state, and idle vs
+    occupied read apart at a squint - in both families
+  * a click opens exactly one editor; opening another closes the first;
+    a free circuit chip's face opens nothing at all
+  * edits through the open editor land under the SAME history actions the
+    panel rows used, and walk back through undo
   * Escape closes and hands focus back to the face; the whole cycle works
     from the keyboard alone
-  * the grid fits the 260px default and the 180px clamp, open editor
-    included - reflow, never a sideways scroll
-  * a focus restore into a closed tile opens the tile (the fold rule, one
-    register down)
-  * the set/place flow opens the tile it aims at, and an open tile survives
-    the panel's wholesale rebuild by id
-  * a folded processor hides its tiles; unfolding hands them back as left
+  * the dock grid reflows to the window, open editor included - never a
+    sideways scroll (the dock spans the canvas column; the sidebar width
+    knobs died with the sidebars)
+  * a focus restore into a closed chip opens the chip, and one aiming into
+    a collapsed dock reopens the dock first (the fold rule, transposed)
+  * the dock is the ONE port surface: the retired panels are gone from the
+    DOM, no port field exists outside the dock, and the editor offers no
+    set/place control - assignment stays the chip's own drag
+  * a multi earns its dock section by landing on a distro, and its header
+    fields write through the same setters and actions the soca rows did
+  * collapsing the dock hides the chips; expanding hands them back as left
 
 Run locally:
     python3 -m pytest tests/test_port_tiles.py -q --browser chromium
 """
 
 import os
+import re
 import sys
 
 import pytest
@@ -44,9 +58,32 @@ def _guard(server_project_guard):
 
 
 # One MX20 named SR: an all-in-one whose six ports give the grid something
-# to be a grid about, with the shared Screen1 sitting on its first port so
+# to be a grid about, with the shared screen sitting on its first port so
 # occupied and free both exist to tell apart.
+#
+# The screen's NAME is normalized to Screen1 here rather than trusted: the
+# shared server's screen is Screen1 only until some earlier module's Flask
+# `client` fixture rebuilds the project (conftest's inter-suite hazard), so
+# a module-order change used to swap TestScreen under these assertions. The
+# occupant names on the chips come from the resolution, which reads the
+# CLIENT layer names (_assignmentScreens), so an in-memory rename before
+# the refresh is enough - and the module guard hands the server back as
+# found either way.
 SEED_JS = """async () => {
+    const screen = window.app.project.layers.find(
+        l => (l.type || 'screen') === 'screen');
+    if (screen) {
+        screen.name = 'Screen1';
+        // The MX20 is COEX gear, and since the platform wall (2026-08-28)
+        // a screen only lands on gear its Processing setting matches -
+        // without the stamp the occupied tile this module tells apart
+        // from the free ones would never be occupied.
+        screen.processorType = 'novastar-coex-1g';
+        await fetch(`/api/layer/${screen.id}`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ processorType: 'novastar-coex-1g' }),
+        });
+    }
     const state = await (await fetch('/api/processors')).json();
     for (const p of (state.processors || [])) {
         await fetch(`/api/processors/${p.id}`, { method: 'DELETE' });
@@ -64,10 +101,6 @@ SEED_JS = """async () => {
     await window.app.refreshProcessors();
     window.app.saveState('Seed Tiles');
     return { procId: proc.id, cardId: card.id };
-}"""
-
-SET_WIDTH_JS = """(width) => {
-    document.documentElement.style.setProperty('--lrd-data-w', width + 'px');
 }"""
 
 TILE_STATE_JS = """(tileId) => {
@@ -112,11 +145,9 @@ def panel_page(e2e_server, pw_browser):
     context.close()
 
 
-def seed(panel_page, width=260):
+def seed(panel_page):
     ids = panel_page.evaluate(SEED_JS)
     panel_page.wait_for_timeout(600)
-    panel_page.evaluate(SET_WIDTH_JS, width)
-    panel_page.wait_for_timeout(400)
     return ids
 
 
@@ -157,7 +188,7 @@ def test_idle_and_occupied_read_apart_at_a_squint(panel_page):
 
 def test_a_contested_port_wears_the_clash_state(panel_page):
     """Two screens on one port is a state the app supports and reports; the
-    tile carries the same red ground the issue boxes use."""
+    tile carries the same red ground the issue rows use."""
     ids = seed(panel_page)
     snapshot = panel_page.evaluate(
         "async () => await (await fetch('/api/project')).json()")
@@ -245,9 +276,10 @@ def test_a_click_opens_the_editor_in_the_tile_and_only_one_at_a_time(panel_page)
     assert not s2['open'] and s2['ariaExpanded'] == 'false', s2
 
 
-def test_the_open_editor_holds_the_same_controls_the_row_had(panel_page):
-    """Same fields, same keys: Name, Return, the set control and the
-    occupancy detail - presentation moved, nothing renamed."""
+def test_the_open_editor_holds_the_naming_controls_and_no_assigner(panel_page):
+    """Same naming fields, same keys: Name, Return and the occupancy detail.
+    The set/place control is deliberately GONE - assignment is the hardware
+    dock's drag now, and a second control would be a second set of rules."""
     ids = seed(panel_page)
     assert panel_page.evaluate(CLICK_FACE_JS, f"port-{ids['cardId']}-1")
     out = panel_page.evaluate("""(args) => {
@@ -256,18 +288,22 @@ def test_the_open_editor_holds_the_same_controls_the_row_had(panel_page):
         const vis = (el) => !!el && el.getClientRects().length > 0;
         const field = (kind) => tile.querySelector(
             `[data-lrd-field="processor-port-${kind}-${args.cardId}-1"]`);
-        const btn = [...tile.querySelectorAll('button')]
+        const setBtn = [...tile.querySelectorAll('button')]
             .find(b => b.textContent === 'set' || b.textContent === 'close');
         return {
             name: vis(field('name')),
             ret: vis(field('return')),
-            set: vis(btn),
+            set: !!setBtn,
+            picker: !!document.querySelector(
+                `[data-lrd-field^="processor-port-assign-"]`),
             namePlaceholder: field('name') ? field('name').placeholder : null,
             retPlaceholder: field('return') ? field('return').placeholder : null,
         };
     }""", {'cardId': ids['cardId']})
-    assert out['name'] and out['ret'] and out['set'], (
-        f'the open editor is missing controls the row had: {out}')
+    assert out['name'] and out['ret'], (
+        f'the open editor is missing the naming fields: {out}')
+    assert not out['set'] and not out['picker'], (
+        f'a stripped assignment control is still around: {out}')
     assert out['namePlaceholder'] == 'SR-1', out
     # SR has no leading P to swap for an R, so its return keeps the R after
     # it - the half of the rule a drawing already issued was printed with.
@@ -286,53 +322,57 @@ RENAME_CARD_JS = """async (args) => {
 def test_a_card_named_p1_shows_r1_everywhere_the_return_is_advertised(panel_page):
     """P is primary and R is redundant, so P1-1 goes out and R1-1 comes
     back - never P1-1R. Every surface that states the return for an untyped
-    port is read after the rename: the port's own Return placeholder (the
+    port is read after the rename: the port chip's Return placeholder (the
     server's derivation), the card's Return template placeholder (the
-    client's copy, rendered off the real name), and the screen label
-    editor's note, which asks getPortLabelText for what the drawing prints.
+    client's copy, rendered off the real name - behind the card's own gear
+    since the Processors panel retired), and what the drawing prints,
+    asked of getPortLabelText the way the canvas asks. The per-port label
+    list and its note died with the Signal sidebar, so the drawing's answer
+    is pinned at the API the canvas reads instead of a retired row's title.
     """
     ids = seed(panel_page)
     panel_page.evaluate(RENAME_CARD_JS, dict(ids, name='P1'))
     panel_page.wait_for_timeout(600)
     assert panel_page.evaluate(CLICK_FACE_JS, f"port-{ids['cardId']}-1")
-    out = panel_page.evaluate("""(args) => {
-        const tile = document.querySelector(
-            `[data-lrd-tile="port-${args.cardId}-1"]`);
-        const field = (kind) => tile.querySelector(
-            `[data-lrd-field="processor-port-${kind}-${args.cardId}-1"]`);
-        const template = document.querySelector(
-            `[data-lrd-field="processor-card-return-template-${args.cardId}"]`);
-        // The screen label editor, brought up for the screen on port 1 the
-        // way the Data sidebar would bring it up.
-        const app = window.app;
-        const screen = app.project.layers.find(
-            l => (l.type || 'screen') === 'screen');
-        app.currentLayer = screen;
-        app.updatePortCapacityDisplay();
-        app.updatePortLabelEditor();
-        const primary = document.querySelector('[data-lrd-field="port-primary-1"]');
-        const ret = document.querySelector('[data-lrd-field="port-return-1"]');
-        return {
-            namePlaceholder: field('name') ? field('name').placeholder : null,
-            retPlaceholder: field('return') ? field('return').placeholder : null,
-            templatePlaceholder: template ? template.placeholder : null,
-            onProcessor: app.getProcessorPortLabel(screen, 1),
-            editorReturn: ret ? ret.placeholder : null,
-            note: primary ? primary.title : null,
-        };
-    }""", {'cardId': ids['cardId']})
-    assert out['namePlaceholder'] == 'P1-1', out
-    assert out['retPlaceholder'] == 'R1-1', (
-        f'the port tile still advertises the old <primary>R return: {out}')
-    assert out['templatePlaceholder'] == 'R1-#', (
-        f'the Return template placeholder still advertises {{name}}-#R: {out}')
-    # The seeded screen sits on port 1, so its editor row is owned by the
-    # processor and its note names the return the drawing prints.
-    assert out['onProcessor'] == 'P1-1', out
-    assert out['editorReturn'] == 'R1-1', out
-    assert 'its return R1-1.' in (out['note'] or ''), (
-        f'the label editor note does not name R1-1: {out}')
-    assert 'P1-1R' not in (out['note'] or ''), out
+    # the template fields live behind the card's ⚙ popover now
+    panel_page.locator(f'[data-hwpop="card-{ids["cardId"]}"]').click()
+    panel_page.wait_for_timeout(200)
+    try:
+        out = panel_page.evaluate("""(args) => {
+            const tile = document.querySelector(
+                `[data-lrd-tile="port-${args.cardId}-1"]`);
+            const field = (kind) => tile.querySelector(
+                `[data-lrd-field="processor-port-${kind}-${args.cardId}-1"]`);
+            const template = document.querySelector(
+                `#hw-gear-popover [data-lrd-field=`
+                + `"processor-card-return-template-${args.cardId}"]`);
+            const app = window.app;
+            const screen = app.project.layers.find(
+                l => (l.type || 'screen') === 'screen');
+            return {
+                namePlaceholder: field('name') ? field('name').placeholder : null,
+                retPlaceholder: field('return') ? field('return').placeholder : null,
+                templatePlaceholder: template ? template.placeholder : null,
+                onProcessor: app.getProcessorPortLabel(screen, 1),
+                printsPrimary: app.getPortLabelText(screen, 1),
+                printsReturn: app.getPortLabelText(screen, 1, 'return'),
+            };
+        }""", {'cardId': ids['cardId']})
+        assert out['namePlaceholder'] == 'P1-1', out
+        assert out['retPlaceholder'] == 'R1-1', (
+            f'the port tile still advertises the old <primary>R return: {out}')
+        assert out['templatePlaceholder'] == 'R1-#', (
+            f'the Return template placeholder still advertises {{name}}-#R: '
+            f'{out}')
+        # The seeded screen sits on port 1, so the processor owns its label
+        # and the drawing prints the derived return.
+        assert out['onProcessor'] == 'P1-1', out
+        assert out['printsPrimary'] == 'P1-1', out
+        assert out['printsReturn'] == 'R1-1', (
+            f'the drawing does not print R1-1 for the return: {out}')
+    finally:
+        panel_page.keyboard.press('Escape')   # close the gear popover
+        panel_page.wait_for_timeout(100)
 
 
 def test_edits_through_the_open_editor_round_trip_with_the_same_actions(panel_page):
@@ -443,15 +483,25 @@ def test_the_whole_cycle_works_from_the_keyboard(panel_page):
     assert face_focused, 'the keyboard close did not land back on the face'
 
 
-# ── the clamp ─────────────────────────────────────────────────────────────
+# ── the reflow ────────────────────────────────────────────────────────────
+#
+# The dock spans the canvas column, so its clamp is the WINDOW: the tray is
+# wide on a wide monitor and narrow on the default one, and the grid must
+# reflow its columns to whatever width it has rather than scroll sideways.
+# (The retired sidebars' width knobs - --lrd-data-w, --lrd-power-w - died
+# with the sidebars; the window is the only width driver left.) The
+# comparison grows from the fixture's 1280 rather than shrinking below it,
+# because the canvas element's backing store pins the column's min-content
+# at its load-time size - a window smaller than that clips the layout
+# instead of narrowing the tray, which is the app's standing behaviour and
+# not this feature's to change.
 
-GRID_FIT_JS = """(cardId) => {
-    const list = document.getElementById('processor-list');
-    const grids = [...list.querySelectorAll('.lrd-tile-grid')];
-    const sidebar = document.getElementById('data-sidebar');
-    const limit = sidebar.getBoundingClientRect().right;
+GRID_FIT_JS = """() => {
+    const body = document.getElementById('hardware-dock-body');
+    const grids = [...body.querySelectorAll('.lrd-tile-grid')];
+    const limit = body.getBoundingClientRect().right;
     const strays = [];
-    list.querySelectorAll('.lrd-tile, .lrd-tile *').forEach(el => {
+    body.querySelectorAll('.lrd-tile, .lrd-tile *').forEach(el => {
         const r = el.getBoundingClientRect();
         if (r.width === 0 && r.height === 0) return;
         if (r.right > limit + 0.5) {
@@ -465,7 +515,7 @@ GRID_FIT_JS = """(cardId) => {
     const cols = grid ? getComputedStyle(grid).gridTemplateColumns
         .split(' ').length : 0;
     return {
-        clipped: list.scrollWidth > list.clientWidth,
+        clipped: body.scrollWidth > body.clientWidth,
         gridClipped: grids.some(g => g.scrollWidth > g.clientWidth),
         columns: cols,
         strays,
@@ -473,44 +523,55 @@ GRID_FIT_JS = """(cardId) => {
 }"""
 
 
-@pytest.mark.parametrize('width', [260, 180])
+@pytest.mark.parametrize('width', [1280, 1700])
 def test_the_tile_grid_fits_closed_and_open(panel_page, width):
-    """At the default and at the clamp: the grid reflows to fewer columns,
-    no tile clips past the panel, and the open editor wraps inside the tile
-    the way the soca rows wrap - never a sideways scroll."""
-    ids = seed(panel_page, width)
-    closed = panel_page.evaluate(GRID_FIT_JS, ids['cardId'])
-    assert not closed['clipped'] and not closed['gridClipped'], closed
-    assert not closed['strays'], (
-        f'tiles hang past the panel at {width}px: {closed["strays"]}')
-    assert closed['columns'] >= 1, closed
+    """At the default window and at a wide one: the grid reflows, no chip
+    clips past the tray, and the open editor wraps inside the chip the way
+    its captioned fields are built to wrap - never a sideways scroll."""
+    ids = seed(panel_page)
+    panel_page.set_viewport_size({'width': width, 'height': 720})
+    panel_page.wait_for_timeout(400)
+    try:
+        closed = panel_page.evaluate(GRID_FIT_JS)
+        assert not closed['clipped'] and not closed['gridClipped'], closed
+        assert not closed['strays'], (
+            f'chips hang past the tray at {width}px: {closed["strays"]}')
+        assert closed['columns'] >= 1, closed
 
-    assert panel_page.evaluate(CLICK_FACE_JS, f"port-{ids['cardId']}-1")
-    panel_page.wait_for_timeout(100)
-    opened = panel_page.evaluate(GRID_FIT_JS, ids['cardId'])
-    assert not opened['clipped'] and not opened['gridClipped'], opened
-    assert not opened['strays'], (
-        f'the open editor hangs past the panel at {width}px: '
-        f'{opened["strays"]}')
+        assert panel_page.evaluate(CLICK_FACE_JS, f"port-{ids['cardId']}-1")
+        panel_page.wait_for_timeout(100)
+        opened = panel_page.evaluate(GRID_FIT_JS)
+        assert not opened['clipped'] and not opened['gridClipped'], opened
+        assert not opened['strays'], (
+            f'the open editor hangs past the tray at {width}px: '
+            f'{opened["strays"]}')
+    finally:
+        panel_page.evaluate(CLICK_FACE_JS, f"port-{ids['cardId']}-1")
+        panel_page.set_viewport_size({'width': 1280, 'height': 720})
+        panel_page.wait_for_timeout(300)
 
 
-def test_the_clamp_reflows_to_fewer_columns(panel_page):
-    ids = seed(panel_page, 260)
-    wide = panel_page.evaluate(GRID_FIT_JS, ids['cardId'])
-    panel_page.evaluate(SET_WIDTH_JS, 180)
+def test_a_wider_tray_reflows_to_more_columns(panel_page):
+    seed(panel_page)
+    narrow = panel_page.evaluate(GRID_FIT_JS)
+    panel_page.set_viewport_size({'width': 1700, 'height': 720})
     panel_page.wait_for_timeout(500)
-    narrow = panel_page.evaluate(GRID_FIT_JS, ids['cardId'])
-    assert narrow['columns'] < wide['columns'], (
-        f'the grid did not reflow: {wide["columns"]} columns at 260, '
-        f'{narrow["columns"]} at 180')
-    assert not narrow['clipped'] and not narrow['strays'], narrow
+    try:
+        wide = panel_page.evaluate(GRID_FIT_JS)
+        assert wide['columns'] > narrow['columns'], (
+            f'the grid did not reflow: {narrow["columns"]} columns at 1280, '
+            f'{wide["columns"]} at 1700')
+        assert not wide['clipped'] and not wide['strays'], wide
+    finally:
+        panel_page.set_viewport_size({'width': 1280, 'height': 720})
+        panel_page.wait_for_timeout(300)
 
 
 # ── focus restore, set/place, and the fold ────────────────────────────────
 
 def test_a_focus_restore_into_a_closed_tile_opens_it(panel_page):
     """The fold rule one register down: a field the app is putting the caret
-    back into must not be display:none, so the restore opens the tile - and
+    back into must not be display:none, so the restore opens the chip - and
     records the opening, or the next rebuild would close the editor around
     the caret."""
     ids = seed(panel_page)
@@ -530,117 +591,194 @@ def test_a_focus_restore_into_a_closed_tile_opens_it(panel_page):
         const reopened = tile.classList.contains('lrd-tile-open');
         const focusedBack = document.activeElement === el;
         // and the opening is recorded, so a rebuild keeps it
-        app.renderProcessorPanel();
+        app.renderHardwareDock();
         const rebuilt = document.querySelector(
             `[data-lrd-tile="port-${args.cardId}-1"]`);
         return { reopened, focusedBack,
                  survives: rebuilt.classList.contains('lrd-tile-open') };
     }""", {'cardId': ids['cardId']})
-    assert out['reopened'], f'the restore left the tile closed: {out}'
+    assert out['reopened'], f'the restore left the chip closed: {out}'
     assert out['focusedBack'], f'focus was not restored into the field: {out}'
     assert out['survives'], f'the auto-opening did not survive a rebuild: {out}'
 
 
-def test_the_set_place_flow_opens_the_tile_it_aims_at(panel_page):
-    """The chooser acts into a port's editor; aimed at a closed tile under a
-    folded processor, the whole chain opens - processor unfolds, tile opens,
-    chooser painted - or the gesture reads as nothing happening."""
+def test_a_focus_restore_into_a_collapsed_dock_reopens_the_dock(panel_page):
+    """The same rule at the tray's own register: the dock folds by the
+    SIDEBAR machinery, so a restore aiming into a collapsed tray reopens it
+    through its own toggle - persisting the state, the way the section
+    auto-expand persists its - then opens the chip and lands the caret."""
     ids = seed(panel_page)
-    # fold the processor so both links of the chain are exercised
-    panel_page.evaluate("""(procId) => {
-        const box = document.querySelector(
-            `[data-lrd-sec-id="processor-${procId}"]`);
-        window.app._setSectionCollapsed(box, true);
-    }""", ids['procId'])
-    out = panel_page.evaluate("""(args) => {
+    tid = f"port-{ids['cardId']}-1"
+    assert panel_page.evaluate(CLICK_FACE_JS, tid)
+    out = panel_page.evaluate("""async (args) => {
         const app = window.app;
-        app._assigningPort = { cardId: args.cardId, port: 5 };
-        app.renderProcessorPanel();
+        const el = document.querySelector(
+            `[data-lrd-field="processor-port-name-${args.cardId}-1"]`);
+        el.focus();
+        app._preserveEditorFocus();          // captures key + schedules restore
         const tile = document.querySelector(
-            `[data-lrd-tile="port-${args.cardId}-5"]`);
-        const picker = document.querySelector(
-            `[data-lrd-field="processor-port-assign-${args.cardId}-5"]`);
-        const box = document.querySelector(
-            `[data-lrd-sec-id="processor-${args.procId}"]`);
-        const body = box.querySelector(':scope > .lrd-sec-body');
-        const result = {
-            unfolded: getComputedStyle(body).display !== 'none',
-            tileOpen: tile.classList.contains('lrd-tile-open'),
-            pickerPainted: !!picker && picker.getClientRects().length > 0,
+            `[data-lrd-tile="port-${args.cardId}-1"]`);
+        app._setTileOpen(tile, false);       // close before the restore lands
+        // collapse the tray through its own toggle, the way a user would
+        document.getElementById('hardware-dock-toggle').click();
+        if (document.activeElement) document.activeElement.blur();
+        await new Promise(r => setTimeout(r, 50));
+        const dock = document.getElementById('hardware-dock');
+        return {
+            dockReopened: !dock.classList.contains('collapsed'),
+            stored: localStorage.getItem('ledRasterSidebarCollapsed_dock'),
+            tileReopened: tile.classList.contains('lrd-tile-open'),
+            focusedBack: document.activeElement === el,
         };
-        app._assigningPort = null;           // leave the panel as found
-        app.renderProcessorPanel();
-        return result;
-    }""", {'cardId': ids['cardId'], 'procId': ids['procId']})
-    assert out['unfolded'], f'the aim left the processor folded: {out}'
-    assert out['tileOpen'], f'the aim did not open the port tile: {out}'
-    assert out['pickerPainted'], f'the chooser itself is not drawn: {out}'
+    }""", {'cardId': ids['cardId']})
+    assert out['dockReopened'], f'the restore left the dock collapsed: {out}'
+    assert out['stored'] == '0', f'the reopening did not persist: {out}'
+    assert out['tileReopened'], f'the restore left the chip closed: {out}'
+    assert out['focusedBack'], f'focus was not restored into the field: {out}'
 
 
-def test_a_folded_processor_hides_its_tiles_and_hands_them_back(panel_page):
-    """Fold interplay: folding hides the whole grid, unfolding restores it,
-    and the open tile rides the panel's wholesale rebuild by id - the same
-    way the fold state itself does."""
+def test_the_dock_is_the_one_port_surface(panel_page):
+    """The Signal sidebar and its Processors panel are gone from the DOM
+    entirely - the dock is the one place ports appear, editors included -
+    and no assignment field of the old set/place flow survives anywhere.
+    The dock chips stay focusable, one per port."""
+    ids = seed(panel_page)
+    out = panel_page.evaluate("""(args) => {
+        const dockTile = document.querySelector(
+            `[data-hwdock="port-${args.cardId}-5"]`);
+        return {
+            // the retired homes must not linger as empty husks
+            retiredIds: ['data-sidebar', 'data-sidebar-toggle',
+                         'power-sidebar', 'power-sidebar-toggle',
+                         'processor-list', 'port-label-list',
+                         'power-soca-runs', 'power-label-list']
+                .filter(id => document.getElementById(id)),
+            pickerAnywhere: !!document.querySelector(
+                '[data-lrd-field^="processor-port-assign-"]'),
+            setButtons: [...document.querySelectorAll('button')]
+                .filter(b => b.textContent === 'set').length,
+            portFieldsOutsideDock: [...document.querySelectorAll(
+                '[data-lrd-field^="processor-port-"]')]
+                .filter(el => !el.closest('#hardware-dock')).length,
+            dockTile: !!dockTile,
+            dockTileFocusable: dockTile ? dockTile.tabIndex === 0 : null,
+            dockTiles: document.querySelectorAll(
+                `#hardware-dock [data-hwdock^="port-${args.cardId}-"]`).length,
+            // the one-id rule: each port field key resolves exactly once,
+            // and it resolves into the dock
+            fieldCount: document.querySelectorAll(
+                `[data-lrd-field="processor-port-name-${args.cardId}-1"]`)
+                .length,
+            fieldInDock: !!document.querySelector(
+                `#hardware-dock [data-lrd-field="processor-port-name-`
+                + `${args.cardId}-1"]`),
+        };
+    }""", {'cardId': ids['cardId']})
+    assert out['retiredIds'] == [], (
+        f'a retired panel still stands in the DOM: {out}')
+    assert not out['pickerAnywhere'], f'the old chooser survives: {out}'
+    assert out['setButtons'] == 0, f'a set button survives: {out}'
+    assert out['portFieldsOutsideDock'] == 0, (
+        f'port fields survive outside the dock: {out}')
+    assert out['dockTile'], f'the dock has no chip for port 5: {out}'
+    assert out['dockTileFocusable'], (
+        f'the dock chip fell out of the tab ring: {out}')
+    # the MX20's six ports all appear, once each, editors in the dock
+    assert out['dockTiles'] == 6, out
+    assert out['fieldCount'] == 1 and out['fieldInDock'], (
+        f'the one-id rule broke - a port field exists twice or outside '
+        f'the dock: {out}')
+
+
+def test_a_collapsed_dock_hides_its_chips_and_hands_them_back(panel_page):
+    """Fold interplay at the tray's register: collapsing the dock hides
+    every chip, expanding restores them, and the open chip rides the
+    tray's wholesale rebuild by id - the same way the fold state itself
+    does."""
     ids = seed(panel_page)
     tid = f"port-{ids['cardId']}-1"
     assert panel_page.evaluate(CLICK_FACE_JS, tid)
     assert tile_state(panel_page, tid)['open']
 
-    panel_page.evaluate("""(procId) => {
-        const box = document.querySelector(
-            `[data-lrd-sec-id="processor-${procId}"]`);
-        window.app._setSectionCollapsed(box, true);
-    }""", ids['procId'])
-    s = tile_state(panel_page, tid)
-    assert not s['facePainted'] and not s['bodyPainted'], (
-        f'a folded processor still paints its tiles: {s}')
-    assert s['bodyInDom'], 'the fold detached the tiles'
+    panel_page.locator('#hardware-dock-toggle').click()
+    panel_page.wait_for_timeout(500)
+    # The collapse folds the tray to nothing and clips its content
+    # (height 0 + overflow hidden - the sidebar collapse transposed), so
+    # the proof is the tray's height, not display:none on each chip.
+    folded = panel_page.evaluate("""() => {
+        const dock = document.getElementById('hardware-dock');
+        return {
+            collapsed: dock.classList.contains('collapsed'),
+            dockH: dock.getBoundingClientRect().height,
+        };
+    }""")
+    assert folded['collapsed'] and folded['dockH'] < 2, (
+        f'the toggle did not fold the tray away: {folded}')
+    assert tile_state(panel_page, tid)['bodyInDom'], (
+        'the collapse detached the chips')
 
-    panel_page.evaluate("""(procId) => {
-        const box = document.querySelector(
-            `[data-lrd-sec-id="processor-${procId}"]`);
-        window.app._setSectionCollapsed(box, false);
-    }""", ids['procId'])
+    panel_page.locator('#hardware-dock-toggle').click()
+    panel_page.wait_for_timeout(500)
     s = tile_state(panel_page, tid)
-    assert s['facePainted'], 'unfolding did not hand the tiles back'
+    assert s['facePainted'], 'expanding did not hand the chips back'
     assert s['open'] and s['bodyPainted'], (
-        f'unfolding lost the open tile: {s}')
+        f'expanding lost the open chip: {s}')
 
-    # a bare wholesale rebuild: the open tile comes back by id
-    panel_page.evaluate("() => window.app.renderProcessorPanel()")
+    # a bare wholesale rebuild: the open chip comes back by id
+    panel_page.evaluate("() => window.app.renderHardwareDock()")
     panel_page.wait_for_timeout(100)
     s = tile_state(panel_page, tid)
     assert s['open'] and s['bodyPainted'], (
-        f'the rebuild closed the open tile: {s}')
+        f'the rebuild closed the open chip: {s}')
 
 
-# ── the multis wear the same shape ────────────────────────────────────────
+# ── the circuits wear the same shape, on the dock ─────────────────────────
+#
+# The soca tiles died with the Power sidebar. What replaced them is TWO
+# dock surfaces: the multi's own section (header carries the name and
+# home-run length inline, layer-qualified - the dock shows every screen)
+# and, inside it, six circuit chips in the port-chip register, where an
+# OCCUPIED tail is a tile whose editor holds the circuit's label override.
+# A multi has a dock section only ON a distro, so the seed assigns one.
 
-SOCA_SEED_JS = """() => {
+POWER_SEED_JS = """() => {
     const app = window.app;
     const layer = app.project.layers.find(
         l => (l.type || 'screen') === 'screen');
+    // Same name normalization as SEED_JS, for the same module-order reason:
+    // the chips print the HOLDER's layer name straight off l.name.
+    layer.name = 'Screen1';
     app.selectLayer(layer);
     // In-memory power shape: enough watts against the circuit for the 4x3
-    // screen to need circuits, so the plan has multis to draw.
+    // screen to need TWO circuits, so multi 1 holds two tails and four
+    // stay free - occupied and free chips both exist to tell apart.
     layer.panelWatts = 400;
     layer.powerVoltage = 208;
     layer.powerAmperage = 20;
-    if (window.__tileDistro === undefined) {
-        window.__tileDistro = app.getDistros().length
-            ? null : app.addDistro().id;
-    }
-    // every test starts from closed tiles - which tile is open is module
-    // state on the app, and a previous test's open editor must not leak in
-    if (app._openTiles) delete app._openTiles[`soca-runs-${layer.id}`];
+    const d = app.getDistros()[0] || app.addDistro();
+    // every test starts from closed chips and derived names - which chip
+    // is open is module state on the app, and a previous test's open
+    // editor or hand-typed name must not leak in
+    app._openTiles = {};
     app._circuitTailCache = null;
-    app.refreshSocaRuns();
-    app.refreshDistroPanel();
-    const host = document.getElementById('power-soca-runs');
+    let plan = app.getSocaPlan(layer);
+    if (!plan.length) return { socas: 0 };
+    const idx = plan[0].soca;
+    if (layer.powerSocaNames) delete layer.powerSocaNames[idx];
+    if (layer.powerSocaLengths) delete layer.powerSocaLengths[idx];
+    // a multi earns its dock section by sitting ON a distro
+    if ((layer.powerSocaDistro || {})[idx] !== d.id) {
+        app.setSocaDistro(layer, idx, d.id);
+    }
+    app._restateNaming();
+    app.renderHardwareDock();
+    plan = app.getSocaPlan(layer);
+    const s = plan.find(x => x.soca === idx);
     return {
-        layerId: layer.id,
-        socas: app.getSocaPlan(layer).length,
-        tiles: host.querySelectorAll('.power-soca-row.lrd-tile').length,
+        layerId: layer.id, distroId: d.id, socaIdx: s.soca,
+        number: s.number, name: s.name, socas: plan.length,
+        legs: s.legs.map(g => ({ tail: g.leg, circuit: g.circuit,
+                                 label: g.label })),
     };
 }"""
 
@@ -649,60 +787,138 @@ SOCA_SEED_JS = """() => {
 def power_page(panel_page):
     panel_page.locator('[data-mode="power"]').click()
     panel_page.wait_for_timeout(400)
-    seeded = panel_page.evaluate(SOCA_SEED_JS)
+    seeded = panel_page.evaluate(POWER_SEED_JS)
+    panel_page.wait_for_timeout(400)
     assert seeded['socas'] > 0, f'the plan built no multis: {seeded}'
-    assert seeded['tiles'] == seeded['socas'], (
-        f'one tile per multi: {seeded}')
+    assert len(seeded['legs']) >= 2, (
+        f'the seed shape must occupy at least two tails so one-per-box '
+        f'has two chips to play against: {seeded}')
     yield panel_page, seeded
     panel_page.locator('[data-mode="data-flow"]').click()
     panel_page.wait_for_timeout(300)
 
 
-def test_a_multi_tile_carries_the_heading_data_and_opens_in_place(power_page):
+def chip_id(seeded, i):
+    leg = seeded['legs'][i]
+    return f"ptail-{seeded['distroId']}-{seeded['number']}-{leg['tail']}"
+
+
+def test_a_multi_earns_its_dock_section_by_landing_on_a_distro(power_page):
+    """No distro, no box: an unassigned multi has no dock section, hence no
+    name or length editor - the assignment (the dock's drop; its setter
+    here) is what builds the box, under the action the drop has always
+    earned."""
     page, seeded = power_page
-    tid = f"soca-{seeded['layerId']}-1"
-    s = tile_state(page, tid)
-    assert s, 'multi 1 built no tile'
-    assert not s['open'] and not s['bodyPainted'], s
-    assert s['bodyInDom'], 'a closed multi tile detached its editor'
-    assert '·' in s['faceText'] and 'leg' in s['faceText'] \
-        and s['faceText'].endswith('A'), (
-        f'the face is not the heading data (name · legs · amps): {s}')
-
-    assert page.evaluate(CLICK_FACE_JS, tid)
-    s = tile_state(page, tid)
-    assert s['open'] and s['bodyPainted'], f'the click did not open the editor: {s}'
-    fields = page.evaluate("""(tileId) => {
-        const tile = document.querySelector(`[data-lrd-tile="${tileId}"]`);
-        const vis = (el) => !!el && el.getClientRects().length > 0;
+    key = f"power-soca-name-{seeded['layerId']}-{seeded['socaIdx']}"
+    out = page.evaluate("""(a) => {
+        const app = window.app;
+        const layer = app.project.layers.find(l => l.id === a.layerId);
+        app.setSocaDistro(layer, a.socaIdx, null);
+        app.renderHardwareDock();
+        const gone = !document.querySelector(`[data-lrd-field="${a.key}"]`);
+        app.setSocaDistro(layer, a.socaIdx, a.distroId);
+        app.renderHardwareDock();
         return {
-            name: vis(tile.querySelector('.power-soca-name')),
-            distro: vis(tile.querySelector('.power-soca-distro')),
-            length: vis(tile.querySelector('.power-soca-length')),
+            gone,
+            back: !!document.querySelector(
+                `#hardware-dock [data-lrd-field="${a.key}"]`),
+            action: app.history[app.history.length - 1].action,
         };
-    }""", tid)
-    assert fields == {'name': True, 'distro': True, 'length': True}, (
-        f'the open multi editor is missing its fields: {fields}')
+    }""", {'layerId': seeded['layerId'], 'socaIdx': seeded['socaIdx'],
+           'distroId': seeded['distroId'], 'key': key})
+    page.wait_for_timeout(400)
+    assert out['gone'], (
+        'an unassigned multi still has a name editor somewhere - the dock '
+        'section must exist only on a distro')
+    assert out['back'], 'assigning did not build the dock section back'
+    assert out['action'] == 'Assign Multi Distro', out
 
-    # the panel-level controls stay panel-level - they are per-screen
+
+def test_the_multi_header_carries_the_inline_name_and_length(power_page):
+    """The retired soca tile's fields, re-hosted onto the multi's own dock
+    header with layer-qualified keys: the name (placeholder = the derived
+    name, so an unnamed box still reads as its identity) and the home-run
+    length. The header also states the box's data - tails and amps in the
+    detail, used-of-six in the glance - while a FREE spare keeps its static
+    label. Assigning stays the drag: the old Distro and No. selects exist
+    nowhere. The per-screen knobs live in the left sidebar's Power
+    Settings, never in the dock."""
+    page, seeded = power_page
+    out = page.evaluate("""(a) => {
+        const head = document.querySelector(
+            `#hardware-dock [data-hwdock="slot-${a.distroId}-${a.number}"]`);
+        if (!head) return null;
+        const vis = (el) => !!el && el.getClientRects().length > 0;
+        const name = head.querySelector(
+            `[data-lrd-field="power-soca-name-${a.layerId}-${a.socaIdx}"]`);
+        const len = head.querySelector(
+            `[data-lrd-field="power-soca-length-${a.layerId}-${a.socaIdx}"]`);
+        const info = head.querySelector('.hw-dock-unit-info');
+        const use = head.querySelector('.hw-dock-unit-use');
+        const spare = document.querySelector(
+            `#hardware-dock [data-hwdock=`
+            + `"slot-${a.distroId}-${a.number + 1}"]`);
+        return {
+            name: vis(name), nameClass: name ? name.className : null,
+            namePlaceholder: name ? name.placeholder : null,
+            length: vis(len),
+            lenClass: len ? len.className : null,
+            lenPlaceholder: len ? len.placeholder : null,
+            staticLabel: !!head.querySelector('.hw-dock-unit-name'),
+            detail: info ? info.textContent : null,
+            glance: use ? use.textContent : null,
+            spareDetail: spare ? spare.querySelector(
+                '.hw-dock-unit-info').textContent : null,
+            spareStatic: spare ? !!spare.querySelector(
+                '.hw-dock-unit-name') : null,
+            spareFields: spare ? spare.querySelectorAll('input').length : null,
+            // the retired tile selects must exist nowhere
+            oldSelects: document.querySelectorAll(
+                '.power-soca-distro, .power-soca-number, .power-soca-row')
+                .length,
+        };
+    }""", {'layerId': seeded['layerId'], 'socaIdx': seeded['socaIdx'],
+           'distroId': seeded['distroId'], 'number': seeded['number']})
+    assert out, 'multi 1 built no dock section'
+    assert out['name'] and out['length'], (
+        f'the header is missing the inline fields: {out}')
+    assert out['namePlaceholder'] == seeded['name'], (
+        f'the name placeholder is not the derived multi name: {out}')
+    assert out['lenPlaceholder'] == '100ft', out
+    assert 'hw-dock-name-len' in (out['lenClass'] or ''), out
+    assert not out['staticLabel'], (
+        f'an occupied multi still draws a static label beside its name '
+        f'field: {out}')
+    assert re.match(r'^\d+ circuits? · [\d.]+ A$', out['detail'] or ''), (
+        f'the detail is not "<legs> circuits · <amps> A": {out}')
+    assert out['glance'] == f"{len(seeded['legs'])}/6", out
+    # the demand-driven spare after the occupied box: static label, free
+    assert out['spareDetail'] == 'free' and out['spareStatic'], out
+    assert out['spareFields'] == 0, (
+        f'a free multi grew editors before anything sits on it: {out}')
+    assert out['oldSelects'] == 0, (
+        f'the retired soca tile controls survive: {out}')
+
+    # the per-screen knobs stay per-screen, in the left sidebar
     for panel_ctrl in ('#power-breakout-type', '#show-soca-brackets'):
         assert page.evaluate(
             """(sel) => {
                 const el = document.querySelector(sel);
-                return !!el && !el.closest('.lrd-tile')
+                return !!el && !el.closest('#hardware-dock')
                     && el.getClientRects().length > 0;
             }""", panel_ctrl), (
-            f'{panel_ctrl} moved into a tile or went unpainted')
+            f'{panel_ctrl} moved into the dock or went unpainted')
 
 
 def test_multi_edits_round_trip_with_the_same_actions(power_page):
-    """Name, distro and length through the open editor: same setters, same
-    history actions as the rows - and the name walks back through undo."""
+    """Name and length through the header's inline fields: same setters,
+    same history actions as the retired soca rows - and the length walks
+    back through undo."""
     page, seeded = power_page
-    tid = f"soca-{seeded['layerId']}-1"
-    assert page.evaluate(CLICK_FACE_JS, tid)
+    name_key = f"power-soca-name-{seeded['layerId']}-{seeded['socaIdx']}"
+    len_key = f"power-soca-length-{seeded['layerId']}-{seeded['socaIdx']}"
 
-    name = page.locator(f'[data-lrd-tile="{tid}"] .power-soca-name')
+    name = page.locator(f'[data-lrd-field="{name_key}"]')
     name.click()
     name.fill('')
     page.keyboard.type('HOUSE')
@@ -712,26 +928,11 @@ def test_multi_edits_round_trip_with_the_same_actions(power_page):
         "() => window.app.history[window.app.history.length - 1].action") \
         == 'Rename Multi'
     assert page.evaluate(
-        """(layerId) => (window.app.project.layers.find(
-            l => l.id === layerId).powerSocaNames || {})['1']""",
-        seeded['layerId']) == 'HOUSE'
+        """(a) => (window.app.project.layers.find(
+            l => l.id === a.layerId).powerSocaNames || {})[a.socaIdx]""",
+        seeded) == 'HOUSE'
 
-    picked = page.evaluate("""(layerId) => {
-        const sel = document.querySelector(
-            `[data-lrd-tile="soca-${layerId}-1"] .power-soca-distro`);
-        const v = [...sel.options].map(o => o.value).find(x => x);
-        if (!v) return null;
-        sel.value = v;
-        sel.dispatchEvent(new Event('change', { bubbles: true }));
-        return v;
-    }""", seeded['layerId'])
-    assert picked, 'no distro to land the multi on'
-    page.wait_for_timeout(600)
-    assert page.evaluate(
-        "() => window.app.history[window.app.history.length - 1].action") \
-        == 'Assign Multi Distro'
-
-    length = page.locator(f'[data-lrd-tile="{tid}"] .power-soca-length')
+    length = page.locator(f'[data-lrd-field="{len_key}"]')
     length.click()
     length.fill('')
     page.keyboard.type('125ft')
@@ -741,76 +942,223 @@ def test_multi_edits_round_trip_with_the_same_actions(power_page):
         "() => window.app.history[window.app.history.length - 1].action") \
         == 'Set Multi Home Run'
     assert page.evaluate(
-        """(layerId) => (window.app.project.layers.find(
-            l => l.id === layerId).powerSocaLengths || {})['1']""",
-        seeded['layerId']) == '125ft'
+        """(a) => (window.app.project.layers.find(
+            l => l.id === a.layerId).powerSocaLengths || {})[a.socaIdx]""",
+        seeded) == '125ft'
 
     # undo hands the length back, one step, same as the rows did
     page.evaluate("() => window.app.undo()")
     page.wait_for_timeout(800)
     assert page.evaluate(
-        """(layerId) => (window.app.project.layers.find(
-            l => l.id === layerId).powerSocaLengths || {})['1'] || null""",
-        seeded['layerId']) is None
+        """(a) => (window.app.project.layers.find(
+            l => l.id === a.layerId).powerSocaLengths || {})[a.socaIdx]
+            || null""",
+        seeded) is None
     page.evaluate("() => window.app.redo()")
     page.wait_for_timeout(800)
     assert page.evaluate(
-        """(layerId) => (window.app.project.layers.find(
-            l => l.id === layerId).powerSocaLengths || {})['1']""",
-        seeded['layerId']) == '125ft'
+        """(a) => (window.app.project.layers.find(
+            l => l.id === a.layerId).powerSocaLengths || {})[a.socaIdx]""",
+        seeded) == '125ft'
 
 
-def test_multi_escape_closes_and_the_rebuild_keeps_the_open_tile(power_page):
+def test_an_occupied_circuit_chip_opens_and_a_free_tail_stays_a_handle(power_page):
+    """The port-chip grammar on the power side: an occupied tail is a tile
+    that states its number, label and holder and opens its editor in place
+    - one per box - while a FREE tail has no circuit to label, so its face
+    is a plain drag handle that opens nothing."""
     page, seeded = power_page
-    tid = f"soca-{seeded['layerId']}-1"
+    t1 = chip_id(seeded, 0)
+    t2 = chip_id(seeded, 1)
+
+    s = tile_state(page, t1)
+    assert s, 'the occupied tail built no tile'
+    assert s['occupied'] and not s['open'], s
+    assert s['bodyInDom'], 'a closed circuit chip detached its editor'
+    leg = seeded['legs'][0]
+    assert s['faceText'].startswith(str(leg['tail'])), (
+        f'the face does not lead with the tail number: {s}')
+    assert leg['label'] in s['faceText'], (
+        f'the derived circuit label is not on the face: {s}')
+    assert 'Screen1' in s['faceText'], (
+        f'the holder screen is not on the face: {s}')
+
+    # a free tail: no tile id, no editor, and its face opens nothing
+    free = page.evaluate("""(a) => {
+        const used = a.tails;
+        const t = [1, 2, 3, 4, 5, 6].find(x => !used.includes(x));
+        const face = document.querySelector(
+            `[data-hwdock="tail-${a.distroId}-${a.number}-${t}"]`);
+        if (!face) return null;
+        const tile = face.closest('.lrd-tile');
+        face.click();
+        return {
+            hasTileId: 'lrdTile' in tile.dataset,
+            wired: 'lrdTileWired' in tile.dataset,
+            body: !!tile.querySelector(':scope > .lrd-tile-body'),
+            opened: tile.classList.contains('lrd-tile-open'),
+            openAnywhere: !!document.querySelector(
+                '#hardware-dock .lrd-tile-open'),
+        };
+    }""", {'distroId': seeded['distroId'], 'number': seeded['number'],
+           'tails': [g['tail'] for g in seeded['legs']]})
+    assert free, 'the free tail built no chip at all'
+    assert not free['hasTileId'] and not free['body'], (
+        f'a free chip grew an editor with nothing to edit: {free}')
+    assert not free['wired'] and not free['opened'] \
+        and not free['openAnywhere'], (
+        f'a free chip face click opened something: {free}')
+
+    # occupied chips: one open editor per box, the port chips' rule
+    assert page.evaluate(CLICK_FACE_JS, t1)
+    s = tile_state(page, t1)
+    assert s['open'] and s['bodyPainted'], (
+        f'the click did not open the circuit editor: {s}')
+    assert page.evaluate(CLICK_FACE_JS, t2)
+    s1 = tile_state(page, t1)
+    s2 = tile_state(page, t2)
+    assert s2['open'] and not s1['open'], (
+        f'two circuit editors open in one box: {(s1, s2)}')
+    assert page.evaluate(CLICK_FACE_JS, t2)   # leave it closed
+
+
+def test_a_circuit_label_edits_on_its_chip_under_the_old_action(power_page):
+    """The retired Circuit Labels list's row, now on the chip it names: the
+    derived label is the placeholder, typed text writes the HOLDER layer's
+    powerLabelOverrides under the same action, the face reprints it across
+    the deferred rebuild, and undo walks it back."""
+    page, seeded = power_page
+    leg = seeded['legs'][0]
+    tid = chip_id(seeded, 0)
+    key = f"power-label-{seeded['layerId']}-{leg['circuit']}"
+    assert page.evaluate(CLICK_FACE_JS, tid)
+
+    placeholder = page.evaluate(
+        """(key) => document.querySelector(
+               `[data-lrd-field="${key}"]`).placeholder""", key)
+    assert placeholder == leg['label'], (
+        f'the derived label is not the placeholder: {placeholder}')
+
+    field = page.locator(f'[data-lrd-field="{key}"]')
+    field.click()
+    field.fill('')
+    page.keyboard.type('FOH-A')
+    page.keyboard.press('Tab')
+    page.wait_for_timeout(800)   # commit + the deferred dock rebuild
+
+    assert page.evaluate(
+        """(a) => (window.app.project.layers.find(
+            l => l.id === a.layerId).powerLabelOverrides
+            || {})[a.circuit]""",
+        {'layerId': seeded['layerId'], 'circuit': leg['circuit']}) \
+        == 'FOH-A', 'the override never landed on the holder layer'
+    assert page.evaluate(
+        "() => window.app.history[window.app.history.length - 1].action") \
+        == 'Edit Circuit Label'
+    s = tile_state(page, tid)
+    assert 'FOH-A' in s['faceText'], (
+        f'the face does not reprint the typed label: {s}')
+    assert s['open'], 'the rebuild closed the chip mid-edit'
+
+    page.evaluate("() => window.app.undo()")
+    page.wait_for_timeout(800)
+    assert page.evaluate(
+        """(a) => ((window.app.project.layers.find(
+            l => l.id === a.layerId).powerLabelOverrides
+            || {})[a.circuit]) || null""",
+        {'layerId': seeded['layerId'], 'circuit': leg['circuit']}) is None, (
+        'undo did not walk the circuit label back')
+
+
+def test_a_circuit_chip_escape_closes_and_the_rebuild_keeps_the_open_chip(power_page):
+    """The shared tile machinery, proved on the second family: the dock's
+    wholesale rebuild brings the open circuit chip back by id, and Escape
+    from its field closes onto the face."""
+    page, seeded = power_page
+    tid = chip_id(seeded, 0)
+    leg = seeded['legs'][0]
     assert page.evaluate(CLICK_FACE_JS, tid)
     assert tile_state(page, tid)['open']
 
-    # the soca host rebuilds wholesale; the open tile comes back by id
-    page.evaluate("() => window.app.refreshSocaRuns()")
+    page.evaluate("() => window.app.renderHardwareDock()")
     page.wait_for_timeout(100)
     assert tile_state(page, tid)['open'], (
-        'refreshSocaRuns closed the open multi tile')
+        'the rebuild closed the open circuit chip')
 
-    page.locator(f'[data-lrd-tile="{tid}"] .power-soca-name').click()
+    page.locator(
+        f'[data-lrd-field="power-label-{seeded["layerId"]}'
+        f'-{leg["circuit"]}"]').click()
     page.keyboard.press('Escape')
     page.wait_for_timeout(100)
     s = tile_state(page, tid)
-    assert not s['open'], f'Escape did not close the multi tile: {s}'
+    assert not s['open'], f'Escape did not close the circuit chip: {s}'
+    focused = page.evaluate("""(tileId) => {
+        const tile = document.querySelector(`[data-lrd-tile="${tileId}"]`);
+        return document.activeElement
+            === tile.querySelector(':scope > .lrd-tile-face');
+    }""", tid)
+    assert focused, 'closing did not hand focus back to the face'
 
 
-@pytest.mark.parametrize('width', [260, 180])
-def test_the_multi_tiles_fit_both_widths(power_page, width):
+def test_the_power_dock_fits_its_width_open_editor_included(power_page):
+    """The power tray obeys the same clamp as the data tray: the dock spans
+    the canvas column, and its grids reflow rather than scroll sideways -
+    open circuit editor included. (The old per-sidebar width knob
+    --lrd-power-w died with the Power sidebar; the window is the driver,
+    and the fit is asserted on the dock body itself.)"""
     page, seeded = power_page
-    page.evaluate(
-        """(width) => document.documentElement.style.setProperty(
-               '--lrd-power-w', width + 'px')""", width)
-    page.wait_for_timeout(400)
-    tid = f"soca-{seeded['layerId']}-1"
+    tid = chip_id(seeded, 0)
     assert page.evaluate(CLICK_FACE_JS, tid)
     page.wait_for_timeout(100)
-    m = page.evaluate("""() => {
-        const host = document.getElementById('power-soca-runs');
-        const box = host.getBoundingClientRect();
-        const strays = [];
-        host.querySelectorAll('*').forEach(el => {
-            const r = el.getBoundingClientRect();
-            if (r.width === 0 && r.height === 0) return;
-            if (r.right > box.right + 0.5 || r.left < box.left - 0.5) {
-                strays.push({ tag: el.tagName,
-                              key: el.getAttribute('data-lrd-field')
-                                  || el.className || null });
-            }
-        });
-        return { scrollW: host.scrollWidth, clientW: host.clientWidth,
-                 strays };
-    }""")
-    assert m['scrollW'] <= m['clientW'], (
-        f'the multi tiles scroll sideways at {width}px: {m}')
+    m = page.evaluate(GRID_FIT_JS)
+    assert not m['clipped'] and not m['gridClipped'], (
+        f'the power dock scrolls sideways with an editor open: {m}')
     assert not m['strays'], (
-        f'multi tile controls hang outside the host at {width}px: '
-        f'{m["strays"]}')
+        f'circuit chip controls hang past the tray: {m["strays"]}')
     page.evaluate(CLICK_FACE_JS, tid)   # leave it closed
-    page.evaluate(
-        """() => document.documentElement.style.setProperty(
-               '--lrd-power-w', '260px')""")
+
+
+def test_a_backing_tile_carries_the_mirrored_return_occupant(panel_page):
+    """Sequential redundancy on the seeded SR: socket 2 is Screen1 port
+    1's return end, and its tile says so in the occupant register the
+    tiles already use - screen, the screen's own port, the role - on the
+    occupied ground, instead of sitting free-but-role-claimed. Derived
+    display: nothing was placed on socket 2, so nothing joins the history
+    for it."""
+    ids = seed(panel_page)
+    hist = panel_page.evaluate(
+        "() => window.app.history.length")
+    panel_page.evaluate("""async (ids) => {
+        const send = (url, method, body) => fetch(url, { method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body) }).then(r => r.json());
+        await send(`/api/processors/${ids.procId}`, 'PUT',
+                   { redundancy: true });
+        await send(`/api/processors/${ids.procId}/cards/${ids.cardId}`,
+                   'PUT', { redundancyMode: 'sequential' });
+        await window.app.refreshProcessors();
+    }""", ids)
+    panel_page.wait_for_timeout(1200)
+    try:
+        back = tile_state(panel_page, f"port-{ids['cardId']}-2")
+        main = tile_state(panel_page, f"port-{ids['cardId']}-1")
+        assert back, 'socket 2 lost its tile'
+        assert 'Screen1 p1 return' in back['faceText'], back
+        assert back['occupied'], (
+            f'a working return must wear the occupied ground: {back}')
+        assert 'Screen1' in main['faceText'], main
+        assert panel_page.evaluate(
+            "() => window.app.history.length") == hist, (
+            'derived occupancy earned a history entry')
+    finally:
+        panel_page.evaluate("""async (ids) => {
+            const send = (url, method, body) => fetch(url, { method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body) }).then(r => r.json());
+            await send(`/api/processors/${ids.procId}/cards/${ids.cardId}`,
+                       'PUT', { redundancyMode: '1to1' });
+            await send(`/api/processors/${ids.procId}`, 'PUT',
+                       { redundancy: false });
+            await window.app.refreshProcessors();
+        }""", ids)
+        panel_page.wait_for_timeout(600)

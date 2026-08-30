@@ -37,14 +37,61 @@
           body: 'Reopen this guide any time from <b>Help &rsaquo; Quick Start Guide</b>, or take the full walkthrough below.' }
     ];
 
-    // Full, in-depth walkthrough of the whole app.
+    // What's New in 0.12: the hardware dock, drag-to-wire, and the new power
+    // tools. Launched from Help > What's New in 0.12. Steps that point at
+    // hardware inside the tray anchor to elements that exist once a processor
+    // or distro has been added; on an empty project the callout centers.
+    var WHATSNEW_STEPS = [
+        { title: 'What&rsquo;s new in 0.12', center: true, before: function () { switchView('data-flow'); },
+          body: 'Hardware moved out of the sidebars into a tray under the canvas, and wiring became drag &amp; drop. This tour shows the new surfaces; <b>Skip</b> leaves at any point.' },
+        { target: '#hardware-dock', place: 'top', title: 'The hardware tray',
+          body: 'All hardware lives here now, in the <b>Data</b> and <b>Power</b> views: processors with their cards, boxes and ports, distros with their multis and circuits. It is the one place hardware appears.' },
+        { target: '#hw-dock-data-controls', place: 'bottom', title: 'Add hardware from the header',
+          body: 'Pick a processor model and press <b>Add</b> &mdash; its cards, boxes and ports appear in the tray. In Power view this cluster becomes <b>+ Add distro</b>.' },
+        { target: '#hardware-dock-body', place: 'top', title: 'Name things on their headers',
+          body: 'Every header holds its own name box. Name a card <b>SR</b> and its ports read SR-1, SR-2; name a distro <b>SL</b> and its multis are SL1, SL2 &mdash; and every circuit label follows.' },
+        { target: '#hardware-dock-body .hw-dock-gear', place: 'top', title: 'Configuration behind the &#9881;',
+          body: 'Each header&rsquo;s <b>&#9881;</b> opens its settings popover: <b>redundancy modes</b> (1:1, sequential, halves, or manual per port), card slots, breakout boxes, label templates, remove. Redundancy lives here now.' },
+        { target: '#hw-dock-fold', place: 'bottom', title: 'Fold it away',
+          body: 'Collapse a finished card or multi with its <b>&#9662;</b> arrow, or double-click its header &mdash; the glance meter on the header still shows what&rsquo;s full. The tray&rsquo;s own chevron folds the whole thing.' },
+        { target: 'canvas', place: 'top', title: 'Drag to wire',
+          body: 'Drag a <b>port tile</b> onto a screen&rsquo;s run to place it there. Drag a whole <b>card</b> or <b>breakout box</b> onto a screen to fill its ports in order. Drag an assigned tile back onto the tray to release it.' },
+        { target: 'canvas', place: 'top', title: 'Right-click to clear',
+          body: 'Right-click a drawn run or a dock chip for <b>Clear port</b> / <b>Clear multi</b> &mdash; the claim goes back to auto-numbering, undoably. The menu only ever offers what applies.' },
+        { target: '#hw-dock-flag', place: 'bottom', title: 'The attachment flag',
+          body: '<b>Red</b> with a screen count while any screen has ports or circuits off the hardware; <b>green</b> when everything is held. Click it to list the unattached screens, and click a row to fly the canvas to that screen.' },
+        { target: 'canvas', place: 'top', title: 'Take over one run',
+          body: 'Hold <b>Alt</b> and the run under your cursor lights up. <b>Alt+click</b> takes over just that port or circuit: it keeps its cabinets, you redraw it by clicking, and the rest of the screen re-flows around it. <b>Esc</b> when done.' },
+        { target: 'canvas', place: 'top', title: 'Back to auto',
+          body: 'Right-click a run for <b>Redraw</b>, or on a hand-drawn run, <b>back to auto</b> &mdash; automatic routing takes its cabinets back. Undo walks every one of these moves.' },
+        { target: '#processor-type', place: 'right', title: 'The platform wall',
+          body: 'A screen lands only on gear its <b>Processing</b> setting can drive. A drop across the wall refuses with the reason, and a red row in the tray offers the fixes. Nothing is ever unpinned silently.' },
+        { target: '[data-mode="power"]', place: 'bottom', title: 'Power works the same way', before: function () { switchView('power'); },
+          body: 'Distros sit in the tray with their multis. Drag a <b>multi</b> onto a circuit to land it &mdash; drop on a later circuit and the multi <b>splits there</b>; the drop is the boundary. Drag one chip to put a single circuit on a single tail.' },
+        { target: '#hardware-dock-body .hw-dock-legs', place: 'top', title: 'Leg meters and Balance',
+          body: 'A 3-phase distro header carries live <b>X / Y / Z leg meters</b>. <b>Balance</b> searches which breakers each partly-filled multi should land on &mdash; nothing changes until you accept it.' },
+        { target: '#hardware-dock-body .hw-dock-tile', place: 'top', title: 'Circuit chips',
+          body: 'Every chip is a meter: its bar is that circuit&rsquo;s load against your <b>Amperage</b>. Click an occupied chip to rename that one circuit; clear the box and the derived name comes back.' },
+        { target: '#power-voltage-select', place: 'right', title: '110V screens',
+          body: 'Voltage is per screen. A <b>110V</b> screen breaks out to <b>Edison</b> and its circuits ride <b>one leg each</b>; 208V circuits take a leg pair &mdash; and both can feed from the same distro.' },
+        { target: '#power-breakout-type', place: 'right', title: 'Breakouts, including L21-30',
+          body: 'How the multi terminates: <b>True1</b> or <b>powerCON</b> feed panels directly, <b>Edison</b> is the 110V option, and <b>L21-30 (3 &times; 208V)</b> turns the box into three circuits at 30&nbsp;A per leg.' },
+        { target: '#power-splitters-enabled', place: 'right', title: 'Share circuits',
+          body: 'Turn on <b>Share circuits via splitters</b> and adjacent runs gang onto one circuit through the smallest Y-cable that fits. Share or un-share one circuit by <b>right-clicking</b> it on the map or its chip in the tray.' },
+        { target: '[data-menu="help"]', place: 'bottom', title: 'That&rsquo;s 0.12',
+          body: 'Reopen this any time from <b>Help &rsaquo; What&rsquo;s New in 0.12</b>. For the whole app in depth, take the <b>Advanced Guide</b> next door in the same menu.' }
+    ];
+
+    // Full, in-depth walkthrough of the whole app. Hardware steps anchor to
+    // elements the dock renders once a processor or distro exists; on an
+    // empty project those callouts center, which is the machinery's fallback.
     var ADVANCED_STEPS = [
         { title: 'The full tour', center: true, before: function () { switchView('pixel-map'); },
           body: 'This walks through the whole app, one area at a time. Use <b>Back</b> / <b>Next</b> to move, or <b>Skip</b> to leave at any point.' },
         { target: '#project-name', place: 'bottom', title: 'Projects',
           body: 'Name your project here. <b>File &rsaquo; Save / Open</b> store your work as <b>.lrd</b> files, and recent projects appear in the File menu.' },
         { target: '#btn-preferences', place: 'bottom', title: 'Preferences',
-          body: 'Set app-wide defaults here: the interface <b>accent color</b>, default panel size and hardware, units, and label font size for new screens.' },
+          body: 'App-wide defaults: the interface <b>accent color</b>, default panel size, default <b>Processing</b> for Data, default voltage, amperage and watts for Power, units, and label font size for new screens.' },
         { target: '#left-sidebar', place: 'right', title: 'Screen Info',
           body: 'Each screen&rsquo;s core settings: cabinet pixel size, <b>Columns &times; Rows</b>, its <b>Offset</b> (position in the raster), physical panel size (mm) and weight for the totals.' },
         { target: '#screen-rotation', place: 'right', title: 'Rotation',
@@ -55,14 +102,54 @@
           body: 'Render a screen with no fill (see-through) so only borders and labels draw. Pairs with the export <b>Transparent Background</b> option for overlays.' },
         { target: 'canvas', place: 'top', title: 'Per-panel editing',
           body: 'On the Pixel Map: <b>Alt+Click</b> blanks a cabinet (non-rectangular walls), <b>Alt+Shift+Click</b> makes a half-tile, and dragging a box selects many cabinets to edit at once.' },
+        { target: '#right-sidebar', place: 'left', title: 'Screen groups',
+          body: 'Select two or more screens and right-click for <b>Group Screens</b>. A group moves as one, its name can draw across the whole wall, and totals combine &mdash; per-cabinet figures stay per screen.' },
         { target: '[data-mode="cabinet-id"]', place: 'bottom', title: 'Cabinet ID view', before: function () { switchView('cabinet-id'); },
           body: 'Numbers every cabinet for the install crew. Choose a numbering style (A1, 1&#44;1, 01&hellip;) and label position in the sidebar. Matches the Pixel Map layout.' },
         { target: '[data-mode="show-look"]', place: 'bottom', title: 'Show Look view', before: function () { switchView('show-look'); },
           body: 'Arrange screens to match the real-world stage. Shift+drag a screen to reposition it. Show Look drives the Data and Power layouts, and has its own raster size.' },
         { target: '[data-mode="data-flow"]', place: 'bottom', title: 'Data view', before: function () { switchView('data-flow'); },
-          body: 'Plan signal routing. Pick your <b>processor</b>, bit depth, and frame rate to see ports required, choose a serpentine <b>flow pattern</b>, or draw a custom path.' },
+          body: 'Plan signal routing. The left panel holds this screen&rsquo;s capacity math and styling; the <b>hardware tray</b> under the canvas holds the processors, and dragging from it is how ports are placed.' },
+        { target: '#processor-type', place: 'right', title: 'Processing &amp; capacity',
+          body: '<b>Processing</b>, bit depth and frame rate set <b>Pixels/Port</b> and <b>Ports Required</b>. Processing is also the <b>platform wall</b>: a screen only lands on gear this setting can drive.' },
+        { target: '#mapping-organized', place: 'right', title: 'Port mapping &amp; groups',
+          body: '<b>Organized</b> fills clean rows or columns per port; <b>Max Capacity</b> fills to the pixel limit. A grouped screen adds <b>Route group as one screen</b>: the serpentine crosses every member as a single wall.' },
+        { target: '#custom-flow-toggle', place: 'right', title: 'Flow patterns &amp; custom paths',
+          body: 'The eight <b>Flow Pattern</b> buttons pick the serpentine. <b>Enable Custom Mode</b> hand-draws the whole screen, port by port &mdash; click or arrow-key through cabinets, with Prev / Next and per-port clears.' },
+        { target: 'canvas', place: 'top', title: 'Per-run overrides',
+          body: 'You can also take over <b>one run</b> and leave the rest automatic: hold <b>Alt</b> to light the run under the cursor, <b>Alt+click</b> to redraw just it, right-click for <b>Redraw</b> or <b>back to auto</b>. <b>Esc</b> ends the edit. Works in Data and Power.' },
+        { target: '#port-label-template-primary', place: 'right', title: 'Fallback labels',
+          body: 'Templates for ports on <b>no</b> processor: <b>#</b> is the port number, <b>P#</b> / <b>R#</b> the defaults. <b>Apply</b> stamps a numbered override onto every port of the selected screens; <b>Clear</b> removes them. A port on a processor is named on its chip in the tray.' },
+        { target: '#hw-dock-data-controls', place: 'bottom', title: 'The hardware tray',
+          body: 'Pick a model, press <b>Add</b>, and the processor&rsquo;s cards, boxes and ports appear below. Drag a <b>port</b> onto a run to place it, a whole <b>card</b> or <b>box</b> onto a screen to fill in order, or drag back to the tray to release.' },
+        { target: '#hardware-dock-body', place: 'top', title: 'Headers name their thing',
+          body: 'Every card, box and port names itself inline: name a card <b>SR</b> and its ports read SR-1, SR-2. A port&rsquo;s chip is also its editor &mdash; click to rename that one port, and its return name derives from it (P1-1 &rarr; R1-1).' },
+        { target: '#hardware-dock-body .hw-dock-gear', place: 'top', title: 'The &#9881; popover',
+          body: 'Each header&rsquo;s <b>&#9881;</b> holds its configuration: label and return templates, card slots and breakout boxes &mdash; and <b>redundancy</b>.' },
+        { target: '#hardware-dock-body .hw-dock-gear', place: 'top', title: 'Redundancy modes',
+          body: 'Four modes per card: <b>1:1</b> (mirrored by a backup unit), <b>Sequential</b> (1 backed by 2, 3 by 4 &mdash; the silkscreen numbering), <b>Halves</b> (the back half of the ports carries the front half&rsquo;s returns), and <b>Manual</b> (each port picks its backup on its chip).' },
+        { target: 'canvas', place: 'top', title: 'Pinned vs automatic',
+          body: 'Auto-numbering deals ports out by itself. A <b>drop pins</b> a port where you put it, and auto deals around pins. Right-click &rsaquo; <b>Clear</b> or a drag back to the tray releases a pin. Nothing is ever unpinned silently.' },
+        { target: '#hw-dock-flag', place: 'bottom', title: 'The attachment flag &amp; issues',
+          body: 'Red with a screen count while anything is unattached; green when all held. Click it for the rows; click a row to fly to its screen. Warnings land as rows under the header with their fix buttons inline.' },
         { target: '[data-mode="power"]', place: 'bottom', title: 'Power view', before: function () { switchView('power'); },
-          body: 'Plan electrical distribution. Set <b>voltage</b> and per-panel watts to see circuits required and total amps (single and three phase), with color-coded circuits.' },
+          body: 'Plan electrical distribution. The left panel is this screen&rsquo;s electrical math and styling; the tray holds the <b>distros</b>, and dragging multis and chips is how circuits land on real tails.' },
+        { target: '#power-panel-watts', place: 'right', title: 'The electrical math',
+          body: '<b>Voltage</b>, <b>Amperage</b> and <b>Watts per Panel</b> set Panels/Circuit and Circuits Required, plus total amps single- and three-phase. A 110V screen&rsquo;s circuits ride <b>one leg each</b>; 208V circuits take a leg pair.' },
+        { target: '#power-breakout-type', place: 'right', title: 'Breakouts',
+          body: 'How the multi terminates: <b>True1</b> / <b>powerCON</b> feed panels directly, <b>Edison</b> is the 110V option, <b>L6-20</b> adds per-circuit tails, and <b>L21-30 (3 &times; 208V)</b> is a three-circuit box at 30&nbsp;A per leg. Drives the gear checklist.' },
+        { target: '#power-splitters-enabled', place: 'right', title: 'Splitter packing',
+          body: '<b>Share circuits via splitters</b> gangs adjacent runs onto one circuit through the smallest Y-cable that fits, up to <b>Max splitter</b>. Right-click one circuit on the map or its chip to <b>Share</b> / <b>Un-share</b> by hand.' },
+        { target: '#power-label-template', place: 'right', title: 'Circuit labels',
+          body: 'One ladder, top wins: a hand-typed label on a chip &rsaquo; the multi&rsquo;s own name &rsaquo; its distro&rsquo;s name and number (SL &rarr; SL1-1&hellip;) &rsaquo; this <b>Template</b> (S1-#) for multis on no distro. <b>Apply</b> stamps overrides on the selected screens.' },
+        { target: '#power-distro-add', place: 'bottom', title: 'Distros &amp; multis',
+          body: '<b>+ Add distro</b> puts a power source in the tray. Drag a <b>multi</b> onto a circuit to land it; drop on a later circuit and it <b>splits there</b>. Drag a whole distro onto a screen to feed all its unassigned multis at once.' },
+        { target: '#hardware-dock-body [data-hwdock^="slot-"]', place: 'top', title: 'One soca, two screens',
+          body: 'Drop a multi onto an <b>occupied</b> box and they become one physical soca: same distro, same number. The incumbents keep their tails, the joiner takes the free ones, and every label derives from the one box name.' },
+        { target: '#hardware-dock-body .hw-dock-legs', place: 'top', title: 'Leg meters &amp; Balance',
+          body: 'A 3-phase distro header carries live <b>X / Y / Z</b> leg meters with its imbalance. <b>Balance</b> proposes which breakers each partly-filled multi should land on &mdash; nothing moves until you press <b>Apply</b>.' },
+        { target: '#hardware-dock-body .hw-dock-tile', place: 'top', title: 'Circuit chips',
+          body: 'Each tail is a chip and every chip is a meter of its circuit&rsquo;s load. Click an occupied chip to rename that circuit; a clash (two claims on one tail) is said out loud on the chip and in the issue rows.' },
         { target: '#right-sidebar', place: 'left', title: 'Screens panel', before: function () { switchView('pixel-map'); },
           body: 'Every screen in the project, grouped by canvas. Rename, reorder, lock, or hide a screen, and drag to reorder. The active screen is highlighted.' },
         { target: '#btn-add-canvas', place: 'left', title: 'Multiple canvases',
@@ -70,13 +157,13 @@
         { target: '#btn-fit', place: 'bottom', title: 'Zoom &amp; snap',
           body: '<b>Fit</b> frames the raster, <b>1:1</b> is actual size. The <b>Snap</b> toggle magnetically aligns screens to each other and to the raster edges as you drag.' },
         { target: '#left-sidebar-toggle', place: 'right', title: 'Panels',
-          body: 'Collapse a side panel with its chevron, or drag its inner edge to resize it. Each side remembers its width, so you can reclaim space for the canvas.' },
+          body: 'Collapse a side panel with its chevron, or drag its inner edge to resize it &mdash; the hardware tray folds and resizes the same way from its top edge. Each remembers its size.' },
         { target: '#btn-export', place: 'bottom', title: 'Exporting',
-          body: 'The Export dialog lets you pick which <b>canvases</b> and <b>views</b> to output, the <b>format</b> (PNG, PSD, PDF, or Resolume XML), a transparent background, and a resolution scale.' },
+          body: 'Pick which <b>canvases</b> and <b>views</b> to output &mdash; Pixel, Cabinet, Show Look, Data and Power maps &mdash; the <b>format</b> (PNG, PSD, PDF, or Resolume XML), a transparent background, and a resolution scale. Exports save straight to file.' },
         { target: '[data-menu="help"]', place: 'bottom', title: 'Help &amp; shortcuts',
-          body: 'Under <b>Help</b> you&rsquo;ll find the full <b>Keyboard Shortcuts</b> list, this guide, the Quick Start, and update checks.' },
+          body: 'Under <b>Help</b> you&rsquo;ll find the full <b>Keyboard Shortcuts</b> list, this guide, the Quick Start, and <b>What&rsquo;s New in 0.12</b>.' },
         { title: 'That&rsquo;s the tour', center: true,
-          body: 'You&rsquo;ve seen the whole app. Reopen either guide any time from the <b>Help</b> menu. Now go build something.' }
+          body: 'You&rsquo;ve seen the whole app. Reopen any guide from the <b>Help</b> menu. Now go build something.' }
     ];
 
     var activeSteps = QUICK_STEPS;
@@ -137,6 +224,10 @@
         if (!step.target) return null;
         var el = document.querySelector(step.target);
         if (!el) return null;
+        // An anchor deep in a scrollable panel (the sidebars, the hardware
+        // tray) may sit outside its container's viewport; bring it in before
+        // measuring so the spotlight rings something visible.
+        try { el.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) {}
         var r = el.getBoundingClientRect();
         if (r.width === 0 && r.height === 0) return null;
         return r;
@@ -238,9 +329,20 @@
         els.callout.style.display = 'none';
     }
 
+    // Every tour, by name. Tests enumerate this registry so a new tour (or a
+    // new step) is covered by the anchor-resolution suite automatically.
+    var TOURS = {
+        quick: QUICK_STEPS,
+        whatsNew: WHATSNEW_STEPS,
+        advanced: ADVANCED_STEPS
+    };
+
     window.QuickStart = {
         start: function () { show(QUICK_STEPS); },
+        startWhatsNew: function () { show(WHATSNEW_STEPS); },
         startAdvanced: function () { show(ADVANCED_STEPS); },
+        startTour: function (name) { if (TOURS[name]) show(TOURS[name]); },
+        tours: function () { return TOURS; },
         end: end
     };
 

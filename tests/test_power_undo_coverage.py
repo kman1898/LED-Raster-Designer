@@ -175,11 +175,15 @@ def test_grouped_power_render_leaves_project_serializable(page):
 
 
 def test_save_state_records_after_grouped_power_render(page):
+    # The probe must CHANGE something: saveState skips a snapshot identical
+    # to the entry the user stands on (the 2026-08-29 no-op dedupe), and a
+    # skipped no-op would let this test pass without testing the poisoning.
     reset_project(page)
     out = page.evaluate("""() => {
         const app = window.app;
         window.canvasRenderer.render();
         const before = app.history.length;
+        app.project.name = (app.project.name || '') + ' poisonprobe';
         app.saveState('poison probe');
         const snap = app.history[app.history.length - 1];
         const layer = snap.project.layers[0];
@@ -236,7 +240,7 @@ WRITE_PATHS = [
         app.setSocaPhaseOffset(l, 1, 1, 4); }""",
      """(ids) => { const l = window.app.project.layers.find(x => x.id === ids[0]);
         return JSON.stringify(l.powerSocaPhaseOffset || {}); }"""),
-    ("Move Circuit Tails",
+    ("Move Circuits",
      None,
      """(ids) => { const app = window.app;
         const l = app.project.layers.find(x => x.id === ids[0]);
@@ -316,6 +320,45 @@ def test_power_write_is_undoable_and_redoable(page, action, seed, mutate, read):
     page.evaluate("() => window.app.redo()")
     page.wait_for_timeout(400)
     assert page.evaluate(read, ids) == after, (action, "redo did not re-apply")
+
+
+def test_drop_implied_split_is_one_undo_entry(page):
+    """splitSocaOnto - the dock's slot-drop-on-a-later-circuit - is split
+    AND assignment in one motion, so it must be EXACTLY one history entry:
+    a single Ctrl+Z heals the boundary and takes the assignment back
+    together, never leaving a split multi still pinned to the box."""
+    ids = reset_project(page)['ids']
+    page.evaluate("(ids) => { window.app.addDistro({ name: 'PD' }); }", ids)
+    page.wait_for_timeout(250)
+    read = """(ids) => { const l = window.app.project.layers.find(
+        x => x.id === ids[2]);
+        return JSON.stringify([l.powerSocaSplits || [],
+                               l.powerSocaDistro || {},
+                               l.powerSocaNumber || {}]); }"""
+    before = page.evaluate(read, ids)
+    out = page.evaluate("""async (ids) => {
+        const app = window.app;
+        const l = app.project.layers.find(x => x.id === ids[2]);
+        const grewFrom = app.history.length;
+        const r = app.splitSocaOnto(l, 1, 2, app.getDistros()[0].id, 2);
+        await new Promise(res => setTimeout(res, 250));
+        return { ok: r.ok, grew: app.history.length - grewFrom,
+                 last: app.history[app.history.length - 1].action };
+    }""", ids)
+    assert out['ok'] is True, out
+    assert out['grew'] == 1, (
+        f'the drop-implied split is not ONE history entry: {out}')
+    assert out['last'] == 'Split Multi', out
+    after = page.evaluate(read, ids)
+    assert after != before, 'the gesture under test changed nothing'
+
+    page.evaluate("() => window.app.undo()")
+    page.wait_for_timeout(400)
+    assert page.evaluate(read, ids) == before, (
+        'one undo did not take back the split AND the assignment')
+    page.evaluate("() => window.app.redo()")
+    page.wait_for_timeout(400)
+    assert page.evaluate(read, ids) == after, 'redo did not re-apply'
 
 
 def test_remove_distro_undo_restores_assignments(page):

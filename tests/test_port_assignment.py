@@ -19,6 +19,15 @@ The four behaviours, and the reason each is awkward:
 * A PIN WINS. Auto works around it and never over it, and releasing it hands
   the port straight back.
 
+The reporting surface moved with the consolidation round: the retired Port
+Numbering panel's issue boxes are rows on the hardware dock's issues strip
+(#hw-dock-issues) and the per-card usage foot is the card headers'
+used/capacity glance. The auto toggle is gone from the UI - the server
+keeps its auto state and this file's Flask-level auto tests still drive it
+at the endpoint, but the only UI lever left is the strip's turn-back-on
+offer. The numbering itself never left the server, which is why almost
+everything here still drives the API and re-points cleanly.
+
 Values are asserted as they come BACK from the server, never as they were
 sent - this codebase drops unlisted fields silently in two separate places and
 a test that only checks its own request body passes straight through that.
@@ -35,9 +44,18 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 import port_assignment as assignment  # noqa: E402
+import processor_catalog as catalog  # noqa: E402
 
 
-# ── helpers ───────────────────────────────────────────────────────────────
+@pytest.fixture(scope="module", autouse=True)
+def _guard(flask_project_guard):
+    """Leave the shared server project the way this module found it.
+
+    Every test here builds its own project through the `client` fixture,
+    which swaps the module-global the LIVE e2e server also serves - so the
+    last test's leftovers (a processor tree, auto-numbering switched off)
+    would otherwise become the next browser module's starting state. The
+    guard is the documented idiom for exactly this (see conftest)."""
 
 def add_processor(client, device_id):
     resp = client.post('/api/processors', json={'deviceId': device_id})
@@ -53,7 +71,7 @@ def set_card(client, proc_id, slot, device_id):
 
 
 def card_ids(state):
-    """Cards in the order the panel draws them, which is the order auto fills
+    """Cards in the order the dock draws them, which is the order auto fills
     them - processor by processor, slot 1 downward."""
     out = []
     for proc in state['resolved']:
@@ -81,8 +99,9 @@ def by_name(resolution, name):
 
 
 def place(client, layer_id, index, card_id, port, sc, confirm=False):
-    """One port of one screen onto one card port - the request both panels
-    send, from either end of the cable."""
+    """One port of one screen onto one card port - the request a hand
+    placement sends, from either end of the cable (the dock's drop is the
+    gesture that sends it in the app)."""
     body = {'layerId': layer_id, 'index': index, 'cardId': card_id,
             'port': port, 'screens': sc}
     if confirm:
@@ -154,13 +173,13 @@ def test_ports_pack_densely_in_screen_order(one_card):
 
 def test_auto_is_on_before_anybody_turns_it_on(one_card):
     """A project that has never been touched here must number itself, or the
-    panel opens on a wall of blanks and every screen needs a decision before it
-    says anything."""
+    drawing opens on a wall of blanks and every screen needs a decision before
+    it says anything."""
     client, _pid, _card = one_card
     res = resolve(client, ('Main', 3))
     assert res['auto'] is True
     assert numbers(res, 'Main') == [1, 2, 3]
-    # And the panel reading itself did not stamp state onto the project.
+    # And merely reading the resolution did not stamp state onto the project.
     assert assignment.STATE_KEY not in client.get('/api/project').get_json()
 
 
@@ -213,7 +232,8 @@ def test_a_cvt_gives_a_copy_opt_card_no_extra_ports_to_hand_out(one_card):
 
 
 def test_boxes_hung_on_trunks_that_do_not_exist_hand_out_no_ports(client):
-    """The panel refuses to ADD a box with no OPT left, but a project can still
+    """The app refuses to ADD a box with no OPT left (the card gear's box
+    picker), but a project can still
     arrive carrying one - a file saved before that rule, or hand-edited. The
     read path has to stay safe on its own, because the number it produces is
     what a wall gets packed onto: 40 cabinets assigned to 48 ports of a 32-port
@@ -253,8 +273,8 @@ def test_a_card_whose_boxes_cannot_reach_its_ceiling_says_so_here_too(client):
     """Two CVT4K-S boxes on an enhanced H_4xfiber use all four OPTs and deliver
     32 of its 40. Assignment still plans against the card's 40 - which box
     delivers a port is a patching decision and can still change - but the eight
-    that no box will hand out have to be said out loud on the panel that is
-    handing ports to walls."""
+    that no box will hand out have to be said out loud on the dock strip that
+    is handing ports to walls."""
     state = add_processor(client, 'novastar-h9')
     pid = state['resolved'][0]['id']
     state = set_card(client, pid, 0, 'novastar-card-h-4xfiber-enhanced')
@@ -272,7 +292,7 @@ def test_a_card_whose_boxes_cannot_reach_its_ceiling_says_so_here_too(client):
     assert 'CVT10' in short['message']
 
 
-def test_a_half_patched_card_is_not_flagged_on_the_assignment_panel(client):
+def test_a_half_patched_card_is_not_flagged_on_the_dock_strip(client):
     """One box on a four-OPT card is a card someone has not finished patching,
     not a shortfall. Nagging about it would train people to ignore the message
     that matters."""
@@ -421,8 +441,9 @@ def test_auto_ports_repack_and_pinned_ones_do_not(one_card):
     behaviour as a screen being deleted, and it is what dense packing means.
 
     The way to hold a numbering is to pin it, which is the whole reason pinning
-    exists, and the panel prints PINNED against every port that will not move.
-    Nothing here happens quietly: the marks are on the page before the move."""
+    exists, and every port that will not move comes back marked as a pin for
+    the dock to draw. Nothing here happens quietly: the marks are on the page
+    before the move."""
     client, _pid, card = one_card
     sc = screens(('Main', 4), ('Side', 4))
     assert numbers(resolve(client, ('Main', 4), ('Side', 4)), 'Side') == [5, 6, 7, 8]
@@ -547,7 +568,8 @@ def test_placing_one_port_leaves_the_screens_other_ports_where_they_were(one_car
     slide down into the port that was vacated - an auto port is arithmetic and
     re-packs into whatever room appears - so one click would renumber four
     ports on a drawing. The rest of the run is held first, which is the same
-    trade the block move makes and prints PINNED on the page just as loudly."""
+    trade the block move makes, and comes back marked as pins just as
+    loudly."""
     client, _pid, card = one_card
     sc = screens(('Main', 6),)
     before = numbers(resolve(client, ('Main', 6)), 'Main')
@@ -675,7 +697,8 @@ def test_a_placement_onto_another_card_says_the_run_now_spans_two(one_card):
 
 
 def test_a_placement_names_the_socket_it_landed_on(one_card):
-    """The note is what the panel prints after the move, and a port number on
+    """The note is what the dock strip prints after the move (its quiet blue
+    row), and a port number on
     its own is not what the tech is standing in front of. The card's name is
     not repeated in front of a label already built out of it - "SR SR-9" reads
     like two different things."""
@@ -722,8 +745,8 @@ def test_a_placement_of_a_port_the_screen_does_not_have_is_refused(one_card):
 
 
 def test_a_card_with_no_settled_count_still_takes_a_placement(client):
-    """"Ports can still be pinned to it by hand" is what the panel says about
-    an SQ200, and this is the by-hand path. There is no ceiling to check
+    """"Ports can still be pinned to it by hand" is what the capacity-unknown
+    row on the dock strip says about an SQ200, and this is the by-hand path. There is no ceiling to check
     against, and inventing one to check against is the failure the catalog
     exists to prevent."""
     state = add_processor(client, 'brompton-sq200')
@@ -735,8 +758,8 @@ def test_a_card_with_no_settled_count_still_takes_a_placement(client):
 
 def test_assigning_from_the_socket_lands_where_pinning_from_the_screen_does(
         one_card):
-    """The Processors panel knows a card and a port number and asks which
-    screen plugs in; the Port Assignment panel knows a screen's port and asks
+    """The dock's socket end knows a card and a port number and asks which
+    screen plugs in; the screen end knows a screen's port and asks
     where it goes. Same cable, two ends, and they have to write the same pin -
     two implementations of "what does that mean" would disagree the first time
     a socket was already claimed."""
@@ -777,18 +800,19 @@ def test_a_wall_bigger_than_its_card_is_reported_rather_than_spilled(one_card):
     assert over['layerId'] == 'Main'
     assert over['ports'] == [17], 'reported in the screen\'s own numbering'
     assert '17' in over['message']
+    assert 'not attached' in over['message']
+    # The row only states the fact. Attaching the spare ports is a drag onto
+    # a card in the dock, so the strip offers no place buttons for it.
+    assert over['offers'] == []
 
 
 def test_the_overflow_can_be_placed_on_a_different_card(two_cards):
     """A single screen's ports MAY span two cards - `.scr` stores the sending
     card per cabinet, so the format has no objection either. It just may not
-    happen unasked."""
+    happen unasked: the deciding gesture is the dock drag, which lands on
+    this same endpoint."""
     client, _pid, card_a, card_b = two_cards
     sc = screens(('Main', 17),)
-    res = resolve(client, ('Main', 17))
-    offer = next(o for o in issue(res, 'overflow')['offers']
-                 if o['cardId'] == card_b)
-    assert offer['action'] == 'place-overflow'
 
     resp = client.post('/api/port-assignments/place-overflow',
                        json={'layerId': 'Main', 'cardId': card_b, 'screens': sc})
@@ -816,13 +840,16 @@ def test_placed_overflow_survives_the_next_auto_pass(two_cards):
     assert spots(res, 'Side') == [(card_b, n) for n in (2, 3, 4, 5)]
 
 
-def test_an_overflow_with_no_card_anywhere_says_so(one_card):
+def test_an_overflow_with_no_card_anywhere_reads_the_same(one_card):
+    """Whether room exists elsewhere or nowhere, the row is the same plain
+    fact - the ports are not attached. The strip stopped weighing the
+    project's spare room the day it stopped offering places."""
     client, _pid, _card = one_card
     res = resolve(client, ('Main', 16), ('Side', 4))
     over = issue(res, 'overflow')
     assert over['layerId'] == 'Side'
-    assert over['offers'] == [], 'a card was offered that has no free ports'
-    assert 'full' in over['message']
+    assert over['offers'] == []
+    assert 'not attached' in over['message']
 
 
 # ── 5. Manual override, and it wins ───────────────────────────────────────
@@ -880,7 +907,7 @@ def test_any_port_of_any_screen_can_be_pinned(two_cards):
 
 def test_a_pin_without_a_port_number_takes_the_cards_lowest_free_one(two_cards):
     """"Put this one on that card" is the decision; which free number it lands
-    on is arithmetic. Leaving the number out is the normal case from the panel,
+    on is arithmetic. Leaving the number out is the normal case from the dock,
     and the server owns the answer - working it out in the browser would be a
     second implementation of "which ports are free" that gets it wrong the
     first time a pin leaves a hole in the middle of a card."""
@@ -1008,7 +1035,7 @@ def test_pins_round_trip_through_save_and_reload(two_cards):
 def test_only_pins_and_the_auto_flag_are_stored(one_card):
     """Nothing derived is kept. Storing the auto numbering would put a stale
     copy in the file the moment a screen changed size, and the file would then
-    disagree with the panel drawn beside it."""
+    disagree with the dock drawn beside it."""
     client, _pid, card = one_card
     client.post('/api/port-assignments/pin', json={
         'layerId': 'Main', 'index': 0, 'cardId': card, 'port': 3,
@@ -1091,24 +1118,76 @@ def test_the_per_screen_port_templates_are_untouched(client_with_layer):
         client_with_layer.get('/api/project').get_json()
 
 
-def test_the_panel_ships_no_declared_fields_into_the_field_sweep():
+def test_the_docks_assignment_controls_stay_out_of_the_field_sweep():
     """tests/test_all_fields_sweep.py drives every control declared inside a
-    .tab-panel straight at the selected LAYER. Assignment is project state and
-    its controls are built in JS for that reason; a control declared in the
-    template here would be swept and would fail for a reason that has nothing
-    to do with it."""
+    .tab-panel straight at the selected LAYER. Assignment is project state,
+    and since the consolidation its one declared control - the
+    add-processor picker - lives in the dock's static markup, OUTSIDE every
+    panel, so the sweep must never find it; swept, it would fail for a
+    reason that has nothing to do with it. The issue rows themselves are
+    still built in JS, onto #hw-dock-issues, and the retired panel's
+    #port-assignment-issues host must stay gone - as must the retired auto
+    checkbox, whose only UI remnant is the strip's turn-back-on offer."""
+    from html.parser import HTMLParser
+
     template = os.path.join(os.path.dirname(__file__), '..', 'src',
                             'templates', 'index.html')
     with open(template, encoding='utf-8') as fh:
         html = fh.read()
-    start = html.index('<h2>Port Assignment</h2>')
-    end = html.index('<h2>Port Labels</h2>')
-    panel = html[start:end]
-    for tag in ('<input', '<select', '<textarea'):
-        assert tag not in panel, (
-            f'{tag} declared in the Port Assignment panel markup - the field '
-            f'sweep would drive it at the selected layer')
-    assert 'id="port-assignment-list"' in panel
+
+    void = {'input', 'br', 'hr', 'img', 'meta', 'link', 'col', 'wbr',
+            'area', 'base', 'embed', 'source', 'track', 'param'}
+
+    class Scan(HTMLParser):
+        """The sweep's panel scope, re-derived: a control counts as swept
+        when it sits inside a .tab-panel (or #text-layer-panel)."""
+
+        def __init__(self):
+            super().__init__(convert_charrefs=True)
+            self._stack = []
+            self._panels = []
+            self.declared = set()
+            self.swept = set()
+
+        def handle_starttag(self, tag, attrs):
+            a = dict(attrs)
+            if tag not in void:
+                self._stack.append(tag)
+                classes = (a.get('class') or '').split()
+                if ('tab-panel' in classes
+                        or a.get('id') == 'text-layer-panel'):
+                    self._panels.append(len(self._stack))
+            if tag in ('input', 'select', 'textarea') and a.get('id'):
+                self.declared.add(a['id'])
+                if self._panels:
+                    self.swept.add(a['id'])
+
+        def handle_endtag(self, tag):
+            if tag in void:
+                return
+            while self._stack and self._stack[-1] != tag:
+                self._stack.pop()
+            if self._stack:
+                self._stack.pop()
+            while self._panels and self._panels[-1] > len(self._stack):
+                self._panels.pop()
+
+    scan = Scan()
+    scan.feed(html)
+    key = 'processor-add-device'
+    assert key in scan.declared, f'{key} is missing from the template'
+    assert key not in scan.swept, (
+        f'{key} is declared inside a .tab-panel - the field sweep would '
+        f'drive project state at the selected layer')
+    assert 'id="hw-dock-issues"' in html, 'the issues strip host is gone'
+    assert 'id="hw-dock-flag"' in html, 'the attachment flag pill is gone'
+    assert 'id="hw-dock-attach"' in html, 'the flag rows host is gone'
+    assert 'id="port-assignment-issues"' not in html, (
+        'the retired Port Numbering issue host is back')
+    # The auto checkbox is retired whole: a resurrected declaration would
+    # re-offer the auto:false trip the UI no longer takes.
+    assert 'id="port-assignment-auto"' not in html
+    assert 'id="hw-dock-auto-wrap"' not in html
 
 
 # ── 8. Labels come from the one place that owns them ──────────────────────
@@ -1135,9 +1214,10 @@ def test_an_unnamed_card_gives_its_ports_no_label(one_card):
 
 
 def test_a_card_summary_carries_the_names_its_ports_go_by(one_card):
-    """A panel offering somebody a choice of sockets has to call each one what
-    the box calls it. Without the names the list reads 1, 2, 3 while the card
-    in the rack reads SR-1, SR-2, and the two get matched up by counting."""
+    """A surface offering somebody a choice of sockets - the dock's chips -
+    has to call each one what the box calls it. Without the names the list
+    reads 1, 2, 3 while the card in the rack reads SR-1, SR-2, and the two get
+    matched up by counting."""
     client, pid, card = one_card
     client.put(f'/api/processors/{pid}/cards/{card}', json={'name': 'SR'})
     summary = resolve(client, ('Main', 2))['cards'][0]
@@ -1147,8 +1227,8 @@ def test_a_card_summary_carries_the_names_its_ports_go_by(one_card):
 
 # ── 9. Both ends of one cable ─────────────────────────────────────────────
 #
-# The Port Assignment panel asks "where did my ports go" and the Processors
-# panel asks "what is on this socket". They are the same question from the two
+# The assignment module asks "where did my ports go" and the dock's chips ask
+# "what is on this socket". They are the same question from the two
 # ends of one cable, and the answer has to be written once.
 
 def js(filename):
@@ -1166,18 +1246,19 @@ def function_body(source, signature):
     return source[start:source.index('\n    }', start)]
 
 
-def test_both_panels_place_a_port_through_the_one_request():
+def test_both_surfaces_place_a_port_through_the_one_request():
     """Two request builders would be two sets of rules about what may land on
     an occupied socket, and they would disagree the first time one was
-    changed."""
+    changed. The placement lives in the assignment module (_placePort) and the
+    hardware dock - the only surface that still sends it - calls it."""
     panel = js('app-port-assignment.js')
-    processors = js('app-processors.js')
+    dock = js('app-dock.js')
     assert panel.count("'/api/port-assignments/place'") == 1
     assert '_placePort(spot, confirmed) {' in panel
-    assert 'this._placePort(' in processors, (
-        'the Processors panel does not use the shared placement')
-    assert '/api/port-assignments/place' not in processors, (
-        'the Processors panel built its own placement request')
+    assert 'this._placePort(' in dock, (
+        'the hardware dock does not use the shared placement')
+    assert '/api/port-assignments/place' not in dock, (
+        'the hardware dock built its own placement request')
 
 
 def test_a_placement_asks_before_it_lands_on_somebody():
@@ -1190,25 +1271,50 @@ def test_a_placement_asks_before_it_lands_on_somebody():
     assert 'this._placePort(spot, true);' in body
 
 
-def test_both_choosers_are_keyed_for_the_focus_guard():
-    """Both panels are rebuilt wholesale whenever anything re-resolves, so a
-    control with no stable key is destroyed under the user's fingers - the same
-    bug the port label editor had, fixed by the same _preserveEditorFocus."""
-    panel = js('app-port-assignment.js')
-    assert 'port-move-card-${scr.layerId}-${port.index}' in panel
-    assert 'port-move-port-${scr.layerId}-${port.index}' in panel
-    processors = js('app-processors.js')
-    assert 'processor-port-assign-${card.id}-${port.number}' in processors
+def test_the_per_port_rows_stay_out_of_the_assignment_module():
+    """The dock's drag is the assignment gesture, so the retired panel's
+    per-port pin selects, movers and release buttons - and the per-screen
+    "Move whole block" tools - are gone for good. This pins the module the
+    way the stripped socket chooser is pinned, so the rows cannot quietly
+    come back and grow a second set of assignment rules.
 
-
-def test_a_half_made_choice_is_not_held_in_the_dom():
-    """Either panel can be rebuilt by a screen being resized on the other side
-    of the app, so which port has its chooser open lives on the app rather than
-    in the markup that is about to be thrown away."""
+    (Two prior tests lived here: one held the mover's data-lrd-field keys
+    for the focus guard, one held the mover's half-made choice off the DOM
+    in _movingPort. Both drove UI that no longer exists - the focus guard's
+    auto-toggle key rides in the static dock markup now, asserted with the
+    field-sweep test above.)"""
     panel = js('app-port-assignment.js')
-    assert 'this._movingPort = null;' in panel
-    assert 'this._assigningPort = null;' in panel
-    assert 'this._assigningPort = null;' in js('app-processors.js')
+    for gone in ('port-move-card-', 'port-move-port-', 'port-pin-',
+                 '_movingPort', 'Move whole block', 'Release all pins',
+                 '_buildAssignmentScreen', '_buildAssignmentPort',
+                 '_buildAssignmentFoot'):
+        assert gone not in panel, (
+            f'{gone!r} is back in the assignment module - assignment '
+            f'controls belong to the dock now')
+    assert 'processor-port-assign-' not in js('app-processors.js'), (
+        'the stripped chooser is back in the processors module')
+    # The dock's chip editors took over the per-port naming, and they must
+    # not regrow the chooser either: the drag is the one assignment gesture.
+    assert 'processor-port-assign-' not in js('app-dock.js'), (
+        'the stripped chooser reappeared in the dock chip editor')
+    # What deliberately STAYS: the refuse-and-offer surface, re-hosted as
+    # rows on the dock's issues strip. The dock does not replace warnings.
+    assert '_buildIssue(issue) {' in panel
+    assert '_buildOffer(offer) {' in panel
+    assert "getElementById('hw-dock-issues')" in panel, (
+        'the issue rows stopped rendering onto the dock strip')
+    # The auto checkbox left the UI: nothing may sync it, and nothing may
+    # ever send auto:false - the PUT with auto:true (the strip's recovery
+    # offer) is the one auto request the module still makes.
+    assert "port-assignment-auto" not in panel, (
+        'the retired auto checkbox is back in the assignment module')
+    assert 'auto: false' not in panel and 'auto:false' not in panel, (
+        'the assignment module must never send auto:false - the toggle is '
+        'retired and only the recovery offer (auto: true) remains')
+    # The overflow story lives under the attachment flag, not the strip.
+    assert "kind !== 'overflow'" in panel, (
+        'the strip is rendering overflow rows again - that story belongs '
+        'to the dock header flag')
 
 
 def test_the_backup_template_rides_the_return_labels_here_too(one_card):
@@ -1234,3 +1340,578 @@ def test_the_backup_template_rides_the_return_labels_here_too(one_card):
     scr = by_name(res, 'Main')
     assert [p['returnLabel'] for p in scr['ports']] == \
         ['SR-1R', 'HOUSE-RTN', 'SR-3R']
+
+
+# ── 10. Ports claimed by a redundancy role ────────────────────────────────
+#
+# A port consumed by the redundancy mapping - the even half of a sequential
+# card, every port of a 1:1 backup unit, a manual pick - is CLAIMED BY ROLE:
+# auto numbers around it, a block cannot land across it, and a hand
+# placement is refused outright with the main it returns named in the
+# refusal. Outright, unlike the occupied-port question: sharing a socket
+# with another screen is a real rig (a hot spare), sharing it with its own
+# backup role is not a rig at all.
+
+def sequential_card(client):
+    """One MX20 named SR, redundancy on, sequential: 6 ports, odds usable."""
+    state = add_processor(client, 'novastar-mx20')
+    pid = state['resolved'][0]['id']
+    card = card_ids(state)[0]
+    client.put(f'/api/processors/{pid}/cards/{card}', json={'name': 'SR'})
+    client.put(f'/api/processors/{pid}', json={'redundancy': True})
+    resp = client.put(f'/api/processors/{pid}/cards/{card}',
+                      json={'redundancyMode': 'sequential'})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    return pid, card
+
+
+def test_auto_numbering_skips_the_backing_ports(client):
+    """Three ports on a sequential six land on 1, 3, 5 - the odd mains - and
+    the card is full at three, because the evens are its returns."""
+    _pid, card = sequential_card(client)
+    sc = [('Wall', 3)]
+    res = resolve(client, *sc)
+    assert spots(res, 'Wall') == [(card, 1), (card, 3), (card, 5)]
+
+    res = resolve(client, ('Wall', 4))
+    assert numbers(res, 'Wall') == [1, 3, 5, None]
+    assert issue(res, 'overflow')
+
+
+def test_placing_onto_a_backing_port_is_refused_naming_the_main(client):
+    """The refusal is hard - no confirm - and it says whose return the
+    socket carries. Nothing moves and nothing is stamped on the project."""
+    _pid, card = sequential_card(client)
+    sc = screens(('Wall', 2))
+    resp = place(client, 'Wall', 1, card, 2, sc)
+    assert resp.status_code == 409, resp.get_data(as_text=True)
+    body = resp.get_json()
+    assert 'backs up SR-1' in body['error'], body['error']
+    assert 'return end' in body['error'], body['error']
+    assert body.get('conflict') is None, (
+        'a role refusal offered the occupied-port confirm')
+    after = resolve(client, ('Wall', 2))
+    assert spots(after, 'Wall') == [(card, 1), (card, 3)], (
+        'the refused placement moved something')
+    assert assignment.STATE_KEY not in client.get('/api/project').get_json()
+
+
+def test_a_1to1_backup_unit_takes_nothing_and_refuses_by_role(client):
+    """Every port of the designated backup unit is consumed: auto never
+    reaches it, and a hand placement is refused with the main port it
+    returns - the claimed-by-role treatment, unit-wide."""
+    state = add_processor(client, 'novastar-mx20')
+    main_pid = state['resolved'][0]['id']
+    main_card = card_ids(state)[0]
+    state = add_processor(client, 'novastar-mx20')
+    backup_card = card_ids(state)[1]
+    client.put(f'/api/processors/{main_pid}/cards/{main_card}',
+               json={'name': 'P1'})
+    backup_pid = state['resolved'][1]['id']
+    client.put(f'/api/processors/{backup_pid}/cards/{backup_card}',
+               json={'name': 'R1'})
+    client.put(f'/api/processors/{main_pid}', json={'redundancy': True})
+    resp = client.put(f'/api/processors/{main_pid}/cards/{main_card}',
+                      json={'backupCardId': backup_card})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+
+    # Eight ports against a mirrored six: the main fills, the backup takes
+    # none, and the spill has nowhere to go.
+    res = resolve(client, ('Wall', 8))
+    assert spots(res, 'Wall')[:6] == [(main_card, n) for n in range(1, 7)]
+    assert spots(res, 'Wall')[6:] == [(None, None), (None, None)]
+    assert issue(res, 'overflow')
+
+    resp = place(client, 'Wall', 6, backup_card, 3, screens(('Wall', 8)))
+    assert resp.status_code == 409, resp.get_data(as_text=True)
+    assert 'backs up P1-3' in resp.get_json()['error'], \
+        resp.get_json()['error']
+
+
+def test_the_card_summary_counts_backing_ports_out_of_free(client):
+    """The card headers' used/capacity glance and the gear popover's capacity
+    row both read the summary, so a sequential card must not promise six
+    sockets when three of them are spoken for by the role."""
+    _pid, card = sequential_card(client)
+    res = resolve(client, ('Wall', 2))
+    summary = next(c for c in res['cards'] if c['cardId'] == card)
+    assert summary['capacity'] == 6
+    assert summary['used'] == 2
+    assert summary['backing'] == 3
+    assert summary['free'] == 1
+
+
+def test_a_block_cannot_land_across_a_backing_port(client):
+    """A block is contiguous or it is not a block, and the evens of a
+    sequential card break every run of two - so the move is refused rather
+    than landed astride a return socket."""
+    _pid, _card = sequential_card(client)
+    sc = screens(('Wall', 2))
+    resolve(client, ('Wall', 2))
+    resp = client.post('/api/port-assignments/move-block',
+                       json={'layerId': 'Wall', 'screens': sc})
+    assert resp.status_code == 409, resp.get_data(as_text=True)
+    assert 'consecutive free ports' in resp.get_json()['error']
+
+
+def test_the_sx40_pair_claims_the_backing_boxes_whole(client):
+    """The trunk-level pairing at the assignment's end - "10 per box"
+    (2026-08-25): with redundancy on, the four stocked XDs are boxes A/C
+    driving and B/D returning, so a twelve-port wall packs sockets 1-10 and
+    jumps to 21 - every socket keeps its number on the drawing while B's
+    and D's twenty are claimed by role, and a hand placement onto socket 11
+    gets the same hard refusal every backing socket gets."""
+    state = add_processor(client, 'brompton-sx40')
+    pid = state['resolved'][0]['id']
+    card = card_ids(state)[0]
+    client.put(f'/api/processors/{pid}', json={'redundancy': True})
+
+    res = resolve(client, ('Wall', 12))
+    assert numbers(res, 'Wall') == list(range(1, 11)) + [21, 22]
+    summary = next(c for c in res['cards'] if c['cardId'] == card)
+    assert (summary['capacity'], summary['backing']) == (40, 20)
+    assert (summary['used'], summary['free']) == (12, 8)
+
+    resp = place(client, 'Wall', 0, card, 11, screens(('Wall', 12)))
+    assert resp.status_code == 409, resp.get_data(as_text=True)
+    body = resp.get_json()
+    assert 'backs up' in body['error'] and 'return end' in body['error']
+    # Socket 11 is box B's socket 1 (the 2026-08-27 silkscreen ruling), and
+    # with nothing named upstream the refusal has to say so in the numbers
+    # on the metal: the main it returns is box A's port 1, never "port 1"
+    # bare - every box has a port 1 now - and never the card-wide 11.
+    assert 'port 1 on Tessera XD A' in body['error'], body['error']
+
+
+def test_the_halves_mode_claims_the_back_half_by_role(client):
+    """The 2026-08-27 arrangement at the assignment's end: "1-8 on
+    processor 1 and 9-16 as backups". With halves mode on a 16-port card,
+    auto packs the front half and stops - the back half is spoken for by
+    role - and a hand placement onto socket 9 gets the same hard refusal
+    every backing socket gets, naming the main whose return it carries."""
+    state = add_processor(client, 'novastar-h9')
+    pid = state['resolved'][0]['id']
+    state = set_card(client, pid, 0, 'novastar-card-h-16xrj45-2xfiber')
+    card = card_ids(state)[0]
+    client.put(f'/api/processors/{pid}/cards/{card}', json={'name': 'P1'})
+    client.put(f'/api/processors/{pid}', json={'redundancy': True})
+    resp = client.put(f'/api/processors/{pid}/cards/{card}',
+                      json={'redundancyMode': 'halves'})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+
+    res = resolve(client, ('Wall', 10))
+    assert numbers(res, 'Wall') == list(range(1, 9)) + [None, None], (
+        'auto crossed into the back half')
+    assert issue(res, 'overflow')
+    summary = next(c for c in res['cards'] if c['cardId'] == card)
+    assert (summary['capacity'], summary['backing']) == (16, 8)
+    assert (summary['used'], summary['free']) == (8, 0)
+
+    resp = place(client, 'Wall', 8, card, 9, screens(('Wall', 10)))
+    assert resp.status_code == 409, resp.get_data(as_text=True)
+    body = resp.get_json()
+    assert 'backs up P1-1' in body['error'], body['error']
+    assert 'return end' in body['error'], body['error']
+
+
+# ── 11. A backup socket displays the occupancy of the socket it backs ─────
+#
+# Assign main A-1 to a screen and its return loom physically lands on B-1,
+# so B-1 reading "free" - or only "backs up A-1" - understates a socket
+# that is now carrying that screen's return. The resolution mirrors the
+# main's occupant onto the backup socket, marked role 'return' and naming
+# the main it follows. DERIVED, NEVER STORED: the mirrored entry is read
+# through the backedBy link on every resolve, so un-assigning the main
+# clears the backup's display with it, nothing lands in the project, and
+# there is nothing extra to undo. One rule for every pairing shape that
+# wires port-level links - the SX40's fixed boxes, sequential, 1:1, manual.
+
+def returns_on(res, card, port):
+    """The mirrored entries on one socket, flattened for comparison."""
+    return [(o['name'], o['number'], o.get('role'), o['source'],
+             (o.get('main') or {}).get('port'),
+             (o.get('main') or {}).get('label'))
+            for o in res['occupancy'].get(card, {}).get(str(port), [])]
+
+
+def test_the_sx40s_b_sockets_carry_the_screens_returns(client):
+    """The user's case, verbatim shape: "when i map A to a screen the B
+    ports need to fill automatically." Twelve ports on a redundant SX40
+    sit on sockets 1-10 and 21-22, so B's sockets 11-20 and D's 31-32 read
+    as those screen-ports' return ends - each mirrored entry names the
+    screen, the screen's own port number, and the main socket (by its A-n
+    label) the display follows. The claims themselves are untouched: used,
+    backing and free stand exactly as they did, and the project stores
+    nothing for any of it."""
+    state = add_processor(client, 'brompton-sx40')
+    pid = state['resolved'][0]['id']
+    card = card_ids(state)[0]
+    boxes = state['resolved'][0]['slots'][0]['card']['cvts']
+    for box, name in zip(boxes, ('A', 'B', 'C', 'D')):
+        client.put(f'/api/processors/{pid}/cvts/{box["id"]}',
+                   json={'name': name})
+    client.put(f'/api/processors/{pid}', json={'redundancy': True})
+
+    res = resolve(client, ('Wall', 12))
+    assert returns_on(res, card, 11) == \
+        [('Wall', 1, 'return', 'return', 1, 'A-1')]
+    assert returns_on(res, card, 20) == \
+        [('Wall', 10, 'return', 'return', 10, 'A-10')]
+    assert returns_on(res, card, 31) == \
+        [('Wall', 11, 'return', 'return', 21, 'C-1')]
+    assert returns_on(res, card, 32) == \
+        [('Wall', 12, 'return', 'return', 22, 'C-2')]
+    assert returns_on(res, card, 33) == [], (
+        'a free main grew a mirrored return')
+    summary = next(c for c in res['cards'] if c['cardId'] == card)
+    assert (summary['used'], summary['backing'], summary['free']) == \
+        (12, 20, 8), 'the mirrored display leaked into the claim counts'
+    assert assignment.STATE_KEY not in client.get('/api/project').get_json(), (
+        'derived occupancy stamped state onto the project')
+
+    # Un-assigning the mains clears the backups' display with them - the
+    # mirror is the main's occupant, so there is nothing to clear twice.
+    res = resolve(client, ('Wall', 0))
+    assert res['occupancy'] == {}
+
+
+def test_sequential_and_manual_sockets_mirror_the_same_way(client):
+    """The same follow-through on the port-level shapes: a sequential
+    card's even sockets carry the odd mains' occupants, and a manual pick
+    mirrors exactly the socket somebody named - nothing else."""
+    pid, card = sequential_card(client)
+    res = resolve(client, ('Wall', 2))
+    assert spots(res, 'Wall') == [(card, 1), (card, 3)]
+    assert returns_on(res, card, 2) == \
+        [('Wall', 1, 'return', 'return', 1, 'SR-1')]
+    assert returns_on(res, card, 4) == \
+        [('Wall', 2, 'return', 'return', 3, 'SR-3')]
+    assert returns_on(res, card, 6) == []
+
+    client.put(f'/api/processors/{pid}/cards/{card}',
+               json={'redundancyMode': 'manual'})
+    client.put(f'/api/processors/{pid}/cards/{card}/ports/1',
+               json={'backup': {'cardId': card, 'port': 5}})
+    res = resolve(client, ('Wall', 1))
+    assert returns_on(res, card, 5) == \
+        [('Wall', 1, 'return', 'return', 1, 'SR-1')]
+    assert returns_on(res, card, 2) == [], (
+        'manual is explicit - an unpicked socket mirrors nothing')
+
+
+def test_a_1to1_backup_units_sockets_mirror_their_mains(client):
+    """The designated backup unit stops looking idle the moment its main
+    carries a show: every occupied main mirrors onto the same-numbered
+    socket of the unit that returns it, across processors."""
+    state = add_processor(client, 'novastar-mx20')
+    main_pid = state['resolved'][0]['id']
+    main_card = card_ids(state)[0]
+    state = add_processor(client, 'novastar-mx20')
+    backup_card = card_ids(state)[1]
+    client.put(f'/api/processors/{main_pid}/cards/{main_card}',
+               json={'name': 'P1'})
+    client.put(f'/api/processors/{main_pid}', json={'redundancy': True})
+    client.put(f'/api/processors/{main_pid}/cards/{main_card}',
+               json={'backupCardId': backup_card})
+
+    res = resolve(client, ('Wall', 3))
+    assert spots(res, 'Wall') == [(main_card, n) for n in (1, 2, 3)]
+    for n in (1, 2, 3):
+        assert returns_on(res, backup_card, n) == \
+            [('Wall', n, 'return', 'return', n, f'P1-{n}')]
+    assert returns_on(res, backup_card, 4) == []
+
+
+def test_a_mirrored_return_is_not_a_pin_and_follows_the_mains_clear(client):
+    """The mirrored entry's source is 'return', never 'pin', so no release
+    path can mistake it for a claim it may act on - and releasing the MAIN
+    is the whole of clearing both ends: with the pin gone the mirror is
+    gone, and the project holds pins and the auto flag and nothing else."""
+    _pid, card = sequential_card(client)
+    client.put('/api/port-assignments', json={'auto': False})
+    resp = place(client, 'Wall', 0, card, 1, screens(('Wall', 1)))
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    res = resolve(client, ('Wall', 1))
+    assert returns_on(res, card, 2) == \
+        [('Wall', 1, 'return', 'return', 1, 'SR-1')]
+    assert all(o['source'] == 'pin'
+               for o in res['occupancy'][card]['1']), (
+        'the main claim itself must stay a pin')
+
+    client.post('/api/port-assignments/unpin',
+                json={'layerId': 'Wall', 'index': 0})
+    res = resolve(client, ('Wall', 1))
+    assert res['occupancy'].get(card, {}).get('2', []) == [], (
+        'clearing the main left the mirrored return behind')
+    stored = client.get('/api/project').get_json()[assignment.STATE_KEY]
+    assert stored == {'auto': False, 'pins': []}, (
+        'something beyond pins and the flag was stored')
+
+
+# ── 12. The platform wall ─────────────────────────────────────────────────
+#
+# A screen's Processing setting and a card's product line have to agree
+# before a port may land (ruling, 2026-08-28): a Legacy screen never lands
+# on COEX gear, a NovaStar screen never lands on a Brompton, and so on for
+# every pairing. Auto skips a mismatched card the way it skips a full one;
+# every manual path refuses with both sides named; a saved pin that already
+# violates the wall is reported red and NEVER silently released.
+
+
+def pscreens(*triples):
+    """(name, ports, platform) - the screens as the client sends them since
+    the wall: the layer's Processing setting rides beside the port count."""
+    return [{'layerId': name, 'name': name, 'ports': count,
+             'platform': platform}
+            for name, count, platform in triples]
+
+
+def presolve(client, sc):
+    resp = client.post('/api/port-assignments/resolve',
+                       json={'screens': sc})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    return resp.get_json()['resolution']
+
+
+@pytest.fixture()
+def mixed_lines(client):
+    """One COEX all-in-one and one legacy card, COEX FIRST - so a legacy
+    screen landing anywhere proves the skip, not the ordering."""
+    state = add_processor(client, 'novastar-mx40-pro')
+    mx_card = card_ids(state)[0]
+    state = add_processor(client, 'novastar-h9')
+    pid = state['resolved'][1]['id']
+    state = set_card(client, pid, 0, 'novastar-card-h-16xrj45-2xfiber')
+    return client, mx_card, card_ids(state)[1]
+
+
+def test_the_matrix_covers_every_ported_device():
+    """Every processor and card in the catalog answers the matrix from its
+    family, except the two devices ruled (or pending) past their family's
+    line. A device this test does not expect would land in the else branch
+    unrestricted - which is the deliberate default, but never silently for
+    a device carrying a family the matrix claims to know."""
+    by_family = {
+        'novastar-mx': {'novastar-coex-1g'},
+        'novastar-cx': {'novastar-5g'},
+        'novastar-vx': {'novastar-armor'},
+        'novastar-mctrl': {'novastar-armor'},
+        'novastar-novapro': {'novastar-armor'},
+        'novastar-h': {'novastar-armor'},
+        'brompton': {'brompton'},
+        'megapixel': {'megapixel-1g', 'megapixel-2.5g'},
+    }
+    overrides = {
+        # Ruled COEX (2026-08-28, hedged); the 1G/5G sub-split is unruled,
+        # so the gate takes both COEX settings until it is.
+        'novastar-ku20': {'novastar-coex-1g', 'novastar-5g'},
+        # "mx6000 and 2000 with 5g fiber only work with 5g settings".
+        'novastar-card-mx-1x40g': {'novastar-5g'},
+    }
+    for device in catalog.devices():
+        if device.get('kind') not in ('processor', 'card'):
+            continue
+        got = assignment.accepted_platforms(device['id'])
+        want = overrides.get(device['id'],
+                             by_family.get(device.get('family')))
+        assert got == want, (
+            f'{device["id"]}: accepts {got}, the matrix says {want}')
+
+
+def test_auto_lands_each_screen_on_its_own_lines_gear(mixed_lines):
+    """The Legacy screen walks PAST the first (COEX) card to the H card,
+    and the COEX screen takes the COEX card the Legacy one skipped - the
+    same first-fit rule, walked over matching gear only."""
+    client, mx_card, h_card = mixed_lines
+    res = presolve(client, pscreens(('LEG', 2, 'novastar-armor'),
+                                    ('CX1', 2, 'novastar-coex-1g')))
+    assert spots(res, 'LEG') == [(h_card, 1), (h_card, 2)]
+    assert spots(res, 'CX1') == [(mx_card, 1), (mx_card, 2)]
+    assert kinds(res) == []
+
+
+def test_a_wall_with_no_matching_gear_stays_unplaced(mixed_lines):
+    """A Brompton screen among NovaStar cards goes NOWHERE - not onto the
+    least-wrong card - and the overflow report says its ports are not
+    attached. No mismatch row: nothing is pinned, so nothing is wrong that
+    a matching processor would not fix."""
+    client, _mx, _h = mixed_lines
+    res = presolve(client, pscreens(('Wall', 3, 'brompton')))
+    assert spots(res, 'Wall') == [(None, None)] * 3
+    assert issue(res, 'overflow')['layerId'] == 'Wall'
+    assert 'platform-mismatch' not in kinds(res)
+
+
+def test_a_hand_placement_across_the_wall_is_refused_naming_both_sides(
+        mixed_lines):
+    """The refusal is a fact with both halves stated - what the screen is
+    programmed, what the card is - because the fix could be either side
+    and the message is all the strip shows."""
+    client, mx_card, h_card = mixed_lines
+    sc = pscreens(('IMAG SR', 2, 'novastar-armor'))
+    resp = place(client, 'IMAG SR', 0, mx_card, 1, sc)
+    assert resp.status_code == 409
+    assert resp.get_json()['error'] == (
+        'IMAG SR is programmed NovaStar (Legacy); '
+        'MX40 Pro slot 1 is COEX gear.')
+    res = presolve(client, sc)
+    assert spots(res, 'IMAG SR') == [(h_card, n) for n in (1, 2)], (
+        'the refused placement moved something')
+
+
+def test_the_pin_and_overflow_paths_hold_the_same_wall(mixed_lines):
+    """One matrix, every door: the card-level pin and the overflow fill
+    refuse across the wall with the same both-sides message the socket
+    placement speaks."""
+    client, mx_card, _h = mixed_lines
+    sc = pscreens(('IMAG SR', 20, 'novastar-armor'))
+    resp = client.post('/api/port-assignments/pin',
+                       json={'layerId': 'IMAG SR', 'index': 0,
+                             'cardId': mx_card, 'screens': sc})
+    assert resp.status_code == 409
+    assert 'is COEX gear' in resp.get_json()['error']
+    # 20 Legacy ports on a 16-port H card: four genuinely overflow, and
+    # the COEX card still may not take the tail.
+    resp = client.post('/api/port-assignments/place-overflow',
+                       json={'layerId': 'IMAG SR', 'cardId': mx_card,
+                             'screens': sc})
+    assert resp.status_code == 409
+    assert 'is COEX gear' in resp.get_json()['error']
+
+
+def test_move_block_stays_on_matching_gear(mixed_lines):
+    """The block move's search walks matching cards only - so the next
+    free block for a Legacy run is further down its own card, never the
+    COEX card beside it - and naming the COEX card outright is refused."""
+    client, mx_card, h_card = mixed_lines
+    sc = pscreens(('LEG', 2, 'novastar-armor'))
+    resp = client.post('/api/port-assignments/move-block',
+                       json={'layerId': 'LEG', 'cardId': mx_card,
+                             'screens': sc})
+    assert resp.status_code == 409
+    assert 'is COEX gear' in resp.get_json()['error']
+    resp = client.post('/api/port-assignments/move-block',
+                       json={'layerId': 'LEG', 'screens': sc})
+    assert resp.status_code == 200
+    assert resp.get_json()['moved']['cardId'] == h_card
+
+
+def test_a_violating_pin_is_reported_red_and_kept(mixed_lines):
+    """A saved project can hold a pin the wall now forbids - pinned before
+    the screen's Processing changed, or before the wall existed. It is
+    reported as its own red row and the pin STAYS: releasing it would
+    renumber a drawing the truck was packed to, which is the one thing
+    this module never does by itself."""
+    client, mx_card, _h = mixed_lines
+    # The pin lands while the screen carries no platform - exactly an old
+    # project's shape - and the violation appears when the platform does.
+    resp = place(client, 'IMAG SR', 0, mx_card, 3,
+                 screens(('IMAG SR', 1)))
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    res = presolve(client, pscreens(('IMAG SR', 1, 'novastar-armor')))
+    row = issue(res, 'platform-mismatch')
+    assert row['layerId'] == 'IMAG SR' and row['cardId'] == mx_card
+    assert 'Nothing has been unpinned' in row['message']
+    assert {o['action'] for o in row['offers']} == {'move-block', 'release'}
+    assert spots(res, 'IMAG SR') == [(mx_card, 3)], (
+        'the report released the pin by itself')
+    assert sources(res, 'IMAG SR') == ['pin']
+
+
+def test_ku20_takes_both_coex_settings_and_nothing_else(client):
+    """The KU20 is ruled COEX (2026-08-28, hedged) with the 1G/5G
+    sub-split still open, so BOTH COEX settings pass and everything else
+    is refused. When the sub-split is ruled, one of the two 200s below
+    flips to a 409 and this test names the day."""
+    state = add_processor(client, 'novastar-ku20')
+    card = card_ids(state)[0]
+    ok_1g = place(client, 'A', 0, card, 1,
+                  pscreens(('A', 1, 'novastar-coex-1g')))
+    assert ok_1g.status_code == 200, ok_1g.get_data(as_text=True)
+    ok_5g = place(client, 'B', 0, card, 2,
+                  pscreens(('A', 1, 'novastar-coex-1g'),
+                           ('B', 1, 'novastar-5g')))
+    assert ok_5g.status_code == 200, ok_5g.get_data(as_text=True)
+    for platform in ('novastar-armor', 'brompton'):
+        resp = place(client, 'C', 0, card, 3,
+                     pscreens(('C', 1, platform)))
+        assert resp.status_code == 409, platform
+
+
+def test_cx_gear_takes_only_the_5g_setting(client):
+    """"CX only map to 5G": the CX80 Pro takes the 5G setting and refuses
+    both other NovaStar settings - the 1G COEX line is not its line."""
+    state = add_processor(client, 'novastar-cx80-pro')
+    card = card_ids(state)[0]
+    ok = place(client, 'FIVE', 0, card, 1,
+               pscreens(('FIVE', 1, 'novastar-5g')))
+    assert ok.status_code == 200, ok.get_data(as_text=True)
+    for platform in ('novastar-coex-1g', 'novastar-armor'):
+        resp = place(client, 'X', 0, card, 2,
+                     pscreens(('X', 1, platform)))
+        assert resp.status_code == 409, platform
+        assert '5G COEX gear' in resp.get_json()['error']
+
+
+def test_the_vendor_walls_hold_both_ways(client):
+    """Brompton screens to Brompton gear, Megapixel screens (either rate)
+    to Megapixel gear, and never across. Both directions are asserted
+    because the ruling was given in both: "cannot be mapped to a Brompton
+    processor and vice versa"."""
+    state = add_processor(client, 'brompton-sx40')
+    sx_card = card_ids(state)[0]
+    state = add_processor(client, 'megapixel-helios-jr')
+    mp_card = card_ids(state)[1]
+    res = presolve(client, pscreens(('BR', 2, 'brompton'),
+                                    ('M1', 2, 'megapixel-1g'),
+                                    ('M2', 2, 'megapixel-2.5g')))
+    assert {c for c, _p in spots(res, 'BR')} == {sx_card}
+    assert {c for c, _p in spots(res, 'M1')} == {mp_card}
+    assert {c for c, _p in spots(res, 'M2')} == {mp_card}
+    resp = place(client, 'BR', 0, mp_card, 1,
+                 pscreens(('BR', 1, 'brompton')))
+    assert resp.status_code == 409
+    assert 'Megapixel gear' in resp.get_json()['error']
+    resp = place(client, 'M1', 0, sx_card, 1,
+                 pscreens(('M1', 1, 'megapixel-1g')))
+    assert resp.status_code == 409
+    assert 'Brompton gear' in resp.get_json()['error']
+
+
+def test_the_40g_mx_card_is_5g_gear(client):
+    """The MX chassis card whose one trunk is 40G feeds the CVT8-5G and
+    only the CVT8-5G, so its ports are 5GBASE-T: "mx6000 and 2000 with 5g
+    fiber only work with 5g settings". The 1G COEX setting its chassis
+    family would suggest is refused."""
+    state = add_processor(client, 'novastar-mx2000-pro')
+    pid = state['resolved'][0]['id']
+    state = set_card(client, pid, 0, 'novastar-card-mx-1x40g')
+    card = card_ids(state)[0]
+    ok = place(client, 'FIVE', 0, card, 1,
+               pscreens(('FIVE', 1, 'novastar-5g')))
+    assert ok.status_code == 200, ok.get_data(as_text=True)
+    resp = place(client, 'ONE', 0, card, 2,
+                 pscreens(('ONE', 1, 'novastar-coex-1g')))
+    assert resp.status_code == 409
+    assert '5G fiber gear' in resp.get_json()['error']
+
+
+def test_a_screen_with_no_platform_is_never_refused(client):
+    """A payload with no platform - an old client, an old test - lands
+    anywhere, because the safe side of not knowing is a warning missed,
+    not a wall stranded on site."""
+    state = add_processor(client, 'novastar-mx40-pro')
+    card = card_ids(state)[0]
+    resp = place(client, 'Wall', 0, card, 1, screens(('Wall', 1)))
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+
+
+def test_the_card_summary_carries_the_servers_word(mixed_lines):
+    """Any client-side gating reads each card's `platforms` list off the
+    resolution rather than a second copy of the matrix - so the list has
+    to be there, and None has to mean no restriction."""
+    client, mx_card, h_card = mixed_lines
+    res = presolve(client, pscreens(('LEG', 1, 'novastar-armor')))
+    by_card = {c['cardId']: c for c in res['cards']}
+    assert by_card[mx_card]['platforms'] == ['novastar-coex-1g']
+    assert by_card[h_card]['platforms'] == ['novastar-armor']

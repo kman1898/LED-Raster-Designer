@@ -10,6 +10,7 @@ project, so this blueprint sets it through the app module attribute
 from flask import Blueprint, request, jsonify
 
 import app
+import processor_catalog
 from app import log_event, socketio
 
 project_bp = Blueprint('project', __name__)
@@ -75,6 +76,13 @@ def save_project():
     # it stored then survived until the next undo, and the export read it in
     # the meantime. Idempotent, so a well-formed save is untouched.
     app._enforce_group_integrity(app.current_project)
+    # Same funnel duty for the processor tree: a payload can carry a
+    # pre-stocking SX40 through this route too, and a boxless one is a
+    # legacy shape, never a choice. Idempotent like the pass above it.
+    # The seq sync runs FIRST so the heal's boxes mint above every id the
+    # payload already holds.
+    processor_catalog.sync_next_processor_seq(app.current_project)
+    processor_catalog.stock_default_cvts(app.current_project)
     app.sync_next_layer_id()
     log_event('save_project', {'name': app.current_project.get('name')})
     return jsonify({'status': 'success'})
@@ -153,6 +161,17 @@ def restore_project():
     # one place that can guarantee the two sides agree. Idempotent by design:
     # restoring the same project twice must not change it.
     app._enforce_group_integrity(app.current_project)
+    # A requires-distribution device saved before new_processor stocked its
+    # default boxes arrives with an empty cvts list - a pre-stocking save,
+    # not an arrangement. This funnel (file load, undo/redo) is where it is
+    # healed, because a read must not mutate and the panel may never open.
+    # Before it runs, re-seed the processor id counter: an undo snapshot can
+    # carry a stale counter or none at all (snapshots taken before the routes
+    # echoed it, hand-edited files), and _next_seq falling back would mint a
+    # duplicate proc/card/cvt id - the resurrection sync_next_group_seq
+    # exists for.
+    processor_catalog.sync_next_processor_seq(app.current_project)
+    processor_catalog.stock_default_cvts(app.current_project)
     app.sync_next_layer_id()
     log_event('restore_project', {
         'name': app.current_project.get('name', '?'),

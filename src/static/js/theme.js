@@ -118,39 +118,47 @@
 })();
 
 /* ──────────────────────────────────────────────────────────────────────
-   Resizable sidebars, drag the inner edge of a docked panel to widen or
-   narrow it. Width persists per panel in localStorage and is clamped so it
-   can't swallow the canvas. Coexists with the existing collapse toggle.
+   Resizable docked panels, drag the inner edge (the one facing the canvas)
+   to grow or shrink one. Size persists per panel in localStorage and is
+   clamped so it can't swallow the canvas. Coexists with the existing
+   collapse toggles. The four sidebars resize in x; the hardware dock is the
+   same system turned on its side, resizing in y from its top edge.
    ────────────────────────────────────────────────────────────────────── */
 (function () {
   'use strict';
-  var MIN = 180, MAX = 560;
 
   /* One row per resizable panel, deliberately the same shape as the collapse
      table in app-core.js initSidebarToggles: a reader who understands one
-     understands the other, and a fourth panel is a row here rather than an
+     understands the other, and a fifth panel is a row here rather than an
      edit to every function below.
 
      `dragEdge` is which edge of the PANEL its drag strip lives on - the inner
      one, facing the canvas. Deliberately not called `edge`: the collapse table
-     uses that name for the side of the APP a panel docks to, and for the
-     Signal and Power panels the two differ. They are middle columns that dock
-     left, so they collapse leftward but are dragged from their right-hand
-     edges, exactly like the left sidebar - while each keeps its own storage
-     key and CSS var, so no two panels' widths ever move together. */
+     uses that name for the side of the APP a panel docks to, and the two can
+     differ. Each row keeps its own storage key and CSS var, so no two
+     panels' sizes ever move together.
+
+     `axis` is which dimension the drag changes, and each row carries its own
+     clamp because the two axes measure different things. Widths share
+     180-560. The dock's height runs 100 - its own header plus one unit head
+     and one chip row, the smallest tray that still shows a draggable chip -
+     to 420, about 2.4x its 172px default, which at a ~900px window still
+     leaves the canvas well over a third of the column. */
   var PANELS = [
-    { key: 'left',  sidebarId: 'left-sidebar',  toggleId: 'left-sidebar-toggle',  storageKey: 'lrd_left_w',  cssVar: '--lrd-left-w',  dragEdge: 'right' },
-    { key: 'data',  sidebarId: 'data-sidebar',  toggleId: 'data-sidebar-toggle',  storageKey: 'lrd_data_w',  cssVar: '--lrd-data-w',  dragEdge: 'right' },
-    { key: 'power', sidebarId: 'power-sidebar', toggleId: 'power-sidebar-toggle', storageKey: 'lrd_power_w', cssVar: '--lrd-power-w', dragEdge: 'right' },
-    { key: 'right', sidebarId: 'right-sidebar', toggleId: 'right-sidebar-toggle', storageKey: 'lrd_right_w', cssVar: '--lrd-right-w', dragEdge: 'left'  }
+    /* The Signal and Power middle rows retired with their sidebars (the
+       dock absorbed the hardware surfaces); the dock's row is the one
+       view-scoped member left. */
+    { key: 'left',  sidebarId: 'left-sidebar',  toggleId: 'left-sidebar-toggle',  storageKey: 'lrd_left_w',  cssVar: '--lrd-left-w',  dragEdge: 'right', axis: 'x', min: 180, max: 560, fallback: 260 },
+    { key: 'right', sidebarId: 'right-sidebar', toggleId: 'right-sidebar-toggle', storageKey: 'lrd_right_w', cssVar: '--lrd-right-w', dragEdge: 'left',  axis: 'x', min: 180, max: 560, fallback: 260 },
+    { key: 'dock',  sidebarId: 'hardware-dock', toggleId: 'hardware-dock-toggle', storageKey: 'lrd_dock_h',  cssVar: '--lrd-dock-h',  dragEdge: 'top',   axis: 'y', min: 100, max: 420, fallback: 172 }
   ];
 
-  function clamp(w) { return Math.max(MIN, Math.min(MAX, Math.round(w))); }
+  function clamp(p, v) { return Math.max(p.min, Math.min(p.max, Math.round(v))); }
   function sb(p) { return document.getElementById(p.sidebarId); }
-  function setW(p, w) { document.documentElement.style.setProperty(p.cssVar, clamp(w) + 'px'); }
+  function setSize(p, v) { document.documentElement.style.setProperty(p.cssVar, clamp(p, v) + 'px'); }
   function applySaved() {
     PANELS.forEach(function (p) {
-      try { var v = parseInt(localStorage.getItem(p.storageKey), 10); if (v) setW(p, v); } catch (e) { /* ignore */ }
+      try { var v = parseInt(localStorage.getItem(p.storageKey), 10); if (v) setSize(p, v); } catch (e) { /* ignore */ }
     });
   }
 
@@ -165,16 +173,26 @@
   function reposition() {
     PANELS.forEach(function (p) {
       var h = handles[p.key], s = sb(p); if (!h || !s) return;
-      /* offsetWidth 0 covers both a collapsed panel and one that has left
-         layout altogether - the Signal and Power panels are display:none
-         outside their own view, and a fixed strip left floating over the
-         canvas there would be a live bug, not a cosmetic one. */
-      if (s.classList.contains('collapsed') || s.offsetWidth <= 1) { h.style.display = 'none'; return; }
+      /* offset size 0 covers both a collapsed panel and one that has left
+         layout altogether - the dock is display:none outside its own views,
+         and a fixed strip left floating over the canvas there would be a
+         live bug, not a cosmetic one. */
+      var size = p.axis === 'y' ? s.offsetHeight : s.offsetWidth;
+      if (s.classList.contains('collapsed') || size <= 1) { h.style.display = 'none'; return; }
       var r = s.getBoundingClientRect();
       h.style.display = 'block';
-      h.style.top = r.top + 'px';
-      h.style.height = r.height + 'px';
-      h.style.left = (p.dragEdge === 'right' ? r.right - 3 : r.left - 4) + 'px';
+      if (p.axis === 'y') {
+        /* the dock's strip lies along its top edge, spanning its width */
+        h.style.left = r.left + 'px';
+        h.style.width = r.width + 'px';
+        h.style.top = (r.top - 3) + 'px';
+        h.style.height = '';
+      } else {
+        h.style.top = r.top + 'px';
+        h.style.height = r.height + 'px';
+        h.style.left = (p.dragEdge === 'right' ? r.right - 3 : r.left - 4) + 'px';
+        h.style.width = '';
+      }
     });
   }
   function repaint() { if (raf) cancelAnimationFrame(raf); raf = requestAnimationFrame(reposition); }
@@ -186,16 +204,18 @@
       var app = document.getElementById('app');
       if (app) app.classList.add('lrd-resizing');
       h.classList.add('lrd-dragging');
-      document.body.style.cursor = 'col-resize';
+      document.body.style.cursor = p.axis === 'y' ? 'row-resize' : 'col-resize';
       document.body.style.userSelect = 'none';
       function move(ev) {
         /* The panel's outer edge is the one that doesn't move while dragging,
            so measure from it: the pointer sets the distance to the edge being
-           dragged. */
+           dragged. The dock's outer edge is its bottom - the status bar side. */
         var r = s.getBoundingClientRect();
-        var w = p.dragEdge === 'right' ? (ev.clientX - r.left) : (r.right - ev.clientX);
-        setW(p, w);
-        /* .lrd-resizing suppresses the width transition, so the new width is
+        var v = p.axis === 'y'
+          ? (r.bottom - ev.clientY)
+          : (p.dragEdge === 'right' ? (ev.clientX - r.left) : (r.right - ev.clientX));
+        setSize(p, v);
+        /* .lrd-resizing suppresses the size transition, so the new size is
            already in layout on this frame and the canvas can be re-measured
            immediately rather than lagging a drag by a whole animation. */
         remeasure();
@@ -208,8 +228,8 @@
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
         if (app) app.classList.remove('lrd-resizing');
-        var cur = parseInt(getComputedStyle(document.documentElement).getPropertyValue(p.cssVar), 10) || 260;
-        try { localStorage.setItem(p.storageKey, clamp(cur)); } catch (e) { /* ignore */ }
+        var cur = parseInt(getComputedStyle(document.documentElement).getPropertyValue(p.cssVar), 10) || p.fallback;
+        try { localStorage.setItem(p.storageKey, clamp(p, cur)); } catch (e) { /* ignore */ }
         settle();
       }
       document.addEventListener('mousemove', move);
@@ -224,7 +244,9 @@
       var s = sb(p);
       if (!s) return;
       var h = document.createElement('div');
-      h.className = 'lrd-resize-handle';
+      /* the -y variant swaps the strip's fixed dimension and cursor */
+      h.className = 'lrd-resize-handle'
+        + (p.axis === 'y' ? ' lrd-resize-handle-y' : '');
       h.dataset.lrdResize = p.key;
       h.title = 'Drag to resize panel';
       h.addEventListener('mousedown', startDrag(p, h));

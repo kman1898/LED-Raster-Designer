@@ -285,7 +285,13 @@ class _Colors {
                 const up = () => {
                     document.removeEventListener('mousemove', move);
                     document.removeEventListener('mouseup', up);
-                    this.updateLayers(this.getSelectedLayers());
+                    // Undo audit: commit through the funnel, not around it. A
+                    // raw updateLayers here persisted the drag with no undo
+                    // entry - the one gradient control that bypassed the
+                    // method whose own comment says every control funnels
+                    // through it. An empty patch mutates nothing; isFinal
+                    // persists and records the coalesced step.
+                    this._applyGradient({}, true);
                 };
                 document.addEventListener('mousemove', move);
                 document.addEventListener('mouseup', up);

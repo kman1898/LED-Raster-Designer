@@ -20,44 +20,135 @@ class _Power {
     showContextMenu(x, y) {
         const menu = document.getElementById('context-menu');
         if (!menu) return;
-        // Show/hide pixel-map-only menu group based on view + selection.
-        const inPixelMap = window.canvasRenderer && window.canvasRenderer.viewMode === 'pixel-map';
-        const haveSelection = this.pixelMapSelection && this.pixelMapSelection.size > 0;
-        const showPixelMapItems = inPixelMap && haveSelection;
-        menu.querySelectorAll('.pixel-map-only').forEach(el => {
-            el.style.display = showPixelMapItems ? '' : 'none';
+        // The SURFACE under the cursor is decided before any item is: the
+        // hardware dock is hardware, not layers, so a chip right-clicked
+        // there gets that chip's own action and nothing else - "Delete
+        // Layer" next to "Clear port 3" reads as an offer to delete the
+        // chip. And a tray spot with no chip under it has no actions at
+        // all, so no menu opens: an empty menu teaches nothing.
+        const under = document.elementFromPoint(x, y);
+        const inDock = !!(under && under.closest
+            && under.closest('#hardware-dock'));
+        // Assignment clears: armed only when the right-click landed on a
+        // drawn port run, a power circuit, or a dock chip (app-dock.js
+        // _prepareClearMenu). The label and the title are written at open
+        // time because they name the thing under the cursor; an impossible
+        // clear stays on the menu, disabled, with the reason as its title.
+        const clear = (typeof this._prepareClearMenu === 'function')
+            ? this._prepareClearMenu(x, y) : null;
+        this._clearMenuAction = clear;
+        // The way back from a drop-implied split, offered only where a
+        // stored boundary exists (app-dock.js _prepareMergeMenu): unlike the
+        // clear there is no disabled state, because "nothing to merge" is
+        // the ordinary condition of most multis, not a refused gesture.
+        const merge = (typeof this._prepareMergeMenu === 'function')
+            ? this._prepareMergeMenu(x, y) : null;
+        this._mergeMenuAction = merge;
+        // Circuit sharing (the retired Splitters panel's manual lever):
+        // armed only on a power circuit run or chip, and only while the
+        // screen's splitters are on or its circuits are drawn custom
+        // (app-dock.js _prepareShareMenus). Absent everywhere else.
+        const sharing = (typeof this._prepareShareMenus === 'function')
+            ? this._prepareShareMenus(x, y) : { share: null, unshare: null };
+        this._shareMenuAction = sharing.share;
+        this._unshareMenuAction = sharing.unshare;
+        // Per-run override: armed only on a drawn run in Data Flow / Power,
+        // and never on the dock (a chip is hardware, not a run). "Back to
+        // auto" appears only where an override exists to drop - the same
+        // only-what-applies rule the clears follow.
+        const ovr = (!inDock && typeof this._prepareOverrideMenu === 'function')
+            ? this._prepareOverrideMenu(x, y) : null;
+        this._overrideMenuActions = ovr;
+        if (inDock && !clear && !merge && !sharing.share
+                && !sharing.unshare) {
+            this.hideContextMenu();
+            return;
+        }
+        // The layer/canvas items belong to the canvas surface only. On the
+        // dock they all leave, whatever their group logic below would say.
+        menu.querySelectorAll(
+            '.menu-option:not(.hw-clear-only):not(.hw-merge-only)'
+            + ':not(.hw-share-only):not(.hw-unshare-only), '
+            + '.menu-divider:not(.hw-clear-only)').forEach(el => {
+            el.style.display = inDock ? 'none' : '';
         });
-        // Centering only applies where screens can actually be positioned:
-        // Pixel Map (processor offset) and Show Look (show offset). Data and
-        // Power mirror the Show Look position, so they're read-only there.
-        const canCenter = window.canvasRenderer
-            && ['pixel-map', 'show-look'].includes(window.canvasRenderer.viewMode)
-            && this.getSelectedLayers().some(l => !l.locked);
-        menu.querySelectorAll('.movable-view-only').forEach(el => {
-            el.style.display = canCenter ? '' : 'none';
+        if (!inDock) {
+            // Show/hide pixel-map-only menu group based on view + selection.
+            const inPixelMap = window.canvasRenderer && window.canvasRenderer.viewMode === 'pixel-map';
+            const haveSelection = this.pixelMapSelection && this.pixelMapSelection.size > 0;
+            const showPixelMapItems = inPixelMap && haveSelection;
+            menu.querySelectorAll('.pixel-map-only').forEach(el => {
+                el.style.display = showPixelMapItems ? '' : 'none';
+            });
+            // Centering only applies where screens can actually be
+            // positioned: Pixel Map (processor offset) and Show Look (show
+            // offset). Data and Power mirror the Show Look position, so
+            // they're read-only there.
+            const canCenter = window.canvasRenderer
+                && ['pixel-map', 'show-look'].includes(window.canvasRenderer.viewMode)
+                && this.getSelectedLayers().some(l => !l.locked);
+            menu.querySelectorAll('.movable-view-only').forEach(el => {
+                el.style.display = canCenter ? '' : 'none';
+            });
+            // v0.11.0: screen-group actions. Grouping needs 2+ screen
+            // layers selected, so with fewer the item is simply not offered
+            // (a group of one is not a group). Ungroup / Remove only mean
+            // anything once the selection is already in a group.
+            const canGroup = this.canGroupSelection();
+            const inGroup = this.getSelectedGroupIds().length > 0;
+            menu.querySelectorAll('.group-create-only').forEach(el => {
+                el.style.display = canGroup ? '' : 'none';
+            });
+            menu.querySelectorAll('.group-member-only').forEach(el => {
+                el.style.display = inGroup ? '' : 'none';
+            });
+            menu.querySelectorAll('.group-any-only').forEach(el => {
+                el.style.display = (canGroup || inGroup) ? '' : 'none';
+            });
+            // Move to Canvas needs a layer to move and somewhere to move it
+            // to. Offering it with one canvas would open a picker with
+            // nothing in it.
+            const canvases = (this.project && this.project.canvases) || [];
+            const canMove = canvases.length > 1
+                && this.getSelectedLayers().some(l => !l.locked);
+            menu.querySelectorAll('.move-canvas-only').forEach(el => {
+                el.style.display = canMove ? '' : 'none';
+            });
+        }
+        menu.querySelectorAll('.hw-clear-only').forEach(el => {
+            el.style.display = clear ? '' : 'none';
         });
-        // v0.11.0: screen-group actions. Grouping needs 2+ screen layers
-        // selected, so with fewer the item is simply not offered (a group of
-        // one is not a group). Ungroup / Remove only mean anything once the
-        // selection is already in a group.
-        const canGroup = this.canGroupSelection();
-        const inGroup = this.getSelectedGroupIds().length > 0;
-        menu.querySelectorAll('.group-create-only').forEach(el => {
-            el.style.display = canGroup ? '' : 'none';
+        // The clear's divider separates it from the layer items; alone on a
+        // dock menu there is nothing above it to separate from.
+        const clearDivider = menu.querySelector('.menu-divider.hw-clear-only');
+        if (clearDivider && inDock) clearDivider.style.display = 'none';
+        const clearItem = menu.querySelector('[data-action="hw-clear"]');
+        if (clearItem && clear) {
+            clearItem.textContent = clear.label;
+            clearItem.title = clear.title || '';
+            clearItem.classList.toggle('menu-disabled', !!clear.disabled);
+        }
+        menu.querySelectorAll('.hw-merge-only').forEach(el => {
+            el.style.display = merge ? '' : 'none';
         });
-        menu.querySelectorAll('.group-member-only').forEach(el => {
-            el.style.display = inGroup ? '' : 'none';
-        });
-        menu.querySelectorAll('.group-any-only').forEach(el => {
-            el.style.display = (canGroup || inGroup) ? '' : 'none';
-        });
-        // Move to Canvas needs a layer to move and somewhere to move it to.
-        // Offering it with one canvas would open a picker with nothing in it.
-        const canvases = (this.project && this.project.canvases) || [];
-        const canMove = canvases.length > 1
-            && this.getSelectedLayers().some(l => !l.locked);
-        menu.querySelectorAll('.move-canvas-only').forEach(el => {
-            el.style.display = canMove ? '' : 'none';
+        const mergeItem = menu.querySelector('[data-action="hw-merge"]');
+        if (mergeItem && merge) {
+            mergeItem.textContent = merge.label;
+            mergeItem.title = merge.title || '';
+        }
+        [['hw-share-only', 'hw-share', sharing.share],
+         ['hw-unshare-only', 'hw-unshare', sharing.unshare],
+         ['ovr-redraw-only', 'ovr-redraw', ovr && ovr.redraw],
+         ['ovr-auto-only', 'ovr-auto', ovr && ovr.backToAuto],
+        ].forEach(([cls, action, armed]) => {
+            menu.querySelectorAll(`.${cls}`).forEach(el => {
+                el.style.display = armed ? '' : 'none';
+            });
+            const item = menu.querySelector(`[data-action="${action}"]`);
+            if (item && armed) {
+                item.textContent = armed.label;
+                item.title = armed.title || '';
+            }
         });
 
         menu.style.visibility = 'hidden';
@@ -148,12 +239,34 @@ class _Power {
         cr.render();
     }
 
+    // While ONE overridden run is open for redrawing, the editable runs ARE
+    // the layer's overrides, so the step walks that list (clamped at its
+    // ends) instead of the open number line - stepping onto a port the user
+    // never took over would make the next click take it over silently.
+    _steppedCustomIndex(layer, kind, delta) {
+        const current = kind === 'power'
+            ? (layer.powerCustomIndex || 1) : (layer.customPortIndex || 1);
+        if (!this._isOverrideEditing(layer, kind)) {
+            return Math.max(1, current + delta);
+        }
+        const nums = this.getOverrideNums(layer, kind);
+        const at = nums.indexOf(current);
+        const next = at === -1 ? 0
+            : Math.max(0, Math.min(nums.length - 1, at + delta));
+        return nums[next];
+    }
+
     stepCustomPort(delta) {
         if (!this.currentLayer || !window.canvasRenderer) return;
         const view = window.canvasRenderer.viewMode;
-        if (view === 'data-flow' && this.isCustomFlow(this.currentLayer)) {
+        if (view === 'data-flow' && this.isCustomFlowEditing(this.currentLayer)) {
             this.ensureCustomFlowState(this.currentLayer);
-            this.currentLayer.customPortIndex = Math.max(1, (this.currentLayer.customPortIndex || 1) + delta);
+            this.currentLayer.customPortIndex =
+                this._steppedCustomIndex(this.currentLayer, 'data', delta);
+            if (this._overrideEditing && this._overrideEditing.kind === 'data'
+                    && this._overrideEditing.layerId === this.currentLayer.id) {
+                this._overrideEditing.num = this.currentLayer.customPortIndex;
+            }
             this.saveState('Custom Port Change');
             this.saveClientSideProperties();
             // v0.8.2: PUT to server (keyboard shortcut path needs the same
@@ -162,9 +275,14 @@ class _Power {
             this.updateCustomFlowUI();
             this.updatePortLabelEditor();
             window.canvasRenderer.render();
-        } else if (view === 'power' && this.isCustomPower(this.currentLayer)) {
+        } else if (view === 'power' && this.isCustomPowerEditing(this.currentLayer)) {
             this.ensureCustomPowerState(this.currentLayer);
-            this.currentLayer.powerCustomIndex = Math.max(1, (this.currentLayer.powerCustomIndex || 1) + delta);
+            this.currentLayer.powerCustomIndex =
+                this._steppedCustomIndex(this.currentLayer, 'power', delta);
+            if (this._overrideEditing && this._overrideEditing.kind === 'power'
+                    && this._overrideEditing.layerId === this.currentLayer.id) {
+                this._overrideEditing.num = this.currentLayer.powerCustomIndex;
+            }
             this.saveState('Power Custom Circuit Change');
             this.saveClientSideProperties();
             this.updateLayers(this.getSelectedLayers());
@@ -328,7 +446,7 @@ class _Power {
                 portsRequiredEl.style.color = '#ff0000';
             } else if (panelCountForStatus === 0 || servedByPeer) {
                 portsRequiredEl.textContent = '0';
-                portsRequiredEl.style.color = '#888';
+                portsRequiredEl.style.color = 'var(--ps-dim, #c0c0c0)';
             } else {
                 portsRequiredEl.textContent = portsRequired;
                 if (portsRequired <= 4) {
@@ -395,6 +513,10 @@ class _Power {
         // error forward (the canvas already clears it for custom patterns)
         layer._powerError = this.usesCustomCircuits(layer) ? null : powerAssignments.error;
         layer._powerCircuits = powerAssignments.circuits;
+        // The engine's own numbers ride with the rows (per-run overrides gap
+        // the sequence); a stale keys array against fresh rows would label a
+        // circuit with its neighbour's number.
+        layer._powerCircuitNumKeys = powerAssignments.nums || null;
 
         if (circuitsEl) circuitsEl.textContent = circuitsRequired > 0 ? circuitsRequired.toLocaleString() : '0';
         layer._powerCircuitsRequired = circuitsRequired;
@@ -402,15 +524,11 @@ class _Power {
         if (amps3El) amps3El.textContent = totalAmps3 ? totalAmps3.toFixed(2) + ' A' : '0';
         // Deferred, not called inline: this runs synchronously inside the
         // change handlers of the static Power fields (panel watts, voltage,
-        // amperage), and it wipes all three hosts.
-        //
-        // Those hosts moved to the Power panel (#power-sidebar), so Tab out of
-        // Watts per Panel now lands on the Flow Pattern buttons that follow it
-        // in the left sidebar rather than inside the soca host. The deferral
-        // still earns its place: the three hosts are siblings there and tab
-        // into one another, and this same path runs from their own controls,
-        // so an inline wipe still destroys the field Tab is about to land in.
-        // See _rebuildAfterGesture.
+        // amperage). The knob syncs are cheap, but refreshDistroPanel is a
+        // whole dock render (its wipe included), and this same path runs
+        // from controls whose Tab is still mid-flight - an inline wipe
+        // destroys the field Tab is about to land in. See
+        // _rebuildAfterGesture.
         this._rebuildAfterGesture(() => {
             this.refreshSocaRuns();
             this.refreshSplitterPanel();
@@ -483,7 +601,10 @@ class _Power {
         }
         const res = this.calculatePowerAssignments(layer);
         return (res.circuits || []).map((panels, i) => {
-            const c = { num: i + 1, panels };
+            // `nums` exists only when per-run overrides are in play: the auto
+            // circuits skip the overridden numbers and the overridden ones
+            // keep theirs, so i + 1 stops being the truth there.
+            const c = { num: res.nums ? res.nums[i] : i + 1, panels };
             // v0.12: an AUTOMATIC circuit can now cross into a group peer too,
             // so it carries the same index-aligned `layers` a hand-drawn
             // crossing circuit has carried since v0.11.0 - getSocaPlan charges
@@ -582,17 +703,19 @@ class _Power {
     }
 
     // The plan's multis as contiguous ordinal runs: [{index, start, end,
-    // userEnd}], 1-based inclusive. Boundaries are the fixed 6-grid plus
-    // every stored split point; `userEnd` marks a part whose END is a
-    // stored point - the boundary the Un-split control removes.
+    // userEnd}], 1-based inclusive. Boundaries are the fixed box grid (six
+    // for a soca, three for an L21-30 - socaBoxSize) plus every stored
+    // split point; `userEnd` marks a part whose END is a stored point -
+    // the boundary the "Merge back into …" gesture removes.
     _socaSegments(layer, count) {
         const n = Math.max(0, Number(count) || 0);
         if (!n) return [];
+        const size = this.socaBoxSize(layer);
         const stored = new Set(this._socaSplitPoints(layer, n));
         const segs = [];
         let start = 1;
         for (let i = 1; i <= n; i++) {
-            if (i === n || i % 6 === 0 || stored.has(i)) {
+            if (i === n || i % size === 0 || stored.has(i)) {
                 segs.push({ index: segs.length + 1, start, end: i,
                             userEnd: stored.has(i) });
                 start = i + 1;
@@ -641,22 +764,23 @@ class _Power {
         }
     }
 
-    // Break multi `socaIndex` after its `afterLeg`-th circuit (1..legs-1).
-    // The first part keeps the multi's identity - name, distro, number,
-    // length - and the second starts unassigned; its stored tail set is
-    // dropped because the arrangement covered circuits the part no longer
-    // has. Contiguous only: a boundary, never a reshuffle.
-    splitSocaAfter(layer, socaIndex, afterLeg) {
-        if (!layer) return false;
+    // The split MUTATION on its own, no history entry: validation, the
+    // incumbent stamp, the store splice. splitSocaAfter wraps it with the
+    // one-entry snapshot; the dock's drop-implied split composes it with
+    // the assignment that motivated it so the whole gesture is ONE entry.
+    // Returns the stamped layers (the incumbents can live on other screens)
+    // or null when the cut is not a legal boundary.
+    _splitSocaApply(layer, socaIndex, afterLeg) {
+        if (!layer) return null;
         const count = this.screenCircuits(layer).length;
         const segs = this._socaSegments(layer, count);
         const seg = segs.find(s => s.index === Number(socaIndex));
         const cut = parseInt(afterLeg, 10);
         if (!seg || !Number.isFinite(cut) || cut < 1
-                || cut >= seg.end - seg.start + 1) return false;
+                || cut >= seg.end - seg.start + 1) return null;
         const boundary = seg.start + cut - 1;
         const points = this._socaSplitPoints(layer, count);
-        if (points.includes(boundary)) return false;
+        if (points.includes(boundary)) return null;
         // The first part keeps the pin but sheds circuits, so it re-deals
         // its tails on the box - and if that box is shared, the OTHER
         // members' rendered tails must be held first or the re-deal could
@@ -669,10 +793,98 @@ class _Power {
         this._spliceSocaStores(layer, Number(socaIndex) + 1, +1);
         delete (layer.powerSocaPhasePos || {})[socaIndex];
         delete (layer.powerSocaPhaseOffset || {})[socaIndex];
+        // The segmentation just changed, so every read from here on must
+        // see the post-split wall - a caller composing further mutations
+        // (the drop gesture's second cut, the target-box stamp) included.
         this._circuitTailCache = null;
+        return stamped;
+    }
+
+    // Break multi `socaIndex` after its `afterLeg`-th circuit (1..legs-1).
+    // The first part keeps the multi's identity - name, distro, number,
+    // length - and the second starts unassigned; its stored tail set is
+    // dropped because the arrangement covered circuits the part no longer
+    // has. Contiguous only: a boundary, never a reshuffle.
+    splitSocaAfter(layer, socaIndex, afterLeg) {
+        const stamped = this._splitSocaApply(layer, socaIndex, afterLeg);
+        if (!stamped) return false;
         this.updateLayers([...new Set([layer, ...stamped])], true,
                           'Split Multi');
         return true;
+    }
+
+    // The drop-implied split: a multi slot dropped on a circuit that is NOT
+    // the first of its multi means "from this circuit on, feed from that
+    // box". The boundary falls out of where the drop landed - the Split
+    // select this replaces asked for the same fact in words - and the
+    // tail-end circuits take (distroId, number) in the same motion, so the
+    // whole gesture is ONE history entry: a single Ctrl+Z heals the split
+    // and the assignment together.
+    //
+    // Capacity follows place-overflow's convention: TAKE WHAT FITS. When
+    // the box's free tails cannot hold the whole tail-end, a second
+    // boundary caps the assigned part at what fits and the remainder
+    // stays behind as its own unassigned multi (the spare-ports rule
+    // transposed); a box with no free tail at all refuses outright.
+    // Only PINNED incumbents hold tails against the drop - an auto at
+    // this number re-deals around the new pin, so it defends nothing.
+    //
+    // Returns { ok, took, tailLen, free } - or { ok: false, free, tailLen }
+    // for the refusal - so the dock can phrase the note; the engine moves
+    // stores, the tray talks.
+    splitSocaOnto(layer, socaIndex, afterLeg, distroId, number) {
+        if (!layer || !distroId) return { ok: false, free: 0, tailLen: 0 };
+        const count = this.screenCircuits(layer).length;
+        const seg = this._socaSegments(layer, count)
+            .find(s => s.index === Number(socaIndex));
+        const cut = parseInt(afterLeg, 10);
+        if (!seg || !Number.isFinite(cut) || cut < 1
+                || cut >= seg.end - seg.start + 1) {
+            return { ok: false, free: 0, tailLen: 0 };
+        }
+        const tailLen = (seg.end - seg.start + 1) - cut;
+        const n = parseInt(number, 10);
+        let held = 0;
+        // The target box's fan is as big as the SMALLEST breakout claiming
+        // it - a 3-tail L21-30 box has three tails whoever else lands on
+        // it, and pretending to six would deal tails that do not exist.
+        let cap = this.socaBoxSize(layer);
+        for (const m of (this._distroMultiNumbers(distroId).get(n) || [])) {
+            const ml = ((this.project && this.project.layers) || [])
+                .find(l => l.id === m.layerId);
+            if (ml) cap = Math.min(cap, this.socaBoxSize(ml));
+            if (!m.pinned) continue;
+            // The multi being split already on the target box counts at its
+            // HEAD size: its tail-end is exactly what is moving in.
+            held += (m.layerId === layer.id && m.soca === Number(socaIndex))
+                ? cut : m.legs;
+        }
+        const free = Math.max(0, cap - held);
+        if (!free) return { ok: false, free, tailLen };
+        const take = Math.min(tailLen, free);
+        const touched = new Set([layer]);
+        const first = this._splitSocaApply(layer, socaIndex, cut);
+        if (!first) return { ok: false, free, tailLen };
+        first.forEach(l => touched.add(l));
+        const tailIdx = Number(socaIndex) + 1;
+        if (take < tailLen) {
+            // The capped remainder becomes its own multi, unassigned - the
+            // circuits that did not fit stay visible as spare, never rammed
+            // onto a full fan as an overflow clash.
+            const capped = this._splitSocaApply(layer, tailIdx, take);
+            if (capped) capped.forEach(l => touched.add(l));
+        }
+        // Landing on an occupied box is the JOIN: the incumbents' rendered
+        // tails freeze first so the new part deals into what is genuinely
+        // free - the same stamp the panel's number pick always made.
+        this._materializeSocaBox(distroId, n, layer, tailIdx)
+            .forEach(l => touched.add(l));
+        (layer.powerSocaDistro || (layer.powerSocaDistro = {}))[tailIdx]
+            = distroId;
+        (layer.powerSocaNumber || (layer.powerSocaNumber = {}))[tailIdx] = n;
+        this._circuitTailCache = null;
+        this.updateLayers([...touched], true, 'Split Multi');
+        return { ok: true, took: take, tailLen, free };
     }
 
     // Remove the stored boundary at the end of part `socaIndex`: the part
@@ -797,18 +1009,66 @@ class _Power {
     // breakouts add L6-20 -> panel tails per circuit.
     // `connector` is the bare connector name for labeling - the sticker goes
     // on the tail, and the tail is a True1, not a "Soca → True1".
+    //
+    // `boxSize` is how many circuits ONE physical box of this breakout
+    // holds - the fan the tails hang off. A soca is six; the L21-30
+    // breakout is a 3-circuit box (one 208V circuit per leg pair off a
+    // 30A/leg L21-30 feed, user-specified), so its `feedLegA` carries the
+    // feed's per-leg rating for the dock's over check. Everything that
+    // segments circuits into boxes, deals tails or maps tails onto legs
+    // reads the size through socaBoxSize below, never the literal 6.
     getPowerBreakoutTypes() {
         return [
-            { id: 'soca-true1', name: 'Multi → True1', connector: 'True1', breakoutItem: 'Multi breakouts → True1' },
-            { id: 'soca-powercon', name: 'Multi → powerCON', connector: 'powerCON', breakoutItem: 'Multi breakouts → powerCON' },
-            { id: 'soca-edison', name: 'Multi → Edison (110V)', connector: 'Edison', breakoutItem: 'Multi breakouts → Edison', tailItem: 'Edison → panel tails' },
-            { id: 'soca-l620', name: 'Multi → L6-20', connector: 'L6-20', breakoutItem: 'Multi breakouts → L6-20', tailItem: 'L6-20 → panel tails' }
+            { id: 'soca-true1', name: 'Multi → True1', connector: 'True1', boxSize: 6, breakoutItem: 'Multi breakouts → True1' },
+            { id: 'soca-powercon', name: 'Multi → powerCON', connector: 'powerCON', boxSize: 6, breakoutItem: 'Multi breakouts → powerCON' },
+            { id: 'soca-edison', name: 'Multi → Edison (110V)', connector: 'Edison', boxSize: 6, breakoutItem: 'Multi breakouts → Edison', tailItem: 'Edison → panel tails' },
+            { id: 'soca-l620', name: 'Multi → L6-20', connector: 'L6-20', boxSize: 6, breakoutItem: 'Multi breakouts → L6-20', tailItem: 'L6-20 → panel tails' },
+            // The L21-30 breakout (user ruling, 2026-08-28): fed by an
+            // L21-30 at 30 A per leg, splitting to 3 x 208V circuits on
+            // True1 or powerCON - a leg-PAIR circuit per tail, never a
+            // 6-circuit soca. It hangs on a distro number like a multi
+            // does, with 3 tails.
+            { id: 'l2130-true1', name: 'L21-30 (3 × 208V) → True1', connector: 'True1', boxSize: 3, feedLegA: 30, breakoutItem: 'L21-30 breakouts → True1' },
+            { id: 'l2130-powercon', name: 'L21-30 (3 × 208V) → powerCON', connector: 'powerCON', boxSize: 3, feedLegA: 30, breakoutItem: 'L21-30 breakouts → powerCON' }
         ];
     }
 
     getPowerBreakout(layer) {
         const types = this.getPowerBreakoutTypes();
-        return types.find(t => t.id === (layer && layer.powerBreakoutType)) || types[0];
+        const stored = types.find(t => t.id === (layer && layer.powerBreakoutType));
+        if (stored) return stored;
+        // No stored choice: a 110V screen defaults to its only legal
+        // breakout (user ruling: a 110V screen can only have 110V Edison
+        // on it). A stored choice is somebody's paperwork and stands as
+        // written, whatever the voltage says now.
+        const v = parseFloat(layer && layer.powerVoltage) || 0;
+        if (v > 0 && v <= 120) {
+            return types.find(t => t.id === 'soca-edison') || types[0];
+        }
+        return types[0];
+    }
+
+    // How many circuits one physical box on THIS screen holds. The one
+    // authority for the box shape - segmentation, tail clamps, the balance
+    // search, the leg maps and the dock's chip grid all read it, so a
+    // 3-tail L21-30 box can never render six chips or deal a tail 4.
+    socaBoxSize(layer) {
+        const n = Number(this.getPowerBreakout(layer).boxSize);
+        return Number.isFinite(n) && n >= 1 ? n : 6;
+    }
+
+    // Which breakouts a screen's voltage can legally run (user ruling: a
+    // screen set to 110V can only have 110V Edison on it, and the L21-30
+    // box is documented as 3 x 208V - nothing else is restricted, and no
+    // rule is extrapolated to voltages the ruling does not cover). The
+    // select disables what is ineligible; a STORED incompatible choice is
+    // somebody's paperwork and keeps displaying, the same doctrine the
+    // mismatched phasing scheme follows.
+    _breakoutEligible(type, voltage) {
+        const v = parseFloat(voltage) || 0;
+        if (v > 0 && v <= 120) return type.id === 'soca-edison';
+        if (String(type.id).startsWith('l2130-')) return v === 208;
+        return true;
     }
 
     setPowerBreakout(layer, id) {
@@ -918,8 +1178,12 @@ class _Power {
     // `socaIndex` is the multi's stable index within its screen, never its
     // displayed number - the number is what this call CHANGES, since it comes
     // out of the distro's own sequence.
-    setSocaDistro(layer, socaIndex, distroId) {
-        if (!layer) return;
+    // `record` (default true) is for composite gestures only: a dock drop
+    // that drives this setter alongside others passes false and issues ONE
+    // updateLayers(..., true, action) itself over every returned layer, so
+    // the whole drop is one undo entry. Returns the touched layers either way.
+    setSocaDistro(layer, socaIndex, distroId, record = true) {
+        if (!layer) return [];
         const map = layer.powerSocaDistro || (layer.powerSocaDistro = {});
         // A multi that carries its pin onto another distro can land on an
         // occupied box there - the same join as pinning, spelled as an
@@ -934,8 +1198,11 @@ class _Power {
         // show can move. Stale labels for a frame is a bug this has already
         // been bitten by once.
         this._circuitTailCache = null;
-        this.updateLayers([...new Set([layer, ...stamped])], true,
-                          'Assign Multi Distro');
+        const touched = [...new Set([layer, ...stamped])];
+        if (record) {
+            this.updateLayers(touched, true, 'Assign Multi Distro');
+        }
+        return touched;
     }
 
     // Pin a multi to a NUMBER under its distro - the "which output of the
@@ -949,8 +1216,10 @@ class _Power {
     // onto a twin multi that the rollup then counted twice. There is no
     // separate link to manage: picking the number joins, re-picking (or
     // Auto, or another distro) separates.
-    setSocaNumber(layer, socaIndex, number) {
-        if (!layer) return;
+    // `record` mirrors setSocaDistro's: false lets a composite dock gesture
+    // fold this write into its own single history entry.
+    setSocaNumber(layer, socaIndex, number, record = true) {
+        if (!layer) return [];
         // Always leave an object behind, never delete the property: an
         // absent key is missing from the update payload and the server
         // keeps whatever it had, so "back to Auto" would silently not clear.
@@ -969,8 +1238,11 @@ class _Power {
         // A pin renumbers the whole distro bucket (autos deal around it) and
         // can merge or split a shared box, so every label can move.
         this._circuitTailCache = null;
-        this.updateLayers([...new Set([layer, ...stamped])], true,
-                          'Set Multi Number');
+        const touched = [...new Set([layer, ...stamped])];
+        if (record) {
+            this.updateLayers(touched, true, 'Set Multi Number');
+        }
+        return touched;
     }
 
     // The shared-box record for one multi, or null when it shares with
@@ -1018,8 +1290,9 @@ class _Power {
                 if (Array.isArray(store[rec.index])) continue;
                 const L = rec.circuits.length;
                 const pos = rec.positions;
+                const cap = this.socaBoxSize(l);
                 if (!Array.isArray(pos) || pos.length !== L) continue;
-                if (!pos.every(p => Number.isInteger(p) && p >= 1 && p <= 6)
+                if (!pos.every(p => Number.isInteger(p) && p >= 1 && p <= cap)
                     || new Set(pos).size !== L) continue;
                 store[rec.index] = pos.slice();
                 touched.push(l);
@@ -1090,7 +1363,10 @@ class _Power {
     // A multi named by hand. Per-MULTI, so unlike the bracket toggle and the
     // breakout type it never sweeps the selection (_socaPanelTargets): a name
     // belongs to one multi on one screen. Blank hands it back to the distro.
-    setSocaName(layer, socaIndex, name) {
+    // `record` mirrors setSocaDistro's: false lets a composite gesture (the
+    // dock's one-field-per-box header writing through to every member of a
+    // shared box) fold this write into its own single history entry.
+    setSocaName(layer, socaIndex, name, record = true) {
         if (!layer) return;
         // Always leave an object behind, never delete the property: an absent
         // key is simply missing from the update payload and the server keeps
@@ -1099,7 +1375,9 @@ class _Power {
         const v = String(name || '').trim();
         if (v) store[socaIndex] = v; else delete store[socaIndex];
         this._circuitTailCache = null;
-        this.updateLayers([layer], true, 'Rename Multi');
+        if (record) {
+            this.updateLayers([layer], true, 'Rename Multi');
+        }
     }
 
     // Every PARTLY-FILLED multi that lands on a 3-phase distro, with the
@@ -1140,7 +1418,6 @@ class _Power {
                     seenBoxes.add(share.key);
                     if (share.clash || share.overflow) continue;
                     const total = share.members.reduce((t, m) => t + m.legs, 0);
-                    if (total >= 6) continue;
                     const members = share.members.map(m => {
                         const ml = (this.project.layers || [])
                             .find(l => l.id === m.layerId);
@@ -1148,6 +1425,12 @@ class _Power {
                                       tails: m.tails.slice() } : null;
                     }).filter(Boolean);
                     if (members.length !== share.members.length) continue;
+                    // Full is full against the BOX's fan - the smallest
+                    // member breakout's size, the same capacity the shared
+                    // deal answers to. Six for socas, three for an L21-30.
+                    const boxSize = Math.min(...members
+                        .map(m => this.socaBoxSize(m.layer)));
+                    if (total >= boxSize) continue;
                     // per-circuit amps and labels, member order - index k of
                     // from/to below is the k-th circuit of this walk
                     const legsDetail = members.flatMap(m =>
@@ -1160,21 +1443,22 @@ class _Power {
                     });
                     out.push({
                         layer, soca: s.soca, name: s.name, distroId: d.id,
-                        legs: total, members,
+                        legs: total, members, boxSize,
                         layerName: members.map(m => m.layer.name).join(' + '),
                         positions: members.flatMap(m => m.tails)
                             .sort((a, b) => a - b),
                         fromFlat: members.flatMap(m => m.tails),
                         amps: legsDetail.map(l => l.amps),
                         labels: legsDetail.map(l => l.label),
-                        scheme: this.powerPhasingFor(d, circuitV).id
+                        scheme: this._circuitSchemeFor(d, circuitV).id
                     });
                     continue;
                 }
-                if (s.legs.length >= 6) continue;
+                if (s.legs.length >= this.socaBoxSize(layer)) continue;
                 out.push({
                     layer, soca: s.soca, name: s.name, distroId: d.id,
                     legs: s.legs.length,
+                    boxSize: this.socaBoxSize(layer),
                     positions: this.socaCircuitPositions(layer, s.soca, s.legs.length),
                     amps: s.legs.map(l => l.amps),
                     // The circuits' CURRENT labels through the one authority,
@@ -1182,7 +1466,7 @@ class _Power {
                     // balance dialog names each moved circuit by the bubble
                     // on the canvas, never by a re-derived ordinal.
                     labels: s.legs.map(l => l.label),
-                    scheme: this.powerPhasingFor(d, circuitV).id
+                    scheme: this._circuitSchemeFor(d, circuitV).id
                 });
             }
         }
@@ -1222,12 +1506,13 @@ class _Power {
                     if (share.clash || share.overflow) {
                         out.clashed.push({ name: s.name, layers: names,
                             overflow: !!share.overflow });
-                    } else if (share.members.reduce((t, m) => t + m.legs, 0) >= 6) {
+                    } else if (share.members.reduce((t, m) => t + m.legs, 0)
+                            >= this.socaBoxSize(layer)) {
                         out.full.push({ name: s.name, layers: names });
                     }
                     continue;
                 }
-                if (s.legs.length >= 6) {
+                if (s.legs.length >= this.socaBoxSize(layer)) {
                     out.full.push({ name: s.name, layers: layer.name });
                 }
             }
@@ -1315,8 +1600,10 @@ class _Power {
                 const L = current[t].length;
                 for (let i = 0; i < L; i++) {
                     // trade the tail at slot i for one nothing is using;
-                    // re-sort so the array stays ascending wall order
-                    for (let p = 1; p <= 6; p++) {
+                    // re-sort so the array stays ascending wall order.
+                    // The fan is the target's OWN box - six tails on a
+                    // soca, three on an L21-30.
+                    for (let p = 1; p <= (targets[t].boxSize || 6); p++) {
                         if (current[t].includes(p)) continue;
                         const was = current[t].slice();
                         current[t][i] = p;
@@ -1426,11 +1713,11 @@ class _Power {
             const b = this._balanceBlockers(distroId);
             const lines = [];
             if (b.full.length) lines.push(
-                `${b.full.map(f => esc(f.name)).join(', ')} ${b.full.length === 1 ? 'is' : 'are'} full — a 6-circuit multi balances itself, there is nothing to choose.`);
+                `${b.full.map(f => esc(f.name)).join(', ')} ${b.full.length === 1 ? 'is' : 'are'} full — a full box balances itself, there is nothing to choose.`);
             b.clashed.forEach(c => lines.push(
                 `${esc(c.name)} (${esc(c.layers)}) is a shared box ${c.overflow
-                    ? 'with more circuits than its six tails hold'
-                    : 'with a tail claimed twice'} — resolve the clash first.`));
+                    ? 'with more circuits than the six it holds'
+                    : 'with a circuit claimed twice'} — resolve the clash first.`));
             b.phantom.forEach(p => lines.push(
                 `${esc(p.layers)} assigns ${p.count === 1 ? 'a multi' : p.count + ' multis'} to this distro but ${esc(p.reason)}`));
             noTargets = `<p style="margin:0 0 6px; color:#a6b0bb;">Nothing on this distro can move${lines.length ? ':' : ' — no partly-filled multi lands on it.'}</p>`
@@ -1449,7 +1736,7 @@ class _Power {
                  <span style="font-size:22px; color:#5fa85f;">${r.after.toFixed(1)}%</span>
                  <span style="color:#8fa0b2; font-size:11px;">worst-leg imbalance · ${gain.toFixed(1)} points better</span>
                </div>
-               <div style="font-size:11px; color:#8a949f; margin-bottom:6px;">Plug these circuits into different tails of the same
+               <div style="font-size:11px; color:#8a949f; margin-bottom:6px;">Re-plug these circuits along the same
                fan — no rewiring, no re-patching:</div>
                ${r.moves.map(m => `
                  <div style="margin-bottom:10px;">
@@ -1459,13 +1746,13 @@ class _Power {
                      ${m.to.map((p, k) => p === m.from[k] ? '' : `<tr>
                        <td style="padding:2px 8px; color:#a6b0bb; width:40%;">${esc((m.labels || [])[k] || `circuit ${k + 1}`)}
                          <span style="color:#6d7681;">(${m.amps[k].toFixed(1)} A)</span></td>
-                       <td style="padding:2px 8px; color:#a6b0bb;">tail ${m.from[k]} → <strong style="color:#e8eef5;">tail ${p}</strong></td>
+                       <td style="padding:2px 8px; color:#a6b0bb;">socket ${m.from[k]} → <strong style="color:#e8eef5;">socket ${p}</strong></td>
                      </tr>`).join('')}
                    </table>
                  </div>`).join('')}
-               <div style="margin-top:12px; font-size:11px; color:#7d8894;">Balancing picks WHICH tails of the fan a partly-filled
-               multi uses — skipping a different tail lands the remainder on
-               different legs. Circuits keep wall order on the chosen tails,
+               <div style="margin-top:12px; font-size:11px; color:#7d8894;">Balancing picks WHICH sockets of the fan a partly-filled
+               multi uses — skipping one lands the remainder on different
+               legs. Circuits keep wall order across the chosen sockets,
                so the labels still read in order across the wall.
                Evaluated ${r.searched} arrangements.</div>`;
 
@@ -1786,8 +2073,20 @@ class _Power {
     // actually wraps, the offset was invalid and the answer is nonsense -
     // a 5-circuit multi at offset 3 would want positions 4..8, and wrapping
     // 7 and 8 back to 1 and 2 silently invents a plan nobody can patch.
-    _circuitLegs(legIndex, schemeId, offset = 0) {
-        const i = ((legIndex - 1 + (Number(offset) || 0)) % 6 + 6) % 6;
+    //
+    // `boxSize` is the fan the positions index into. A 3-tail L21-30 box
+    // has no order axis to choose - one circuit per assignment - so its
+    // line-to-line map is the fixed cyclic pair walk (XY YZ ZX, the box's
+    // own internal wiring) whatever paired/rotating scheme the distro
+    // runs its socas on, and its line-to-neutral map is one leg per tail.
+    _circuitLegs(legIndex, schemeId, offset = 0, boxSize = 6) {
+        const size = Number(boxSize) === 3 ? 3 : 6;
+        const i = ((legIndex - 1 + (Number(offset) || 0)) % size + size) % size;
+        if (size === 3) {
+            const ln = schemeId === 'paired-ln' || schemeId === 'rotating-ln';
+            if (ln) return [['X'], ['Y'], ['Z']][i];
+            return [['X','Y'], ['Y','Z'], ['Z','X']][i];
+        }
         if (schemeId === 'paired-ll') return [['X','Y'], ['X','Y'], ['Z','X'], ['Z','X'], ['Y','Z'], ['Y','Z']][i];
         if (schemeId === 'paired-ll-alt') return [['X','Y'], ['X','Y'], ['Y','Z'], ['Y','Z'], ['Z','X'], ['Z','X']][i];
         if (schemeId === 'rotating-ll') return [['X','Y'], ['X','Z'], ['Y','Z'], ['X','Y'], ['X','Z'], ['Y','Z']][i];
@@ -1796,10 +2095,10 @@ class _Power {
     }
 
     // How far a multi's used circuits can slide as a BLOCK before the last
-    // one runs off the end of the 6-way fan. Kept for the legacy block model;
+    // one runs off the end of the fan. Kept for the legacy block model;
     // socaCircuitPositions supersedes it.
-    socaPhaseOffsetMax(legsUsed) {
-        return Math.max(0, 6 - (Number(legsUsed) || 6));
+    socaPhaseOffsetMax(legsUsed, boxSize = 6) {
+        return Math.max(0, (Number(boxSize) || 6) - (Number(legsUsed) || 6));
     }
 
     // Which position on the multi's 6-way fan each used circuit occupies.
@@ -1819,10 +2118,11 @@ class _Power {
     // the occupied tails off+1..off+L, already ascending - then to the
     // natural 1..L.
     socaCircuitPositions(layer, socaNum, legsUsed) {
-        const L = Math.max(0, Math.min(6, Number(legsUsed) || 0));
+        const size = this.socaBoxSize(layer);
+        const L = Math.max(0, Math.min(size, Number(legsUsed) || 0));
         const saved = ((layer && layer.powerSocaPhasePos) || {})[socaNum];
         if (Array.isArray(saved) && saved.length === L
-            && saved.every(p => Number.isInteger(p) && p >= 1 && p <= 6)
+            && saved.every(p => Number.isInteger(p) && p >= 1 && p <= size)
             && new Set(saved).size === L) {
             return saved.slice().sort((a, b) => a - b);
         }
@@ -1847,6 +2147,27 @@ class _Power {
         return Array.from({ length: L }, (_, i) => i + 1 + off);
     }
 
+    // The scheme ONE CIRCUIT actually lands with: coupling is physics -
+    // a 110V Edison circuit needs a hot and a neutral, a 208V circuit two
+    // hots - so the circuit's own voltage decides line-to-neutral vs
+    // line-to-line, and only the dealing ORDER is the distro's wiring to
+    // declare. An explicit distro scheme therefore applies to a circuit
+    // only when its coupling matches what that circuit's voltage derives;
+    // otherwise the voltage's own derived default takes over for that
+    // circuit alone. This is what lets a 110V multi and a 208V multi share
+    // one distro without the explicit choice pairing up Edison circuits:
+    // the 110V circuits ride one leg each, the 208V circuits their pairs
+    // (user ruling, 2026-08-28). The gear select still shows a mismatched
+    // explicit choice and says so - paperwork is displayed, never obeyed
+    // into an impossible hookup.
+    _circuitSchemeFor(distro, circuitVoltage) {
+        const derived = this.powerPhasingFor(
+            { voltage: distro && distro.voltage, phasing: null },
+            circuitVoltage);
+        const chosen = this.powerPhasingFor(distro, circuitVoltage);
+        return chosen.lineToLine === derived.lineToLine ? chosen : derived;
+    }
+
     // Positions must be a set of distinct 1-6 values, one per used circuit -
     // two circuits cannot share a tail. Only the SET matters (wall-order
     // rule): stored sorted ascending, and a permutation of 1..L is the
@@ -1857,9 +2178,10 @@ class _Power {
     // back on 1-4" once evaporated and let the joiner keep tail 1.
     setSocaCircuitPositions(layer, socaNum, positions, legsUsed) {
         if (!layer) return false;
-        const L = Math.max(0, Math.min(6, Number(legsUsed) || 0));
+        const size = this.socaBoxSize(layer);
+        const L = Math.max(0, Math.min(size, Number(legsUsed) || 0));
         const ok = Array.isArray(positions) && positions.length === L
-            && positions.every(p => Number.isInteger(p) && p >= 1 && p <= 6)
+            && positions.every(p => Number.isInteger(p) && p >= 1 && p <= size)
             && new Set(positions).size === L;
         if (!ok) return false;
         const store = layer.powerSocaPhasePos || (layer.powerSocaPhasePos = {});
@@ -1871,7 +2193,7 @@ class _Power {
             store[socaNum] = sorted;
         }
         this._circuitTailCache = null;
-        this.updateLayers([layer], true, 'Move Circuit Tails');
+        this.updateLayers([layer], true, 'Move Circuits');
         return true;
     }
 
@@ -1882,7 +2204,8 @@ class _Power {
     socaPhaseOffset(layer, socaNum, legsUsed) {
         const map = (layer && layer.powerSocaPhaseOffset) || {};
         const raw = Math.max(0, Number(map[socaNum]) || 0);
-        return Math.min(raw, this.socaPhaseOffsetMax(legsUsed));
+        return Math.min(raw,
+            this.socaPhaseOffsetMax(legsUsed, this.socaBoxSize(layer)));
     }
 
     setSocaPhaseOffset(layer, socaNum, offset, legsUsed) {
@@ -1893,7 +2216,8 @@ class _Power {
         // clear. An empty object overwrites.
         const map = layer.powerSocaPhaseOffset || (layer.powerSocaPhaseOffset = {});
         const v = Math.min(Math.max(0, Number(offset) || 0),
-                           this.socaPhaseOffsetMax(legsUsed));
+                           this.socaPhaseOffsetMax(legsUsed,
+                               this.socaBoxSize(layer)));
         if (v) map[socaNum] = v; else delete map[socaNum];
         this._circuitTailCache = null;
         this.updateLayers([layer], true, 'Set Breaker Offset');
@@ -1966,18 +2290,32 @@ class _Power {
                 // spread this multi's circuits across the phase legs
                 const d = b.distro;
                 if (d && d.phase === 3) {
-                    const scheme = this.powerPhasingFor(d, circuitV);
+                    // Per CIRCUIT, not per distro: coupling follows the
+                    // circuit's own voltage (_circuitSchemeFor), so a 110V
+                    // multi rides one leg per circuit while a 208V multi on
+                    // the same service keeps its leg pairs - the mixed case
+                    // sums correctly because both land in one phasor store.
+                    const scheme = this._circuitSchemeFor(d, circuitV);
+                    if (b.scheme && b.scheme.lineToLine !== scheme.lineToLine) {
+                        b.schemeMixed = true;
+                    }
                     b.scheme = scheme;
                     const vln = d.voltage / Math.sqrt(3);
+                    const boxSize = this.socaBoxSize(layer);
                     const pos = this.socaCircuitPositions(layer, s.soca, s.legs.length);
                     for (let li = 0; li < s.legs.length; li++) {
                         const leg = s.legs[li];
-                        const legs = this._circuitLegs(pos[li], scheme.id);
+                        const legs = this._circuitLegs(pos[li], scheme.id, 0, boxSize);
                         if (legs.length === 1) {
-                            // line-to-neutral: full current on one leg, in
-                            // phase with that leg's L-N voltage
+                            // Line-to-neutral: full current on ONE leg, in
+                            // phase with that leg's L-N voltage. Amps are
+                            // I = P / V_screen (the circuit's own voltage -
+                            // a 110V circuit draws its watts at 110, user
+                            // ruling); the service L-N figure only stands
+                            // in when the screen carries no voltage.
                             b.legWatts[legs[0]] += leg.watts;
-                            this._addLegPhasor(b.legPhasor, legs[0], leg.watts / vln, 0);
+                            this._addLegPhasor(b.legPhasor, legs[0],
+                                leg.watts / (circuitV > 0 ? circuitV : vln), 0);
                         } else {
                             // Line-to-line: the SAME current flows in both
                             // legs (it is one series load) - it is NOT halved.
@@ -2031,6 +2369,11 @@ class _Power {
                 legs.over = rating > 0 && Math.max(...amps) > rating;
                 legs.scheme = b.scheme ? b.scheme.name : null;
                 legs.schemeId = b.scheme ? b.scheme.id : null;
+                // True when this service carries BOTH couplings at once -
+                // 110V single-leg circuits beside 208V leg pairs. The
+                // scheme fields above then name only the last one summed,
+                // so a surface printing the scheme can say "mixed" instead.
+                legs.schemeMixed = !!b.schemeMixed;
                 legs.pairWatts = b.pairWatts;
             }
             return {
@@ -2050,286 +2393,263 @@ class _Power {
         return out;
     }
 
+    // Per-leg amps in ONE physical box's feed - the same phasor walk
+    // getDistroLoads runs for a service, scoped to the box. `members` is
+    // [{layer, s}] with `s` the member's soca-plan record; a shared box
+    // hands every member in, so both screens' circuits sum into one feed.
+    // This is what the L21-30's 30 A/leg feed check reads: the box's three
+    // 208V circuits sit +-30 deg off their legs, so a full box at circuit
+    // current I loads each feed leg at I x sqrt(3), never 2 x I.
+    boxFeedLegAmps(distro, members) {
+        const phasor = { X: { re: 0, im: 0 }, Y: { re: 0, im: 0 },
+                         Z: { re: 0, im: 0 } };
+        if (!distro) return { X: 0, Y: 0, Z: 0 };
+        const vln = (Number(distro.voltage) || 0) / Math.sqrt(3);
+        for (const m of (members || [])) {
+            if (!m || !m.layer || !m.s) continue;
+            const circuitV = parseFloat(m.layer.powerVoltage) || 0;
+            const scheme = this._circuitSchemeFor(distro, circuitV);
+            const boxSize = this.socaBoxSize(m.layer);
+            const pos = this.socaCircuitPositions(
+                m.layer, m.s.soca, m.s.legs.length);
+            for (let li = 0; li < m.s.legs.length; li++) {
+                const leg = m.s.legs[li];
+                const legs = this._circuitLegs(pos[li], scheme.id, 0, boxSize);
+                if (legs.length === 1) {
+                    this._addLegPhasor(phasor, legs[0],
+                        leg.watts / (circuitV > 0 ? circuitV : vln), 0);
+                } else {
+                    const [first, second] = this._cyclicPair(legs[0], legs[1]);
+                    const amps = leg.watts / (Number(distro.voltage) || 1);
+                    this._addLegPhasor(phasor, first, amps, 30);
+                    this._addLegPhasor(phasor, second, amps, -30);
+                }
+            }
+        }
+        const mag = (p) => Math.sqrt(p.re * p.re + p.im * p.im);
+        return { X: mag(phasor.X), Y: mag(phasor.Y), Z: mag(phasor.Z) };
+    }
+
     // Keyed by the multi's stable index, like every other per-multi store, so
     // a home run stays with its multi when the distro renumbers it.
-    setSocaLength(layer, socaIndex, length) {
+    // `record` mirrors setSocaName's: false for the dock's shared-box
+    // write-through, which issues one updateLayers over every member itself.
+    setSocaLength(layer, socaIndex, length, record = true) {
         if (!layer) return;
         const store = layer.powerSocaLengths || (layer.powerSocaLengths = {});
         const v = String(length || '').trim();
         if (v) store[socaIndex] = v; else delete store[socaIndex];
-        this.updateLayers([layer], true, 'Set Multi Home Run');
+        if (record) {
+            this.updateLayers([layer], true, 'Set Multi Home Run');
+        }
     }
 
-    // Project-level distro list with a live load bar per source. Shown in the
-    // Power panel because that's where power planning lives, but the numbers
-    // roll up across EVERY screen, not just the selected one.
-    //
-    // Unlike refreshSocaRuns and refreshSplitterPanel it never blanks itself:
-    // there is no layer it is wrong for. What keeps it off the other tabs is
-    // its host's ancestry - the Power panel leaves layout outside Power view
-    // (updateViewSidebars) and the tab-panel around the hosts hides with the
-    // tab. Give the host a parent that lives in every view and this list
-    // renders in every view.
+    // The distro list died with the Power sidebar: the dock's distro
+    // sections are the one surface now - name inline on the header, the
+    // load bar and LEGS line beside it, the electrical setup behind the
+    // gear (whose content _buildDistroGearContent below builds). So a
+    // distro refresh IS a dock render, kept under its old name because
+    // every "the loads moved" path already calls it.
     refreshDistroPanel() {
-        const host = document.getElementById('power-distros');
-        if (!host) return;
-        // The distro rows are editors too, and this wipe runs on every stats
-        // refresh - keyed fields plus the capture keep the user's focus and
-        // caret across it (see _preserveEditorFocus). The buttons carry keys
-        // as well: Tab out of a row's name field lands on its ✕ button, and
-        // an unkeyed stop is one the restore cannot bring back - the same
-        // reason the label editors keyed their row checkboxes.
-        this._preserveEditorFocus();
-        const esc = (s) => this._esc ? this._esc(s) : s;
-        const loads = this.getDistroLoads();
-        host.innerHTML = `
-            <!-- Wraps: the Power panel drags down to 180px, and the heading
-                 with both buttons has never fitted one line at any width the
-                 panel offers - the sidebar's overflow-x:hidden was simply
-                 cutting + Add off, and squeezing its label onto two lines at
-                 the 260px default. The buttons travel as one group so they
-                 drop below the heading together and stay right-aligned, and
-                 the group wraps in turn once even it runs out of room. The
-                 heading takes the slack instead of a spacer span, so a wrapped
-                 line has nothing stretched across it. -->
-            <!-- Balance moved onto each distro's own row: legs never
-                 interact across services, so a show-wide button was N
-                 independent problems behind one control - and it moved
-                 multis on distros the user was not looking at. -->
-            <div class="lrd-sec-head" data-lrd-sec="power-distros" style="display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:6px;">
-                <label style="font-weight:600; flex:1 1 auto;" data-tooltip="Power distros, Project-level power sources. Assign each multi to one and the load rolls up here across every screen.">Power Distros</label>
-                <div style="display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; margin-left:auto;">
-                    <button id="power-distro-add" data-lrd-field="power-distro-add" class="btn btn-secondary" style="padding:2px 10px; white-space:nowrap;">+ Add</button>
-                </div>
-            </div>
-            <div class="lrd-sec-body">
-            ${loads.length ? loads.map(d => {
-                const pct = Math.min(100, Math.round(d.pct));
-                const feeds = d.socas.length
-                    ? d.socas.map(s => `${esc(s.name)} (${esc(s.layer)})`).join(', ')
-                    : 'nothing assigned';
-                // Read off the distro itself, not the rollup: the rollup only
-                // learns a scheme from a multi that landed on it, so an empty
-                // distro used to fall through to whichever option happened to
-                // be first in the list.
-                const raw = d.id ? this.getDistros().find(x => x.id === d.id) : null;
-                const ph = raw && raw.phase === 3 ? this.distroPhasingState(raw) : null;
-                // The voltage DECIDES the coupling: line-to-line IS the
-                // service voltage and line-to-neutral is service/sqrt(3), so
-                // a 208V circuit on a 208V service cannot be line-to-neutral
-                // and a 120V one cannot be line-to-line. Only the ORDER axis
-                // is a real per-distro choice, so the wiring group offers
-                // just the orderings of the coupling the derivation picked -
-                // read off ph.derived, the same comparison the leg maths
-                // runs (powerPhasingFor), never a second one that could
-                // disagree with it.
-                //
-                // An explicit scheme whose coupling the voltage no longer
-                // permits (picked first, voltage changed after) is
-                // somebody's paperwork: it stays selected with the mismatch
-                // said out loud, never silently dropped or swapped. Picking
-                // any other entry - the derive entry included - releases it
-                // through the normal change handler.
-                let phasingOptions = '';
-                if (ph) {
-                    const offered = this.powerPhasingSchemes()
-                        .filter(sc => sc.lineToLine === ph.derived.lineToLine);
-                    if (ph.explicit && !offered.some(sc => sc.id === ph.scheme.id)) {
-                        offered.push({ ...ph.scheme,
-                            name: `${ph.scheme.name} — does not match the ${Math.round(ph.circuitVoltage)} V circuits (${ph.derived.coupling.toLowerCase()})` });
-                    }
-                    phasingOptions = offered.map(sc => `<option value="${sc.id}" ${ph.explicit && ph.scheme.id === sc.id ? 'selected' : ''}>${sc.name}</option>`).join('');
-                }
-                // The folded face: everything a glance needs, red only when
-                // something is wrong (the .value-normal doctrine).
-                const glanceBad = d.over || (d.legs && d.legs.over);
-                const glance = [
-                    `${d.ratingA} A`,
-                    `${Math.round(d.pct)}%${d.over ? ' OVER' : ''}`,
-                    d.legs ? (d.imbalancePct > 1 ? `±${Math.round(d.imbalancePct)}%` : 'even') : null,
-                    `${d.socas.length} multi${d.socas.length === 1 ? '' : 's'}`,
-                ].filter(Boolean).join(' · ');
-                // The glance line's numbers, drawn: the fold keeps the load
-                // bar and the per-leg minis so a folded LIST still reads as
-                // levels and balance, not just figures. Same .rack-bar
-                // markup, same over/alarm rules as the open body below -
-                // one bar implementation, two places it shows. Kept to two
-                // short rows so a fold stays a fold.
-                const legTone = d.legs
-                    ? (d.imbalancePct > 20 ? '#e05050' : d.imbalancePct > 10 ? '#d8a13c' : 'var(--ps-dim, #b8b8b8)')
-                    : '';
-                const glanceBars = `<div class="lrd-distro-glance-bars">
-                    <div class="rack-bar"><div class="rack-bar-fill${d.over ? ' over' : ''}" style="width:${Math.min(100, Math.round(d.pct))}%"></div></div>
-                    ${d.legs ? `<div style="display:flex; gap:3px; margin-top:2px; align-items:flex-end; font-size:9px; color:${legTone};">
-                        ${['X', 'Y', 'Z'].map(k => `<div style="flex:1; min-width:0;">
-                            <div style="text-align:center; white-space:nowrap;">${k} ${d.legs[k].amps.toFixed(0)}A</div>
-                            <div class="rack-bar"><div class="rack-bar-fill${d.legs[k].pct > 100 ? ' over' : ''}" style="width:${Math.min(100, Math.round(d.legs[k].pct))}%"></div></div>
-                        </div>`).join('')}
-                        <span style="white-space:nowrap;">${d.imbalancePct > 1 ? `±${Math.round(d.imbalancePct)}%` : 'even'}</span>
-                    </div>` : ''}
-                </div>`;
-                return `<div class="power-distro-row lrd-distro-card" data-id="${d.id || ''}">
-                    ${d.id ? `
-                    <!-- The head is the fold handle (same machinery the
-                         processor cards ride): arrow click or head
-                         double-click folds, state persists per distro id.
-                         Folded, the name field and the ✕ give way to the
-                         glance line; Balance stays out of the live class on
-                         purpose - it is the row's one action and works
-                         folded or open. -->
-                    <div class="lrd-sec-head" data-lrd-sec="power-distro-${d.id}" style="display:flex; flex-wrap:wrap; gap:5px; align-items:center;">
-                        <label style="flex:1 1 auto; min-width:0; display:flex; gap:5px; align-items:center; font-weight:600;">
-                            <input type="text" class="distro-name lrd-distro-live" data-lrd-field="distro-name-${d.id}" value="${esc(d.name).replace(/"/g, '&quot;')}" style="flex:1; min-width:60px;" data-tooltip="Name this power source.">
-                            <span class="lrd-distro-glance" style="font-size:11px; min-width:0; color:${glanceBad ? '#e05050' : 'var(--ps-dim, #b8b8b8)'};"><strong style="color:${glanceBad ? '#e05050' : 'var(--ps-text, #e0e0e0)'};">${esc(d.name)}</strong> · ${glance}</span>
-                        </label>
-                        ${d.phase === 3 ? `<button class="btn btn-secondary distro-balance" data-lrd-field="distro-balance-${d.id}" style="padding:1px 8px; flex:none; white-space:nowrap;" data-tooltip="Balance legs, Searches which set of six breakers each partly-filled multi on THIS distro should land on. A full multi balances itself, so only short ones move. Nothing changes until you accept it.">Balance</button>` : ''}
-                        <button class="btn btn-secondary distro-del lrd-distro-live" data-lrd-field="distro-del-${d.id}" style="padding:1px 7px; flex:none;">✕</button>
-                        ${glanceBars}
-                    </div>
-                    <div class="lrd-sec-body">
-                    <!-- Same wrap, same reason as the heading above. Voltage
-                         and phase travel as one group so they drop to the
-                         second line together rather than one at a time, and
-                         the group's flex-basis is short enough that the whole
-                         row still fits on one line at the 260px default -
-                         now INSIDE the card's padding, which is why the
-                         basis is tighter than it was when the row ran to
-                         the sidebar's own edge. -->
-                    <div style="display:flex; flex-wrap:wrap; gap:5px; align-items:center; margin-bottom:4px;">
-                        <input type="number" class="distro-rating" data-lrd-field="distro-rating-${d.id}" value="${d.ratingA}" min="1" style="width:56px;" data-tooltip="Rating, Service rating in amps.">
-                        <span style="font-size:10px; color:var(--ps-faint, #999);">A</span>
-                        <div style="display:flex; gap:5px; align-items:center; flex:1 1 90px; min-width:0;">
-                            <select class="distro-voltage info-select" data-lrd-field="distro-voltage-${d.id}" style="width:70px; min-width:0;">
-                                ${[110, 120, 208, 220, 230, 240, 400, 415].map(v => `<option value="${v}" ${d.voltage === v ? 'selected' : ''}>${v}V</option>`).join('')}
-                            </select>
-                            <select class="distro-phase info-select" data-lrd-field="distro-phase-${d.id}" style="width:56px; min-width:0;">
-                                <option value="1" ${d.phase === 1 ? 'selected' : ''}>1φ</option>
-                                <option value="3" ${d.phase === 3 ? 'selected' : ''}>3φ</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div style="display:flex; gap:5px; align-items:center; margin-bottom:4px;">
-                        <input type="text" class="distro-location" data-lrd-field="distro-location-${d.id}" value="${esc(d.location || '').replace(/"/g, '&quot;')}" placeholder="beach / location" style="flex:1; min-width:60px;" data-tooltip="Location, Where this distro physically sits - the beach, stage left world, FOH. Prints on every power label that names it, so a runner can find the other end.">
-                    </div>
-                    ${d.phase === 3 && ph ? `<div class="info-row" style="margin-bottom:4px;" data-tooltip="Phasing, How a multi's 6 circuits land on the phase legs. A property of the distro's bus and breaker arrangement - read it off the distro. Not the same as the connector's E1.80 pinout type. Each name gives the coupling (how many legs one circuit touches) then the dealing order.">
-                        <label style="font-weight:400; font-size:10px;">Phasing</label>
-                        <!-- The select and its help button share a line of
-                             their own beneath the caption: the row was written
-                             as a flex row but never given display:flex, so the
-                             select sized itself to its longest option and hung
-                             off the panel at every width below its own. -->
-                        <div style="display:flex; align-items:center; gap:6px;">
-                            <!-- Two KINDS of entry, so they are grouped as
-                                 two: the first is an instruction to the app
-                                 ("follow the voltage"), the rest describe how
-                                 a distro is wired. Read as one flat list the
-                                 old "Match voltage" entry scanned as a peer
-                                 of "paired", which is not a choice anybody
-                                 has - deriving and paired are not
-                                 alternatives.
-                                 Deriving is a state, not the absence of one:
-                                 an empty value clears distro.phasing and
-                                 hands the choice back to the voltage.
-                                 The resolved volts ride on the GROUP, off
-                                 this distro's own service - they are not a
-                                 property of any scheme (line-to-neutral is
-                                 120V on a 208V service, 230V on a 400V one),
-                                 and hard-coding them into names made every
-                                 label wrong on a EU 400V box. -->
-                            <select class="distro-phasing info-select" data-lrd-field="distro-phasing-${d.id}" style="flex:1 1 0; min-width:0;">
-                                <optgroup label="Let the voltage decide">
-                                    <option value="" ${ph.explicit ? '' : 'selected'}>Follow the circuit voltage — ${ph.derived.name}</option>
-                                </optgroup>
-                                <optgroup label="Read it off the distro · ${Math.round(d.voltage / Math.sqrt(3))} V line-to-neutral, ${Math.round(d.voltage)} V line-to-line">
-                                    ${phasingOptions}
-                                </optgroup>
-                            </select>
-                            <button class="distro-phasing-help" data-lrd-field="distro-phasing-help-${d.id}" title="What do these mean?">?</button>
-                        </div>
-                    </div>` : ''}` : `<div style="font-size:12px; font-weight:600; color:#d8a13c; margin-bottom:3px;">${esc(d.name)}</div>`}
-                    <div class="rack-bar"><div class="rack-bar-fill${d.over ? ' over' : ''}" style="width:${pct}%"></div></div>
-                    <!-- The amps line is THE figure a tech reads off this
-                         row, so a healthy one sits on the bright text step
-                         (the .value-normal doctrine: colour here means
-                         something is wrong, and nothing else). It was the
-                         same muted blue-grey as everything around it. -->
-                    <div style="font-size:11px; color:${d.over ? '#e05050' : d.id ? 'var(--ps-text, #e0e0e0)' : '#d8a13c'}; margin-top:2px;">
-                        ${d.id
-                            ? `${d.amps.toFixed(1)} A / ${d.ratingA} A (${Math.round(d.pct)}%)${d.over ? ' — OVER' : ''} · ${Math.round(d.watts).toLocaleString()} W · ${d.phase}φ`
-                            : `${Math.round(d.watts).toLocaleString()} W with no distro — assign to see amps`}
-                    </div>
-                    ${d.legs ? `<div style="margin-top:4px;">
-                        <!-- Wraps for the same reason the rows above do: at
-                             180px the imbalance figure is the one that no
-                             longer fits, and it drops below the three legs
-                             rather than off the panel. -->
-                        <div style="display:flex; flex-wrap:wrap; gap:4px; align-items:center; font-size:10px; color:${d.imbalancePct > 20 ? '#e05050' : d.imbalancePct > 10 ? '#d8a13c' : 'var(--ps-dim, #b8b8b8)'};"
-                             data-tooltip="Leg loading, Per-leg current is a phasor sum - line-to-line circuits sit 30 degrees off each leg's line-to-neutral reference, so they are not simply added. Imbalance is NEMA-style: max deviation from the average.">
-                            <span style="letter-spacing:0.5px;">LEGS</span>
-                            ${['X', 'Y', 'Z'].map(k => `<span style="flex:1; text-align:center;">${k} ${d.legs[k].amps.toFixed(0)}A</span>`).join('')}
-                            <span>${d.imbalancePct > 1 ? `±${Math.round(d.imbalancePct)}%` : 'even'}</span>
-                        </div>
-                        <div style="display:flex; gap:3px; margin-top:2px;">
-                            ${['X', 'Y', 'Z'].map(k => `<div class="rack-bar" style="flex:1;"><div class="rack-bar-fill${d.legs[k].pct > 100 ? ' over' : ''}" style="width:${Math.min(100, Math.round(d.legs[k].pct))}%"></div></div>`).join('')}
-                        </div>
-                    </div>` : ''}
-                    <div style="font-size:10px; color:var(--ps-faint, #909090); margin-top:3px;">${feeds}</div>
-                ${d.id ? '</div>' : ''}</div>`;
-            }).join('') : '<div style="font-size:11px; color:var(--ps-faint, #888); padding:4px 0;">No distros yet — add one, then assign multis to it.</div>'}
-            </div>`;
-        if (typeof this._wireSectionCollapse === 'function') this._wireSectionCollapse(host);
+        if (typeof this.renderHardwareDock === 'function') {
+            this.renderHardwareDock();
+        }
+    }
 
-        const add = host.querySelector('#power-distro-add');
-        if (add) add.addEventListener('click', () => {
-            this.addDistro();
-            // + Add lives in the section HEAD, so it works while the list is
-            // folded - but a distro appearing into a folded list looks like
-            // nothing happened. Open the section so the new row is seen (the
-            // rebuild below re-reads the persisted state this writes).
-            if (typeof this._expandSectionsFor === 'function') {
-                this._expandSectionsFor(add);
+    // The phasing entries one distro's gear select offers: only the
+    // orderings of the coupling the voltage derivation picked - read off
+    // distroPhasingState's own comparison (powerPhasingFor), never a second
+    // one that could disagree with the leg maths. An explicit scheme whose
+    // coupling the voltage no longer permits (picked first, voltage changed
+    // after) is somebody's paperwork: it stays offered with the mismatch
+    // said out loud, never silently dropped or swapped.
+    _distroPhasingOptions(ph) {
+        const offered = this.powerPhasingSchemes()
+            .filter(sc => sc.lineToLine === ph.derived.lineToLine);
+        if (ph.explicit && !offered.some(sc => sc.id === ph.scheme.id)) {
+            offered.push({ ...ph.scheme,
+                name: `${ph.scheme.name} — does not match the `
+                    + `${Math.round(ph.circuitVoltage)} V circuits `
+                    + `(${ph.derived.coupling.toLowerCase()})` });
+        }
+        return offered;
+    }
+
+    // The distro's gear popover: the electrical setup the retired sidebar
+    // rows carried - rating, voltage, phase, phasing (with its derive entry
+    // and help), location, remove. Same data-lrd-field keys, same patch
+    // path (updateDistro + _restateNaming), same phasing doctrine: the
+    // voltage DECIDES the coupling, so only the ordering axis is offered.
+    _buildDistroGearContent(d) {
+        const wrap = document.createElement('div');
+        const heading = document.createElement('div');
+        heading.className = 'hw-pop-heading';
+        heading.textContent = d.name || 'distro';
+        wrap.appendChild(heading);
+
+        const patch = (p) => {
+            this.updateDistro(d.id, p);
+            this._restateNaming();
+        };
+        const cap = (text) => {
+            const c = document.createElement('label');
+            c.style.fontSize = '10px';
+            c.style.color = 'var(--ps-dim, #c0c0c0)';
+            c.style.textTransform = 'uppercase';
+            c.textContent = text;
+            return c;
+        };
+
+        const row1 = document.createElement('div');
+        row1.style.display = 'flex';
+        row1.style.flexWrap = 'wrap';
+        row1.style.gap = '6px';
+        row1.style.alignItems = 'center';
+        row1.appendChild(cap('Rating'));
+        const rate = document.createElement('input');
+        rate.type = 'number';
+        rate.min = '1';
+        rate.value = d.ratingA;
+        rate.style.width = '56px';
+        rate.dataset.lrdField = `distro-rating-${d.id}`;
+        rate.title = 'Service rating in amps.';
+        rate.addEventListener('change', () => patch({ ratingA: rate.value }));
+        row1.appendChild(rate);
+        row1.appendChild(cap('Voltage'));
+        const volt = document.createElement('select');
+        volt.className = 'info-select';
+        volt.dataset.lrdField = `distro-voltage-${d.id}`;
+        [110, 120, 208, 220, 230, 240, 400, 415].forEach(v => {
+            const opt = document.createElement('option');
+            opt.value = String(v);
+            opt.textContent = `${v}V`;
+            if (Number(d.voltage) === v) opt.selected = true;
+            volt.appendChild(opt);
+        });
+        volt.addEventListener('change', () => patch({ voltage: volt.value }));
+        row1.appendChild(volt);
+        const phase = document.createElement('select');
+        phase.className = 'info-select';
+        phase.dataset.lrdField = `distro-phase-${d.id}`;
+        [[1, '1φ'], [3, '3φ']].forEach(([v, text]) => {
+            const opt = document.createElement('option');
+            opt.value = String(v);
+            opt.textContent = text;
+            if (Number(d.phase) === v) opt.selected = true;
+            phase.appendChild(opt);
+        });
+        phase.addEventListener('change', () => patch({ phase: phase.value }));
+        row1.appendChild(phase);
+        wrap.appendChild(row1);
+
+        if (Number(d.phase) === 3) {
+            const ph = this.distroPhasingState(d);
+            const row2 = document.createElement('div');
+            row2.style.display = 'flex';
+            row2.style.gap = '6px';
+            row2.style.alignItems = 'center';
+            row2.style.marginTop = '6px';
+            row2.title = 'Phasing. How a multi\'s 6 circuits land on the '
+                + 'phase legs - a property of the distro\'s bus and breaker '
+                + 'arrangement, read off the distro. Not the connector\'s '
+                + 'E1.80 pinout type. Each name gives the coupling, then '
+                + 'the dealing order.';
+            row2.appendChild(cap('Phasing'));
+            const sel = document.createElement('select');
+            sel.className = 'info-select';
+            sel.style.flex = '1 1 0';
+            sel.style.minWidth = '0';
+            sel.dataset.lrdField = `distro-phasing-${d.id}`;
+            // Two KINDS of entry, grouped as two: the first is an
+            // instruction to the app ("follow the voltage"), the rest
+            // describe how a distro is wired. Deriving is a state, not the
+            // absence of one - the empty value clears distro.phasing and
+            // hands the choice back to the voltage. The resolved volts ride
+            // on the GROUP, off this distro's own service: they are not a
+            // property of any scheme (line-to-neutral is 120V on a 208V
+            // service, 230V on a 400V one).
+            const derive = document.createElement('optgroup');
+            derive.label = 'Let the voltage decide';
+            const followOpt = document.createElement('option');
+            followOpt.value = '';
+            followOpt.textContent =
+                `Follow the circuit voltage — ${ph.derived.name}`;
+            if (!ph.explicit) followOpt.selected = true;
+            derive.appendChild(followOpt);
+            sel.appendChild(derive);
+            const wired = document.createElement('optgroup');
+            wired.label = 'Read it off the distro · '
+                + `${Math.round(d.voltage / Math.sqrt(3))} V line-to-neutral, `
+                + `${Math.round(d.voltage)} V line-to-line`;
+            this._distroPhasingOptions(ph).forEach(sc => {
+                const opt = document.createElement('option');
+                opt.value = sc.id;
+                opt.textContent = sc.name;
+                if (ph.explicit && ph.scheme.id === sc.id) opt.selected = true;
+                wired.appendChild(opt);
+            });
+            sel.appendChild(wired);
+            sel.addEventListener('change', () => patch({ phasing: sel.value }));
+            row2.appendChild(sel);
+            const help = document.createElement('button');
+            help.textContent = '?';
+            help.title = 'What do these mean?';
+            help.dataset.lrdField = `distro-phasing-help-${d.id}`;
+            help.addEventListener('click', () => this.showPhasingHelp());
+            row2.appendChild(help);
+            wrap.appendChild(row2);
+        }
+
+        const row3 = document.createElement('div');
+        row3.style.display = 'flex';
+        row3.style.gap = '6px';
+        row3.style.alignItems = 'center';
+        row3.style.marginTop = '6px';
+        row3.appendChild(cap('Location'));
+        const loc = document.createElement('input');
+        loc.type = 'text';
+        loc.value = d.location || '';
+        loc.placeholder = 'beach / location';
+        loc.style.flex = '1';
+        loc.style.minWidth = '0';
+        loc.dataset.lrdField = `distro-location-${d.id}`;
+        loc.title = 'Where this distro physically sits - the beach, stage '
+            + 'left world, FOH. Prints on every power label that names it, '
+            + 'so a runner can find the other end.';
+        loc.addEventListener('change', () => patch({ location: loc.value }));
+        row3.appendChild(loc);
+        wrap.appendChild(row3);
+
+        const remove = document.createElement('button');
+        remove.className = 'btn hw-pop-remove';
+        remove.textContent = 'Remove distro';
+        remove.title = 'Remove this power source. Multis assigned to it '
+            + 'come free; undo puts it back.';
+        remove.dataset.lrdField = `distro-del-${d.id}`;
+        remove.addEventListener('click', () => {
+            if (typeof this._hwPopoverClose === 'function') {
+                this._hwPopoverClose();
             }
+            this.removeDistro(d.id);
+            // The distro is gone and its id never comes back, so its fold
+            // keys go with it - the dock section's, and the per-number
+            // multi keys under it (a prefix sweep catches however many the
+            // tray ever drew).
+            try {
+                localStorage.removeItem(
+                    `ledRasterPanelCollapsed_hwdock-distro-${d.id}`);
+                const prefix =
+                    `ledRasterPanelCollapsed_hwdock-multi-${d.id}-`;
+                Object.keys(localStorage)
+                    .filter(k => k.startsWith(prefix))
+                    .forEach(k => localStorage.removeItem(k));
+            } catch (_) { /* blocked storage never held the key */ }
             this._restateNaming();
         });
-        host.querySelectorAll('.power-distro-row').forEach(row => {
-            const id = row.dataset.id;
-            if (!id) return;
-            // patch() fires from the rows' own change handlers, mid-Tab.
-            // _restateNaming defers the panel wipes for exactly that reason.
-            const patch = (p) => {
-                this.updateDistro(id, p);
-                this._restateNaming();
-            };
-            const nameEl = row.querySelector('.distro-name');
-            if (nameEl) nameEl.addEventListener('change', () => patch({ name: nameEl.value }));
-            const rate = row.querySelector('.distro-rating');
-            if (rate) rate.addEventListener('change', () => patch({ ratingA: rate.value }));
-            const volt = row.querySelector('.distro-voltage');
-            if (volt) volt.addEventListener('change', () => patch({ voltage: volt.value }));
-            const ph = row.querySelector('.distro-phase');
-            if (ph) ph.addEventListener('change', () => patch({ phase: ph.value }));
-            const phg = row.querySelector('.distro-phasing');
-            if (phg) phg.addEventListener('change', () => patch({ phasing: phg.value }));
-            const loc = row.querySelector('.distro-location');
-            if (loc) loc.addEventListener('change', () => patch({ location: loc.value }));
-            const phHelp = row.querySelector('.distro-phasing-help');
-            if (phHelp) phHelp.addEventListener('click', () => this.showPhasingHelp());
-            const bal = row.querySelector('.distro-balance');
-            if (bal) bal.addEventListener('click', () =>
-                this.showBalanceDialog(id));
-            const del = row.querySelector('.distro-del');
-            if (del) del.addEventListener('click', () => {
-                this.removeDistro(id);
-                // The distro is gone and its id never comes back, so its
-                // fold key goes with it - same as a removed processor's.
-                try {
-                    localStorage.removeItem(
-                        `ledRasterPanelCollapsed_power-distro-${id}`);
-                } catch (_) { /* blocked storage never held the key */ }
-                this._restateNaming();
-            });
-        });
+        wrap.appendChild(remove);
+        return wrap;
     }
+
 
     // Every surface a name reaches, restated together.
     //
@@ -2349,8 +2669,10 @@ class _Power {
         this._rebuildAfterGesture(() => {
             this.refreshSocaRuns();
             this.refreshSplitterPanel();
-            this.refreshDistroPanel();
-            this.updatePowerLabelEditor && this.updatePowerLabelEditor();
+            // The dock is where the naming shows now - headers, chips,
+            // strip - so ONE render covers what four panel wipes did
+            // (refreshDistroPanel is this same render under its old name).
+            this.renderHardwareDock && this.renderHardwareDock();
         });
     }
 
@@ -2387,355 +2709,154 @@ class _Power {
             + `Fix in Power Settings: higher voltage or amperage.`;
     }
 
+    // The soca tiles died with the Power sidebar - a multi's name and
+    // home-run length edit inline on its dock multi header, and the
+    // empty-plan story tells on the dock's strip - so what is left under
+    // this name is syncing the per-screen knobs that moved into the left
+    // sidebar's Power Settings: the breakout type and the map brackets.
+    // Static controls, synced in place (never wiped), so there is no focus
+    // to preserve; a control someone is standing in is left alone.
     refreshSocaRuns() {
-        const host = document.getElementById('power-soca-runs');
-        if (!host) return;
-        // Same wipe, same cure as the label editors: the round-trip after a
-        // soca-length edit lands here and rewrites the host the user is
-        // standing in. Every field below carries a data-lrd-field key so the
-        // capture can put focus and caret back after the innerHTML wipe.
-        this._preserveEditorFocus();
+        const sel = document.getElementById('power-breakout-type');
+        const brk = document.getElementById('show-soca-brackets');
+        if (!sel && !brk) return;
+        this._wireScreenPowerKnobs();
         const layer = this.currentLayer;
-        if (!layer || (layer.type || 'screen') === 'image') { host.innerHTML = ''; return; }
-        const plan = this.getSocaPlan(layer);
-        if (!plan.length) {
-            // An empty plan CAUSED by a power error gets the error told
-            // where the socas would be; the legitimately-empty states keep
-            // today's blank host - see _socaPlanEmptyReason.
-            const why = this._socaPlanEmptyReason(layer);
-            host.innerHTML = why ? `
-                <label class="lrd-sec-head" data-lrd-sec="power-soca-runs" style="font-weight: 600; margin-bottom: 6px; display: block;">Soca / Multi Home Runs</label>
-                <div class="lrd-sec-body">
-                    <div style="font-size:11px; color:#e05050; padding:4px 0;">No circuits — ${why}</div>
-                </div>` : '';
-            if (typeof this._wireSectionCollapse === 'function') this._wireSectionCollapse(host);
-            return;
+        const screen = layer && (layer.type || 'screen') === 'screen';
+        if (sel) {
+            if (!sel.options.length) {
+                this.getPowerBreakoutTypes().forEach(t => {
+                    const opt = document.createElement('option');
+                    opt.value = t.id;
+                    opt.textContent = t.name;
+                    sel.appendChild(opt);
+                });
+            }
+            // Eligibility follows the screen's voltage (user ruling: a
+            // 110V screen can only have 110V Edison on it; the L21-30 box
+            // is 3 x 208V). Disabled, not removed: the list stays stable
+            // and a stored incompatible choice keeps displaying - the
+            // mismatched-phasing doctrine, applied to breakouts.
+            if (screen) {
+                const v = layer.powerVoltage;
+                const types = this.getPowerBreakoutTypes();
+                Array.from(sel.options).forEach(opt => {
+                    const t = types.find(x => x.id === opt.value);
+                    const ok = !t || this._breakoutEligible(t, v);
+                    // Only a STORED choice earns the exemption - it keeps
+                    // displaying and re-selecting; an unset screen has no
+                    // paperwork to defend.
+                    opt.disabled = !ok && opt.value !== layer.powerBreakoutType;
+                    opt.title = ok ? '' : `Not available at ${v} V.`;
+                });
+            }
+            if (screen && sel !== document.activeElement) {
+                sel.value = this.getPowerBreakout(layer).id;
+            }
         }
-        const breakout = this.getPowerBreakout(layer);
-        host.innerHTML = `
-            <label class="lrd-sec-head" data-lrd-sec="power-soca-runs" style="font-weight: 600; margin-bottom: 6px; display: block;" data-tooltip="Soca / multi home runs, Each Soca (multi) feeds up to 6 circuits. Set the home-run cable length per multi - it flows into the gear checklist and report.">Soca / Multi Home Runs</label>
-            <div class="lrd-sec-body">
-            <!-- Wraps for the same reason the distro rows do: a fixed 150px
-                 select does not fit the ~119px column the panel offers at its
-                 180px minimum, and the sidebar's overflow-x:hidden was simply
-                 cutting the option text off. -->
-            <div class="info-row" style="display:flex; flex-wrap:wrap; align-items:center; gap:5px;" data-tooltip="Breakout, How the multi terminates: True1 or powerCON breakouts feed panels directly (the 6-channel default), Edison is the 110V option, L6-20 adds L6-20-to-panel tails per circuit. Drives the gear checklist.">
-                <label style="font-weight:400;">Breakout</label>
-                <select id="power-breakout-type" data-lrd-field="power-breakout-type" class="info-select" style="flex:1 1 110px; min-width:0; max-width:150px;">
-                    ${this.getPowerBreakoutTypes().map(t => `<option value="${t.id}" ${breakout.id === t.id ? 'selected' : ''}>${t.name}</option>`).join('')}
-                </select>
-            </div>
-            <div class="lrd-tile-grid lrd-tile-grid-wide" style="margin:6px 0;">
-            ${(() => { const segsAll = this._socaSegments(
-                layer, this.screenCircuits(layer).length); return plan.map(s => {
-                const seg = segsAll.find(x => x.index === s.soca) || null;
-                const assigned = (layer.powerSocaDistro || {})[s.soca] || '';
-                const esc = (t) => this._esc ? this._esc(t) : t;
-                const hand = ((layer.powerSocaNames || {})[s.soca] || '');
-                // Each multi is a tile: the face is the heading data - the
-                // multi's identity (bold, like the distro rows' own
-                // headings), its legs and its amps - and clicking it opens
-                // the three captioned fields in place, the same open-in-the-
-                // box shape the port tiles wear. The editor is hidden, never
-                // detached, so its keyed fields keep answering the focus
-                // restore from inside a closed tile. Which tile is open is
-                // keyed per layer (the plan is the shown screen's), so
-                // flipping screens does not carry one wall's open editor
-                // onto another wall's multi.
-                // The name field shows the DERIVED name as its placeholder
-                // while unnamed - grey text means "following the distro",
-                // typed text means named by hand, same legibility rule as
-                // the phasing select's deriving state.
-                const tileId = `soca-${layer.id}-${s.soca}`;
-                const openCls = this._tileOpenId(`soca-runs-${layer.id}`) === tileId
-                    ? ' lrd-tile-open' : '';
-                // The multi's slot on its distro. Auto numbers exactly as
-                // always; picking a number pins it - and picking a number
-                // another screen's multi holds makes the two ONE PHYSICAL
-                // BOX, the second screen's circuits on the box's next free
-                // tails. The options say who holds each number, so sharing
-                // reads as sharing before the click.
-                const pin = parseInt((layer.powerSocaNumber || {})[s.soca], 10);
-                const hasPin = Number.isFinite(pin) && pin >= 1;
-                let numberField = '';
-                if (assigned) {
-                    const inUse = this._distroMultiNumbers(assigned);
-                    const maxN = Math.max(0, ...inUse.keys(),
-                                          hasPin ? pin : 0) + 1;
-                    const opts = [];
-                    for (let n = 1; n <= maxN; n++) {
-                        const others = (inUse.get(n) || []).filter(o =>
-                            !(o.layerId === layer.id && o.soca === s.soca));
-                        const text = others.length
-                            ? `${n} — with ${others.map(o => esc(o.layerName)).join(', ')}`
-                            : `${n}`;
-                        opts.push(`<option value="${n}" ${hasPin && pin === n ? 'selected' : ''}>${text}</option>`);
-                    }
-                    numberField = `
-                        <div style="flex:1 1 70px; min-width:0;">
-                            <label class="power-soca-field-label" style="font-weight:400; display:block; margin-bottom:2px;">No.</label>
-                            <select class="power-soca-number info-select" data-soca="${s.soca}" data-lrd-field="power-soca-number-${s.soca}" style="width:100%; min-width:0; box-sizing:border-box;" data-tooltip="Multi number, Which output of the distro this multi is. Auto numbers in layer order and deals around picked numbers. Pick the number another screen's multi already holds and the two are ONE physical soca — this screen's circuits land on its next free tails, and the labels follow.">
-                                <option value="">Auto${hasPin ? '' : ` (${s.number})`}</option>
-                                ${opts.join('')}
-                            </select>
-                        </div>`;
-                }
-                // A member of a shared box says so on its face: one box,
-                // named once, this screen on its own tails - never two
-                // multis coincidentally named alike. A tail claimed twice
-                // (or a box past its six tails) is a CLASH, worn the way a
-                // double-booked port tile wears it.
-                const share = this.getSocaShare(layer, s.soca);
-                const tails = s.legs.map(l => l.leg);
-                const shareClash = !!(share && (share.clash || share.overflow));
-                // Two multis on this distro wearing one name on two numbers:
-                // the tile says so - a label problem, not a block.
-                const collisions = this._socaNameCollisions(layer, s.soca);
-                const face = (share
-                    ? `${esc(s.name)} · tails ${this._fmtTails(tails)} · ${s.amps.toFixed(1)} A${shareClash ? ' · TAIL CLASH' : ''}`
-                    : `${esc(s.name)} · ${s.legs.length} leg${s.legs.length === 1 ? '' : 's'} · ${s.amps.toFixed(1)} A`)
-                    + (collisions.length ? ' · SAME NAME' : '');
-                const others = share ? share.members.filter(m =>
-                    !(m.layerId === layer.id && m.soca === s.soca)) : [];
-                const shareNote = share ? `
-                        <div class="power-soca-share-note" style="flex:1 1 100%; font-size:10px; color:${shareClash ? '#e05050' : 'var(--ps-faint, #999)'};">
-                            One physical multi — ${share.members.map(m =>
-                                `${esc(m.layerName)} tails ${this._fmtTails(m.tails)}`).join(' · ')}${
-                            shareClash ? (share.overflow
-                                ? ' — more circuits than the six tails hold'
-                                : ` — tail${share.members.reduce((n, m) => n + m.clashTails.length, 0) === 1 ? '' : 's'} ${this._fmtTails(share.members.flatMap(m => m.clashTails))} claimed twice`) : ''}
-                        </div>` : '';
-                return `
-                <div class="power-soca-row lrd-tile${openCls}${shareClash ? ' lrd-tile-clash' : ''}" data-lrd-tile="${tileId}" data-lrd-tile-box="soca-runs-${layer.id}">
-                    <label class="lrd-tile-face" style="font-weight:600;" data-tooltip="Multi, ${esc(s.name).replace(/"/g, '&quot;')} feeds ${s.legs.length} circuit${s.legs.length === 1 ? '' : 's'} at ${s.amps.toFixed(1)} A${share ? ` as part of one shared box with ${others.map(m => esc(m.layerName)).join(', ')}` : ''}. Click to set its name, distro, number and home-run length.">${face}</label>
-                    <div class="lrd-tile-body" style="display:flex; flex-wrap:wrap; gap:5px;">
-                        <div style="flex:1 1 70px; min-width:0;">
-                            <label class="power-soca-field-label" style="font-weight:400; display:block; margin-bottom:2px;">Name</label>
-                            <input type="text" class="power-soca-name" data-soca="${s.soca}" data-lrd-field="power-soca-name-${s.soca}" value="${esc(hand).replace(/"/g, '&quot;')}" placeholder="${esc(s.name).replace(/"/g, '&quot;')}" style="width:100%; min-width:0; box-sizing:border-box;" data-tooltip="Multi name, Name this multi by hand. Leave it blank and it follows its distro — multis on a distro named SL are SL1, SL2 — so renaming the distro renames them all. A name typed here stops following.">
-                        </div>
-                        <div style="flex:1 1 90px; min-width:0;">
-                            <label class="power-soca-field-label" style="font-weight:400; display:block; margin-bottom:2px;">Distro</label>
-                            <select class="power-soca-distro info-select" data-soca="${s.soca}" data-lrd-field="power-soca-distro-${s.soca}" style="width:100%; min-width:0; box-sizing:border-box;" data-tooltip="Distro, Which power source this multi lands on. Load rolls up per distro across every screen, and the multi takes its number from that distro.">
-                                <option value="">— distro —</option>
-                                ${this.getDistros().map(d => `<option value="${d.id}" ${assigned === d.id ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}
-                            </select>
-                        </div>
-                        ${numberField}
-                        <div style="flex:1 1 70px; min-width:0;">
-                            <label class="power-soca-field-label" style="font-weight:400; display:block; margin-bottom:2px;">Length</label>
-                            <input type="text" class="power-soca-length" data-soca="${s.soca}" data-lrd-field="power-soca-length-${s.soca}" value="${(s.length || '').replace(/"/g, '&quot;')}" placeholder="e.g. 100ft" style="width:100%; min-width:0; box-sizing:border-box;">
-                        </div>
-                        ${s.legs.length > 1 || (seg && seg.userEnd) ? `
-                        <div style="flex:1 1 100%; display:flex; gap:5px; align-items:center;">
-                            ${s.legs.length > 1 ? `
-                            <select class="power-soca-split info-select" data-soca="${s.soca}" data-lrd-field="power-soca-split-${s.soca}" style="flex:1 1 auto; min-width:0;" data-tooltip="Split multi, Break this multi after a chosen circuit. Each part is a multi of its own — its own distro and number — so a short remainder can join another box's free tails.">
-                                <option value="">Split…</option>
-                                ${s.legs.slice(0, -1).map((l, i) => `<option value="${i + 1}">after ${esc(l.label)}</option>`).join('')}
-                            </select>` : ''}
-                            ${seg && seg.userEnd ? `<button class="btn btn-secondary power-soca-unsplit" data-soca="${s.soca}" data-lrd-field="power-soca-unsplit-${s.soca}" style="padding:2px 10px; flex:none;" data-tooltip="Un-split, Rejoin this multi with the next — the split boundary goes away and the circuits fall back into natural blocks of six.">Un-split</button>` : ''}
-                        </div>` : ''}
-                        ${collisions.length ? `
-                        <div class="power-soca-name-note" style="flex:1 1 100%; font-size:10px; color:#d8a13c;">
-                            also named ${esc(s.name)} on this distro — ${collisions.map(c => `${esc(c.layerName)} at No. ${c.number}`).join(', ')}. Same box? Pin both to No. ${Math.min(s.number, ...collisions.map(c => c.number))}.
-                        </div>` : ''}
-                        ${shareNote}
-                    </div>
-                </div>`; }).join(''); })()}
-            </div>
-            <div class="info-row checkbox-row" data-tooltip="Soca Brackets, Draw a bracket over each multi's span on the power map with its name and home-run length.">
-                <!-- OFF unless explicitly ticked (=== true, matching the
-                     canvas gate): brackets started life on by default and
-                     the user asked for them unselected. A field never
-                     touched now means off, on old projects too. -->
-                <input type="checkbox" id="show-soca-brackets" data-lrd-field="show-soca-brackets" ${layer.showSocaBrackets === true ? 'checked' : ''}>
-                <label for="show-soca-brackets">Soca Brackets on Map</label>
-            </div>
-            </div>`;
-        if (typeof this._wireSectionCollapse === 'function') this._wireSectionCollapse(host);
-        // the tiles' open/close wiring, rebuilt after the same innerHTML wipe
-        if (typeof this._wireTiles === 'function') this._wireTiles(host);
-        host.querySelectorAll('.power-soca-length').forEach(inp => {
-            inp.addEventListener('change', () => {
-                this.setSocaLength(layer, Number(inp.dataset.soca), inp.value);
-            });
-        });
-        host.querySelectorAll('.power-soca-name').forEach(inp => {
-            inp.addEventListener('change', () => {
-                this.setSocaName(layer, Number(inp.dataset.soca), inp.value);
-                this._restateNaming();
-            });
-        });
-        host.querySelectorAll('.power-soca-number').forEach(sel => {
-            sel.addEventListener('change', () => {
-                this.setSocaNumber(layer, Number(sel.dataset.soca), sel.value || null);
-                // A pin renumbers its whole distro bucket and can merge or
-                // split a shared box - every surface a name reaches restates.
-                this._restateNaming();
-            });
-        });
-        host.querySelectorAll('.power-soca-split').forEach(sel => {
-            sel.addEventListener('change', () => {
-                if (!sel.value) return;
-                this.splitSocaAfter(layer, Number(sel.dataset.soca),
-                                    Number(sel.value));
-                // A split makes a new multi, renumbers the bucket and moves
-                // every label after the boundary - full restate.
-                this._restateNaming();
-            });
-        });
-        host.querySelectorAll('.power-soca-unsplit').forEach(btn => {
-            btn.addEventListener('click', () => {
-                this.unsplitSocaAfter(layer, Number(btn.dataset.soca));
-                this._restateNaming();
-            });
-        });
-        host.querySelectorAll('.power-soca-distro').forEach(sel => {
-            sel.addEventListener('change', () => {
-                this.setSocaDistro(layer, Number(sel.dataset.soca), sel.value || null);
-                // The distro panel is still the next host after this one -
-                // soca, splitters, distros kept their order when they moved
-                // into the Power panel - so tabbing on from a soca row walks
-                // into the very thing this would wipe. _restateNaming defers
-                // past the gesture for it.
-                this._restateNaming();
-            });
-        });
-        const sel = host.querySelector('#power-breakout-type');
+        if (brk && brk !== document.activeElement) {
+            // OFF unless explicitly ticked (=== true, matching the canvas
+            // gate): brackets started life on by default and the user asked
+            // for them unselected. A field never touched now means off, on
+            // old projects too.
+            brk.checked = !!(screen && layer.showSocaBrackets === true);
+        }
+    }
+
+    // The static knobs' change handlers, wired ONCE - the controls live in
+    // index.html now and are never rebuilt. Multi-select doctrine
+    // unchanged: a per-screen scalar edit applies to EVERY selected screen
+    // (_socaPanelTargets), under the same history actions the old panel
+    // rows earned.
+    _wireScreenPowerKnobs() {
+        if (this._screenPowerKnobsWired) return;
+        this._screenPowerKnobsWired = true;
+        const sel = document.getElementById('power-breakout-type');
         if (sel) sel.addEventListener('change', () => {
+            const layer = this.currentLayer;
+            if (!layer) return;
             const list = this._socaPanelTargets(layer);
             list.forEach(l => { l.powerBreakoutType = sel.value; });
             this.updateLayers(list, true, 'Change Power Breakout');
         });
-        const brk = host.querySelector('#show-soca-brackets');
+        const brk = document.getElementById('show-soca-brackets');
         if (brk) brk.addEventListener('change', () => {
+            const layer = this.currentLayer;
+            if (!layer) return;
             const list = this._socaPanelTargets(layer);
             list.forEach(l => { l.showSocaBrackets = brk.checked; });
             this.updateLayers(list, true, 'Toggle Soca Brackets');
             if (window.canvasRenderer) window.canvasRenderer.render();
         });
-    }
-
-    // The Splitters block beside the soca panel: the per-screen packing
-    // toggle and splitter size, plus one row per circuit for the manual
-    // merge/split override. Rendered like refreshSocaRuns (same focus
-    // doctrine, same _rebuildAfterGesture flow), with ids/classes DISTINCT
-    // from the soca panel's.
-    refreshSplitterPanel() {
-        const host = document.getElementById('power-splitters');
-        if (!host) return;
-        this._preserveEditorFocus();
-        const layer = this.currentLayer;
-        if (!layer || (layer.type || 'screen') !== 'screen') { host.innerHTML = ''; return; }
-        const sp = this.getPowerSplitters(layer);
-        const custom = this.usesCustomCircuits(layer);
-        // Rows appear when the manual lever means something: packed auto
-        // circuits, or drawn custom circuits (merge-only - drawn numbering
-        // is user intent and is never auto-packed).
-        const circuits = (sp.enabled || custom) ? this.screenCircuits(layer) : [];
-        const voltage = parseFloat(layer.powerVoltage) || 0;
-        const amperage = parseFloat(layer.powerAmperage) || 0;
-        const esc = (s) => this._esc ? this._esc(s) : s;
-        const stockWays = [2, 3, 4];
-        const isStock = stockWays.includes(sp.maxWays);
-        const rowHtml = circuits.map(c => {
-            const branches = (c.branches && c.branches.length) ? c.branches : [c.panels];
-            const srcLayers = c.layers || [];
-            const watts = c.panels.reduce((s, p, pi) => {
-                const src = srcLayers[pi];
-                const w = (src && src !== layer)
-                    ? (parseFloat(src.panelWatts) || 0)
-                    : (parseFloat(layer.panelWatts) || 0);
-                return s + w * this.getPanelLoadFactor(src || layer, p);
-            }, 0);
-            const amps = voltage ? watts / voltage : 0;
-            const over = amperage > 0 && amps > amperage;
-            const comp = branches.map(b => b.length).join('+');
-            const label = this.getPowerCircuitLabel(layer, c.num);
-            return `
-                <div class="info-row splitter-circuit-row" style="align-items:center; gap:6px;">
-                    <input type="checkbox" class="splitter-circuit-pick" data-circuit="${c.num}" data-lrd-field="splitter-circuit-pick-${c.num}">
-                    <label style="font-weight:400; flex:1;">${esc(label)} · ${branches.length > 1 ? `${branches.length} runs (${comp} tiles) via ${branches.length}fer` : `${c.panels.length} tiles`} · ${amps.toFixed(1)} A${over ? ' <span style="color:#c0392b; font-weight:600;">OVER</span>' : ''}</label>
-                </div>`;
-        }).join('');
-        host.innerHTML = `
-            <label class="lrd-sec-head" data-lrd-sec="power-splitters" style="font-weight: 600; margin-bottom: 6px; display: block;" data-tooltip="Power splitters, Share one circuit between adjacent short power runs through a 2fer/3fer/4fer Y-cable. Organized modes pack whole rows or columns as separate runs on a shared feed; Maximize already fills each circuit to capacity, so packing changes nothing there.">Splitters</label>
-            <div class="lrd-sec-body">
-            <div class="info-row checkbox-row" data-tooltip="Circuit sharing, Gang consecutive row/column runs onto one shared circuit through a splitter, up to the splitter size and the circuit capacity. Only adjacent runs share - a run is never skipped to pair two non-neighbours.">
-                <input type="checkbox" id="power-splitters-enabled" data-lrd-field="power-splitters-enabled" ${sp.enabled ? 'checked' : ''}>
-                <label for="power-splitters-enabled">Share circuits via splitters</label>
-            </div>
-            <!-- Splitter size only means something while the packer is
-                 running: sharing is off by default, so on a fresh project
-                 this row was a control that did nothing. It follows the
-                 checkbox above it - and on a MIXED multi-selection that is
-                 the shown screen's flag, the same one the checkbox itself
-                 shows, so the row never contradicts the box beside it. The
-                 tick writes through to every selected screen (writeAll), so
-                 one gesture settles both the state and the row. -->
-            ${sp.enabled ? `
-            <div class="info-row" style="align-items:center;" data-tooltip="Splitter size, The largest Y-cable the packer may use. It always uses the smallest that fits: none, then 2fer, then 3fer.">
-                <label style="font-weight:400;">Max splitter</label>
-                <select id="power-splitters-maxways" data-lrd-field="power-splitters-maxways" class="info-select" style="width: 96px;">
-                    ${stockWays.map(w => `<option value="${w}" ${isStock && sp.maxWays === w ? 'selected' : ''}>${w}fer</option>`).join('')}
-                    <option value="custom" ${isStock ? '' : 'selected'}>Custom…</option>
-                </select>
-                ${isStock ? '' : `<input type="number" id="power-splitters-maxways-custom" data-lrd-field="power-splitters-maxways-custom" min="2" step="1" value="${sp.maxWays}" style="width: 56px;">`}
-            </div>` : ''}
-            ${circuits.length ? `
-            <div id="power-splitter-rows">${rowHtml}</div>
-            <div class="info-row" style="gap:8px;">
-                <button id="power-splitters-merge" data-lrd-field="power-splitters-merge" class="btn btn-secondary" style="padding:2px 10px;" data-tooltip="Merge selected, Gang the checked circuits onto ONE shared circuit through a splitter. Honored even over capacity - the row flags OVER.">Merge selected</button>
-                <button id="power-splitters-split" data-lrd-field="power-splitters-split" class="btn btn-secondary" style="padding:2px 10px;" data-tooltip="Split, Un-merge the checked circuits and pin their runs out of auto packing.">Split</button>
-            </div>` : ''}
-            </div>`;
-        if (typeof this._wireSectionCollapse === 'function') this._wireSectionCollapse(host);
-        // Multi-select doctrine: the enabled/maxWays edits apply to EVERY
-        // selected screen (same helper as the soca panel's scalar settings);
-        // manual merge/split rows are inherently per-screen.
+        const en = document.getElementById('power-splitters-enabled');
+        const mw = document.getElementById('power-splitters-maxways');
+        const mwc = document.getElementById('power-splitters-maxways-custom');
         const writeAll = (patch) => {
+            const layer = this.currentLayer;
+            if (!layer) return;
             const list = this._socaPanelTargets(layer);
             list.forEach(l => {
                 const cur = this.getPowerSplitters(l);
-                l.powerSplitters = { ...cur, ...patch,
-                    manual: cur.manual };
+                l.powerSplitters = { ...cur, ...patch, manual: cur.manual };
             });
             this.updateLayers(list, true, 'Change Splitter Packing');
             this._rebuildAfterGesture(() => {
                 this.refreshSplitterPanel();
                 this.refreshSocaRuns();
                 this.refreshDistroPanel();
-                this.updatePowerLabelEditor && this.updatePowerLabelEditor();
                 if (window.canvasRenderer) window.canvasRenderer.render();
             });
         };
-        const en = host.querySelector('#power-splitters-enabled');
-        if (en) en.addEventListener('change', () => writeAll({ enabled: en.checked }));
-        const mw = host.querySelector('#power-splitters-maxways');
+        if (en) en.addEventListener('change',
+                                    () => writeAll({ enabled: en.checked }));
         if (mw) mw.addEventListener('change', () => {
             if (mw.value === 'custom') {
-                // seed the custom input with a non-stock value so it renders
+                // seed a non-stock value so the custom box appears, filled
                 writeAll({ maxWays: 5 });
                 return;
             }
             writeAll({ maxWays: parseInt(mw.value, 10) || 3 });
         });
-        const mwc = host.querySelector('#power-splitters-maxways-custom');
         if (mwc) mwc.addEventListener('change', () => {
             writeAll({ maxWays: Math.max(2, parseInt(mwc.value, 10) || 2) });
         });
-        const picked = () => [...host.querySelectorAll('.splitter-circuit-pick:checked')]
-            .map(el => parseInt(el.dataset.circuit, 10))
-            .filter(n => Number.isFinite(n));
-        const mergeBtn = host.querySelector('#power-splitters-merge');
-        if (mergeBtn) mergeBtn.addEventListener('click', () => {
-            this.mergeSplitterCircuits(layer, picked());
-        });
-        const splitBtn = host.querySelector('#power-splitters-split');
-        if (splitBtn) splitBtn.addEventListener('click', () => {
-            this.splitSplitterCircuits(layer, picked());
-        });
     }
 
+    // The Splitters panel rows died with the sidebar - manual merge and
+    // split are the right-click Share / Un-share on the circuit itself
+    // (app-dock.js _prepareShareMenus) - so what is left under this name is
+    // syncing the packing knobs that moved into Power Settings: the enable
+    // checkbox, and the size row that follows it. "Present only while
+    // sharing is on" (the old panel's rule) is worn as visibility on the
+    // static row.
+    refreshSplitterPanel() {
+        const en = document.getElementById('power-splitters-enabled');
+        if (!en) return;
+        this._wireScreenPowerKnobs();
+        const layer = this.currentLayer;
+        const screen = layer && (layer.type || 'screen') === 'screen';
+        const sp = screen ? this.getPowerSplitters(layer)
+            : { enabled: false, maxWays: 3 };
+        if (en !== document.activeElement) {
+            en.checked = !!(screen && sp.enabled);
+        }
+        const row = document.getElementById('power-splitters-maxways-row');
+        if (row) row.style.display = (screen && sp.enabled) ? 'flex' : 'none';
+        const mw = document.getElementById('power-splitters-maxways');
+        const mwc = document.getElementById('power-splitters-maxways-custom');
+        const stock = [2, 3, 4].includes(sp.maxWays);
+        if (mw && mw !== document.activeElement) {
+            mw.value = stock ? String(sp.maxWays) : 'custom';
+        }
+        if (mwc) {
+            mwc.style.display = stock ? 'none' : '';
+            if (mwc !== document.activeElement && !stock) {
+                mwc.value = String(sp.maxWays);
+            }
+        }
+    }
+
+    // Merge the selected circuits into one manual group.
     // Merge the selected circuits into one manual group. The group is stored
     // as RUN ids: for auto screens the run ordinals the selected circuits
     // currently carry, for custom screens the drawn circuit numbers. Members
@@ -2945,8 +3066,11 @@ class _Power {
         if (plan && !plan.isOwner) {
             // The wall's circuits are the first member's and are counted there.
             // Same only-honest-zero rule a member fed by a peer's hand-drawn
-            // circuit already follows.
-            return { circuits: [], error: null };
+            // circuit already follows. The member's own OVERRIDDEN circuits are
+            // the one exception: a redrawn circuit lives in its own layer's
+            // numbering space, so it is reported here, by the layer that owns
+            // it, and nowhere else.
+            return this._mergeOverrideCircuits(layer, { circuits: [], error: null });
         }
 
         const voltage = parseFloat(layer.powerVoltage) || 0;
@@ -2978,10 +3102,20 @@ class _Power {
         // cabinet's own screen; the wattage is the group's, which the gate has
         // already proved every member agrees on.
         const loadOf = (panel) => panelWatts * this.getPanelLoadFactor(layerOfPanel(panel), panel);
-        const visibleOrdered = plan
+        // Per-run overrides: a cabinet on a hand-drawn override anywhere in
+        // the path scope is already fed, so the automatic walk lays over
+        // everything else. Empty for every project without overrides, and
+        // then the filters below keep every list byte-identical.
+        const claimed = (typeof this._overrideClaims === 'function')
+            ? this._overrideClaims(layer, 'power') : new Set();
+        const unclaimed = (panels) => (claimed.size === 0
+            ? panels : panels.filter(p => !claimed.has(p)));
+        const visibleOrdered = unclaimed(plan
             ? plan.ordered.filter(c => !c.panel.hidden).map(c => c.panel)
-            : this.getOrderedPanelsByPattern(layer, pattern, false);
-        if (visibleOrdered.length === 0) return { circuits: [], error: null };
+            : this.getOrderedPanelsByPattern(layer, pattern, false));
+        if (visibleOrdered.length === 0) {
+            return this._mergeOverrideCircuits(layer, { circuits: [], error: null });
+        }
 
         if (panelWatts > wattsPerCircuit) {
             return { circuits: [], error: { message: 'PANEL WATTS EXCEED CIRCUIT CAPACITY' } };
@@ -3036,8 +3170,8 @@ class _Power {
                         };
                     }
                     runs.push({
-                        panels: this.getOrganizedPanelsForUnits(
-                            layer, pattern, isHorizontalFirst, [idx], false, plan),
+                        panels: unclaimed(this.getOrganizedPanelsForUnits(
+                            layer, pattern, isHorizontalFirst, [idx], false, plan)),
                         load: unitLoad,
                     });
                 }
@@ -3045,8 +3179,9 @@ class _Power {
                     layer, runs.map((_, i) => i + 1));
                 const packed = this._packPowerRuns(
                     runs, wattsPerCircuit, splitters.maxWays, manual);
-                return withOwners({ circuits: packed.circuits, runs: packed.runs,
-                                    runIds: packed.runIds, error: null });
+                return this._mergeOverrideCircuits(layer, withOwners({
+                    circuits: packed.circuits, runs: packed.runs,
+                    runIds: packed.runIds, error: null }));
             }
 
             let current = { unitIndices: [], load: 0 };
@@ -3069,18 +3204,18 @@ class _Power {
                     };
                 }
                 if (current.load > 0 && current.load + unitLoad > wattsPerCircuit) {
-                    circuits.push(
+                    circuits.push(unclaimed(
                         this.getOrganizedPanelsForUnits(layer, pattern, isHorizontalFirst, current.unitIndices || [], false, plan)
-                    );
+                    ));
                     current = { unitIndices: [], load: 0 };
                 }
                 current.unitIndices.push(idx);
                 current.load += unitLoad;
             }
             if ((current.unitIndices || []).length > 0) {
-                circuits.push(
+                circuits.push(unclaimed(
                     this.getOrganizedPanelsForUnits(layer, pattern, isHorizontalFirst, current.unitIndices || [], false, plan)
-                );
+                ));
             }
         } else {
             let current = [];
@@ -3099,7 +3234,59 @@ class _Power {
             if (current.length > 0) circuits.push(current);
         }
 
-        return withOwners({ circuits, error: null });
+        return this._mergeOverrideCircuits(layer, withOwners({ circuits, error: null }));
+    }
+
+    // Fold this layer's overridden circuits into an automatic result: the
+    // auto rows take numbers 1, 2, 3... SKIPPING every overridden number, the
+    // override rows come in under the numbers the user took over, and the
+    // whole set is handed back in ascending circuit order. `nums` appears on
+    // the result ONLY when overrides are in play, so every other project's
+    // return shape does not move by a key. On an error the automatic story is
+    // the story - same as the ports side - and the result passes through.
+    _mergeOverrideCircuits(layer, result) {
+        if (result.error) return result;
+        const reserved = (typeof this.getOverrideNums === 'function'
+            && !this.isCustomPower(layer))
+            ? this.getOverrideNums(layer, 'power') : [];
+        if (reserved.length === 0) return result;
+        const overrides = this._ownOverrideRuns(layer, 'power');
+        const rows = [];
+        let next = 1;
+        (result.circuits || []).forEach((panels, i) => {
+            while (reserved.includes(next)) next++;
+            rows.push({
+                num: next++,
+                panels,
+                layers: result.layers ? result.layers[i] : null,
+                runs: result.runs ? result.runs[i] : null,
+                runIds: result.runIds ? result.runIds[i] : null,
+            });
+        });
+        const crossing = overrides.some(o => o.hits.some(h => h.layer.id !== layer.id));
+        overrides.forEach(o => {
+            rows.push({
+                num: o.num,
+                panels: o.hits.map(h => h.panel),
+                layers: (result.layers || crossing)
+                    ? o.hits.map(h => h.layer) : null,
+                runs: result.runs ? [o.hits.length] : null,
+                runIds: null,
+            });
+        });
+        rows.sort((a, b) => a.num - b.num);
+        const out = { circuits: rows.map(r => r.panels), error: null, nums: rows.map(r => r.num) };
+        if (result.layers || crossing) {
+            // Owner rows for the auto circuits that never had any: every
+            // cabinet is this layer's own. _powerOwnerIdRows nulls those rows
+            // back out downstream, so the tinting fast path stays untouched.
+            out.layers = rows.map(r => r.layers || (r.panels || []).map(() => layer));
+        }
+        if (result.runs) {
+            out.runs = rows.map(r => r.runs);
+            out.runIds = rows.map(r => r.runIds);
+        }
+        return out;
     }
 
     // The label this port takes off the processor, or null when it takes none
@@ -3370,8 +3557,11 @@ class _Power {
                 if (!rec.pinned) continue;
                 rec.positions = this.socaCircuitPositions(
                     // read the STORE only - rec.positions is still null, so
-                    // the pinned branch below cannot answer yet
-                    { powerSocaPhasePos: layer.powerSocaPhasePos },
+                    // the pinned branch below cannot answer yet. The
+                    // breakout type rides along so the tail clamp reads the
+                    // screen's own box size, not the default six.
+                    { powerSocaPhasePos: layer.powerSocaPhasePos,
+                      powerBreakoutType: layer.powerBreakoutType },
                     rec.index, rec.circuits.length);
                 rec.moved = !rec.positions.every((p, i) => p === i + 1);
                 rec.circuits.forEach((num, i) => entry.slots.set(num, {
@@ -3503,6 +3693,13 @@ class _Power {
         for (const [key, members] of boxes) {
             const taken = new Set();
             let clash = false, overflow = false;
+            // The physical box has as many tails as the SMALLEST member
+            // breakout says it does - six for socas, three for an L21-30 -
+            // and every claim past that is overflow whichever member made
+            // it. Members of one box virtually always agree; when they do
+            // not, the smaller figure is the only honest capacity.
+            const cap = Math.min(...members
+                .map(m => this.socaBoxSize(m.layer)));
             // Pass 1: every stored set takes exactly its tails. Doing this
             // before ANY dealing is what makes a stored set law: an
             // unstored member earlier in layer order can no longer sit
@@ -3512,12 +3709,12 @@ class _Power {
                 const L = m.rec.circuits.length;
                 const saved = ((m.layer.powerSocaPhasePos) || {})[m.rec.index];
                 const valid = Array.isArray(saved) && saved.length === L
-                    && saved.every(p => Number.isInteger(p) && p >= 1 && p <= 6)
+                    && saved.every(p => Number.isInteger(p) && p >= 1 && p <= cap)
                     && new Set(saved).size === L;
                 if (!valid) { dealt.push(m); continue; }
                 const pos = saved.slice().sort((a, b) => a - b);
                 m.rec.clashTails = pos.filter(p => taken.has(p));
-                m.rec.overTails = pos.filter(p => p > 6);
+                m.rec.overTails = pos.filter(p => p > cap);
                 pos.forEach(p => taken.add(p));
                 m.rec.positions = pos;
             }
@@ -3533,7 +3730,7 @@ class _Power {
                     t += 1;
                 }
                 m.rec.clashTails = [];
-                m.rec.overTails = pos.filter(p => p > 6);
+                m.rec.overTails = pos.filter(p => p > cap);
                 pos.forEach(p => taken.add(p));
                 m.rec.positions = pos;
             }
@@ -3598,12 +3795,14 @@ class _Power {
             return `${slot.name}${tpl.sep}${slot.tail}${tpl.suffix}`;
         }
         // A circuit the plan does not hold - an editor row past the drawn
-        // circuits - or a template with no multi number to name. Both keep the
-        // arithmetic they have always had.
+        // circuits - or a template with no multi number to name. Both keep
+        // the arithmetic they have always had, wrapped at the screen's own
+        // box size (six on a soca, three on an L21-30).
         if (!tpl.ok) return tpl.raw.replace('#', circuitNum);
+        const size = this.socaBoxSize(layer);
         const n = Math.max(1, parseInt(circuitNum, 10) || 1);
-        const multi = tpl.start + Math.floor((n - 1) / 6);
-        const circuitInMulti = ((n - 1) % 6) + 1;
+        const multi = tpl.start + Math.floor((n - 1) / size);
+        const circuitInMulti = ((n - 1) % size) + 1;
         return `${tpl.prefix}${multi}${tpl.sep}${circuitInMulti}${tpl.suffix}`;
     }
 
@@ -3735,294 +3934,23 @@ class _Power {
         setTimeout(fn, 0);
     }
 
+    // The per-port override editor died with the Signal sidebar. The
+    // overrides themselves are untouched: the Fallback Labels block in
+    // Data Settings bulk-applies and clears them, an assigned port renames
+    // on its dock chip, and the canvas keeps drawing every stored
+    // override. Kept as a no-op because every "labels may have moved" path
+    // calls it.
     updatePortLabelEditor() {
-        if (!this.currentLayer) return;
-        if ((this.currentLayer.type || 'screen') === 'image') return;
-        const list = document.getElementById('port-label-list');
-        if (!list) return;
-
-        let portsRequired = this.currentLayer._portsRequired || 0;
-        if (portsRequired <= 0) {
-            this.updatePortCapacityDisplay();
-            portsRequired = this.currentLayer._portsRequired || 0;
-        }
-        if (this.customDebug) {
-            console.log('[PortLabels] update', {
-                layerId: this.currentLayer.id,
-                portsRequired,
-                flowPattern: this.currentLayer.flowPattern,
-                bitDepth: this.currentLayer.bitDepth,
-                frameRate: this.currentLayer.frameRate,
-                processorType: this.currentLayer.processorType,
-                panelPixels: this.currentLayer.cabinet_width * this.currentLayer.cabinet_height,
-                panels: this.currentLayer.panels ? this.currentLayer.panels.length : 0
-            });
-        }
-        this._preserveEditorFocus();
-        list.innerHTML = '';
-        // v0.8.7.3: force the list's grid to 1fr so each row stretches
-        // the full list width instead of collapsing to content width
-        // (which left ~12px of dead space on the right after the
-        // backup input). Also tighten the list's own padding to claw
-        // back another ~8px for the inputs. Negative margins break the
-        // list out of the panel-content's 12px L+R padding so the
-        // inputs can extend the full sidebar interior, claws back
-        // another 24px (12 on each side).
-        list.style.gridTemplateColumns = '1fr';
-        list.style.padding = '4px';
-        list.style.marginLeft = '-12px';
-        list.style.marginRight = '-12px';
-
-        if (portsRequired <= 0) {
-            const empty = document.createElement('div');
-            empty.style.color = '#888';
-            empty.style.fontSize = '11px';
-            empty.textContent = 'No ports to edit.';
-            list.appendChild(empty);
-            return;
-        }
-
-        for (let portNum = 1; portNum <= portsRequired; portNum++) {
-            const row = document.createElement('div');
-            row.style.display = 'grid';
-            // v0.8.7.3: compact "1" / "2" number column instead of the
-            // full "Port N" text, saves ~40px in the narrow 260px
-            // sidebar so both inputs get more width. Row stretches to
-            // fill its container with no right-side gap.
-            row.style.gridTemplateColumns = '18px 14px 1fr 1fr';
-            row.style.gap = '4px';
-            row.style.alignItems = 'center';
-            row.style.width = '100%';
-
-            const cb = document.createElement('input');
-            cb.type = 'checkbox';
-            cb.setAttribute('data-port', String(portNum));
-            // Tab out of a port's Return field lands on the NEXT row's
-            // checkbox, so it needs a stable key too or the rebuild drops it.
-            cb.dataset.lrdField = `port-check-${portNum}`;
-            cb.title = `Port ${portNum}`;
-            cb.style.margin = '0';
-
-            const numLabel = document.createElement('div');
-            numLabel.style.fontSize = '13px';
-            numLabel.style.fontWeight = '700';
-            numLabel.style.color = '#ccc';
-            numLabel.style.textAlign = 'center';
-            numLabel.style.fontFamily = 'monospace';
-            numLabel.textContent = String(portNum);
-
-            // An assigned port takes its name off the processor and nothing
-            // typed here reaches it. Say so on the row rather than leaving two
-            // boxes that accept text and change nothing on the drawing - the
-            // place to rename an assigned port is its row in the Processors
-            // panel. The boxes stay editable because what is in them is still
-            // the fallback the moment the processor stops naming the port.
-            const fromProcessor = this.getProcessorPortLabel(this.currentLayer, portNum);
-            // The return label the drawing will actually print - a name typed
-            // on the return end in the Processors panel, or the derived
-            // return (R1-1 for P1-1). Asked of getPortLabelText so this note
-            // can never disagree with the canvas about what the return end
-            // says.
-            const ownedNote = fromProcessor
-                ? `Port ${portNum} is on the processor, which names it `
-                  + `${fromProcessor} and its return `
-                  + `${this.getPortLabelText(this.currentLayer, portNum, 'return')}. Rename `
-                  + `it in the Processors panel. What you type here is kept, `
-                  + `and draws again only if this port stops being assigned.`
-                : '';
-            if (fromProcessor) {
-                numLabel.style.color = '#c8a04a';
-                numLabel.title = ownedNote;
-            }
-
-            const primaryInput = document.createElement('input');
-            primaryInput.type = 'text';
-            // Stable identity across rebuilds, so focus + caret can be
-            // restored into the same field after list.innerHTML = ''.
-            primaryInput.dataset.lrdField = `port-primary-${portNum}`;
-            if (ownedNote) primaryInput.title = ownedNote;
-            primaryInput.value = (this.currentLayer.portLabelOverridesPrimary && this.currentLayer.portLabelOverridesPrimary[portNum]) || '';
-            primaryInput.placeholder = this.getPortLabelText(this.currentLayer, portNum, 'primary');
-            primaryInput.style.padding = '3px 4px';
-            primaryInput.style.background = '#0d0d0d';
-            primaryInput.style.border = '1px solid #333';
-            primaryInput.style.color = '#fff';
-            primaryInput.style.borderRadius = '4px';
-            primaryInput.style.fontFamily = 'monospace';
-            // v0.8.7.3: fill the grid column instead of using the input's
-            // default intrinsic width (was leaving wasted space to the
-            // right of each input). Power editor already does this.
-            primaryInput.style.width = '100%';
-            primaryInput.style.minWidth = '0';
-            primaryInput.style.boxSizing = 'border-box';
-
-            primaryInput.addEventListener('change', () => {
-                const val = primaryInput.value.trim();
-                this.applyToSelectedLayers(layer => {
-                    if (!layer.portLabelOverridesPrimary) layer.portLabelOverridesPrimary = {};
-                    if (val) {
-                        layer.portLabelOverridesPrimary[portNum] = val;
-                    } else {
-                        delete layer.portLabelOverridesPrimary[portNum];
-                    }
-                });
-                this.saveClientSideProperties();
-                this.updateLayers(this.getSelectedLayers());
-                window.canvasRenderer.render();
-                this.saveState('Edit Port Label');
-            });
-
-            const returnInput = document.createElement('input');
-            returnInput.type = 'text';
-            returnInput.dataset.lrdField = `port-return-${portNum}`;
-            if (ownedNote) returnInput.title = ownedNote;
-            returnInput.value = (this.currentLayer.portLabelOverridesReturn && this.currentLayer.portLabelOverridesReturn[portNum]) || '';
-            returnInput.placeholder = this.getPortLabelText(this.currentLayer, portNum, 'return');
-            returnInput.style.padding = '3px 4px';
-            returnInput.style.background = '#0d0d0d';
-            returnInput.style.border = '1px solid #333';
-            returnInput.style.color = '#fff';
-            returnInput.style.borderRadius = '4px';
-            returnInput.style.fontFamily = 'monospace';
-            returnInput.style.width = '100%';
-            returnInput.style.minWidth = '0';
-            returnInput.style.boxSizing = 'border-box';
-
-            returnInput.addEventListener('change', () => {
-                const val = returnInput.value.trim();
-                this.applyToSelectedLayers(layer => {
-                    if (!layer.portLabelOverridesReturn) layer.portLabelOverridesReturn = {};
-                    if (val) {
-                        layer.portLabelOverridesReturn[portNum] = val;
-                    } else {
-                        delete layer.portLabelOverridesReturn[portNum];
-                    }
-                });
-                this.saveClientSideProperties();
-                this.updateLayers(this.getSelectedLayers());
-                window.canvasRenderer.render();
-                this.saveState('Edit Port Label');
-            });
-
-            row.appendChild(cb);
-            row.appendChild(numLabel);
-            row.appendChild(primaryInput);
-            row.appendChild(returnInput);
-            list.appendChild(row);
-        }
     }
 
+
+    // Same story on the power side: the per-circuit override edits on its
+    // circuit chip in the dock (which every naming path already redraws),
+    // and the Circuit Labels block in Power Settings bulk-applies and
+    // clears. Kept as a no-op for its callers.
     updatePowerLabelEditor() {
-        if (!this.currentLayer) return;
-        if ((this.currentLayer.type || 'screen') === 'image') return;
-        const list = document.getElementById('power-label-list');
-        if (!list) return;
-        list.style.overflowX = 'hidden';
-
-        // v0.11.0 step 6: same single implementation the ports readout now
-        // uses - a circuit drawn across two members is one circuit, and the
-        // editor must offer exactly that many label rows.
-        const circuitsRequired = this.getLayerCircuitsRequired(this.currentLayer);
-
-        this._preserveEditorFocus();
-        list.innerHTML = '';
-        // v0.8.7.3: stretch each row to full list width, trim padding,
-        // and extend past panel-content padding for more input room.
-        list.style.gridTemplateColumns = '1fr';
-        list.style.padding = '4px';
-        list.style.marginLeft = '-12px';
-        list.style.marginRight = '-12px';
-        if (circuitsRequired <= 0) {
-            const empty = document.createElement('div');
-            empty.style.color = '#888';
-            empty.style.fontSize = '11px';
-            // Zero circuits BECAUSE of a power error gets the same one-line
-            // reason the soca panel tells - extending this message rather
-            // than inventing a second empty-state pattern.
-            const why = this._socaPlanEmptyReason(this.currentLayer);
-            empty.textContent = why
-                ? `No circuits to edit — ${why}` : 'No circuits to edit.';
-            list.appendChild(empty);
-            return;
-        }
-
-        for (let circuitNum = 1; circuitNum <= circuitsRequired; circuitNum++) {
-            const row = document.createElement('div');
-            row.style.display = 'grid';
-            // v0.8.7.3: compact "1" / "2" number column, same as port
-            // editor. Row stretches to fill its container width.
-            row.style.gridTemplateColumns = '18px 18px 1fr';
-            row.style.gap = '4px';
-            row.style.alignItems = 'center';
-            row.style.width = '100%';
-
-            // v0.12.0: once balancing (or a breaker offset) moves this
-            // multi's circuits onto other tails of the fan, the number
-            // column shows the PHYSICAL TAIL - the same digit the canvas
-            // bubble and breaker sticker carry - through the same slot the
-            // label authority reads. A balanced wall on tails {1,2,3,5,6}
-            // lists 1, 2, 3, 5, 6 down the editor, never 1..5. Screens on
-            // natural positions keep today's sequential column
-            // byte-identical (`moved` gates exactly like the labels).
-            const slot = this._circuitTailSlot(this.currentLayer, circuitNum);
-            const moved = !!(slot && slot.moved);
-
-            const cb = document.createElement('input');
-            cb.type = 'checkbox';
-            cb.setAttribute('data-circuit', String(circuitNum));
-            // Tab out of a circuit's label field lands here, on the next
-            // row's checkbox - the first thing the rebuild destroys.
-            cb.dataset.lrdField = `power-check-${circuitNum}`;
-            cb.title = moved
-                ? this.getPowerCircuitLabel(this.currentLayer, circuitNum)
-                : `Circuit ${circuitNum}`;
-            cb.style.margin = '0';
-
-            const numLabel = document.createElement('div');
-            numLabel.style.fontSize = '13px';
-            numLabel.style.fontWeight = '700';
-            numLabel.style.color = '#ccc';
-            numLabel.style.textAlign = 'center';
-            numLabel.style.fontFamily = 'monospace';
-            numLabel.textContent = String(moved ? slot.tail : circuitNum);
-
-            const input = document.createElement('input');
-            input.type = 'text';
-            input.dataset.lrdField = `power-label-${circuitNum}`;
-            input.value = (this.currentLayer.powerLabelOverrides && this.currentLayer.powerLabelOverrides[circuitNum]) || '';
-            input.placeholder = this.getPowerCircuitLabel(this.currentLayer, circuitNum);
-            input.style.padding = '3px 4px';
-            input.style.background = '#0d0d0d';
-            input.style.border = '1px solid #333';
-            input.style.color = '#fff';
-            input.style.borderRadius = '4px';
-            input.style.fontFamily = 'monospace';
-            input.style.width = '100%';
-            input.style.minWidth = '0';
-            input.style.boxSizing = 'border-box';
-
-            input.addEventListener('change', () => {
-                const val = input.value.trim();
-                this.applyToSelectedLayers(layer => {
-                    if (!layer.powerLabelOverrides) layer.powerLabelOverrides = {};
-                    if (val) {
-                        layer.powerLabelOverrides[circuitNum] = val;
-                    } else {
-                        delete layer.powerLabelOverrides[circuitNum];
-                    }
-                });
-                this.saveClientSideProperties();
-                this.updateLayers(this.getSelectedLayers());
-                window.canvasRenderer.render();
-                this.saveState('Edit Circuit Label');
-            });
-
-            row.appendChild(cb);
-            row.appendChild(numLabel);
-            row.appendChild(input);
-            list.appendChild(row);
-        }
     }
+
 
     updatePowerCircuitColorEditor() {
         if (!this.currentLayer) return;
@@ -4070,6 +3998,22 @@ class _Power {
         return !!layer && layer.flowPattern === 'custom';
     }
 
+    // Is the path-EDITING machinery live for this layer right now? True in
+    // whole-screen custom mode, exactly as every gate read before, and ALSO
+    // while ONE overridden port is open for redrawing (see the per-run
+    // override section below). Every editing gate - the click, the marquee,
+    // the arrow keys, the pattern-on-selection - reads THIS; every gate about
+    // what the map IS (rendering, counting, the group crossing) keeps reading
+    // isCustomFlow, because a screen with one redrawn port is still an
+    // automatic screen.
+    isCustomFlowEditing(layer) {
+        return this.isCustomFlow(layer) || this._isOverrideEditing(layer, 'data');
+    }
+
+    isCustomPowerEditing(layer) {
+        return this.isCustomPower(layer) || this._isOverrideEditing(layer, 'power');
+    }
+
     ensureCustomFlowState(layer) {
         if (!layer) return;
         if (!layer.customPortPaths) layer.customPortPaths = {};
@@ -4109,7 +4053,11 @@ class _Power {
             if (container) container.style.display = 'none';
             return;
         }
-        const isCustom = this.currentLayer && this.currentLayer.flowPattern === 'custom';
+        // The editing predicate, not the pattern: while one overridden port is
+        // open for redrawing the same controls (active port, clear, patterns)
+        // are the tools of THAT edit, so the panel shows without the screen
+        // ever leaving its automatic pattern.
+        const isCustom = this.currentLayer && this.isCustomFlowEditing(this.currentLayer);
         const container = document.getElementById('custom-flow-controls');
         const portInput = document.getElementById('custom-active-port-input');
         if (container) {
@@ -4173,7 +4121,8 @@ class _Power {
             if (container) container.style.display = 'none';
             return;
         }
-        const isCustom = this.currentLayer && this.currentLayer.powerFlowPattern === 'custom';
+        // Editing predicate, not the pattern - same reason as the data twin.
+        const isCustom = this.currentLayer && this.isCustomPowerEditing(this.currentLayer);
         const container = document.getElementById('power-custom-controls');
         const portInput = document.getElementById('power-custom-active');
         if (container) {
@@ -4293,7 +4242,7 @@ class _Power {
     // unchanged, so canvas.js still passes currentLayer.
     selectPanelsInRect(layer, rect) {
         if (!layer) return;
-        if (!this.isCustomFlow(layer)) return;
+        if (!this.isCustomFlowEditing(layer)) return;
         this._selectPathPanelsInRect(layer, rect, this.customSelection);
         this.updateCustomFlowUI();
         window.canvasRenderer.render();
@@ -4513,7 +4462,7 @@ class _Power {
     // see _selectPathPanelsInRect.
     selectPowerPanelsInRect(layer, rect) {
         if (!layer) return;
-        if (!this.isCustomPower(layer)) return;
+        if (!this.isCustomPowerEditing(layer)) return;
         this._selectPathPanelsInRect(layer, rect, this.powerCustomSelection);
         this.updateCustomPowerUI();
         window.canvasRenderer.render();
@@ -4794,6 +4743,375 @@ class _Power {
         return this._findPathOwner(layer, panel, excludeCircuitNum, panelLayer, 'powerCustomPaths');
     }
 
+    // ── Per-run overrides (data ports and power circuits) ─────────────────
+    //
+    // Custom used to be all or nothing: the WHOLE screen goes to
+    // flowPattern 'custom' and every port is hand-drawn. The motivating wall
+    // is the other way round - auto-cable the whole thing, then redraw the
+    // ONE run that jumped somewhere a cable cannot go. So an override is a
+    // single port (or circuit) number the user has taken over:
+    //
+    //     customPortOverrides / powerCustomOverrides   the numbers taken over,
+    //                           per member and NEVER group-shared - a redrawn
+    //                           port is one physical cable on one screen
+    //     customPortPaths / powerCustomPaths            still where the drawn
+    //                           path lives, keyed by that number - the same
+    //                           dict, the same step shape ({row, col
+    //                           [, layerId]}), the same editing tools
+    //
+    // Whole-screen custom keeps its exact semantics: isCustomFlow /
+    // isCustomPower still mean the pattern, and a screen in that mode has no
+    // overrides (the paths are ALL hand-drawn there). Overrides only exist
+    // against an automatic pattern, where the engines lay the auto walk over
+    // every cabinet an override has not claimed and skip the overridden
+    // numbers - see calculatePortAssignments / calculatePowerAssignments.
+
+    // The override numbers of one layer, validated: ints >= 1, deduped, in
+    // ascending order. Tolerant of anything a stale file could hold.
+    getOverrideNums(layer, kind) {
+        const key = kind === 'power' ? 'powerCustomOverrides' : 'customPortOverrides';
+        const arr = layer && layer[key];
+        if (!Array.isArray(arr)) return [];
+        const out = [];
+        arr.forEach(v => {
+            const n = parseInt(v, 10);
+            if (Number.isFinite(n) && n >= 1 && !out.includes(n)) out.push(n);
+        });
+        return out.sort((a, b) => a - b);
+    }
+
+    // Overrides are meaningful only against an automatic pattern - in
+    // whole-screen custom every path is hand-drawn already and the array is
+    // ignored outright, so flipping to custom and back cannot double-apply.
+    hasRunOverrides(layer, kind) {
+        if (!layer) return false;
+        if (kind === 'power' ? this.isCustomPower(layer) : this.isCustomFlow(layer)) return false;
+        return this.getOverrideNums(layer, kind).length > 0;
+    }
+
+    isRunOverridden(layer, kind, num) {
+        if (!layer) return false;
+        if (kind === 'power' ? this.isCustomPower(layer) : this.isCustomFlow(layer)) return false;
+        return this.getOverrideNums(layer, kind).includes(num);
+    }
+
+    // Is ONE overridden run open for redrawing right now? Session state, not
+    // layer state: it must not travel through undo snapshots, saves or
+    // presets. It only reads true while the layer still carries the override
+    // AND the active index still points at it - undo can revert either, and
+    // a click that then wrote into some other number would be corruption,
+    // not editing.
+    _isOverrideEditing(layer, kind) {
+        const s = this._overrideEditing;
+        if (!s || !layer || s.layerId !== layer.id || s.kind !== kind) return false;
+        if (!this.isRunOverridden(layer, kind, s.num)) return false;
+        const idx = kind === 'power'
+            ? (layer.powerCustomIndex || 1) : (layer.customPortIndex || 1);
+        return idx === s.num;
+    }
+
+    // Every cabinet claimed by an override path anywhere in this layer's path
+    // scope, as the panel OBJECTS the engines walk. The scope matters: an
+    // override drawn from the group's first member can run onto a peer, and
+    // the peer's own walk must not feed those cabinets twice. Members in
+    // whole-screen custom contribute nothing here - their paths are not
+    // overrides and their screens are not on the automatic map at all.
+    _overrideClaims(layer, kind) {
+        const pathsKey = kind === 'power' ? 'powerCustomPaths' : 'customPortPaths';
+        const scope = (typeof this.getPathScopeLayers === 'function')
+            ? this.getPathScopeLayers(layer) : [layer];
+        const claimed = new Set();
+        scope.forEach(member => {
+            if (!member) return;
+            if (kind === 'power' ? this.isCustomPower(member) : this.isCustomFlow(member)) return;
+            const nums = this.getOverrideNums(member, kind);
+            if (!nums.length) return;
+            const paths = member[pathsKey] || {};
+            nums.forEach(n => {
+                this.getResolvedPathPanels(member, paths[n] || []).forEach(hit => {
+                    claimed.add(hit.panel);
+                });
+            });
+        });
+        return claimed;
+    }
+
+    // This layer's own overridden runs, resolved and ready to merge into an
+    // assignment: [{num, hits: [{layer, panel}...]}] in ascending number
+    // order, empty paths dropped (a number with nothing drawn reserves its
+    // number but is not a cable).
+    _ownOverrideRuns(layer, kind) {
+        if (!this.hasRunOverrides(layer, kind)) return [];
+        const pathsKey = kind === 'power' ? 'powerCustomPaths' : 'customPortPaths';
+        const paths = layer[pathsKey] || {};
+        return this.getOverrideNums(layer, kind)
+            .map(num => ({ num, hits: this.getResolvedPathPanels(layer, paths[num] || []) }))
+            .filter(o => o.hits.length > 0);
+    }
+
+    // The run under a canvas point in the CURRENT view, or null: the port in
+    // Data Flow, the circuit in Power, auto or hand-drawn alike. Owner is the
+    // layer whose numbering space the run lives in - for a crossing group
+    // that is the member that owns the walk, not the member under the cursor.
+    runAtPoint(worldX, worldY) {
+        const r = window.canvasRenderer;
+        if (!r || !this.project) return null;
+        const view = r.viewMode;
+        if (view !== 'data-flow' && view !== 'power') return null;
+        const hit = r.getPanelAt(worldX, worldY);
+        if (!hit) return null;
+        if (view === 'data-flow') {
+            // The dock's panel -> run map is THE lookup for this already;
+            // cached per microtask because hover asks on every mouse move.
+            if (!this._hoverDataMapCache) {
+                this._hoverDataMapCache = this._dockBuildDataMap();
+                Promise.resolve().then(() => { this._hoverDataMapCache = null; });
+            }
+            const run = this._hoverDataMapCache.get(hit.panel);
+            if (!run) return null;
+            const owner = (this.project.layers || []).find(l => l.id === run.ownerId);
+            return owner ? { kind: 'data', layer: owner, num: run.portNum } : null;
+        }
+        const under = (this.project.layers || []).find(l => l.id === hit.layerId);
+        if (!under) return null;
+        if (!(under._powerPanelCircuitMap instanceof Map)
+                && typeof r.preparePowerLayerRenderData === 'function') {
+            r.preparePowerLayerRenderData(under);
+        }
+        const circuit = (typeof r._powerCircuitForPanel === 'function')
+            ? r._powerCircuitForPanel(under, hit.panel) : null;
+        return circuit
+            ? { kind: 'power', layer: circuit.owner, num: circuit.circuitNum } : null;
+    }
+
+    // The held-modifier highlight: while Alt is down, the run under the
+    // cursor lights up with the same underlay the dock drag paints - the
+    // user's own words for the gesture ("when we hold a certain key it will
+    // highlight whatever your mouse goes over"). Re-rendered only when the
+    // lit run actually changes.
+    updateOverrideHover(active, worldX, worldY) {
+        let next = null;
+        if (active) {
+            const run = this.runAtPoint(worldX, worldY);
+            if (run) next = { layerId: run.layer.id, num: run.num, kind: run.kind };
+        }
+        const prev = this._overrideHover;
+        const same = (!prev && !next) || (prev && next
+            && prev.layerId === next.layerId && prev.num === next.num
+            && prev.kind === next.kind);
+        if (same) return;
+        this._overrideHover = next;
+        if (window.canvasRenderer) window.canvasRenderer.render();
+    }
+
+    // Alt+click on a run. Three cases, none of them a mode the user has to
+    // know about first:
+    //   * the owner is in whole-screen custom - every run is already
+    //     editable, so the click just makes that run the active one;
+    //   * the run is already overridden - reopen it for editing;
+    //   * an automatic run - take it over (overrideRun below).
+    // Returns true when the click was consumed.
+    handleOverrideClick(worldX, worldY) {
+        const run = this.runAtPoint(worldX, worldY);
+        if (!run) return false;
+        const { kind, layer: owner, num } = run;
+        const wholeCustom = kind === 'power'
+            ? this.isCustomPower(owner) : this.isCustomFlow(owner);
+        if (wholeCustom) {
+            this._activateRunForEdit(owner, kind, num, null);
+            return true;
+        }
+        if (this.isRunOverridden(owner, kind, num)) {
+            this.beginOverrideEdit(owner, kind, num);
+            return true;
+        }
+        this.overrideRun(owner, kind, num);
+        return true;
+    }
+
+    // Take one automatic run over: seed its path with the cabinets it carries
+    // RIGHT NOW, in the order the walk feeds them - so nothing on the canvas
+    // moves at the moment of entry - reserve its number, and open it for
+    // editing. ONE undo step for the whole transition.
+    overrideRun(owner, kind, num) {
+        if (!owner || !num) return;
+        const hits = this._runSeedHits(owner, kind, num);
+        const pathsKey = kind === 'power' ? 'powerCustomPaths' : 'customPortPaths';
+        const ovrKey = kind === 'power' ? 'powerCustomOverrides' : 'customPortOverrides';
+        if (kind === 'power') this.ensureCustomPowerState(owner);
+        else this.ensureCustomFlowState(owner);
+        owner[pathsKey][num] = hits.map(h => this.makePathEntry(owner, h.layer, h.panel));
+        const nums = this.getOverrideNums(owner, kind);
+        if (!nums.includes(num)) nums.push(num);
+        owner[ovrKey] = nums.sort((a, b) => a - b);
+        this._activateRunForEdit(owner, kind, num,
+            kind === 'power' ? 'Override Circuit' : 'Override Port');
+        if (typeof sendClientLog === 'function') {
+            sendClientLog('override_run', {
+                kind, layerId: owner.id, num, seeded: hits.length,
+            });
+        }
+    }
+
+    // Reopen an existing override for editing. The only model change is the
+    // active index, so the undo entry is the one that change has always had.
+    beginOverrideEdit(owner, kind, num) {
+        if (!this.isRunOverridden(owner, kind, num)) return;
+        this._activateRunForEdit(owner, kind, num, null);
+    }
+
+    // The shared tail of every entry path: select the owner, point the active
+    // index at the run, raise the session editing state, persist, refresh.
+    // `undoLabel` names the ONE undo step when the caller already mutated the
+    // model (overrideRun); null means only the index may have moved and the
+    // step is the ordinary index change - or nothing at all.
+    _activateRunForEdit(owner, kind, num, undoLabel) {
+        if (this.currentLayer !== owner && typeof this.selectLayer === 'function') {
+            this.selectLayer(owner);
+        }
+        const idxKey = kind === 'power' ? 'powerCustomIndex' : 'customPortIndex';
+        const idxChanged = (owner[idxKey] || 1) !== num;
+        owner[idxKey] = num;
+        const wholeCustom = kind === 'power'
+            ? this.isCustomPower(owner) : this.isCustomFlow(owner);
+        this._overrideEditing = wholeCustom
+            ? null : { layerId: owner.id, kind, num };
+        const label = undoLabel || (idxChanged
+            ? (kind === 'power' ? 'Power Custom Circuit Change' : 'Custom Port Change')
+            : null);
+        if (label) {
+            this.saveState(label);
+            this.saveClientSideProperties();
+            this.updateLayers(this._pathPersistLayers(owner));
+        }
+        if (kind === 'power') {
+            this.updatePowerCapacityDisplay();
+            this.updateCustomPowerUI();
+        } else {
+            this.updatePortCapacityDisplay();
+            this.updateCustomFlowUI();
+            this.updatePortLabelEditor();
+        }
+        if (window.canvasRenderer) window.canvasRenderer.render();
+    }
+
+    // Close the open override edit. No model change - the override and its
+    // path stay exactly as drawn - so no undo entry.
+    endOverrideEdit() {
+        if (!this._overrideEditing) return;
+        const wasPower = this._overrideEditing.kind === 'power';
+        this._overrideEditing = null;
+        if (wasPower) {
+            if (this.powerCustomSelection) this.powerCustomSelection.clear();
+            this.updateCustomPowerUI();
+        } else {
+            if (this.customSelection) this.customSelection.clear();
+            this.updateCustomFlowUI();
+        }
+        if (window.canvasRenderer) window.canvasRenderer.render();
+    }
+
+    // Hand one overridden run back to the automatic walk: the override and
+    // its drawn path go, and the engine re-flows the freed cabinets on the
+    // next pass. One named undo step puts the drawing back.
+    returnRunToAuto(owner, kind, num) {
+        if (!owner || !this.isRunOverridden(owner, kind, num)) return;
+        const pathsKey = kind === 'power' ? 'powerCustomPaths' : 'customPortPaths';
+        const ovrKey = kind === 'power' ? 'powerCustomOverrides' : 'customPortOverrides';
+        owner[ovrKey] = this.getOverrideNums(owner, kind).filter(n => n !== num);
+        if (owner[pathsKey]) delete owner[pathsKey][num];
+        const s = this._overrideEditing;
+        if (s && s.layerId === owner.id && s.kind === kind && s.num === num) {
+            this._overrideEditing = null;
+        }
+        this.saveState(kind === 'power' ? 'Return Circuit To Auto' : 'Return Port To Auto');
+        this.saveClientSideProperties();
+        this.updateLayers(this._pathPersistLayers(owner));
+        if (kind === 'power') {
+            this.updatePowerCapacityDisplay();
+            this.updateCustomPowerUI();
+        } else {
+            this.updatePortCapacityDisplay();
+            this.updateCustomFlowUI();
+            this.updatePortLabelEditor();
+        }
+        if (typeof sendClientLog === 'function') {
+            sendClientLog('return_run_to_auto', { kind, layerId: owner.id, num });
+        }
+        if (window.canvasRenderer) window.canvasRenderer.render();
+    }
+
+    // The cabinets one run carries right now, in feed order, resolved to
+    // {layer, panel} so a crossing run seeds with the peer's real cabinets.
+    _runSeedHits(owner, kind, num) {
+        const scope = (typeof this.getPathScopeLayers === 'function')
+            ? this.getPathScopeLayers(owner) : [owner];
+        const byId = new Map(scope.map(l => [l.id, l]));
+        const resolve = (layerId) => (layerId === undefined || layerId === null)
+            ? owner : (byId.get(layerId) || owner);
+        if (kind === 'data') {
+            return (this.calculatePortAssignments(owner) || [])
+                .filter(item => item && item.port === num && item.panel && !item.panel.hidden)
+                .map(item => ({ layer: resolve(item.layerId), panel: item.panel }));
+        }
+        const res = this.calculatePowerAssignments(owner) || { circuits: [] };
+        const circuits = res.circuits || [];
+        const idx = res.nums ? res.nums.indexOf(num) : num - 1;
+        if (idx < 0 || !circuits[idx]) return [];
+        const owners = res.layers ? res.layers[idx] : null;
+        return circuits[idx].map((panel, i) => ({
+            layer: (owners && owners[i]) ? owners[i] : owner,
+            panel,
+        }));
+    }
+
+    // The context-menu offers for a right-click on a run: "Redraw ..." on any
+    // run the gesture could take over, plus "... back to auto" only where an
+    // override actually exists to drop - the house rule that a menu only
+    // shows what applies. Null anywhere the cursor is not on a run, and in
+    // whole-screen custom, where redrawing is the whole mode already.
+    _prepareOverrideMenu(x, y) {
+        const r = window.canvasRenderer;
+        if (!r || !r.canvas) return null;
+        if (r.viewMode !== 'data-flow' && r.viewMode !== 'power') return null;
+        const rect = r.canvas.getBoundingClientRect();
+        if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+            return null;
+        }
+        const worldY = ((y - rect.top) - r.panY) / r.zoom;
+        const worldX = r._unmirrorWorldX(((x - rect.left) - r.panX) / r.zoom, worldY);
+        const run = this.runAtPoint(worldX, worldY);
+        if (!run) return null;
+        const { kind, layer: owner, num } = run;
+        if (kind === 'power' ? this.isCustomPower(owner) : this.isCustomFlow(owner)) {
+            return null;
+        }
+        const noun = kind === 'power'
+            ? `circuit ${this.getPowerCircuitLabel(owner, num)}`
+            : `port ${this.getPortLabelText(owner, num, 'primary')}`;
+        const overridden = this.isRunOverridden(owner, kind, num);
+        return {
+            redraw: {
+                label: `Redraw ${noun}`,
+                title: overridden
+                    ? 'Reopen this hand-drawn run: click cabinets to extend it, '
+                        + 'arrow keys to walk it, Esc when done.'
+                    : 'Take this run over from automatic routing. It keeps the '
+                        + 'cabinets it has now; click cabinets to redraw it, and '
+                        + 'the rest of the screen re-flows around it.',
+                run: () => (overridden
+                    ? this.beginOverrideEdit(owner, kind, num)
+                    : this.overrideRun(owner, kind, num)),
+            },
+            backToAuto: overridden ? {
+                label: `${noun.charAt(0).toUpperCase()}${noun.slice(1)} back to auto`,
+                title: 'Drop the hand-drawn run; automatic routing takes its '
+                    + 'cabinets back. Undo puts the drawing back.',
+                run: () => this.returnRunToAuto(owner, kind, num),
+            } : null,
+        };
+    }
+
     /**
      * The layers a path edit has to PUT. updateLayers only sends what it is
      * handed (plus peers a shared-field edit left pending), and clicking a
@@ -4821,7 +5139,7 @@ class _Power {
      */
     addPanelToCustomPath(panel, panelLayer = null) {
         if (!this.currentLayer || !panel || panel.hidden) return;
-        if (!this.isCustomFlow(this.currentLayer)) return;
+        if (!this.isCustomFlowEditing(this.currentLayer)) return;
         if (this.customSelection.size > 0) return;
         const owner = this.currentLayer;
         const source = this._resolvePathPanelLayer(owner, panel, panelLayer);
@@ -4864,7 +5182,7 @@ class _Power {
 
     addPanelToCustomPowerPath(panel, panelLayer = null) {
         if (!this.currentLayer || !panel || panel.hidden) return;
-        if (!this.isCustomPower(this.currentLayer)) return;
+        if (!this.isCustomPowerEditing(this.currentLayer)) return;
         if (this.powerCustomSelection.size > 0) return;
         const owner = this.currentLayer;
         const source = this._resolvePathPanelLayer(owner, panel, panelLayer);
@@ -5032,7 +5350,7 @@ class _Power {
         if (!this.currentLayer) return false;
         const isPower = window.canvasRenderer && window.canvasRenderer.viewMode === 'power';
         if (isPower) {
-            if (!this.isCustomPower(this.currentLayer)) return false;
+            if (!this.isCustomPowerEditing(this.currentLayer)) return false;
             this.ensureCustomPowerState(this.currentLayer);
             const circuitNum = this.currentLayer.powerCustomIndex || 1;
             const path = this.currentLayer.powerCustomPaths[circuitNum] || [];
@@ -5041,7 +5359,7 @@ class _Power {
             if (next) this.addPanelToCustomPowerPath(next.panel, next.layer);
             return true;
         }
-        if (!this.isCustomFlow(this.currentLayer)) return false;
+        if (!this.isCustomFlowEditing(this.currentLayer)) return false;
         this.ensureCustomFlowState(this.currentLayer);
         const portNum = this.currentLayer.customPortIndex || 1;
         const path = this.currentLayer.customPortPaths[portNum] || [];
@@ -5189,7 +5507,7 @@ class _Power {
 
     applyPatternToSelection(pattern) {
         if (!this.currentLayer || !window.canvasRenderer) return;
-        if (!this.isCustomFlow(this.currentLayer)) return;
+        if (!this.isCustomFlowEditing(this.currentLayer)) return;
         if (this.customSelection.size === 0) return;
 
         // The PORT stays on currentLayer even when the selection spans peers -
@@ -5250,7 +5568,7 @@ class _Power {
 
     applyPowerPatternToSelection(pattern) {
         if (!this.currentLayer || !window.canvasRenderer) return;
-        if (!this.isCustomPower(this.currentLayer)) return;
+        if (!this.isCustomPowerEditing(this.currentLayer)) return;
         if (this.powerCustomSelection.size === 0) return;
 
         // Same ownership rule as applyPatternToSelection: the CIRCUIT belongs

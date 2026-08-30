@@ -19,8 +19,9 @@ The model under test:
     LAW: it claims exactly its tails in any box, before any dealing, and
     is never rearranged. An unstored member lands on the box's remaining
     free tails; layer order decides only among unstored members. Two
-    STORED sets on one tail is a CLASH, said out loud (tile face,
-    lrd-tile-clash) the way port assignment reports an occupied socket.
+    STORED sets on one tail is a CLASH, said out loud (the clashing
+    circuit chips, the multi section's hw-dock-multi-clash, the dock's
+    issue strip) the way port assignment reports an occupied socket.
     Joining an occupied box stamps the incumbents' rendered tails into
     their own stores first - what was showing becomes held - so a joiner
     never renumbers a wall someone may have already cabled.
@@ -69,6 +70,11 @@ def page(e2e_server, pw_browser):
     pg.goto(e2e_server, wait_until='domcontentloaded')
     pg.wait_for_timeout(2000)  # socket connect + app init
     pg.evaluate(HELPERS_JS)
+    # The hardware dock is the one power UI surface now (the Power sidebar
+    # is gone) and it only renders in the power view - open it once for the
+    # tests that read the multi headers, chips and issue strip.
+    pg.locator('[data-mode="power"]').click()
+    pg.wait_for_timeout(500)
     yield pg
     context.close()
 
@@ -503,9 +509,21 @@ def test_no_pins_keeps_todays_numbering_and_labels(page):
     assert out['planB'][0]['number'] == 2
 
 
-# ── 8. the tiles say one box, and the pick reads as the join ──────────────
+# ── 8. the dock says one box, and the strip says what is wrong ────────────
+#
+# The soca tiles died with the Power sidebar; the shared box's facts moved
+# onto the hardware dock. One multi SECTION per box, and (ruling 2026-08-30,
+# user screenshot of "SR1 [100ft] SR1 [100ft] SR1 [100ft]") ONE name field
+# and ONE home-run length field regardless of member count - a multi shared
+# by N screens is ONE physical box with ONE home run. The fields anchor on
+# the FIRST member's keys (power-soca-name-<layerId>-<socaIdx>) and write
+# through to every member; the other members' field keys no longer exist in
+# the DOM. The detail reads "<legs> circuits · <amps> A" and the glance
+# "<used>/6". The six circuit chips name holder and label per tail, and
+# clashes go red on the chips, on the section (hw-dock-multi-clash) and as
+# rows on the issue strip (#hw-dock-issues).
 
-SHOW_TILES_JS = """(cfg) => {
+SHOW_BOX_JS = """(cfg) => {
     const sh = window.__sh;
     const app = window.app;
     const { A, B, project } = sh.ncmf();
@@ -518,18 +536,44 @@ SHOW_TILES_JS = """(cfg) => {
     return sh.withProject(project, () => {
         const savedLayer = app.currentLayer;
         try {
-            app.currentLayer = cfg && cfg.first ? A : B;
+            app.currentLayer = B;
             app._circuitTailCache = null;
-            app.refreshSocaRuns();
-            const txt = el => el ? el.textContent.replace(/\\s+/g, ' ').trim() : null;
-            const tile = document.querySelector('#power-soca-runs .power-soca-row');
-            const sel = tile.querySelector('.power-soca-number');
+            app.renderHardwareDock();
+            const txt = el => el
+                ? el.textContent.replace(/\\s+/g, ' ').trim() : null;
+            const nameA = document.querySelector(
+                '[data-lrd-field="power-soca-name-1-1"]');
+            const nameB = document.querySelector(
+                '[data-lrd-field="power-soca-name-2-1"]');
+            const head = nameA && nameA.closest('.hw-dock-head-row');
+            const sec = nameA && nameA.closest('.hw-dock-multi');
+            const chips = sec ? [...sec.querySelectorAll('.lrd-tile')]
+                .map(t => {
+                    const lines = t.querySelectorAll('.lrd-tile-line');
+                    return {
+                        line: txt(lines[0]), who: txt(lines[1]),
+                        clash: t.classList.contains('lrd-tile-clash'),
+                        box: t.dataset.lrdTileBox || null,
+                    };
+                }) : null;
             return {
-                face: txt(tile.querySelector('.lrd-tile-face')),
-                clashClass: tile.classList.contains('lrd-tile-clash'),
-                note: txt(tile.querySelector('.power-soca-share-note')),
-                options: sel ? [...sel.options].map(o => o.textContent.trim()) : null,
-                selected: sel ? sel.value : null,
+                oneField: !!(nameA && !nameB),
+                placeholder: nameA && nameA.placeholder,
+                staticLabel: !!(head
+                    && head.querySelector('.hw-dock-unit-name')),
+                detail: sec
+                    ? txt(sec.querySelector('.hw-dock-unit-info')) : null,
+                glance: sec
+                    ? txt(sec.querySelector('.hw-dock-unit-use')) : null,
+                clashClass: !!(sec
+                    && sec.classList.contains('hw-dock-multi-clash')),
+                chips,
+                strip: [...document.querySelectorAll(
+                    '#hw-dock-issues .hw-dock-issue')].map(r => ({
+                        text: txt(r),
+                        mild: r.classList.contains('hw-dock-issue-mild'),
+                    })),
+                retiredPanel: !!document.getElementById('power-soca-runs'),
             };
         } finally {
             app.currentLayer = savedLayer;
@@ -538,29 +582,61 @@ SHOW_TILES_JS = """(cfg) => {
 }"""
 
 
-def test_tile_face_reads_one_box_not_two_multis(page):
-    """The joined tile's face carries the shared name and THIS screen's
-    tails - a tech glancing at the panel sees one box - and the body names
-    every member with its tails. The number select annotates the occupied
-    slot with who holds it, so picking it reads as the join."""
-    out = page.evaluate(SHOW_TILES_JS, {})
-    assert out['face'] == 'C2-3 · tails 4-6 · 15.0 A'
+def test_dock_multi_reads_one_box_not_two_multis(page):
+    """The shared box is ONE multi section on the dock with ONE name field
+    (ruling 2026-08-30: one physical box, one home run - N identical
+    member pairs were N-1 too many), keyed by the FIRST member and
+    wearing the derived shared name as placeholder; the second member's
+    field key exists nowhere. The detail and glance carry the combined
+    figures, and the chips name each member on exactly its tails. The
+    slot is stated by the chips' own box key (multi-<distro>-<n>) - the
+    old Distro/No. selects and their panel are gone: picking a slot is
+    the dock's drag."""
+    out = page.evaluate(SHOW_BOX_JS, {})
+    assert not out['retiredPanel'], \
+        'the retired Power sidebar soca panel is back'
+    assert out['oneField'], (
+        f'the shared box must carry exactly ONE name field, anchored on '
+        f'the first member\'s key: {out}')
+    assert out['placeholder'] == 'C2-3', \
+        'the one field reads as the shared derived name'
+    assert not out['staticLabel'], \
+        'an occupied box wears its members, not a static slot label'
+    assert out['detail'] == '6 circuits · 30.0 A', out
+    assert out['glance'] == '6/6', out
     assert not out['clashClass']
-    assert out['note'] == ('One physical multi — ON SL STRIP tails 1-3 · '
-                           'CEN SL STRIP tails 4-6')
-    assert out['selected'] == '3'
-    assert out['options'][0] == 'Auto'
-    assert '3 — with ON SL STRIP' in out['options']
+    assert [c['box'] for c in out['chips']] == ['multi-d1-3'] * 6, (
+        f'every chip states the slot it belongs to: {out["chips"]}')
+    assert [c['line'] for c in out['chips']] == [
+        '1 C2-3-1', '2 C2-3-2', '3 C2-3-3',
+        '4 C2-3-4', '5 C2-3-5', '6 C2-3-6'], out['chips']
+    assert [c['who'] for c in out['chips']] == (
+        ['ON SL STRIP'] * 3 + ['CEN SL STRIP'] * 3), out['chips']
+    assert not any(c['clash'] for c in out['chips'])
+    assert out['strip'] == [], (
+        f'a healthy box raises no strip question: {out["strip"]}')
 
 
-def test_tile_wears_the_clash(page):
-    """A tail collision wears the same clash dress a double-booked port tile
-    wears: lrd-tile-clash on the tile, TAIL CLASH on the face, and the body
-    names the tails claimed twice."""
-    out = page.evaluate(SHOW_TILES_JS, {"clash": True})
-    assert out['clashClass']
-    assert 'TAIL CLASH' in out['face']
-    assert 'claimed twice' in out['note'] and '1-3' in out['note']
+def test_dock_wears_the_clash(page):
+    """A tail collision wears the same clash dress a double-booked port
+    chip wears: lrd-tile-clash on the claimed chips (their face saying
+    'clash' and both labels), hw-dock-multi-clash on the box's section,
+    and one red strip row per tail naming both claimants."""
+    out = page.evaluate(SHOW_BOX_JS, {"clash": True})
+    assert out['clashClass'], 'the section must wear hw-dock-multi-clash'
+    chips = out['chips']
+    assert [c['clash'] for c in chips] == [True] * 3 + [False] * 3, chips
+    assert [c['who'] for c in chips[:3]] == ['clash'] * 3, chips
+    assert [c['line'] for c in chips[:3]] == [
+        '1 C2-3-1 / C2-3-1', '2 C2-3-2 / C2-3-2', '3 C2-3-3 / C2-3-3'], \
+        'a clashing chip prints BOTH claims - the duplicate IS the report'
+    reds = [r for r in out['strip'] if 'claimed twice' in r['text']]
+    assert len(reds) == 3, f'one strip row per claimed tail: {out["strip"]}'
+    assert all(not r['mild'] for r in reds), 'a clash is a red question'
+    for t, r in zip((1, 2, 3), reds):
+        assert f'C2 3 circuit {t} is claimed twice' in r['text'], r
+        assert f'ON SL STRIP C2-3-{t}' in r['text'] \
+            and f'CEN SL STRIP C2-3-{t}' in r['text'], r
 
 
 # ── 9. persistence + undo, against the real server ────────────────────────
@@ -609,6 +685,97 @@ def test_pin_round_trips_and_undoes_on_the_real_server(page):
     assert out['serverPin'] == {'1': 4}, \
         'the pin must survive the PUT allow-list and the echo re-stamp'
     assert out['clientAfterUndo'] == {}, 'one undo removes the pin'
+
+
+def test_one_field_writes_through_every_member_and_one_undo_walks_back(page):
+    """Ruling 2026-08-30 (user screenshot of "SR1 [100ft] SR1 [100ft]
+    SR1 [100ft]"): a shared box is ONE physical box with ONE home run, so
+    its header carries ONE name field and ONE length field, anchored on
+    the FIRST member's keys. The field shows the first member's stored
+    value even when legacy per-member values disagree, and a commit
+    writes through to EVERY member - one history entry, one PUT batch -
+    so the first edit converges the disagreement and one undo walks all
+    members back."""
+    out = page.evaluate("""async () => {
+        const app = window.app;
+        const mk = (name, ox) => fetch('/api/layer/add', { method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, columns: 3, rows: 5,
+                cabinet_width: 128, cabinet_height: 128,
+                offset_x: ox, offset_y: 0 }) }).then(r => r.json());
+        const a = await mk('ShareOneA', 3000);
+        const b = await mk('ShareOneB', 3700);
+        app.project = await (await fetch('/api/project')).json();
+        const A = app.project.layers.find(l => l.id === a.id);
+        const B = app.project.layers.find(l => l.id === b.id);
+        for (const L of [A, B]) {
+            L.powerVoltage = '100'; L.powerAmperage = '5';
+            L.panelWatts = '100'; L.powerOrganized = true;
+            L.powerMaximize = false; L.powerFlowPattern = 'tl-v';
+        }
+        if (!app.project.distros) app.project.distros = [];
+        app.project.distros.push({ id: 'd78', name: 'WT', ratingA: 400,
+                                   voltage: 208, phase: 3 });
+        // one box - both pinned to (d78, 1) - with DISAGREEING legacy
+        // per-member values, the state the old two-field header could
+        // leave behind
+        A.powerSocaDistro = { 1: 'd78' }; A.powerSocaNumber = { 1: 1 };
+        B.powerSocaDistro = { 1: 'd78' }; B.powerSocaNumber = { 1: 1 };
+        A.powerSocaNames = { 1: 'FIRST' };
+        B.powerSocaNames = { 1: 'SECOND' };
+        A.powerSocaLengths = { 1: '50ft' };
+        B.powerSocaLengths = { 1: '75ft' };
+        app._circuitTailCache = null;
+        app.renderHardwareDock();
+        // Baseline the hand-stamped seed state: undo restores the PREVIOUS
+        // history entry, and the direct mutations above never snapshotted.
+        app.saveState('Seed Shared Box');
+        const q = (k) => document.querySelector(
+            `[data-lrd-field="${k}"]`);
+        const nameField = q(`power-soca-name-${a.id}-1`);
+        const lenField = q(`power-soca-length-${a.id}-1`);
+        const shown = {
+            name: nameField && nameField.value,
+            len: lenField && lenField.value,
+            secondMemberField: !!q(`power-soca-name-${b.id}-1`)
+                || !!q(`power-soca-length-${b.id}-1`),
+        };
+        const h0 = app.history.length;
+        nameField.value = 'HOUSE';
+        nameField.dispatchEvent(new Event('change'));
+        await new Promise(r => setTimeout(r, 800));
+        const entries = app.history.slice(h0).map(e => e.action);
+        const client = [A, B].map(L => (L.powerSocaNames || {})['1']
+                                        || (L.powerSocaNames || {})[1]);
+        const server = await (await fetch('/api/project')).json();
+        const sVals = [a.id, b.id].map(id => {
+            const l = server.layers.find(x => x.id === id) || {};
+            return (l.powerSocaNames || {})['1'];
+        });
+        await app.undo();
+        await new Promise(r => setTimeout(r, 800));
+        const walked = [a.id, b.id].map(id => {
+            const l = app.project.layers.find(x => x.id === id);
+            return ((l && l.powerSocaNames) || {})['1']
+                || ((l && l.powerSocaNames) || {})[1];
+        });
+        await fetch('/api/layer/' + a.id, { method: 'DELETE' });
+        await fetch('/api/layer/' + b.id, { method: 'DELETE' });
+        return { shown, entries, client, sVals, walked };
+    }""")
+    assert not out['shown']['secondMemberField'], (
+        f'the second member grew its own field - one box, one pair: {out}')
+    assert out['shown'] == {'name': 'FIRST', 'len': '50ft',
+                            'secondMemberField': False}, (
+        f'disagreeing legacy values must show the FIRST member\'s: {out}')
+    assert out['entries'] == ['Rename Multi'], (
+        f'one commit must be exactly one history entry: {out["entries"]}')
+    assert out['client'] == ['HOUSE', 'HOUSE'], (
+        f'the commit must write through to every member: {out}')
+    assert out['sVals'] == ['HOUSE', 'HOUSE'], (
+        f'the write-through must land on the server for both members: {out}')
+    assert out['walked'] == ['FIRST', 'SECOND'], (
+        f'one undo must walk every member back: {out}')
 
 
 # ── 10. multi splits: a chosen boundary, not fixed arithmetic ─────────────
@@ -841,14 +1008,24 @@ def test_split_round_trips_and_undoes_on_the_real_server(page):
     assert out['clientAfterUndo'] == [], 'one undo removes the split'
 
 
-def test_split_controls_live_in_the_tile_editor(page):
-    """The gesture is the tile's: a multi with more than one circuit offers
-    "Split… / after <label>" in its open editor, the part whose end is a
-    stored boundary offers Un-split, and a 1-leg part offers no split."""
+def test_multi_name_and_length_edit_on_the_dock_header(page):
+    """The soca tiles died with the Power sidebar; a multi's NAME and
+    home-run LENGTH edit inline on its dock multi header (keys
+    power-soca-name-<layerId>-<idx> / power-soca-length-<layerId>-<idx>,
+    the length wearing hw-dock-name-len), and the slot is stated by the
+    section's own chips (data-lrd-tile-box "multi-<distro>-<n>") in place
+    of the old read-only where line. Split and un-split never came back as
+    controls: dropping a slot chip on a later circuit IMPLIES the boundary
+    (splitSocaOnto, above; dragged for real in test_hardware_dock.py) and
+    right-click merges back. An UNASSIGNED multi has no dock section, so
+    no name or length editor until it lands on a distro - the new
+    contract: the dock shows hardware, and an unassigned part is only
+    spare demand."""
     out = page.evaluate("""() => {
         const sh = window.__sh;
-        const S = sh.screen({ id: 48, name: 'SplitUI', columns: 3 });
-        return sh.withProject({ layers: [S], distros: [] }, () => {
+        const S = sh.screen({ id: 48, name: 'SplitUI', columns: 3,
+            powerSocaDistro: { 1: 'd1' } });
+        return sh.withProject({ layers: [S], distros: [sh.distro()] }, () => {
             const app = window.app;
             const savedLayer = app.currentLayer;
             try {
@@ -856,95 +1033,248 @@ def test_split_controls_live_in_the_tile_editor(page):
                 app._circuitTailCache = null;
                 app.splitSocaAfter(S, 1, 2);
                 app._circuitTailCache = null;
-                app.refreshSocaRuns();
-                const tiles = [...document.querySelectorAll(
-                    '#power-soca-runs .power-soca-row')];
-                return tiles.map(t => ({
-                    split: [...(t.querySelector('.power-soca-split')
-                        || { options: [] }).options].map(o => o.textContent.trim()),
-                    unsplit: !!t.querySelector('.power-soca-unsplit'),
-                }));
+                app.renderHardwareDock();
+                const q = k => document.querySelector(
+                    `[data-lrd-field="${k}"]`);
+                const name1 = q('power-soca-name-48-1');
+                const len1 = q('power-soca-length-48-1');
+                const head = name1 && name1.closest('.hw-dock-head-row');
+                const sec = name1 && name1.closest('.hw-dock-multi');
+                return {
+                    name1: !!name1,
+                    len1: !!len1,
+                    lenClass: !!(len1
+                        && len1.classList.contains('hw-dock-name-len')),
+                    lenPlaceholder: len1 && len1.placeholder,
+                    sameHead: !!(head && len1 && head.contains(len1)),
+                    name2: !!q('power-soca-name-48-2'),
+                    len2: !!q('power-soca-length-48-2'),
+                    splitControls: !!document.querySelector(
+                        '.power-soca-split, .power-soca-unsplit'),
+                    boxes: sec ? [...sec.querySelectorAll(
+                        '[data-lrd-tile-box]')].map(
+                            t => t.dataset.lrdTileBox) : null,
+                };
             } finally { app.currentLayer = savedLayer; }
         });
     }""")
-    assert len(out) == 2, out
-    # part 1 (2 legs, user boundary at its end): split offer + Un-split
-    assert out[0]['split'][0] == 'Split…' and len(out[0]['split']) == 2
-    assert out[0]['unsplit'] is True
-    # part 2 (1 leg): nothing to split, no boundary at its end
-    assert out[1]['split'] == [] and out[1]['unsplit'] is False
+    assert out['name1'] and out['len1'], (
+        f'the assigned part must edit name and length on its header: {out}')
+    assert out['sameHead'], f'name and length ride ONE multi header: {out}'
+    assert out['lenClass'] and out['lenPlaceholder'] == '100ft', out
+    assert not out['name2'] and not out['len2'], (
+        f'an unassigned multi has no dock section to edit on: {out}')
+    assert not out['splitControls'], (
+        f'split controls came back as UI: {out}')
+    assert out['boxes'] == ['multi-d1-1', 'multi-d1-1'], (
+        f'the chips state the slot the old where line stated: {out}')
+
+
+# ── 10b. the drop-implied split: the boundary falls out of the drop ───────
+#
+# splitSocaOnto is the engine under app-dock's slot drop: a multi slot
+# dropped on a circuit that is NOT the first of its multi splits the multi
+# there and the tail-end circuits take the dropped (distro, number) in the
+# same motion. Real pointer drags exercising it live in
+# test_hardware_dock.py; here the composition itself is pinned.
+
+def test_split_onto_splits_and_assigns_in_one_motion(page):
+    """Dropping box (d1, No. 2) on the 3rd circuit of a 4-circuit multi:
+    split after 2, the tail part takes the pin - the stores land exactly as
+    the old Split-select-then-number-pick pair left them."""
+    out = page.evaluate("""() => {
+        const sh = window.__sh;
+        const S = sh.screen({ id: 51, name: 'DropSplit', columns: 4 });
+        return sh.withProject({ layers: [S], distros: [sh.distro()] }, () => {
+            const app = window.app;
+            app._circuitTailCache = null;
+            const r = app.splitSocaOnto(S, 1, 2, 'd1', 2);
+            app._circuitTailCache = null;
+            return {
+                r,
+                splits: S.powerSocaSplits,
+                distro: S.powerSocaDistro, num: S.powerSocaNumber,
+                shape: app.getSocaPlan(S).map(s =>
+                    ({ soca: s.soca, legs: s.legs.length })),
+            };
+        });
+    }""")
+    assert out['r'] == {'ok': True, 'took': 2, 'tailLen': 2, 'free': 6}, out
+    assert out['splits'] == [2]
+    assert out['distro'] == {'2': 'd1'} and out['num'] == {'2': 2}, out
+    assert out['shape'] == [{'soca': 1, 'legs': 2}, {'soca': 2, 'legs': 2}], out
+
+
+def test_split_onto_derives_the_center_beach_labels(page):
+    """The CEN SL US arrangement in ONE gesture: the remainder joins the
+    OFF SL US box (No. 2, tails 1-4 taken) on tails 5-6 and derives C2-2-5,
+    C2-2-6 - the strings the user used to hand-type - with the head keeping
+    its own multi."""
+    out = page.evaluate("""() => {
+        const sh = window.__sh;
+        const OFF = sh.screen({ id: 52, name: 'OFF SL US', columns: 4,
+            powerSocaDistro: { 1: 'd1' }, powerSocaNumber: { 1: 2 } });
+        const CEN = sh.screen({ id: 53, name: 'CEN SL US', columns: 4,
+            offset_x: 1000, powerSocaDistro: { 1: 'd1' } });
+        return sh.withProject(
+            { layers: [OFF, CEN], distros: [sh.distro()] }, () => {
+            const app = window.app;
+            app._circuitTailCache = null;
+            const r = app.splitSocaOnto(CEN, 1, 2, 'd1', 2);
+            const labels = sh.labelsOf(CEN);
+            const share = sh.shareOf(CEN, 2);
+            return {
+                ok: r.ok, labels,
+                clash: !!(share && (share.clash || share.overflow)),
+                tails: share && share.members.map(m =>
+                    ({ layer: m.layerName, tails: m.tails })),
+            };
+        });
+    }""")
+    assert out['ok'] is True
+    assert out['labels'][2:] == ['C2-2-5', 'C2-2-6'], out
+    assert out['clash'] is False
+    assert out['tails'] == [
+        {'layer': 'OFF SL US', 'tails': [1, 2, 3, 4]},
+        {'layer': 'CEN SL US', 'tails': [5, 6]}], out
+
+
+def test_split_onto_takes_what_fits_and_leaves_the_rest(page):
+    """place-overflow's convention, in tails: the box holds one free tail
+    (an incumbent pinned on 5), the drop offers four circuits - one lands,
+    on the box's last tail, and the other three become their own multi,
+    UNASSIGNED and visible as spare, never rammed onto the full fan as an
+    overflow clash."""
+    out = page.evaluate("""() => {
+        const sh = window.__sh;
+        const OFF = sh.screen({ id: 54, name: 'BigWall', columns: 5,
+            powerSocaDistro: { 1: 'd1' }, powerSocaNumber: { 1: 2 } });
+        const B = sh.screen({ id: 55, name: 'Joiner', columns: 6,
+            offset_x: 1000 });
+        return sh.withProject(
+            { layers: [OFF, B], distros: [sh.distro()] }, () => {
+            const app = window.app;
+            app._circuitTailCache = null;
+            const r = app.splitSocaOnto(B, 1, 2, 'd1', 2);
+            const share = sh.shareOf(B, 2);
+            return {
+                r,
+                splits: B.powerSocaSplits,
+                distro: B.powerSocaDistro, num: B.powerSocaNumber,
+                shape: app.getSocaPlan(B).map(s =>
+                    ({ soca: s.soca, legs: s.legs.length,
+                       distro: s.distroId || null })),
+                clash: !!(share && (share.clash || share.overflow)),
+                joinedTail: sh.labelsOf(B)[2],
+            };
+        });
+    }""")
+    assert out['r'] == {'ok': True, 'took': 1, 'tailLen': 4, 'free': 1}, out
+    assert out['splits'] == [2, 3], out
+    assert out['distro'] == {'2': 'd1'} and out['num'] == {'2': 2}, out
+    assert out['shape'] == [
+        {'soca': 1, 'legs': 2, 'distro': None},
+        {'soca': 2, 'legs': 1, 'distro': 'd1'},
+        {'soca': 3, 'legs': 3, 'distro': None}], out
+    assert out['clash'] is False, 'take-what-fits must never overflow the box'
+    assert out['joinedTail'] == 'C2-2-6', out
+
+
+def test_split_onto_refuses_a_full_box_and_moves_nothing(page):
+    """No free tail means the drop refuses outright - the split does not
+    happen for nothing, so every store stays byte-identical."""
+    out = page.evaluate("""() => {
+        const sh = window.__sh;
+        const OFF = sh.screen({ id: 56, name: 'FullWall', columns: 6,
+            powerSocaDistro: { 1: 'd1' }, powerSocaNumber: { 1: 2 } });
+        const B = sh.screen({ id: 57, name: 'Joiner', columns: 4,
+            offset_x: 1000 });
+        return sh.withProject(
+            { layers: [OFF, B], distros: [sh.distro()] }, () => {
+            const app = window.app;
+            app._circuitTailCache = null;
+            const r = app.splitSocaOnto(B, 1, 2, 'd1', 2);
+            return {
+                r,
+                splits: B.powerSocaSplits === undefined,
+                distro: B.powerSocaDistro === undefined,
+                num: B.powerSocaNumber === undefined,
+            };
+        });
+    }""")
+    assert out['r'] == {'ok': False, 'free': 0, 'tailLen': 2}, out
+    assert out['splits'] and out['distro'] and out['num'], (
+        f'a refused drop mutated a store: {out}')
 
 
 # ── 11. one name on two numbers is flagged, never blocked ─────────────────
 
-def test_same_name_on_two_numbers_flags_the_tile_and_the_join_clears_it(page):
+SAME_NAME_JS = """(joinThem) => {
+    const sh = window.__sh;
+    const app = window.app;
+    const A = sh.screen({ id: 49, name: 'WallA',
+        powerSocaDistro: { 1: 'd1' }, powerSocaNumber: { 1: 1 },
+        powerSocaNames: { 1: 'K1' } });
+    const B = sh.screen({ id: 50, name: 'WallB', offset_x: 1000,
+        powerSocaDistro: { 1: 'd1' },
+        powerSocaNumber: { 1: joinThem ? 1 : 2 },
+        powerSocaNames: { 1: 'K1' } });
+    return sh.withProject(
+        { layers: [A, B], distros: [sh.distro('SR')] }, () => {
+        const savedLayer = app.currentLayer;
+        try {
+            app.currentLayer = A;
+            app._circuitTailCache = null;
+            app.renderHardwareDock();
+            const nameA = document.querySelector(
+                '[data-lrd-field="power-soca-name-49-1"]');
+            const nameB = document.querySelector(
+                '[data-lrd-field="power-soca-name-50-1"]');
+            return {
+                rows: [...document.querySelectorAll(
+                    '#hw-dock-issues .hw-dock-issue')].map(r => ({
+                        text: r.textContent.replace(/\\s+/g, ' ').trim(),
+                        mild: r.classList.contains('hw-dock-issue-mild'),
+                    })),
+                values: [nameA && nameA.value, nameB && nameB.value],
+                fields: [!!nameA, !!nameB],
+            };
+        } finally { app.currentLayer = savedLayer; }
+    });
+}"""
+
+
+def test_same_name_on_two_numbers_warns_amber_and_the_join_clears_it(page):
     """Two multis on one distro DISPLAYING one name while pinned to two
     different numbers: the paperwork says one box, the patch says two. The
-    tile says so (SAME NAME on the face, the note naming the other holder)
-    and pinning both to one number - the shared-box gesture - clears it."""
-    out = page.evaluate("""(joinThem) => {
-        const sh = window.__sh;
-        const A = sh.screen({ id: 49, name: 'WallA',
-            powerSocaDistro: { 1: 'd1' }, powerSocaNumber: { 1: 1 },
-            powerSocaNames: { 1: 'K1' } });
-        const B = sh.screen({ id: 50, name: 'WallB', offset_x: 1000,
-            powerSocaDistro: { 1: 'd1' },
-            powerSocaNumber: { 1: joinThem ? 1 : 2 },
-            powerSocaNames: { 1: 'K1' } });
-        return sh.withProject(
-            { layers: [A, B], distros: [sh.distro('SR')] }, () => {
-            const app = window.app;
-            const savedLayer = app.currentLayer;
-            try {
-                app.currentLayer = A;
-                app._circuitTailCache = null;
-                app.refreshSocaRuns();
-                const tile = document.querySelector(
-                    '#power-soca-runs .power-soca-row');
-                const note = tile.querySelector('.power-soca-name-note');
-                return {
-                    face: tile.querySelector('.lrd-tile-face')
-                        .textContent.replace(/\\s+/g, ' ').trim(),
-                    note: note ? note.textContent.replace(/\\s+/g, ' ').trim() : null,
-                };
-            } finally { app.currentLayer = savedLayer; }
-        });
-    }""", False)
-    assert 'SAME NAME' in out['face'], out
-    assert out['note'] and 'K1' in out['note'] and 'WallB' in out['note'], out
-    assert 'No. 1' in out['note'], out
+    dock's issue strip says so - one AMBER row (a label problem, not a
+    block) naming both holders, their numbers, and the way out - stated
+    once per (distro, name) because the collision is symmetric. Pinning
+    both to one number - the shared-box gesture - clears the row and the
+    two headers become one section with ONE name field (ruling
+    2026-08-30: one physical box, one field pair - the field anchors on
+    the first member's key and the second member's key leaves the
+    DOM)."""
+    out = page.evaluate(SAME_NAME_JS, False)
+    warns = [r for r in out['rows'] if 'names two multis' in r['text']]
+    assert len(warns) == 1, (
+        f'one symmetric collision is one row, stated once: {out["rows"]}')
+    row = warns[0]
+    assert row['mild'], f'a label problem warns amber, never red: {row}'
+    for piece in ('K1 names two multis on SR', 'WallA at No. 1',
+                  'WallB at No. 2', 'Same box? Pin both to No. 1.'):
+        assert piece in row['text'], f'{piece!r} missing: {row["text"]}'
+    assert out['fields'] == [True, True], \
+        'two numbers are two boxes - a field on each header'
+    assert out['values'] == ['K1', 'K1'], out
 
-    joined = page.evaluate("""(joinThem) => {
-        const sh = window.__sh;
-        const A = sh.screen({ id: 49, name: 'WallA',
-            powerSocaDistro: { 1: 'd1' }, powerSocaNumber: { 1: 1 },
-            powerSocaNames: { 1: 'K1' } });
-        const B = sh.screen({ id: 50, name: 'WallB', offset_x: 1000,
-            powerSocaDistro: { 1: 'd1' },
-            powerSocaNumber: { 1: joinThem ? 1 : 2 },
-            powerSocaNames: { 1: 'K1' } });
-        return sh.withProject(
-            { layers: [A, B], distros: [sh.distro('SR')] }, () => {
-            const app = window.app;
-            const savedLayer = app.currentLayer;
-            try {
-                app.currentLayer = A;
-                app._circuitTailCache = null;
-                app.refreshSocaRuns();
-                const tile = document.querySelector(
-                    '#power-soca-runs .power-soca-row');
-                return {
-                    face: tile.querySelector('.lrd-tile-face')
-                        .textContent.replace(/\\s+/g, ' ').trim(),
-                    note: !!tile.querySelector('.power-soca-name-note'),
-                    share: !!tile.querySelector('.power-soca-share-note'),
-                };
-            } finally { app.currentLayer = savedLayer; }
-        });
-    }""", True)
-    assert 'SAME NAME' not in joined['face'], joined
-    assert joined['note'] is False, joined
-    assert joined['share'] is True, 'pinned to one number they are one box'
+    joined = page.evaluate(SAME_NAME_JS, True)
+    assert not any('names two multis' in r['text']
+                   for r in joined['rows']), joined['rows']
+    assert joined['fields'] == [True, False], (
+        'pinned to one number they are one box - ONE name field, the '
+        f'first member\'s: {joined}')
+    assert joined['values'][0] == 'K1', joined
 
 
 # ── 12. stored tails are law; joining materializes the incumbents ─────────

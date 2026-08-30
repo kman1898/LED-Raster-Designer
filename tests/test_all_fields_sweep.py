@@ -17,7 +17,7 @@ B. FOCUS DIES MID-EDIT. You type, press Tab, the change handler PUTs, and the
    response (or the socket `layer_updated` echo) rebuilds that part of the UI
    with `innerHTML = ''`. The field Tab had just moved into is destroyed and
    focus falls to <body>, so the next keystroke goes nowhere. Fixed for the
-   port/circuit label editors via _preserveEditorFocus(); see
+   dock's keyed chip editors via _preserveEditorFocus(); see
    tests/test_label_editor_focus.py.
 
 So this file does not test a hand-written list of fields - a list goes stale
@@ -171,12 +171,14 @@ def _discover_fields():
 # later starts writing to the layer cannot stay quietly excluded.
 SKIP = {
     'port-label-bulk-primary':
-        'staging box for the "Apply to selected" button; typing in it is not '
-        'meant to change anything until the button is pressed',
+        'staging box for the Apply button (which stamps every port of the '
+        'current screen); typing in it is not meant to change anything '
+        'until the button is pressed',
     'port-label-bulk-return':
-        'staging box for the "Apply to selected" button',
+        'staging box for the Apply button',
     'power-label-bulk':
-        'staging box for the "Apply to selected" button',
+        'staging box for the Apply button (which stamps every circuit of '
+        'the current screen)',
     # The circuit-colour trio is the same shape, and app-core.js proves it:
     # the preset <select> handler only copies its value into the two sibling
     # boxes, and the picker is wired with setupColorPickerWithHex(..., () => {})
@@ -224,6 +226,9 @@ def test_the_mode_toggles_the_sweep_relies_on_still_exist():
         assert field_key in keys, f'_MODE_TOGGLE gates a field that is gone: {field_key}'
         assert toggle.lstrip('#') in keys, (
             f'the toggle for {field_key} is gone: {toggle}')
+    for field_key in _PREPARE_JS:
+        assert field_key in keys, (
+            f'_PREPARE_JS prepares a field that is gone: {field_key}')
 
 
 def test_every_skipped_field_still_exists():
@@ -242,9 +247,9 @@ def test_every_skipped_field_still_exists():
 # destructive than most - it sets columns, cabinet size and half-tiles.
 #
 # 4x4 of the default 200W cabinet on the default 15A/110V circuit gives the
-# power editor two circuits and the data editor several ports, so the label
-# editors have rows to build. Bigger is not safer: a screen too wide to fit one
-# circuit renders "No circuits to edit."
+# power plan two circuits and the data side several ports, so the dock has
+# chips to build. Bigger is not safer: a screen too wide to fit one circuit
+# has an empty plan and no occupied circuit chips at all.
 BUILD_JS = """async () => {
     const app = window.app;
     let project = await (await fetch('/api/project')).json();
@@ -295,8 +300,8 @@ BUILD_JS = """async () => {
 
 # Put the pristine project back and re-seed every derived display the editors
 # read. _portsRequired / _powerCircuitsRequired are computed client-side, so a
-# layer straight off the server carries neither and the power label editor
-# renders "No circuits to edit."
+# layer straight off the server carries neither and the power plan (which the
+# dock's circuit chips are built from) comes up empty.
 RESET_JS = """async () => {
     const app = window.app;
     const pristine = window.__sweepPristine;
@@ -312,8 +317,6 @@ RESET_JS = """async () => {
     app.renderLayers();
     app.updatePortCapacityDisplay();
     app.updatePowerCapacityDisplay();
-    app.updatePortLabelEditor();
-    app.updatePowerLabelEditor();
     app.updatePowerCircuitColorEditor();
     if (window.canvasRenderer) window.canvasRenderer.render();
     // A clean baseline for the undo/redo check: index 0 is this state, so the
@@ -369,8 +372,11 @@ PROBE_JS = """(selector) => {
         type: (el.type || '').toLowerCase(),
         value: el.value,
         checked: !!el.checked,
+        // Disabled options are left out: a person cannot pick one, so the
+        // sweep may not either (the breakout select disables entries the
+        // screen's voltage rules out, and select_option hangs on them).
         options: el.tagName === 'SELECT'
-            ? [...el.options].map(o => o.value) : null,
+            ? [...el.options].filter(o => !o.disabled).map(o => o.value) : null,
     };
 }"""
 
@@ -564,21 +570,46 @@ def _open_tab(page, tab):
     page.wait_for_timeout(250)
 
 
+# Fields that need app-side work done before they can be probed and planned.
+# power-breakout-type is an EMPTY <select> in the markup: refreshSocaRuns()
+# fills its options from getPowerBreakoutTypes at runtime, and on this sweep's
+# own page nothing may have run it before the field's turn comes - _plan()
+# would then find a select with nothing to change to and blame the field.
+# The screen is put at 208V first: at 110V the eligibility rule (110V screens
+# take Edison only) disables every alternative, and a select with one pickable
+# option has nothing for the round-trip to change to.
+_PREPARE_JS = {
+    'power-breakout-type': """() => {
+        const v = document.getElementById('power-voltage-select');
+        if (v && v.value !== '208') {
+            v.value = '208';
+            v.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        window.app.refreshSocaRuns();
+    }""",
+}
+
+
 def _reach(page, ids, field):
     """Select a layer and open the tab that makes this field reachable.
 
     Returns (layer_type, layer_id, forced) where `forced` means the field was
     still hidden and its container had to be unhidden.
     """
+    prep = _PREPARE_JS.get(field.key)
     for kind in _KIND_ORDER[field.kind]:
         assert page.evaluate(SELECT_JS, ids[kind]), f'no {kind} layer'
         _open_tab(page, field.tab)
+        if prep:
+            page.evaluate(prep)
         probe = page.evaluate(PROBE_JS, field.selector)
         if probe['found'] and probe['visible']:
             return kind, ids[kind], False
     kind = _KIND_ORDER[field.kind][0]
     page.evaluate(SELECT_JS, ids[kind])
     _open_tab(page, field.tab)
+    if prep:
+        page.evaluate(prep)
     page.evaluate(REVEAL_JS, field.selector)
     page.wait_for_timeout(100)
     return kind, ids[kind], True
@@ -857,23 +888,23 @@ def test_field_round_trip(fresh, field):
 
 # ── 5. The editors that build their own fields ────────────────────────────
 #
-# The port and circuit label rows are not in index.html - app-power.js builds
-# them from the layer's port/circuit count, and rebuilds them with
-# `list.innerHTML = ''`. That wipe is the source of defect B, so the same four
-# checks are run over whatever rows the live page has built. The container ids
-# ARE in the template, which is what keeps this from being a hand-written list
-# of field names.
+# Two surfaces still build their controls at runtime rather than in
+# index.html: the hardware dock (app-dock.js draws a port chip per card port,
+# each holding a keyed Name/Return editor, and wipes #hardware-dock-body with
+# `innerHTML = ''` on every render) and the circuit colour list. Those wipes
+# are the source of defect B, so the checks run over whatever rows the live
+# page has built. The container ids ARE in the template, which is what keeps
+# this from being a hand-written list of field names.
 
-_EDITOR_LISTS = ['port-label-list', 'power-label-list',
-                 'power-circuit-color-list']
+_EDITOR_ANCHORS = ['hardware-dock-body', 'power-circuit-color-list']
 
 
 def test_the_editor_containers_are_still_in_the_template():
-    """The three ids above are the anchors the dynamic sweep hangs off. If one
-    is renamed, its editor drops out of the run silently."""
+    """The ids above are the anchors the dynamic sweep hangs off. If one is
+    renamed, its editor drops out of the run silently."""
     with open(TEMPLATE, encoding='utf-8') as fh:
         markup = fh.read()
-    missing = [i for i in _EDITOR_LISTS if f'id="{i}"' not in markup]
+    missing = [i for i in _EDITOR_ANCHORS if f'id="{i}"' not in markup]
     assert not missing, f'editor containers gone from the template: {missing}'
 
 EDITOR_FIELDS_JS = """(listId) => {
@@ -893,85 +924,167 @@ EDITOR_FIELDS_JS = """(listId) => {
 }"""
 
 
-@pytest.mark.parametrize('list_id', _EDITOR_LISTS)
-def test_dynamic_editor_fields_round_trip(fresh, list_id):
-    """Same four checks, over the rows the label/colour editors generate."""
+def test_power_circuit_color_list_rows_carry_keys(fresh):
+    """The colour list is genuinely checkboxes and colour swatches - the
+    colour itself is set by the picker above the list and applied to
+    whichever circuits are ticked. So there is no text to type and no caret
+    to lose, and every-row-carries-a-key is the whole contract here: it is
+    what makes _preserveEditorFocus() able to work over this list if an
+    editable field is ever added to a row."""
     page, ids = fresh
-    tab = 'data-flow' if list_id == 'port-label-list' else 'power'
     assert page.evaluate(SELECT_JS, ids['screen'])
-    _open_tab(page, tab)
-    if list_id == 'power-circuit-color-list':
-        # The colour list only exists in colour-coded view, and that toggle is
-        # itself swept above - here it is just the way in.
-        page.locator('#power-color-coded-view').click()
-        page.wait_for_timeout(600)
-    page.wait_for_timeout(300)
+    _open_tab(page, 'power')
+    # The colour list only exists in colour-coded view, and that toggle is
+    # itself swept above - here it is just the way in.
+    page.locator('#power-color-coded-view').click()
+    page.wait_for_timeout(600)
 
-    built = page.evaluate(EDITOR_FIELDS_JS, list_id)
-    assert built is not None, f'{list_id} is not in the DOM'
+    built = page.evaluate(EDITOR_FIELDS_JS, 'power-circuit-color-list')
+    assert built is not None, 'power-circuit-color-list is not in the DOM'
     rows = built['keyed']
     assert rows, (
-        f'{list_id} holds {built["controls"]} controls but not one carries a '
-        'data-lrd-field key. Focus cannot be restored into a field that has no '
-        'key, so _preserveEditorFocus() is inert over this list and defect B '
-        'is live here')
-
-    # The checkboxes in these rows pick which ports/circuits the bulk-apply
-    # button targets; they are selection state and write nothing to the layer.
+        f'power-circuit-color-list holds {built["controls"]} controls but '
+        'not one carries a data-lrd-field key. Focus cannot be restored into '
+        'a field that has no key, so _preserveEditorFocus() is inert over '
+        'this list and defect B is live here')
     text_rows = [r for r in rows if r['type'] == 'text']
-    if list_id == 'power-circuit-color-list':
-        # This list is genuinely checkboxes and colour swatches - the colour
-        # itself is set by the picker above the list and applied to whichever
-        # circuits are ticked. So there is no text to type and no caret to
-        # lose, and the check above (every row carries a key) is the whole
-        # contract here: it is what makes _preserveEditorFocus() able to work
-        # over this list if an editable field is ever added to a row.
-        assert not text_rows, (
-            f'{list_id} grew an editable field: {text_rows}. Drive it through '
-            'the four checks below instead of returning here.')
-        return
-    assert text_rows, (
-        f'{list_id} built only checkboxes, no editable text field: {rows}')
+    assert not text_rows, (
+        f'power-circuit-color-list grew an editable field: {text_rows}. '
+        'Drive it through the checks the dock editor test runs instead of '
+        'returning here.')
 
-    layer_id = ids['screen']
+
+# Seed one processor through the real endpoint so the dock has port chips to
+# edit, then rebase history so the undo under test steps back over the rename
+# only - not over the seeding.
+SEED_PROC_JS = """async () => {
+    await fetch('/api/processors', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({deviceId: 'novastar-mx20', name: 'MX'}),
+    });
+    await window.app.refreshProcessors();
+    window.app.resetHistory('Sweep Dock Seed');
+    const proc = window.app._processorsResolved[0];
+    const card = proc && proc.slots.map(s => s.card).find(Boolean);
+    return card ? card.id : null;
+}"""
+
+DOCK_FIELDS_JS = """() => {
+    const body = document.getElementById('hardware-dock-body');
+    if (!body) return null;
+    return {
+        controls: body.querySelectorAll('input, select, textarea').length,
+        keyed: [...body.querySelectorAll('[data-lrd-field]')]
+            .filter(el => /^processor-port-(name|return)-/
+                .test(el.dataset.lrdField))
+            .map(el => ({
+                key: el.dataset.lrdField,
+                type: (el.type || '').toLowerCase(),
+            })),
+    };
+}"""
+
+# The chip editors are hidden until the chip opens; go in through the face's
+# own click (the user's gesture) rather than unhiding by hand.
+OPEN_TILE_JS = """(key) => {
+    const el = document.querySelector('[data-lrd-field="' + key + '"]');
+    const tile = el && el.closest('.lrd-tile');
+    if (!tile) return false;
+    if (!tile.classList.contains('lrd-tile-open')) {
+        const face = tile.querySelector(':scope > .lrd-tile-face');
+        if (face) face.click();
+    }
+    return tile.classList.contains('lrd-tile-open');
+}"""
+
+PORT_NAMES_JS = """async () => {
+    const d = await (await fetch('/api/processors')).json();
+    const card = (((d.processors || [])[0] || {}).slots || [])
+        .map(s => s.card).find(Boolean);
+    return card ? {names: card.portNames || {},
+                   returns: card.returnPortNames || {}} : null;
+}"""
+
+
+def _served_port_name(page, which, port):
+    served = page.evaluate(PORT_NAMES_JS)
+    return (served or {}).get(which, {}).get(port)
+
+
+def _wait_for_port_name(page, which, port, want, timeout_ms=4000):
+    """Poll GET /api/processors until the card holds `want` for this port
+    (None = until the entry is gone), or give up."""
+    waited = 0
+    got = None
+    while waited <= timeout_ms:
+        got = _served_port_name(page, which, port)
+        if got == want:
+            return True, got
+        page.wait_for_timeout(250)
+        waited += 250
+    return False, got
+
+
+def test_dock_port_editor_fields_round_trip(fresh):
+    """The dock's generated port editors, driven the way a user drives them.
+
+    The A1/A2/A3 layer-state checks do not apply here: these fields write
+    PROCESSOR state through PUT /api/processors/.../ports/<n>, not the layer.
+    So the dock sweep asserts the same outcomes in the processor's terms -
+    focus survives the rebuild (B), the value round-trips to
+    GET /api/processors, and one undo walks it back off the card."""
+    page, ids = fresh
+    card_id = page.evaluate(SEED_PROC_JS)
+    assert card_id, 'the seeded processor resolved no card'
+    assert page.evaluate(SELECT_JS, ids['screen'])
+    _open_tab(page, 'data-flow')
+    page.wait_for_timeout(400)
+
+    built = page.evaluate(DOCK_FIELDS_JS)
+    assert built is not None, 'hardware-dock-body is not in the DOM'
+    rows = [r for r in built['keyed'] if r['type'] == 'text']
+    assert rows, (
+        f'the dock holds {built["controls"]} controls but no keyed '
+        'processor-port-name-*/processor-port-return-* text field. Focus '
+        'cannot be restored into a field that has no key, so '
+        '_preserveEditorFocus() is inert over the dock and defect B is '
+        'live here')
+
     failures = []
-    for row in text_rows[:2]:     # first two rows exercise every code path
-        selector = f'[data-lrd-field="{row["key"]}"]'
-        before = page.evaluate(SNAPSHOT_JS, layer_id)
-        value = f'SW-{row["key"][-1]}'
-        assert page.evaluate(FOCUS_AND_SELECT_JS, selector)
+    for row in rows[:2]:     # first two fields: a Name and its Return
+        key = row['key']
+        selector = f'[data-lrd-field="{key}"]'
+        is_name = key.startswith('processor-port-name-')
+        which = 'names' if is_name else 'returns'
+        port = key.rsplit('-', 1)[1]
+        value = ('SWN-' if is_name else 'SWR-') + port
+
+        assert page.evaluate(OPEN_TILE_JS, key), f'{key}: chip did not open'
+        page.wait_for_timeout(200)
+        assert page.evaluate(FOCUS_AND_SELECT_JS, selector), \
+            f'{key}: could not focus the field'
         page.keyboard.type(value)
         page.keyboard.press('Tab')
         page.wait_for_timeout(1200)
 
         focus = page.evaluate(FOCUS_JS)
         if focus['isBody'] or focus['isNull']:
-            failures.append(f'{row["key"]} B: focus fell to <body> after the '
-                            f'editor rebuilt ({focus})')
+            failures.append(f'{key} B: focus fell to <body> after the dock '
+                            f'rebuilt ({focus})')
 
-        after = page.evaluate(SNAPSHOT_JS, layer_id)
-        changed = _diff(before, after)
-        if not changed:
-            failures.append(f'{row["key"]} A1: nothing reached the layer')
-            continue
-        expected = {k: v[1] for k, v in changed.items()}
-        ok, served = _wait_for_server(page, layer_id, expected)
+        ok, served = _wait_for_port_name(page, which, port, value)
         if not ok:
             failures.append(
-                f'{row["key"]} A2: server holds '
-                + ', '.join(f'{k}={(served or {}).get(k)!r} (sent {v!r})'
-                            for k, v in expected.items()))
+                f'{key} A2: GET /api/processors holds {served!r} for port '
+                f'{port} (sent {value!r}) - reloading would lose this edit')
+            continue
+
         page.evaluate('() => window.app.undo()')
         page.wait_for_timeout(800)
-        page.evaluate('() => window.app.redo()')
-        page.wait_for_timeout(800)
-        redone = page.evaluate(SNAPSHOT_JS, layer_id)
-        lost = {k: v for k, v in expected.items()
-                if (redone or {}).get(k) != v}
-        if lost:
+        ok, served = _wait_for_port_name(page, which, port, None)
+        if not ok:
             failures.append(
-                f'{row["key"]} A3: undo/redo lost '
-                + ', '.join(f'{k} (want {v!r}, got {(redone or {}).get(k)!r})'
-                            for k, v in lost.items()))
+                f'{key} A3: one undo did not walk the rename back - the '
+                f'server still holds {served!r} for port {port}')
 
-    assert not failures, f'{list_id}\n  ' + '\n  '.join(failures)
+    assert not failures, 'hardware-dock-body\n  ' + '\n  '.join(failures)

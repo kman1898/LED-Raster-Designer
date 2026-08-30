@@ -493,7 +493,8 @@ def test_the_lookup_is_built_once_when_the_assignment_changes():
     # rebuilds the map, or the canvas draws last week's labels.
     assert source.count('this._assignment = data.resolution') == 1
     body = function_body(source,
-                         '_assignmentRequest(url, method, body, onRefused) {')
+                         '_assignmentRequest(url, method, body, onRefused, '
+                         'action) {')
     assert 'this._applyAssignmentResolution();' in body
 
 
@@ -506,13 +507,17 @@ def test_a_processor_edit_re_resolves_so_the_drawing_follows():
 
 
 def test_the_port_row_is_an_input_keyed_for_the_focus_guard():
-    """The panel is rebuilt wholesale on every change, so a field with no
-    data-lrd-field key is destroyed under the user's fingers - the same bug the
-    port label editor had, fixed by the same _preserveEditorFocus."""
-    source = js('app-processors.js')
+    """The dock - the one place ports appear, editors included - is rebuilt
+    wholesale on every change, so a field with no data-lrd-field key is
+    destroyed under the user's fingers - the same bug the port label editor
+    had, fixed by the same _preserveEditorFocus."""
+    source = js('app-dock.js')
     assert 'processor-port-name-${card.id}-${port.number}' in source
     assert '/ports/${port.number}' in source
     assert "who.textContent = 'free';" in source
+    # and the panel module carries no second copy of the keys to fight the
+    # dock's fields for the focus restore
+    assert 'processor-port-name-' not in js('app-processors.js')
 
 
 # ── 6. The return end of the same socket ──────────────────────────────────
@@ -876,19 +881,29 @@ def test_an_empty_return_index_still_derives_from_the_primary():
     assert out == [['SR-1', 'SR-1R'], ['P3', 'R3']]
 
 
-def test_the_label_editor_names_the_actual_return_label():
-    """The ownedNote used to spell the return as ${fromProcessor}R by hand - a
-    second statement of the derivation, and the one place that would keep
-    saying SR-1R after someone typed BU-1. It asks getPortLabelText now, so it
-    can never disagree with the canvas about what the return end says."""
-    source = js('app-power.js')
-    assert '${fromProcessor}R' not in source, (
-        'the ownedNote still derives the return label by hand')
-    note = source.index('and its return ')
-    asks = source.index(
-        "getPortLabelText(this.currentLayer, portNum, 'return')", note)
-    assert asks - note < 200, (
-        'the ownedNote does not read the return label from getPortLabelText')
+def test_no_surface_spells_a_return_label_by_hand():
+    """The Power sidebar's ownedNote once spelled the return as
+    ${fromProcessor}R by hand - a second statement of the derivation, and the
+    one place that kept saying SR-1R after someone typed BU-1. The note died
+    with the sidebar, but the failure mode outlives any one surface: any
+    template that pastes an R onto a primary name is a fork of
+    deriveReturnLabel waiting to disagree with it. No JS file gets to hold
+    one."""
+    for filename in os.listdir(JS_DIR):
+        if not filename.endswith('.js'):
+            continue
+        source = js(filename)
+        if filename == 'app-power.js':
+            # deriveReturnLabel IS the authority (held byte-identical to the
+            # server's copy by its own test); its one `${primary}R` is the
+            # rule, not a fork of it.
+            body = function_body(source, 'deriveReturnLabel(primary)')
+            source = source.replace(body, '')
+        assert '${fromProcessor}R' not in source, (
+            f'{filename} derives a return label by hand')
+        assert '}R`' not in source, (
+            f'{filename} pastes R onto a template - a hand fork of '
+            f'deriveReturnLabel')
 
 
 # ── 7. The backup template - naming all the returns at once ───────────────
@@ -1150,3 +1165,148 @@ def test_the_template_placeholder_is_the_rule_applied_to_the_real_name(
     done = subprocess.run([NODE, '-e', script], capture_output=True, text=True)
     assert done.returncode == 0, done.stderr
     assert json.loads(done.stdout) == expected
+
+
+# ── The redundancy mapping and the return ladder ──────────────────────────
+#
+# The three data-redundancy modes turn a card's return ends into PHYSICAL
+# sockets: 1:1 maps main port N onto the backup unit's port N, sequential
+# maps each odd port onto its even neighbour, manual maps exactly the ports
+# somebody named. The mapped socket's own primary label becomes the main's
+# return label - a main card P1 mirrored by a card R1 reads P1-1 out, R1-1
+# back, which is precisely what derive_return_label promised before any
+# processor existed, now grounded in a real socket. The mapping replaces
+# ONLY the derived rung of the ladder: a typed return name and a return
+# template still win, in that order.
+
+def two_named_units(client, main_name='P1', backup_name='R1'):
+    """Two MX20s, the second picked as the first's 1:1 backup."""
+    state = add_processor(client, 'novastar-mx20')
+    main_pid = state['resolved'][0]['id']
+    main_card = first_card(state['resolved'][0])['id']
+    state = add_processor(client, 'novastar-mx20')
+    backup_pid = state['resolved'][1]['id']
+    backup_card = first_card(state['resolved'][1])['id']
+    name_card(client, main_pid, main_card, main_name)
+    name_card(client, backup_pid, backup_card, backup_name)
+    resp = client.put(f'/api/processors/{main_pid}',
+                      json={'redundancy': True})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    resp = client.put(f'/api/processors/{main_pid}/cards/{main_card}',
+                      json={'backupCardId': backup_card})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    return main_pid, main_card, backup_pid, backup_card
+
+
+def cards_by_id(state):
+    out = {}
+    for proc in state['resolved']:
+        for slot in proc['slots']:
+            if slot['card']:
+                out[slot['card']['id']] = slot['card']
+    return out
+
+
+def test_a_1to1_main_returns_on_the_backup_units_matching_port(client):
+    """P1-1 out, R1-1 back - the P/R rule's promise kept by real metal: the
+    return label IS the backup card's own port label, rendered from that
+    card's name, and the backup's ports are claimed by the role."""
+    _mp, main_card, _bp, backup_card = two_named_units(client)
+    state = client.get('/api/processors').get_json()
+    cards = cards_by_id(state)
+    main = cards[main_card]
+    assert [p['returnLabel'] for p in main['ports']] == [
+        'R1-1', 'R1-2', 'R1-3', 'R1-4', 'R1-5', 'R1-6']
+    assert all(p['returnLabelSource'] == 'backup' for p in main['ports'])
+    assert main['ports'][0]['backedBy']['cardId'] == backup_card
+    assert main['ceiling'] == 6, '1:1 halved the main'
+    backup = cards[backup_card]
+    assert backup['backupFor']['title'] == 'P1'
+    assert [p['backsUp']['label'] for p in backup['ports']] == [
+        'P1-1', 'P1-2', 'P1-3', 'P1-4', 'P1-5', 'P1-6']
+    # And the mapped return rides the assignment to the canvas: same
+    # resolution, no second derivation anywhere.
+    resolution = resolve(client, ('Wall', 3))
+    assert labels(resolution, 'Wall') == ['P1-1', 'P1-2', 'P1-3']
+    assert return_labels(resolution, 'Wall') == ['R1-1', 'R1-2', 'R1-3']
+
+
+def test_typed_names_and_templates_still_beat_the_mapping(client):
+    """The ladder's order is untouched: the mapping replaces the DERIVED
+    rung only. A name typed on one return end wins over the mapped label,
+    and so does a return template on the card."""
+    main_pid, main_card, _bp, _bc = two_named_units(client)
+    resp = name_return(client, main_pid, main_card, 1, 'BU-1')
+    assert resp.status_code == 200
+    state = client.get('/api/processors').get_json()
+    port1, port2 = cards_by_id(state)[main_card]['ports'][:2]
+    assert (port1['returnLabel'], port1['returnLabelSource']) == \
+        ('BU-1', 'manual')
+    assert (port2['returnLabel'], port2['returnLabelSource']) == \
+        ('R1-2', 'backup')
+    set_return_template(client, main_pid, main_card, '{name}-#B')
+    state = client.get('/api/processors').get_json()
+    port1, port2 = cards_by_id(state)[main_card]['ports'][:2]
+    assert (port1['returnLabel'], port1['returnLabelSource']) == \
+        ('BU-1', 'manual')
+    assert (port2['returnLabel'], port2['returnLabelSource']) == \
+        ('P1-2B', 'template')
+
+
+def test_sequential_returns_are_the_even_ports_own_labels(client):
+    """"1 is backed up by 2 on the same unit/sending card": the odd ports
+    are the mains, the even ports are their returns, and each return label
+    is the even socket's own name - SR-1 out, SR-2 back."""
+    state = add_processor(client, 'novastar-mx20')
+    pid = only(state)['id']
+    card_id = first_card(only(state))['id']
+    name_card(client, pid, card_id, 'SR')
+    client.put(f'/api/processors/{pid}', json={'redundancy': True})
+    resp = client.put(f'/api/processors/{pid}/cards/{card_id}',
+                      json={'redundancyMode': 'sequential'})
+    card = first_card(only(resp.get_json()))
+    assert card['redundancyShape'] == {'mode': 'sequential', 'forced': False,
+                                       'level': 'port', 'usable': 3}
+    assert card['ceiling'] == 6, 'the even ports left the drawing'
+    odds = [p for p in card['ports'] if p['number'] % 2 == 1]
+    evens = [p for p in card['ports'] if p['number'] % 2 == 0]
+    assert [p['returnLabel'] for p in odds] == ['SR-2', 'SR-4', 'SR-6']
+    assert all(p['returnLabelSource'] == 'backup' for p in odds)
+    assert [p['backsUp']['port'] for p in evens] == [1, 3, 5]
+
+
+def test_manual_maps_only_the_ports_somebody_named(client):
+    """"1 is backed up to whatever port you want" - and nothing else is
+    backed up at all: manual is explicit, the unnamed ports keep the plain
+    derived return (SR-2R), because inventing backups for them would be a
+    default wearing manual's name."""
+    state = add_processor(client, 'novastar-mx20')
+    pid = only(state)['id']
+    card_id = first_card(only(state))['id']
+    name_card(client, pid, card_id, 'SR')
+    client.put(f'/api/processors/{pid}', json={'redundancy': True})
+    client.put(f'/api/processors/{pid}/cards/{card_id}',
+               json={'redundancyMode': 'manual'})
+    resp = client.put(
+        f'/api/processors/{pid}/cards/{card_id}/ports/1',
+        json={'backup': {'cardId': card_id, 'port': 5}})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    card = first_card(only(resp.get_json()))
+    ports = {p['number']: p for p in card['ports']}
+    assert (ports[1]['returnLabel'], ports[1]['returnLabelSource']) == \
+        ('SR-5', 'backup')
+    assert ports[5]['backsUp']['label'] == 'SR-1'
+    assert (ports[2]['returnLabel'], ports[2]['returnLabelSource']) == \
+        ('SR-2R', 'card')
+    assert ports[2].get('backedBy') is None
+    # Clearing the pick clears the mapping and the stored key with it.
+    resp = client.put(
+        f'/api/processors/{pid}/cards/{card_id}/ports/1',
+        json={'backup': None})
+    card = first_card(only(resp.get_json()))
+    ports = {p['number']: p for p in card['ports']}
+    assert ports[1]['returnLabel'] == 'SR-1R'
+    assert ports[5].get('backsUp') is None
+    raw = resp.get_json()['processors'][0]
+    stored = next(s['card'] for s in raw['slots'] if s['card'])
+    assert 'backupPorts' not in stored, 'a cleared pick left keys behind'

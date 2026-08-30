@@ -1176,6 +1176,16 @@ class _ScreenInfo {
         const layer = this.project.layers.find(l => l.id === layerId);
         if (!layer) return;
         layer.visible = !layer.visible;
+        // Undo audit: the eye toggle recorded history but never told the
+        // server, so any server-sourced adoption (a canvas edit's response,
+        // a group commit's repaired body, undo's own round-trip) resurrected
+        // the hidden layer. Same one-field PUT the lock toggle below makes;
+        // 'visible' is in update_layer's allow-list.
+        fetch(`/api/layer/${layer.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ visible: layer.visible })
+        });
         sendClientLog('toggle_visibility', {
             id: layer.id,
             name: layer.name,
@@ -1322,13 +1332,28 @@ class _ScreenInfo {
             this.saveState(historyAction);
         }
         
-        fetch(`/api/layer/${this.currentLayer.id}`, {
+        // Undo audit: the project OBJECT this request was sent against.
+        // Undo/redo, a repaired-body adoption and a file load all replace
+        // this.project wholesale; an echo from before the swap describes a
+        // project that no longer exists, and stamping it in re-applied the
+        // very state the user had just undone (same id, so findIndex hits
+        // the RESTORED layer). Identity is the cheapest complete test.
+        const sentProject = this.project;
+        if (!this._inflightLayerPuts) this._inflightLayerPuts = new Set();
+        const req = fetch(`/api/layer/${this.currentLayer.id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(this.currentLayer)
-        })
+        });
+        // Same server-side sequencing registry as updateLayers': undo/redo
+        // wait for this PUT before restoring the project on the server.
+        const tracked = req.catch(() => {});
+        this._inflightLayerPuts.add(tracked);
+        tracked.then(() => this._inflightLayerPuts.delete(tracked));
+        req
         .then(res => res.json())
         .then(layer => {
+            if (this.project !== sentProject) return;  // stale echo
             const index = this.project.layers.findIndex(l => l.id === layer.id);
             if (index >= 0) {
                 // Preserve client-side only properties that server might not return
@@ -1377,6 +1402,7 @@ class _ScreenInfo {
                     portLabelOverridesReturn: this.currentLayer.portLabelOverridesReturn,
                     customPortPaths: this.currentLayer.customPortPaths,
                     customPortIndex: this.currentLayer.customPortIndex,
+                    customPortOverrides: this.currentLayer.customPortOverrides,
                     processorType: this.currentLayer.processorType,
                     lowLatency: this.currentLayer.lowLatency,
                     bitDepth: this.currentLayer.bitDepth,
@@ -1415,6 +1441,7 @@ class _ScreenInfo {
                     powerSplitters: this.currentLayer.powerSplitters,
                     powerCustomPaths: this.currentLayer.powerCustomPaths,
                     powerCustomIndex: this.currentLayer.powerCustomIndex,
+                    powerCustomOverrides: this.currentLayer.powerCustomOverrides,
                     border_color_pixel: this.currentLayer.border_color_pixel,
                     border_color_cabinet: this.currentLayer.border_color_cabinet,
                     border_color_data: this.currentLayer.border_color_data,
@@ -1482,6 +1509,9 @@ class _ScreenInfo {
             }))
         });
 
+        // Undo audit: the project OBJECT these requests are sent against -
+        // see the stale-echo guard in each .then below.
+        const sentProject = this.project;
         const requests = layers.map(layer => {
             // Fields whose server echo does not carry what the client
             // holds, re-stamped onto the response below.
@@ -1524,7 +1554,8 @@ class _ScreenInfo {
                 'portLabelTemplateReturn',
                 'portLabelOverridesPrimary',
                 'portLabelOverridesReturn', 'customPortPaths',
-                'customPortIndex', 'processorType', 'lowLatency',
+                'customPortIndex', 'customPortOverrides',
+                'processorType', 'lowLatency',
                 'bitDepth', 'frameRate', 'portMappingMode',
                 'powerVoltage', 'powerVoltageCustom', 'powerAmperage',
                 'powerAmperageCustom', 'panelWatts', 'powerMaximize',
@@ -1536,6 +1567,7 @@ class _ScreenInfo {
                 'powerLabelBgColor', 'powerLabelTextColor',
                 'powerLabelTemplate', 'powerLabelOverrides',
                 'powerCustomPaths', 'powerCustomIndex',
+                'powerCustomOverrides',
                 'border_color_pixel', 'border_color_cabinet',
                 'border_color_data', 'border_color_power',
                 'lastPowerFlowPattern', 'showDataFlowPortInfo',
@@ -1573,6 +1605,13 @@ class _ScreenInfo {
             })
             .then(res => res.json())
             .then(updated => {
+                // Undo audit: an echo from before a whole-project swap
+                // (undo/redo restore, repaired-body adoption, file load)
+                // describes a project that no longer exists - dropping it is
+                // what keeps a drag's in-flight PUT from re-applying the
+                // moved offsets over the state Ctrl+Z just restored. Same
+                // identity guard updateLayer() takes.
+                if (this.project !== sentProject) return;
                 const index = this.project.layers.findIndex(l => l.id === updated.id);
                 // Deleted while this request was in flight - there is nothing
                 // to merge into, and stamping a copy we then drop would just
@@ -1588,6 +1627,18 @@ class _ScreenInfo {
                 this.project.layers[index] = updated;
             });
         });
+
+        // Undo audit: undo/redo sequence their whole-project PUT behind the
+        // requests still in flight here (see _awaitInflightLayerPuts). The
+        // client side of a stale echo is handled by the sentProject guard
+        // above; this registry is for the SERVER side, where a drag's layer
+        // PUT landing after undo's project PUT would overwrite the restored
+        // state and the funnel's response would faithfully report the
+        // un-undone drag back.
+        if (!this._inflightLayerPuts) this._inflightLayerPuts = new Set();
+        const batch = Promise.all(requests).catch(() => {});
+        this._inflightLayerPuts.add(batch);
+        batch.then(() => this._inflightLayerPuts.delete(batch));
 
         Promise.all(requests).then(() => {
             // Keep currentLayer reference if possible
