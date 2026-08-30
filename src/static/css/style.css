@@ -1562,22 +1562,31 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 }
 /* the distro unit's honest floor: one header line of name + amps +
    Balance + bar + voltage + gear, none of it clipped */
-/* Three COLUMNS of distros (2026-08-30, second fold pass: "see this big
+/* COLUMNS of distros (2026-08-30, second fold pass: "see this big
    blank area directly under SR? And how SL doesn't automatically jump up
    to be directly under SR when it's collapsed?"): the distros deal into
-   up to three vertical columns (app-dock.js _dockRenderPower, index
-   i % 3 - stable across re-renders, so units never jump columns as
-   loads change). Distros 1-3 read left to right, 4 sits UNDER 1, and
-   within a column everything stacks naturally: a folded distro is just
-   SHORT and the unit below it slides straight up - flex-wrap's
-   uniform-height rows left a dead blank under every folded header. Each
-   column carries the width discipline the units used to: a third of the
-   tray, the 380px no-clip floor (name + amps + bar + voltage + Balance +
-   gear, then LEGS), and a cap so a lone distro never balloons the full
-   tray. */
+   vertical columns (app-dock.js _dockRenderPower, index i % nCols -
+   stable across re-renders, so units never jump columns as loads
+   change). Within a column everything stacks naturally: a folded distro
+   is just SHORT and the unit below it slides straight up - flex-wrap's
+   uniform-height rows left a dead blank under every folded header.
+
+   The column COUNT is adaptive (same day, third pass: at a 920px body
+   three 380px floors cannot fit, so a CSS min-width made the last
+   column WRAP below the stack and grow alone to the cap - "C2 ... is
+   not going to the right where it should"). _dockRenderPower picks
+   1..3 from the body's measured width so every column keeps the 380px
+   no-clip floor (name + amps + bar + voltage + Balance + gear, then
+   LEGS) BY CONSTRUCTION, and stamps the matching basis inline
+   (calc((100% - gaps)/nCols) - this rule's basis is only the 3-across
+   default). No min-width here: with the floor guaranteed by the count,
+   a late scrollbar or rounding squeezes columns a hair instead of
+   wrapping an orphan. The cap rides every column identically, so
+   sibling columns always render the SAME width - the wrapped orphan's
+   600 next to its siblings' 440 was part of the bug. */
 .hw-dock-col {
     flex: 1 1 calc((100% - 20px) / 3);
-    min-width: 380px;
+    min-width: 0;
     max-width: 600px;
     min-height: 0;
     display: flex; flex-direction: column; gap: 10px;

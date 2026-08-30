@@ -82,7 +82,54 @@ class _HardwareDock {
         // PANELS row owns the drag-resize, so there is nothing to watch
         // here the way the old section fold needed watching.
         this._wireDockChrome();
+        this._wireDockColumnRedeal();
         this.renderHardwareDock();
+    }
+
+    // How many 380px-floor distro columns the tray genuinely holds, 1..3 -
+    // the count _dockRenderPower deals by, and what the resize watcher
+    // below re-checks. Measured from the body's content box; unmeasurable
+    // (hidden tray, no layout yet) falls back to the 3-across default and
+    // the first real resize corrects it.
+    _dockPickColCount() {
+        const body = document.getElementById('hardware-dock-body');
+        let w = 0;
+        if (body && body.clientWidth > 0) {
+            const cs = getComputedStyle(body);
+            w = body.clientWidth - (parseFloat(cs.paddingLeft) || 0)
+                - (parseFloat(cs.paddingRight) || 0);
+        }
+        if (w <= 0) return 3;
+        const gap = 10;
+        const floor = 380;
+        return Math.max(1, Math.min(3,
+            Math.floor((w + gap) / (floor + gap))));
+    }
+
+    // Re-deal the power columns when a tray RESIZE crosses a column-count
+    // threshold (2026-08-30: a 920px body holds two 380px floors, not
+    // three - the count must follow the width, and the width moves on
+    // window resizes and sidebar drags that re-render nothing else).
+    // Debounced, and a strict no-op while the count holds: a full
+    // re-render on every pixel of a drag would fight the user
+    // mid-gesture.
+    _wireDockColumnRedeal() {
+        const body = document.getElementById('hardware-dock-body');
+        if (!body || typeof ResizeObserver !== 'function') return;
+        if (this._dockColObserver) this._dockColObserver.disconnect();
+        this._dockColObserver = new ResizeObserver(() => {
+            clearTimeout(this._dockColRedealT);
+            this._dockColRedealT = setTimeout(() => {
+                const mode = window.canvasRenderer
+                    ? window.canvasRenderer.viewMode : '';
+                if (mode !== 'power') return;
+                if (this._dockColPick == null) return;
+                if (this._dockPickColCount() !== this._dockColPick) {
+                    this.renderHardwareDock();
+                }
+            }, 120);
+        });
+        this._dockColObserver.observe(body);
     }
 
     // The dock header's own controls, wired ONCE against the static markup:
@@ -1240,6 +1287,9 @@ class _HardwareDock {
         // could disagree with the surfaces it warns about.
         // (_renderDockChrome paints them after the body.)
         this._dockPowerWarnings = [];
+        // Stamped before ANY early return, so the resize watcher always
+        // compares against the pick this render actually saw.
+        this._dockColPick = this._dockPickColCount();
         // A plan a POWER ERROR emptied gets the error told where the multis
         // would be - the story the retired soca panel used to tell. Every
         // legitimately-empty state stays silent (_socaPlanEmptyReason).
@@ -1265,18 +1315,30 @@ class _HardwareDock {
         // bars - the roll-up's own figures, never re-summed here.
         const loads = typeof this.getDistroLoads === 'function'
             ? this.getDistroLoads() : [];
-        // The distros deal into up to three vertical COLUMNS (2026-08-30:
-        // a folded distro in a flex-wrap row left a dead blank below its
-        // header, because wrap rows are uniform-height). i % nCols keeps
-        // the deal stable across re-renders - index-based, never
-        // height-based, so units don't jump columns when loads change.
-        // 1-3 read left to right, 4 lands UNDER 1, and inside a column
-        // the stack means the unit below a folded one slides straight up.
-        const nCols = Math.min(3, distros.length) || 1;
+        // The distros deal into vertical COLUMNS (2026-08-30: a folded
+        // distro in a flex-wrap row left a dead blank below its header,
+        // because wrap rows are uniform-height). i % nCols keeps the deal
+        // stable across re-renders - index-based, never height-based, so
+        // units don't jump columns when loads change - and inside a
+        // column the stack means the unit below a folded one slides
+        // straight up. The COUNT is adaptive (same day, third pass: three
+        // 380px floors cannot fit a 920px body, so the last column
+        // WRAPPED below the stack and grew alone to the cap - "C2 ... is
+        // not going to the right where it should"): as many columns as
+        // the body's width genuinely holds, so every column keeps the
+        // no-clip floor by construction and none ever wraps. The basis
+        // is stamped inline to match; _wireDockColumnRedeal re-deals when
+        // a resize crosses a count threshold (_dockColPick, stamped at
+        // the top of this render, is the comparison point).
+        const nCols = Math.max(1, Math.min(
+            this._dockColPick, distros.length));
+        const colBasis =
+            `calc((100% - ${(nCols - 1) * 10}px) / ${nCols})`;
         const cols = [];
         for (let i = 0; i < nCols; i++) {
             const col = document.createElement('div');
             col.className = 'hw-dock-col';
+            col.style.flexBasis = colBasis;
             cols.push(col);
             host.appendChild(col);
         }
