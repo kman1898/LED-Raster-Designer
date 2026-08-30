@@ -445,3 +445,332 @@ select, .info-select {
 /* the tray lit as the live target of a drag-back (release the assignment) */
 #hardware-dock.hw-dock-drop-target #hardware-dock-body {
   outline:2px dashed var(--ps-accent); outline-offset:-2px; }
+
+/* ════════ CONSOLIDATION SURFACES (the post-v0.9.0 features) ════════
+   The dock's header bar, section strips and chips, the gear popover, the
+   issues strip, the attachment flag, and the sidebar's re-hosted blocks all
+   arrived after the Studio reskin and wore the retired panels' flat grays.
+   This section dresses them in the same language the old-guard panels
+   wear: the titled-bar gradient with the accent left edge, the gray ladder
+   (--ps-text / --ps-dim / --ps-faint), beveled tactile controls, and inset
+   fields. State colours (over-red, backup-gold, attach-green) stay their
+   own families - they mean something and never follow the accent. */
+
+/* ---- dock header bar: a titled panel header, not a bare strip ---- */
+#hardware-dock .hw-dock-head {
+  background:linear-gradient(#3c3c3c,#343434) !important;
+  border-bottom:1px solid var(--ps-dark) !important;
+  border-left:3px solid var(--ps-accent) !important;
+  box-shadow:inset 0 1px 0 #4a4a4a !important;
+  padding:4px 8px !important;
+}
+/* the bar's own title word reads like every other panel title */
+#hardware-dock .hw-dock-head > label {
+  color:var(--ps-text) !important; font-weight:600; font-size:11px !important;
+  text-transform:uppercase; letter-spacing:0.02em;
+}
+#hw-dock-fold { color:var(--ps-dim); font-size:13px; }
+#hw-dock-fold:hover { color:#fff; }
+
+/* ---- processor strip: a small titled row above its cards ---- */
+.hw-dock-proc-name {
+  color:var(--ps-dim) !important; font-size:10px !important;
+  font-weight:600; letter-spacing:0.05em !important;
+}
+.hw-dock-proc-name > span:first-child { color:var(--ps-text); }
+
+/* ---- units and boxes: framed tiles on the tray, headers as mini
+   titlebars. Grounds stay DARK below the chips' #0d0d0d/#1e1e1e rungs so
+   an occupied chip keeps reading as the lit one. ---- */
+.hw-dock-unit {
+  background:var(--ps-inset) !important; border:1px solid var(--ps-dark) !important;
+  border-radius:4px !important; box-shadow:inset 0 1px 0 rgba(255,255,255,0.05), 0 1px 3px rgba(0,0,0,0.4);
+  padding:0 0 5px !important; overflow:hidden;
+}
+.hw-dock-unit > .hw-dock-head-row,
+.hw-dock-box > .hw-dock-head-row {
+  background:linear-gradient(#383838,#2e2e2e); border-bottom:1px solid var(--ps-dark);
+  box-shadow:inset 0 1px 0 #454545;
+  padding:3px 6px; border-radius:0;
+}
+.hw-dock-unit > .lrd-sec-body { padding:0 5px; }
+.hw-dock-unit.lrd-sec-collapsed { padding-bottom:0 !important; }
+.hw-dock-unit.lrd-sec-collapsed > .hw-dock-head-row { border-bottom:none; }
+.hw-dock-box {
+  background:var(--ps-inset) !important; border:1px solid var(--ps-dark) !important;
+  border-left:2px solid #4a4a4a !important; border-radius:4px !important;
+  padding:0 0 5px !important; overflow:hidden;
+}
+.hw-dock-box > .lrd-sec-body { padding:0 5px; }
+.hw-dock-box.lrd-sec-collapsed { padding-bottom:0 !important; }
+.hw-dock-box.lrd-sec-collapsed > .hw-dock-head-row { border-bottom:none; }
+/* the distro's always-on legs line sits OUTSIDE the foldable body, so the
+   unit's zeroed padding must not glue it to the frame */
+.hw-dock-unit > .hw-dock-legs { margin:2px 6px; }
+/* the pair rule's gold edge must survive the box/unit frame above (same
+   specificity, later sheet - restated so the role still reads) */
+.lrd-red-backup { border-left:2px solid #6b5626 !important; }
+/* header text up the ladder: the name bright, the figures readable */
+.hw-dock-unit-name { color:var(--ps-text) !important; font-weight:600; }
+.hw-dock-unit-info { color:var(--ps-faint) !important; }
+.hw-dock-unit-use { color:var(--ps-dim) !important; }
+.hw-dock-grip { color:#5f5f5f !important; }
+/* the glance meters get the chunky-slider track treatment */
+.hw-dock-headbar, .hw-dock-legbar, .hw-dock-bar {
+  background:var(--ps-dark) !important; border-color:#3a3a3a !important;
+}
+.hw-dock-headbar { height:4px !important; }
+
+/* ---- inline name fields: dashed = type here, accent when live ---- */
+.hw-dock-name { color:var(--ps-text) !important; border-bottom-color:#5a5a5a !important; }
+.hw-dock-name:focus {
+  border-bottom-color:var(--ps-accent) !important;
+  background:var(--ps-dark) !important;
+  box-shadow:0 1px 0 var(--ps-accent);
+}
+/* keyboard focus on a chip face follows the accent too (was legacy blue) */
+.lrd-tile-face:focus-visible { outline:1px solid var(--ps-accent) !important; outline-offset:-1px; }
+
+/* ---- the gear: a real raised control at rest, one step quieter than
+   the action buttons (feedback 2026-08-29: hover-only bevels still read
+   flat). Same recipe - top light, drop shadow, sinking press - at lower
+   contrast. ---- */
+.hw-dock-gear {
+  color:var(--ps-dim) !important;
+  background:linear-gradient(#454545,#373737) !important;
+  border:1px solid #1a1a1a !important;
+  box-shadow:inset 0 1px 0 #575757, 0 1px 2px rgba(0,0,0,0.45) !important;
+}
+.hw-dock-gear:hover {
+  color:#fff !important;
+  background:linear-gradient(#505050,#404040) !important;
+  box-shadow:inset 0 1px 0 #626262, 0 1px 2px rgba(0,0,0,0.45) !important;
+}
+.hw-dock-gear:active {
+  transform:translateY(1px);
+  background:linear-gradient(#303030,#383838) !important;
+  box-shadow:inset 0 2px 3px rgba(0,0,0,0.5) !important;
+}
+
+/* ---- chips: MACHINED SOCKETS with keycap legibility ----
+   The user's pick (2026-08-29, from src/static/chip-mock.html): "C but
+   with the legibility of A". A free chip is a recessed well in the
+   connector panel - deep inset shadow, near-black bore, a machined rim
+   highlight under its bottom edge - and an occupied chip is PLUGGED: its
+   core lifts back out with a top light and a real drop shadow. A press
+   pushes the plug back in. The recess is pure GEOMETRY (borders and
+   shadows): the contents are never dimmed, so number / "free" / labels
+   hold option A's brightness ("grey on grey is hard to read").
+   background-COLOR is untouched everywhere - the elevation is all
+   background-image overlays and box-shadow layers - so the occupied
+   ground stays the pinned rgb(30,30,30) and every state ground stays
+   style.css's. */
+.hw-dock-tile {
+  border-radius:4px; border:1px solid #000 !important;
+  /* darken the #0d0d0d bore without touching background-color */
+  background-image:linear-gradient(rgba(0,0,0,0.40), rgba(0,0,0,0.40)) !important;
+  box-shadow:inset 0 3px 7px rgba(0,0,0,0.9),
+             inset 0 -1px 0 rgba(0,0,0,0.5),
+             0 1px 0 rgba(255,255,255,0.10) !important;   /* machined rim */
+}
+/* plugged: the core lifts back out of the panel */
+.hw-dock-tile.lrd-tile-occupied {
+  border-color:#565656 !important;
+  background-image:linear-gradient(rgba(255,255,255,0.09), rgba(0,0,0,0.10)) !important;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.13),
+             0 2px 3px rgba(0,0,0,0.55),
+             0 1px 0 rgba(255,255,255,0.08) !important;
+}
+/* clash: plugged-grade elevation, the red rim rides on top */
+.hw-dock-tile.lrd-tile-clash {
+  border-color:#8a3a34 !important;
+  background-image:linear-gradient(rgba(255,255,255,0.06), rgba(0,0,0,0.10)) !important;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.08),
+             0 2px 3px rgba(0,0,0,0.55),
+             0 1px 0 rgba(255,255,255,0.08) !important;
+}
+.hw-dock-multi-clash { border-color:#5c3230 !important; }
+/* backup gold rides the geometry: a gold-rimmed well while it waits
+   (free), a gold-rimmed plug once its return lands (occupied). The class
+   is set in app-dock.js beside the gold text it matches. */
+.hw-dock-tile.lrd-tile-gold {
+  border-color:#6b5626 !important;
+  box-shadow:inset 0 3px 7px rgba(0,0,0,0.9),
+             inset 0 0 10px rgba(200,160,74,0.10),
+             0 1px 0 rgba(255,255,255,0.10) !important;
+}
+.hw-dock-tile.lrd-tile-occupied.lrd-tile-gold {
+  border-color:#7a6330 !important;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.10),
+             0 2px 3px rgba(0,0,0,0.55),
+             0 1px 0 rgba(255,255,255,0.08) !important;
+}
+/* the open chip is the active editor: accent frame on the lifted plug */
+.hw-dock-tile.lrd-tile-open {
+  border-color:var(--ps-accent) !important;
+  background-image:linear-gradient(rgba(255,255,255,0.07), rgba(0,0,0,0.08)) !important;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.10),
+             0 2px 8px rgba(0,0,0,0.45) !important;
+}
+/* the press pushes the plug back into the panel (face-only: a press in
+   an open chip's editor fields must not bounce the chip) */
+.hw-dock-tile:has(> .lrd-tile-face:active) {
+  transform:translateY(1px);
+  background-image:linear-gradient(rgba(0,0,0,0.28), rgba(0,0,0,0.22)) !important;
+  box-shadow:inset 0 3px 6px rgba(0,0,0,0.75),
+             0 1px 0 rgba(255,255,255,0.08) !important;
+}
+/* the meter wash follows the well's rounding */
+.hw-dock-fill { border-radius:3px 0 0 3px; }
+
+/* ---- gear popover: a Preferences card that floats ---- */
+#hw-gear-popover {
+  background:var(--ps-panel) !important; border:1px solid var(--ps-dark) !important;
+  border-radius:4px !important; padding:0 !important;
+  box-shadow:0 12px 40px rgba(0,0,0,0.6), inset 0 1px 0 #3f3f3f !important;
+  color:var(--ps-dim) !important; font-family:var(--font-ps) !important;
+}
+#hw-gear-popover > div { padding:10px; }
+.hw-pop-heading {
+  background:linear-gradient(#3c3c3c,#343434); border-bottom:1px solid var(--ps-dark);
+  border-left:3px solid var(--ps-accent); box-shadow:inset 0 1px 0 #4a4a4a;
+  color:var(--ps-text) !important; font-weight:600 !important;
+  text-transform:uppercase; letter-spacing:0.02em !important;
+  margin:-10px -10px 10px !important; padding:6px 10px !important;
+}
+/* captions and field labels: the Preferences cards' readable gray */
+#hw-gear-popover label { color:var(--ps-dim) !important; }
+#hw-gear-popover input, #hw-gear-popover select {
+  background:var(--ps-inset) !important; border:1px solid var(--ps-dark) !important;
+  color:var(--ps-text) !important;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,0.5) !important;
+}
+.hw-pop-remove {
+  background:linear-gradient(#3e3e3e,#343434) !important;
+  border:1px solid var(--ps-dark) !important;
+  color:#e09a92 !important; font-weight:600 !important;
+}
+.hw-pop-remove:hover { background:linear-gradient(#5a2a2a,#4a2222) !important;
+  border-color:#6a2c2c !important; color:#ffc4bc !important; }
+
+/* ---- issues strip: severity wears the titled bars' left-edge idiom ---- */
+.hw-dock-issue {
+  border-left:3px solid #c04a42; padding:3px 8px !important;
+  color:#e8a89e !important; font-family:var(--font-ps) !important;
+}
+.hw-dock-issue-mild { border-left-color:#c8963a; color:#dcb968 !important; }
+.hw-dock-issue-note { border-left-color:#4a7aa8; color:#a8c4de !important; }
+
+/* ---- attachment flag: a tactile pill, states in their own families ---- */
+#hw-dock-flag {
+  background:linear-gradient(#4a1a1a,#3a1414) !important;
+  border:1px solid #7a2727 !important; color:#ffb0b0 !important;
+  font-family:var(--font-ps) !important; font-weight:600 !important;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.08), 0 1px 2px rgba(0,0,0,0.35);
+}
+#hw-dock-flag:not(.hw-dock-flag-ok):hover { filter:brightness(1.15); }
+#hw-dock-flag.hw-dock-flag-ok {
+  background:linear-gradient(#1a3a22,#15301b) !important;
+  border-color:#2c5c38 !important; color:#8fd8a3 !important;
+}
+#hw-dock-flag .hw-dock-flag-n { box-shadow:inset 0 1px 0 rgba(255,255,255,0.25); }
+.hw-dock-attach-row { font-family:var(--font-ps) !important; color:#f0c4c4 !important; }
+.hw-dock-attach-name { color:#ffe4e4 !important; }
+.hw-dock-attach-cnt { color:#d4a898 !important; }
+.hw-dock-attach-chip { color:#ffc4c4 !important; border-color:#7a3434 !important; }
+
+/* ---- port/circuit editors inside open chips: captioned like the
+   Preferences fields (the caption colour must beat the builders' inline
+   gray) ---- */
+#hardware-dock .lrd-tile-body label { color:var(--ps-dim) !important; }
+/* grey-on-grey sweep ("remember grey on grey is hard to read"): the two
+   readouts still below the ladder get lifted a rung - the LEGS caption
+   (#777 on the unit's inset ground) and the tray's empty-state note
+   (#888 on the tray body). */
+.hw-dock-legs-cap { color:var(--ps-faint) !important; }
+.hw-dock-note { color:var(--ps-dim) !important; }
+
+/* ---- the sidebar's re-hosted blocks (Fallback Labels, Multis &
+   Splitters, Circuit Labels): the accent-titled card the Preferences
+   groups wear, replacing the flat inline-styled box ---- */
+.lrd-side-block {
+  background:var(--ps-panel-2) !important; border:1px solid var(--ps-dark) !important;
+  border-radius:3px !important; padding:8px !important; overflow:hidden;
+}
+.lrd-side-block-h {
+  display:block; background:linear-gradient(#3c3c3c,#343434);
+  border-bottom:1px solid var(--ps-dark); border-left:3px solid var(--ps-accent);
+  box-shadow:inset 0 1px 0 #4a4a4a;
+  color:var(--ps-text) !important; font-weight:600 !important;
+  font-size:11px !important; text-transform:uppercase; letter-spacing:0.02em;
+  margin:-8px -8px 8px !important; padding:6px 10px !important;
+}
+
+/* ---- RAISED dock buttons (feedback 2026-08-29: "the buttons on the data
+   and power bottom side bar need to be raised... they still read pretty
+   flat"). The chunky-tactile recipe, amplified: a ground lighter than the
+   strip it sits on, a bright top light, a real drop shadow off the
+   surface, and a press that visibly SINKS (darker, inset, one pixel
+   down). Applies to every action button in the dock's scope - the header
+   bar's Add / + Add distro, Balance on distro headers, the issue strip's
+   inline offers, the gear popover's buttons, and the Balance dialog's
+   footer - NOT to chip faces (tiles, not buttons) and not to the fold
+   chevrons (the house draws every section chevron as a bare glyph). */
+#hardware-dock .btn,
+#hw-gear-popover .btn:not(.hw-pop-remove),
+#hw-gear-popover button:not(.hw-pop-remove):not(.hw-dock-gear),
+#balance-modal .btn {
+  background:linear-gradient(#505050,#3a3a3a) !important;
+  border:1px solid #161616 !important; border-radius:3px !important;
+  box-shadow:inset 0 1px 0 #6a6a6a, inset 0 -1px 0 rgba(0,0,0,0.3),
+             0 2px 3px rgba(0,0,0,0.55) !important;
+  color:var(--ps-text) !important; font-weight:600 !important;
+  padding:3px 12px !important; font-size:11px !important;
+}
+#hardware-dock .btn:hover,
+#hw-gear-popover .btn:not(.hw-pop-remove):hover,
+#hw-gear-popover button:not(.hw-pop-remove):not(.hw-dock-gear):hover,
+#balance-modal .btn:hover {
+  background:linear-gradient(#5a5a5a,#444) !important;
+}
+#hardware-dock .btn:active,
+#hw-gear-popover .btn:not(.hw-pop-remove):active,
+#hw-gear-popover button:not(.hw-pop-remove):not(.hw-dock-gear):active,
+#balance-modal .btn:active {
+  transform:translateY(1px);
+  background:linear-gradient(#2e2e2e,#383838) !important;
+  box-shadow:inset 0 2px 4px rgba(0,0,0,0.55), 0 1px 1px rgba(0,0,0,0.3) !important;
+}
+/* the popover's Remove keeps its danger colours but gains the same
+   elevation and sink */
+.hw-pop-remove {
+  border:1px solid #161616 !important;
+  box-shadow:inset 0 1px 0 #5a5a5a, inset 0 -1px 0 rgba(0,0,0,0.3),
+             0 2px 3px rgba(0,0,0,0.55) !important;
+}
+.hw-pop-remove:active {
+  transform:translateY(1px);
+  box-shadow:inset 0 2px 4px rgba(0,0,0,0.55) !important;
+}
+/* the Balance dialog's one real action reads as THE action */
+#balance-modal .balance-apply {
+  background:linear-gradient(var(--ps-accent-hi),var(--ps-accent)) !important;
+  border-color:var(--ps-accent-deep) !important;
+  color:var(--ps-on-accent) !important;
+  text-shadow:0 1px 1px rgba(0,0,0,0.3);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.25), 0 2px 3px rgba(0,0,0,0.55) !important;
+}
+#balance-modal .balance-apply:hover { filter:brightness(1.08); }
+/* the attachment flag presses like the button it is (red state only -
+   the green pill is a readout, cursor:default in style.css) */
+#hw-dock-flag:not(.hw-dock-flag-ok):active {
+  transform:translateY(1px);
+  box-shadow:inset 0 2px 4px rgba(0,0,0,0.5) !important;
+}
+/* a disabled button in this scope must not float - no elevation, no sink */
+#hardware-dock .btn:disabled, #hw-gear-popover button:disabled,
+#balance-modal .btn:disabled {
+  box-shadow:none !important; transform:none !important;
+  background:linear-gradient(#333,#2d2d2d) !important;
+  color:var(--ps-faint) !important;
+}

@@ -446,7 +446,7 @@ class _Power {
                 portsRequiredEl.style.color = '#ff0000';
             } else if (panelCountForStatus === 0 || servedByPeer) {
                 portsRequiredEl.textContent = '0';
-                portsRequiredEl.style.color = '#888';
+                portsRequiredEl.style.color = 'var(--ps-dim, #c0c0c0)';
             } else {
                 portsRequiredEl.textContent = portsRequired;
                 if (portsRequired <= 4) {
@@ -2485,7 +2485,7 @@ class _Power {
         const cap = (text) => {
             const c = document.createElement('label');
             c.style.fontSize = '10px';
-            c.style.color = '#888';
+            c.style.color = 'var(--ps-dim, #c0c0c0)';
             c.style.textTransform = 'uppercase';
             c.textContent = text;
             return c;

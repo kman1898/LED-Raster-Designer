@@ -897,13 +897,13 @@ class _HardwareDock {
         const top = document.createElement('div');
         top.className = 'lrd-tile-line';
         const num = document.createElement('span');
-        num.style.color = port.beyondCeiling ? '#d05a52' : '#666';
+        num.style.color = port.beyondCeiling ? '#d05a52' : 'var(--ps-faint, #969696)';
         num.textContent = String(spoken);
         top.appendChild(num);
         if (port.label) {
             const label = document.createElement('span');
             label.style.color = port.labelSource === 'manual'
-                ? '#e0c98a' : '#ccc';
+                ? '#e0c98a' : 'var(--ps-text, #f0f0f0)';
             top.appendChild(document.createTextNode(' '));
             label.textContent = port.label;
             top.appendChild(label);
@@ -915,6 +915,9 @@ class _HardwareDock {
             if (port.backsUp) {
                 // Claimed by role: this socket is another main's return end.
                 // Same gold as the backup boxes, because it is the same job.
+                // The class puts the role's gold rim on the socket geometry
+                // (theme.css .lrd-tile-gold) beside the gold text.
+                tile.classList.add('lrd-tile-gold');
                 // The bare-number fallback speaks the main's LOCAL number -
                 // the one beside its socket - with its box's name in front,
                 // because every box counts from 1 and "port 1" alone could
@@ -925,7 +928,7 @@ class _HardwareDock {
                     || `${bu.boxTitle ? `${bu.boxTitle} ` : ''}port `
                         + `${bu.localPort || bu.port}`}`;
             } else {
-                who.style.color = '#4a4a4a';
+                who.style.color = '#6a6a6a';
                 who.textContent = 'free';
             }
         } else if (occupants.length > 1) {
@@ -935,11 +938,12 @@ class _HardwareDock {
             // Derived occupancy: the socket carries this screen-port's
             // return, following its main - the role's gold, because the
             // claim is the role's, and only the main can clear it.
+            tile.classList.add('lrd-tile-gold');
             who.style.color = '#c8a04a';
             who.textContent =
                 `${occupants[0].name} p${occupants[0].number} return`;
         } else {
-            who.style.color = '#999';
+            who.style.color = 'var(--ps-dim, #c0c0c0)';
             who.textContent = occupants[0].name;
         }
         face.appendChild(who);
@@ -1006,7 +1010,7 @@ class _HardwareDock {
         const cap = document.createElement('label');
         cap.style.display = 'block';
         cap.style.fontSize = '10px';
-        cap.style.color = '#888';
+        cap.style.color = 'var(--ps-dim, #c0c0c0)';
         cap.textContent = caption;
         cell.appendChild(cap);
 
@@ -1124,7 +1128,7 @@ class _HardwareDock {
             const derived = occupants.length === 1
                 && occupants[0].role === 'return';
             who.style.color = occupants.length > 1 ? '#d05a52'
-                : (derived ? '#c8a04a' : '#888');
+                : (derived ? '#c8a04a' : 'var(--ps-dim, #c0c0c0)');
             who.textContent = parts.join(', ')
                 + (occupants.length > 1 ? ' - clash' : '');
             who.title = occupants.length > 1
@@ -1155,7 +1159,7 @@ class _HardwareDock {
         } else if (port.backedBy) {
             const back = document.createElement('div');
             back.style.fontSize = '11px';
-            back.style.color = '#888';
+            back.style.color = 'var(--ps-dim, #c0c0c0)';
             back.style.margin = '0 0 4px 0';
             back.textContent = `Return comes back on ${port.backedBy.label
                 || `port ${port.backedBy.localPort || port.backedBy.port} `
@@ -1178,7 +1182,7 @@ class _HardwareDock {
             pick.style.margin = '0 0 4px 0';
             const cap = document.createElement('span');
             cap.style.fontSize = '10px';
-            cap.style.color = '#888';
+            cap.style.color = 'var(--ps-dim, #c0c0c0)';
             cap.textContent = 'Backed by';
             pick.appendChild(cap);
 
@@ -1617,12 +1621,12 @@ class _HardwareDock {
         const top = document.createElement('div');
         top.className = 'lrd-tile-line';
         const num = document.createElement('span');
-        num.style.color = '#666';
+        num.style.color = 'var(--ps-faint, #969696)';
         num.textContent = String(t);
         top.appendChild(num);
         if (holders.length) {
             const label = document.createElement('span');
-            label.style.color = '#ccc';
+            label.style.color = 'var(--ps-text, #f0f0f0)';
             top.appendChild(document.createTextNode(' '));
             label.textContent = holders.map(h => h.label).join(' / ');
             top.appendChild(label);
@@ -1631,13 +1635,13 @@ class _HardwareDock {
         const who = document.createElement('div');
         who.className = 'lrd-tile-line';
         if (!holders.length) {
-            who.style.color = '#4a4a4a';
+            who.style.color = '#6a6a6a';
             who.textContent = 'free';
         } else if (holders.length > 1) {
             who.style.color = '#d05a52';
             who.textContent = 'clash';
         } else {
-            who.style.color = '#999';
+            who.style.color = 'var(--ps-dim, #c0c0c0)';
             who.textContent = holders[0].who;
         }
         face.appendChild(who);

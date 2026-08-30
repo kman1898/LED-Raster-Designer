@@ -3334,7 +3334,7 @@ class CanvasRenderer {
         if (!this._runUnderlayLit(layer, num)) return;
         if (!panels || !panels.length) return;
         this.ctx.save();
-        this.ctx.strokeStyle = 'rgba(120, 180, 255, 0.55)';
+        this.ctx.strokeStyle = this._accentUnderlayColor();
         this.ctx.lineWidth = Math.max(10, 14 / Math.max(this.zoom, 0.01));
         this.ctx.lineCap = 'round';
         this.ctx.lineJoin = 'round';
@@ -3353,6 +3353,25 @@ class CanvasRenderer {
         }
         this.ctx.stroke();
         this.ctx.restore();
+    }
+
+    // The underlay's colour is the app's accent - the same "target of the
+    // gesture" the dock's drop outline and the selected tiles wear - read
+    // from the theme's variable at paint time so it follows the accent
+    // picker. Translucent so it stays an underlay, not a line; the old
+    // fixed blue remains the fallback for a themeless page.
+    _accentUnderlayColor() {
+        try {
+            const hex = getComputedStyle(document.documentElement)
+                .getPropertyValue('--ps-accent-hi').trim();
+            const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+            if (m) {
+                const v = parseInt(m[1], 16);
+                return `rgba(${(v >> 16) & 255}, ${(v >> 8) & 255}, `
+                    + `${v & 255}, 0.55)`;
+            }
+        } catch (e) { /* fall through to the fixed colour */ }
+        return 'rgba(120, 180, 255, 0.55)';
     }
 
     // Should this run's underlay light up? Two askers share the one paint:

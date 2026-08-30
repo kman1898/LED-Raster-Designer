@@ -226,7 +226,7 @@ class _Processors {
         wrap.style.minWidth = '0';
         const cap = document.createElement('label');
         cap.style.fontSize = '10px';
-        cap.style.color = '#888';
+        cap.style.color = 'var(--ps-dim, #c0c0c0)';
         cap.textContent = label;
         const input = document.createElement('input');
         input.type = 'text';
@@ -268,7 +268,7 @@ class _Processors {
             return row;
         }
         const over = used > ceiling;
-        row.style.color = over ? '#d05a52' : '#888';
+        row.style.color = over ? '#d05a52' : 'var(--ps-dim, #c0c0c0)';
         row.textContent = `${used} / ${ceiling} ports`;
         if (over) row.textContent += ' - over capacity';
         return row;
@@ -326,7 +326,7 @@ class _Processors {
             const cards = document.createElement('div');
             cards.style.fontSize = '11px';
             cards.style.fontFamily = 'monospace';
-            cards.style.color = proc.cardsOver ? '#d05a52' : '#888';
+            cards.style.color = proc.cardsOver ? '#d05a52' : 'var(--ps-dim, #c0c0c0)';
             cards.textContent = `${proc.cardsUsed} / ${proc.maxCards} cards`;
             // Documented as max output cards, never as physical slots, and
             // the H9 Enhanced's limit moves with what is in it.
@@ -369,7 +369,7 @@ class _Processors {
                     && proc.redundancyPairing.fixed) {
                 const fact = document.createElement('div');
                 fact.style.fontSize = '11px';
-                fact.style.color = '#888';
+                fact.style.color = 'var(--ps-dim, #c0c0c0)';
                 fact.style.lineHeight = '1.4';
                 fact.style.margin = '2px 0 0 20px';
                 fact.textContent = proc.redundancyPairing.statement;
@@ -391,7 +391,7 @@ class _Processors {
             row.style.marginTop = '6px';
             const num = document.createElement('div');
             num.style.fontSize = '11px';
-            num.style.color = '#888';
+            num.style.color = 'var(--ps-dim, #c0c0c0)';
             num.style.fontFamily = 'monospace';
             num.style.minWidth = '38px';
             num.textContent = `Slot ${slot.index + 1}`;
@@ -566,7 +566,7 @@ class _Processors {
             } else {
                 const full = document.createElement('div');
                 full.style.fontSize = '11px';
-                full.style.color = '#888';
+                full.style.color = 'var(--ps-dim, #c0c0c0)';
                 full.textContent = card.trunksFree
                     ? `Only ${card.trunksFree} trunk left - no box fits it.`
                     : `All ${card.trunks} trunks are used.`;
@@ -578,7 +578,7 @@ class _Processors {
             trunks.style.fontSize = '11px';
             trunks.style.fontFamily = 'monospace';
             trunks.style.marginTop = '4px';
-            trunks.style.color = card.trunksUsed > card.trunks ? '#d05a52' : '#888';
+            trunks.style.color = card.trunksUsed > card.trunks ? '#d05a52' : 'var(--ps-dim, #c0c0c0)';
             trunks.textContent =
                 `${card.trunksUsed} / ${card.trunks} trunks, `
                 + `${card.portsPerTrunk} ports each`;
@@ -680,7 +680,7 @@ class _Processors {
         const info = document.createElement('div');
         info.style.fontSize = '11px';
         info.style.fontFamily = 'monospace';
-        info.style.color = '#888';
+        info.style.color = 'var(--ps-dim, #c0c0c0)';
         info.style.marginTop = '4px';
         // The box's own port count is a maximum, not a promise: it fans out
         // whatever the trunk carries, which is why a CVT10 gives 8 behind an
@@ -851,7 +851,7 @@ class _Processors {
             if (!card.backupCardId) {
                 const hint = document.createElement('div');
                 hint.style.fontSize = '11px';
-                hint.style.color = '#888';
+                hint.style.color = 'var(--ps-dim, #c0c0c0)';
                 hint.style.marginTop = '2px';
                 hint.textContent = 'No backup unit picked - nothing is '
                     + 'backed up yet.';
@@ -860,7 +860,7 @@ class _Processors {
         } else if (shape.mode === 'sequential') {
             const info = document.createElement('div');
             info.style.fontSize = '11px';
-            info.style.color = '#888';
+            info.style.color = 'var(--ps-dim, #c0c0c0)';
             info.style.marginTop = '2px';
             info.textContent = card.ceilingKnown && card.ceiling
                 ? `1 backed by 2, 3 by 4 - ${shape.usable} of `
@@ -870,7 +870,7 @@ class _Processors {
         } else if (shape.mode === 'halves') {
             const info = document.createElement('div');
             info.style.fontSize = '11px';
-            info.style.color = '#888';
+            info.style.color = 'var(--ps-dim, #c0c0c0)';
             info.style.marginTop = '2px';
             if (card.ceilingKnown && card.ceiling) {
                 // The same split the server maps: mains are the front
@@ -889,7 +889,7 @@ class _Processors {
         } else if (shape.mode === 'manual') {
             const info = document.createElement('div');
             info.style.fontSize = '11px';
-            info.style.color = '#888';
+            info.style.color = 'var(--ps-dim, #c0c0c0)';
             info.style.marginTop = '2px';
             info.textContent = 'Each port picks its backup in its chip on '
                 + 'the hardware dock. An unpicked port has no backup.';
