@@ -18,7 +18,7 @@ window.WHATS_NEW_CONTENT = {
         title: 'The hardware dock, and power that matches the rack',
         items: [
             { h: 'Hardware lives in a dock',
-              d: 'Processors and power distros sit in a dock along the bottom of the window. Wire a screen by dragging it onto a device; ports and tails are patched right on the dock, so there is one place to see the whole patch.' },
+              d: 'Processors and power distros sit in a dock along the bottom of the window. Wire a screen by dragging it onto a device; ports and circuits are patched right on the dock, so there is one place to see the whole patch.' },
             { h: 'A flag for unattached screens',
               d: 'While any screen still has unwired ports or circuits, the dock header shows a red flag with the count. Click it for a row per screen, and click a row to fly the view straight to it.' },
             { h: 'Redundancy, numbered like the hardware',
@@ -28,7 +28,7 @@ window.WHATS_NEW_CONTENT = {
             { h: 'Take over one run with Alt',
               d: 'Hold Alt and route a single data run by hand. The rest of the wall keeps auto-cabling around it, so one custom run no longer costs you the automatic layout.' },
             { h: '110V and L21-30 power',
-              d: 'Power planning now covers Edison (110V) breakouts and L21-30 feeds splitting to three 208V circuits at 30 A per leg, alongside soca, with True1 and powerCON tails.' },
+              d: 'Power planning now covers Edison (110V) breakouts and L21-30 feeds splitting to three 208V circuits at 30 A per leg, alongside soca, with True1 and powerCON connectors.' },
             { h: 'A screen only lands on gear that can drive it',
               d: 'Dragging a screen onto hardware from a different product line is refused up front, so a patch that could never work is never drawn.' },
             { h: 'Labels wrap instead of inflating',

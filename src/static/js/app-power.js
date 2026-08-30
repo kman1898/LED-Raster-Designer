@@ -1021,8 +1021,8 @@ class _Power {
         return [
             { id: 'soca-true1', name: 'Multi → True1', connector: 'True1', boxSize: 6, breakoutItem: 'Multi breakouts → True1' },
             { id: 'soca-powercon', name: 'Multi → powerCON', connector: 'powerCON', boxSize: 6, breakoutItem: 'Multi breakouts → powerCON' },
-            { id: 'soca-edison', name: 'Multi → Edison (110V)', connector: 'Edison', boxSize: 6, breakoutItem: 'Multi breakouts → Edison', tailItem: 'Edison → panel tails' },
-            { id: 'soca-l620', name: 'Multi → L6-20', connector: 'L6-20', boxSize: 6, breakoutItem: 'Multi breakouts → L6-20', tailItem: 'L6-20 → panel tails' },
+            { id: 'soca-edison', name: 'Multi → Edison (110V)', connector: 'Edison', boxSize: 6, breakoutItem: 'Multi breakouts → Edison', tailItem: 'Edison → panels' },
+            { id: 'soca-l620', name: 'Multi → L6-20', connector: 'L6-20', boxSize: 6, breakoutItem: 'Multi breakouts → L6-20', tailItem: 'L6-20 → panels' },
             // The L21-30 breakout (user ruling, 2026-08-28): fed by an
             // L21-30 at 30 A per leg, splitting to 3 x 208V circuits on
             // True1 or powerCON - a leg-PAIR circuit per tail, never a
@@ -2903,6 +2903,89 @@ class _Power {
                     .sort((a, b) => a - b);
             }
         });
+    }
+
+    // ---- what a CLEAR forgets ------------------------------------------------
+    //
+    // User ruling (2026-08-30): "when i clear a circuit, soca or a distro
+    // or sending card i dont want it to remember how i had it programmed
+    // before with balancing etc". A clear used to drop only the assignment
+    // and leave the paperwork - the stored tail set above all - so
+    // re-assigning resurrected the old balance layout. Now the clear wipes
+    // the cleared thing's stored programming too, and the caller folds
+    // every wipe into ONE history entry so a single undo restores all of
+    // it. Split boundaries STAY: they define which circuits the multi
+    // holds, not how it was programmed.
+
+    // One multi's circuits and their splitter run ids, read BEFORE any
+    // store moves - the naming pass and the run ids describe the pre-clear
+    // wall, and a wipe that changed the splitter store first would read a
+    // renumbered plan.
+    _socaClearTargets(layer, socaIndex) {
+        const rec = this._powerNaming(layer).socas.get(Number(socaIndex));
+        const circuits = rec ? rec.circuits.slice() : [];
+        const runIds = [];
+        if (circuits.length) {
+            const inMulti = new Set(circuits);
+            this.screenCircuits(layer).forEach(c => {
+                if (!inMulti.has(c.num)) return;
+                (c.runIds || [c.num]).forEach(id => runIds.push(id));
+            });
+        }
+        return { circuits, runIds };
+    }
+
+    // Wipe one multi's stored programming: the (distro, number) assignment,
+    // the stored tail set and legacy breaker offset, the typed name and
+    // home-run length, its circuits' label overrides, and the manual
+    // share/split entries covering its circuits. No history entry here -
+    // the clear gestures compose members into one entry themselves. The
+    // store objects are always left behind, never the properties deleted
+    // whole (an absent key is missing from the update payload and the
+    // server keeps whatever it had, so "cleared" would silently not clear).
+    _wipeSocaProgramming(layer, socaIndex, targets) {
+        const idx = Number(socaIndex);
+        for (const field of ['powerSocaNumber', 'powerSocaDistro',
+                             'powerSocaPhasePos', 'powerSocaPhaseOffset',
+                             'powerSocaNames', 'powerSocaLengths']) {
+            if (layer[field]) delete layer[field][idx];
+        }
+        const t = targets || this._socaClearTargets(layer, socaIndex);
+        if (layer.powerLabelOverrides) {
+            t.circuits.forEach(num => {
+                delete layer.powerLabelOverrides[num];
+            });
+        }
+        this._wipeSplitterManualFor(layer, t.runIds);
+    }
+
+    // Drop the manual share (merge) groups and split pins covering the
+    // given run ids, so a cleared scope re-packs naturally instead of
+    // keeping hand-ganged circuits nobody is feeding any more. Unrecorded
+    // by design - the clear's one entry carries it. Only the groups
+    // authored in the id space the layer currently reads are touched; a
+    // dormant foreign-space store is not this gesture's paperwork.
+    _wipeSplitterManualFor(layer, runIds) {
+        if (!runIds || !runIds.length) return false;
+        const raw = layer && layer.powerSplitters;
+        if (!raw || !raw.manual) return false;
+        const space = this._splitterManualSpace(layer);
+        if (space && space !== this._splitterIdSpace(layer)) return false;
+        const cur = this.getPowerSplitters(layer);
+        const hit = new Set(runIds);
+        const merge = cur.manual.merge
+            .map(g => (Array.isArray(g) ? g.filter(n => !hit.has(n)) : []))
+            .filter(g => g.length >= 2);
+        const split = cur.manual.split.filter(n => !hit.has(n));
+        if (JSON.stringify(merge) === JSON.stringify(cur.manual.merge)
+                && split.length === cur.manual.split.length) {
+            return false;
+        }
+        layer.powerSplitters = { ...cur, manual: {
+            merge, split,
+            space: cur.manual.space || this._splitterIdSpace(layer),
+        } };
+        return true;
     }
 
     _writeSplitterManual(layer, fn) {

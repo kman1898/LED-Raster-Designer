@@ -101,6 +101,17 @@ def test_content_is_plain_text_no_emoji():
             assert '<' not in m.group(1), '%s entry contains markup: %r' % (key, m.group(1))
 
 
+def test_content_says_circuits_not_tails():
+    """'tails' is banned display language (user ruling, 2026-08-30 -
+    circuits, not tails). The splash is pure display text, so the whole
+    file must stay clean of the word."""
+    src = _read(CONTENT_JS)
+    hits = re.findall(r'\btails?\b', src, re.I)
+    assert not hits, (
+        'whatsnew_content.js says %r; UI copy says circuits, not tails'
+        % hits)
+
+
 # ── the wiring (new files must not rot) ──────────────────────────────────
 
 def test_index_loads_splash_scripts():

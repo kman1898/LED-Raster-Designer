@@ -101,6 +101,21 @@ CHECK_TARGET_JS = """(t) => {
 }"""
 
 
+def test_tour_copy_says_circuits_not_tails():
+    """'tails' is banned display language (user ruling, 2026-08-30 -
+    circuits, not tails). quickstart.js is tour copy plus a little
+    machinery that never says the word, so the whole file must stay
+    clean of it."""
+    import re
+    path = os.path.join(os.path.dirname(__file__), '..', 'src', 'static',
+                        'js', 'quickstart.js')
+    with open(path, encoding='utf-8') as f:
+        src = f.read()
+    hits = re.findall(r'\btails?\b', src, re.I)
+    assert not hits, (
+        'quickstart.js says %r; UI copy says circuits, not tails' % hits)
+
+
 def test_tour_registry_exposes_all_tours(page):
     names = page.evaluate("Object.keys(window.QuickStart.tours())")
     assert {'quick', 'whatsNew', 'advanced'} <= set(names), names
