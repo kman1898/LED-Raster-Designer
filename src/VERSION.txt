@@ -1,7 +1,7 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
-v0.12.0 - August 30, 2026 (BETA)
+v0.12.0 - August 31, 2026 (BETA)
 ----------------------------
 
 THE HARDWARE TRAY - one home for all the hardware
@@ -70,6 +70,18 @@ GUIDANCE
   today. Labels on the drawing wrap at spaces instead of ballooning.
 
 FIXES THAT CHANGE NUMBERS ON DRAWINGS YOU ALREADY HAVE
+
+- FIX (IMPORTANT): Splitter merges made while a screen's circuits were
+  drawn by hand no longer leak into automatic packing. A file that once
+  had custom circuits could gang the wrong rows - even over circuit
+  capacity - when splitter sharing was turned on with an automatic
+  pattern; those old merges now stay dormant until the screen goes back
+  to custom, and packing on and off always lands the same row groups.
+
+- FIX: The power tray deals distros into as many columns as genuinely
+  fit. At narrower windows the last distro used to wrap below everything
+  at a different width; now the tray drops to two columns (or one) with
+  every column the same size, and re-deals live as the window changes.
 
 - FIX (IMPORTANT): Cancelling a save or export now saves NOTHING. On Mac,
   pressing Cancel in the file dialog used to send the export to Downloads
