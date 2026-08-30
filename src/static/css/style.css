@@ -1562,36 +1562,43 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 }
 /* the distro unit's honest floor: one header line of name + amps +
    Balance + bar + voltage + gear, none of it clipped */
-/* Three distros across, and the fourth WRAPS to a new row (user pick,
-   2026-08-30, from the rendered width options): a third of the tray each
-   is the width where nothing clips, and wrapping keeps every service
-   visible - a five-distro show just gets taller, never hides one
-   sideways. Grow is capped, not banned (fold pass, same day): an expanded
-   distro may take the room a folded neighbour freed, but the max-width
-   keeps a lone distro from ballooning the full tray. */
-.hw-dock-distro {
+/* Three COLUMNS of distros (2026-08-30, second fold pass: "see this big
+   blank area directly under SR? And how SL doesn't automatically jump up
+   to be directly under SR when it's collapsed?"): the distros deal into
+   up to three vertical columns (app-dock.js _dockRenderPower, index
+   i % 3 - stable across re-renders, so units never jump columns as
+   loads change). Distros 1-3 read left to right, 4 sits UNDER 1, and
+   within a column everything stacks naturally: a folded distro is just
+   SHORT and the unit below it slides straight up - flex-wrap's
+   uniform-height rows left a dead blank under every folded header. Each
+   column carries the width discipline the units used to: a third of the
+   tray, the 380px no-clip floor (name + amps + bar + voltage + Balance +
+   gear, then LEGS), and a cap so a lone distro never balloons the full
+   tray. */
+.hw-dock-col {
     flex: 1 1 calc((100% - 20px) / 3);
     min-width: 380px;
     max-width: 600px;
+    min-height: 0;
+    display: flex; flex-direction: column; gap: 10px;
+    align-items: stretch;
 }
-/* ── fold reflow (2026-08-30: "SR is collapsed and SL is not filling the
-   empty space") ──────────────────────────────────────────────────────────
-   A folded unit is just its header (plus the distro's always-on LEGS
-   line), so it stops claiming a full column: basis auto lets it sit at
-   its natural width, and the expanded neighbours' grow soaks up the room
-   it frees. The max-width caps the natural width (a name input's
-   intrinsic size runs wide); the header's own min-widths (name floor,
-   nowrap figures) are what protect it from clipping, since wrap layout
-   never shrinks an item below its hypothetical size. */
-#hardware-dock-body .hw-dock-unit.lrd-sec-collapsed {
+/* Inside its column a distro is a stacked block, folded or not - it
+   keeps the column's full width (the stack, not a width change, is what
+   reclaims a folded unit's room). Restated flex because the unit base
+   rule's row-flex basis would read as HEIGHT in the column context. */
+.hw-dock-col > .hw-dock-distro { flex: 0 0 auto; min-width: 0; }
+/* ── fold reflow, data side (2026-08-30) ─────────────────────────────────
+   A folded CARD is just its header, so it stops claiming a grown share
+   of its processor's row: basis auto sits it at its natural width and
+   the expanded neighbours grow into the room. Scoped to the proc wraps -
+   a folded DISTRO stays column-wide, the column stack above handles it.
+   The max-width caps the natural width (a name input's intrinsic size
+   runs wide); the header's own min-widths (name floor, nowrap figures)
+   protect it from clipping, since wrap layout never shrinks an item
+   below its hypothetical size. */
+#hardware-dock-body .hw-dock-proc .hw-dock-unit.lrd-sec-collapsed {
     flex: 0 1 auto;
     min-width: 0;
     max-width: 300px;
-}
-/* the distro's folded floor is wider: name + amps + bar + voltage +
-   Balance + gear on one line, then the LEGS line - none of it clipped */
-#hardware-dock-body .hw-dock-distro.lrd-sec-collapsed {
-    flex: 0 1 auto;
-    min-width: 360px;
-    max-width: 380px;
 }

@@ -1265,8 +1265,23 @@ class _HardwareDock {
         // bars - the roll-up's own figures, never re-summed here.
         const loads = typeof this.getDistroLoads === 'function'
             ? this.getDistroLoads() : [];
-        distros.forEach(d => {
-            host.appendChild(this._dockBuildDistro(
+        // The distros deal into up to three vertical COLUMNS (2026-08-30:
+        // a folded distro in a flex-wrap row left a dead blank below its
+        // header, because wrap rows are uniform-height). i % nCols keeps
+        // the deal stable across re-renders - index-based, never
+        // height-based, so units don't jump columns when loads change.
+        // 1-3 read left to right, 4 lands UNDER 1, and inside a column
+        // the stack means the unit below a folded one slides straight up.
+        const nCols = Math.min(3, distros.length) || 1;
+        const cols = [];
+        for (let i = 0; i < nCols; i++) {
+            const col = document.createElement('div');
+            col.className = 'hw-dock-col';
+            cols.push(col);
+            host.appendChild(col);
+        }
+        distros.forEach((d, i) => {
+            cols[i % nCols].appendChild(this._dockBuildDistro(
                 d, loads.find(x => x.id === d.id)));
         });
         // Two multis on one distro wearing one name on two numbers is one
