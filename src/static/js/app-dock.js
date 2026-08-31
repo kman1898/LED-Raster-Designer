@@ -1805,7 +1805,7 @@ class _HardwareDock {
 
         this._dockWireDraggable(face, {
             type: 'tail', distroId: d.id, number: n, tail: t,
-            title: `${d.name || d.id} ${n} tail ${t}`,
+            title: `${d.name || d.id} ${n} circuit ${t}`,
         }, `tail-${d.id}-${n}-${t}`);
         return tile;
     }
@@ -2536,26 +2536,15 @@ class _HardwareDock {
             const members = this._distroMultiNumbers(payload.distroId)
                 .get(payload.number) || [];
             if (!members.length) return;
-            // Unassign every multi the chip names - the chip is the box, and
-            // pulling the box off the wall pulls all its feeds. Same two
-            // setters the panel's selects drove - but as ONE gesture with ONE
-            // history entry, the same promise _clearMultis makes for the
-            // right-click clear of this very chip: pulling the box off is one
-            // decision, and Ctrl+Z puts every feed back at once.
-            const touched = new Set();
-            members.forEach(m => {
-                const layer = (this.project.layers || [])
-                    .find(l => l.id === m.layerId);
-                if (!layer) return;
-                this.setSocaNumber(layer, m.soca, null, false)
-                    .forEach(l => touched.add(l));
-                this.setSocaDistro(layer, m.soca, null, false)
-                    .forEach(l => touched.add(l));
-            });
-            if (touched.size) {
-                this.updateLayers([...touched], true, 'Clear Multi');
-            }
-            this._restateNaming();
+            // Clear every multi the chip names - the chip is the box, and
+            // pulling the box off the wall pulls all its feeds. The SAME
+            // clear the right-click of this very chip runs (_clearMultis):
+            // one gesture, one 'Clear Multi' entry, and the stored
+            // programming is forgotten with the assignment - two gestures
+            // wearing one history name must not keep different paperwork.
+            this._clearMultis(
+                members.map(m => ({ layerId: m.layerId, soca: m.soca })),
+                'Clear Multi');
         }
     }
 
@@ -2600,7 +2589,7 @@ class _HardwareDock {
             if (i < 0) continue;
             if (ml === layer && m.soca === rec.index
                     && mr.circuits[i] === target.num) continue;
-            this._dockSay(`Tail ${payload.tail} is held by ${ml.name} `
+            this._dockSay(`Circuit ${payload.tail} is held by ${ml.name} `
                 + `${this.getPowerCircuitLabel(ml, mr.circuits[i])} - `
                 + 'clear it first, or drop on a free pip.');
             return;
@@ -2820,8 +2809,10 @@ class _HardwareDock {
         }
         return {
             label: `Clear multi ${name}`,
-            title: 'Unassign this multi - its number, then its distro. '
-                + 'Names are untouched, and undo puts it back.',
+            title: 'Clear this multi - its distro, number, stored '
+                + 'positions, typed name, home-run length and label '
+                + 'overrides are all forgotten. One undo puts everything '
+                + 'back.',
             run: () => this._clearMultis(
                 [{ layerId: owner.id, soca: rec.index }], 'Clear Multi'),
         };
@@ -2979,6 +2970,11 @@ class _HardwareDock {
         const none = { share: null, unshare: null };
         if (!window.canvasRenderer
                 || window.canvasRenderer.viewMode !== 'power') return none;
+        // With a sweep selection armed, the batch entries ARE the sharing
+        // story for this opening - a single-run "Share with next" beside
+        // "3fer them" would be two grammars for one gesture.
+        if (this._sweepSelection && this._sweepSelection.nums
+                && this._sweepSelection.nums.length) return none;
         const at = this._dockCircuitAt(x, y);
         if (!at) return none;
         const { layer, num } = at;
@@ -3026,12 +3022,159 @@ class _HardwareDock {
         return out;
     }
 
+    // ── the batch verb: sweep → right-click → "3fer them" ────────────────
+    //
+    // 2026-08-30, user pick ("lets go for B and then right click"): the
+    // sweep (canvas.js Alt+drag) arms a contiguous run selection, and the
+    // right-click menu deals it as Nfers - "3fer them (6 × 3fer)", the
+    // group math in the label so the deal reads before it is taken. With
+    // NO selection the same entries act on the whole screen under the
+    // cursor ("one run per column, 3 columns - right click the whole wall,
+    // it makes those 3 columns a 3fer"). Gated exactly as the single-run
+    // share items are (splitters on, or custom circuits) - but the batch
+    // entries stay ON the menu disabled with the reason, because a gesture
+    // nobody can find teaches nothing.
+    _prepareBatchMenu(x, y) {
+        const renderer = window.canvasRenderer;
+        if (!renderer || renderer.viewMode !== 'power'
+                || !renderer.canvas) return null;
+        const el = document.elementFromPoint(x, y);
+        if (el && el.closest && el.closest('#hardware-dock')) return null;
+        const sel = this._sweepSelection;
+        let layer = null;
+        let nums = null;
+        let scope = null;
+        if (sel && Array.isArray(sel.nums) && sel.nums.length) {
+            layer = (this.project.layers || [])
+                .find(l => l.id === sel.layerId);
+            if (!layer) return null;
+            // Degrade-on-read: circuits the plan no longer produces fall
+            // out of the selection instead of poisoning the deal.
+            const have = new Set(this.screenCircuits(layer).map(c => c.num));
+            nums = sel.nums.filter(n => have.has(n));
+            scope = 'selection';
+        } else {
+            const rect = renderer.canvas.getBoundingClientRect();
+            if (x < rect.left || x > rect.right
+                    || y < rect.top || y > rect.bottom) return null;
+            const worldY = ((y - rect.top) - renderer.panY) / renderer.zoom;
+            const worldX = renderer._unmirrorWorldX(
+                ((x - rect.left) - renderer.panX) / renderer.zoom, worldY);
+            const hit = renderer.getPanelAt(worldX, worldY);
+            if (!hit) return null;
+            const under = (this.project.layers || [])
+                .find(l => l.id === hit.layerId);
+            const circuit = under
+                ? renderer._powerCircuitForPanel(under, hit.panel) : null;
+            if (!circuit) return null;
+            layer = circuit.owner;
+            nums = this.screenCircuits(layer).map(c => c.num);
+            scope = 'screen';
+        }
+        if (!layer || !nums || nums.length < 2) return null;
+        // The deal is at RUN grain, so existing gangs inside the batch
+        // re-deal with everything else - count the runs, not the circuits.
+        const chosen = new Set(nums);
+        let runCount = 0;
+        let hasGang = false;
+        this.screenCircuits(layer).forEach(c => {
+            if (!chosen.has(c.num)) return;
+            const ids = c.runIds || [c.num];
+            runCount += ids.length;
+            if (ids.length > 1) hasGang = true;
+        });
+        if (runCount < 2) return null;
+        const sp = this.getPowerSplitters(layer);
+        const custom = this.usesCustomCircuits(layer);
+        const gated = !sp.enabled && !custom;
+        const verb = scope === 'screen' ? 'this screen' : 'them';
+        const entries = [];
+        [2, 3, 4].forEach(n => {
+            if (runCount < n) return;
+            // A size whose deal produces none of itself is another size's
+            // entry wearing the wrong name - "4fer them" over five runs
+            // deals 3+2, which IS the 3fer entry. Offer only honest sizes.
+            if (!this.batchNferGroups(runCount, n).includes(n)) return;
+            const label = `${n}fer ${verb} `
+                + `(${this.batchNferLabel(runCount, n)})`;
+            if (gated) {
+                entries.push({
+                    label, disabled: true,
+                    title: `Sharing is off for ${layer.name} - turn on `
+                        + '"Share circuits via splitters" in Power Settings '
+                        + '(or route its circuits custom) to gang runs.',
+                });
+                return;
+            }
+            entries.push({
+                label,
+                title: `Deal ${runCount} run${runCount === 1 ? '' : 's'} `
+                    + `left to right as ${this.batchNferLabel(runCount, n)} `
+                    + '- adjacent groups, each its own circuit. Honored '
+                    + 'even over capacity - a heavy gang flags OVER. One '
+                    + 'undoable step.',
+                run: () => {
+                    sendClientLog('power_batch_nfer',
+                                  { layerId: layer.id, n, scope,
+                                    runs: runCount });
+                    this.batchShareCircuits(layer, nums, n,
+                        `${n}fer ${scope === 'screen'
+                            ? 'Screen' : 'Selection'}`);
+                    this._sweepSelection = null;
+                },
+            });
+        });
+        if (!entries.length) return null;
+        const out = { entries, scope };
+        if (hasGang && !gated) {
+            out.unshare = {
+                label: scope === 'screen'
+                    ? 'Un-share this screen' : 'Un-share all',
+                title: 'Un-gang every shared circuit '
+                    + (scope === 'screen'
+                        ? 'on this screen' : 'in the selection')
+                    + ' back onto runs of their own. One undoable step.',
+                run: () => {
+                    sendClientLog('power_batch_unshare',
+                                  { layerId: layer.id, scope });
+                    this.splitSplitterCircuits(layer, nums,
+                        scope === 'screen'
+                            ? 'Un-share Screen' : 'Un-share Selection');
+                    this._sweepSelection = null;
+                },
+            };
+        }
+        return out;
+    }
+
     // A dock chip: the same clears, from the hardware end of the cable.
     _clearMenuForDock(payload) {
         if (payload.type === 'port') {
             const label = `Clear ${payload.title}`;
             const all = this._portOccupants(payload.cardId, payload.port);
             const occupants = all.filter(o => !o.role);
+            // The port's hand-picked backup (manual redundancy), part of
+            // this socket's programming: the clear forgets it with the
+            // claim. Typed port names stay - they are hardware naming,
+            // not programming.
+            const found = this._dockCardById(payload.cardId);
+            const pick = found
+                && (found.card.backupPorts || {})[String(payload.port)];
+            // The pick-only offer, for a socket with no claim to release
+            // but a stored pick to forget. Sits BELOW the role refusals: a
+            // socket that is itself a backup end answers by its role.
+            const pickOnly = () => ({
+                label,
+                title: `${payload.title} holds no claim, but it picks `
+                    + 'a backup port - clear that pick. Undo puts it '
+                    + 'back.',
+                run: () => {
+                    sendClientLog('dock_clear',
+                                  { kind: 'port-pick', payload });
+                    return this._dockClearPortPicks(
+                        found, [payload.port], 'Clear Port');
+                },
+            });
             if (!occupants.length) {
                 // A backup socket carrying a mirrored return refuses by the
                 // role, naming the screen and the main the display follows
@@ -3060,6 +3203,7 @@ class _HardwareDock {
                             + 'its own.',
                     };
                 }
+                if (pick) return pickOnly();
                 return {
                     label, disabled: true,
                     title: `${payload.title} is free - there is nothing to `
@@ -3068,6 +3212,7 @@ class _HardwareDock {
             }
             const pinned = occupants.filter(o => o.source === 'pin');
             if (!pinned.length) {
+                if (pick) return pickOnly();
                 return {
                     label, disabled: true,
                     title: `${occupants[0].name} is numbered automatically - `
@@ -3078,13 +3223,23 @@ class _HardwareDock {
             return {
                 label,
                 title: 'Release the pinned claim on this socket back to '
-                    + 'auto-numbering. Undo puts it back.',
+                    + 'auto-numbering'
+                    + (pick ? ', and clear its hand-picked backup port'
+                        : '')
+                    + '. Undo puts it back.',
                 run: () => {
                     sendClientLog('dock_clear', { kind: 'port', payload });
-                    return this._dockReleasePins(
+                    const release = this._dockReleasePins(
                         pinned.map(o => ({ layerId: o.layerId,
                                            index: o.number - 1 })),
-                        'Release Port');
+                        pick ? null : 'Release Port');
+                    // The pick clear rides the same gesture: the snapshot
+                    // moves to the LAST request, so the whole clear stays
+                    // one history entry.
+                    return pick
+                        ? release.then(() => this._dockClearPortPicks(
+                            found, [payload.port], 'Clear Port'))
+                        : release;
                 },
             };
         }
@@ -3100,30 +3255,62 @@ class _HardwareDock {
                         pins.push({ layerId: scr.layerId, index: p.index });
                     }
                 }));
-            if (!pins.length) {
+            // The card's per-port backup picks in this range are its
+            // programming too, and the clear forgets them with the pins.
+            // Typed port names stay - hardware naming, not programming.
+            const found = this._dockCardById(payload.cardId);
+            const picks = [];
+            if (found) {
+                Object.keys(found.card.backupPorts || {}).forEach(k => {
+                    const pn = parseInt(k, 10);
+                    if (Number.isFinite(pn) && pn >= first && pn <= last) {
+                        picks.push(pn);
+                    }
+                });
+            }
+            if (!pins.length && !picks.length) {
                 return {
                     label, disabled: true,
-                    title: `${payload.title} holds no pins - its occupied `
-                        + 'ports are numbered automatically, and there is no '
-                        + 'pin to release.',
+                    title: `${payload.title} holds no pins and no per-port `
+                        + 'backup picks - its occupied ports are numbered '
+                        + 'automatically, and there is nothing stored to '
+                        + 'clear.',
                 };
             }
             return {
                 label,
                 title: `Release every pin on ${payload.title} back to `
-                    + 'auto-numbering, as one undoable step.',
+                    + 'auto-numbering'
+                    + (picks.length
+                        ? ' and clear its per-port backup picks' : '')
+                    + ', as one undoable step.',
                 run: () => {
                     sendClientLog('dock_clear',
                                   { kind: payload.type, payload,
-                                    count: pins.length });
-                    return this._dockReleasePins(pins, 'Release Ports');
+                                    count: pins.length,
+                                    picks: picks.length });
+                    const release = pins.length
+                        ? this._dockReleasePins(
+                            pins, picks.length ? null : 'Release Ports')
+                        : Promise.resolve();
+                    // The picks ride the same gesture; the snapshot moves
+                    // to the last request so one Ctrl+Z restores pins and
+                    // picks together.
+                    return picks.length
+                        ? release.then(() => this._dockClearPortPicks(
+                            found, picks, 'Clear Card'))
+                        : release;
                 },
             };
         }
         if (payload.type === 'tail') {
-            // The circuit chip's clear is the drawn circuit run's clear,
-            // re-aimed from the hardware end: un-assign the holder's multi,
-            // number then distro. A free tail states its freedom.
+            // The circuit chip's clear, re-aimed from the hardware end. A
+            // free chip states its freedom. A chip whose holder is a
+            // ONE-circuit multi (the pip drop's product) clears at circuit
+            // scope: assignment, stored position and label override are
+            // forgotten, the multi's name and home-run length stay. A chip
+            // inside a bigger multi clears as its multi - a member circuit
+            // has no assignment of its own to shed.
             const held = this._dockTailHolder(
                 payload.distroId, parseInt(payload.number, 10), payload.tail);
             if (!held) {
@@ -3133,12 +3320,26 @@ class _HardwareDock {
                         + 'clear.',
                 };
             }
+            if (held.rec.circuits.length === 1) {
+                const label = this.getPowerCircuitLabel(held.layer,
+                                                        held.circuit);
+                return {
+                    label: `Clear circuit ${label}`,
+                    title: 'Take this circuit off the box and forget how it '
+                        + 'was programmed - its stored position and its '
+                        + 'label override go with the assignment. One undo '
+                        + 'puts it all back.',
+                    run: () => this._clearCircuitChip(
+                        held.layer, held.rec.index, held.circuit),
+                };
+            }
             const name = held.rec.name || `multi ${held.rec.number}`;
             return {
                 label: `Clear multi ${name}`,
-                title: 'Unassign this circuit\'s multi - its number, then '
-                    + 'its distro. Names are untouched, and undo puts it '
-                    + 'back.',
+                title: 'Clear this circuit\'s multi - its distro, number, '
+                    + 'stored positions, typed name, home-run length and '
+                    + 'label overrides are all forgotten. One undo puts '
+                    + 'everything back.',
                 run: () => this._clearMultis(
                     [{ layerId: held.layer.id, soca: held.rec.index }],
                     'Clear Multi'),
@@ -3157,9 +3358,11 @@ class _HardwareDock {
             }
             return {
                 label,
-                title: 'Unassign every multi on this slot - the chip is the '
-                    + 'box, and clearing the box takes all its feeds. One '
-                    + 'undoable step.',
+                title: 'Clear every multi on this slot - the chip is the '
+                    + 'box, and clearing the box takes all its feeds and '
+                    + 'forgets how they were programmed: stored positions, '
+                    + 'typed names, home-run lengths and label overrides. '
+                    + 'One undoable step.',
                 run: () => this._clearMultis(
                     members.map(m => ({ layerId: m.layerId, soca: m.soca })),
                     'Clear Multi'),
@@ -3185,8 +3388,11 @@ class _HardwareDock {
             }
             return {
                 label,
-                title: `Unassign every multi on ${payload.title}, as one `
-                    + 'undoable step.',
+                title: `Clear every multi on ${payload.title} - the `
+                    + 'assignments and the stored programming (positions, '
+                    + 'typed names, home-run lengths, label overrides) - '
+                    + `as one undoable step. ${payload.title} itself keeps `
+                    + 'its name and electrical setup.',
                 run: () => this._clearMultis(members, 'Clear Distro'),
             };
         }
@@ -3207,36 +3413,97 @@ class _HardwareDock {
         return chain;
     }
 
-    // Un-assign a set of multis - number, then distro, the order the panel's
-    // selects always fired - as ONE gesture with ONE history entry: a
+    // Clear a set of multis as ONE gesture with ONE history entry: a
     // distro-level clear is one decision, and Ctrl+Z must put every feed
-    // back at once. The deletions mirror setSocaNumber(null) /
-    // setSocaDistro(null) exactly, minus their per-call snapshots; the
-    // objects are always left behind, never the properties deleted whole -
-    // an absent key is missing from the update payload and the server keeps
-    // whatever it had, so "cleared" would silently not clear.
+    // back at once. A clear FORGETS the multi's stored programming, not
+    // just its assignment (user ruling, 2026-08-30: clearing must not
+    // remember "how i had it programmed before with balancing etc"):
+    // distro, number, the stored tail set and breaker offset, the typed
+    // name and home-run length, the circuits' label overrides, and the
+    // manual share/split entries covering those circuits - see
+    // _wipeSocaProgramming. Split boundaries stay: they define which
+    // circuits the multi holds, not how it was programmed.
     _clearMultis(members, action) {
         sendClientLog('dock_clear', { kind: 'multis', action,
                                       count: members.length });
-        const touched = [];
+        // Every member's circuits and run ids are read BEFORE any store
+        // moves - the wipe itself renumbers the wall it would otherwise
+        // be reading.
+        const jobs = [];
         members.forEach(m => {
             const layer = (this.project.layers || [])
                 .find(l => l.id === m.layerId);
             if (!layer) return;
-            const nums = layer.powerSocaNumber
-                || (layer.powerSocaNumber = {});
-            delete nums[m.soca];
-            const dist = layer.powerSocaDistro
-                || (layer.powerSocaDistro = {});
-            delete dist[m.soca];
-            touched.push(layer);
+            jobs.push({ layer, soca: m.soca,
+                        targets: this._socaClearTargets(layer, m.soca) });
         });
-        if (!touched.length) return;
-        // Un-assignment renumbers both buckets it touches, so every label
+        if (!jobs.length) return;
+        jobs.forEach(j =>
+            this._wipeSocaProgramming(j.layer, j.soca, j.targets));
+        // The clear renumbers both buckets it touches, so every label
         // on the show can move - same cache drop the setters make.
         this._circuitTailCache = null;
-        this.updateLayers([...new Set(touched)], true, action);
+        this.updateLayers([...new Set(jobs.map(j => j.layer))], true,
+                          action);
         this._restateNaming();
+    }
+
+    // One circuit chip's clear, where its holder is a multi of ONE circuit
+    // (the pip drop's product): the assignment goes AND the programming
+    // the gesture stored - the position on the box, the label override,
+    // any manual share entries - so re-assigning deals naturally instead
+    // of resurrecting the old seat. The multi's typed name and home-run
+    // length are identity, not programming, and stay at this scope (the
+    // multi's own clear forgets those). ONE history entry.
+    _clearCircuitChip(layer, socaIndex, circuitNum) {
+        sendClientLog('dock_clear', { kind: 'circuit', layerId: layer.id,
+                                      soca: socaIndex, circuit: circuitNum });
+        const idx = Number(socaIndex);
+        const runIds = [];
+        this.screenCircuits(layer).forEach(c => {
+            if (c.num !== circuitNum) return;
+            (c.runIds || [c.num]).forEach(id => runIds.push(id));
+        });
+        for (const field of ['powerSocaNumber', 'powerSocaDistro',
+                             'powerSocaPhasePos', 'powerSocaPhaseOffset']) {
+            if (layer[field]) delete layer[field][idx];
+        }
+        if (layer.powerLabelOverrides) {
+            delete layer.powerLabelOverrides[circuitNum];
+        }
+        this._wipeSplitterManualFor(layer, runIds);
+        this._circuitTailCache = null;
+        this.updateLayers([layer], true, 'Clear Circuit');
+        this._restateNaming();
+    }
+
+    // One resolved card (with its processor, for the routes that key on
+    // both) off the same tree the tiles drew.
+    _dockCardById(cardId) {
+        for (const proc of this._processorsResolved || []) {
+            for (const slot of proc.slots || []) {
+                if (slot.card && slot.card.id === cardId) {
+                    return { proc, card: slot.card };
+                }
+            }
+        }
+        return null;
+    }
+
+    // Clear the hand-picked backup on each named port of one card - one
+    // PUT per port through the same route the chip's Backed-by fields use,
+    // the snapshot riding the LAST request so the whole gesture is one
+    // history entry (the _dockReleasePins convention).
+    _dockClearPortPicks(found, ports, action) {
+        let chain = Promise.resolve();
+        ports.forEach((pn, i) => {
+            chain = chain.then(() => this._processorRequest(
+                `/api/processors/${found.proc.id}/cards/${found.card.id}`
+                    + `/ports/${pn}`,
+                'PUT', { backup: null },
+                i === ports.length - 1 ? action : null));
+        });
+        return chain;
     }
 
     // One resolved port off the same tree the tiles drew, so a menu can

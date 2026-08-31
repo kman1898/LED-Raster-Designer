@@ -141,6 +141,18 @@
                  currently shared. -->
             <div class="menu-option hw-share-only" data-action="hw-share" style="display: none;"></div>
             <div class="menu-option hw-unshare-only" data-action="hw-unshare" style="display: none;"></div>
+            <!-- The batch verb (2026-08-30): with a sweep selection armed
+                 the menu deals it as Nfers - "3fer them (6 x 3fer)" - and
+                 with none the same entries act on the whole screen under
+                 the cursor. Armed by _prepareBatchMenu (app-dock.js); a
+                 gated screen's entries stay on the menu disabled with the
+                 reason as their title. Slots, not fixed labels: the text
+                 carries the group math and is written at open time. -->
+            <div class="menu-divider hw-batch-only" style="display: none;"></div>
+            <div class="menu-option hw-batch-only" data-action="hw-batch-n0" style="display: none;"></div>
+            <div class="menu-option hw-batch-only" data-action="hw-batch-n1" style="display: none;"></div>
+            <div class="menu-option hw-batch-only" data-action="hw-batch-n2" style="display: none;"></div>
+            <div class="menu-option hw-batch-only" data-action="hw-batch-unshare" style="display: none;"></div>
         </div>
 
         <div id="toolbar">
@@ -1115,7 +1127,7 @@
                              in refreshSplitterPanel. -->
                         <div class="lrd-side-block" style="margin-bottom: 12px;">
                             <label class="lrd-side-block-h">Multis &amp; Splitters</label>
-                            <div class="info-row" style="display: flex; flex-wrap: wrap; align-items: center; gap: 5px;" data-tooltip="Breakout, How the multi terminates: True1 or powerCON breakouts feed panels directly (the 6-channel default), Edison is the 110V option, L6-20 adds L6-20-to-panel tails per circuit. Drives the gear checklist.">
+                            <div class="info-row" style="display: flex; flex-wrap: wrap; align-items: center; gap: 5px;" data-tooltip="Breakout, How the multi terminates: True1 or powerCON breakouts feed panels directly (the 6-channel default), Edison is the 110V option, L6-20 adds L6-20-to-panel cables per circuit. Drives the gear checklist.">
                                 <label style="font-weight: 400;">Breakout</label>
                                 <select id="power-breakout-type" data-lrd-field="power-breakout-type" class="info-select" style="flex: 1 1 100px; min-width: 0; max-width: 150px;"></select>
                             </div>

@@ -52,6 +52,13 @@ class _Power {
             ? this._prepareShareMenus(x, y) : { share: null, unshare: null };
         this._shareMenuAction = sharing.share;
         this._unshareMenuAction = sharing.unshare;
+        // The batch verb (2026-08-30, "B and then right click"): with a
+        // sweep selection armed the menu deals it as Nfers; with none, the
+        // same entries act on the whole screen under the cursor. Canvas
+        // power view only - a dock chip is hardware, not a run.
+        const batch = (typeof this._prepareBatchMenu === 'function')
+            ? this._prepareBatchMenu(x, y) : null;
+        this._batchMenuActions = batch;
         // Per-run override: armed only on a drawn run in Data Flow / Power,
         // and never on the dock (a chip is hardware, not a run). "Back to
         // auto" appears only where an override exists to drop - the same
@@ -68,10 +75,12 @@ class _Power {
         // dock they all leave, whatever their group logic below would say.
         menu.querySelectorAll(
             '.menu-option:not(.hw-clear-only):not(.hw-merge-only)'
-            + ':not(.hw-share-only):not(.hw-unshare-only), '
-            + '.menu-divider:not(.hw-clear-only)').forEach(el => {
-            el.style.display = inDock ? 'none' : '';
-        });
+            + ':not(.hw-share-only):not(.hw-unshare-only)'
+            + ':not(.hw-batch-only), '
+            + '.menu-divider:not(.hw-clear-only):not(.hw-batch-only)')
+            .forEach(el => {
+                el.style.display = inDock ? 'none' : '';
+            });
         if (!inDock) {
             // Show/hide pixel-map-only menu group based on view + selection.
             const inPixelMap = window.canvasRenderer && window.canvasRenderer.viewMode === 'pixel-map';
@@ -135,6 +144,33 @@ class _Power {
         if (mergeItem && merge) {
             mergeItem.textContent = merge.label;
             mergeItem.title = merge.title || '';
+        }
+        // The batch entries: up to three sizes plus the un-share, written
+        // at open time like the clear - each slot names its own deal, and
+        // a gated screen's entries stay on the menu disabled with the
+        // reason as the title (discoverability without rule-breaking).
+        menu.querySelectorAll('.hw-batch-only').forEach(el => {
+            el.style.display = 'none';
+        });
+        const batchEntries = (batch && batch.entries) || [];
+        batchEntries.slice(0, 3).forEach((en, i) => {
+            const item = menu.querySelector(`[data-action="hw-batch-n${i}"]`);
+            if (!item) return;
+            item.style.display = '';
+            item.textContent = en.label;
+            item.title = en.title || '';
+            item.classList.toggle('menu-disabled', !!en.disabled);
+        });
+        const bun = menu.querySelector('[data-action="hw-batch-unshare"]');
+        if (bun && batch && batch.unshare) {
+            bun.style.display = '';
+            bun.textContent = batch.unshare.label;
+            bun.title = batch.unshare.title || '';
+            bun.classList.remove('menu-disabled');
+        }
+        const bdiv = menu.querySelector('.menu-divider.hw-batch-only');
+        if (bdiv && (batchEntries.length || (batch && batch.unshare))) {
+            bdiv.style.display = '';
         }
         [['hw-share-only', 'hw-share', sharing.share],
          ['hw-unshare-only', 'hw-unshare', sharing.unshare],
@@ -1021,8 +1057,8 @@ class _Power {
         return [
             { id: 'soca-true1', name: 'Multi → True1', connector: 'True1', boxSize: 6, breakoutItem: 'Multi breakouts → True1' },
             { id: 'soca-powercon', name: 'Multi → powerCON', connector: 'powerCON', boxSize: 6, breakoutItem: 'Multi breakouts → powerCON' },
-            { id: 'soca-edison', name: 'Multi → Edison (110V)', connector: 'Edison', boxSize: 6, breakoutItem: 'Multi breakouts → Edison', tailItem: 'Edison → panel tails' },
-            { id: 'soca-l620', name: 'Multi → L6-20', connector: 'L6-20', boxSize: 6, breakoutItem: 'Multi breakouts → L6-20', tailItem: 'L6-20 → panel tails' },
+            { id: 'soca-edison', name: 'Multi → Edison (110V)', connector: 'Edison', boxSize: 6, breakoutItem: 'Multi breakouts → Edison', tailItem: 'Edison → panels' },
+            { id: 'soca-l620', name: 'Multi → L6-20', connector: 'L6-20', boxSize: 6, breakoutItem: 'Multi breakouts → L6-20', tailItem: 'L6-20 → panels' },
             // The L21-30 breakout (user ruling, 2026-08-28): fed by an
             // L21-30 at 30 A per leg, splitting to 3 x 208V circuits on
             // True1 or powerCON - a leg-PAIR circuit per tail, never a
@@ -2883,7 +2919,9 @@ class _Power {
     // Un-merge the selected circuits. Auto runs are additionally PINNED out
     // of packing (one circuit per run) - the pin is what defeats a re-pack;
     // custom circuits just fall back to their drawn numbering.
-    splitSplitterCircuits(layer, circuitNums) {
+    // `action` (optional) names the history entry - the batch verb's
+    // "Un-share all" passes its own so the step reads as what it was.
+    splitSplitterCircuits(layer, circuitNums, action) {
         if (!layer || !Array.isArray(circuitNums) || !circuitNums.length) return;
         const chosen = new Set(circuitNums);
         const runIds = [];
@@ -2902,10 +2940,186 @@ class _Power {
                 manual.split = [...new Set([...manual.split, ...runIds])]
                     .sort((a, b) => a - b);
             }
-        });
+        }, action);
     }
 
-    _writeSplitterManual(layer, fn) {
+    // ---- the batch verb: "3fer them" ---------------------------------------
+    //
+    // 2026-08-30, tester + user ruling ("lets go for B and then right
+    // click"): sweep a contiguous stretch of runs, right-click, and the
+    // menu offers "2fer them / 3fer them / 4fer them" with the group math
+    // spelled out. The verb PARTITIONS - consecutive adjacent groups dealt
+    // left to right along the wall - so 18 circuits under "3fer them"
+    // become six separate 3fers, never one mega-gang. Adjacency is the
+    // splitter doctrine (never skip a run); over-capacity groups are
+    // honored and flag OVER like every manual merge.
+
+    // Group sizes for `count` runs dealt as Nfers. The REMAINDER RE-DEALS
+    // so nothing is orphaned (user-vetoable choice, mock option (i)):
+    // a remainder of 2+ becomes its own smaller fer (8 @ 3fer -> 3,3,2);
+    // a remainder of 1 borrows from the last full group and goes out as
+    // two 2fers (16 @ 3fer -> 3,3,3,3,2,2). Only "2fer them" over an odd
+    // count leaves a single plain run - there is no smaller fer to deal.
+    batchNferGroups(count, n) {
+        const L = Math.max(0, Number(count) || 0);
+        const size = Math.max(2, Number(n) || 2);
+        let full = Math.floor(L / size);
+        const rem = L % size;
+        let tail = [];
+        if (rem === 1 && size > 2 && full >= 1) {
+            // borrow the last full group and re-deal its n+1 runs as two
+            // smaller fers, biggest first: 3fer -> 2+2, 4fer -> 3+2
+            full -= 1;
+            const m = size + 1;
+            tail = [Math.ceil(m / 2), Math.floor(m / 2)];
+        } else if (rem >= 2) {
+            tail = [rem];
+        } else if (rem === 1) {
+            tail = [1];
+        }
+        return Array.from({ length: full }, () => size).concat(tail);
+    }
+
+    // "6 × 3fer", "4 × 4fer + 2fer", "3 × 2fer + 1 plain" - the group math
+    // the menu entry carries, so the deal is read before it is taken.
+    batchNferLabel(count, n) {
+        const sizes = this.batchNferGroups(count, n);
+        const tally = new Map();
+        sizes.forEach(s => tally.set(s, (tally.get(s) || 0) + 1));
+        return [...tally.entries()].sort((a, b) => b[0] - a[0])
+            .map(([sz, k]) => sz === 1
+                ? `${k} plain`
+                : (k === 1 ? `1 × ${sz}fer` : `${k} × ${sz}fer`))
+            .join(' + ');
+    }
+
+    // Deal the chosen circuits' RUNS into Nfer groups, one manual-store
+    // write, ONE history entry (`action`). Operates at the run level so an
+    // existing gang inside the batch re-deals with everything else. A solo
+    // remainder on an auto screen is split-PINNED so re-packing cannot
+    // quietly gang what the deal left plain (custom circuits need no pin -
+    // they never auto-pack). Same id-space rules as every manual edit:
+    // _writeSplitterManual stamps the space the screen currently reads.
+    batchShareCircuits(layer, circuitNums, n, action) {
+        if (!layer || !Array.isArray(circuitNums)) return false;
+        const size = Math.max(2, Number(n) || 0);
+        const chosen = new Set(circuitNums);
+        const runIds = [];
+        this.screenCircuits(layer).forEach(c => {
+            if (!chosen.has(c.num)) return;
+            (c.runIds || [c.num]).forEach(id => runIds.push(id));
+        });
+        if (runIds.length < 2) return false;
+        const sizes = this.batchNferGroups(runIds.length, size);
+        const custom = this.usesCustomCircuits(layer);
+        this._writeSplitterManual(layer, (manual) => {
+            const hit = new Set(runIds);
+            manual.merge = manual.merge
+                .map(g => (Array.isArray(g) ? g.filter(x => !hit.has(x)) : []))
+                .filter(g => g.length >= 2);
+            manual.split = manual.split.filter(x => !hit.has(x));
+            let off = 0;
+            sizes.forEach(sz => {
+                const g = runIds.slice(off, off + sz);
+                off += sz;
+                if (g.length >= 2) {
+                    manual.merge.push([...g].sort((a, b) => a - b));
+                } else if (!custom) {
+                    manual.split.push(...g);
+                }
+            });
+            manual.split = [...new Set(manual.split)].sort((a, b) => a - b);
+        }, action);
+        return true;
+    }
+
+    // ---- what a CLEAR forgets ------------------------------------------------
+    //
+    // User ruling (2026-08-30): "when i clear a circuit, soca or a distro
+    // or sending card i dont want it to remember how i had it programmed
+    // before with balancing etc". A clear used to drop only the assignment
+    // and leave the paperwork - the stored tail set above all - so
+    // re-assigning resurrected the old balance layout. Now the clear wipes
+    // the cleared thing's stored programming too, and the caller folds
+    // every wipe into ONE history entry so a single undo restores all of
+    // it. Split boundaries STAY: they define which circuits the multi
+    // holds, not how it was programmed.
+
+    // One multi's circuits and their splitter run ids, read BEFORE any
+    // store moves - the naming pass and the run ids describe the pre-clear
+    // wall, and a wipe that changed the splitter store first would read a
+    // renumbered plan.
+    _socaClearTargets(layer, socaIndex) {
+        const rec = this._powerNaming(layer).socas.get(Number(socaIndex));
+        const circuits = rec ? rec.circuits.slice() : [];
+        const runIds = [];
+        if (circuits.length) {
+            const inMulti = new Set(circuits);
+            this.screenCircuits(layer).forEach(c => {
+                if (!inMulti.has(c.num)) return;
+                (c.runIds || [c.num]).forEach(id => runIds.push(id));
+            });
+        }
+        return { circuits, runIds };
+    }
+
+    // Wipe one multi's stored programming: the (distro, number) assignment,
+    // the stored tail set and legacy breaker offset, the typed name and
+    // home-run length, its circuits' label overrides, and the manual
+    // share/split entries covering its circuits. No history entry here -
+    // the clear gestures compose members into one entry themselves. The
+    // store objects are always left behind, never the properties deleted
+    // whole (an absent key is missing from the update payload and the
+    // server keeps whatever it had, so "cleared" would silently not clear).
+    _wipeSocaProgramming(layer, socaIndex, targets) {
+        const idx = Number(socaIndex);
+        for (const field of ['powerSocaNumber', 'powerSocaDistro',
+                             'powerSocaPhasePos', 'powerSocaPhaseOffset',
+                             'powerSocaNames', 'powerSocaLengths']) {
+            if (layer[field]) delete layer[field][idx];
+        }
+        const t = targets || this._socaClearTargets(layer, socaIndex);
+        if (layer.powerLabelOverrides) {
+            t.circuits.forEach(num => {
+                delete layer.powerLabelOverrides[num];
+            });
+        }
+        this._wipeSplitterManualFor(layer, t.runIds);
+    }
+
+    // Drop the manual share (merge) groups and split pins covering the
+    // given run ids, so a cleared scope re-packs naturally instead of
+    // keeping hand-ganged circuits nobody is feeding any more. Unrecorded
+    // by design - the clear's one entry carries it. Only the groups
+    // authored in the id space the layer currently reads are touched; a
+    // dormant foreign-space store is not this gesture's paperwork.
+    _wipeSplitterManualFor(layer, runIds) {
+        if (!runIds || !runIds.length) return false;
+        const raw = layer && layer.powerSplitters;
+        if (!raw || !raw.manual) return false;
+        const space = this._splitterManualSpace(layer);
+        if (space && space !== this._splitterIdSpace(layer)) return false;
+        const cur = this.getPowerSplitters(layer);
+        const hit = new Set(runIds);
+        const merge = cur.manual.merge
+            .map(g => (Array.isArray(g) ? g.filter(n => !hit.has(n)) : []))
+            .filter(g => g.length >= 2);
+        const split = cur.manual.split.filter(n => !hit.has(n));
+        if (JSON.stringify(merge) === JSON.stringify(cur.manual.merge)
+                && split.length === cur.manual.split.length) {
+            return false;
+        }
+        layer.powerSplitters = { ...cur, manual: {
+            merge, split,
+            space: cur.manual.space || this._splitterIdSpace(layer),
+        } };
+        return true;
+    }
+
+    // `action` names the history entry; the default keeps every existing
+    // caller's entry byte-identical. The batch verb passes its own name
+    // ('3fer Selection') so one commit is one legible undo step.
+    _writeSplitterManual(layer, fn, action) {
         const cur = this.getPowerSplitters(layer);
         // An edit is made in the CURRENT id space. Groups stored from the
         // other space cannot be edited alongside it - one store, one space -
@@ -2922,7 +3136,7 @@ class _Power {
         fn(manual);
         manual.space = space;
         layer.powerSplitters = { ...cur, manual };
-        this.updateLayers([layer], true, 'Edit Splitter Groups');
+        this.updateLayers([layer], true, action || 'Edit Splitter Groups');
         this._rebuildAfterGesture(() => {
             this.refreshSplitterPanel();
             this.refreshSocaRuns();

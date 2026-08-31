@@ -2635,7 +2635,7 @@ def test_a_tail_pip_drags_one_circuit_onto_its_tail(dock_page):
                    ghost: (document.getElementById('hw-dock-ghost')
                            || {}).textContent,
                    target: window.app._dockDropTarget})"""))
-    assert mid['ghost'] == 'PD 1 tail 3', mid
+    assert mid['ghost'] == 'PD 1 circuit 3', mid
     assert mid['target']['kind'] == 'run', mid
     out = page.evaluate(POWER_FULL_STATE_JS, ids['aId'])
     assert out['splits'] == [1, 2], (
@@ -2710,7 +2710,7 @@ def test_a_held_pip_refuses_and_the_same_seat_is_a_no_op(dock_page):
     drag(page, sx, sy, tgt['x'], tgt['y'])
     said = page.evaluate(
         "() => document.getElementById('status-message').textContent")
-    assert 'already on PD 1 tail 3' in said, said
+    assert 'already on PD 1 circuit 3' in said, said
     assert page.evaluate(HIST_LEN_JS) == before, (
         'a refusal and a no-op must write no history entry')
     page.evaluate(RESET_POWER_JS, ids)
@@ -3421,12 +3421,14 @@ def test_a_circuit_chips_menu_is_the_circuit_runs_menu(dock_page):
     page.wait_for_timeout(600)
     before = page.evaluate(HIST_LEN_JS)
 
-    # the chip holding WALL B's circuit: clear = the run's multi clear
+    # the chip holding WALL B's circuit - a ONE-circuit multi, so the clear
+    # is the circuit-scope clear (2026-08-30: clears forget programming;
+    # a chip inside a bigger multi still offers 'Clear multi ...')
     sx, sy = dock_tile_center(page, f'tail-{ids["distroId"]}-1-1')
     item = right_click(page, sx, sy)
     assert item['menuShown'] and item['shown'] and not item['disabled'], item
-    assert item['label'].startswith('Clear multi '), (
-        f"the circuit chip must offer the run's own clear: {item}")
+    assert item['label'].startswith('Clear circuit '), (
+        f"the one-circuit chip must offer the circuit-scope clear: {item}")
     state = page.evaluate(MENU_ITEMS_JS)
     assert state['items'] == ['hw-clear'], (
         f'the chip menu carries more than its own actions: {state}')
@@ -3434,7 +3436,7 @@ def test_a_circuit_chips_menu_is_the_circuit_runs_menu(dock_page):
     out = page.evaluate(POWER_STATE_JS, ids['bId'])
     assert out == {'distro': {}, 'num': {}}, (
         f'the chip clear did not unassign the multi: {out}')
-    assert page.evaluate(HIST_JS, 1) == ['Clear Multi']
+    assert page.evaluate(HIST_JS, 1) == ['Clear Circuit']
     assert page.evaluate(HIST_LEN_JS) == before + 1
 
     # a free chip: the item is there, disabled, and says why
@@ -3479,3 +3481,659 @@ def test_a_circuit_chip_offers_the_merge_for_its_split_off_part(dock_page):
     assert out == {'splits': [], 'distro': {}}, (
         f'the chip merge did not weld the parts back: {out}')
     split_clean(page, ids, st)
+
+
+# ── clears FORGET the stored programming (user ruling, 2026-08-30) ────────
+#
+# "when i clear a circuit, soca or a distro or sending card i dont want it
+# to remember how i had it programmed before with balancing etc". A clear
+# used to drop only the assignment and leave the paperwork - the stored
+# tail set above all - so re-assigning resurrected the old balance layout.
+# Now every clear scope wipes the cleared thing's stored programming in its
+# ONE history entry, and one undo restores all of it. Split boundaries stay
+# (they define which circuits a multi holds, not how it was programmed);
+# the distro's own identity stays; typed PORT names stay on the data side.
+
+POWER_PROGRAMMING_JS = """(layerId) => {
+    const l = window.app.project.layers.find(x => x.id === layerId);
+    const sp = (l.powerSplitters || {}).manual || {};
+    return {
+        distro: l.powerSocaDistro || {},
+        num: l.powerSocaNumber || {},
+        pos: l.powerSocaPhasePos || {},
+        names: l.powerSocaNames || {},
+        lengths: l.powerSocaLengths || {},
+        overrides: l.powerLabelOverrides || {},
+        splits: l.powerSocaSplits || [],
+        merge: sp.merge || [],
+        splitPins: sp.split || [],
+    };
+}"""
+
+# Wipe the per-test programming seeds these tests add beyond what
+# RESET_POWER_JS covers (names, lengths, overrides, splits, splitters).
+FULL_POWER_CLEAN_JS = """(ids) => {
+    const app = window.app;
+    for (const id of [ids.aId, ids.bId]) {
+        const l = app.project.layers.find(x => x.id === id);
+        if (!l) continue;
+        l.powerSocaNames = {};
+        l.powerSocaLengths = {};
+        l.powerLabelOverrides = {};
+        l.powerSocaSplits = [];
+        // An explicit empty store, not a delete: an absent key is missing
+        // from the update payload and the server keeps whatever it had.
+        l.powerSplitters = { enabled: false, maxWays: 3,
+                             manual: { merge: [], split: [] } };
+        l.powerSocaPhaseOffset = {};
+    }
+    app._circuitTailCache = null;
+    app.updateLayers(app.project.layers.filter(
+        l => l.id === ids.aId || l.id === ids.bId));
+    return true;
+}"""
+
+
+def test_clear_multi_forgets_programming_and_one_undo_restores_it(dock_page):
+    """The multi clear (canvas run right-click) wipes assignment, stored
+    tail set, typed name, home-run length, label overrides and manual share
+    entries - one 'Clear Multi' entry, one undo restores every store, and
+    after the clear the positions deal naturally instead of resurrecting
+    the old balance."""
+    page, ids = dock_page
+    open_view(page, 'power')
+    page.evaluate(RESET_POWER_JS, ids)
+    page.evaluate(FULL_POWER_CLEAN_JS, ids)
+    overridden = page.evaluate("""(ids) => {
+        const app = window.app;
+        const a = app.project.layers.find(x => x.id === ids.aId);
+        app.setSocaDistro(a, 1, ids.distroId, false);
+        app.setSocaNumber(a, 1, 1, false);
+        a.powerSocaPhasePos = { 1: [2, 3, 5] };
+        a.powerSocaNames = { 1: 'STAGE LEFT' };
+        a.powerSocaLengths = { 1: '150ft' };
+        const c = app.screenCircuits(a)[0].num;
+        a.powerLabelOverrides = { [c]: 'HOUSE-1' };
+        // A manual share store in the current (auto) id space: the clear
+        // must drop the entries covering the multi's circuits.
+        a.powerSplitters = { enabled: false, maxWays: 3,
+                             manual: { merge: [[1, 2]], split: [3],
+                                       space: 'auto' } };
+        app._circuitTailCache = null;
+        app.updateLayers([a]);
+        app._restateNaming();
+        app.resetHistory('Dock Seed');
+        return c;
+    }""", ids)
+    page.wait_for_timeout(700)
+    before = page.evaluate(HIST_LEN_JS)
+
+    tgt = panel_point(page, ids['aId'], {'circuit': 0})
+    item = right_click(page, tgt['x'], tgt['y'])
+    assert item['shown'] and not item['disabled'], item
+    assert item['label'].startswith('Clear multi '), item
+    take_clear(page)
+    out = page.evaluate(POWER_PROGRAMMING_JS, ids['aId'])
+    assert out['distro'] == {} and out['num'] == {}, out
+    assert out['pos'] == {}, (
+        f'the stored tail set survived the clear: {out}')
+    assert out['names'] == {} and out['lengths'] == {}, (
+        f'the typed name / home-run length survived the clear: {out}')
+    assert str(overridden) not in out['overrides'], (
+        f'the label override survived the clear: {out}')
+    assert out['merge'] == [] and out['splitPins'] == [], (
+        f'the manual share entries survived the clear: {out}')
+    assert page.evaluate(HIST_JS, 1) == ['Clear Multi']
+    assert page.evaluate(HIST_LEN_JS) == before + 1, (
+        'the multi clear is not ONE history entry')
+    # after the clear, positions deal naturally - nothing resurrects
+    nat = page.evaluate("""(ids) => {
+        const app = window.app;
+        const a = app.project.layers.find(x => x.id === ids.aId);
+        app._circuitTailCache = null;
+        return app.socaCircuitPositions(a, 1, 3);
+    }""", ids)
+    assert nat == [1, 2, 3], (
+        f'a cleared multi must deal naturally, not remember {nat}')
+
+    page.evaluate("() => window.app.undo()")
+    page.wait_for_timeout(900)
+    out = page.evaluate(POWER_PROGRAMMING_JS, ids['aId'])
+    assert out['distro'] == {'1': ids['distroId']}, out
+    assert out['num'] == {'1': 1}, out
+    assert out['pos'] == {'1': [2, 3, 5]}, (
+        f'one undo did not restore the stored tail set: {out}')
+    assert out['names'] == {'1': 'STAGE LEFT'}, out
+    assert out['lengths'] == {'1': '150ft'}, out
+    assert out['overrides'].get(str(overridden)) == 'HOUSE-1', out
+    assert out['merge'] == [[1, 2]] and out['splitPins'] == [3], out
+    page.evaluate(RESET_POWER_JS, ids)
+    page.evaluate(FULL_POWER_CLEAN_JS, ids)
+    page.wait_for_timeout(300)
+
+
+def test_clear_circuit_chip_forgets_position_and_override(dock_page):
+    """The circuit chip's clear, where its holder is a one-circuit multi
+    (the pip drop's product): assignment, stored position and label
+    override go in one 'Clear Circuit' entry; the multi's typed name stays
+    (identity, not programming); undo restores everything; re-assigning
+    deals naturally."""
+    page, ids = dock_page
+    open_view(page, 'power')
+    page.evaluate(RESET_POWER_JS, ids)
+    page.evaluate(FULL_POWER_CLEAN_JS, ids)
+    page.wait_for_timeout(500)
+
+    # seat WALL B's one circuit on PD 1 circuit 5, then override its label
+    sx, sy = dock_tile_center(page, f'tail-{ids["distroId"]}-1-5')
+    tgt = panel_point(page, ids['bId'], {'circuit': 0})
+    drag(page, sx, sy, tgt['x'], tgt['y'])
+    circuit = page.evaluate("""(ids) => {
+        const app = window.app;
+        const b = app.project.layers.find(x => x.id === ids.bId);
+        const c = app.screenCircuits(b)[0].num;
+        b.powerLabelOverrides = { [c]: 'DJ-POWER' };
+        b.powerSocaNames = { 1: 'B BOX' };
+        app._circuitTailCache = null;
+        app.updateLayers([b]);
+        app._restateNaming();
+        app.resetHistory('Dock Seed');
+        return c;
+    }""", ids)
+    page.wait_for_timeout(700)
+    before = page.evaluate(HIST_LEN_JS)
+
+    sx, sy = dock_tile_center(page, f'tail-{ids["distroId"]}-1-5')
+    item = right_click(page, sx, sy)
+    assert item['shown'] and not item['disabled'], item
+    assert item['label'].startswith('Clear circuit '), item
+    take_clear(page)
+    out = page.evaluate(POWER_PROGRAMMING_JS, ids['bId'])
+    assert out['distro'] == {} and out['num'] == {}, out
+    assert out['pos'] == {}, (
+        f'the stored position survived the circuit clear: {out}')
+    assert str(circuit) not in out['overrides'], (
+        f'the label override survived the circuit clear: {out}')
+    assert out['names'] == {'1': 'B BOX'}, (
+        f"a circuit clear must keep the multi's typed name: {out}")
+    assert page.evaluate(HIST_JS, 1) == ['Clear Circuit']
+    assert page.evaluate(HIST_LEN_JS) == before + 1, (
+        'the circuit clear is not ONE history entry')
+
+    # re-seating the circuit lands where it is dropped, not where it was
+    sx, sy = dock_tile_center(page, f'tail-{ids["distroId"]}-1-2')
+    tgt = panel_point(page, ids['bId'], {'circuit': 0})
+    drag(page, sx, sy, tgt['x'], tgt['y'])
+    out = page.evaluate(POWER_PROGRAMMING_JS, ids['bId'])
+    assert out['pos'] == {'1': [2]}, (
+        f're-assigning resurrected the old seat: {out}')
+    page.evaluate("() => window.app.undo()")   # the re-seat
+    page.wait_for_timeout(900)
+    page.evaluate("() => window.app.undo()")   # the clear
+    page.wait_for_timeout(900)
+    out = page.evaluate(POWER_PROGRAMMING_JS, ids['bId'])
+    assert out['distro'] == {'1': ids['distroId']}, out
+    assert out['num'] == {'1': 1} and out['pos'] == {'1': [5]}, (
+        f'undo did not restore the cleared circuit: {out}')
+    assert out['overrides'].get(str(circuit)) == 'DJ-POWER', out
+    page.evaluate(RESET_POWER_JS, ids)
+    page.evaluate(FULL_POWER_CLEAN_JS, ids)
+    page.wait_for_timeout(300)
+
+
+def test_clear_distro_forgets_programming_on_every_member(dock_page):
+    """The distro chip's clear wipes every assigned multi's programming in
+    its one 'Clear Distro' entry - and the distro itself keeps its name and
+    electrical identity."""
+    page, ids = dock_page
+    open_view(page, 'power')
+    page.evaluate(RESET_POWER_JS, ids)
+    page.evaluate(FULL_POWER_CLEAN_JS, ids)
+    page.evaluate("""(ids) => {
+        const app = window.app;
+        const a = app.project.layers.find(x => x.id === ids.aId);
+        const b = app.project.layers.find(x => x.id === ids.bId);
+        app.setSocaDistro(a, 1, ids.distroId, false);
+        app.setSocaNumber(a, 1, 1, false);
+        app.setSocaDistro(b, 1, ids.distroId, false);
+        app.setSocaNumber(b, 1, 2, false);
+        a.powerSocaPhasePos = { 1: [2, 4, 6] };
+        b.powerSocaPhasePos = { 1: [3] };
+        a.powerSocaNames = { 1: 'SL RUN' };
+        b.powerSocaLengths = { 1: '75ft' };
+        app._circuitTailCache = null;
+        app.updateLayers([a, b]);
+        app._restateNaming();
+        app.resetHistory('Dock Seed');
+    }""", ids)
+    page.wait_for_timeout(700)
+    before = page.evaluate(HIST_LEN_JS)
+
+    sx, sy = dock_tile_center(page, f'distro-{ids["distroId"]}')
+    item = right_click(page, sx, sy)
+    assert item['shown'] and not item['disabled'], item
+    take_clear(page)
+    for lid in (ids['aId'], ids['bId']):
+        out = page.evaluate(POWER_PROGRAMMING_JS, lid)
+        assert out['distro'] == {} and out['num'] == {}, (lid, out)
+        assert out['pos'] == {} and out['names'] == {} \
+            and out['lengths'] == {}, (
+            f'layer {lid} kept programming past the distro clear: {out}')
+    assert page.evaluate(HIST_JS, 1) == ['Clear Distro']
+    assert page.evaluate(HIST_LEN_JS) == before + 1
+    distro = page.evaluate(
+        "(ids) => window.app.getDistros().find(d => d.id === ids.distroId)",
+        ids)
+    assert distro and distro['name'] == 'PD', (
+        f'the distro clear must not touch the distro itself: {distro}')
+
+    page.evaluate("() => window.app.undo()")
+    page.wait_for_timeout(900)
+    a = page.evaluate(POWER_PROGRAMMING_JS, ids['aId'])
+    b = page.evaluate(POWER_PROGRAMMING_JS, ids['bId'])
+    assert a['pos'] == {'1': [2, 4, 6]} and a['names'] == {'1': 'SL RUN'}, a
+    assert b['pos'] == {'1': [3]} and b['lengths'] == {'1': '75ft'}, b
+    page.evaluate(RESET_POWER_JS, ids)
+    page.evaluate(FULL_POWER_CLEAN_JS, ids)
+    page.wait_for_timeout(300)
+
+
+def test_drag_back_forgets_programming_like_the_clear(dock_page):
+    """The slot chip's drag-back wears the same 'Clear Multi' name as the
+    right-click clear, so it keeps the same promise: the stored programming
+    goes with the assignment."""
+    page, ids = dock_page
+    open_view(page, 'power')
+    page.evaluate(RESET_POWER_JS, ids)
+    page.evaluate(FULL_POWER_CLEAN_JS, ids)
+    page.evaluate("""(ids) => {
+        const app = window.app;
+        const a = app.project.layers.find(x => x.id === ids.aId);
+        app.setSocaDistro(a, 1, ids.distroId, false);
+        app.setSocaNumber(a, 1, 1, false);
+        a.powerSocaPhasePos = { 1: [1, 3, 5] };
+        a.powerSocaNames = { 1: 'US TRUSS' };
+        app._circuitTailCache = null;
+        app.updateLayers([a]);
+        app._restateNaming();
+        app.resetHistory('Dock Seed');
+    }""", ids)
+    page.wait_for_timeout(700)
+
+    sx, sy = dock_tile_center(page, f'slot-{ids["distroId"]}-1')
+    dock_box = page.locator('#hardware-dock-body').bounding_box()
+    drag(page, sx, sy, dock_box['x'] + dock_box['width'] * 0.7,
+         dock_box['y'] + min(40, dock_box['height'] / 2))
+    out = page.evaluate(POWER_PROGRAMMING_JS, ids['aId'])
+    assert out['distro'] == {} and out['num'] == {}, out
+    assert out['pos'] == {} and out['names'] == {}, (
+        f'the drag-back remembered the programming: {out}')
+    assert page.evaluate(HIST_JS, 1) == ['Clear Multi']
+    page.evaluate("() => window.app.undo()")
+    page.wait_for_timeout(900)
+    out = page.evaluate(POWER_PROGRAMMING_JS, ids['aId'])
+    assert out['pos'] == {'1': [1, 3, 5]}, (
+        f'one undo did not restore the drag-back: {out}')
+    assert out['names'] == {'1': 'US TRUSS'}, out
+    page.evaluate(RESET_POWER_JS, ids)
+    page.evaluate(FULL_POWER_CLEAN_JS, ids)
+    page.wait_for_timeout(300)
+
+
+def test_clear_card_forgets_backup_picks_and_keeps_port_names(dock_page):
+    """The data-side card clear: released pins AND the card's per-port
+    backup picks go in one entry; typed port names are hardware naming and
+    stay. One undo restores the pin and the pick together."""
+    page, ids = dock_page
+    open_view(page, 'data-flow')
+    page.evaluate(RESET_DATA_JS, ids)
+    page.wait_for_timeout(500)
+    page.evaluate("""async (ids) => {
+        const app = window.app;
+        const send = (url, body) => fetch(url, { method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body) }).then(r => r.json());
+        const base = `/api/processors/${ids.procId}/cards/${ids.cardId}`;
+        await send(`${base}/ports/4`, { name: 'HOUSE L' });
+        await send(`${base}/ports/4`,
+                   { backup: { cardId: ids.cardId, port: 12 } });
+        await app.refreshProcessors();
+        await app._assignmentRequest('/api/port-assignments/place', 'POST',
+            { layerId: String(ids.aId), index: 1, cardId: ids.cardId,
+              port: 8, confirm: false }, null, 'Place Port');
+        app.resetHistory('Dock Seed');
+    }""", ids)
+    page.wait_for_timeout(1200)
+    assert len(page.evaluate(PINS_JS)) == 5, 'the seed pins did not land'
+    before = page.evaluate(HIST_LEN_JS)
+
+    sx, sy = dock_tile_center(page, f'card-{ids["cardId"]}')
+    item = right_click(page, sx, sy)
+    assert item['shown'] and not item['disabled'], item
+    assert 'backup picks' in item['title'], item
+    take_clear(page)
+    page.wait_for_timeout(1200)
+    assert page.evaluate(PINS_JS) == [], 'the pin survived the card clear'
+    card = page.evaluate("""(ids) => {
+        const found = window.app._dockCardById(ids.cardId);
+        return { picks: (found && found.card.backupPorts) || {},
+                 names: (found && found.card.portNames) || {} };
+    }""", ids)
+    assert card['picks'] == {}, (
+        f'the backup pick survived the card clear: {card}')
+    assert card['names'].get('4') == 'HOUSE L', (
+        f'typed port names must stay through the clear: {card}')
+    assert page.evaluate(HIST_JS, 1) == ['Clear Card']
+    assert page.evaluate(HIST_LEN_JS) == before + 1, (
+        'the card clear is not ONE history entry')
+
+    page.evaluate("() => window.app.undo()")
+    page.wait_for_timeout(1500)
+    restored = page.evaluate("""async (ids) => {
+        await window.app.refreshProcessors();
+        const found = window.app._dockCardById(ids.cardId);
+        return { picks: (found && found.card.backupPorts) || {},
+                 pins: (window.app.project.port_assignments || {}).pins
+                     || [] };
+    }""", ids)
+    assert (restored['picks'].get('4') or {}).get('port') == 12, (
+        f'one undo did not restore the backup pick: {restored}')
+    assert len(restored['pins']) == 5, (
+        f'one undo did not restore the pins: {restored}')
+    # clean: drop the pick and the name, release the pin
+    page.evaluate("""async (ids) => {
+        const send = (url, body) => fetch(url, { method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body) }).then(r => r.json());
+        const base = `/api/processors/${ids.procId}/cards/${ids.cardId}`;
+        await send(`${base}/ports/4`, { name: '', backup: null });
+        await window.app.refreshProcessors();
+    }""", ids)
+    page.evaluate(RESET_DATA_JS, ids)
+    page.wait_for_timeout(500)
+
+
+# ── the sweep + the batch verb ("B and then right click", 2026-08-30) ─────
+#
+# Alt+DRAG across adjacent circuit runs sweeps a contiguous selection (the
+# 4px threshold discriminates from the Alt+click takeover); the right-click
+# menu then deals the selection as Nfers - "3fer them (1 × 3fer + 1 × 2fer)"
+# with the group math in the label - or, with no selection, deals the whole
+# screen under the cursor. The remainder RE-DEALS so nothing is orphaned
+# (16 @ 3fer -> 3,3,3,3,2,2); a gated screen keeps the entries on the menu
+# disabled with the reason. Selection is session view state: no history
+# entries, and Esc or a plain click drops it.
+
+BATCH_ITEMS_JS = """() => {
+    const menu = document.getElementById('context-menu');
+    const vis = el => el && el.style.display !== 'none';
+    const grab = a => {
+        const el = menu.querySelector(`[data-action="${a}"]`);
+        return el && vis(el) ? { label: (el.textContent || '').trim(),
+            title: el.title,
+            disabled: el.classList.contains('menu-disabled') } : null;
+    };
+    return { shown: !!menu && menu.style.display === 'block',
+             n0: grab('hw-batch-n0'), n1: grab('hw-batch-n1'),
+             n2: grab('hw-batch-n2'), unshare: grab('hw-batch-unshare'),
+             share: grab('hw-share') };
+}"""
+
+SPLITTER_STATE_JS = """(layerId) => {
+    const app = window.app;
+    const l = app.project.layers.find(x => x.id === layerId);
+    const sp = (l.powerSplitters || {}).manual || {};
+    app._circuitTailCache = null;
+    return {
+        merge: sp.merge || [], split: sp.split || [],
+        runIds: app.screenCircuits(l).map(c => c.runIds || null),
+        sel: app._sweepSelection || null,
+    };
+}"""
+
+SPLITTERS_ON_JS = """(ids) => {
+    const app = window.app;
+    const a = app.project.layers.find(x => x.id === ids.aId);
+    a.powerSplitters = { enabled: true, maxWays: 3,
+                         manual: { merge: [], split: [] } };
+    app._circuitTailCache = null;
+    app.updateLayers([a]);
+    app.resetHistory('Dock Seed');
+}"""
+
+SPLITTERS_OFF_JS = """(ids) => {
+    const app = window.app;
+    const a = app.project.layers.find(x => x.id === ids.aId);
+    a.powerSplitters = { enabled: false, maxWays: 3,
+                         manual: { merge: [], split: [] } };
+    app._circuitTailCache = null;
+    app.updateLayers([a]);
+    app._sweepSelection = null;
+    app.resetHistory('Dock Seed');
+}"""
+
+
+def alt_sweep(page, sx, sy, ex, ey):
+    """Alt held, press, drag past the threshold, release - the sweep. The
+    hud's mid-flight text comes back for the pill assertions."""
+    page.keyboard.down('Alt')
+    page.mouse.move(sx, sy)
+    page.mouse.down()
+    page.mouse.move((sx + ex) / 2, (sy + ey) / 2, steps=5)
+    page.mouse.move(ex, ey, steps=5)
+    page.wait_for_timeout(150)
+    hud = page.evaluate(
+        "() => { const h = document.getElementById('power-sweep-hud');"
+        " return h ? h.textContent : null; }")
+    page.mouse.up()
+    page.keyboard.up('Alt')
+    page.wait_for_timeout(300)
+    return hud
+
+
+def test_batch_partition_math_and_labels(dock_page):
+    """The engine's deal: consecutive groups of n, remainder re-dealt so
+    nothing is orphaned - 16 @ 3fer is 3,3,3,3,2,2 (the last full group
+    re-deals with the orphan as two 2fers); only '2fer them' over an odd
+    count leaves a plain run."""
+    page, ids = dock_page
+    out = page.evaluate("""() => {
+        const app = window.app;
+        return {
+            g18: app.batchNferGroups(18, 3), g16: app.batchNferGroups(16, 3),
+            g8: app.batchNferGroups(8, 3), g7: app.batchNferGroups(7, 2),
+            g5: app.batchNferGroups(5, 4), g5n3: app.batchNferGroups(5, 3),
+            l18: app.batchNferLabel(18, 3), l16: app.batchNferLabel(16, 3),
+            l7: app.batchNferLabel(7, 2), l5: app.batchNferLabel(5, 3),
+        };
+    }""")
+    assert out['g18'] == [3, 3, 3, 3, 3, 3], out
+    assert out['g16'] == [3, 3, 3, 3, 2, 2], out
+    assert out['g8'] == [3, 3, 2], out
+    assert out['g7'] == [2, 2, 2, 1], out
+    assert out['g5'] == [3, 2], (
+        f'a 5-run 4fer deal must not drop a run: {out}')
+    assert out['g5n3'] == [3, 2], out
+    assert out['l18'] == '6 × 3fer', out
+    assert out['l16'] == '4 × 3fer + 2 × 2fer', out
+    assert out['l7'] == '3 × 2fer + 1 plain', out
+    assert out['l5'] == '1 × 3fer + 1 × 2fer', out
+
+
+def test_alt_drag_sweeps_and_alt_click_stays_takeover(dock_page):
+    """Alt+drag past 4px sweeps a contiguous selection with the counter
+    pill riding the cursor; release keeps it lit, Esc drops it, and no
+    history entry is ever written. A plain Alt+click (inside the threshold)
+    stays the run takeover it always was."""
+    page, ids = dock_page
+    open_view(page, 'power')
+    page.evaluate(RESET_POWER_JS, ids)
+    page.wait_for_timeout(500)
+    before = page.evaluate(HIST_LEN_JS)
+
+    p0 = panel_point(page, ids['aId'], {'circuit': 0})
+    p2 = panel_point(page, ids['aId'], {'circuit': 2})
+    hud = alt_sweep(page, p0['x'], p0['y'], p2['x'], p2['y'])
+    assert hud and 'circuit' in hud and ' A' in hud, (
+        f'the counter pill did not ride the sweep: {hud!r}')
+    out = page.evaluate("""(aId) => ({
+        sel: window.app._sweepSelection,
+        hud: !!document.getElementById('power-sweep-hud'),
+    })""", ids['aId'])
+    assert out['sel'] and out['sel']['layerId'] == ids['aId'], out
+    assert len(out['sel']['nums']) == 3, (
+        f'sweeping across three circuits must select all three: {out}')
+    assert not out['hud'], 'the pill must leave with the release'
+    assert page.evaluate(HIST_LEN_JS) == before, (
+        'a sweep selection is view state, never a history entry')
+
+    page.keyboard.press('Escape')
+    page.wait_for_timeout(200)
+    assert page.evaluate("() => window.app._sweepSelection") is None, (
+        'Esc must drop the selection')
+
+    # inside the threshold the press is still the takeover click
+    page.keyboard.down('Alt')
+    page.mouse.move(p0['x'], p0['y'])
+    page.mouse.down()
+    page.mouse.move(p0['x'] + 2, p0['y'] + 1)
+    page.mouse.up()
+    page.keyboard.up('Alt')
+    page.wait_for_timeout(600)
+    out = page.evaluate("""(aId) => {
+        const app = window.app;
+        const a = app.project.layers.find(x => x.id === aId);
+        const num = app.screenCircuits(a)[0].num;
+        return { over: app.isRunOverridden(a, 'power', num),
+                 sel: app._sweepSelection };
+    }""", ids['aId'])
+    assert out['over'], (
+        f'a click inside 4px must stay the takeover: {out}')
+    assert not out['sel'], out
+    page.evaluate("""() => {
+        if (window.app.endOverrideEdit) window.app.endOverrideEdit();
+        window.app.undo();
+    }""")
+    page.wait_for_timeout(700)
+    page.evaluate(RESET_POWER_JS, ids)
+    page.wait_for_timeout(300)
+
+
+def test_sweep_right_click_deals_nfers_in_one_entry(dock_page):
+    """Sweep three circuits (five packed runs), right-click: the menu
+    offers the sizes with the group math, suppresses the single-run share
+    item, and '3fer them' deals [1,2,3] + [4,5] as ONE '3fer Selection'
+    entry. One undo heals the whole deal."""
+    page, ids = dock_page
+    open_view(page, 'power')
+    page.evaluate(RESET_POWER_JS, ids)
+    page.evaluate(SPLITTERS_ON_JS, ids)
+    page.wait_for_timeout(600)
+    before = page.evaluate(HIST_LEN_JS)
+
+    p0 = panel_point(page, ids['aId'], {'circuit': 0})
+    p2 = panel_point(page, ids['aId'], {'circuit': 2})
+    alt_sweep(page, p0['x'], p0['y'], p2['x'], p2['y'])
+    sel = page.evaluate("() => window.app._sweepSelection")
+    assert sel and len(sel['nums']) == 3, sel
+
+    p1 = panel_point(page, ids['aId'], {'circuit': 1})
+    page.mouse.click(p1['x'], p1['y'], button='right')
+    page.wait_for_timeout(400)
+    items = page.evaluate(BATCH_ITEMS_JS)
+    assert items['shown'], items
+    assert items['n0'] and items['n0']['label'].startswith('2fer them ('), items
+    assert items['n1'] and '3fer them (1 × 3fer + 1 × 2fer)' == \
+        items['n1']['label'], items
+    assert items['n1'] and not items['n1']['disabled'], items
+    assert items['share'] is None, (
+        f'the single-run share must stand down behind a sweep: {items}')
+    # the packed 2fers count as existing gangs, so Un-share all is offered
+    assert items['unshare'] and items['unshare']['label'] == 'Un-share all', items
+
+    page.locator('#context-menu [data-action="hw-batch-n1"]').click()
+    page.wait_for_timeout(800)
+    out = page.evaluate(SPLITTER_STATE_JS, ids['aId'])
+    assert out['merge'] == [[1, 2, 3], [4, 5]], (
+        f'the 3fer deal must partition the five runs as 3+2: {out}')
+    assert out['split'] == [], out
+    assert [len(r) for r in out['runIds'] if r] == [3, 2], out
+    assert out['sel'] is None, 'the commit must clear the selection'
+    assert page.evaluate(HIST_JS, 1) == ['3fer Selection']
+    assert page.evaluate(HIST_LEN_JS) == before + 1, (
+        'the batch deal is not ONE history entry')
+
+    page.evaluate("() => window.app.undo()")
+    page.wait_for_timeout(800)
+    out = page.evaluate(SPLITTER_STATE_JS, ids['aId'])
+    assert out['merge'] == [], f'one undo did not heal the deal: {out}'
+    page.evaluate(SPLITTERS_OFF_JS, ids)
+    page.evaluate(RESET_POWER_JS, ids)
+    page.wait_for_timeout(300)
+
+
+def test_whole_wall_right_click_batches_and_keeps_single_run_items(dock_page):
+    """No selection: right-click a run and the batch entries act on the
+    whole screen ('3fer this screen'), beside the single-run share item,
+    which keeps working unchanged."""
+    page, ids = dock_page
+    open_view(page, 'power')
+    page.evaluate(RESET_POWER_JS, ids)
+    page.evaluate(SPLITTERS_ON_JS, ids)
+    page.wait_for_timeout(600)
+    before = page.evaluate(HIST_LEN_JS)
+
+    p0 = panel_point(page, ids['aId'], {'circuit': 0})
+    page.mouse.click(p0['x'], p0['y'], button='right')
+    page.wait_for_timeout(400)
+    items = page.evaluate(BATCH_ITEMS_JS)
+    assert items['shown'], items
+    assert items['n1'] and items['n1']['label'].startswith('3fer this screen ('), items
+    assert items['share'] is not None, (
+        f'the single-run share must keep working with no sweep: {items}')
+
+    page.locator('#context-menu [data-action="hw-batch-n1"]').click()
+    page.wait_for_timeout(800)
+    out = page.evaluate(SPLITTER_STATE_JS, ids['aId'])
+    assert out['merge'] == [[1, 2, 3], [4, 5]], out
+    assert page.evaluate(HIST_JS, 1) == ['3fer Screen']
+    assert page.evaluate(HIST_LEN_JS) == before + 1
+
+    page.evaluate("() => window.app.undo()")
+    page.wait_for_timeout(800)
+    page.evaluate(SPLITTERS_OFF_JS, ids)
+    page.evaluate(RESET_POWER_JS, ids)
+    page.wait_for_timeout(300)
+
+
+def test_batch_entries_gated_off_with_reason(dock_page):
+    """Splitters off and circuits auto: the batch entries stay ON the menu,
+    disabled, with the sharing gate as their title - discoverable, never
+    rule-breaking - and a click on one changes nothing."""
+    page, ids = dock_page
+    open_view(page, 'power')
+    page.evaluate(RESET_POWER_JS, ids)
+    page.evaluate(SPLITTERS_OFF_JS, ids)
+    page.wait_for_timeout(500)
+    before = page.evaluate(HIST_LEN_JS)
+
+    p0 = panel_point(page, ids['aId'], {'circuit': 0})
+    page.mouse.click(p0['x'], p0['y'], button='right')
+    page.wait_for_timeout(400)
+    items = page.evaluate(BATCH_ITEMS_JS)
+    assert items['shown'], items
+    assert items['n0'] and items['n0']['disabled'], items
+    assert 'Sharing is off' in items['n0']['title'], items
+    assert items['n1'] and items['n1']['disabled'], items
+    # three plain runs: no 4fer to offer
+    assert items['n2'] is None, items
+
+    page.locator('#context-menu [data-action="hw-batch-n0"]').click()
+    page.wait_for_timeout(500)
+    out = page.evaluate(SPLITTER_STATE_JS, ids['aId'])
+    assert out['merge'] == [], f'a disabled entry still dealt: {out}'
+    assert page.evaluate(HIST_LEN_JS) == before, (
+        'a disabled batch entry earned a history entry')
+    close_menu(page)
+    page.evaluate(RESET_POWER_JS, ids)
+    page.wait_for_timeout(300)
