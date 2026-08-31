@@ -2611,6 +2611,28 @@ class _ExportIo {
                     this._unshareMenuAction.run();
                 }
                 break;
+            // The batch verb's entries, armed at open time on the sweep
+            // selection (or the whole screen) the cursor named - re-checked
+            // here like every hw item, disabled included: a gated entry
+            // stays on the menu to be read, never to run.
+            case 'hw-batch-n0':
+            case 'hw-batch-n1':
+            case 'hw-batch-n2': {
+                const i = parseInt(action.slice(-1), 10);
+                const en = this._batchMenuActions
+                    && this._batchMenuActions.entries
+                    && this._batchMenuActions.entries[i];
+                if (en && !en.disabled && typeof en.run === 'function') {
+                    en.run();
+                }
+                break;
+            }
+            case 'hw-batch-unshare':
+                if (this._batchMenuActions && this._batchMenuActions.unshare
+                        && typeof this._batchMenuActions.unshare.run === 'function') {
+                    this._batchMenuActions.unshare.run();
+                }
+                break;
             // Per-run override, same doctrine as the clears above: armed at
             // open time on the run the cursor named, re-checked here.
             case 'ovr-redraw':

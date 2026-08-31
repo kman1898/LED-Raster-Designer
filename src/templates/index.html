@@ -141,6 +141,18 @@
                  currently shared. -->
             <div class="menu-option hw-share-only" data-action="hw-share" style="display: none;"></div>
             <div class="menu-option hw-unshare-only" data-action="hw-unshare" style="display: none;"></div>
+            <!-- The batch verb (2026-08-30): with a sweep selection armed
+                 the menu deals it as Nfers - "3fer them (6 x 3fer)" - and
+                 with none the same entries act on the whole screen under
+                 the cursor. Armed by _prepareBatchMenu (app-dock.js); a
+                 gated screen's entries stay on the menu disabled with the
+                 reason as their title. Slots, not fixed labels: the text
+                 carries the group math and is written at open time. -->
+            <div class="menu-divider hw-batch-only" style="display: none;"></div>
+            <div class="menu-option hw-batch-only" data-action="hw-batch-n0" style="display: none;"></div>
+            <div class="menu-option hw-batch-only" data-action="hw-batch-n1" style="display: none;"></div>
+            <div class="menu-option hw-batch-only" data-action="hw-batch-n2" style="display: none;"></div>
+            <div class="menu-option hw-batch-only" data-action="hw-batch-unshare" style="display: none;"></div>
         </div>
 
         <div id="toolbar">

@@ -877,6 +877,15 @@ class CanvasRenderer {
         const worldY = (mouseY - this.panY) / this.zoom;
         const worldX = this._unmirrorWorldX((mouseX - this.panX) / this.zoom, worldY);
 
+        // A plain left press anywhere drops the sweep selection - the same
+        // click-away every selection obeys. A RIGHT press keeps it: the
+        // selection exists exactly so the right-click can deal it.
+        if (e.button === 0 && !e.altKey && window.app
+                && window.app._sweepSelection) {
+            window.app._sweepSelection = null;
+            this.render();
+        }
+
         // v0.8.7.7: plain-click directly on a screen-name label starts a
         // screen-name drag (no modifier needed). This is the universal
         // "grab the label" gesture across every tab, Pixel Map, Cabinet
@@ -1338,11 +1347,32 @@ class CanvasRenderer {
                 }
             }
         } else if (e.button === 0 && e.altKey) {
-            // Data / Power: Alt+click takes the run under the cursor over for
-            // hand-redrawing (or reopens one already taken). The highlight the
-            // held Alt paints (see handleMouseMove) is the affordance; the
-            // click is the commitment.
-            if (this.viewMode === 'data-flow' || this.viewMode === 'power') {
+            // POWER: Alt+press ARMS two gestures and the dock drag engine's
+            // 4px threshold discriminates (2026-08-30, "B and then right
+            // click"): drag past it and the press is a SWEEP - a contiguous
+            // run selection collecting under the cursor for the right-click
+            // batch menu; release inside it and the press is the takeover
+            // click it always was. Selection is session view state - never
+            // a history entry (leading-underscore key, so snapshots skip it
+            // by the _snapshotReplacer convention).
+            if (this.viewMode === 'power') {
+                e.preventDefault();
+                const run = window.app
+                    && typeof window.app.runAtPoint === 'function'
+                    ? window.app.runAtPoint(worldX, worldY) : null;
+                this._sweepPending = {
+                    sx: e.clientX, sy: e.clientY, worldX, worldY,
+                    active: false,
+                    anchor: (run && run.kind === 'power')
+                        ? { ownerId: run.layer.id, num: run.num } : null,
+                };
+                return;
+            }
+            // Data: Alt+click takes the run under the cursor over for
+            // hand-redrawing (or reopens one already taken). The highlight
+            // the held Alt paints (see handleMouseMove) is the affordance;
+            // the click is the commitment.
+            if (this.viewMode === 'data-flow') {
                 if (window.app && typeof window.app.handleOverrideClick === 'function') {
                     e.preventDefault();
                     window.app.handleOverrideClick(worldX, worldY);
@@ -1457,6 +1487,28 @@ class CanvasRenderer {
                 this.altPaintedPanelIds.add(clickedPanel.panel.id);
                 this.render();
             }
+            return;
+        }
+
+        // An armed Alt+press in Power: inside the 4px threshold it is still
+        // a click-to-be; past it, the press becomes the SWEEP and collects
+        // the contiguous run range between the anchor and the cursor.
+        if (this._sweepPending) {
+            const p = this._sweepPending;
+            if (!p.active) {
+                if (Math.hypot(e.clientX - p.sx, e.clientY - p.sy) <= 4) {
+                    return;
+                }
+                if (!p.anchor) { this._sweepPending = null; return; }
+                p.active = true;
+                // the sweep owns the gesture now - the takeover's held-Alt
+                // hover highlight would fight the selection underlay
+                if (window.app
+                        && typeof window.app.updateOverrideHover === 'function') {
+                    window.app.updateOverrideHover(false, 0, 0);
+                }
+            }
+            this._sweepExtend(worldX, worldY, e.clientX, e.clientY);
             return;
         }
 
@@ -1744,6 +1796,21 @@ class CanvasRenderer {
     }
     
     handleMouseUp(e) {
+        // The armed Alt+press resolves here: a release inside the 4px
+        // threshold is the takeover click deferred at mousedown; a release
+        // after sweeping keeps the selection lit for the right-click menu
+        // (the pill leaves with the cursor's gesture, the selection stays).
+        if (this._sweepPending) {
+            const p = this._sweepPending;
+            this._sweepPending = null;
+            this._removeSweepHud();
+            if (!p.active && window.app
+                    && typeof window.app.handleOverrideClick === 'function') {
+                window.app.handleOverrideClick(p.worldX, p.worldY);
+            }
+            return;
+        }
+
         // Slice 5: commit canvas-drag drop. Live updates already happened
         // during mousemove; here we round to integer (avoid sub-pixel
         // drift), persist with a single PUT, and run an overlap check.
@@ -2383,6 +2450,18 @@ class CanvasRenderer {
         if (e.code === 'Escape' && !isTyping && window.app && window.app._overrideEditing) {
             e.preventDefault();
             window.app.endOverrideEdit();
+            return;
+        }
+
+        // Esc drops the sweep selection (and any half-armed sweep) - the
+        // same escape every transient selection answers to.
+        if (e.code === 'Escape' && !isTyping && window.app
+                && (window.app._sweepSelection || this._sweepPending)) {
+            e.preventDefault();
+            window.app._sweepSelection = null;
+            this._sweepPending = null;
+            this._removeSweepHud();
+            this.render();
             return;
         }
 
@@ -3379,7 +3458,83 @@ class CanvasRenderer {
     // override hover (app.updateOverrideHover), which names one run in one
     // view - the same highlight for both because they mean the same thing,
     // "this is the run the gesture lands on".
+    // Extend the sweep to the run under the cursor: the selection is the
+    // CONTIGUOUS range of the owner's plan between the anchor run and the
+    // hovered run - adjacency by construction, the reason the gesture needs
+    // no refusal. A cursor over another screen (or over nothing) keeps the
+    // last range; the sweep never jumps walls.
+    _sweepExtend(worldX, worldY, clientX, clientY) {
+        const p = this._sweepPending;
+        const app = window.app;
+        if (!p || !p.anchor || !app) return;
+        const owner = (app.project.layers || [])
+            .find(l => l.id === p.anchor.ownerId);
+        if (!owner) return;
+        const circuits = app.screenCircuits(owner);
+        const ai = circuits.findIndex(c => c.num === p.anchor.num);
+        if (ai < 0) return;
+        let ci = ai;
+        const run = typeof app.runAtPoint === 'function'
+            ? app.runAtPoint(worldX, worldY) : null;
+        if (run && run.kind === 'power' && run.layer.id === owner.id) {
+            const k = circuits.findIndex(c => c.num === run.num);
+            if (k >= 0) ci = k;
+        }
+        const lo = Math.min(ai, ci);
+        const hi = Math.max(ai, ci);
+        const nums = circuits.slice(lo, hi + 1).map(c => c.num);
+        const prev = app._sweepSelection;
+        const same = prev && prev.layerId === owner.id
+            && Array.isArray(prev.nums) && prev.nums.length === nums.length
+            && prev.nums.every((n, i) => n === nums[i]);
+        app._sweepSelection = { layerId: owner.id, nums };
+        this._sweepHud(clientX, clientY, owner, nums);
+        if (!same) this.render();
+    }
+
+    // The counter pill riding the cursor mid-sweep: "3 circuits · 24.5 A".
+    // Plain facts only - the OVER story belongs to the menu's deal and the
+    // committed brackets, where a GROUP has a load to answer for.
+    _sweepHud(clientX, clientY, owner, nums) {
+        let hud = document.getElementById('power-sweep-hud');
+        if (!hud) {
+            hud = document.createElement('div');
+            hud.id = 'power-sweep-hud';
+            hud.style.cssText = 'position:fixed; z-index:10000;'
+                + 'pointer-events:none; font-size:11px; padding:2px 9px;'
+                + 'border-radius:10px; background:#2e2e2e;'
+                + 'border:1px solid #666; color:#eee;'
+                + 'box-shadow:0 3px 10px rgba(0,0,0,.5); white-space:nowrap;';
+            document.body.appendChild(hud);
+        }
+        const app = window.app;
+        const byNum = new Map();
+        if (app && typeof app.getSocaPlan === 'function') {
+            (app.getSocaPlan(owner) || []).forEach(s =>
+                (s.legs || []).forEach(l => byNum.set(l.circuit, l.amps)));
+        }
+        const amps = nums.reduce((t, n) => t + (byNum.get(n) || 0), 0);
+        hud.textContent = `${nums.length} circuit${nums.length === 1 ? '' : 's'}`
+            + ` · ${amps.toFixed(1)} A`;
+        hud.style.left = (clientX + 14) + 'px';
+        hud.style.top = (clientY - 26) + 'px';
+    }
+
+    _removeSweepHud() {
+        const hud = document.getElementById('power-sweep-hud');
+        if (hud) hud.remove();
+    }
+
     _runUnderlayLit(layer, num) {
+        // The sweep selection wears the same underlay the dock drop and the
+        // held-Alt hover wear - one grammar for "this run is the gesture's
+        // target", drawn from inside the run's own pass so every transform
+        // rides along.
+        const sw = window.app && window.app._sweepSelection;
+        if (sw && this.viewMode === 'power' && sw.layerId === layer.id
+                && Array.isArray(sw.nums) && sw.nums.includes(num)) {
+            return true;
+        }
         const hov = window.app && window.app._overrideHover;
         if (hov && hov.layerId === layer.id && hov.num === num
                 && ((hov.kind === 'power') === (this.viewMode === 'power'))) {
@@ -4251,6 +4406,13 @@ class CanvasRenderer {
                     if (this.viewMode === 'power') {
                         this._keepTextUpright = _rotating;
                         this.renderPowerArrows(layer);
+                        // A ganged circuit says so on the wall: the Nfer
+                        // bracket under its runs' feet (2026-08-30). Always
+                        // on - a share that barely reads is the problem it
+                        // exists to fix - and in exports too: it lives
+                        // BELOW the screen, the soca brackets above, so
+                        // the two never fight.
+                        this.renderNferBrackets(layer);
                         // Brackets draw only when explicitly ticked (=== true,
                         // matching the soca panel's checkbox): the user asked
                         // for them off by default.
@@ -6453,6 +6615,88 @@ class CanvasRenderer {
             this.ctx.fillStyle = layer.powerLabelTextColor || '#000000';
             this._fillText(label, cx, y);
             this.ctx.restore();
+        }
+        this.ctx.restore();
+    }
+
+    // A committed gang's face on the wall (2026-08-30, "B and then right
+    // click"): a bracket spanning the ganged runs' FEET with the Nfer tag -
+    // red + OVER when the shared circuit is past the screen's amps figure.
+    // The concept mock's after-strips promised exactly this; before it a
+    // share barely read on the map at all. Drawn from the layer's own power
+    // pass, so it inherits every transform the runs get, and it draws in
+    // exports too - the soca brackets live ABOVE the screen, this below,
+    // so the two never collide. Cross-member circuits keep the bracket on
+    // the OWNER's own cabinets: a peer's cabinets live in the peer's frame
+    // and a span computed across frames would land nowhere.
+    renderNferBrackets(layer) {
+        if (!window.app || typeof window.app.screenCircuits !== 'function') return;
+        if ((layer.type || 'screen') !== 'screen') return;
+        const shared = window.app.screenCircuits(layer)
+            .filter(c => Array.isArray(c.runIds) && c.runIds.length > 1);
+        if (!shared.length) return;
+        const cap = parseFloat(layer.powerAmperage) || 0;
+        const byNum = new Map();
+        if (typeof window.app.getSocaPlan === 'function') {
+            (window.app.getSocaPlan(layer) || []).forEach(s =>
+                (s.legs || []).forEach(l => byNum.set(l.circuit, l.amps)));
+        }
+        const labelSize = Math.max(10, (layer.powerLabelSize || 14) * 0.8);
+        this.ctx.save();
+        for (const c of shared) {
+            const own = c.layers
+                ? c.panels.filter((p, i) => !c.layers[i]
+                    || c.layers[i] === layer || c.layers[i].id === layer.id)
+                : c.panels;
+            if (!own.length) continue;
+            let x1 = Infinity, x2 = -Infinity, yBot = -Infinity;
+            own.forEach(p => {
+                x1 = Math.min(x1, Number(p.x) || 0);
+                x2 = Math.max(x2, (Number(p.x) || 0) + (Number(p.width) || 0));
+                yBot = Math.max(yBot,
+                    (Number(p.y) || 0) + (Number(p.height) || 0));
+            });
+            if (!Number.isFinite(x1) || !Number.isFinite(x2)
+                    || !Number.isFinite(yBot)) continue;
+            const amps = byNum.get(c.num) || 0;
+            const over = cap > 0 && amps > cap + 1e-9;
+            const color = over ? '#d05a52'
+                : (layer.powerLabelBgColor || '#D95000');
+            // Hugging the gang's own boundary: below the screen for
+            // column runs (the clean mock look), ON the row seam for
+            // horizontal runs - either way, the line under "these runs
+            // share one feed".
+            const y = yBot + labelSize * 0.25;
+            const tick = labelSize * 0.45;
+            this.ctx.lineWidth = Math.max(1.5, labelSize * 0.12);
+            this.ctx.strokeStyle = color;
+            this.ctx.beginPath();
+            this.ctx.moveTo(x1 + 2, y - tick);
+            this.ctx.lineTo(x1 + 2, y);
+            this.ctx.lineTo(x2 - 2, y);
+            this.ctx.lineTo(x2 - 2, y - tick);
+            this.ctx.stroke();
+            const label = `${c.runIds.length}fer${over ? ' · OVER' : ''}`;
+            this.ctx.font = `bold ${labelSize}px ${projectFontFamily()}`;
+            const cx = (x1 + x2) / 2;
+            const tw = this.ctx.measureText(label).width;
+            const padX = labelSize * 0.4;
+            const pillH = labelSize + 6;
+            this.ctx.fillStyle = color;
+            this.ctx.beginPath();
+            if (this.ctx.roundRect) {
+                this.ctx.roundRect(cx - tw / 2 - padX, y - pillH / 2,
+                                   tw + padX * 2, pillH, pillH / 2);
+            } else {
+                this.ctx.rect(cx - tw / 2 - padX, y - pillH / 2,
+                              tw + padX * 2, pillH);
+            }
+            this.ctx.fill();
+            this.ctx.fillStyle = over ? '#ffffff'
+                : (layer.powerLabelTextColor || '#000000');
+            this.ctx.textAlign = 'center';
+            this.ctx.textBaseline = 'middle';
+            this._fillText(label, cx, y);
         }
         this.ctx.restore();
     }

@@ -3851,3 +3851,289 @@ def test_clear_card_forgets_backup_picks_and_keeps_port_names(dock_page):
     }""", ids)
     page.evaluate(RESET_DATA_JS, ids)
     page.wait_for_timeout(500)
+
+
+# ── the sweep + the batch verb ("B and then right click", 2026-08-30) ─────
+#
+# Alt+DRAG across adjacent circuit runs sweeps a contiguous selection (the
+# 4px threshold discriminates from the Alt+click takeover); the right-click
+# menu then deals the selection as Nfers - "3fer them (1 × 3fer + 1 × 2fer)"
+# with the group math in the label - or, with no selection, deals the whole
+# screen under the cursor. The remainder RE-DEALS so nothing is orphaned
+# (16 @ 3fer -> 3,3,3,3,2,2); a gated screen keeps the entries on the menu
+# disabled with the reason. Selection is session view state: no history
+# entries, and Esc or a plain click drops it.
+
+BATCH_ITEMS_JS = """() => {
+    const menu = document.getElementById('context-menu');
+    const vis = el => el && el.style.display !== 'none';
+    const grab = a => {
+        const el = menu.querySelector(`[data-action="${a}"]`);
+        return el && vis(el) ? { label: (el.textContent || '').trim(),
+            title: el.title,
+            disabled: el.classList.contains('menu-disabled') } : null;
+    };
+    return { shown: !!menu && menu.style.display === 'block',
+             n0: grab('hw-batch-n0'), n1: grab('hw-batch-n1'),
+             n2: grab('hw-batch-n2'), unshare: grab('hw-batch-unshare'),
+             share: grab('hw-share') };
+}"""
+
+SPLITTER_STATE_JS = """(layerId) => {
+    const app = window.app;
+    const l = app.project.layers.find(x => x.id === layerId);
+    const sp = (l.powerSplitters || {}).manual || {};
+    app._circuitTailCache = null;
+    return {
+        merge: sp.merge || [], split: sp.split || [],
+        runIds: app.screenCircuits(l).map(c => c.runIds || null),
+        sel: app._sweepSelection || null,
+    };
+}"""
+
+SPLITTERS_ON_JS = """(ids) => {
+    const app = window.app;
+    const a = app.project.layers.find(x => x.id === ids.aId);
+    a.powerSplitters = { enabled: true, maxWays: 3,
+                         manual: { merge: [], split: [] } };
+    app._circuitTailCache = null;
+    app.updateLayers([a]);
+    app.resetHistory('Dock Seed');
+}"""
+
+SPLITTERS_OFF_JS = """(ids) => {
+    const app = window.app;
+    const a = app.project.layers.find(x => x.id === ids.aId);
+    a.powerSplitters = { enabled: false, maxWays: 3,
+                         manual: { merge: [], split: [] } };
+    app._circuitTailCache = null;
+    app.updateLayers([a]);
+    app._sweepSelection = null;
+    app.resetHistory('Dock Seed');
+}"""
+
+
+def alt_sweep(page, sx, sy, ex, ey):
+    """Alt held, press, drag past the threshold, release - the sweep. The
+    hud's mid-flight text comes back for the pill assertions."""
+    page.keyboard.down('Alt')
+    page.mouse.move(sx, sy)
+    page.mouse.down()
+    page.mouse.move((sx + ex) / 2, (sy + ey) / 2, steps=5)
+    page.mouse.move(ex, ey, steps=5)
+    page.wait_for_timeout(150)
+    hud = page.evaluate(
+        "() => { const h = document.getElementById('power-sweep-hud');"
+        " return h ? h.textContent : null; }")
+    page.mouse.up()
+    page.keyboard.up('Alt')
+    page.wait_for_timeout(300)
+    return hud
+
+
+def test_batch_partition_math_and_labels(dock_page):
+    """The engine's deal: consecutive groups of n, remainder re-dealt so
+    nothing is orphaned - 16 @ 3fer is 3,3,3,3,2,2 (the last full group
+    re-deals with the orphan as two 2fers); only '2fer them' over an odd
+    count leaves a plain run."""
+    page, ids = dock_page
+    out = page.evaluate("""() => {
+        const app = window.app;
+        return {
+            g18: app.batchNferGroups(18, 3), g16: app.batchNferGroups(16, 3),
+            g8: app.batchNferGroups(8, 3), g7: app.batchNferGroups(7, 2),
+            g5: app.batchNferGroups(5, 4), g5n3: app.batchNferGroups(5, 3),
+            l18: app.batchNferLabel(18, 3), l16: app.batchNferLabel(16, 3),
+            l7: app.batchNferLabel(7, 2), l5: app.batchNferLabel(5, 3),
+        };
+    }""")
+    assert out['g18'] == [3, 3, 3, 3, 3, 3], out
+    assert out['g16'] == [3, 3, 3, 3, 2, 2], out
+    assert out['g8'] == [3, 3, 2], out
+    assert out['g7'] == [2, 2, 2, 1], out
+    assert out['g5'] == [3, 2], (
+        f'a 5-run 4fer deal must not drop a run: {out}')
+    assert out['g5n3'] == [3, 2], out
+    assert out['l18'] == '6 × 3fer', out
+    assert out['l16'] == '4 × 3fer + 2 × 2fer', out
+    assert out['l7'] == '3 × 2fer + 1 plain', out
+    assert out['l5'] == '1 × 3fer + 1 × 2fer', out
+
+
+def test_alt_drag_sweeps_and_alt_click_stays_takeover(dock_page):
+    """Alt+drag past 4px sweeps a contiguous selection with the counter
+    pill riding the cursor; release keeps it lit, Esc drops it, and no
+    history entry is ever written. A plain Alt+click (inside the threshold)
+    stays the run takeover it always was."""
+    page, ids = dock_page
+    open_view(page, 'power')
+    page.evaluate(RESET_POWER_JS, ids)
+    page.wait_for_timeout(500)
+    before = page.evaluate(HIST_LEN_JS)
+
+    p0 = panel_point(page, ids['aId'], {'circuit': 0})
+    p2 = panel_point(page, ids['aId'], {'circuit': 2})
+    hud = alt_sweep(page, p0['x'], p0['y'], p2['x'], p2['y'])
+    assert hud and 'circuit' in hud and ' A' in hud, (
+        f'the counter pill did not ride the sweep: {hud!r}')
+    out = page.evaluate("""(aId) => ({
+        sel: window.app._sweepSelection,
+        hud: !!document.getElementById('power-sweep-hud'),
+    })""", ids['aId'])
+    assert out['sel'] and out['sel']['layerId'] == ids['aId'], out
+    assert len(out['sel']['nums']) == 3, (
+        f'sweeping across three circuits must select all three: {out}')
+    assert not out['hud'], 'the pill must leave with the release'
+    assert page.evaluate(HIST_LEN_JS) == before, (
+        'a sweep selection is view state, never a history entry')
+
+    page.keyboard.press('Escape')
+    page.wait_for_timeout(200)
+    assert page.evaluate("() => window.app._sweepSelection") is None, (
+        'Esc must drop the selection')
+
+    # inside the threshold the press is still the takeover click
+    page.keyboard.down('Alt')
+    page.mouse.move(p0['x'], p0['y'])
+    page.mouse.down()
+    page.mouse.move(p0['x'] + 2, p0['y'] + 1)
+    page.mouse.up()
+    page.keyboard.up('Alt')
+    page.wait_for_timeout(600)
+    out = page.evaluate("""(aId) => {
+        const app = window.app;
+        const a = app.project.layers.find(x => x.id === aId);
+        const num = app.screenCircuits(a)[0].num;
+        return { over: app.isRunOverridden(a, 'power', num),
+                 sel: app._sweepSelection };
+    }""", ids['aId'])
+    assert out['over'], (
+        f'a click inside 4px must stay the takeover: {out}')
+    assert not out['sel'], out
+    page.evaluate("""() => {
+        if (window.app.endOverrideEdit) window.app.endOverrideEdit();
+        window.app.undo();
+    }""")
+    page.wait_for_timeout(700)
+    page.evaluate(RESET_POWER_JS, ids)
+    page.wait_for_timeout(300)
+
+
+def test_sweep_right_click_deals_nfers_in_one_entry(dock_page):
+    """Sweep three circuits (five packed runs), right-click: the menu
+    offers the sizes with the group math, suppresses the single-run share
+    item, and '3fer them' deals [1,2,3] + [4,5] as ONE '3fer Selection'
+    entry. One undo heals the whole deal."""
+    page, ids = dock_page
+    open_view(page, 'power')
+    page.evaluate(RESET_POWER_JS, ids)
+    page.evaluate(SPLITTERS_ON_JS, ids)
+    page.wait_for_timeout(600)
+    before = page.evaluate(HIST_LEN_JS)
+
+    p0 = panel_point(page, ids['aId'], {'circuit': 0})
+    p2 = panel_point(page, ids['aId'], {'circuit': 2})
+    alt_sweep(page, p0['x'], p0['y'], p2['x'], p2['y'])
+    sel = page.evaluate("() => window.app._sweepSelection")
+    assert sel and len(sel['nums']) == 3, sel
+
+    p1 = panel_point(page, ids['aId'], {'circuit': 1})
+    page.mouse.click(p1['x'], p1['y'], button='right')
+    page.wait_for_timeout(400)
+    items = page.evaluate(BATCH_ITEMS_JS)
+    assert items['shown'], items
+    assert items['n0'] and items['n0']['label'].startswith('2fer them ('), items
+    assert items['n1'] and '3fer them (1 × 3fer + 1 × 2fer)' == \
+        items['n1']['label'], items
+    assert items['n1'] and not items['n1']['disabled'], items
+    assert items['share'] is None, (
+        f'the single-run share must stand down behind a sweep: {items}')
+    # the packed 2fers count as existing gangs, so Un-share all is offered
+    assert items['unshare'] and items['unshare']['label'] == 'Un-share all', items
+
+    page.locator('#context-menu [data-action="hw-batch-n1"]').click()
+    page.wait_for_timeout(800)
+    out = page.evaluate(SPLITTER_STATE_JS, ids['aId'])
+    assert out['merge'] == [[1, 2, 3], [4, 5]], (
+        f'the 3fer deal must partition the five runs as 3+2: {out}')
+    assert out['split'] == [], out
+    assert [len(r) for r in out['runIds'] if r] == [3, 2], out
+    assert out['sel'] is None, 'the commit must clear the selection'
+    assert page.evaluate(HIST_JS, 1) == ['3fer Selection']
+    assert page.evaluate(HIST_LEN_JS) == before + 1, (
+        'the batch deal is not ONE history entry')
+
+    page.evaluate("() => window.app.undo()")
+    page.wait_for_timeout(800)
+    out = page.evaluate(SPLITTER_STATE_JS, ids['aId'])
+    assert out['merge'] == [], f'one undo did not heal the deal: {out}'
+    page.evaluate(SPLITTERS_OFF_JS, ids)
+    page.evaluate(RESET_POWER_JS, ids)
+    page.wait_for_timeout(300)
+
+
+def test_whole_wall_right_click_batches_and_keeps_single_run_items(dock_page):
+    """No selection: right-click a run and the batch entries act on the
+    whole screen ('3fer this screen'), beside the single-run share item,
+    which keeps working unchanged."""
+    page, ids = dock_page
+    open_view(page, 'power')
+    page.evaluate(RESET_POWER_JS, ids)
+    page.evaluate(SPLITTERS_ON_JS, ids)
+    page.wait_for_timeout(600)
+    before = page.evaluate(HIST_LEN_JS)
+
+    p0 = panel_point(page, ids['aId'], {'circuit': 0})
+    page.mouse.click(p0['x'], p0['y'], button='right')
+    page.wait_for_timeout(400)
+    items = page.evaluate(BATCH_ITEMS_JS)
+    assert items['shown'], items
+    assert items['n1'] and items['n1']['label'].startswith('3fer this screen ('), items
+    assert items['share'] is not None, (
+        f'the single-run share must keep working with no sweep: {items}')
+
+    page.locator('#context-menu [data-action="hw-batch-n1"]').click()
+    page.wait_for_timeout(800)
+    out = page.evaluate(SPLITTER_STATE_JS, ids['aId'])
+    assert out['merge'] == [[1, 2, 3], [4, 5]], out
+    assert page.evaluate(HIST_JS, 1) == ['3fer Screen']
+    assert page.evaluate(HIST_LEN_JS) == before + 1
+
+    page.evaluate("() => window.app.undo()")
+    page.wait_for_timeout(800)
+    page.evaluate(SPLITTERS_OFF_JS, ids)
+    page.evaluate(RESET_POWER_JS, ids)
+    page.wait_for_timeout(300)
+
+
+def test_batch_entries_gated_off_with_reason(dock_page):
+    """Splitters off and circuits auto: the batch entries stay ON the menu,
+    disabled, with the sharing gate as their title - discoverable, never
+    rule-breaking - and a click on one changes nothing."""
+    page, ids = dock_page
+    open_view(page, 'power')
+    page.evaluate(RESET_POWER_JS, ids)
+    page.evaluate(SPLITTERS_OFF_JS, ids)
+    page.wait_for_timeout(500)
+    before = page.evaluate(HIST_LEN_JS)
+
+    p0 = panel_point(page, ids['aId'], {'circuit': 0})
+    page.mouse.click(p0['x'], p0['y'], button='right')
+    page.wait_for_timeout(400)
+    items = page.evaluate(BATCH_ITEMS_JS)
+    assert items['shown'], items
+    assert items['n0'] and items['n0']['disabled'], items
+    assert 'Sharing is off' in items['n0']['title'], items
+    assert items['n1'] and items['n1']['disabled'], items
+    # three plain runs: no 4fer to offer
+    assert items['n2'] is None, items
+
+    page.locator('#context-menu [data-action="hw-batch-n0"]').click()
+    page.wait_for_timeout(500)
+    out = page.evaluate(SPLITTER_STATE_JS, ids['aId'])
+    assert out['merge'] == [], f'a disabled entry still dealt: {out}'
+    assert page.evaluate(HIST_LEN_JS) == before, (
+        'a disabled batch entry earned a history entry')
+    close_menu(page)
+    page.evaluate(RESET_POWER_JS, ids)
+    page.wait_for_timeout(300)

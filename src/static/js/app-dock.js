@@ -2970,6 +2970,11 @@ class _HardwareDock {
         const none = { share: null, unshare: null };
         if (!window.canvasRenderer
                 || window.canvasRenderer.viewMode !== 'power') return none;
+        // With a sweep selection armed, the batch entries ARE the sharing
+        // story for this opening - a single-run "Share with next" beside
+        // "3fer them" would be two grammars for one gesture.
+        if (this._sweepSelection && this._sweepSelection.nums
+                && this._sweepSelection.nums.length) return none;
         const at = this._dockCircuitAt(x, y);
         if (!at) return none;
         const { layer, num } = at;
@@ -3011,6 +3016,131 @@ class _HardwareDock {
                     sendClientLog('dock_unshare',
                                   { layerId: layer.id, num: c.num });
                     this.splitSplitterCircuits(layer, [c.num]);
+                },
+            };
+        }
+        return out;
+    }
+
+    // ── the batch verb: sweep → right-click → "3fer them" ────────────────
+    //
+    // 2026-08-30, user pick ("lets go for B and then right click"): the
+    // sweep (canvas.js Alt+drag) arms a contiguous run selection, and the
+    // right-click menu deals it as Nfers - "3fer them (6 × 3fer)", the
+    // group math in the label so the deal reads before it is taken. With
+    // NO selection the same entries act on the whole screen under the
+    // cursor ("one run per column, 3 columns - right click the whole wall,
+    // it makes those 3 columns a 3fer"). Gated exactly as the single-run
+    // share items are (splitters on, or custom circuits) - but the batch
+    // entries stay ON the menu disabled with the reason, because a gesture
+    // nobody can find teaches nothing.
+    _prepareBatchMenu(x, y) {
+        const renderer = window.canvasRenderer;
+        if (!renderer || renderer.viewMode !== 'power'
+                || !renderer.canvas) return null;
+        const el = document.elementFromPoint(x, y);
+        if (el && el.closest && el.closest('#hardware-dock')) return null;
+        const sel = this._sweepSelection;
+        let layer = null;
+        let nums = null;
+        let scope = null;
+        if (sel && Array.isArray(sel.nums) && sel.nums.length) {
+            layer = (this.project.layers || [])
+                .find(l => l.id === sel.layerId);
+            if (!layer) return null;
+            // Degrade-on-read: circuits the plan no longer produces fall
+            // out of the selection instead of poisoning the deal.
+            const have = new Set(this.screenCircuits(layer).map(c => c.num));
+            nums = sel.nums.filter(n => have.has(n));
+            scope = 'selection';
+        } else {
+            const rect = renderer.canvas.getBoundingClientRect();
+            if (x < rect.left || x > rect.right
+                    || y < rect.top || y > rect.bottom) return null;
+            const worldY = ((y - rect.top) - renderer.panY) / renderer.zoom;
+            const worldX = renderer._unmirrorWorldX(
+                ((x - rect.left) - renderer.panX) / renderer.zoom, worldY);
+            const hit = renderer.getPanelAt(worldX, worldY);
+            if (!hit) return null;
+            const under = (this.project.layers || [])
+                .find(l => l.id === hit.layerId);
+            const circuit = under
+                ? renderer._powerCircuitForPanel(under, hit.panel) : null;
+            if (!circuit) return null;
+            layer = circuit.owner;
+            nums = this.screenCircuits(layer).map(c => c.num);
+            scope = 'screen';
+        }
+        if (!layer || !nums || nums.length < 2) return null;
+        // The deal is at RUN grain, so existing gangs inside the batch
+        // re-deal with everything else - count the runs, not the circuits.
+        const chosen = new Set(nums);
+        let runCount = 0;
+        let hasGang = false;
+        this.screenCircuits(layer).forEach(c => {
+            if (!chosen.has(c.num)) return;
+            const ids = c.runIds || [c.num];
+            runCount += ids.length;
+            if (ids.length > 1) hasGang = true;
+        });
+        if (runCount < 2) return null;
+        const sp = this.getPowerSplitters(layer);
+        const custom = this.usesCustomCircuits(layer);
+        const gated = !sp.enabled && !custom;
+        const verb = scope === 'screen' ? 'this screen' : 'them';
+        const entries = [];
+        [2, 3, 4].forEach(n => {
+            if (runCount < n) return;
+            // A size whose deal produces none of itself is another size's
+            // entry wearing the wrong name - "4fer them" over five runs
+            // deals 3+2, which IS the 3fer entry. Offer only honest sizes.
+            if (!this.batchNferGroups(runCount, n).includes(n)) return;
+            const label = `${n}fer ${verb} `
+                + `(${this.batchNferLabel(runCount, n)})`;
+            if (gated) {
+                entries.push({
+                    label, disabled: true,
+                    title: `Sharing is off for ${layer.name} - turn on `
+                        + '"Share circuits via splitters" in Power Settings '
+                        + '(or route its circuits custom) to gang runs.',
+                });
+                return;
+            }
+            entries.push({
+                label,
+                title: `Deal ${runCount} run${runCount === 1 ? '' : 's'} `
+                    + `left to right as ${this.batchNferLabel(runCount, n)} `
+                    + '- adjacent groups, each its own circuit. Honored '
+                    + 'even over capacity - a heavy gang flags OVER. One '
+                    + 'undoable step.',
+                run: () => {
+                    sendClientLog('power_batch_nfer',
+                                  { layerId: layer.id, n, scope,
+                                    runs: runCount });
+                    this.batchShareCircuits(layer, nums, n,
+                        `${n}fer ${scope === 'screen'
+                            ? 'Screen' : 'Selection'}`);
+                    this._sweepSelection = null;
+                },
+            });
+        });
+        if (!entries.length) return null;
+        const out = { entries, scope };
+        if (hasGang && !gated) {
+            out.unshare = {
+                label: scope === 'screen'
+                    ? 'Un-share this screen' : 'Un-share all',
+                title: 'Un-gang every shared circuit '
+                    + (scope === 'screen'
+                        ? 'on this screen' : 'in the selection')
+                    + ' back onto runs of their own. One undoable step.',
+                run: () => {
+                    sendClientLog('power_batch_unshare',
+                                  { layerId: layer.id, scope });
+                    this.splitSplitterCircuits(layer, nums,
+                        scope === 'screen'
+                            ? 'Un-share Screen' : 'Un-share Selection');
+                    this._sweepSelection = null;
                 },
             };
         }
