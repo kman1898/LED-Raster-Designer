@@ -1,7 +1,7 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
-v0.12.0 - August 31, 2026 (BETA)
+v0.12.0 - September 1, 2026 (BETA)
 ----------------------------
 
 THE HARDWARE TRAY - one home for all the hardware
@@ -68,6 +68,19 @@ GUIDANCE
   after that), a 19-step walkthrough tours everything new in 0.12, and
   the Advanced Guide doubled to 39 steps covering the whole app as it is
   today. Labels on the drawing wrap at spaces instead of ballooning.
+
+- NEW: Gang circuits in one gesture. Hold Alt and sweep across adjacent
+  power runs - a counter rides the cursor - then right-click and pick
+  "2fer them" or "3fer them"; the menu spells out the deal (six 3fers
+  from 18 circuits) and the leftover re-deals so nothing is orphaned.
+  Right-click the wall itself to gang every run on the screen. Ganged
+  circuits now wear a bracket and an Nfer tag on the drawing - red with
+  OVER when past capacity - in the app and in exports.
+
+- CHANGE: Clearing forgets. Clear a circuit, a multi, a distro or a
+  sending card and its programming goes with it - balance positions,
+  number pins, names, lengths, label overrides - so the next assignment
+  starts fresh. One undo brings all of it back.
 
 FIXES THAT CHANGE NUMBERS ON DRAWINGS YOU ALREADY HAVE
 
