@@ -4417,6 +4417,12 @@ class CanvasRenderer {
                         // matching the soca panel's checkbox): the user asked
                         // for them off by default.
                         if (layer.showSocaBrackets === true) this.renderSocaBrackets(layer);
+                        // A plug drag over this screen previews its box as
+                        // a dashed bracket even with brackets off: gesture
+                        // feedback, not paperwork, so it needs no tick -
+                        // and with no drag on, an unticked screen draws no
+                        // bracket at all (the multiselect suite pins it).
+                        else if (this._pendingPlugFor(layer)) this.renderSocaBrackets(layer, true);
                         this._keepTextUpright = false;
                     }
 
@@ -6528,11 +6534,33 @@ class CanvasRenderer {
     // multi spanning the columns its 6 legs feed, labeled with the multi
     // name and home-run length (Binder convention). Brackets stack upward
     // when their spans overlap (row-major circuits usually span full width).
-    renderSocaBrackets(layer) {
+    //
+    // Style B (2026-08-31): each pill carries a darker text badge with the
+    // box's connector type - SOCA 208 / SOCA 120 / L21-30, read off the
+    // screen's effective breakout - beside the name · length; a breakout
+    // the type table does not name gets no badge. Stacking is unchanged
+    // and exports draw the same path, so the badge prints when the
+    // checkbox is on.
+    //
+    // Mid plug-drag, the multi the drop would feed draws DASHED under the
+    // name the box would get ("SL3", the naming index's own derivation, so
+    // it reads exactly as the committed bracket will): the pending
+    // bracket. `pendingOnly`
+    // is the brackets-off pass, which draws that one bracket and nothing
+    // else.
+    renderSocaBrackets(layer, pendingOnly) {
         if (!window.app || typeof window.app.getSocaPlan !== 'function') return;
         if ((layer.type || 'screen') !== 'screen') return;
-        const plan = window.app.getSocaPlan(layer);
+        const pend = this._pendingPlugFor(layer);
+        if (pendingOnly && !pend) return;
+        let plan = window.app.getSocaPlan(layer);
+        if (pendingOnly) plan = plan.filter(s => s.soca === pend.socaIndex);
         if (!plan.length) return;
+        const badge = typeof window.app.outputTypeForBreakout === 'function'
+            && typeof window.app.getPowerBreakout === 'function'
+            ? window.app.outputTypeForBreakout(window.app.getPowerBreakout(layer))
+            : null;
+        const badgeText = badge ? badge.badge : null;
         const bounds = this.getLayerBounds(layer);
         const top = bounds.y;
         const labelSize = Math.max(11, (layer.powerLabelSize || 14) * 0.9);
@@ -6557,15 +6585,20 @@ class CanvasRenderer {
         this.ctx.strokeStyle = layer.powerLabelBgColor || '#D95000';
         this.ctx.fillStyle = layer.powerLabelBgColor || '#D95000';
         this.ctx.font = `bold ${labelSize}px ${projectFontFamily()}`;
+        const orange = layer.powerLabelBgColor || '#D95000';
         for (const { s, r } of placed) {
+            const dashed = !!(pend && pend.socaIndex === s.soca);
             const y = top - baseGap - r * rowH;
             const tick = labelSize * 0.45;
+            this.ctx.save();
+            if (dashed) this.ctx.setLineDash([tick * 0.7, tick * 0.5]);
             this.ctx.beginPath();
             this.ctx.moveTo(s.x1, y + tick);
             this.ctx.lineTo(s.x1, y);
             this.ctx.lineTo(s.x2, y);
             this.ctx.lineTo(s.x2, y + tick);
             this.ctx.stroke();
+            this.ctx.restore();
             // Leg ticks: drop a short mark from the bracket to the columns
             // each leg feeds, labeled L1..L6 (Binder power-diagram detail).
             // Only meaningful when the legs sit on DISTINCT column groups -
@@ -6595,28 +6628,78 @@ class CanvasRenderer {
             }
             // Home-run lengths are paperwork: they print on exported maps
             // (like the Binder's power diagram) but stay off the working view.
-            const label = s.name
+            const label = (dashed ? pend.boxName : s.name)
                 + (this.exportMode && s.length ? ` · ${s.length}` : '')
                 + ` · ${s.amps.toFixed(1)}A`;
             const cx = (s.x1 + s.x2) / 2;
             const tw = this.ctx.measureText(label).width;
+            // the type badge: a darker sub-pill before the text, in the
+            // mono register the chips and the LEGS line use
+            const badgeFont = `bold ${Math.max(7, labelSize * 0.68)}px `
+                + 'ui-monospace, Menlo, Consolas, monospace';
+            let bw = 0;
+            const badgePad = labelSize * 0.3;
+            if (badgeText) {
+                this.ctx.save();
+                this.ctx.font = badgeFont;
+                bw = this.ctx.measureText(badgeText).width + badgePad * 2;
+                this.ctx.restore();
+            }
+            const gap = badgeText ? labelSize * 0.3 : 0;
             // knock out a gap in the bracket line behind the label
             this.ctx.save();
             this.ctx.textAlign = 'center';
             this.ctx.textBaseline = 'middle';
             this.ctx.globalCompositeOperation = 'source-over';
             const padX = labelSize * 0.4;
-            this.ctx.fillStyle = layer.powerLabelBgColor || '#D95000';
-            this.ctx.beginPath();
             const pillH = labelSize + 6;
-            if (this.ctx.roundRect) this.ctx.roundRect(cx - tw / 2 - padX, y - pillH / 2, tw + padX * 2, pillH, pillH / 2);
-            else this.ctx.rect(cx - tw / 2 - padX, y - pillH / 2, tw + padX * 2, pillH);
+            const pillW = tw + bw + gap + padX * 2;
+            const px0 = cx - pillW / 2;
+            this.ctx.fillStyle = dashed ? 'rgba(0, 0, 0, 0.6)' : orange;
+            this.ctx.beginPath();
+            if (this.ctx.roundRect) this.ctx.roundRect(px0, y - pillH / 2, pillW, pillH, pillH / 2);
+            else this.ctx.rect(px0, y - pillH / 2, pillW, pillH);
             this.ctx.fill();
-            this.ctx.fillStyle = layer.powerLabelTextColor || '#000000';
-            this._fillText(label, cx, y);
+            if (dashed) {
+                // the pending pill: dark, dashed orange rim, orange text
+                this.ctx.strokeStyle = orange;
+                this.ctx.lineWidth = Math.max(1, labelSize * 0.08);
+                this.ctx.setLineDash([tick * 0.6, tick * 0.4]);
+                this.ctx.stroke();
+                this.ctx.setLineDash([]);
+            }
+            const ink = dashed ? orange : (layer.powerLabelTextColor || '#000000');
+            let cursor = px0 + padX;
+            if (badgeText) {
+                const bh = pillH - 6;
+                this.ctx.fillStyle = dashed
+                    ? 'rgba(217, 80, 0, 0.22)' : 'rgba(0, 0, 0, 0.28)';
+                this.ctx.beginPath();
+                if (this.ctx.roundRect) this.ctx.roundRect(cursor, y - bh / 2, bw, bh, bh / 2);
+                else this.ctx.rect(cursor, y - bh / 2, bw, bh);
+                this.ctx.fill();
+                this.ctx.save();
+                this.ctx.font = badgeFont;
+                this.ctx.fillStyle = ink;
+                this._fillText(badgeText, cursor + bw / 2, y + 0.5);
+                this.ctx.restore();
+                cursor += bw + gap;
+            }
+            this.ctx.fillStyle = ink;
+            this._fillText(label, cursor + tw / 2, y);
             this.ctx.restore();
         }
         this.ctx.restore();
+    }
+
+    // The plug drag's pending box on this screen, off the dock's live drop
+    // target (app-dock.js _dockScreenTarget stamps `plug` on it): the multi
+    // index the drop would feed and the name the box would get. Null when
+    // no plug drag targets this screen, or the drop would be refused.
+    _pendingPlugFor(layer) {
+        const t = window.app && window.app._dockDropTarget;
+        if (!t || t.kind !== 'screen' || t.layerId !== layer.id) return null;
+        return (t.plug && t.plug.ok) ? t.plug : null;
     }
 
     // A committed gang's face on the wall (2026-08-30, "B and then right

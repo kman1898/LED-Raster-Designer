@@ -66,8 +66,16 @@ class _Power {
         const ovr = (!inDock && typeof this._prepareOverrideMenu === 'function')
             ? this._prepareOverrideMenu(x, y) : null;
         this._overrideMenuActions = ovr;
+        // Distro outputs, the click path (2026-08-31): on a screen in the
+        // power view - its cabinets, or its circuit chips in the tray -
+        // "Add <type> from…" opens a submenu of every distro, the ones
+        // offering the screen's connector with their load, the rest greyed
+        // with the reason (app-dock.js _prepareOutputsMenu).
+        const outs = (typeof this._prepareOutputsMenu === 'function')
+            ? this._prepareOutputsMenu(x, y) : null;
+        this._outputsMenuActions = outs;
         if (inDock && !clear && !merge && !sharing.share
-                && !sharing.unshare) {
+                && !sharing.unshare && !outs) {
             this.hideContextMenu();
             return;
         }
@@ -76,8 +84,9 @@ class _Power {
         menu.querySelectorAll(
             '.menu-option:not(.hw-clear-only):not(.hw-merge-only)'
             + ':not(.hw-share-only):not(.hw-unshare-only)'
-            + ':not(.hw-batch-only), '
-            + '.menu-divider:not(.hw-clear-only):not(.hw-batch-only)')
+            + ':not(.hw-batch-only):not(.hw-out-only), '
+            + '.menu-divider:not(.hw-clear-only):not(.hw-batch-only)'
+            + ':not(.hw-out-only)')
             .forEach(el => {
                 el.style.display = inDock ? 'none' : '';
             });
@@ -171,6 +180,28 @@ class _Power {
         const bdiv = menu.querySelector('.menu-divider.hw-batch-only');
         if (bdiv && (batchEntries.length || (batch && batch.unshare))) {
             bdiv.style.display = '';
+        }
+        // The outputs submenu: parent label names the screen's connector,
+        // one entry per distro written at open time like every hw item.
+        menu.querySelectorAll('.hw-out-only').forEach(el => {
+            el.style.display = outs ? '' : 'none';
+        });
+        if (outs) {
+            const lbl = menu.querySelector('#hw-outputs-label');
+            if (lbl) lbl.textContent = outs.label;
+            const sub = menu.querySelector('#hw-outputs-submenu');
+            if (sub) {
+                sub.innerHTML = '';
+                outs.entries.forEach((en, i) => {
+                    const item = document.createElement('div');
+                    item.className = 'menu-option'
+                        + (en.disabled ? ' menu-disabled' : '');
+                    item.dataset.action = `hw-out-${i}`;
+                    item.textContent = en.label;
+                    item.title = en.title || '';
+                    sub.appendChild(item);
+                });
+            }
         }
         [['hw-share-only', 'hw-share', sharing.share],
          ['hw-unshare-only', 'hw-unshare', sharing.unshare],
@@ -1113,6 +1144,134 @@ class _Power {
         this.updateLayers([layer], true, 'Change Power Breakout');
     }
 
+    // ---- distro outputs -----------------------------------------------------
+    //
+    // The connector TYPES a distro can hand a screen (user ruling,
+    // 2026-08-31: types only, no counts - the rating already bounds the
+    // service and the LEGS line already says where it is). Each type names
+    // the screen breakouts it can feed, and that table IS the matching
+    // rule: a Soca 208 lands on a Multi -> True1 / powerCON screen, a Soca
+    // 120 on an Edison screen, an L21-30 on an L21-30 box. Nothing is
+    // extrapolated past the table - a breakout no type names (L6-20) is a
+    // mismatch like any other, refused with the fix said out loud, never
+    // silently re-typed. `faces` are the breakout connectors the popover
+    // row shows beside the type; `badge` is the bracket's text sub-pill.
+    getDistroOutputTypes() {
+        return [
+            { id: 'soca208', name: 'Soca 208', sub: 'True1 / powerCON',
+              glyph: 'soca', faces: ['true1', 'powercon'],
+              breakouts: ['soca-true1', 'soca-powercon'], badge: 'SOCA 208' },
+            { id: 'soca120', name: 'Soca 120', sub: 'Edison',
+              glyph: 'soca', faces: ['edison'],
+              breakouts: ['soca-edison'], badge: 'SOCA 120' },
+            { id: 'l2130', name: 'L21-30', sub: '3 × 208V',
+              glyph: 'l2130', faces: ['true1', 'powercon'],
+              breakouts: ['l2130-true1', 'l2130-powercon'], badge: 'L21-30' },
+        ];
+    }
+
+    // What one distro offers, as type records, in catalog order. No
+    // `outputs` key - every file from before the key existed, and a
+    // freshly added distro - reads as "offers everything", so nothing an
+    // older show could drag stops dragging. An explicit list, the empty
+    // one included, is somebody's paperwork and stands as written.
+    distroOutputs(d) {
+        const types = this.getDistroOutputTypes();
+        if (!d || !Array.isArray(d.outputs)) return types;
+        return types.filter(t => d.outputs.includes(t.id));
+    }
+
+    distroOffers(d, typeId) {
+        return this.distroOutputs(d).some(t => t.id === typeId);
+    }
+
+    // The output type a screen's (effective) breakout takes, or null for a
+    // breakout the table does not name.
+    outputTypeForBreakout(bt) {
+        const id = bt && bt.id;
+        return this.getDistroOutputTypes()
+            .find(t => t.breakouts.includes(id)) || null;
+    }
+
+    // How a refusal names the screen's breakout - "set to L21-30", "set to
+    // Edison (110V)" - the connector the box is set to, said the way the
+    // crew says it.
+    _breakoutShortName(bt) {
+        if (!bt) return 'an unknown breakout';
+        if (String(bt.id).startsWith('l2130-')) return 'L21-30';
+        if (bt.id === 'soca-edison') return 'Edison (110V)';
+        return bt.name;
+    }
+
+    // The five connector FACES - what a hand sees reaching for the box:
+    // soca (19-pin round multi), True1 (keyed round, three contacts),
+    // powerCON (round with the locking tab), Edison (two slots, ground
+    // below), L21-30 (twist-lock, five curved slots). One <symbol> sprite
+    // on the body; every chip, popover row and drag pill references a face
+    // through plugGlyph, so the same five faces show everywhere.
+    _ensurePlugGlyphs() {
+        if (document.getElementById('hw-plug-glyphs')) return;
+        const host = document.createElement('div');
+        host.innerHTML = '<svg id="hw-plug-glyphs" width="0" height="0" '
+            + 'style="position:absolute" aria-hidden="true"><defs>'
+            + '<symbol id="hw-g-soca" viewBox="0 0 24 24">'
+            + '<circle cx="12" cy="12" r="10.3"/>'
+            + '<circle class="pin" cx="12" cy="12" r="1"/><g class="pin">'
+            + '<circle cx="12" cy="8" r=".9"/><circle cx="15.5" cy="10" r=".9"/>'
+            + '<circle cx="15.5" cy="14" r=".9"/><circle cx="12" cy="16" r=".9"/>'
+            + '<circle cx="8.5" cy="14" r=".9"/><circle cx="8.5" cy="10" r=".9"/>'
+            + '<circle cx="12" cy="4.6" r=".8"/><circle cx="15.7" cy="5.6" r=".8"/>'
+            + '<circle cx="18.4" cy="8.3" r=".8"/><circle cx="19.4" cy="12" r=".8"/>'
+            + '<circle cx="18.4" cy="15.7" r=".8"/><circle cx="15.7" cy="18.4" r=".8"/>'
+            + '<circle cx="12" cy="19.4" r=".8"/><circle cx="8.3" cy="18.4" r=".8"/>'
+            + '<circle cx="5.6" cy="15.7" r=".8"/><circle cx="4.6" cy="12" r=".8"/>'
+            + '<circle cx="5.6" cy="8.3" r=".8"/><circle cx="8.3" cy="5.6" r=".8"/>'
+            + '</g></symbol>'
+            + '<symbol id="hw-g-true1" viewBox="0 0 24 24">'
+            + '<path d="M7 3.6 H17 A10 10 0 1 1 7 3.6 Z"/>'
+            + '<rect class="pin" x="10.6" y="3" width="2.8" height="2.2" rx=".4"/>'
+            + '<rect class="pin" x="7.2" y="10" width="2.2" height="5" rx=".6"/>'
+            + '<rect class="pin" x="14.6" y="10" width="2.2" height="5" rx=".6"/>'
+            + '<rect class="pin" x="10.9" y="14.8" width="2.2" height="4" rx=".6"/>'
+            + '</symbol>'
+            + '<symbol id="hw-g-powercon" viewBox="0 0 24 24">'
+            + '<circle cx="12" cy="12" r="9.8"/><path d="M17.6 4.4 l2.6 -2.2"/>'
+            + '<rect class="pin" x="11" y="5.2" width="2" height="4.6" rx=".5"/>'
+            + '<rect class="pin" x="6.2" y="13.2" width="2" height="4.6" rx=".5" '
+            + 'transform="rotate(30 7.2 15.5)"/>'
+            + '<rect class="pin" x="15.8" y="13.2" width="2" height="4.6" rx=".5" '
+            + 'transform="rotate(-30 16.8 15.5)"/>'
+            + '</symbol>'
+            + '<symbol id="hw-g-edison" viewBox="0 0 24 24">'
+            + '<rect x="3" y="3" width="18" height="18" rx="4"/>'
+            + '<rect class="pin" x="7" y="7" width="2.2" height="6" rx=".5"/>'
+            + '<rect class="pin" x="14.8" y="7.8" width="2.2" height="5.2" rx=".5"/>'
+            + '<path class="pin" d="M10.2 17.8 v-2 a1.8 1.8 0 0 1 3.6 0 v2 z"/>'
+            + '</symbol>'
+            + '<symbol id="hw-g-l2130" viewBox="0 0 24 24">'
+            + '<circle cx="12" cy="12" r="10.3"/><circle cx="12" cy="12" r="1.2"/>'
+            + '<g stroke-width="2.4" stroke-linecap="round" fill="none">'
+            + '<path d="M11 5.4 a6.8 6.8 0 0 1 2.2 0"/>'
+            + '<path d="M17.7 9.3 a6.8 6.8 0 0 1 .8 2.2"/>'
+            + '<path d="M16.9 16.6 a6.8 6.8 0 0 1 -1.7 1.5"/>'
+            + '<path d="M8.8 18.1 a6.8 6.8 0 0 1 -1.7 -1.5"/>'
+            + '<path d="M5.5 11.5 a6.8 6.8 0 0 1 .8 -2.2"/>'
+            + '</g></symbol>'
+            + '</defs></svg>';
+        document.body.appendChild(host.firstChild);
+    }
+
+    plugGlyph(id, cls) {
+        this._ensurePlugGlyphs();
+        const ns = 'http://www.w3.org/2000/svg';
+        const svg = document.createElementNS(ns, 'svg');
+        svg.setAttribute('class', 'hw-plug-g' + (cls ? ` ${cls}` : ''));
+        const use = document.createElementNS(ns, 'use');
+        use.setAttribute('href', `#hw-g-${id}`);
+        svg.appendChild(use);
+        return svg;
+    }
+
     // ---- distros / circuit groups -------------------------------------------
 
     // A distro is a project-level power source with its own rating, voltage
@@ -1174,6 +1333,18 @@ class _Power {
         // Where the box physically sits - the dimmer beach, stage left
         // world. Prints on every power label that names this distro.
         if (patch.location !== undefined) d.location = String(patch.location).trim() || null;
+        // The connector types it offers (the ⚙ OUTPUTS checklist). Stored
+        // in catalog order, unknown ids dropped; null forgets the key,
+        // which reads as "offers everything" again (distroOutputs).
+        if (patch.outputs !== undefined) {
+            if (Array.isArray(patch.outputs)) {
+                const want = patch.outputs.map(String);
+                d.outputs = this.getDistroOutputTypes()
+                    .map(t => t.id).filter(id => want.includes(id));
+            } else {
+                delete d.outputs;
+            }
+        }
         // The NAME is a label input: every multi following this distro is
         // renamed by it, and so is every circuit hanging off those multis.
         // (Location is not - it is descriptive and names nothing.)
@@ -2655,6 +2826,60 @@ class _Power {
         loc.addEventListener('change', () => patch({ location: loc.value }));
         row3.appendChild(loc);
         wrap.appendChild(row3);
+
+        // OUTPUTS (2026-08-31): the connector types this distro can hand a
+        // screen - types only, no counts. One tick row per type: face,
+        // plain name, what it breaks out to. Every row is sized to stay
+        // inside the popover's own box (the resize suite pins it): names
+        // never wrap, the breakout text ellipsizes before it can push
+        // past the edge.
+        const outs = document.createElement('div');
+        outs.className = 'hw-pop-outs';
+        const outsCap = document.createElement('div');
+        outsCap.className = 'hw-pop-outs-cap';
+        outsCap.appendChild(cap('Outputs'));
+        const outsSub = document.createElement('small');
+        outsSub.textContent = 'what this distro can hand a screen';
+        outsCap.appendChild(outsSub);
+        outs.appendChild(outsCap);
+        const offered = new Set(this.distroOutputs(d).map(t => t.id));
+        this.getDistroOutputTypes().forEach(t => {
+            const row = document.createElement('label');
+            row.className = 'hw-pop-out'
+                + (offered.has(t.id) ? '' : ' hw-pop-out-off');
+            row.title = `${t.name} → ${t.sub}. Ticked, the tray shows a `
+                + `${t.name} chip under this distro's LEGS line to drag `
+                + 'onto a screen; unticked, it never does.';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.checked = offered.has(t.id);
+            cb.dataset.lrdField = `distro-out-${t.id}-${d.id}`;
+            cb.addEventListener('change', () => {
+                const live = this.getDistros().find(x => x.id === d.id) || d;
+                const now = new Set(this.distroOutputs(live).map(x => x.id));
+                if (cb.checked) now.add(t.id); else now.delete(t.id);
+                patch({ outputs: this.getDistroOutputTypes()
+                    .map(x => x.id).filter(id => now.has(id)) });
+            });
+            row.appendChild(cb);
+            row.appendChild(this.plugGlyph(t.glyph));
+            const name = document.createElement('b');
+            name.textContent = t.name;
+            row.appendChild(name);
+            const sub = document.createElement('small');
+            sub.className = 'hw-pop-out-sub';
+            t.faces.forEach(f => sub.appendChild(this.plugGlyph(f)));
+            sub.appendChild(document.createTextNode(t.sub));
+            row.appendChild(sub);
+            outs.appendChild(row);
+        });
+        const hint = document.createElement('div');
+        hint.className = 'hw-pop-outs-hint';
+        hint.textContent = 'Unticked types never show as chips. A distro '
+            + 'with nothing ticked still drags whole onto a screen, as it '
+            + 'always has.';
+        outs.appendChild(hint);
+        wrap.appendChild(outs);
 
         const remove = document.createElement('button');
         remove.className = 'btn hw-pop-remove';

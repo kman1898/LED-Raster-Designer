@@ -650,6 +650,15 @@ select, .info-select {
 }
 /* captions and field labels: the Preferences cards' readable gray */
 #hw-gear-popover label { color:var(--ps-dim) !important; }
+/* the OUTPUTS ticks stay native checkboxes: the inset field skin below is
+   for text inputs and selects */
+#hw-gear-popover input[type="checkbox"] {
+  background:none !important; border:none !important; box-shadow:none !important;
+  padding:0 !important; accent-color:var(--ps-accent);
+}
+#hw-gear-popover .hw-pop-out b { color:var(--ps-text) !important; }
+#hw-gear-popover .hw-pop-out-sub, #hw-gear-popover .hw-pop-outs-hint,
+#hw-gear-popover .hw-pop-outs-cap small { color:var(--ps-faint) !important; }
 #hw-gear-popover input, #hw-gear-popover select {
   background:var(--ps-inset) !important; border:1px solid var(--ps-dark) !important;
   color:var(--ps-text) !important;

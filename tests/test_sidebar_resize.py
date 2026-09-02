@@ -810,6 +810,8 @@ GEAR_POPOVER_FIT_JS = """() => {
     return { display: s.display,
              w: Math.round(box.width), h: Math.round(box.height),
              fields: pop.querySelectorAll('[data-lrd-field]').length,
+             outputs: pop.querySelectorAll(
+                 '[data-lrd-field^="distro-out-"]').length,
              strays: strays };
 }"""
 
@@ -818,7 +820,10 @@ def test_the_distro_gear_popover_shows_its_controls_inside_its_own_box(page):
     """Rating, voltage, phase, phasing and location live behind the distro's
     gear now. Clicking the gear must produce a visible popover whose
     controls all sit inside it - the popover's box is the new column the
-    old rating row had to fit."""
+    old rating row had to fit. The OUTPUTS checklist (2026-08-31, three
+    tick rows: Soca 208, Soca 120, L21-30) is part of the same box and the
+    same rule - the concept mock's rows ran past its edge, and this is the
+    pin that keeps the real ones inside."""
     reset_widths(page, 'power')
     seeded = page.evaluate(DISTRO_SEED_JS)
     try:
@@ -832,6 +837,8 @@ def test_the_distro_gear_popover_shows_its_controls_inside_its_own_box(page):
             f"the gear popover is not visible: {m}")
         assert m['fields'] > 0, (
             f"the gear popover opened empty - no data-lrd-field controls: {m}")
+        assert m['outputs'] == 3, (
+            f"the gear popover carries no OUTPUTS checklist (three ticks): {m}")
         assert not m['strays'], (
             f"gear popover controls overflow the popover's own box: "
             f"{m['strays']} (popover is {m['w']}x{m['h']}px)")

@@ -244,11 +244,15 @@ MENU_SHOWN_JS = ("() => document.getElementById('context-menu')"
 MENU_ITEMS_JS = """() => {
     const menu = document.getElementById('context-menu');
     const shown = menu && menu.style.display === 'block';
+    // A submenu's entries are not on the menu until it is hovered open -
+    // their own computed display is 'block' inside a display:none parent,
+    // so they are dropped by ancestry, not by style.
     return {
         menuShown: !!shown,
         items: !shown ? [] : Array.from(
             menu.querySelectorAll('.menu-option'))
             .filter(el => getComputedStyle(el).display !== 'none')
+            .filter(el => !el.closest('.menu-submenu'))
             .map(el => el.dataset.action),
         dividers: !shown ? 0 : Array.from(
             menu.querySelectorAll('.menu-divider'))
@@ -3429,8 +3433,11 @@ def test_a_circuit_chips_menu_is_the_circuit_runs_menu(dock_page):
     assert item['menuShown'] and item['shown'] and not item['disabled'], item
     assert item['label'].startswith('Clear circuit '), (
         f"the one-circuit chip must offer the circuit-scope clear: {item}")
+    # 2026-08-31: a circuit chip names its screen, so it also carries the
+    # screen's "Add <type> from…" outputs submenu (test_distro_outputs.py)
+    # - still its own actions, nothing from the layer/canvas vocabulary
     state = page.evaluate(MENU_ITEMS_JS)
-    assert state['items'] == ['hw-clear'], (
+    assert state['items'] == ['hw-clear', 'hw-outputs'], (
         f'the chip menu carries more than its own actions: {state}')
     take_clear(page)
     out = page.evaluate(POWER_STATE_JS, ids['bId'])
@@ -3461,7 +3468,8 @@ def test_a_circuit_chip_offers_the_merge_for_its_split_off_part(dock_page):
     page.wait_for_timeout(400)
 
     # CEN SL's split-off circuits joined tails 5-6; the tail-5 chip offers
-    # the merge beside the clear - and only those two
+    # the merge beside the clear - and, since a circuit chip names its
+    # screen (2026-08-31), the screen's outputs submenu; nothing else
     sx, sy = dock_tile_center(page, f'tail-{st["d2"]}-2-5')
     page.mouse.click(sx, sy, button='right')
     page.wait_for_timeout(400)
@@ -3469,7 +3477,7 @@ def test_a_circuit_chip_offers_the_merge_for_its_split_off_part(dock_page):
     assert mi and mi['menuShown'] and mi['shown'], mi
     assert mi['label'].startswith('Merge back into '), mi
     state = page.evaluate(MENU_ITEMS_JS)
-    assert state['items'] == ['hw-clear', 'hw-merge'], (
+    assert state['items'] == ['hw-clear', 'hw-merge', 'hw-outputs'], (
         f'the chip menu carries more than its own actions: {state}')
     page.locator('#context-menu [data-action="hw-merge"]').click()
     page.wait_for_timeout(800)
