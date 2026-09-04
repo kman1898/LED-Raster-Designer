@@ -741,7 +741,9 @@ class _HardwareDock {
                     `/api/processors/${proc.id}`, 'PUT', { name: val },
                     'Rename Processor'),
             }));
+            const procPill = this._dockRedundancyPill(proc, null);
             this._dockHeadAugment(title, {
+                controls: procPill ? [procPill] : [],
                 gear: {
                     id: `proc-${proc.id}`,
                     title: 'Configure this processor - redundancy, slots, '
@@ -818,8 +820,11 @@ class _HardwareDock {
                     text: `${summary.used}/${summary.capacity}` }
                 : null);
         // The card's NAME edits inline where it reads; everything else the
-        // panel's card block carried lives behind the ⚙.
+        // panel's card block carried lives behind the ⚙. The redundancy
+        // pill between them is a readout, not an editor.
+        const cardPill = this._dockRedundancyPill(proc, card);
         this._dockHeadAugment(head, {
+            controls: cardPill ? [cardPill] : [],
             name: {
                 value: card.name,
                 placeholder: proc.name || 'unnamed',
@@ -2208,6 +2213,101 @@ class _HardwareDock {
         input.addEventListener('change',
                                () => opts.onCommit(input.value.trim()));
         return input;
+    }
+
+    // The read-only redundancy pill on a tray header - the user's pick of
+    // option D's cheap half (2026-09-04, src/static/redundancy-mock.html):
+    // "a read-only state pill on each header that opens the ⚙ to the
+    // redundancy section, so the tray reports the state without growing
+    // a second editing surface." It states the shape in force - on a
+    // processor `R → H9 BACKUP` (whole unit), `R per card`, `R per port`;
+    // on a card `R 1:1 → SL in H9 BACKUP`, `R seq`, `R halves`, `R
+    // manual`, `R 1:1 — no partner` - and a click opens the PROCESSOR's
+    // gear, where the bar that sets it lives (a card's pill too: the
+    // card's own gear only restates the fact). Nothing while redundancy
+    // is off. A unit consumed whole as another's backup wears its role
+    // instead - "backs up X" - and a consumed card's header already
+    // carries that in its name, so it gets no pill. Gold is the backup
+    // role's family everywhere in the dock; a state colour never follows
+    // the accent. A button, so the drag pickup skips it.
+    _dockRedundancyPill(proc, card) {
+        let text;
+        // The consumed role is the MAIN's doing - its picks consume this
+        // unit whatever this unit's own flag says - so it is read before
+        // the flag, the way the consumed cards' own headers read theirs.
+        const mainId = card ? null : this._backupUnitMainId(proc);
+        if (mainId) {
+            const main = (this._processorsResolved || [])
+                .find(p => p.id === mainId);
+            text = `backs up ${main
+                ? (main.name || main.deviceName) : 'another processor'}`;
+        } else if (!proc.redundancy || !proc.redundancySupported) {
+            return null;
+        } else if (card) {
+            if (card.backupFor) return null;
+            const shape = card.redundancyShape;
+            if (!shape) return null;
+            if (shape.mode === '1to1') {
+                const found = card.backupCardId
+                    ? this._otherCards(card.id)
+                        .find(x => x.card.id === card.backupCardId)
+                    : null;
+                text = found
+                    ? `R 1:1 → ${this._backupUnitTitle(found.proc, found.card)}`
+                    : 'R 1:1 — no partner';
+            } else {
+                text = `R ${shape.mode === 'sequential' ? 'seq' : shape.mode}`;
+            }
+        } else {
+            const level = this._procRedundancyLevel(proc);
+            const procs = this._processorsResolved || [];
+            if (level === 'off') return null;
+            if (level === 'unit') {
+                const partner = procs.find(
+                    p => p.id === proc.backupProcessorId);
+                if (partner) {
+                    text = `R → ${partner.name || partner.deviceName}`;
+                } else {
+                    // A standalone unit at 1:1 with no partner picked yet:
+                    // its one card's own reading.
+                    const one = (proc.slots || []).map(s => s.card)
+                        .find(Boolean);
+                    const found = one && one.backupCardId
+                        ? this._otherCards(one.id)
+                            .find(x => x.card.id === one.backupCardId)
+                        : null;
+                    text = found
+                        ? `R → ${this._backupUnitTitle(found.proc, found.card)}`
+                        : 'R 1:1 — no partner';
+                }
+            } else if (level === 'fixed') {
+                text = 'R on';
+            } else {
+                text = `R per ${level}`;
+            }
+        }
+        const pill = document.createElement('button');
+        pill.type = 'button';
+        pill.className = 'hw-dock-redpill';
+        pill.textContent = text;
+        pill.title = `Redundancy: ${text}. Click to open the processor’s `
+            + '⚙, where it is set.';
+        pill.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this._dockOpenProcGear(proc.id);
+        });
+        return pill;
+    }
+
+    // Open a processor's gear popover by the same path the gear itself
+    // takes - a click on that gear - so placement, the focus machinery
+    // and the click-away teardown all behave exactly as for the gear.
+    // The document's mousedown has already closed whatever was open (the
+    // pill is nobody's anchor), so the click always lands as an open.
+    _dockOpenProcGear(procId) {
+        const gear = document.querySelector(
+            `[data-hwpop="${CSS.escape(`proc-${procId}`)}"]`);
+        if (gear) gear.click();
     }
 
     // Grow a drag-handle header: the inline name field goes where the

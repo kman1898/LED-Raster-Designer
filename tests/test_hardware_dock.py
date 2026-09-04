@@ -1759,6 +1759,180 @@ def test_a_redundant_pair_reads_as_one_group_in_the_dock(dock_page):
         page.wait_for_timeout(600)
 
 
+def test_the_redundancy_pill_reads_the_state_and_opens_the_processor_gear(
+        dock_page):
+    """The user's pick of option D's cheap half (2026-09-04): a read-only
+    pill on the processor and card headers that states the shape in force
+    and opens the PROCESSOR's gear, where the bar that sets it lives.
+    Nothing while redundancy is off; `R per card` / `R 1:1 — no partner`
+    with nothing paired; `R → SL` on the main and `backs up SR` on the
+    partner once paired whole (the partner's consumed cards carry the
+    role in their names and get no pill); `R per port` / `R seq` / `R
+    halves` / `R manual` in the port shapes. Measured, it is a plugged
+    socket in the backup gold, never the accent, and a button - so the
+    drag pickup skips it."""
+    page, ids = dock_page
+    open_view(page, 'data-flow')
+    made = page.evaluate("""async () => {
+        const send = (url, method, body) => fetch(url, { method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body) }).then(r => r.json());
+        const chassis = async (name) => {
+            let st = await send('/api/processors', 'POST',
+                                { deviceId: 'novastar-h9', name });
+            const proc = st.resolved[st.resolved.length - 1];
+            for (const i of [0, 1]) {
+                st = await send(`/api/processors/${proc.id}/slots/${i}`,
+                                'PUT',
+                                { deviceId: 'novastar-card-h-16xrj45-2xfiber' });
+            }
+            const cards = st.resolved.find(p => p.id === proc.id)
+                .slots.filter(s => s.card).map(s => s.card.id);
+            return { id: proc.id, cards };
+        };
+        const main = await chassis('SR');
+        const back = await chassis('SL');
+        await window.app.refreshProcessors();
+        return { mainId: main.id, mainCards: main.cards,
+                 backId: back.id, backCards: back.cards };
+    }""")
+    page.wait_for_timeout(1000)
+    set_js = """async ([made, spec]) => {
+        const send = (url, method, body) => fetch(url, { method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body) }).then(r => r.json());
+        if ('redundancy' in spec) {
+            await send(`/api/processors/${made.mainId}`, 'PUT',
+                       { redundancy: spec.redundancy });
+        }
+        if ('partner' in spec) {
+            await send(`/api/processors/${made.mainId}`, 'PUT',
+                       { backupProcessorId: spec.partner });
+        }
+        if (spec.modes) {
+            for (const [i, mode] of spec.modes.entries()) {
+                await send(`/api/processors/${made.mainId}/cards/`
+                           + made.mainCards[i], 'PUT',
+                           { redundancyMode: mode });
+            }
+        }
+        await window.app.refreshProcessors();
+    }"""
+    pills_js = """(made) => {
+        const procPill = (pid) => {
+            const strip = document.querySelector(
+                `[data-lrd-field="processor-name-${pid}"]`);
+            const head = strip && strip.closest('.hw-dock-proc-name');
+            const pill = head && head.querySelector('.hw-dock-redpill');
+            return pill ? pill.textContent : null;
+        };
+        const cardPill = (cid) => {
+            const head = document.querySelector(`[data-hwdock="card-${cid}"]`);
+            const pill = head && head.querySelector('.hw-dock-redpill');
+            return pill ? pill.textContent : null;
+        };
+        return {
+            main: procPill(made.mainId),
+            back: procPill(made.backId),
+            mainCards: made.mainCards.map(cardPill),
+            backCards: made.backCards.map(cardPill),
+        };
+    }"""
+
+    def pills(spec):
+        page.evaluate(set_js, [made, spec])
+        page.wait_for_timeout(700)
+        return page.evaluate(pills_js, made)
+
+    try:
+        assert pills({'redundancy': False}) == {
+            'main': None, 'back': None,
+            'mainCards': [None, None], 'backCards': [None, None]}
+        assert pills({'redundancy': True}) == {
+            'main': 'R per card', 'back': None,
+            'mainCards': ['R 1:1 — no partner', 'R 1:1 — no partner'],
+            'backCards': [None, None]}
+        out = pills({'partner': made['backId']})
+        assert out['main'] == 'R → SL', out
+        assert out['back'] == 'backs up SR', out
+        assert out['mainCards'] == ['R 1:1 → H_16xRJ45+2xfiber in SL'] * 2, out
+        assert out['backCards'] == [None, None], out
+        out = pills({'partner': '', 'modes': ['sequential', 'halves']})
+        assert out['main'] == 'R per port', out
+        assert out['mainCards'] == ['R seq', 'R halves'], out
+        assert out['back'] is None, out
+        out = pills({'modes': ['manual', 'halves']})
+        assert out['mainCards'] == ['R manual', 'R halves'], out
+        out = pills({'modes': ['1to1', 'halves']})
+        assert out['main'] == 'R per card', out
+        assert out['mainCards'] == ['R 1:1 — no partner', 'R halves'], out
+
+        # Measured: a plugged socket in the backup gold, a button, titled.
+        style = page.evaluate("""(made) => {
+            const strip = document.querySelector(
+                `[data-lrd-field="processor-name-${made.mainId}"]`);
+            const pill = strip.closest('.hw-dock-proc-name')
+                .querySelector('.hw-dock-redpill');
+            const cs = getComputedStyle(pill);
+            const r = pill.getBoundingClientRect();
+            return {
+                tag: pill.tagName, title: pill.title,
+                border: cs.borderTopColor, color: cs.color,
+                bgImage: cs.backgroundImage, shadow: cs.boxShadow,
+                transform: cs.textTransform, h: r.height, w: r.width,
+                hwdock: pill.dataset.hwdock || null,
+            };
+        }""", made)
+        assert style['tag'] == 'BUTTON', style
+        assert style['border'] == 'rgb(200, 160, 74)', style
+        assert style['color'] == 'rgb(240, 212, 138)', style
+        assert style['bgImage'] != 'none' and style['shadow'] != 'none', style
+        assert style['transform'] == 'none', style
+        assert style['h'] >= 12 and style['w'] >= 30, style
+        assert style['hwdock'] is None, 'the pill became a drag handle'
+        assert '\u2699' in style['title'], style
+
+        # A click on a CARD's pill opens the PROCESSOR's gear, bar and all;
+        # so does the processor's own pill. Neither arms a drag.
+        card_pill = page.locator(
+            f'[data-hwdock="card-{made["mainCards"][0]}"] .hw-dock-redpill')
+        card_pill.click()
+        page.wait_for_timeout(400)
+        st = page.evaluate("""(made) => ({
+            shown: document.getElementById('hw-gear-popover')
+                .style.display === 'block',
+            id: window.app._hwPopover ? window.app._hwPopover.id : null,
+            bar: !!document.querySelector(
+                `#hw-gear-popover [data-lrd-field="processor-redundancy-`
+                + `${made.mainId}"]`),
+            ghost: !!document.getElementById('hw-dock-ghost'),
+        })""", made)
+        assert st['shown'] and st['id'] == f'proc-{made["mainId"]}', st
+        assert st['bar'], 'the card pill opened a gear without the bar'
+        assert not st['ghost'], 'the pill press armed a drag'
+        page.keyboard.press('Escape')
+        page.wait_for_timeout(200)
+        page.locator(f'[data-lrd-field="processor-name-{made["mainId"]}"]') \
+            .locator('xpath=..').locator('.hw-dock-redpill').click()
+        page.wait_for_timeout(400)
+        st = page.evaluate("""() => ({
+            shown: document.getElementById('hw-gear-popover')
+                .style.display === 'block',
+            id: window.app._hwPopover ? window.app._hwPopover.id : null,
+        })""")
+        assert st['shown'] and st['id'] == f'proc-{made["mainId"]}', st
+        page.keyboard.press('Escape')
+        page.wait_for_timeout(200)
+    finally:
+        page.evaluate("""async (made) => {
+            for (const id of [made.backId, made.mainId]) {
+                await fetch(`/api/processors/${id}`, { method: 'DELETE' });
+            }
+            await window.app.refreshProcessors();
+        }""", made)
+        page.wait_for_timeout(600)
+
+
 # ── right-click: clear from the run or the chip ───────────────────────────
 #
 # The same releases the drag-back performs, reachable without a drag. Every
