@@ -1363,7 +1363,7 @@ def test_a_port_is_labelled_by_its_own_number_across_the_sx40_boxes(client):
         client.put(f'/api/processors/{pid}/cvts/{box["id"]}',
                    json={'name': name})
 
-    res = resolve(client, ('Wall', 22))
+    res = assigned(client, ('Wall', 22))
     scr = next(s for s in res['screens'] if s['layerId'] == 'Wall')
     assert [p['number'] for p in scr['ports']] == list(range(1, 23))
     got = labels(res, 'Wall')
@@ -1387,7 +1387,7 @@ def test_a_port_is_labelled_by_its_own_number_on_a_single_card(client):
     card_id = first_card(only(state))['id']
     name_card(client, pid, card_id, 'SR')
 
-    res = resolve(client, ('Main', 12))
+    res = assigned(client, ('Main', 12))
     scr = next(s for s in res['screens'] if s['layerId'] == 'Main')
     by_number = {p['number']: p['label'] for p in scr['ports']}
     assert [p['number'] for p in scr['ports']] == list(range(1, 13))

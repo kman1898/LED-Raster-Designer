@@ -3147,6 +3147,10 @@ export class LEDRasterApp {
         // contradicts them), and while an overridden port is open for
         // redrawing it walks the layer's override list instead of the open
         // number line.
+        // Mouse controls that must not answer Enter/Space - see
+        // _armStepButton (app-power.js) for the skipped-number trap.
+        this._armStepButton(customPrevPortBtn);
+        this._armStepButton(customNextPortBtn);
         if (customPrevPortBtn) {
             customPrevPortBtn.addEventListener('click', () => {
                 if (!this.currentLayer) return;
@@ -3658,6 +3662,8 @@ export class LEDRasterApp {
         // data-flow Prev/Next above. It carries the v0.8.2 PUT (without it a
         // Mode Toggle would PUT a single-circuit collapsed view of
         // layer.powerCustomPaths) and the override-list pinning.
+        this._armStepButton(powerCustomPrev);
+        this._armStepButton(powerCustomNext);
         if (powerCustomPrev) {
             powerCustomPrev.addEventListener('click', () => {
                 if (!this.currentLayer) return;

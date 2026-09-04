@@ -327,6 +327,26 @@ class _Power {
         return nums[next];
     }
 
+    // A step button (Next / Prev, data and power) is a MOUSE control. A
+    // button keeps keyboard focus after a click, and a focused button
+    // re-fires on Enter and Space - so "click Next, press Enter" stepped
+    // twice and the circuit numbers skipped one, which is how a brand-new
+    // show ended up drawn 1-4, 6-23 (user, 2026-09-03). Tab from the
+    // focused button used to step too; the document handler in canvas.js
+    // now leaves Tab to a focused control. The keyboard's way to step is
+    // Tab / Shift+Tab and [ / ] on the canvas, unchanged - the buttons
+    // themselves just stop answering keys.
+    _armStepButton(btn) {
+        if (!btn) return;
+        const swallow = (e) => {
+            if (e.code === 'Enter' || e.code === 'NumpadEnter' || e.code === 'Space') {
+                e.preventDefault();
+            }
+        };
+        btn.addEventListener('keydown', swallow);
+        btn.addEventListener('keyup', swallow);
+    }
+
     stepCustomPort(delta) {
         if (!this.currentLayer || !window.canvasRenderer) return;
         const view = window.canvasRenderer.viewMode;

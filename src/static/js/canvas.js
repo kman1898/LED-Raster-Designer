@@ -2561,8 +2561,19 @@ class CanvasRenderer {
         // well as the pattern, and it PUTs the new index to the server -
         // which this handler also never did, so a Tab'd index was lost on the
         // next reload even when it moved the right one.
+        //
+        // A focused BUTTON owns Tab too. The Next/Prev buttons keep keyboard
+        // focus after a mouse click, and this document-level handler used
+        // to step AGAIN on the Tab that followed - so "click Next, press
+        // Tab" skipped a circuit number, which is how a brand-new show
+        // ended up drawn 1-4, 6-23 (user, 2026-09-03). Tab from a focused
+        // control moves focus, as the browser intends; the shortcut is for
+        // the canvas. (Not folded into isTyping: the arrow keys must keep
+        // drawing after a Next click.)
+        const onControl = document.activeElement
+            && document.activeElement.tagName === 'BUTTON';
         if (e.code === 'Tab' && !e.metaKey && !e.ctrlKey && !isTyping
-                && window.app && window.app.currentLayer) {
+                && !onControl && window.app && window.app.currentLayer) {
             const layer = window.app.currentLayer;
             const handled =
                 (this.viewMode === 'data-flow' && window.app.isCustomFlowEditing(layer))

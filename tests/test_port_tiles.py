@@ -1191,7 +1191,7 @@ def test_a_backing_tile_carries_the_mirrored_return_occupant(panel_page):
 
 def test_the_custom_port_badge_names_the_port_the_click_stores_under(panel_page):
     ids = seed(panel_page)
-    out = panel_page.evaluate("""async () => {
+    out = panel_page.evaluate("""async (cardId) => {
         const app = window.app, r = window.canvasRenderer;
         // Always the LIVE layer object: a resolve round trip can hand the
         // project back with fresh layer objects, and a captured one would
@@ -1243,13 +1243,23 @@ def test_the_custom_port_badge_names_the_port_the_click_stores_under(panel_page)
                      authority: app.getPortLabelText(L, L.customPortIndex, 'primary'),
                      bubble: seen[L.customPortIndex] || null };
         };
+        // Nothing lands by itself (auto-numbering retired, 2026-09-03): a
+        // port is on the card only because it was dropped there. The
+        // seed dropped Screen1's ports as they stood; a port drawn now is
+        // a NEW port, so it is dropped onto the same card the way the
+        // dock's card-drop does - and only then does SR-5 exist to read.
+        const land = () => app._assignmentRequest(
+            '/api/port-assignments/place-overflow', 'POST',
+            { layerId: String(id), cardId });
         const before5 = frame();
         app.addPanelToCustomPath(app.getPanelByRowCol(cur(), 1, 0));
+        await land();
         await app.refreshPortAssignment();
         const after5 = frame();
         document.getElementById('custom-next-port').click();
         const before6 = frame();
         app.addPanelToCustomPath(app.getPanelByRowCol(cur(), 1, 1));
+        await land();
         await app.refreshPortAssignment();
         const after6 = frame();
         const paths = cur().customPortPaths;
@@ -1258,7 +1268,7 @@ def test_the_custom_port_badge_names_the_port_the_click_stores_under(panel_page)
         Object.assign(cur(), saved);
         await app.refreshPortAssignment();
         return { before5, after5, before6, after6, stored };
-    }""")
+    }""", ids['cardId'])
     # Before the click the badge names port 5 through the same authority
     # the bubble will read - by number, never 4 or 6. (Its text is the
     # template's P5 until the port holds a cabinet: the ports-required
