@@ -22,7 +22,7 @@ window.WHATS_NEW_CONTENT = {
             { h: 'A flag for unattached screens',
               d: 'While any screen still has unwired ports or circuits, the dock header shows a red flag with the count. Click it for a row per screen, and click a row to fly the view straight to it.' },
             { h: 'Redundancy, numbered like the hardware',
-              d: 'Set a processor’s redundancy as mirrored, paired, or patched by hand - the redundant end of P1-1 is R1-1, and a backup travels with its main. Every box numbers its ports the way its own silkscreen does.' },
+              d: 'Set redundancy behind the processor’s gear at three levels - the whole processor mirrored by another unit, a card mirrored by another card, or ports paired, halved, or patched by hand - the redundant end of P1-1 is R1-1, and a backup travels with its main. Every box numbers its ports the way its own silkscreen does.' },
             { h: 'Circuits are chips with meters',
               d: 'Each circuit is a chip whose fill bar shows how loaded it is at a glance, and a fully-patched box folds away to keep the dock short.' },
             { h: 'Take over one run with Alt',

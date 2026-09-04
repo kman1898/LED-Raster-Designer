@@ -107,6 +107,18 @@ def _prune_backup_refs(removed_ids):
             card.pop('backupPorts', None)
 
 
+def _fixed_pairing_refusal(card):
+    """The one sentence that turns away any stored shape on a card whose
+    vendor fixes the pairing. Shared by the mode store and the whole-
+    processor pairing, so the reason reads the same from either door."""
+    device = catalog.get_device(card.get('deviceId')) or {}
+    if ((device.get('redundancy') or {}).get('pairing')) == 'adjacent':
+        return (f'{device.get("name", "This device")} pairs adjacent outputs '
+                f'automatically - its pairing is a fact of the device, not a '
+                f'mode.')
+    return None
+
+
 def _set_redundancy_mode(card, mode):
     """Store one card's redundancy mode, or refuse where the vendor fixed it.
 
@@ -117,11 +129,9 @@ def _set_redundancy_mode(card, mode):
     another mode is active, and destroying them because the select was
     toggled to compare would be hostile.
     """
-    device = catalog.get_device(card.get('deviceId')) or {}
-    if ((device.get('redundancy') or {}).get('pairing')) == 'adjacent':
-        return (f'{device.get("name", "This device")} pairs adjacent outputs '
-                f'automatically - its pairing is a fact of the device, not a '
-                f'mode.')
+    why = _fixed_pairing_refusal(card)
+    if why:
+        return why
     if mode and mode not in catalog.REDUNDANCY_MODES:
         return f'Unknown redundancy mode: {mode}'
     if not mode or mode == '1to1':
@@ -141,6 +151,21 @@ def _set_backup_card(card, card_id, backup_id):
     if not backup_id:
         card.pop('backupCardId', None)
         return None
+    why = _check_backup_card(card, card_id, backup_id)
+    if why:
+        return why
+    card['backupCardId'] = backup_id
+    return None
+
+
+def _check_backup_card(card, card_id, backup_id):
+    """Why `backup_id` cannot mirror `card` 1:1, or None where it can.
+
+    Split from the store so the whole-processor pairing can run every
+    slot's check BEFORE it writes a single one: a pairing that stored slot
+    1 and then refused slot 2 would leave half a mirror behind, which is
+    worse than none.
+    """
     if backup_id == card_id:
         return 'A unit cannot back itself.'
     target = next((c for _p, c in _all_cards() if c.get('id') == backup_id),
@@ -177,7 +202,78 @@ def _set_backup_card(card, card_id, backup_id):
             (resolved_target or {}).get('backupCardId'):
         return (f'{back_title} has a backup of its own - it is a main, and '
                 f'a main cannot also be one.')
-    card['backupCardId'] = backup_id
+    return None
+
+
+def _proc_title(proc):
+    device = catalog.get_device((proc or {}).get('deviceId')) or {}
+    return ((proc or {}).get('name') or '').strip() \
+        or device.get('name', (proc or {}).get('deviceId'))
+
+
+def _derived_backup_processor(proc):
+    """The processor that currently mirrors `proc` card for card, from the
+    resolved view - the same derivation the panel reads - or None."""
+    for rproc in catalog.resolve_all(_processors()):
+        if rproc.get('id') == proc.get('id'):
+            return rproc.get('backupProcessorId')
+    return None
+
+
+def _set_backup_processor(proc, partner_id):
+    """Pair two processors whole, card for card, in ONE gesture - or undo it.
+
+    The user's ruling (2026-09-04): "if you need to do processor redundancy
+    i need to be able to set that." A whole-processor backup is nothing
+    the cards do not already know how to be: it is every card of this
+    processor pointed 1:1 at the partner's card in the same position, so
+    that is exactly what is stored - no new key, and the view derives the
+    pairing back from the cards (resolve_all). Card N mirrors card N in
+    slot order; the two must have the SAME number of cards, and every
+    pair must pass the SAME checks a single 1:1 pick passes (settled and
+    equal port counts, not already consumed, no backup of a backup).
+    All checks run first; the first failure names its slot and refuses
+    the lot, and nothing is written.
+
+    Clearing (an empty id) releases every card that pointed at the
+    derived partner - the pairing the view was reporting - and touches no
+    card pointed elsewhere.
+    """
+    mine = [(slot, card) for slot, card in _cards_of(proc)]
+    if not partner_id:
+        current = _derived_backup_processor(proc)
+        partner = _find_processor(current) if current else None
+        if not partner:
+            return None
+        theirs = {card.get('id') for _s, card in _cards_of(partner)}
+        for _slot, card in mine:
+            if card.get('backupCardId') in theirs:
+                card.pop('backupCardId', None)
+        return None
+    if partner_id == proc.get('id'):
+        return 'A processor cannot back itself.'
+    partner = _find_processor(partner_id)
+    if partner is None:
+        return 'That processor is not in this project.'
+    theirs = [(slot, card) for slot, card in _cards_of(partner)]
+    if not mine:
+        return f'{_proc_title(proc)} has no cards to mirror.'
+    if len(mine) != len(theirs):
+        def count(cards):
+            return f'{len(cards)} card{"" if len(cards) == 1 else "s"}'
+        return (f'{_proc_title(partner)} has {count(theirs)} and '
+                f'{_proc_title(proc)} has {count(mine)} - a whole-processor '
+                f'backup mirrors card for card, so the counts must match.')
+    for (slot, card), (_pslot, pcard) in zip(mine, theirs):
+        why = _fixed_pairing_refusal(card) \
+            or _check_backup_card(card, card.get('id'), pcard.get('id'))
+        if why:
+            return f'Slot {slot.get("index", 0) + 1}: {why}'
+    for (_slot, card), (_pslot, pcard) in zip(mine, theirs):
+        # 1:1 is stored as absence (see _set_redundancy_mode); a card that
+        # was sequential or manual a moment ago becomes a plain mirror.
+        card.pop('redundancyMode', None)
+        card['backupCardId'] = pcard.get('id')
     return None
 
 
@@ -290,7 +386,16 @@ def update_processor(processor_id):
     if not proc:
         return jsonify({'error': 'Processor not found'}), 404
     data = request.json or {}
+    # The whole-processor pairing is validated, not allow-listed, like the
+    # card's redundancy fields: any slot that cannot mirror refuses the
+    # whole gesture with its reason, and nothing is stored.
+    if 'backupProcessorId' in data:
+        why = _set_backup_processor(proc, data.get('backupProcessorId') or '')
+        if why:
+            return jsonify({'error': why}), 400
     changed = _apply(proc, data, ('name', 'mode', 'redundancy'))
+    if 'backupProcessorId' in data:
+        changed['backupProcessorId'] = data.get('backupProcessorId') or None
     log_event('processor_update', {'id': processor_id, 'changed': list(changed)})
     return _state()
 

@@ -309,8 +309,9 @@ class _Processors {
     }
 
     // The processor's gear: the machine-level facts and switches - capacity,
-    // the redundancy toggle with its vendor-fixed pairing statement, the
-    // chassis slots' card pickers, and the remove.
+    // the redundancy switch with everything redundancy offers beneath it
+    // (_buildProcRedundancyBlock), the chassis slots' card pickers, and
+    // the remove.
     _buildProcGearContent(proc) {
         const wrap = document.createElement('div');
         wrap.appendChild(this._popHeading(proc.name || proc.deviceName));
@@ -336,17 +337,24 @@ class _Processors {
         wrap.appendChild(cap);
 
         if (proc.redundancySupported) {
+            // THE ONE HOME FOR REDUNDANCY. The switch, and beneath it every
+            // choice redundancy offers, live behind the processor's gear
+            // and nowhere else: the user found "Redundancy" here, ticked
+            // it, and found "nothing to select or pair" because the
+            // choices were behind a different gear with no hint. The
+            // switch is drawn as a real toggle at keycap contrast - the
+            // 15px checkbox the popover skin un-styled to nothing was the
+            // grey-on-grey the standing rule forbids.
             const label = document.createElement('label');
-            label.style.display = 'flex';
-            label.style.alignItems = 'center';
-            label.style.gap = '6px';
-            label.style.fontSize = '11px';
-            label.style.color = '#ccc';
-            label.style.marginTop = '6px';
+            label.className = 'hw-pop-switch-row';
             const cb = document.createElement('input');
             cb.type = 'checkbox';
+            cb.className = 'hw-pop-switch';
             cb.checked = !!proc.redundancy;
             cb.dataset.lrdField = `processor-redundancy-${proc.id}`;
+            cb.title = 'Redundancy on or off for this processor. On, the '
+                + 'choices appear below: the whole processor mirrored by '
+                + 'another, or a shape per card and per port.';
             cb.addEventListener('change', () => this._processorRequest(
                 `/api/processors/${proc.id}`, 'PUT',
                 { redundancy: cb.checked }, 'Toggle Redundancy'));
@@ -355,27 +363,13 @@ class _Processors {
             // now depends on the card's mode - 1:1 consumes the backup unit,
             // sequential halves this one, manual takes only what is picked -
             // and each mode states its own cost where it is chosen.
-            label.appendChild(document.createTextNode('Redundancy'));
+            const word = document.createElement('span');
+            word.textContent = 'Redundancy';
+            label.appendChild(word);
             wrap.appendChild(label);
 
-            // WHERE THE VENDOR FIXES THE PAIRING, IT IS A FACT, NOT A FIELD.
-            // Brompton pairs adjacent outputs automatically - A backs up to
-            // B, C backs up to D - and offers no other arrangement, so the
-            // pairing is stated under the switch and never drawn as a
-            // control. The sentence comes from the server (the one authority
-            // on the rule); no statement arrives for vendors with none
-            // documented, and nothing is invented for them here.
-            if (proc.redundancy && proc.redundancyPairing
-                    && proc.redundancyPairing.fixed) {
-                const fact = document.createElement('div');
-                fact.style.fontSize = '11px';
-                fact.style.color = 'var(--ps-dim, #c0c0c0)';
-                fact.style.lineHeight = '1.4';
-                fact.style.margin = '2px 0 0 20px';
-                fact.textContent = proc.redundancyPairing.statement;
-                fact.title = 'Fixed pairing. This is how the device runs '
-                    + 'redundancy; it is not a setting.';
-                wrap.appendChild(fact);
+            if (proc.redundancy) {
+                wrap.appendChild(this._buildProcRedundancyBlock(proc));
             }
         }
 
@@ -443,8 +437,217 @@ class _Processors {
         return wrap;
     }
 
-    // The card's gear: templates, mode, redundancy shape, capacity, and the
-    // breakout-box work - everything the panel's card block carried except
+    // How a card reads in a partner list: a fixed card IS its unit, so it
+    // wears the unit's name (the "second sending card" is a whole MX20, not
+    // a slot in one); a slotted card wears its own name with the chassis
+    // it sits in, because two chassis can each hold a card called SL.
+    _backupUnitTitle(p, c) {
+        if (c.fixed) return p.name || c.name || p.deviceName || c.deviceName;
+        return `${c.name || c.deviceName} in ${p.name || p.deviceName}`;
+    }
+
+    // Everything redundancy offers, under the switch in the processor's
+    // gear. The user's ruling (2026-09-04): "if you need to do processor
+    // redundancy i need to be able to set that. but also sending card or
+    // port redundancy needs to be an option." So a chassis chooses its
+    // LEVEL first - the whole processor mirrored by another unit, card for
+    // card, in one pick; or a shape per card, where each card's row
+    // offers 1:1 (card level) and sequential / halves / manual (port
+    // level). A standalone unit is its one card, so it skips the level
+    // question and shows that card's row straight away. A vendor-fixed
+    // pairing (Brompton) is a statement, never a control, at any level.
+    _buildProcRedundancyBlock(proc) {
+        const block = document.createElement('div');
+        block.className = 'hw-pop-red-block';
+
+        if (proc.redundancyPairing && proc.redundancyPairing.fixed) {
+            // WHERE THE VENDOR FIXES THE PAIRING, IT IS A FACT, NOT A FIELD.
+            // Brompton pairs adjacent outputs automatically - A backs up to
+            // B, C backs up to D - and offers no other arrangement, so the
+            // pairing is stated under the switch and never drawn as a
+            // control. The sentence comes from the server (the one authority
+            // on the rule); no statement arrives for vendors with none
+            // documented, and nothing is invented for them here.
+            const fact = document.createElement('div');
+            fact.style.fontSize = '11px';
+            fact.style.color = 'var(--ps-dim, #c0c0c0)';
+            fact.style.lineHeight = '1.4';
+            fact.style.margin = '2px 0 0 20px';
+            fact.textContent = proc.redundancyPairing.statement;
+            fact.title = 'Fixed pairing. This is how the device runs '
+                + 'redundancy; it is not a setting.';
+            block.appendChild(fact);
+            return block;
+        }
+
+        const cards = (proc.slots || []).map(s => s.card).filter(Boolean);
+
+        // A unit consumed whole as somebody's backup states its role and
+        // offers nothing: its ports are the main's returns, and a plan for
+        // them would be a plan for ports that are spoken for.
+        const mainId = this._backupUnitMainId(proc);
+        if (mainId) {
+            const main = (this._processorsResolved || [])
+                .find(p => p.id === mainId);
+            const fact = document.createElement('div');
+            fact.className = 'hw-pop-red-fact';
+            fact.style.marginTop = '6px';
+            fact.style.fontSize = '11px';
+            fact.style.color = '#c8a04a';
+            fact.textContent = `Backs up ${main
+                ? (main.name || main.deviceName) : 'another processor'}`
+                + ' - card for card; its ports carry that unit’s returns.';
+            fact.title = 'Picked as the whole-processor backup. Clear the '
+                + 'pick on the main processor to free this one.';
+            block.appendChild(fact);
+            return block;
+        }
+
+        if (proc.form !== 'chassis') {
+            const row = cards.length
+                ? this._buildCardRedundancyRow(proc, cards[0]) : null;
+            if (row) block.appendChild(row);
+            return block;
+        }
+
+        // The level is DERIVED from what is stored - "whole processor"
+        // exactly when the server reports a partner mirroring every card
+        // slot for slot - so the select can never claim a pairing that is
+        // not there. The one thing derivation cannot show is intent: a
+        // level picked with no partner yet chosen has stored nothing, so
+        // that pick is remembered here, per processor, until the state
+        // catches up with it.
+        const derived = proc.backupProcessorId ? 'processor' : 'card';
+        this._procRedLevelPick = this._procRedLevelPick || {};
+        const level = this._procRedLevelPick[proc.id] || derived;
+
+        const levelSel = document.createElement('select');
+        levelSel.dataset.lrdField = `processor-redundancy-level-${proc.id}`;
+        levelSel.style.width = '100%';
+        levelSel.style.marginTop = '6px';
+        levelSel.title = 'What is mirrored: the whole processor by another '
+            + 'unit, or a shape chosen per card and per port.';
+        [['processor',
+          'Whole processor - another unit mirrors this one, card for card'],
+         ['card', 'Per card / per port'],
+        ].forEach(([id, text]) => {
+            const opt = document.createElement('option');
+            opt.value = id;
+            opt.textContent = text;
+            if (id === level) opt.selected = true;
+            levelSel.appendChild(opt);
+        });
+        levelSel.addEventListener('change', () => {
+            this._procRedLevelPick[proc.id] = levelSel.value;
+            // Presentation only: nothing is stored until a partner or a
+            // mode is picked, so the popover redraws and history is
+            // untouched.
+            if (typeof this._hwPopoverRefresh === 'function') {
+                this._hwPopoverRefresh();
+            }
+        });
+        block.appendChild(levelSel);
+
+        if (level === 'processor') {
+            block.appendChild(this._buildProcBackupPick(proc, cards));
+            return block;
+        }
+
+        if (!cards.length) {
+            const none = document.createElement('div');
+            none.style.fontSize = '11px';
+            none.style.color = 'var(--ps-dim, #c0c0c0)';
+            none.style.marginTop = '4px';
+            none.textContent = 'No cards in the slots yet - put a card in '
+                + 'a slot below and its redundancy row appears here.';
+            block.appendChild(none);
+            return block;
+        }
+        (proc.slots || []).forEach(slot => {
+            const card = slot.card;
+            if (!card) return;
+            const row = document.createElement('div');
+            row.className = 'hw-pop-red-card';
+            row.style.marginTop = '8px';
+            const head = document.createElement('div');
+            head.style.fontSize = '11px';
+            head.style.fontFamily = 'monospace';
+            head.style.color = 'var(--ps-text, #f0f0f0)';
+            head.textContent = `Slot ${slot.index + 1} - `
+                + `${card.name || card.deviceName}`;
+            row.appendChild(head);
+            const body = this._buildCardRedundancyRow(proc, card);
+            if (body) row.appendChild(body);
+            block.appendChild(row);
+        });
+        return block;
+    }
+
+    // The whole-processor partner pick: every other processor, offered
+    // with its card count and port total because those are the eligibility
+    // rule - card for card, then port for port - and the server names the
+    // slot that fails. One request carries the whole pairing, so one undo
+    // takes it back.
+    _buildProcBackupPick(proc, cards) {
+        const wrap = document.createElement('div');
+        const partner = document.createElement('select');
+        partner.dataset.lrdField = `processor-backup-${proc.id}`;
+        partner.style.width = '100%';
+        partner.style.marginTop = '4px';
+        const blank = document.createElement('option');
+        blank.value = '';
+        blank.textContent = 'backed up by…';
+        blank.selected = !proc.backupProcessorId;
+        partner.appendChild(blank);
+        (this._processorsResolved || []).forEach(p => {
+            if (p.id === proc.id) return;
+            const opt = document.createElement('option');
+            opt.value = p.id;
+            const pcards = (p.slots || []).map(s => s.card).filter(Boolean);
+            const known = pcards.every(c => c.ceilingKnown);
+            const ports = known
+                ? pcards.reduce((n, c) => n + (c.ceiling || 0), 0) : '?';
+            let note = '';
+            const backsId = this._backupUnitMainId(p);
+            if (backsId && backsId !== proc.id) {
+                const m = (this._processorsResolved || [])
+                    .find(x => x.id === backsId);
+                note = ` (backs up ${m ? (m.name || m.deviceName) : 'another'})`;
+            }
+            opt.textContent = `${p.name || p.deviceName} - ${pcards.length} `
+                + `card${pcards.length === 1 ? '' : 's'}, ${ports} ports${note}`;
+            if (p.id === proc.backupProcessorId) opt.selected = true;
+            partner.appendChild(opt);
+        });
+        partner.addEventListener('change', () => {
+            // A stored answer outranks a remembered pick: once the server
+            // reports the pairing (or its absence) the level derives again.
+            if (this._procRedLevelPick) delete this._procRedLevelPick[proc.id];
+            this._processorRequest(
+                `/api/processors/${proc.id}`, 'PUT',
+                { backupProcessorId: partner.value },
+                'Change Backup Processor');
+        });
+        wrap.appendChild(partner);
+        if (!proc.backupProcessorId) {
+            const hint = document.createElement('div');
+            hint.style.fontSize = '11px';
+            hint.style.color = 'var(--ps-dim, #c0c0c0)';
+            hint.style.marginTop = '2px';
+            hint.textContent = cards.length
+                ? `No backup processor picked - nothing is backed up yet. `
+                  + `The partner needs ${cards.length} card`
+                  + `${cards.length === 1 ? '' : 's'} with the same port `
+                  + 'counts, slot for slot.'
+                : 'No cards in the slots yet - a processor with no cards '
+                  + 'has nothing to mirror.';
+            wrap.appendChild(hint);
+        }
+        return wrap;
+    }
+
+    // The card's gear: templates, mode, a read-only redundancy line,
+    // capacity, and the breakout-box work - everything the panel's card block carried except
     // the name, which edits inline on the card's dock header.
     _buildCardGearContent(proc, card) {
         const wrap = document.createElement('div');
@@ -516,7 +719,11 @@ class _Processors {
             wrap.appendChild(select);
         }
 
-        const redundancy = this._buildCardRedundancyRow(proc, card);
+        // The card's redundancy is READ here and SET behind the processor's
+        // gear: one home for the controls, so a card's gear cannot offer a
+        // mode select that the processor's gear does not know about. The
+        // line states the shape in force and where to change it.
+        const redundancy = this._buildCardRedundancyFact(proc, card);
         if (redundancy) wrap.appendChild(redundancy);
 
         const cap = this._buildCapacityRow(
@@ -763,6 +970,51 @@ class _Processors {
         return out;
     }
 
+    // The card gear's one passive line: the shape in force on this card,
+    // and where it is set. No control here, by design - see
+    // _buildProcRedundancyBlock.
+    _buildCardRedundancyFact(proc, card) {
+        if (!proc.redundancySupported) return null;
+        const fact = document.createElement('div');
+        fact.className = 'hw-pop-red-fact';
+        fact.style.marginTop = '6px';
+        fact.style.fontSize = '11px';
+        fact.style.color = 'var(--ps-dim, #c0c0c0)';
+        fact.title = 'Set behind the processor\u2019s \u2699.';
+        if (!proc.redundancy) {
+            fact.textContent = 'Redundancy: off - set behind the '
+                + 'processor’s ⚙';
+            return fact;
+        }
+        if (card.backupFor) {
+            fact.style.color = '#c8a04a';
+            fact.textContent = `Redundancy: backs up ${card.backupFor.title}`;
+            return fact;
+        }
+        const shape = card.redundancyShape;
+        if (!shape) {
+            fact.textContent = 'Redundancy: not supported on this card';
+            return fact;
+        }
+        if (shape.forced) {
+            fact.textContent = `Redundancy: ${shape.mode} - fixed by the `
+                + 'device';
+            return fact;
+        }
+        if (shape.mode === '1to1') {
+            const found = card.backupCardId
+                ? this._otherCards(card.id)
+                    .find(x => x.card.id === card.backupCardId) : null;
+            fact.textContent = found
+                ? `Redundancy: 1:1, backed up by `
+                  + `${this._backupUnitTitle(found.proc, found.card)}`
+                : 'Redundancy: 1:1, no backup unit picked';
+            return fact;
+        }
+        fact.textContent = `Redundancy: ${shape.mode}`;
+        return fact;
+    }
+
     // The card's data-redundancy row, where redundancy is on and the vendor
     // does not fix the shape. Four modes, the user's design: 1:1 to a
     // designated backup unit (the default - "the way brompton does it and
@@ -798,13 +1050,22 @@ class _Processors {
         const select = document.createElement('select');
         select.dataset.lrdField = `processor-card-redundancy-${card.id}`;
         select.style.width = '100%';
-        [['1to1', '1:1 - mirrored by a backup unit'],
-         ['sequential', 'Sequential - 1 backed by 2, 3 by 4'],
+        // Each option says which LEVEL it works at - the card as a whole,
+        // or ports inside it - because that is the choice the user asked
+        // for by name: "sending card or port redundancy needs to be an
+        // option" (2026-09-04). The same four modes, no new ones.
+        const half = card.ceilingKnown && card.ceiling
+            ? Math.floor(card.ceiling / 2) : null;
+        [['1to1', '1:1 - this card mirrored by another card'],
+         ['sequential', 'Sequential - ports 1 backed by 2, 3 by 4'],
          // The 2026-08-27 arrangement, in the user's own shape: "1-8 on
          // processor 1 and 9-16 as backups" - one gesture, not a manual
          // pick per port.
-         ['halves', 'Halves - back half backs the front half'],
-         ['manual', 'Manual - backup picked per port'],
+         ['halves', half
+             ? `Halves - ports ${card.ceiling - half + 1}-${card.ceiling} `
+               + `back 1-${half}`
+             : 'Halves - the back half of the ports back the front half'],
+         ['manual', 'Manual - pick a backup per port'],
         ].forEach(([id, text]) => {
             const opt = document.createElement('option');
             opt.value = id;
@@ -834,7 +1095,7 @@ class _Processors {
             this._otherCards(card.id).forEach(({ proc: p, card: c }) => {
                 const opt = document.createElement('option');
                 opt.value = c.id;
-                const title = c.name || p.name || c.deviceName;
+                const title = this._backupUnitTitle(p, c);
                 const count = c.ceilingKnown ? `${c.ceiling}` : '?';
                 let note = '';
                 if (c.backupFor && c.id !== card.backupCardId) {

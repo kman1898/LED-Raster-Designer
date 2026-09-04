@@ -832,8 +832,9 @@ class _HardwareDock {
             },
             gear: {
                 id: `card-${card.id}`,
-                title: 'Configure this card - templates, mode, redundancy, '
-                    + 'breakout boxes, remove.',
+                title: 'Configure this card - templates, mode, breakout '
+                    + 'boxes, remove. Redundancy is set behind the '
+                    + 'processor\'s \u2699.',
                 build: () => {
                     const found = this._dockFindCard(card.id);
                     return found ? this._buildCardGearContent(found.proc,
