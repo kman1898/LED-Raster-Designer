@@ -27,15 +27,16 @@ v0.12.0 - September 4, 2026 (BETA)
   start side; within one run the rows still snake, and a fill that never
   reaches capacity is the one continuous snake it always was.
 
-- CHANGE (IMPORTANT): Redundancy is set in one place, at three levels.
-  Behind the processor's gear: a switch you can see, and under it the
-  choice - the whole processor mirrored by another unit, card for card,
-  in one pick; per card, where 1:1 mirrors a card with another card; or
-  per port, with Sequential, Halves and Manual. A standalone unit shows
-  its "backed up by" pick straight under the switch - for NovaStar that
-  is the second sending card. A whole-processor pick refuses and names
-  the slot when the two units do not match port for port. The card's
-  gear now only states the shape it is in.
+- CHANGE (IMPORTANT): Redundancy is one bar in one place. Behind the
+  processor's gear a raised segmented bar - Off, Whole unit, Per card,
+  Per port (Off, Backed up, Per port on a standalone unit) - and exactly
+  one thing under it: a "mirrored by" pick for the whole unit, one
+  partner per slot for cards, or Sequential / Halves / Manual chips per
+  slot for ports. For NovaStar the second sending card is the "Backed
+  up" pick. A whole-unit pick refuses and names the slot when the two
+  units do not match port for port. Every tray header wears a gold pill
+  that states the unit's shape (R -> H9 BACKUP, R seq, backs up SR) and
+  opens the gear when clicked. The card's gear only states its shape.
 
 - CHANGE (IMPORTANT): Nothing lands on a card by itself. Auto-numbering is
   retired: ports attach only when you drag, drop or place them, the
