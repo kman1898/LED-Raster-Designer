@@ -14,12 +14,20 @@ falls out of the cabinet grid, the flow pattern, any custom path the user drew,
 and ports that cross into a group peer - and that maths lives in
 getLayerPortsRequired on the client. Sending the answer keeps ONE implemen-
 tation of it. It also means nothing derived is ever stored: the project holds
-pins and an on/off flag, and everything else is worked out fresh.
+pins (and the retired-auto stamp), and everything else is worked out fresh.
 
 The screen's processing platform rides in the same payload, because the
 platform wall (port_assignment's "Who may drive whom") needs it on every
 resolve and every edit - a Legacy screen may not land on COEX gear, and the
 refusal has to know what the screen is programmed to say so.
+
+Auto-numbering is retired (user ruling, 2026-09-03). The one place it still
+touches these routes is the migration: a project saved before the ruling
+reaches its first request here without the `autoRetired` mark, and because
+the screens' port counts arrive with that request, THIS is where its
+auto-drawn ports get frozen into pins (port_assignment.retire_auto) - the
+project funnel could only stamp the hardware-less cases. Every route runs
+the freeze first, so a legacy project's first edit and first read agree.
 """
 from flask import Blueprint, request, jsonify
 
@@ -30,29 +38,40 @@ from app import log_event, socketio
 port_assignment_bp = Blueprint('port_assignment', __name__)
 
 
+def _retire():
+    """The one-time freeze, run at the head of every route here (see the
+    module docstring). Returns True when it changed the project, so the
+    resolve read can tell the client its state moved."""
+    if assignment.retire_auto(app.current_project, _screens()):
+        log_event('port_assignment_auto_retired', {'at': request.path})
+        return True
+    return False
+
+
 def _state():
-    # Reading must not create the key, for the same reason the processor panel
-    # will not: a project that defines no processors has to stay byte-for-byte
-    # what it was before this feature existed, and this endpoint is hit by the
-    # boots of everyone who will never assign a port.
+    # Reading must not create the key: a read is a read, and the state a
+    # project carries is the funnel's business (every project is born with
+    # it, and a legacy file gets it from retire_auto).
     return app.current_project.get(assignment.STATE_KEY) or assignment.new_state()
 
 
 def _working():
     """A copy to edit, so a refused edit leaves no trace.
 
-    Editing the stored dict in place and then returning 409 would stamp the key
-    onto a project that has never assigned a port - which is the exact shape of
-    the regression this feature must not have. The copy is only written back
-    once the edit actually succeeded.
+    Editing the stored dict in place and then returning 409 would write a
+    half-made edit onto the project - a refused placement must leave the
+    state exactly as it found it. The copy is only written back once the
+    edit actually succeeded. The copy carries the retired-auto stamp
+    whatever the stored shape was; by the time an edit runs, _retire has
+    already put it there.
     """
     stored = app.current_project.get(assignment.STATE_KEY)
     if not isinstance(stored, dict):
         return assignment.new_state()
-    return {
-        'auto': stored.get('auto', True),
-        'pins': [dict(p) for p in (stored.get('pins') or []) if isinstance(p, dict)],
-    }
+    state = assignment.new_state()
+    state['pins'] = [dict(p) for p in (stored.get('pins') or [])
+                     if isinstance(p, dict)]
+    return state
 
 
 def _store(state):
@@ -94,19 +113,34 @@ def resolve_assignments():
     """Read-only despite the verb. It is a POST because the screen port counts
     have to travel with it and they are a list, not a query string - and
     because a GET that quietly stamped a key onto the project is precisely the
-    regression this feature is not allowed to have."""
-    return jsonify(_payload())
+    regression this feature is not allowed to have.
+
+    The one write it may make is the migration (see the module docstring):
+    a legacy project's first resolve is the first request that knows where
+    its auto-drawn ports were, and freezing them there is the migration, not
+    an edit. `migrated` in the body tells the client to take the returned
+    state even though nothing was asked for - a legacy file's client-side
+    copy has no state to update otherwise, and the pins have to reach it or
+    the next undo snapshot would hand back a project the funnel has to
+    freeze again."""
+    migrated = _retire()
+    body = _payload()
+    if migrated:
+        body['migrated'] = True
+    return jsonify(body)
 
 
 @port_assignment_bp.route('/api/port-assignments', methods=['PUT'])
 def set_options():
-    data = request.json or {}
-    if 'auto' not in data:
-        return jsonify({'error': 'Nothing to set'}), 400
-    state = _working()
-    state['auto'] = bool(data['auto'])
-    log_event('port_assignment_auto', {'auto': state['auto']})
-    return _saved(_store(state))
+    """410 Gone. This was the auto-numbering switch. Auto is retired (user
+    ruling, 2026-09-03): nothing lands on a card unless a person put it
+    there, so there is no option left to set. A client still sending one is
+    an old build, and it gets told so rather than silently ignored - an
+    ignored request would look like a state change that never happened."""
+    return jsonify({
+        'error': 'Auto-numbering is retired. Ports land only where they are '
+                 'placed; there is no numbering option to set.',
+    }), 410
 
 
 @port_assignment_bp.route('/api/port-assignments/pin', methods=['POST'])
@@ -133,6 +167,7 @@ def pin_port():
     if str(card_id) not in {c['cardId'] for c in
                             assignment.cards_in(_processors())}:
         return jsonify({'error': 'That card is not in this project'}), 404
+    _retire()
     state = _working()
     pinned, error = assignment.pin_to_card(
         _processors(), _screens(), state, layer_id, index, card_id, port)
@@ -173,6 +208,7 @@ def place_port():
     if str(card_id) not in {c['cardId'] for c in
                             assignment.cards_in(_processors())}:
         return jsonify({'error': 'That card is not in this project'}), 404
+    _retire()
     state = _working()
     placed, error, conflict = assignment.place_port(
         _processors(), _screens(), state, layer_id, index, card_id, port,
@@ -193,13 +229,14 @@ def place_port():
 @port_assignment_bp.route('/api/port-assignments/unpin', methods=['POST'])
 def unpin_port():
     """Release one pinned port, or a whole screen's worth when no index is
-    given. Auto picks it back up on the next resolve - there is nothing to
-    restore, because auto was never stored in the first place."""
+    given. The port comes off its card and stays unattached until somebody
+    places it again."""
     data = request.json or {}
     layer_id = data.get('layerId')
     if layer_id is None:
         return jsonify({'error': 'layerId is required'}), 400
-    if assignment.STATE_KEY not in app.current_project:
+    _retire()
+    if not (app.current_project.get(assignment.STATE_KEY) or {}).get('pins'):
         return jsonify(_payload())  # nothing pinned; releasing changes nothing
     index = data.get('index')
     state = assignment.clear_pin(_working(), layer_id,
@@ -217,6 +254,7 @@ def move_block():
     start = data.get('startPort')
     first = data.get('firstPort')
     last = data.get('lastPort')
+    _retire()
     state = _working()
     moved, error = assignment.move_block(
         _processors(), _screens(), state, layer_id,
@@ -241,6 +279,7 @@ def place_overflow():
         return jsonify({'error': 'layerId and cardId are required'}), 400
     first = data.get('firstPort')
     last = data.get('lastPort')
+    _retire()
     state = _working()
     moved, error = assignment.place_overflow(
         _processors(), _screens(), state, layer_id, card_id,

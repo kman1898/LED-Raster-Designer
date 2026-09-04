@@ -257,3 +257,107 @@ def test_canvas_cursor_follows_the_view_not_just_the_layer(
     assert got == expected, (
         f"{view} view, flow_custom={flow_custom}, power_custom={power_custom}: "
         f"cursor was {got!r}, expected {expected!r}")
+
+
+
+# ── the step buttons cannot double-step ──────────────────────────────────
+#
+# User (2026-09-03), a brand-new show drawn 1-4, 6-23: one circuit number
+# skipped while clicking Next between circuits. Proven on a clean page:
+# the Next button keeps keyboard focus after a mouse click, the document
+# Tab handler above only deferred to INPUT/TEXTAREA, so Tab stepped AGAIN
+# (2 -> 3), and Enter re-fired the focused button (4 -> 5). Ruling: click
+# Next then Tab advances exactly once in total (Tab from a focused control
+# moves focus, the shortcut is the canvas's), and Enter / Space on the
+# focused button add nothing. Same for Prev, and for both custom controls.
+
+STEP_SETUP_JS = """(view) => {
+    const app = window.app, r = window.canvasRenderer;
+    const layer = app.currentLayer;
+    if (document.activeElement && document.activeElement.blur) {
+        document.activeElement.blur();
+    }
+    window.__saved = {
+        flowPattern: layer.flowPattern,
+        powerFlowPattern: layer.powerFlowPattern,
+        customPortIndex: layer.customPortIndex,
+        powerCustomIndex: layer.powerCustomIndex,
+        viewMode: r.viewMode,
+        updateLayers: app.updateLayers,
+    };
+    layer.flowPattern = 'custom';
+    layer.powerFlowPattern = 'custom';
+    layer.customPortIndex = 5;
+    layer.powerCustomIndex = 5;
+    app.ensureCustomFlowState(layer);
+    app.ensureCustomPowerState(layer);
+    r.viewMode = view;
+    window.__puts = 0;
+    app.updateLayers = () => { window.__puts++; };
+    // The controls only show for the view on screen; the buttons must be
+    // real, visible targets for the mouse.
+    if (view === 'power') app.updateCustomPowerUI(); else app.updateCustomFlowUI();
+}"""
+
+STEP_READ_JS = """(view) => {
+    const l = window.app.currentLayer;
+    return {
+        idx: view === 'power' ? l.powerCustomIndex : l.customPortIndex,
+        focus: document.activeElement ? (document.activeElement.id || document.activeElement.tagName) : null,
+    };
+}"""
+
+
+@pytest.mark.parametrize("view,button,delta", [
+    ('power', '#power-custom-next', 1),
+    ('power', '#power-custom-prev', -1),
+    ('data-flow', '#custom-next-port', 1),
+    ('data-flow', '#custom-prev-port', -1),
+])
+def test_a_step_button_steps_once_however_the_keyboard_follows(page, view, button, delta):
+    # The real view button first: the custom controls live in that view's
+    # sidebar panel, and SETUP_JS only sets the renderer's viewMode - so
+    # without this the Next/Prev buttons exist but are not on screen, and
+    # the mouse click below times out on "element is not visible" (the
+    # 4 failed / 41 passed on the tip). Same wiring on both sides; only
+    # the pin's target was off screen.
+    page.locator(f'[data-mode="{view}"]').click()
+    page.wait_for_timeout(400)
+    page.evaluate(STEP_SETUP_JS, view)
+    try:
+        page.locator(button).click()
+        page.wait_for_timeout(150)
+        clicked = page.evaluate(STEP_READ_JS, view)
+        assert clicked['idx'] == 5 + delta, clicked
+        assert clicked['focus'] == button.lstrip('#'), (
+            f'the button should still hold focus after the click: {clicked}')
+        page.keyboard.press('Tab')
+        page.wait_for_timeout(200)
+        after_tab = page.evaluate(STEP_READ_JS, view)
+        assert after_tab['idx'] == 5 + delta, (
+            f'click then Tab must advance exactly once in total: {after_tab}')
+        assert after_tab['focus'] != button.lstrip('#'), (
+            f'Tab from the focused button must move focus: {after_tab}')
+        # Back onto the button (focus, not click) and try the keys that
+        # fire a focused button.
+        page.locator(button).focus()
+        for key in ('Enter', 'Space'):
+            page.keyboard.press(key)
+            page.wait_for_timeout(150)
+            after_key = page.evaluate(STEP_READ_JS, view)
+            assert after_key['idx'] == 5 + delta, (
+                f'{key} on the focused button must not step again: {after_key}')
+    finally:
+        page.evaluate(RESTORE_JS)
+
+
+def test_tab_from_the_canvas_still_steps(page):
+    """The other side of the same ruling: with nothing focused, Tab is
+    still the keyboard's Next - the canvas shortcut is untouched."""
+    page.evaluate(STEP_SETUP_JS, 'power')
+    try:
+        page.keyboard.press('Tab')
+        page.wait_for_timeout(200)
+        assert page.evaluate(STEP_READ_JS, 'power')['idx'] == 6
+    finally:
+        page.evaluate(RESTORE_JS)

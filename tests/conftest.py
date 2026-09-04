@@ -79,7 +79,11 @@ def e2e_server():
             'cabinet_height': 128,
         })
 
-    port = 15789  # Unlikely to collide
+    # One fixed port so browser runs serialize on it (one pytest session at
+    # a time). LRD_E2E_PORT overrides it for a session that must not share
+    # the machine's default with another worktree's run - the pages follow
+    # the yielded URL, nothing else names the number.
+    port = int(os.environ.get('LRD_E2E_PORT') or 15789)
     thread = threading.Thread(
         target=lambda: socketio.run(app, host='127.0.0.1', port=port,
                                     allow_unsafe_werkzeug=True, log_output=False),

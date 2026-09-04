@@ -58,8 +58,9 @@ def _guard(server_project_guard):
 
 
 # One MX20 named SR: an all-in-one whose six ports give the grid something
-# to be a grid about, with the shared screen sitting on its first port so
-# occupied and free both exist to tell apart.
+# to be a grid about, with the shared screen put on its first port by an
+# explicit fill (nothing lands by itself - auto-numbering retired,
+# 2026-09-03) so occupied and free both exist to tell apart.
 #
 # The screen's NAME is normalized to Screen1 here rather than trusted: the
 # shared server's screen is Screen1 only until some earlier module's Flask
@@ -99,6 +100,16 @@ SEED_JS = """async () => {
         body: JSON.stringify({ name: 'SR' }),
     });
     await window.app.refreshProcessors();
+    // The explicit fill: Screen1 onto the new card's first port - off
+    // whatever card a previous seed left it pinned to first, so a stale
+    // pin (or a recurring card id) never decides where it sits.
+    if (screen) {
+        await window.app._assignmentRequest('/api/port-assignments/unpin',
+            'POST', { layerId: String(screen.id) });
+        await window.app._assignmentRequest(
+            '/api/port-assignments/place-overflow', 'POST',
+            { layerId: String(screen.id), cardId: card.id });
+    }
     window.app.saveState('Seed Tiles');
     return { procId: proc.id, cardId: card.id };
 }"""
@@ -207,8 +218,9 @@ def test_a_contested_port_wears_the_clash_state(panel_page):
             });
             app.project = await (await fetch('/api/project')).json();
             await app.refreshPortAssignment();
-            // Screen1's port is auto-numbered and would politely re-pack out
-            // of the way; a clash needs it HELD where it is first.
+            // Screen1's port is already a pin on socket 1 (the seed's
+            // fill); re-pinning the same socket is harmless and says in
+            // the test itself that the clash is between two HELD claims.
             const screen1 = app.project.layers.find(l => l.name === 'Screen1');
             await app._assignmentRequest('/api/port-assignments/pin', 'POST',
                                          { layerId: String(screen1.id),
@@ -373,6 +385,89 @@ def test_a_card_named_p1_shows_r1_everywhere_the_return_is_advertised(panel_page
     finally:
         panel_page.keyboard.press('Escape')   # close the gear popover
         panel_page.wait_for_timeout(100)
+
+
+def test_an_unnamed_cards_chip_canvas_and_export_all_print_the_socket(panel_page):
+    """The user's ruling (2026-09-03): "Whatever card they are attached to
+    those are the ports in the numbering that they should be taking." With
+    the card's name cleared, the screen on socket 1 prints "1" - the number
+    the chip's face leads with - on every surface that prints a label: the
+    API the canvas bubbles ask (getPortLabelText, spied through a real
+    render), the same API asked again in export mode (the export path is
+    the renderer in exportMode - app-export-io.js has no label branch of
+    its own), and the dock chip, which carries no second label to
+    contradict its number. The return end is the same socket, R'd. None of
+    it is the screen's own P1: the socket is on a card, and that is what
+    it prints."""
+    ids = seed(panel_page)
+    panel_page.evaluate(RENAME_CARD_JS, dict(ids, name=''))
+    panel_page.wait_for_timeout(600)
+    try:
+        out = panel_page.evaluate("""(args) => {
+            const app = window.app;
+            const screen = app.project.layers.find(
+                l => (l.type || 'screen') === 'screen');
+            const tile = document.querySelector(
+                `[data-lrd-tile="port-${args.cardId}-1"]`);
+            // The face's glance line: the socket number, then the label
+            // span only where the card resolved one.
+            const line = tile && tile.querySelector(
+                ':scope > .lrd-tile-face .lrd-tile-line');
+            const spans = line ? [...line.querySelectorAll('span')] : [];
+            // Spy on the one label authority through two real renders -
+            // the drawing as the user sees it, and the drawing as the
+            // export captures it - recording what the renderer asked for
+            // and was told about this screen's first port.
+            const asked = { canvas: [], export: [] };
+            const real = app.getPortLabelText;
+            const spy = (bucket) => function (layer, portNum, type) {
+                const text = real.call(app, layer, portNum, type);
+                if (layer && layer.id === screen.id && portNum === 1) {
+                    bucket.push([type || 'primary', text]);
+                }
+                return text;
+            };
+            const r = window.canvasRenderer;
+            try {
+                app.getPortLabelText = spy(asked.canvas);
+                r.render();
+                app.getPortLabelText = spy(asked.export);
+                r.exportMode = true;
+                r.render();
+            } finally {
+                r.exportMode = false;
+                app.getPortLabelText = real;
+                r.render();
+            }
+            const uniq = (rows) => [...new Set(rows.map(x => x.join('=')))];
+            return {
+                chipNumber: spans[0] ? spans[0].textContent : null,
+                chipLabel: spans[1] ? spans[1].textContent : null,
+                onProcessor: app.getProcessorPortLabel(screen, 1),
+                printsPrimary: app.getPortLabelText(screen, 1),
+                printsReturn: app.getPortLabelText(screen, 1, 'return'),
+                canvasAsked: uniq(asked.canvas),
+                exportAsked: uniq(asked.export),
+            };
+        }""", {'cardId': ids['cardId']})
+        assert out['chipNumber'] == '1', out
+        assert out['chipLabel'] is None, (
+            f'the chip prints a second label beside its number: {out}')
+        assert out['onProcessor'] == '1', (
+            f'the resolution gives an unnamed card\'s socket no label: {out}')
+        assert out['printsPrimary'] == '1', (
+            f'the drawing prints the screen\'s own count over a socket: {out}')
+        assert out['printsReturn'] == '1R', out
+        assert 'primary=1' in out['canvasAsked'], (
+            f'the canvas bubble did not print the socket: {out}')
+        assert 'primary=1' in out['exportAsked'], (
+            f'the export did not print the socket: {out}')
+        assert out['canvasAsked'] == out['exportAsked'], (
+            f'the export prints something the canvas does not: {out}')
+        assert 'primary=P1' not in out['canvasAsked'], out
+    finally:
+        panel_page.evaluate(RENAME_CARD_JS, dict(ids, name='SR'))
+        panel_page.wait_for_timeout(300)
 
 
 def test_edits_through_the_open_editor_round_trip_with_the_same_actions(panel_page):
@@ -1162,3 +1257,114 @@ def test_a_backing_tile_carries_the_mirrored_return_occupant(panel_page):
             await window.app.refreshProcessors();
         }""", ids)
         panel_page.wait_for_timeout(600)
+
+
+
+# ── the custom-port badge names the port the click stores under ──────────
+#
+# Mirror of the power-side ruling (2026-09-03, "should check data too for
+# the same issue"): the HUD badge in Data view names the active port
+# through getPortLabelText, the same call the bubble makes once the port
+# is drawn, and the label is keyed by the port's own 1-based number - so
+# the badge reads the card's label for port n before the first click, the
+# bubble reads it after, Next moves the badge to n+1 and the cabinets
+# clicked next are stored under n+1. Same shape as
+# test_the_badge_names_the_circuit_the_click_stores_under in
+# tests/test_power_phase_labels.py.
+
+def test_the_custom_port_badge_names_the_port_the_click_stores_under(panel_page):
+    ids = seed(panel_page)
+    out = panel_page.evaluate("""async (cardId) => {
+        const app = window.app, r = window.canvasRenderer;
+        // Always the LIVE layer object: a resolve round trip can hand the
+        // project back with fresh layer objects, and a captured one would
+        // go stale under the badge.
+        const id = app.project.layers.find(
+            l => (l.type || 'screen') === 'screen').id;
+        const cur = () => app.project.layers.find(l => l.id === id);
+        const L0 = cur();
+        const saved = {
+            flowPattern: L0.flowPattern, customPortPaths: L0.customPortPaths,
+            customPortIndex: L0.customPortIndex,
+            customPortOverrides: L0.customPortOverrides,
+        };
+        app.currentLayer = L0; app.selectedLayerIds = new Set([id]);
+        r.viewMode = 'data-flow';
+        L0.customPortPaths = {}; L0.customPortOverrides = [];
+        app.toggleCustomFlowMode(true);
+        // Ports 1..4 drawn (a 4x3 wall: one cabinet each on row 0), and
+        // the active port set to 5 through the sidebar input - the SR-5
+        // socket exists on the MX20 (six ports) and is undrawn.
+        for (let n = 1; n <= 4; n++) cur().customPortPaths[n] = [{ row: 0, col: n - 1 }];
+        const active = document.getElementById('custom-active-port-input');
+        active.value = '5';
+        active.dispatchEvent(new Event('change', { bubbles: true }));
+        await app.refreshPortAssignment();
+        const frame = () => {
+            const L = cur();
+            app.currentLayer = L;
+            const seen = {};
+            let badge = null, inBadge = false;
+            const origBadge = r._drawActiveBadge;
+            const origHud = r.renderCustomActivePortBadge;
+            const origLabel = app.getPortLabelText;
+            r._drawActiveBadge = function (label) { badge = label; };
+            r.renderCustomActivePortBadge = function () {
+                inBadge = true;
+                try { return origHud.call(this); } finally { inBadge = false; }
+            };
+            app.getPortLabelText = function (layer, n, type) {
+                const v = origLabel.call(this, layer, n, type);
+                if (layer === L && type === 'primary' && !inBadge) seen[n] = v;
+                return v;
+            };
+            try { r.render(); }
+            finally { r._drawActiveBadge = origBadge;
+                      r.renderCustomActivePortBadge = origHud;
+                      app.getPortLabelText = origLabel; }
+            return { idx: L.customPortIndex, badge,
+                     authority: app.getPortLabelText(L, L.customPortIndex, 'primary'),
+                     bubble: seen[L.customPortIndex] || null };
+        };
+        // Nothing lands by itself (auto-numbering retired, 2026-09-03): a
+        // port is on the card only because it was dropped there. The
+        // seed dropped Screen1's ports as they stood; a port drawn now is
+        // a NEW port, so it is dropped onto the same card the way the
+        // dock's card-drop does - and only then does SR-5 exist to read.
+        const land = () => app._assignmentRequest(
+            '/api/port-assignments/place-overflow', 'POST',
+            { layerId: String(id), cardId });
+        const before5 = frame();
+        app.addPanelToCustomPath(app.getPanelByRowCol(cur(), 1, 0));
+        await land();
+        await app.refreshPortAssignment();
+        const after5 = frame();
+        document.getElementById('custom-next-port').click();
+        const before6 = frame();
+        app.addPanelToCustomPath(app.getPanelByRowCol(cur(), 1, 1));
+        await land();
+        await app.refreshPortAssignment();
+        const after6 = frame();
+        const paths = cur().customPortPaths;
+        const stored = Object.keys(paths).map(n => [Number(n), paths[n].length]);
+        app.toggleCustomFlowMode(false);
+        Object.assign(cur(), saved);
+        await app.refreshPortAssignment();
+        return { before5, after5, before6, after6, stored };
+    }""", ids['cardId'])
+    # Before the click the badge names port 5 through the same authority
+    # the bubble will read - by number, never 4 or 6. (Its text is the
+    # template's P5 until the port holds a cabinet: the ports-required
+    # figure is the highest number DRAWN, so socket 5 is not allocated yet
+    # and the card's SR-5 arrives with the first cabinet. That is the
+    # order sheet's rule, not a numbering defect - pinned as such.)
+    assert out['before5']['idx'] == 5 and out['before5']['bubble'] is None, out
+    assert out['before5']['badge'] == out['before5']['authority'] == 'P5', out
+    assert out['after5'] == {'idx': 5, 'badge': 'SR-5', 'authority': 'SR-5',
+                             'bubble': 'SR-5'}, out
+    assert out['before6']['idx'] == 6 and out['before6']['bubble'] is None, out
+    assert out['before6']['badge'] == out['before6']['authority'] == 'P6', out
+    assert out['after6'] == {'idx': 6, 'badge': 'SR-6', 'authority': 'SR-6',
+                             'bubble': 'SR-6'}, out
+    assert out['stored'][-2:] == [[5, 1], [6, 1]], \
+        'the cabinet clicked after Next must land under 6'

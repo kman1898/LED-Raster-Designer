@@ -13,42 +13,39 @@ would hand back a drawing that no longer matches the truck. Every problem this
 module can find is therefore reported as an issue with an OFFER attached, and
 the offer only runs when a person asks for it.
 
-THE ALLOCATION RULE, in full, because everything else is a consequence of it:
+THE ATTACHMENT RULE, in full, because everything else is a consequence of it:
 
-    Screens are taken in the caller's order, which is project layer order.
-    Pins are placed first and nothing may move them. Then each screen's
-    remaining ports go, as one run, onto the FIRST card - processors in order,
-    slots in order - with enough free ports for ALL of them; failing that, onto
-    the first card with any free port at all. A card the screen's processing
-    platform cannot drive is skipped like a full one (the platform wall - see
-    "Who may drive whom" below). Within that card they take the lowest-
-    numbered free ports, ascending, in the screen's own port order. Whatever
-    does not fit is left unplaced and reported.
+    Nothing lands on a card unless a person put it there. Every placement is
+    a PIN - one screen port held on one card port - made by a drag onto the
+    dock's hardware, a strip offer, or the place/pin routes below. A screen
+    port with no pin is NOT ATTACHED: it has no card, no label, and the
+    dock's attachment flag counts it until somebody attaches it. Pins are
+    kept exactly where they were put; nothing here moves one.
 
-So six ports take 1-6 and the next screen starts at 7, which is the behaviour
-this was asked for by name.
+That rule was ruled in by name (user, 2026-09-03): "we have no way to turn
+on or off auto. but honestly auto should be removed now." Until then the
+resolver dealt every unpinned port out onto the first card with room, which
+made an auto-filled card look attached while holding nothing anyone could
+release. Auto-numbering is RETIRED - the pass no longer runs - and the only
+trace of it is the one-time migration (retire_auto, below) that freezes a
+project saved under the old rule into the pins it was already drawn with.
 
-Four consequences are worth stating outright, because each one looks like a bug
-until you know it is the point:
+Three consequences are worth stating outright, because each one looks like a
+bug until you know it is the point:
 
 * TWO PINS ON ONE PORT BOTH STAY. A collision is reported, both screens keep
   their claim and both draw in red. Bumping the loser would be the silent
   renumber.
-* A SCREEN'S PORTS NEVER SPAN TWO CARDS BY THEMSELVES. Ports that do not fit
-  are left UNPLACED and reported, because a screen is cabled as one run and
-  splitting one across two cards is a decision, not a rounding. A person may
-  still make that decision - place_overflow takes the tail somewhere else,
-  place_port takes one socket anywhere at all - and both say so when they do.
-* AUTO WORKS AROUND PINS, WHICH CAN SPLIT A RUN. A pin sitting at port 3 makes
-  the next screen take 1, 2, 4, 5 - a gap in the middle of a run. That is worse
-  cabling than a clean block, so the block move exists to get out of it, but it
-  is honest about where the ports actually are in the meantime.
-* AUTO PORTS RE-PACK, AND THAT IS NOT THE SILENT REARRANGEMENT. An auto port is
-  arithmetic, recomputed from nothing every time, so moving one screen slides
-  another screen's auto ports down into the gap - exactly as deleting a screen
-  would. The way to hold a numbering is to pin it; that is what pinning is for,
-  and every port says PINNED or auto on the page before anything is moved.
-  What the rule forbids is the app fixing a problem it found by itself.
+* A SCREEN'S PORTS NEVER SPAN TWO CARDS BY THEMSELVES. A run placed by a
+  drop fills one card; ports that do not fit are left unattached and
+  reported, because a screen is cabled as one run and splitting one across
+  two cards is a decision, not a rounding. A person may still make that
+  decision - place_overflow takes the tail somewhere else, place_port takes
+  one socket anywhere at all - and both say so when they do.
+* NOTHING RE-PACKS. Releasing a port leaves a hole, and the hole stays until
+  somebody fills it. A drawing the truck was packed to never changes
+  because something ELSE on it changed - that is the whole of why a pin is
+  the only way onto a card.
 
 Port counts come in from the caller, never from here. The maths for "how many
 ports does this screen need" lives in getLayerPortsRequired / calculate-
@@ -62,10 +59,22 @@ STATE_KEY = 'port_assignments'
 
 
 def new_state():
-    """Auto-numbering is on until someone turns it off. A project that has
-    never been touched here must number itself, or the panel opens on a wall of
-    blanks and every screen needs a manual decision before it says anything."""
-    return {'auto': True, 'pins': []}
+    """The state every project is born with: no pins, and the stamp that says
+    auto-numbering was never in play here.
+
+    `auto` stays in the shape (False, always) so a file written by this
+    version reads as "auto off" to the version before it, and `autoRetired`
+    is the migration's mark - retire_auto reads it to know a project has
+    already been through the freeze (or never needed one) and leaves it
+    alone. A project WITHOUT the mark is one saved before the ruling, and
+    the funnel treats it as such.
+    """
+    return {'auto': False, 'autoRetired': True, 'pins': []}
+
+
+def is_retired(state):
+    """Has this state been through retire_auto (or was it born after it)?"""
+    return isinstance(state, dict) and state.get('autoRetired') is True
 
 
 # ── Who may drive whom ────────────────────────────────────────────────────
@@ -191,12 +200,13 @@ def _platform_refusal(name, platform, card):
 # ── The cards ports can land on ───────────────────────────────────────────
 
 def cards_in(processors):
-    """Every card in the project, in the order the panel draws them.
+    """Every card in the project, in the order the dock draws them.
 
-    The order is load-bearing rather than cosmetic: it is the order auto-
-    numbering fills cards in, so it has to be the order someone reads down the
-    Processors panel - processor by processor, slot 1 downward - or the
-    numbering appears to come from nowhere.
+    The order is load-bearing rather than cosmetic: it is the order the block
+    move searches cards in (and the order the retired auto pass filled them
+    in, which the migration replays), so it has to be the order someone reads
+    down the dock - processor by processor, slot 1 downward - or a move
+    appears to land from nowhere.
     """
     out = []
     for proc in catalog.resolve_all(processors):
@@ -204,11 +214,11 @@ def cards_in(processors):
             card = slot.get('card')
             if not card:
                 continue
-            # The ports auto may hand out are the ones the card really has, not
-            # the ones it enumerates. A card over its ceiling still lists the
-            # ports past it - five CVT10s on a 32-port card is 40 - and those
-            # already draw in red as a drawing mistake. Handing one out here
-            # would promote that mistake into a cable order.
+            # The ports a fill may hand out are the ones the card really has,
+            # not the ones it enumerates. A card over its ceiling still lists
+            # the ports past it - five CVT10s on a 32-port card is 40 - and
+            # those already draw in red as a drawing mistake. Handing one out
+            # here would promote that mistake into a cable order.
             out.append({
                 'processorId': proc['id'],
                 'processorName': proc['name'] or proc['deviceName'],
@@ -218,8 +228,8 @@ def cards_in(processors):
                 'deviceId': card['deviceId'],
                 # Which processing platforms this card's ports may carry
                 # (None = no restriction), and what a refusal calls the
-                # card. Resolved here once so auto, every manual placement
-                # and the panel's gating all read the same word.
+                # card. Resolved here once so every placement path and the
+                # dock's gating all read the same word.
                 'platforms': accepted_platforms(card['deviceId']),
                 'gear': _gear(card['deviceId']),
                 'slot': slot.get('index'),
@@ -261,11 +271,19 @@ def cards_in(processors):
                 # Ports consumed as another main's return - the even half of
                 # a sequential card, every port of a 1to1 backup unit, a
                 # manual pick. Resolved with the labels above and carried
-                # whole, because a backing port is CLAIMED BY ROLE: not free
-                # to auto, refused to a hand placement, and the refusal has
-                # to say which main it returns.
+                # whole, because a backing port is CLAIMED BY ROLE: never
+                # free to a fill, refused to a hand placement, and the
+                # refusal has to say which main it returns.
                 'backupRoles': {p['number']: p['backsUp']
                                 for p in card['ports'] if p.get('backsUp')},
+                # The other end of the link: the socket each main's return
+                # lands on, by the number written beside THAT socket. Read
+                # by _attached_labels when nothing upstream is named, so an
+                # unnamed card's return end prints the socket it comes back
+                # on rather than nothing.
+                'backupSockets': {p['number']: p['backedBy']['localPort']
+                                  for p in card['ports']
+                                  if p.get('backedBy')},
             })
     return out
 
@@ -278,6 +296,45 @@ def _card_title(card):
     if card['processorName']:
         return f"{card['processorName']} slot {(card['slot'] or 0) + 1}"
     return card['deviceName']
+
+
+def _attached_labels(card, port):
+    """What an ATTACHED port prints, both ends: the label the catalog
+    derived where anything upstream is named, and the socket's own number
+    where nothing is.
+
+    The user's ruling (2026-09-03): "Whatever card they are attached to
+    those are the ports in the numbering that they should be taking, which
+    has been the standard since we added this new stuff." A screen's ports
+    count 1..N on their own (P1, P2 - the screen's template) only while
+    they sit on nothing; the moment one is on a card socket it prints that
+    socket. A card nobody named used to give no answer here, and the client
+    fell back to the screen's template - so SL - MAIN on H9 slot 1 sockets
+    6-9 printed P1 P2 P3 P4 while the dock said 6 7 8 9. Now the bare socket
+    number IS the label: "6" on an unnamed card, the box's own silkscreen
+    ("1".."10" on XD B just like XD A) behind an unnamed box. Nothing
+    changes where a name or template exists - H9-6 stays H9-6 - because
+    the catalog already answered and that answer wins outright.
+
+    The return end goes the same way: the catalog's ladder where it spoke
+    (a typed name, a template, the mapped backup's own label, the derived
+    P-to-R), else the socket the return LANDS on where the redundancy
+    mapping put one there (main on socket 1 of XD A returns on XD B's own
+    socket 1 - "1"), else the primary's number with the derived R after it
+    (derive_return_label, the one statement of that rule). The silkscreen
+    number is the resolver's localNumber, reused rather than re-derived.
+    """
+    if card is None:
+        return None, None
+    label = (card.get('labels') or {}).get(port)
+    return_label = (card.get('returnLabels') or {}).get(port)
+    if label is None:
+        label = str((card.get('localNumbers') or {}).get(port, port))
+    if return_label is None:
+        lands_on = (card.get('backupSockets') or {}).get(port)
+        return_label = (str(lands_on) if lands_on is not None
+                        else catalog.derive_return_label(label))
+    return label, return_label
 
 
 def _port_title(card, port):
@@ -310,8 +367,9 @@ def _clean_screens(screens):
     """Screens as the caller sent them, minus anything that cannot hold a port.
 
     Order is preserved exactly. It is the caller's screen order - project layer
-    order - and it is the allocation order, so re-sorting here would renumber a
-    show behind the user's back.
+    order - and it is the order the resolution reports in (and the order the
+    migration's one replay of the old fill deals in), so re-sorting here would
+    renumber a legacy show behind the user's back.
     """
     out = []
     for scr in screens or []:
@@ -370,9 +428,9 @@ def _free_ports(card, claims):
     """Port numbers on one card that nobody has claimed yet, lowest first.
 
     A card whose count was never settled - the SQ200 publishes connectors and
-    no number - offers nothing to auto. Guessing a ceiling there would silently
-    cap a wall, which is the one failure the catalog exists to prevent, and
-    auto-numbering onto a guessed ceiling would do it twice over.
+    no number - offers nothing to a fill. Guessing a ceiling there would
+    silently cap a wall, which is the one failure the catalog exists to
+    prevent, and filling onto a guessed ceiling would do it twice over.
     """
     capacity = card['capacity']
     if not capacity:
@@ -382,18 +440,21 @@ def _free_ports(card, claims):
             if (card['cardId'], n) not in claims and n not in roles]
 
 
-def resolve(processors, screens, state=None):
+def resolve(processors, screens, state=None, _legacy_auto=False):
     """Work out where every port of every screen sits, and what is wrong.
 
-    Two passes, and the order between them is the whole of rule 4: pins are
-    placed FIRST and auto fills in around whatever is left. Auto cannot move a
-    pin, only avoid it.
+    One pass: the pins. A screen port with no pin has no card and is
+    reported as not attached; nothing here invents a place for it.
+
+    `_legacy_auto` is the MIGRATION'S switch and nobody else's: it replays
+    the retired auto fill (see _legacy_auto_pass) so retire_auto can read
+    off where a pre-ruling project's ports were drawn and pin them there
+    once. Every other caller leaves it off, and the routes never expose it.
     """
     cards = cards_in(processors)
     by_id = {c['cardId']: c for c in cards}
     screens = _clean_screens(screens)
     state = state or {}
-    auto_on = state.get('auto', True) is not False
     pins = _clean_pins(state.get('pins'))
 
     claims = {}          # (cardId, port) -> [(layerId, index), ...]
@@ -422,7 +483,8 @@ def resolve(processors, screens, state=None):
                 'message': 'A pinned port belongs to a screen that is no '
                            'longer in the project. It still holds its port '
                            'number until the pin is released.',
-                'offers': [{'action': 'release', 'layerId': pin['layerId']}],
+                'offers': [{'action': 'release', 'layerId': pin['layerId'],
+                            'label': 'Release pin'}],
             })
             continue
         card = by_id.get(pin['cardId'])
@@ -433,42 +495,17 @@ def resolve(processors, screens, state=None):
                 'cardId': pin['cardId'],
                 'port': pin['port'],
                 'message': 'A port is pinned to a card that is no longer in '
-                           'this project. Release the pin to hand it back to '
-                           'auto-numbering.',
+                           'this project. Release the pin, then place the '
+                           'port where it should go.',
                 'offers': [{'action': 'release', 'layerId': pin['layerId'],
-                            'index': pin['index']}],
+                            'index': pin['index'], 'label': 'Release pin'}],
             })
             continue
         claim(card['cardId'], pin['port'], pin['layerId'], pin['index'], 'pin')
 
-    # ── pass 2: auto ──────────────────────────────────────────────────────
-    #
-    # A screen goes onto the first card with room for ALL of it, and only onto
-    # a partly-free card when no card can hold it whole. Filling a card's last
-    # four ports with the first four of a six-port screen would split a run for
-    # no reason and leave a two-port overflow that nobody asked for.
-    if auto_on:
-        for scr in screens:
-            wanted = [i for i in range(scr['ports'])
-                      if (scr['layerId'], i) not in placed]
-            if not wanted:
-                continue
-            # A card the screen's platform cannot drive is skipped the same
-            # way a full one is: a Brompton wall does not spill onto the
-            # NovaStar card beside it, it stays unplaced and the overflow
-            # report says so.
-            usable = [c for c in cards
-                      if platform_allows(c, scr['platform'])]
-            free_by_card = [(c, _free_ports(c, claims)) for c in usable]
-            target = next((pair for pair in free_by_card
-                           if len(pair[1]) >= len(wanted)), None)
-            if target is None:
-                target = next((pair for pair in free_by_card if pair[1]), None)
-            if target is None:
-                continue  # nothing free anywhere; reported as overflow below
-            card, free = target
-            for index, port in zip(wanted, free):
-                claim(card['cardId'], port, scr['layerId'], index, 'auto')
+    # ── the retired pass, for the migration only ──────────────────────────
+    if _legacy_auto:
+        _legacy_auto_pass(cards, screens, claims, placed, claim)
 
     # ── what came out, and what is wrong with it ──────────────────────────
     overlapping = {key for key, owners in claims.items() if len(owners) > 1}
@@ -488,15 +525,21 @@ def resolve(processors, screens, state=None):
                 continue
             card = by_id.get(spot['cardId'])
             capacity = card['capacity'] if card else None
+            # THE ONE AUTHORITY on what an attached port prints. The canvas
+            # bubbles, the dock chips and every export index these two
+            # fields (the client's _indexAssignmentLabels) and fall back to
+            # the screen's own P#/R# template only where they are None -
+            # which, since the 2026-09-03 ruling, is only a port that sits
+            # on nothing. See _attached_labels.
+            label, return_label = _attached_labels(card, spot['port'])
             ports.append({
                 'index': index,
                 'number': index + 1,
                 'cardId': spot['cardId'],
                 'cardName': _card_title(card) if card else spot['cardId'],
                 'port': spot['port'],
-                'label': (card or {}).get('labels', {}).get(spot['port']),
-                'returnLabel': (card or {}).get('returnLabels', {})
-                               .get(spot['port']),
+                'label': label,
+                'returnLabel': return_label,
                 'source': spot['source'],
                 'overlap': (spot['cardId'], spot['port']) in overlapping,
                 'beyondCapacity': bool(capacity and spot['port'] > capacity),
@@ -520,19 +563,139 @@ def resolve(processors, screens, state=None):
     issues.extend(_overlap_issues(overlapping, claims, by_id, screens))
     issues.extend(_platform_issues(resolved_screens, by_id))
     issues.extend(_overflow_issues(resolved_screens, cards))
-    issues.extend(_capacity_issues(cards, screens, auto_on))
+    issues.extend(_capacity_issues(cards, screens))
 
     occupancy = _occupancy(resolved_screens)
     _mirror_returns(cards, occupancy)
 
     return {
         'configured': bool(cards),
-        'auto': auto_on,
         'cards': [_card_summary(c, claims) for c in cards],
         'screens': resolved_screens,
         'occupancy': occupancy,
         'issues': issues,
     }
+
+
+def _legacy_auto_pass(cards, screens, claims, placed, claim):
+    """The RETIRED auto-numbering fill, kept for retire_auto and nothing else.
+
+    This is, verbatim in effect, the pass every resolve ran before the ruling
+    of 2026-09-03: each screen's unpinned ports go, as one run, onto the
+    first card - processors in order, slots in order - with enough free
+    ports for all of them, failing that onto the first card with any free
+    port, skipping a card the screen's platform cannot drive; within the
+    card they take the lowest free numbers ascending. It has to stay
+    byte-for-byte the old behaviour because its one job is to reproduce the
+    drawing a pre-ruling file was saved with, so the migration can pin the
+    ports exactly where the truck was packed to. Nothing outside the
+    migration may call it: a resolve that ran this would be auto-numbering
+    under another name.
+    """
+    for scr in screens:
+        wanted = [i for i in range(scr['ports'])
+                  if (scr['layerId'], i) not in placed]
+        if not wanted:
+            continue
+        usable = [c for c in cards if platform_allows(c, scr['platform'])]
+        free_by_card = [(c, _free_ports(c, claims)) for c in usable]
+        target = next((pair for pair in free_by_card
+                       if len(pair[1]) >= len(wanted)), None)
+        if target is None:
+            target = next((pair for pair in free_by_card if pair[1]), None)
+        if target is None:
+            continue  # nothing free anywhere; reported as overflow
+        card, free = target
+        for index, port in zip(wanted, free):
+            claim(card['cardId'], port, scr['layerId'], index, 'auto')
+
+
+# ── The one-time migration ────────────────────────────────────────────────
+
+def _screen_layers(project):
+    return [l for l in (project.get('layers') or [])
+            if isinstance(l, dict) and l.get('id') is not None
+            and (l.get('type') or 'screen') == 'screen']
+
+
+def _screens_match_project(screens, project):
+    """Are these screens a picture of THIS project's layers?
+
+    The freeze pins ports by the counts the client sent, and the client is
+    the only place those counts exist - so the one thing that must never
+    happen is a stale list (a resolve fired for the project that was open a
+    moment ago) being frozen onto the project that has just been loaded.
+    Layer ids are small integers and collide across projects, so an id
+    match is not enough: every sent screen has to carry the name the
+    project's layer of that id carries. A miss on any of them means "not
+    this project", and the migration waits for the next request.
+    """
+    known = {str(l['id']): l.get('name') for l in _screen_layers(project)}
+    if not screens:
+        return False
+    for scr in screens:
+        if not isinstance(scr, dict):
+            return False
+        layer_id = str(scr.get('layerId', scr.get('id')))
+        if layer_id not in known:
+            return False
+        expected = known[layer_id] or f'Screen {layer_id}'
+        if (scr.get('name') or f'Screen {layer_id}') != expected:
+            return False
+    return True
+
+
+def retire_auto(project, screens=None):
+    """Freeze a pre-ruling project's auto placements into pins, ONCE.
+
+    Runs at the project funnel (routes_project PUT/POST) and again at the
+    head of every port-assignment route. A project already carrying the
+    autoRetired mark is left untouched, which is the whole of idempotence.
+    For one without it:
+
+    * auto was OFF in the file, or there is no card with a settled count,
+      or no screen layer at all: nothing was ever auto-drawn, so the state
+      is just stamped (pins kept as they are).
+    * auto was ON (or the flag absent - the pre-flag default) and there is
+      hardware to have drawn onto: the retired fill is replayed with the
+      SAME pins, over the screens the client sent in layer order, and every
+      port it dealt becomes a pin at that exact socket. The drawing does
+      not change; what changes is that every port on it can now be
+      released. Clashes stay (they were pins), overflow stays unattached
+      (the fill never spilled), backup mirrors follow the pinned mains as
+      they always did, the platform wall holds (the fill skipped
+      mismatched gear).
+
+    The port counts live on the client, so the freeze can only run on a
+    request that carries screens - and only when those screens are this
+    project's (_screens_match_project). The funnel carries none and can
+    settle only the hardware-less cases; the first resolve after a load
+    settles the rest. Returns True when the project changed.
+    """
+    state = project.get(STATE_KEY)
+    if is_retired(state):
+        return False
+    if not isinstance(state, dict):
+        state = {}
+    pins = _clean_pins(state.get('pins'))
+    auto_was_on = state.get('auto', True) is not False
+    processors = project.get('processors') or []
+    cards = [c for c in cards_in(processors) if c['capacity']]
+    if auto_was_on and cards and _screen_layers(project):
+        if not _screens_match_project(screens, project):
+            return False  # needs this project's port counts; wait for them
+        replay = resolve(processors, screens, {'pins': pins},
+                         _legacy_auto=True)
+        for scr in replay['screens']:
+            for port in scr['ports']:
+                if port['source'] == 'auto':
+                    pins.append({'layerId': scr['layerId'],
+                                 'index': port['index'],
+                                 'cardId': port['cardId'],
+                                 'port': port['port']})
+        pins.sort(key=lambda p: (p['layerId'], p['index']))
+    project[STATE_KEY] = {'auto': False, 'autoRetired': True, 'pins': pins}
+    return True
 
 
 def _occupancy(resolved_screens):
@@ -689,10 +852,9 @@ def _overlap_issues(overlapping, claims, by_id, screens):
 def _platform_issues(resolved_screens, by_id):
     """A pin holding a screen on gear its platform cannot drive.
 
-    Auto never builds this state - it skips an incompatible card the way it
-    skips a full one - and every manual path refuses it outright, so the
-    only ways in are a project pinned before the wall existed and a layer
-    whose Processing changed after the pin went down. Same treatment as
+    Every placement path refuses this outright, so the only ways in are a
+    project pinned before the wall existed and a layer whose Processing
+    changed after the pin went down. Same treatment as
     every other found problem: reported red, NOTHING UNPINNED, and the
     offers are the only thing that moves anything - silently releasing the
     pin would renumber a drawing the truck was packed to.
@@ -728,15 +890,16 @@ def _platform_issues(resolved_screens, by_id):
 
 
 def _overflow_issues(resolved_screens, cards):
-    """A screen with more ports than its card had left.
+    """A screen with ports on no card - never placed, or more than its card
+    had room for.
 
-    The ports that did not fit are simply not placed, and the row only says
-    so. Spilling them onto the next card on their own would be the app
-    deciding to split a run across two machines, which is a patching decision
-    with a physical consequence - two trunks to one wall - and belongs to a
-    person. The person's way to make it is the dock itself: drag the ports
-    (or the screen) onto the card they should land on. The strip carries no
-    place buttons for it.
+    Unattached ports are simply not placed, and the row only says so.
+    Putting them somewhere on their own would be the app deciding where a
+    run lands, which is a patching decision with a physical consequence and
+    belongs to a person. The person's way to make it is the dock itself:
+    drag the ports (or the screen) onto the card they should land on. The
+    strip carries no place buttons for it, and the dock's attachment flag
+    is where this issue is drawn.
     """
     # No cards at all is the default state of every project and not a problem
     # to nag about; no card with a settled count is already reported as such,
@@ -763,7 +926,7 @@ def _overflow_issues(resolved_screens, cards):
     return out
 
 
-def _capacity_issues(cards, screens, auto_on):
+def _capacity_issues(cards, screens):
     out = []
     if screens and not cards:
         return out  # no processors at all is not a problem, it is the default
@@ -792,17 +955,11 @@ def _capacity_issues(cards, screens, auto_on):
             'kind': 'capacity-unknown',
             'cardId': card['cardId'],
             'message': (
-                f'{_card_title(card)} has no settled port count, so auto-'
-                f'numbering will not use it. Ports can still be pinned to it '
-                f'by hand.'),
+                f'{_card_title(card)} has no settled port count, so a whole-'
+                f'card fill cannot use it. Ports can still be placed on it '
+                f'one at a time.'),
             'reason': card['capacityReason'],
             'offers': [],
-        })
-    if not auto_on:
-        out.append({
-            'kind': 'auto-off',
-            'message': 'Auto-numbering is off. Only pinned ports have a card.',
-            'offers': [{'action': 'auto-on', 'label': 'Turn auto-numbering on'}],
         })
     return out
 
@@ -812,10 +969,10 @@ def _capacity_issues(cards, screens, auto_on):
 def set_pin(state, layer_id, index, card_id, port):
     """Pin one port of one screen, and let it win.
 
-    A pin is the user overruling the app, so it replaces whatever was there and
-    nothing in this module may move it afterwards - not auto-numbering, not
-    another screen's arrival. Only a release, or a block move of the SAME
-    screen, may take it back.
+    A pin is the user's decision about where a port lives, so it replaces
+    whatever that port had and nothing in this module may move it
+    afterwards - not another screen's arrival, not a release next door.
+    Only a release, or a block move of the SAME screen, may take it back.
     """
     pins = [p for p in _clean_pins(state.get('pins'))
             if not (p['layerId'] == str(layer_id) and p['index'] == int(index))]
@@ -828,8 +985,8 @@ def set_pin(state, layer_id, index, card_id, port):
 
 def clear_pin(state, layer_id, index=None):
     """Release a pin, or every pin on a screen when index is None. The port
-    goes straight back to auto on the next resolve, which is the whole point of
-    keeping auto derived rather than stored."""
+    comes off its card and is not attached until somebody places it again;
+    nothing slides into the socket it left."""
     def keep(pin):
         if pin['layerId'] != str(layer_id):
             return True
@@ -845,10 +1002,6 @@ def _foreign_claims(processors, screens, state, layer_id, index=None):
     of it; with one it means just that port, because pinning a single port
     leaves the screen's others exactly where they are and they are as much an
     obstacle as anyone else's.
-
-    Both pinned and auto claims count. Auto ones would re-flow if they were
-    landed on, but re-flowing another screen to make room is the silent
-    rearrangement this module refuses to do.
     """
     resolution = resolve(processors, screens, state)
     taken = set()
@@ -886,8 +1039,13 @@ def pin_to_card(processors, screens, state, layer_id, index, card_id,
     if port is None:
         _res, taken = _foreign_claims(processors, screens, state, layer_id,
                                       int(index))
+        # A socket spoken for by a redundancy role is not free, and with
+        # the auto pass gone this is the arithmetic that has to know it -
+        # the same skip _free_ports makes.
+        roles = card.get('backupRoles') or {}
         port = next((n for n in range(1, (card['capacity'] or 0) + 1)
-                     if (card['cardId'], n) not in taken), None)
+                     if (card['cardId'], n) not in taken and n not in roles),
+                    None)
         if port is None:
             return None, f'{_card_title(card)} has no free ports.'
     set_pin(state, layer_id, index, card['cardId'], port)
@@ -900,8 +1058,8 @@ def pin_to_card(processors, screens, state, layer_id, index, card_id,
 # cabled as one. This is the other half of the same decision, for the port that
 # genuinely is not like its neighbours: the spare patched across the room, the
 # run that has to land on the socket the house rig was made up to. Underneath
-# it is still a pin - a pin already means "this port, here, and auto may not
-# touch it" - and what is new is only that a person may say WHICH socket.
+# it is still a pin - every placement is - and what is different is only that
+# a person names WHICH socket rather than which card.
 
 def _spot_index(resolution):
     """(layerId, index) -> (cardId, port), for comparing two resolutions."""
@@ -921,60 +1079,18 @@ def _foreign_occupants(resolution, card_id, port, layer_id, index):
             if not (o['layerId'] == str(layer_id) and o['number'] == index + 1)]
 
 
-def _hold_screen(state, resolution, layer_id, skip_index):
-    """Pin a screen's other ports where they already are, and say how many.
-
-    Placing one port by hand overrules the app's arithmetic for THAT port; it
-    is not permission to renumber the five beside it. Left alone they would be
-    renumbered, because an auto port is recomputed from nothing every time and
-    packs into whatever room appears - including the room the moved port has
-    just left, which slides the whole tail of the run down by one. One click
-    would then change four numbers on a drawing, which is the opposite of an
-    override.
-
-    So the rest of the run is held first. That is the same trade the block move
-    already makes and it is as visible: every held port prints PINNED, and
-    Release all pins hands the lot back.
-    """
-    scr = _resolved_screen(resolution, layer_id)
-    held = 0
-    for port in (scr or {}).get('ports', []):
-        if port['index'] == skip_index or not port['cardId']:
-            continue
-        if port['source'] != 'pin':
-            held += 1
-        set_pin(state, layer_id, port['index'], port['cardId'], port['port'])
-    return held
-
-
-def _placement_note(before, after, scr, index, card, port, held):
+def _placement_note(after, scr, index, card, port):
     """What the move actually did, in the one line the panel has for it.
 
     Everything past the first sentence is a consequence nobody asked for, and
     each one is here because the alternative is finding it by reading twenty
-    rows: another screen's auto ports packing into the vacated socket, a run
-    that now leaves the card it was on, and a port deliberately placed on top
-    of somebody after the offer to do it was accepted.
+    rows: a run that now leaves the card it was on, and a port deliberately
+    placed on top of somebody after the offer to do it was accepted. Nothing
+    else on the drawing moved - a placement touches one port and one port
+    only, and every other pin stays where it was.
     """
     name = scr['name']
     parts = [f'{name} port {index + 1} is now on {_port_title(card, port)}.']
-    if held:
-        parts.append(f'Its other {held} ports are held where they were, so '
-                     f'only this one moved.')
-
-    moved_key = (scr['layerId'], index)
-    was = _spot_index(before)
-    now = _spot_index(after)
-    shifted = []
-    for key, spot in now.items():
-        if key == moved_key or was.get(key) == spot:
-            continue
-        other = _resolved_screen(after, key[0])
-        if other and other['name'] not in shifted:
-            shifted.append(other['name'])
-    if shifted:
-        parts.append(f'Auto ports on {_and_list(shifted)} packed into the room '
-                     f'it left - pin them to hold a numbering.')
 
     mine = _resolved_screen(after, scr['layerId'])
     if mine and len(mine['cardIds']) > 1:
@@ -1044,29 +1160,19 @@ def place_port(processors, screens, state, layer_id, index, card_id, port,
     if (card['cardId'], port) in taken and not confirm:
         here = _foreign_occupants(before, card['cardId'], port, layer_id, index)
         names = _and_list([f'{o["name"]} port {o["number"]}' for o in here])
-        # What happens next depends entirely on how the sitting tenant got
-        # there, and the two outcomes are nothing like each other. A pinned
-        # port is somebody's decision and stays: both claims are kept and the
-        # socket draws as a clash. An auto port is arithmetic and gets out of
-        # the way, which is the same thing as saying the screen it belongs to
-        # is renumbered. Only one of those two can be true of any one port -
-        # auto is dealt out around pins and never onto them - so this reads as
-        # one sentence rather than a table of cases.
-        held = [o for o in here if o['source'] == 'pin']
-        outcome = (
-            'held there by hand and would keep the claim, so the socket would '
-            'draw as a clash' if held else
-            'numbered automatically and would pack around this one, which '
-            'renumbers that screen')
+        # The sitting tenant is somebody's decision - every claim is a pin -
+        # and stays: both claims are kept and the socket draws as a clash.
+        # Nothing gets out of the way, because nothing here ever moves a
+        # port the user did not point at.
         return None, (
             f'{names} {"is" if len(here) == 1 else "are"} already on '
-            f'{_port_title(card, port)}. Nothing has been renumbered: '
-            f'{"they are" if len(here) > 1 else "it is"} {outcome}. Place '
+            f'{_port_title(card, port)}. Nothing has been moved: '
+            f'{"they keep their claims" if len(here) > 1 else "it keeps its claim"}'
+            f', so the socket would draw as a clash. Place '
             f'{scr["name"]} port {index + 1} here anyway, or choose a port '
             f'nobody is on.'
         ), {'cardId': card['cardId'], 'port': port, 'occupants': here}
 
-    held = _hold_screen(state, before, layer_id, index)
     set_pin(state, layer_id, index, card['cardId'], port)
     after = resolve(processors, screens, state)
     was = _spot_index(before).get((layer_id, index))
@@ -1075,8 +1181,7 @@ def place_port(processors, screens, state, layer_id, index, card_id, port,
         'port': port,
         'from': None if not was or was[0] is None else {'cardId': was[0],
                                                         'port': was[1]},
-        'held': held,
-        'note': _placement_note(before, after, scr, index, card, port, held),
+        'note': _placement_note(after, scr, index, card, port),
     }, None, None
 
 
@@ -1098,10 +1203,11 @@ def move_block(processors, screens, state, layer_id, card_id=None,
     it is worse than the clash it was meant to fix.
 
     The move overrides this screen's own pins and re-pins every port at the new
-    block. That is a real decision and it is worth naming: honouring the old
-    pins would mean moving only the auto ports and tearing the run in two,
-    which defeats the purpose of the move. Other screens' pins are never
-    touched - they are obstacles the block has to clear.
+    block - the unattached ones included, which is how a screen with nothing
+    on a card lands whole. That is a real decision and it is worth naming:
+    honouring the old pins would mean moving only the rest and tearing the
+    run in two, which defeats the purpose of the move. Other screens' pins
+    are never touched - they are obstacles the block has to clear.
 
     `first_port`/`last_port` bound the search to one window of the card - a
     breakout box is a contiguous span of card ports, so "move onto that box"
@@ -1160,10 +1266,10 @@ def move_block(processors, screens, state, layer_id, card_id=None,
     else:
         pivot = order.index(current_card) if current_card in order else 0
         search = order[pivot:] + order[:pivot]
-        # The search only walks cards the screen's platform can drive - the
-        # same skip auto makes, or "next free block" would relocate a run
-        # onto gear it cannot use. When that leaves nowhere at all, say the
-        # real reason rather than "no run free".
+        # The search only walks cards the screen's platform can drive, or
+        # "next free block" would relocate a run onto gear it cannot use.
+        # When that leaves nowhere at all, say the real reason rather than
+        # "no run free".
         search = [cid for cid in search
                   if platform_allows(by_id[cid], scr['platform'])]
         if not search:
@@ -1207,14 +1313,15 @@ def _pin_block(state, layer_id, card_id, start, size):
 
 def place_overflow(processors, screens, state, layer_id, card_id,
                    first_port=None, last_port=None):
-    """Put the ports that did not fit onto a different card.
+    """Put a screen's unattached ports onto a card, in order.
 
-    One of the two paths by which a screen's ports end up on two cards - the
-    other is place_port, one socket at a time - and both are somebody asking
-    for it in as many words. It exists because a 17-port wall on a 16-port card
-    is a real thing someone builds. `.scr` stores the sending card per CABINET,
-    so the format has no objection either; it is only the app that must not do
-    it unasked.
+    This is the fill a card or box drop runs - a screen with nothing on a
+    card lands here whole - and it is one of the two paths by which a
+    screen's ports end up on two cards (the other is place_port, one socket
+    at a time), both of them somebody asking for it in as many words. A
+    17-port wall on a 16-port card is a real thing someone builds. `.scr`
+    stores the sending card per CABINET, so the format has no objection
+    either; it is only the app that must not do it unasked.
 
     `first_port`/`last_port` bound the fill to one window of the card: a
     breakout box is a contiguous span of card ports, so "fill onto that box"
@@ -1239,15 +1346,27 @@ def place_overflow(processors, screens, state, layer_id, card_id,
     spare = [i for i in current['unplaced']]
     if not spare:
         return None, 'Every port on that screen already has a card.'
+    # The screen's OWN placed ports are not free either. _foreign_claims
+    # leaves the whole screen out (a block move vacates all of it), but a
+    # fill only moves the tail, and dropping a half-placed screen on its
+    # own card again must land that tail beside its head, never on top of
+    # it.
+    for port in current['ports']:
+        if port['cardId']:
+            taken.add((port['cardId'], port['port']))
 
-    # The overflow keeps its own order and is packed from the card's lowest
-    # free port, so ports 17-20 of a wall read as a block on the new card
-    # rather than being scattered through its gaps.
+    # The ports keep their own order and are packed from the card's lowest
+    # free socket, so a run reads as a block on the card rather than being
+    # scattered through its gaps. A socket spoken for by a redundancy role
+    # is not free - the even half of a sequential card, every port of a
+    # 1:1 backup unit - and since this fill is the one that lands whole
+    # screens now, it makes the same skip the retired auto pass made.
+    roles = card.get('backupRoles') or {}
     lo = max(1, int(first_port)) if first_port is not None else 1
     hi = min((card['capacity'] or 0), int(last_port)) \
         if last_port is not None else (card['capacity'] or 0)
     free = [n for n in range(lo, hi + 1)
-            if (card['cardId'], n) not in taken]
+            if (card['cardId'], n) not in taken and n not in roles]
     if not free:
         if first_port is not None or last_port is not None:
             return None, (f'No free ports between {lo} and {hi} on '

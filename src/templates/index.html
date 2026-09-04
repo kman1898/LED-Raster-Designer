@@ -141,6 +141,18 @@
                  currently shared. -->
             <div class="menu-option hw-share-only" data-action="hw-share" style="display: none;"></div>
             <div class="menu-option hw-unshare-only" data-action="hw-unshare" style="display: none;"></div>
+            <!-- Distro outputs, the click path: on a screen in the power
+                 view (its cabinets, or its circuit chips in the tray),
+                 "Add <type> from…" opens a submenu of every distro - the
+                 ones offering the screen's connector with their load, the
+                 rest greyed with the reason. Armed by _prepareOutputsMenu
+                 (app-dock.js); entries are written at open time and act
+                 through hw-out-<n>. -->
+            <div class="menu-divider hw-out-only" style="display: none;"></div>
+            <div class="menu-option menu-has-submenu hw-out-only" data-action="hw-outputs" style="display: none;">
+                <span class="menu-label-text" id="hw-outputs-label"></span>
+                <div id="hw-outputs-submenu" class="menu-submenu"></div>
+            </div>
             <!-- The batch verb (2026-08-30): with a sweep selection armed
                  the menu deals it as Nfers - "3fer them (6 x 3fer)" - and
                  with none the same entries act on the whole screen under
@@ -855,7 +867,10 @@
                                 <div style="display: flex; gap: 6px; margin-bottom: 6px;">
                                     <button id="custom-clear-selection" class="btn" style="flex: 1; padding: 6px 8px; background: #333;">Clear Selection</button>
                                 </div>
-                                <p style="font-size: 11px; color: #888; margin: 0;">Click/drag to select panels. Click panels or use arrow keys to draw. Pattern buttons apply to selection.</p>
+                                <!-- The active port's fill against Panels/Port above: the
+                                     cap the badge and the click share, visible while drawing. -->
+                                <div id="custom-fill-readout" style="font-size: 11px; color: #aaa; margin: 0 0 6px 0; min-height: 1em;"></div>
+                                <p style="font-size: 11px; color: #888; margin: 0;">Click/drag to select panels. Click panels or use arrow keys to draw. Pattern buttons apply to selection and cut at capacity: a block wider than one port fills the next ports in turn.</p>
                             </div>
                         </div>
 
@@ -1304,7 +1319,10 @@
                                     <div style="display: flex; gap: 6px; margin-bottom: 6px;">
                                         <button id="power-custom-clear-selection" class="btn" style="flex: 1; padding: 6px 8px; background: #333;">Clear Selection</button>
                                     </div>
-                                    <p style="font-size: 11px; color: #888; margin: 0;">Click/drag to select panels. Click panels or use arrow keys to draw. Pattern buttons apply to selection.</p>
+                                    <!-- The active circuit's fill against Panels/Circuit above:
+                                         the cap the badge and the click share, visible while drawing. -->
+                                    <div id="power-custom-fill-readout" style="font-size: 11px; color: #aaa; margin: 0 0 6px 0; min-height: 1em;"></div>
+                                    <p style="font-size: 11px; color: #888; margin: 0;">Click/drag to select panels. Click panels or use arrow keys to draw. Pattern buttons apply to selection and cut at capacity: a block wider than one circuit fills the next circuits in turn.</p>
                                 </div>
                             </div>
                         </div>

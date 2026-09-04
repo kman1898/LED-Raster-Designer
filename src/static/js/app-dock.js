@@ -185,11 +185,26 @@ class _HardwareDock {
             const anchor = e.target && e.target.closest
                 && e.target.closest('[data-hwpop]');
             if (anchor && anchor.dataset.hwpop === this._hwPopover.id) return;
+            // A grab of the tray's resize strip is a resize, not a
+            // dismissal: the popover stays and follows its gear.
+            if (e.target && e.target.closest
+                    && e.target.closest('.lrd-resize-handle')) return;
             this._hwPopoverClose();
         });
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape' && this._hwPopover) this._hwPopoverClose();
         });
+        // The popover is placed against a window and a tray that both
+        // change size under it: re-place on either, so it never sits half
+        // off-screen after a resize or a dock drag.
+        window.addEventListener('resize', () => this._hwPopoverReflow());
+        const dockEl = document.getElementById('hardware-dock');
+        if (dockEl && typeof ResizeObserver !== 'undefined') {
+            try {
+                new ResizeObserver(() => this._hwPopoverReflow())
+                    .observe(dockEl);
+            } catch (e) { /* no observer: resize alone re-places */ }
+        }
     }
 
     // ── drawing ───────────────────────────────────────────────────────────
@@ -541,24 +556,105 @@ class _HardwareDock {
             this._hwPopoverClose();
             return;
         }
+        // A rebuild while open keeps the reader's place in a long body.
+        const oldBody = pop.querySelector('.hw-pop-body');
+        const keepScroll = oldBody ? oldBody.scrollTop : 0;
+        // Two parts: the fields scroll in a body; the destructive action
+        // sits in a footer pinned to the popover's bottom edge, visible no
+        // matter how long the body runs or how short the window is - a
+        // Remove that only exists below a scroll nobody knows about is a
+        // Remove that does not exist. The builders keep appending the
+        // button last as they always have; the shell lifts it out.
         pop.innerHTML = '';
-        pop.appendChild(content);
-        // Measure hidden, then place: above the gear when it fits (the
-        // tray hugs the window's bottom edge), below it otherwise, clamped
-        // to the viewport the way the context menu clamps itself.
+        const frame = document.createElement('div');
+        frame.className = 'hw-pop-frame';
+        const scroller = document.createElement('div');
+        scroller.className = 'hw-pop-scroll';
+        content.classList.add('hw-pop-body');
+        scroller.appendChild(content);
+        frame.appendChild(scroller);
+        const remove = Array.from(content.children)
+            .find(el => el.classList.contains('hw-pop-remove'));
+        if (remove) {
+            const foot = document.createElement('div');
+            foot.className = 'hw-pop-foot';
+            foot.appendChild(remove);
+            frame.appendChild(foot);
+        }
+        pop.appendChild(frame);
+        content.addEventListener('scroll', () => this._hwPopoverFade());
         pop.style.display = 'block';
+        this._hwPopoverPlace(anchor);
+        content.scrollTop = keepScroll;
+        this._hwPopoverFade();
+    }
+
+    // Placement: measure at natural height, then open on whichever side of
+    // the gear has the room - above when it fits there (the tray hugs the
+    // window's bottom edge, so that is the usual answer), below when only
+    // below fits, else the roomier side with the body clamped to it. The
+    // clamp lands on the frame, so the footer keeps its full height and
+    // only the body gives way. Re-run on resize and dock drags: a popover
+    // placed for one window must not end up half off another.
+    _hwPopoverPlace(anchor) {
+        const pop = document.getElementById('hw-gear-popover');
+        const frame = pop && pop.querySelector('.hw-pop-frame');
+        if (!pop || !frame || !anchor) return;
+        const margin = 8, gap = 6;
         pop.style.visibility = 'hidden';
+        frame.style.maxHeight = '';
         const r = anchor.getBoundingClientRect();
+        const natural = pop.getBoundingClientRect().height;
+        const roomAbove = r.top - gap - margin;
+        const roomBelow = window.innerHeight - r.bottom - gap - margin;
+        let above;
+        if (natural <= roomAbove) above = true;
+        else if (natural <= roomBelow) above = false;
+        else above = roomAbove >= roomBelow;
+        // A gear jammed against an edge still gets a usable panel: the
+        // floor lets the popover overlap the gear rather than shrink to a
+        // sliver, and the viewport clamp below keeps it on screen.
+        const floor = Math.min(160, window.innerHeight - 2 * margin);
+        const room = Math.max(above ? roomAbove : roomBelow, floor);
+        const chrome = pop.offsetHeight - frame.offsetHeight;  // borders
+        frame.style.maxHeight = `${Math.round(room - chrome)}px`;
         const pr = pop.getBoundingClientRect();
-        const margin = 8;
         let x = Math.min(r.left, window.innerWidth - pr.width - margin);
         x = Math.max(margin, x);
-        let y = r.top - pr.height - 6;
-        if (y < margin) y = Math.min(r.bottom + 6,
-                                     window.innerHeight - pr.height - margin);
+        let y = above ? r.top - gap - pr.height : r.bottom + gap;
+        y = Math.min(y, window.innerHeight - pr.height - margin);
+        y = Math.max(margin, y);
         pop.style.left = `${Math.round(x)}px`;
-        pop.style.top = `${Math.round(Math.max(margin, y))}px`;
+        pop.style.top = `${Math.round(y)}px`;
         pop.style.visibility = 'visible';
+    }
+
+    // The bottom fade says "there is more" only while there is: on while
+    // the body has content below its fold, off once the reader reaches it.
+    _hwPopoverFade() {
+        const pop = document.getElementById('hw-gear-popover');
+        const body = pop && pop.querySelector('.hw-pop-body');
+        if (!pop || !body) return;
+        pop.classList.toggle('hw-pop-scrolls',
+                             body.scrollHeight > body.clientHeight + 1);
+        pop.classList.toggle('hw-pop-more',
+            body.scrollHeight - body.clientHeight - body.scrollTop > 2);
+    }
+
+    // Reflow in place - no rebuild, so focus and scroll survive. An anchor
+    // that has left layout (the tray folded, the view left) takes the
+    // popover with it, the way a removed anchor does on refresh.
+    _hwPopoverReflow() {
+        if (!this._hwPopover) return;
+        const anchor = document.querySelector(
+            `[data-hwpop="${CSS.escape(this._hwPopover.id)}"]`);
+        const r = anchor && anchor.getBoundingClientRect();
+        if (!r || (r.width === 0 && r.height === 0)) {
+            this._hwPopoverClose();
+            return;
+        }
+        this._hwPopoverPlace(anchor);
+        this._hwPopoverFade();
     }
 
     _hwPopoverClose() {
@@ -1013,7 +1109,7 @@ class _HardwareDock {
                 ? '. A backup port is that port\'s return end - nothing '
                     + 'else can land on it.'
                 : '; drag onto a port run to place it there'
-                    + (occupants.some(o => o.source === 'pin')
+                    + (occupants.some(o => !o.role)
                         ? '; drag back onto this tray to release it.' : '.'));
 
         // How full the socket is, worn twice (ground meter + bottom bar),
@@ -1457,6 +1553,10 @@ class _HardwareDock {
         // sidebar's folded-glance bars generalized to an always-on line.
         const legs = this._dockDistroLegsLine(load);
         if (legs) unit.appendChild(legs);
+        // The OUTPUTS row rides under LEGS, outside the fold too: the
+        // connectors a folded distro offers are still what you reach for.
+        const outs = this._dockDistroOutputsRow(d);
+        if (outs) unit.appendChild(outs);
         const body = this._dockSectionBody(unit, head,
                                            `hwdock-distro-${d.id}`);
 
@@ -1511,6 +1611,60 @@ class _HardwareDock {
             ? `±${Math.round(load.imbalancePct)}%` : 'even';
         row.appendChild(im);
         return row;
+    }
+
+    // The slim OUTPUTS line under LEGS (user pick A, 2026-08-31): one plug
+    // chip per connector type the distro offers, each a drag handle for
+    // "one box of this type from this distro". The chips read as what
+    // comes off this service, right where its legs are read. Absent when
+    // the distro offers nothing - the whole-distro drag on the header and
+    // the per-multi / per-circuit drags below stay either way; the plug
+    // chip is a third handle, not a replacement.
+    _dockDistroOutputsRow(d) {
+        const types = this.distroOutputs(d);
+        if (!types.length) return null;
+        const row = document.createElement('div');
+        row.className = 'hw-dock-outputs';
+        const cap = document.createElement('span');
+        cap.className = 'hw-dock-outputs-cap';
+        cap.textContent = 'OUTPUTS';
+        row.appendChild(cap);
+        const name = d.name || d.id;
+        types.forEach(t => {
+            const chip = this._plugChip(t);
+            chip.title = `${t.name} from ${name}. Drag onto a screen: the `
+                + `next free multi on ${name} lands on the screen's next `
+                + `unassigned circuits as a ${t.name} - the circuits it `
+                + 'would feed light up under the cursor. Refused, with '
+                + 'the reason, when the screen\'s breakout does not take '
+                + `a ${t.name}.`;
+            this._dockWireDraggable(chip, {
+                type: 'plug', distroId: d.id, output: t.id,
+                title: `${name} · ${t.name}`,
+            }, `plug-${d.id}-${t.id}`);
+            row.appendChild(chip);
+        });
+        return row;
+    }
+
+    // One plug chip: the connector's face, its plain name, and (full size)
+    // what it breaks out to. The same element rides the drag as the ghost.
+    _plugChip(t, mini) {
+        const el = document.createElement('span');
+        el.className = 'hw-dock-plug' + (mini ? ' hw-dock-plug-mini' : '');
+        el.appendChild(this.plugGlyph(t.glyph));
+        const txt = document.createElement('span');
+        txt.className = 'hw-dock-plug-t';
+        const b = document.createElement('b');
+        b.textContent = t.name;
+        txt.appendChild(b);
+        if (!mini) {
+            const sub = document.createElement('small');
+            sub.textContent = t.sub;
+            txt.appendChild(sub);
+        }
+        el.appendChild(txt);
+        return el;
     }
 
     // One multi as one bounded section: header = the whole-multi drag
@@ -2129,9 +2283,22 @@ class _HardwareDock {
             }
             this._dockMoveDrag(ev);
         };
+        // Escape mid-drag cancels: the chip goes home, no drop, nothing
+        // said - the same way out every canvas gesture offers.
+        const key = (ke) => {
+            if (ke.key !== 'Escape') return;
+            document.removeEventListener('mousemove', move);
+            document.removeEventListener('mouseup', up);
+            document.removeEventListener('keydown', key, true);
+            if (live) {
+                this._dockDropTarget = null;
+                this._dockEndDrag(ke);
+            }
+        };
         const up = (ev) => {
             document.removeEventListener('mousemove', move);
             document.removeEventListener('mouseup', up);
+            document.removeEventListener('keydown', key, true);
             if (live) {
                 // A drag that ends back over its own chip still synthesizes
                 // a click after mouseup, and on an openable port chip that
@@ -2153,6 +2320,7 @@ class _HardwareDock {
         };
         document.addEventListener('mousemove', move);
         document.addEventListener('mouseup', up);
+        document.addEventListener('keydown', key, true);
     }
 
     _dockStartDrag(payload, el) {
@@ -2169,6 +2337,17 @@ class _HardwareDock {
         const ghost = document.createElement('div');
         ghost.id = 'hw-dock-ghost';
         ghost.textContent = payload.title || payload.type;
+        if (payload.type === 'plug') {
+            // The chip itself rides the cursor - the connector is the
+            // thing being carried, so the ghost wears its face.
+            const t = this.getDistroOutputTypes()
+                .find(x => x.id === payload.output);
+            if (t) {
+                ghost.textContent = '';
+                ghost.classList.add('hw-dock-ghost-plug');
+                ghost.appendChild(this._plugChip(t, true));
+            }
+        }
         document.body.appendChild(ghost);
         this._dockDrag.ghost = ghost;
         document.body.style.cursor = 'grabbing';
@@ -2192,6 +2371,7 @@ class _HardwareDock {
             dock.classList.toggle('hw-dock-drop-target',
                 !!(target && target.kind === 'dock'));
         }
+        if (drag.payload.type === 'plug') this._dockPlugPill(drag, ev, target);
         if (changed && window.canvasRenderer) {
             // One paint per target change, not per mousemove: the highlight
             // only moves when the run under the cursor does.
@@ -2206,6 +2386,7 @@ class _HardwareDock {
         this._dockDropTarget = null;
         if (drag) {
             if (drag.ghost) drag.ghost.remove();
+            if (drag.pill) drag.pill.remove();
             if (drag.source && drag.source.classList) {
                 drag.source.classList.remove('hw-dock-dragging');
             }
@@ -2336,7 +2517,277 @@ class _HardwareDock {
                 .filter(s => !s.distroId)
                 .flatMap(s => s.legs.map(g => g.circuit));
         }
+        if (drag.payload.type === 'plug') {
+            // A plug lights EXACTLY the circuits its drop would feed - the
+            // drop's own resolution, read once per screen per drag - and
+            // nothing at all where the drop would be refused. The pill and
+            // the pending bracket read the same record off the target.
+            const plan = this._plugPlanFor(drag, layer);
+            target.nums = plan.ok ? plan.nums.slice() : [];
+            target.plug = plan.ok
+                ? { ok: true, socaIndex: plan.socaIndex, number: plan.number,
+                    boxName: plan.boxName, badge: plan.badge,
+                    glyph: plan.glyph, text: plan.text, warn: plan.warn }
+                : { ok: false, glyph: plan.glyph, message: plan.message };
+        }
         return target;
+    }
+
+    // ── plug drops: one box of one connector type ─────────────────────────
+    //
+    // The ONE resolution both the preview and the release read, so what
+    // lights under the cursor is exactly what the drop assigns (user
+    // ruling, 2026-08-31: preview == result). The box is the screen's next
+    // unassigned multi in plan order - the split-aware segmentation, so a
+    // split-off remainder is its own next box - and its number is what the
+    // distro's own sequence would deal it, found by asking the naming
+    // index with the assignment tried on (and taken straight back off).
+    // Returns
+    //   { ok: true, socaIndex, nums, number, boxName, amps, text, badge,
+    //     glyph, warn }             - warn: the LEGS-past-rating sentence
+    //   { ok: false, message, glyph }
+    _plugDropPlan(payload, layer) {
+        const d = this.getDistros().find(x => x.id === payload.distroId);
+        const type = this.getDistroOutputTypes()
+            .find(t => t.id === payload.output);
+        const glyph = type ? type.glyph : 'soca';
+        if (!d || !type) {
+            return { ok: false, glyph, message: 'That output no longer exists.' };
+        }
+        if (!layer || (layer.type || 'screen') !== 'screen') {
+            return { ok: false, glyph,
+                     message: `${(layer && layer.name) || 'That layer'} `
+                        + 'draws no power.' };
+        }
+        // The screen always has an effective breakout (getPowerBreakout
+        // defaults a 110V screen to Edison, everything else to True1), so
+        // the match is always against something real. A mismatch names
+        // the screen and the fix; it never re-types the screen.
+        const bt = this.getPowerBreakout(layer);
+        if (!type.breakouts.includes(bt.id)) {
+            return { ok: false, glyph,
+                     message: `${layer.name} is set to `
+                        + `${this._breakoutShortName(bt)} — change its `
+                        + 'breakout first' };
+        }
+        const plan = this.getSocaPlan(layer);
+        const s = plan.find(x => !x.distroId);
+        if (!s) {
+            return { ok: false, glyph,
+                     message: plan.length
+                        ? `Every multi on ${layer.name} already has a `
+                            + 'distro. Drag a slot onto a circuit to move '
+                            + 'one, or drag it back onto the tray to '
+                            + 'unassign it.'
+                        : `${layer.name} has no circuits to feed.` };
+        }
+        // Dry run: the number this box would get, and where the distro's
+        // legs would land with it on - read off the real naming index and
+        // the real roll-up with the assignment tried on, then put back
+        // exactly as found. The cache is dropped on both sides so no
+        // frame reads the trial.
+        const map = layer.powerSocaDistro || (layer.powerSocaDistro = {});
+        const had = Object.prototype.hasOwnProperty.call(map, s.soca);
+        const prev = map[s.soca];
+        map[s.soca] = d.id;
+        this._circuitTailCache = null;
+        let number = null;
+        let name = null;
+        let warn = null;
+        try {
+            const rec = this._powerNaming(layer).socas.get(s.soca);
+            number = rec ? rec.number : null;
+            // The box's name as the wall will print it (the naming index's
+            // own derivation - "PD1" - or a hand name), so the pending
+            // bracket and the committed one read the same.
+            name = rec ? rec.name : null;
+            const load = (this.getDistroLoads() || [])
+                .find(l => l.id === d.id);
+            if (load && load.ratingA > 0) {
+                if (load.legs) {
+                    const worst = Math.max(load.legs.X.amps, load.legs.Y.amps,
+                                           load.legs.Z.amps);
+                    if (worst > load.ratingA) {
+                        warn = `${d.name || d.id} legs to `
+                            + `${worst.toFixed(0)} A of ${load.ratingA} A`;
+                    }
+                } else if (load.amps > load.ratingA) {
+                    warn = `${d.name || d.id} to ${load.amps.toFixed(0)} A `
+                        + `of ${load.ratingA} A`;
+                }
+            }
+        } finally {
+            if (had) map[s.soca] = prev; else delete map[s.soca];
+            this._circuitTailCache = null;
+        }
+        const nums = s.legs.map(g => g.circuit);
+        const boxName = name
+            || `${d.name || d.id}${number != null ? ` ${number}` : ''}`;
+        return {
+            ok: true, glyph, socaIndex: s.soca, nums, number, boxName,
+            amps: s.amps, badge: type.badge, warn,
+            text: `${boxName} → circuit${nums.length === 1 ? '' : 's'} `
+                + `${this._fmtTails(nums).replace(/-/g, '–')} · `
+                + `${Math.round(s.amps)} A`,
+        };
+    }
+
+    // The plan for one screen, once per drag: the state cannot change
+    // mid-drag, and the hit test runs per mousemove.
+    _plugPlanFor(drag, layer) {
+        if (!drag.plans) drag.plans = new Map();
+        if (!drag.plans.has(layer.id)) {
+            drag.plans.set(layer.id, this._plugDropPlan(drag.payload, layer));
+        }
+        return drag.plans.get(layer.id);
+    }
+
+    // The cursor pill of a plug drag: what the release will do ("SL 3 →
+    // circuits 7–12 · 81 A"), amber when the box would push the distro's
+    // legs past its rating (allowed, said), red with the reason where the
+    // drop is refused. Hidden over nothing.
+    _dockPlugPill(drag, ev, target) {
+        let pill = drag.pill;
+        if (!pill) {
+            pill = document.createElement('div');
+            pill.id = 'hw-dock-pill';
+            document.body.appendChild(pill);
+            drag.pill = pill;
+        }
+        const p = target && target.plug;
+        if (!p) {
+            pill.style.display = 'none';
+            return;
+        }
+        const key = JSON.stringify(p);
+        if (drag.pillKey !== key) {
+            drag.pillKey = key;
+            pill.innerHTML = '';
+            pill.className = p.ok
+                ? (p.warn ? 'hw-dock-pill-warn' : '') : 'hw-dock-pill-bad';
+            pill.appendChild(this.plugGlyph(p.glyph));
+            const t = document.createElement('span');
+            t.textContent = p.ok
+                ? p.text + (p.warn ? ` — ${p.warn}` : '') : p.message;
+            pill.appendChild(t);
+        }
+        pill.style.display = '';
+        const w = pill.offsetWidth;
+        pill.style.left = `${Math.max(8, Math.min(ev.clientX + 16,
+            window.innerWidth - w - 8))}px`;
+        pill.style.top = `${Math.max(8, ev.clientY - 30)}px`;
+    }
+
+    // The release: the same resolution the preview showed, then the
+    // existing setter, one 'Assign Multi Distro' entry - the distro drop's
+    // own undo name, for one box instead of all of them. A refusal is said
+    // on the strip and changes nothing.
+    _dockDropPlug(payload, target) {
+        if (!target || target.kind !== 'screen') return;
+        const layer = (this.project.layers || [])
+            .find(l => l.id === target.layerId);
+        if (!layer) return;
+        const plan = this._plugDropPlan(payload, layer);
+        if (!plan.ok) {
+            this._dockSay(plan.message);
+            return;
+        }
+        const touched = this.setSocaDistro(layer, plan.socaIndex,
+                                           payload.distroId, false);
+        this.updateLayers([...new Set(touched)], true, 'Assign Multi Distro');
+        this._restateNaming();
+        if (plan.warn) {
+            this._dockSay(`${plan.boxName} landed on ${layer.name} — `
+                + `${plan.warn}.`);
+        }
+    }
+
+    // The click path (user pick C-as-submenu, 2026-08-31): right-click a
+    // screen in the power view - its cabinets on the canvas, or its
+    // circuit chips in the tray - and "Add <type> from…" lists every
+    // distro: the ones offering the screen's connector with their load,
+    // the rest greyed with the reason. Picking one is the plug drop,
+    // verbatim - same resolution, same setter, same undo entry. The type
+    // is the screen's own: its effective breakout decides what it can
+    // take, so an L21-30 screen asks for an L21-30 and an Edison screen
+    // for a Soca 120. A screen whose breakout no type names offers
+    // nothing here, exactly as its drops would refuse.
+    _prepareOutputsMenu(x, y) {
+        const layer = this._outputsMenuLayer(x, y);
+        if (!layer) return null;
+        const distros = this.getDistros();
+        if (!distros.length) return null;
+        const type = this.outputTypeForBreakout(this.getPowerBreakout(layer));
+        if (!type) return null;
+        const loads = (typeof this.getDistroLoads === 'function'
+            && this.getDistroLoads()) || [];
+        const entries = distros.map(d => {
+            const name = d.name || d.id;
+            if (!this.distroOffers(d, type.id)) {
+                return {
+                    label: `${name} — does not offer ${type.name.toLowerCase()}`,
+                    disabled: true,
+                    title: `Tick ${type.name} under ${name}'s ⚙ Outputs to `
+                        + 'offer it.',
+                };
+            }
+            const load = loads.find(l => l.id === d.id);
+            const fig = load && load.ratingA > 0
+                ? ` ${load.amps.toFixed(0)}/${load.ratingA} A` : '';
+            const payload = { type: 'plug', distroId: d.id, output: type.id,
+                              title: `${name} · ${type.name}` };
+            const plan = this._plugDropPlan(payload, layer);
+            return {
+                label: `${name}${fig}`,
+                disabled: !plan.ok,
+                title: plan.ok
+                    ? `${plan.text}${plan.warn ? ` — ${plan.warn}` : ''}. `
+                        + 'One undoable step.'
+                    : plan.message,
+                run: () => {
+                    sendClientLog('dock_output_pick',
+                                  { payload, layerId: layer.id });
+                    this._dockDropPlug(payload,
+                                       { kind: 'screen', layerId: layer.id });
+                },
+            };
+        });
+        return { label: `Add ${type.name} from…`, type: type.id, entries };
+    }
+
+    // The screen a right-click names, for the outputs submenu: a circuit
+    // chip in the tray speaks for the screen holding that circuit; on the
+    // canvas, in the power view, the circuit under the cursor names its
+    // owner (a group peer's cabinet lands on the owner's run), and a
+    // cabinet on no drawn circuit still names its screen.
+    _outputsMenuLayer(x, y) {
+        const el = document.elementFromPoint(x, y);
+        if (el && el.closest && el.closest('[data-hwdock-payload]')) {
+            const payload = this._dockChipPayload(el);
+            if (!payload || payload.type !== 'tail') return null;
+            const held = this._dockTailHolder(
+                payload.distroId, parseInt(payload.number, 10), payload.tail);
+            return held ? held.layer : null;
+        }
+        const renderer = window.canvasRenderer;
+        if (!renderer || !renderer.canvas
+                || renderer.viewMode !== 'power') return null;
+        const rect = renderer.canvas.getBoundingClientRect();
+        if (x < rect.left || x > rect.right
+                || y < rect.top || y > rect.bottom) {
+            return null;
+        }
+        const worldY = ((y - rect.top) - renderer.panY) / renderer.zoom;
+        const worldX = renderer._unmirrorWorldX(
+            ((x - rect.left) - renderer.panX) / renderer.zoom, worldY);
+        const hit = renderer.getPanelAt(worldX, worldY);
+        if (!hit) return null;
+        const under = (this.project.layers || [])
+            .find(l => l.id === hit.layerId);
+        if (!under) return null;
+        const circuit = renderer._powerCircuitForPanel(under, hit.panel);
+        const layer = circuit ? circuit.owner : under;
+        return (layer.type || 'screen') === 'screen' ? layer : null;
     }
 
     // Which panel belongs to which port of which screen, frozen at pickup.
@@ -2390,6 +2841,7 @@ class _HardwareDock {
         if (payload.type === 'distro') {
             return this._dockDropDistro(payload, target);
         }
+        if (payload.type === 'plug') return this._dockDropPlug(payload, target);
     }
 
     _dockDropPort(payload, target) {
@@ -2414,23 +2866,17 @@ class _HardwareDock {
                 if (back) this._dockSay(this._returnFollowsNote(payload, back));
                 return;
             }
-            const pinned = occupants.filter(o => o.source === 'pin');
-            if (!pinned.length) {
-                this._dockSay(
-                    `${occupants[0].name} is numbered automatically - there `
-                    + 'is no pin to release; drag its ports where they '
-                    + 'belong instead.');
-                return;
-            }
-            // One release per claimant, one history entry for the gesture:
-            // the snapshot is taken after the last request lands, so a
-            // single Ctrl+Z empties the socket back to how it was.
+            // Every claim on a socket is a pin - nothing lands any other
+            // way - so every claimant is released. One release per
+            // claimant, one history entry for the gesture: the snapshot is
+            // taken after the last request lands, so a single Ctrl+Z
+            // empties the socket back to how it was.
             let chain = Promise.resolve();
-            pinned.forEach((o, i) => {
+            occupants.forEach((o, i) => {
                 chain = chain.then(() => this._assignmentRequest(
                     '/api/port-assignments/unpin', 'POST',
                     { layerId: o.layerId, index: o.number - 1 },
-                    null, i === pinned.length - 1 ? 'Release Port' : null));
+                    null, i === occupants.length - 1 ? 'Release Port' : null));
             });
             return chain;
         }
@@ -2739,7 +3185,10 @@ class _HardwareDock {
     }
 
     // A drawn port run in Data view: clear = release that screen-port's pin,
-    // the same unpin the panel's release buttons and the drag-back send.
+    // the same unpin the strip's release buttons and the drag-back send. A
+    // port on a card is always a pin (auto-numbering is retired - user
+    // ruling, 2026-09-03), so the clear is offered live whenever the port
+    // is attached and disabled only when it is not.
     _clearMenuForDataRun(hit) {
         const run = this._dockBuildDataMap().get(hit.panel);
         if (!run) return null;
@@ -2757,23 +3206,15 @@ class _HardwareDock {
         if (!port || !port.cardId) {
             return {
                 label: `Clear port ${label}`, disabled: true,
-                title: `${label} is not on a sending card - there is `
-                    + 'nothing to clear.',
-            };
-        }
-        if (port.source !== 'pin') {
-            // The drag-back rule, said before the gesture instead of after.
-            return {
-                label: `Clear port ${label}`, disabled: true,
-                title: `${label} is numbered automatically - there is no pin `
-                    + 'to release; drag the screen\'s ports where they '
-                    + 'belong instead.',
+                title: `${label} is not attached to a sending card - there `
+                    + 'is nothing to clear.',
             };
         }
         return {
             label: `Clear port ${label}`,
-            title: 'Hand this port back to auto-numbering. Names and '
-                + 'templates are untouched, and undo puts it back.',
+            title: 'Take this port off its card; it stays unattached until '
+                + 'you place it again. Names and templates are untouched, '
+                + 'and undo puts it back.',
             run: () => {
                 sendClientLog('dock_clear', { kind: 'run',
                     layerId: scr.layerId, index: port.index });
@@ -3210,28 +3651,21 @@ class _HardwareDock {
                         + 'clear.',
                 };
             }
-            const pinned = occupants.filter(o => o.source === 'pin');
-            if (!pinned.length) {
-                if (pick) return pickOnly();
-                return {
-                    label, disabled: true,
-                    title: `${occupants[0].name} is numbered automatically - `
-                        + 'there is no pin to release; drag the screen\'s '
-                        + 'ports where they belong instead.',
-                };
-            }
+            // Every claim is a pin (nothing lands any other way), so an
+            // occupied socket always clears: every claimant comes off.
             return {
                 label,
-                title: 'Release the pinned claim on this socket back to '
-                    + 'auto-numbering'
-                    + (pick ? ', and clear its hand-picked backup port'
+                title: 'Take the screen port off this socket - it stays '
+                    + 'unattached until placed again'
+                    + (pick ? ', and clear the socket\'s hand-picked '
+                        + 'backup port'
                         : '')
                     + '. Undo puts it back.',
                 run: () => {
                     sendClientLog('dock_clear', { kind: 'port', payload });
                     const release = this._dockReleasePins(
-                        pinned.map(o => ({ layerId: o.layerId,
-                                           index: o.number - 1 })),
+                        occupants.map(o => ({ layerId: o.layerId,
+                                              index: o.number - 1 })),
                         pick ? null : 'Release Port');
                     // The pick clear rides the same gesture: the snapshot
                     // moves to the LAST request, so the whole clear stays
@@ -3247,10 +3681,13 @@ class _HardwareDock {
             const label = `Clear ${payload.title}`;
             const first = payload.type === 'box' ? payload.first : -Infinity;
             const last = payload.type === 'box' ? payload.last : Infinity;
+            // Every screen port on the card (or inside the box's span) is a
+            // pin - there is no other way onto a card - and the clear takes
+            // all of them off.
             const pins = [];
             ((this._assignment && this._assignment.screens) || [])
                 .forEach(scr => (scr.ports || []).forEach(p => {
-                    if (p.source === 'pin' && p.cardId === payload.cardId
+                    if (p.cardId === payload.cardId
                             && p.port >= first && p.port <= last) {
                         pins.push({ layerId: scr.layerId, index: p.index });
                     }
@@ -3271,18 +3708,17 @@ class _HardwareDock {
             if (!pins.length && !picks.length) {
                 return {
                     label, disabled: true,
-                    title: `${payload.title} holds no pins and no per-port `
-                        + 'backup picks - its occupied ports are numbered '
-                        + 'automatically, and there is nothing stored to '
-                        + 'clear.',
+                    title: `Nothing is attached to ${payload.title} and it `
+                        + 'holds no per-port backup picks - there is '
+                        + 'nothing to clear.',
                 };
             }
             return {
                 label,
-                title: `Release every pin on ${payload.title} back to `
-                    + 'auto-numbering'
+                title: `Take every screen port off ${payload.title} - they `
+                    + 'stay unattached until placed again'
                     + (picks.length
-                        ? ' and clear its per-port backup picks' : '')
+                        ? ' - and clear its per-port backup picks' : '')
                     + ', as one undoable step.',
                 run: () => {
                     sendClientLog('dock_clear',

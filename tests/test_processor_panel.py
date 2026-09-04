@@ -2522,11 +2522,12 @@ def test_dock_scroll_alone_reaches_all_twenty_ports(panel_page):
 # The Port Numbering panel's issue boxes and foot re-homed: the issues are
 # the slim strip rows under the dock's header (#hw-dock-issues, offers as
 # inline buttons, same wording from the server) and the per-card usage
-# foot is the card headers' used/capacity glance. The auto toggle is
-# retired from the UI entirely - the strip's amber auto-off row (and its
-# turn-back-on offer) is the one recovery path for a legacy project saved
-# with auto off, and per-screen overflow lives under the header's
-# attachment flag (test_hardware_dock.py owns that surface).
+# foot is the card headers' used/capacity glance. Auto-numbering is
+# retired outright (user ruling, 2026-09-03): no toggle, no auto-off row,
+# no offer to turn it back on - PUT /api/port-assignments answers 410.
+# Per-screen overflow lives under the header's attachment flag
+# (test_hardware_dock.py owns that surface), so the strip's own rows are
+# the red questions: a clash, a mismatch, a stranded pin.
 
 ASSIGNMENT_FIT_JS = """(hostId) => {
     const host = document.getElementById(hostId);
@@ -2548,33 +2549,56 @@ ASSIGNMENT_FIT_JS = """(hostId) => {
              clientW: host.clientWidth, strays: strays };
 }"""
 
+# A real issue for the strip to carry, now that auto-off is gone (auto
+# retired, 2026-09-03): a pin whose screen the project does not know. The
+# pin route takes the screens list from the request body, so a ghost
+# screen can be pinned; the next resolve, sent with the app's OWN screens,
+# reports it as 'pin-orphaned' - a red row with its Release offer. Driven
+# through _assignmentRequest so the client's copy of the state follows
+# (the body's screens override the app's), and with a history action so
+# the release afterwards is a real change against the last snapshot.
+GHOST_PIN_JS = """async (cardId) => {
+    const app = window.app;
+    await app._assignmentRequest('/api/port-assignments/pin', 'POST',
+        { layerId: 'ghost-screen', index: 0, cardId: cardId, port: 1,
+          screens: [{ layerId: 'ghost-screen', name: 'Ghost', ports: 1 }] },
+        null, 'Pin Port');
+    await app.refreshPortAssignment();
+    return ((app._assignment && app._assignment.issues) || [])
+        .filter(i => i.kind === 'pin-orphaned').length;
+}"""
+
+GHOST_RELEASE_JS = """async () => {
+    const app = window.app;
+    await app._assignmentRequest('/api/port-assignments/unpin', 'POST',
+                                 { layerId: 'ghost-screen' });
+    await app.refreshPortAssignment();
+}"""
+
 
 @pytest.mark.parametrize('width', [1280, 860])
 def test_the_issue_strip_fits_at_both_widths(panel_page, width):
-    """The strip with a real issue in it - the auto-off row and its offer
-    button - measured at the usual window and a squeezed one: nothing hangs
-    past the strip's edge and nothing scrolls sideways. (The old widths
-    were the retired sidebar's clamp; the strip spans the window now, so
-    the squeeze is the viewport's.)"""
+    """The strip with a real issue in it - a stranded pin's row and its
+    Release button - measured at the usual window and a squeezed one:
+    nothing hangs past the strip's edge and nothing scrolls sideways. (The
+    old widths were the retired sidebar's clamp; the strip spans the window
+    now, so the squeeze is the viewport's.)"""
     pytest.importorskip("playwright.sync_api", reason="playwright not installed")
-    panel_page.evaluate(RESET_PROCESSORS_JS)
+    ids = panel_page.evaluate(RESET_PROCESSORS_JS)
     panel_page.wait_for_timeout(800)
     panel_page.set_viewport_size({'width': width, 'height': 720})
     panel_page.wait_for_timeout(400)
     try:
-        # auto off raises the one issue every seeded project can have. The
-        # UI no longer offers the trip (the toggle is retired), so this
-        # drives the endpoint the way a legacy project's saved state would
-        # arrive - and the amber row is exactly the recovery path for that.
-        panel_page.evaluate(
-            "() => window.app._assignmentRequest("
-            "'/api/port-assignments', 'PUT', {auto: false})")
+        # a stranded pin is an issue every seeded project can raise, and
+        # its row carries an offer button - the strip's full shape.
+        raised = panel_page.evaluate(GHOST_PIN_JS, ids['cardId'])
         panel_page.wait_for_timeout(800)
+        assert raised, 'the orphaned pin never came up as an issue'
         m = panel_page.evaluate(ASSIGNMENT_FIT_JS, 'hw-dock-issues')
         assert m, '#hw-dock-issues is not in the document'
         assert m['rows'] > 0, (
-            'the strip rendered nothing - the auto-off issue never came up, '
-            'so this test proves nothing')
+            'the strip rendered nothing - the stranded-pin issue never '
+            'came up, so this test proves nothing')
         assert not m['strays'], (
             f"strip content hangs outside the tray at {width}px: "
             f"{m['strays']} (host clientWidth {m['clientW']}px)")
@@ -2582,25 +2606,24 @@ def test_the_issue_strip_fits_at_both_widths(panel_page, width):
             f"the strip scrolls sideways at {width}px: content "
             f"{m['scrollW']}px in a {m['clientW']}px tray")
     finally:
-        panel_page.evaluate(
-            "() => window.app._assignmentRequest("
-            "'/api/port-assignments', 'PUT', {auto: true})")
+        panel_page.evaluate(GHOST_RELEASE_JS)
         panel_page.wait_for_timeout(800)
         panel_page.set_viewport_size({'width': 1280, 'height': 720})
         panel_page.wait_for_timeout(300)
 
 
-def test_the_dock_strip_reports_offers_and_recovers_auto(panel_page):
+def test_the_dock_strip_reports_and_offers_without_an_auto_toggle(panel_page):
     """The Port Numbering panel's remains, in their dock homes: the issue
     rows with their offer buttons on the strip, the per-card usage as the
     card headers' used/capacity glance, the attachment flag on the header
     bar - and no per-port rows and no auto toggle at all (assignment is
-    the dock's drag, and the UI never offers the auto:false trip). The
-    refuse-and-offer surface is the part a drag cannot replace, so the
-    legacy path is proven live end to end: a project arriving with auto
-    off (driven at the endpoint, the way a saved file arrives) raises the
-    amber auto-off row with its offer, and taking the offer turns auto
-    back on."""
+    the dock's drag). The refuse-and-offer surface is the part a drag
+    cannot replace, so it is proven live end to end: a stranded pin raises
+    a RED row (a question, not a condition) whose button is the Release
+    offer, and taking it releases the pin as one 'Release Ports' step.
+    Auto-numbering is retired outright (user ruling, 2026-09-03): the old
+    switch answers 410 and changes nothing, and no auto-off row exists to
+    render."""
     pytest.importorskip("playwright.sync_api", reason="playwright not installed")
     ids = panel_page.evaluate(RESET_PROCESSORS_JS)
     panel_page.wait_for_timeout(800)
@@ -2637,38 +2660,72 @@ def test_the_dock_strip_reports_offers_and_recovers_auto(panel_page):
     assert shape['cardGlance'] and '/' in shape['cardGlance'], (
         f'the per-card usage glance is gone from the card header: {shape}')
 
-    # a legacy project's auto:false raises the auto-off issue and its offer
-    panel_page.evaluate(
-        "() => window.app._assignmentRequest("
-        "'/api/port-assignments', 'PUT', {auto: false})")
+    # a stranded pin raises a red row whose button is the Release offer
+    raised = panel_page.evaluate(GHOST_PIN_JS, ids['cardId'])
     panel_page.wait_for_timeout(800)
+    assert raised == 1, f'the orphaned pin never came up as an issue: {raised}'
     issue = panel_page.evaluate("""() => {
         const strip = document.getElementById('hw-dock-issues');
-        const offer = [...strip.querySelectorAll('button')]
-            .find(b => b.textContent.includes('auto-numbering on'));
-        const row = offer && offer.closest('.hw-dock-issue');
-        return {text: strip.textContent, offer: !!offer,
+        const row = [...strip.querySelectorAll('.hw-dock-issue')]
+            .find(r => r.textContent.includes('no longer in the project'));
+        const buttons = row ? [...row.querySelectorAll('button')] : [];
+        return {text: strip.textContent, row: !!row,
+                buttons: buttons.map(b => b.textContent.trim()),
+                releaseTitle: buttons[0] ? buttons[0].title : null,
                 mild: !!(row && row.classList.contains(
                     'hw-dock-issue-mild'))};
     }""")
-    assert issue['offer'], f'the auto-off issue carries no offer: {issue}'
-    assert issue['mild'], (
-        f'auto-off is a condition, not a question - it wears the amber '
+    assert issue['row'], f'the stranded-pin row never rendered: {issue}'
+    assert issue['buttons'] == ['Release pin'], (
+        f'the stranded-pin row carries something other than its Release '
+        f'offer: {issue}')
+    assert 'unattached' in (issue['releaseTitle'] or ''), issue
+    assert not issue['mild'], (
+        f'a stranded pin is a question, not a condition - it wears the red '
         f'row: {issue}')
 
-    # taking the offer is the recovery path - auto back on, issue gone
+    # taking the offer releases the pin: row gone, one 'Release Ports' step
     panel_page.evaluate("""() => {
-        [...document.querySelectorAll('#hw-dock-issues button')]
-            .find(b => b.textContent.includes('auto-numbering on')).click();
+        [...document.querySelectorAll('#hw-dock-issues .hw-dock-issue')]
+            .find(r => r.textContent.includes('no longer in the project'))
+            .querySelector('button').click();
     }""")
     panel_page.wait_for_timeout(800)
     after = panel_page.evaluate("""() => ({
-        on: !!(window.app._assignment && window.app._assignment.auto),
         issues: document.getElementById('hw-dock-issues').textContent,
+        pins: ((window.app.project.port_assignments || {}).pins || [])
+            .filter(p => p.layerId === 'ghost-screen').length,
+        last: window.app.history.map(h => h.action).slice(-1),
     })""")
-    assert after['on'], f'the offer did not turn auto back on: {after}'
-    assert 'auto' not in after['issues'].lower() or after['issues'] == '', (
-        f'the auto-off issue is still up: {after}')
+    assert 'no longer in the project' not in after['issues'], (
+        f'the stranded-pin row is still up: {after}')
+    assert after['pins'] == 0, f'the offer did not release the pin: {after}'
+    assert after['last'] == ['Release Ports'], after
+
+    # the retired switch: 410, and nothing changes - no state, no row
+    gone = panel_page.evaluate("""async () => {
+        const app = window.app;
+        const before = JSON.stringify(app._assignment);
+        const resp = await fetch('/api/port-assignments', {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ auto: false }),
+        });
+        const body = await resp.json();
+        await app.refreshPortAssignment();
+        return {
+            status: resp.status, error: body.error || null,
+            same: JSON.stringify(app._assignment) === before,
+            hasAutoKey: 'auto' in (app._assignment || {}),
+            issues: document.getElementById('hw-dock-issues').textContent,
+        };
+    }""")
+    assert gone['status'] == 410, f'the retired switch still answers: {gone}'
+    assert gone['error'] and 'retired' in gone['error'], gone
+    assert gone['same'], f'a 410 changed the assignment: {gone}'
+    assert not gone['hasAutoKey'], (
+        f'the resolution still carries an auto flag: {gone}')
+    assert 'uto-numbering' not in gone['issues'], (
+        f'the retired auto-off row is back: {gone}')
 
 
 def test_the_return_template_round_trips_through_undo(panel_page):
@@ -2849,6 +2906,15 @@ FOLD_SEED_JS = """async () => {
         }
     } catch (e) { /* blocked storage never held the keys */ }
     await window.app.refreshProcessors();
+    // Nothing lands by itself (auto retired, 2026-09-03): the live screen
+    // is put ON the SX40 by an explicit fill - off any card a previous
+    // seed left it on first, so a recurring card id cannot leave it
+    // sitting on the MX20.
+    await window.app._assignmentRequest('/api/port-assignments/unpin',
+        'POST', { layerId: String(screen.id) });
+    await window.app._assignmentRequest(
+        '/api/port-assignments/place-overflow', 'POST',
+        { layerId: String(screen.id), cardId: sxCard.id });
     return { sx, mx, sxCard: sxCard.id, mxCard: mxCard.id, resolved };
 }"""
 
@@ -3001,7 +3067,7 @@ def test_the_glance_follows_the_occupancy_as_screens_arrive(panel_page):
         before = panel_page.evaluate(
             """(ids) => (window.app._assignment.cards || [])
                    .find(c => c.cardId === ids.sxCard)""", ids)
-        panel_page.evaluate("""async () => {
+        panel_page.evaluate("""async (ids) => {
             await fetch('/api/layer/add', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -3012,7 +3078,14 @@ def test_the_glance_follows_the_occupancy_as_screens_arrive(panel_page):
             window.app.project =
                 await (await fetch('/api/project')).json();
             await window.app.refreshPortAssignment();
-        }""")
+            // the arrival is the drag (auto retired, 2026-09-03): a
+            // screen takes ports only when somebody puts it on a card
+            const wallB = window.app.project.layers
+                .find(l => l.name === 'WallB');
+            await window.app._assignmentRequest(
+                '/api/port-assignments/place-overflow', 'POST',
+                { layerId: String(wallB.id), cardId: ids.sxCard });
+        }""", ids)
         panel_page.wait_for_timeout(500)
         after = panel_page.evaluate(
             """(ids) => (window.app._assignment.cards || [])

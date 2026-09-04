@@ -2709,6 +2709,19 @@ class _ExportIo {
                     const idx = parseInt(action.replace('recent-file-', ''), 10);
                     this.loadRecentFile(idx);
                 }
+                // The outputs submenu's entries, armed at open time on the
+                // screen the cursor named (showContextMenu stored them),
+                // re-checked here like every hw item - a disabled entry is
+                // a sentence, never a control.
+                if (action && action.startsWith('hw-out-')) {
+                    const i = parseInt(action.replace('hw-out-', ''), 10);
+                    const en = this._outputsMenuActions
+                        && this._outputsMenuActions.entries
+                        && this._outputsMenuActions.entries[i];
+                    if (en && !en.disabled && typeof en.run === 'function') {
+                        en.run();
+                    }
+                }
                 break;
         }
     }

@@ -3,6 +3,10 @@
 import { LEDRasterApp } from './app-core.js';
 import { sendClientLog } from './helpers.js';
 
+// Float sums of derated watts land a hair over an exact multiple; a circuit
+// that is precisely full is full, not over. See customRunCapacity.
+const CUSTOM_RUN_EPS = 1e-6;
+
 class _Power {
 
     // The soca / splitter / distro panels build their markup as strings and
@@ -66,8 +70,16 @@ class _Power {
         const ovr = (!inDock && typeof this._prepareOverrideMenu === 'function')
             ? this._prepareOverrideMenu(x, y) : null;
         this._overrideMenuActions = ovr;
+        // Distro outputs, the click path (2026-08-31): on a screen in the
+        // power view - its cabinets, or its circuit chips in the tray -
+        // "Add <type> from…" opens a submenu of every distro, the ones
+        // offering the screen's connector with their load, the rest greyed
+        // with the reason (app-dock.js _prepareOutputsMenu).
+        const outs = (typeof this._prepareOutputsMenu === 'function')
+            ? this._prepareOutputsMenu(x, y) : null;
+        this._outputsMenuActions = outs;
         if (inDock && !clear && !merge && !sharing.share
-                && !sharing.unshare) {
+                && !sharing.unshare && !outs) {
             this.hideContextMenu();
             return;
         }
@@ -76,8 +88,9 @@ class _Power {
         menu.querySelectorAll(
             '.menu-option:not(.hw-clear-only):not(.hw-merge-only)'
             + ':not(.hw-share-only):not(.hw-unshare-only)'
-            + ':not(.hw-batch-only), '
-            + '.menu-divider:not(.hw-clear-only):not(.hw-batch-only)')
+            + ':not(.hw-batch-only):not(.hw-out-only), '
+            + '.menu-divider:not(.hw-clear-only):not(.hw-batch-only)'
+            + ':not(.hw-out-only)')
             .forEach(el => {
                 el.style.display = inDock ? 'none' : '';
             });
@@ -171,6 +184,28 @@ class _Power {
         const bdiv = menu.querySelector('.menu-divider.hw-batch-only');
         if (bdiv && (batchEntries.length || (batch && batch.unshare))) {
             bdiv.style.display = '';
+        }
+        // The outputs submenu: parent label names the screen's connector,
+        // one entry per distro written at open time like every hw item.
+        menu.querySelectorAll('.hw-out-only').forEach(el => {
+            el.style.display = outs ? '' : 'none';
+        });
+        if (outs) {
+            const lbl = menu.querySelector('#hw-outputs-label');
+            if (lbl) lbl.textContent = outs.label;
+            const sub = menu.querySelector('#hw-outputs-submenu');
+            if (sub) {
+                sub.innerHTML = '';
+                outs.entries.forEach((en, i) => {
+                    const item = document.createElement('div');
+                    item.className = 'menu-option'
+                        + (en.disabled ? ' menu-disabled' : '');
+                    item.dataset.action = `hw-out-${i}`;
+                    item.textContent = en.label;
+                    item.title = en.title || '';
+                    sub.appendChild(item);
+                });
+            }
         }
         [['hw-share-only', 'hw-share', sharing.share],
          ['hw-unshare-only', 'hw-unshare', sharing.unshare],
@@ -290,6 +325,26 @@ class _Power {
         const next = at === -1 ? 0
             : Math.max(0, Math.min(nums.length - 1, at + delta));
         return nums[next];
+    }
+
+    // A step button (Next / Prev, data and power) is a MOUSE control. A
+    // button keeps keyboard focus after a click, and a focused button
+    // re-fires on Enter and Space - so "click Next, press Enter" stepped
+    // twice and the circuit numbers skipped one, which is how a brand-new
+    // show ended up drawn 1-4, 6-23 (user, 2026-09-03). Tab from the
+    // focused button used to step too; the document handler in canvas.js
+    // now leaves Tab to a focused control. The keyboard's way to step is
+    // Tab / Shift+Tab and [ / ] on the canvas, unchanged - the buttons
+    // themselves just stop answering keys.
+    _armStepButton(btn) {
+        if (!btn) return;
+        const swallow = (e) => {
+            if (e.code === 'Enter' || e.code === 'NumpadEnter' || e.code === 'Space') {
+                e.preventDefault();
+            }
+        };
+        btn.addEventListener('keydown', swallow);
+        btn.addEventListener('keyup', swallow);
     }
 
     stepCustomPort(delta) {
@@ -494,7 +549,8 @@ class _Power {
                 }
             }
         }
-        
+        // The cap under the custom controls reads the same figures.
+        this._syncCustomFillReadout('data');
     }
 
     updatePowerCapacityDisplay() {
@@ -558,6 +614,8 @@ class _Power {
         layer._powerCircuitsRequired = circuitsRequired;
         if (amps1El) amps1El.textContent = totalAmps1 ? totalAmps1.toFixed(2) + ' A' : '0';
         if (amps3El) amps3El.textContent = totalAmps3 ? totalAmps3.toFixed(2) + ' A' : '0';
+        // The cap under the custom controls reads the same figures.
+        this._syncCustomFillReadout('power');
         // Deferred, not called inline: this runs synchronously inside the
         // change handlers of the static Power fields (panel watts, voltage,
         // amperage). The knob syncs are cheap, but refreshDistroPanel is a
@@ -990,7 +1048,8 @@ class _Power {
                 soca: n,
                 number: info ? info.number : n,
                 name: (info && info.name)
-                    || this._deriveMultiName(nm.tpl.prefix || 'S', n, nm.tpl),
+                    || this._deriveMultiName(nm.tpl.prefix || 'S',
+                                             (nm.tpl.start || 1) + n - 1, nm.tpl),
                 distroId: (info && info.distroId) || null,
                 legs: [], watts: 0, x1: Infinity, x2: -Infinity
             };
@@ -1113,6 +1172,134 @@ class _Power {
         this.updateLayers([layer], true, 'Change Power Breakout');
     }
 
+    // ---- distro outputs -----------------------------------------------------
+    //
+    // The connector TYPES a distro can hand a screen (user ruling,
+    // 2026-08-31: types only, no counts - the rating already bounds the
+    // service and the LEGS line already says where it is). Each type names
+    // the screen breakouts it can feed, and that table IS the matching
+    // rule: a Soca 208 lands on a Multi -> True1 / powerCON screen, a Soca
+    // 120 on an Edison screen, an L21-30 on an L21-30 box. Nothing is
+    // extrapolated past the table - a breakout no type names (L6-20) is a
+    // mismatch like any other, refused with the fix said out loud, never
+    // silently re-typed. `faces` are the breakout connectors the popover
+    // row shows beside the type; `badge` is the bracket's text sub-pill.
+    getDistroOutputTypes() {
+        return [
+            { id: 'soca208', name: 'Soca 208', sub: 'True1 / powerCON',
+              glyph: 'soca', faces: ['true1', 'powercon'],
+              breakouts: ['soca-true1', 'soca-powercon'], badge: 'SOCA 208' },
+            { id: 'soca120', name: 'Soca 120', sub: 'Edison',
+              glyph: 'soca', faces: ['edison'],
+              breakouts: ['soca-edison'], badge: 'SOCA 120' },
+            { id: 'l2130', name: 'L21-30', sub: '3 × 208V',
+              glyph: 'l2130', faces: ['true1', 'powercon'],
+              breakouts: ['l2130-true1', 'l2130-powercon'], badge: 'L21-30' },
+        ];
+    }
+
+    // What one distro offers, as type records, in catalog order. No
+    // `outputs` key - every file from before the key existed, and a
+    // freshly added distro - reads as "offers everything", so nothing an
+    // older show could drag stops dragging. An explicit list, the empty
+    // one included, is somebody's paperwork and stands as written.
+    distroOutputs(d) {
+        const types = this.getDistroOutputTypes();
+        if (!d || !Array.isArray(d.outputs)) return types;
+        return types.filter(t => d.outputs.includes(t.id));
+    }
+
+    distroOffers(d, typeId) {
+        return this.distroOutputs(d).some(t => t.id === typeId);
+    }
+
+    // The output type a screen's (effective) breakout takes, or null for a
+    // breakout the table does not name.
+    outputTypeForBreakout(bt) {
+        const id = bt && bt.id;
+        return this.getDistroOutputTypes()
+            .find(t => t.breakouts.includes(id)) || null;
+    }
+
+    // How a refusal names the screen's breakout - "set to L21-30", "set to
+    // Edison (110V)" - the connector the box is set to, said the way the
+    // crew says it.
+    _breakoutShortName(bt) {
+        if (!bt) return 'an unknown breakout';
+        if (String(bt.id).startsWith('l2130-')) return 'L21-30';
+        if (bt.id === 'soca-edison') return 'Edison (110V)';
+        return bt.name;
+    }
+
+    // The five connector FACES - what a hand sees reaching for the box:
+    // soca (19-pin round multi), True1 (keyed round, three contacts),
+    // powerCON (round with the locking tab), Edison (two slots, ground
+    // below), L21-30 (twist-lock, five curved slots). One <symbol> sprite
+    // on the body; every chip, popover row and drag pill references a face
+    // through plugGlyph, so the same five faces show everywhere.
+    _ensurePlugGlyphs() {
+        if (document.getElementById('hw-plug-glyphs')) return;
+        const host = document.createElement('div');
+        host.innerHTML = '<svg id="hw-plug-glyphs" width="0" height="0" '
+            + 'style="position:absolute" aria-hidden="true"><defs>'
+            + '<symbol id="hw-g-soca" viewBox="0 0 24 24">'
+            + '<circle cx="12" cy="12" r="10.3"/>'
+            + '<circle class="pin" cx="12" cy="12" r="1"/><g class="pin">'
+            + '<circle cx="12" cy="8" r=".9"/><circle cx="15.5" cy="10" r=".9"/>'
+            + '<circle cx="15.5" cy="14" r=".9"/><circle cx="12" cy="16" r=".9"/>'
+            + '<circle cx="8.5" cy="14" r=".9"/><circle cx="8.5" cy="10" r=".9"/>'
+            + '<circle cx="12" cy="4.6" r=".8"/><circle cx="15.7" cy="5.6" r=".8"/>'
+            + '<circle cx="18.4" cy="8.3" r=".8"/><circle cx="19.4" cy="12" r=".8"/>'
+            + '<circle cx="18.4" cy="15.7" r=".8"/><circle cx="15.7" cy="18.4" r=".8"/>'
+            + '<circle cx="12" cy="19.4" r=".8"/><circle cx="8.3" cy="18.4" r=".8"/>'
+            + '<circle cx="5.6" cy="15.7" r=".8"/><circle cx="4.6" cy="12" r=".8"/>'
+            + '<circle cx="5.6" cy="8.3" r=".8"/><circle cx="8.3" cy="5.6" r=".8"/>'
+            + '</g></symbol>'
+            + '<symbol id="hw-g-true1" viewBox="0 0 24 24">'
+            + '<path d="M7 3.6 H17 A10 10 0 1 1 7 3.6 Z"/>'
+            + '<rect class="pin" x="10.6" y="3" width="2.8" height="2.2" rx=".4"/>'
+            + '<rect class="pin" x="7.2" y="10" width="2.2" height="5" rx=".6"/>'
+            + '<rect class="pin" x="14.6" y="10" width="2.2" height="5" rx=".6"/>'
+            + '<rect class="pin" x="10.9" y="14.8" width="2.2" height="4" rx=".6"/>'
+            + '</symbol>'
+            + '<symbol id="hw-g-powercon" viewBox="0 0 24 24">'
+            + '<circle cx="12" cy="12" r="9.8"/><path d="M17.6 4.4 l2.6 -2.2"/>'
+            + '<rect class="pin" x="11" y="5.2" width="2" height="4.6" rx=".5"/>'
+            + '<rect class="pin" x="6.2" y="13.2" width="2" height="4.6" rx=".5" '
+            + 'transform="rotate(30 7.2 15.5)"/>'
+            + '<rect class="pin" x="15.8" y="13.2" width="2" height="4.6" rx=".5" '
+            + 'transform="rotate(-30 16.8 15.5)"/>'
+            + '</symbol>'
+            + '<symbol id="hw-g-edison" viewBox="0 0 24 24">'
+            + '<rect x="3" y="3" width="18" height="18" rx="4"/>'
+            + '<rect class="pin" x="7" y="7" width="2.2" height="6" rx=".5"/>'
+            + '<rect class="pin" x="14.8" y="7.8" width="2.2" height="5.2" rx=".5"/>'
+            + '<path class="pin" d="M10.2 17.8 v-2 a1.8 1.8 0 0 1 3.6 0 v2 z"/>'
+            + '</symbol>'
+            + '<symbol id="hw-g-l2130" viewBox="0 0 24 24">'
+            + '<circle cx="12" cy="12" r="10.3"/><circle cx="12" cy="12" r="1.2"/>'
+            + '<g stroke-width="2.4" stroke-linecap="round" fill="none">'
+            + '<path d="M11 5.4 a6.8 6.8 0 0 1 2.2 0"/>'
+            + '<path d="M17.7 9.3 a6.8 6.8 0 0 1 .8 2.2"/>'
+            + '<path d="M16.9 16.6 a6.8 6.8 0 0 1 -1.7 1.5"/>'
+            + '<path d="M8.8 18.1 a6.8 6.8 0 0 1 -1.7 -1.5"/>'
+            + '<path d="M5.5 11.5 a6.8 6.8 0 0 1 .8 -2.2"/>'
+            + '</g></symbol>'
+            + '</defs></svg>';
+        document.body.appendChild(host.firstChild);
+    }
+
+    plugGlyph(id, cls) {
+        this._ensurePlugGlyphs();
+        const ns = 'http://www.w3.org/2000/svg';
+        const svg = document.createElementNS(ns, 'svg');
+        svg.setAttribute('class', 'hw-plug-g' + (cls ? ` ${cls}` : ''));
+        const use = document.createElementNS(ns, 'use');
+        use.setAttribute('href', `#hw-g-${id}`);
+        svg.appendChild(use);
+        return svg;
+    }
+
     // ---- distros / circuit groups -------------------------------------------
 
     // A distro is a project-level power source with its own rating, voltage
@@ -1174,6 +1361,18 @@ class _Power {
         // Where the box physically sits - the dimmer beach, stage left
         // world. Prints on every power label that names this distro.
         if (patch.location !== undefined) d.location = String(patch.location).trim() || null;
+        // The connector types it offers (the ⚙ OUTPUTS checklist). Stored
+        // in catalog order, unknown ids dropped; null forgets the key,
+        // which reads as "offers everything" again (distroOutputs).
+        if (patch.outputs !== undefined) {
+            if (Array.isArray(patch.outputs)) {
+                const want = patch.outputs.map(String);
+                d.outputs = this.getDistroOutputTypes()
+                    .map(t => t.id).filter(id => want.includes(id));
+            } else {
+                delete d.outputs;
+            }
+        }
         // The NAME is a label input: every multi following this distro is
         // renamed by it, and so is every circuit hanging off those multis.
         // (Location is not - it is descriptive and names nothing.)
@@ -2656,6 +2855,60 @@ class _Power {
         row3.appendChild(loc);
         wrap.appendChild(row3);
 
+        // OUTPUTS (2026-08-31): the connector types this distro can hand a
+        // screen - types only, no counts. One tick row per type: face,
+        // plain name, what it breaks out to. Every row is sized to stay
+        // inside the popover's own box (the resize suite pins it): names
+        // never wrap, the breakout text ellipsizes before it can push
+        // past the edge.
+        const outs = document.createElement('div');
+        outs.className = 'hw-pop-outs';
+        const outsCap = document.createElement('div');
+        outsCap.className = 'hw-pop-outs-cap';
+        outsCap.appendChild(cap('Outputs'));
+        const outsSub = document.createElement('small');
+        outsSub.textContent = 'what this distro can hand a screen';
+        outsCap.appendChild(outsSub);
+        outs.appendChild(outsCap);
+        const offered = new Set(this.distroOutputs(d).map(t => t.id));
+        this.getDistroOutputTypes().forEach(t => {
+            const row = document.createElement('label');
+            row.className = 'hw-pop-out'
+                + (offered.has(t.id) ? '' : ' hw-pop-out-off');
+            row.title = `${t.name} → ${t.sub}. Ticked, the tray shows a `
+                + `${t.name} chip under this distro's LEGS line to drag `
+                + 'onto a screen; unticked, it never does.';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.checked = offered.has(t.id);
+            cb.dataset.lrdField = `distro-out-${t.id}-${d.id}`;
+            cb.addEventListener('change', () => {
+                const live = this.getDistros().find(x => x.id === d.id) || d;
+                const now = new Set(this.distroOutputs(live).map(x => x.id));
+                if (cb.checked) now.add(t.id); else now.delete(t.id);
+                patch({ outputs: this.getDistroOutputTypes()
+                    .map(x => x.id).filter(id => now.has(id)) });
+            });
+            row.appendChild(cb);
+            row.appendChild(this.plugGlyph(t.glyph));
+            const name = document.createElement('b');
+            name.textContent = t.name;
+            row.appendChild(name);
+            const sub = document.createElement('small');
+            sub.className = 'hw-pop-out-sub';
+            t.faces.forEach(f => sub.appendChild(this.plugGlyph(f)));
+            sub.appendChild(document.createTextNode(t.sub));
+            row.appendChild(sub);
+            outs.appendChild(row);
+        });
+        const hint = document.createElement('div');
+        hint.className = 'hw-pop-outs-hint';
+        hint.textContent = 'Unticked types never show as chips. A distro '
+            + 'with nothing ticked still drags whole onto a screen, as it '
+            + 'always has.';
+        outs.appendChild(hint);
+        wrap.appendChild(outs);
+
         const remove = document.createElement('button');
         remove.className = 'btn hw-pop-remove';
         remove.textContent = 'Remove distro';
@@ -2737,7 +2990,8 @@ class _Power {
         if (err.unitType) {
             const across = err.unitType === 'row' ? 'column' : 'row';
             return `a full ${err.unitType} is ${fmt(err.unitLoad || 0)} and ${circuit}. `
-                + `Fix in Power Settings: higher voltage or amperage, a ${across} pattern, or a custom path.`;
+                + `Fix in Power Settings: higher voltage or amperage, a ${across} pattern, or a custom path `
+                + `(select a narrower block and apply a pattern — circuits cut at capacity).`;
         }
         // PANEL WATTS EXCEED CIRCUIT CAPACITY: one cabinet alone is over,
         // so no pattern can help.
@@ -3761,8 +4015,31 @@ class _Power {
     //      A digit-ending distro name gets a separator first (_deriveMultiName):
     //      DISTRO 1's multis are DISTRO 1-1, DISTRO 1-2, never DISTRO 11
     //   4. the screen's powerLabelTemplate prefix plus the number - the
-    //      fallback for a multi on no distro
+    //      fallback for a multi on no distro. Numbered PER SCREEN from the
+    //      template's own number (S1-# -> S1, S2, S3 on every screen that
+    //      carries it), never out of a show-wide bucket: uniqueness across
+    //      screens is the distro's job, not the template's (ruling
+    //      2026-09-03, "SL main starts with 7-1")
     //
+    // The circuits a screen is NAMED by. For an automatic screen that is its
+    // plan. For a screen in custom mode it is the circuits the user DREW
+    // and nothing else - never the automatic requirement screenCircuits
+    // offers an unrouted custom screen for the distro roll-ups. That
+    // fallback is the right count of cables to order, but as a naming
+    // source it is a phantom: on the user's 28-wide wall it is empty (a
+    // full row does not fit one circuit) and on a narrower wall it is 52
+    // circuits that vanish the moment the first cabinet is clicked. A label
+    // read off it named the active circuit by boxes that were never going
+    // to exist (user, 2026-09-03: "i dont even have a port drawn and it
+    // shows S3-1 but when i draw it changes to 1-1"). An unrouted custom
+    // screen has no multis, so it takes no multi numbers and shifts no
+    // other screen's - its first drawn circuit opens its first box.
+    _labelCircuits(layer) {
+        if (!layer || typeof this.screenCircuits !== 'function') return [];
+        if (this.isCustomPower(layer) && !this.usesCustomCircuits(layer)) return [];
+        return this.screenCircuits(layer) || [];
+    }
+
     // Cached by layer object for the current render burst and dropped on the
     // next microtask: getPowerCircuitLabel runs for every circuit of every
     // screen on every frame, so it must never walk the show itself.
@@ -3786,8 +4063,7 @@ class _Power {
         const pins = new Map();         // distro id -> Set(pinned numbers)
         const circuitsBy = new Map();
         for (const l of screens) {
-            const circuits = (typeof this.screenCircuits === 'function'
-                && this.screenCircuits(l)) || [];
+            const circuits = this._labelCircuits(l);
             circuitsBy.set(l, circuits);
             const assign = l.powerSocaDistro || {};
             const chosen = l.powerSocaNumber || {};
@@ -3853,7 +4129,7 @@ class _Power {
         if (!layer || typeof this.screenCircuits !== 'function') {
             return { socas, slots, tpl };
         }
-        const circuits = circuitsIn || this.screenCircuits(layer) || [];
+        const circuits = circuitsIn || this._labelCircuits(layer);
         const assign = layer.powerSocaDistro || {};
         const named = layer.powerSocaNames || {};
         const chosen = layer.powerSocaNumber || {};
@@ -3871,32 +4147,40 @@ class _Power {
         });
         for (const [idx, nums] of perSoca) {
             const distroId = assign[idx] || null;
-            // An unassigned multi still gets a number, out of its own bucket -
-            // the same one getDistroLoads books its watts to - so nothing on
-            // the drawing goes blank waiting for a distro.
-            const bucket = distroId || '';
             const pin = distroId ? parseInt(chosen[idx], 10) : NaN;
             const pinned = Number.isFinite(pin) && pin >= 1;
             let number;
             if (pinned) {
                 number = pin;
-            } else {
-                // Next auto number, skipping every slot a pin claimed - a
-                // pin owns its number outright, wherever the pinned screen
-                // sits in layer order. With no pins this is the plain
-                // sequence it has always been.
-                const taken = (pins && pins.get(bucket)) || null;
-                let n = seq.get(bucket) || 0;
+            } else if (distroId) {
+                // Next auto number ON THAT DISTRO, skipping every slot a
+                // pin claimed - a pin owns its number outright, wherever
+                // the pinned screen sits in layer order. With no pins this
+                // is the plain per-distro sequence it has always been.
+                const taken = (pins && pins.get(distroId)) || null;
+                let n = seq.get(distroId) || 0;
                 do { n += 1; } while (taken && taken.has(n));
-                seq.set(bucket, n);
+                seq.set(distroId, n);
                 number = n;
+            } else {
+                // No distro: the SCREEN'S OWN template numbers its multis,
+                // from the template's number, per screen - S1-# names this
+                // screen's boxes S1, S2, S3 whatever every other screen
+                // prints. These multis used to take numbers out of a
+                // show-wide "unassigned" bucket in layer order, so a show
+                // of four S1-# screens with no distro read S1, S6, S7 and
+                // S12 down its layer list (user, 2026-09-03: "look at all
+                // the drawn ports they are all wrong SL main starts with
+                // 7-1"). Ruling: uniqueness across screens is not the
+                // template's job - a distro names its multis uniquely, a
+                // template names them the way it says. This is also the
+                // number the pre-index arithmetic always printed, so the
+                // per-screen ordinal and the raw number agree wherever the
+                // drawn set has no gap.
+                number = tpl.start + idx - 1;
             }
-            const distro = distroId ? distros.find(d => d.id === distroId) : null;
             const hand = String(named[idx] || '').trim();
-            const name = hand
-                || (distro && String(distro.name || '').trim()
-                    ? this._deriveMultiName(String(distro.name).trim(), number, tpl) : '')
-                || (tpl.ok ? this._deriveMultiName(tpl.prefix, number, tpl) : '');
+            const name = this._multiNameFor(layer, idx, number, distroId, tpl, distros);
             if (pinned) {
                 // Tails deferred: whether this pin shares its (distro,
                 // number) - and therefore which tails are free - is only
@@ -3921,6 +4205,24 @@ class _Power {
             }));
         }
         return { socas, slots, tpl };
+    }
+
+    // Rungs 2-4 of the name ladder for one multi (rung 1, the per-circuit
+    // override, is the label authority's): the name somebody typed on it,
+    // else its distro's name plus its number under that distro, else the
+    // screen's template prefix plus its number. One function so the multis
+    // the plan holds and the one a circuit is about to open climb the same
+    // ladder - _predictedCircuitSlot names the box a not-yet-drawn circuit
+    // will land on with this, and it must print what _namingFor will print
+    // once the circuit is drawn.
+    _multiNameFor(layer, idx, number, distroId, tpl, distros) {
+        const hand = String(((layer && layer.powerSocaNames) || {})[idx] || '').trim();
+        if (hand) return hand;
+        const list = distros || this.getDistros();
+        const distro = distroId ? list.find(d => d.id === distroId) : null;
+        const base = distro ? String(distro.name || '').trim() : '';
+        if (base) return this._deriveMultiName(base, number, tpl);
+        return tpl.ok ? this._deriveMultiName(tpl.prefix, number, tpl) : '';
     }
 
     // Deal each shared box's six tails across its members, and say out loud
@@ -4060,16 +4362,93 @@ class _Power {
         if (slot && slot.name) {
             return `${slot.name}${tpl.sep}${slot.tail}${tpl.suffix}`;
         }
-        // A circuit the plan does not hold - an editor row past the drawn
-        // circuits - or a template with no multi number to name. Both keep
-        // the arithmetic they have always had, wrapped at the screen's own
-        // box size (six on a soca, three on an L21-30).
+        // A template with no multi number in it has no multi to name.
         if (!tpl.ok) return tpl.raw.replace('#', circuitNum);
-        const size = this.socaBoxSize(layer);
+        // A circuit the plan does not hold: the number the custom badge is
+        // drawing under before its first cabinet lands, an editor row past
+        // the drawn circuits. It is named by WHERE IT WILL LAND - the multi
+        // and the tail the index above hands it the moment it holds a
+        // cabinet - and never by arithmetic on the raw number. The two used
+        // to disagree the moment the drawn numbers had a gap in them (a
+        // cleared circuit, a skipped number, a splitter merge): the plan
+        // names a circuit by its position on the fan, so with 2 empty the
+        // drawn 13 lands on ordinal 12 and reads S2-6, while floor((13-1)/6)
+        // said S3-1. The badge printed the arithmetic and the bubble printed
+        // the plan (user, 2026-09-03: "it would say 3-1 and do 2-6. 2-6 was
+        // actually correct. then it would go to 3-2 and i'd be drawing
+        // 3-1"). One authority, one answer, before and after the click.
+        const p = this._predictedCircuitSlot(layer, nm, circuitNum);
+        return `${p.name}${tpl.sep}${p.tail}${tpl.suffix}`;
+    }
+
+    // Where circuit `circuitNum` WOULD land if it were drawn now: the multi
+    // and physical tail the naming index will give it once it holds a
+    // cabinet. Its ordinal is its place among the plan's circuit numbers
+    // (with no gap that is the number itself), its multi the split-aware
+    // segment that ordinal falls in, and its tail the box's lowest free tail
+    // dealt in wall order with the tails already occupied - so a contiguous
+    // 1..12 predicts 13 as S3-1, and 1,3..12 predicts 13 as S2-6, exactly
+    // what the drawn circuit reads. A multi the plan does not have yet takes
+    // the next number in its bucket and the same name ladder _namingFor
+    // walks (hand-typed, distro-derived, template), so the label is the
+    // label the wall prints, not a guess at it.
+    _predictedCircuitSlot(layer, nm, circuitNum) {
         const n = Math.max(1, parseInt(circuitNum, 10) || 1);
-        const multi = tpl.start + Math.floor((n - 1) / size);
-        const circuitInMulti = ((n - 1) % size) + 1;
-        return `${tpl.prefix}${multi}${tpl.sep}${circuitInMulti}${tpl.suffix}`;
+        const drawn = [...nm.slots.keys()];
+        const ordinal = drawn.filter(k => k < n).length + 1;
+        const segs = this._socaSegments(layer, drawn.length + 1);
+        const seg = segs.find(s => ordinal >= s.start && ordinal <= s.end)
+            || segs[segs.length - 1];
+        const idx = seg.index;
+        const at = ordinal - seg.start + 1;
+        const rec = nm.socas.get(idx);
+        if (rec) {
+            // The box exists: the newcomer takes its lowest free tail, and
+            // the box's tails are then read ascending in wall order - the
+            // same rule socaCircuitPositions applies to a stored set.
+            const have = (rec.positions || []).slice();
+            let free = 1;
+            while (have.includes(free)) free += 1;
+            const tails = have.concat(free).sort((a, b) => a - b);
+            return { name: rec.name, tail: tails[at - 1] || at };
+        }
+        // A multi the plan does not have yet, numbered the way _namingFor
+        // will number it once it exists. On no distro that is the screen's
+        // own template number for this multi index - per screen, so the
+        // first box a screen opens is S1 whatever the rest of the show
+        // prints. On a distro it is the running sequence of that distro,
+        // walked in PROJECT LAYER ORDER up to and including this screen,
+        // next free number, every pin on the distro skipped - not "the
+        // show's last number plus one", which on a show whose FIRST screen
+        // is the one being drawn named its first box after every box the
+        // later screens already had. Its name comes off the same ladder the
+        // drawn multis climb.
+        const distroId = (layer.powerSocaDistro || {})[idx] || null;
+        let number = nm.tpl.start + idx - 1;
+        if (distroId) {
+            const screens = ((this.project && this.project.layers) || [])
+                .filter(l => (l.type || 'screen') === 'screen');
+            const entryOf = (l) => (this._circuitTailCache && this._circuitTailCache.get(l))
+                || (l === layer ? nm : null);
+            const pinned = new Set();
+            let seq = 0;
+            for (const l of screens.includes(layer) ? screens : [layer]) {
+                const entry = entryOf(l);
+                if (!entry) continue;
+                for (const r of entry.socas.values()) {
+                    if (r.distroId !== distroId) continue;
+                    if (r.pinned) pinned.add(r.number);
+                    else if (l === layer || screens.indexOf(l) < screens.indexOf(layer)) {
+                        seq = Math.max(seq, r.number);
+                    }
+                }
+            }
+            number = seq;
+            do { number += 1; } while (pinned.has(number));
+        }
+        const name = this._multiNameFor(layer, idx, number, distroId, nm.tpl);
+        const pos = this.socaCircuitPositions(layer, idx, at);
+        return { name, tail: pos[at - 1] || at };
     }
 
     getDefaultPowerCircuitColors() {
@@ -4343,6 +4722,7 @@ class _Power {
         if (window.canvasRenderer && window.canvasRenderer.viewMode === 'data-flow') {
             window.canvasRenderer.canvas.style.cursor = isCustom ? 'crosshair' : 'default';
         }
+        this._syncCustomFillReadout('data');
     }
 
     isCustomPower(layer) {
@@ -4402,6 +4782,7 @@ class _Power {
         if (window.canvasRenderer && window.canvasRenderer.viewMode === 'power') {
             window.canvasRenderer.canvas.style.cursor = isCustom ? 'crosshair' : 'default';
         }
+        this._syncCustomFillReadout('power');
     }
 
     getPanelKey(panel) {
@@ -5394,6 +5775,150 @@ class _Power {
         return layers;
     }
 
+    // ── Capacity while drawing by hand ────────────────────────────────────
+    //
+    // The wall this was built for: 28 cabinets wide on 110 V / 15 A, so
+    // automatic power refuses ("a full row is N W and a circuit carries
+    // M W"). The way round it is custom mode - select a 14 x 6 block, press
+    // serpentine, get circuits 1..6 at 14 apiece - which only works if the
+    // pattern fill CUTS at capacity instead of pouring the whole selection
+    // into the one active circuit, and if a click past the cap is refused
+    // instead of quietly overloading the run.
+    //
+    // ONE authority per side, and each is the sidebar's own readout:
+    //   power  "Panels/Circuit" - watts per circuit (V x A) against each
+    //          cabinet's watt-equivalent: panelWatts x getPanelLoadFactor,
+    //          the half-tile derate calculatePowerAssignments' loadOf
+    //          charges, at the cabinet's OWN member's wattage the way
+    //          getSocaPlan charges a crossing circuit.
+    //   data   "Panels/Port" - pixels per port (calculatePortCapacity, Low
+    //          Latency factor included) against each cabinet's pixel area.
+    // Nothing is re-derived here, so a capacity change lands in both.
+    //
+    // A run is FULL when one more whole cabinet would not fit; a click is
+    // refused when THAT cabinet would not fit, so a half-tile can still land
+    // on a run the badge calls full - the badge speaks of whole cabinets. No
+    // capacity at all (no voltage or wattage set, no published pixel figure
+    // for the processor) means no cap, and the run takes whatever is drawn
+    // exactly as it always has.
+    customRunCapacity(layer, kind) {
+        const none = { known: false, limit: 0, unit: 0, count: 0, at: '', describe: '' };
+        if (!layer) return none;
+        if (kind === 'power') {
+            const voltage = parseFloat(layer.powerVoltage) || 0;
+            const amperage = parseFloat(layer.powerAmperage) || 0;
+            const unit = parseFloat(layer.panelWatts) || 0;
+            const limit = voltage * amperage;
+            if (!(limit > 0 && unit > 0)) return none;
+            const count = Math.floor(limit / unit);
+            const at = `${voltage}V/${amperage}A`;
+            return { known: true, limit, unit, count, at,
+                describe: `${count} panels at ${at}` };
+        }
+        const limit = this.calculatePortCapacity(
+            layer.bitDepth || 8, layer.frameRate || 60,
+            layer.processorType || 'novastar-armor', !!layer.lowLatency);
+        const unit = this.getFullPanelPixels(layer);
+        if (!(limit > 0 && unit > 0)) return none;
+        const count = Math.floor(limit / unit);
+        const at = `${limit.toLocaleString()} px/port`;
+        return { known: true, limit, unit, count, at,
+            describe: `${count} panels at ${at}` };
+    }
+
+    // What ONE cabinet costs against the run it is being drawn onto.
+    customHitLoad(kind, hitLayer, panel) {
+        if (!panel) return 0;
+        if (kind === 'power') {
+            return (parseFloat(hitLayer && hitLayer.panelWatts) || 0)
+                * this.getPanelLoadFactor(hitLayer, panel);
+        }
+        return this.getPanelPixelArea(panel);
+    }
+
+    // One run's fill: the load drawn so far, the cap it is drawn against, and
+    // whether another whole cabinet still fits. `used` is in whole-cabinet
+    // equivalents so the badge can read "9/14".
+    customRunFill(owner, kind, num) {
+        const cap = this.customRunCapacity(owner, kind);
+        const pathsKey = kind === 'power' ? 'powerCustomPaths' : 'customPortPaths';
+        const path = (owner && owner[pathsKey] && owner[pathsKey][num]) || [];
+        const load = this.getResolvedPathPanels(owner, path)
+            .reduce((s, hit) => s + this.customHitLoad(kind, hit.layer, hit.panel), 0);
+        const used = cap.unit > 0 ? load / cap.unit : 0;
+        const eps = CUSTOM_RUN_EPS;
+        return Object.assign({}, cap, {
+            load, used,
+            full: cap.known && (load + cap.unit > cap.limit + eps),
+        });
+    }
+
+    // Does this cabinet still fit on the run?
+    customRunAccepts(owner, kind, num, hitLayer, panel) {
+        const fill = this.customRunFill(owner, kind, num);
+        if (!fill.known) return true;
+        return fill.load + this.customHitLoad(kind, hitLayer, panel)
+            <= fill.limit + CUSTOM_RUN_EPS;
+    }
+
+    // "9", "13.7" - a whole count where it is one, a tenth where a half-tile
+    // made it a fraction.
+    _formatRunUsed(used) {
+        const r = Math.round((Number(used) || 0) * 10) / 10;
+        return Number.isInteger(r) ? `${r}` : r.toFixed(1);
+    }
+
+    _customRunLabel(owner, kind, num) {
+        return kind === 'power'
+            ? this.getPowerCircuitLabel(owner, num)
+            : this.getPortLabelText(owner, num, 'primary');
+    }
+
+    // The refusal the click gets. Tab and ] are named because the run does
+    // NOT advance on its own: a click that silently moved the cursor to the
+    // next circuit would put the cabinet somewhere the user did not look.
+    _customRunFullMessage(owner, kind, num) {
+        const cap = this.customRunCapacity(owner, kind);
+        const noun = kind === 'power' ? 'Circuit' : 'Port';
+        return `${noun} ${this._customRunLabel(owner, kind, num)} is full — `
+            + `${cap.describe}. Step to the next ${noun.toLowerCase()} (Tab / ]).`;
+    }
+
+    // The small line under the custom controls: the active run's fill against
+    // the same cap the badge and the click use, so the limit is on screen
+    // while the user is drawing and not only after the refusal.
+    _syncCustomFillReadout(kind) {
+        const el = document.getElementById(kind === 'power'
+            ? 'power-custom-fill-readout' : 'custom-fill-readout');
+        if (!el) return;
+        const layer = this.currentLayer;
+        const editing = layer && (layer.type || 'screen') === 'screen' && (kind === 'power'
+            ? this.isCustomPowerEditing(layer) : this.isCustomFlowEditing(layer));
+        if (!editing) {
+            el.textContent = '';
+            el.style.color = '';
+            return;
+        }
+        const num = kind === 'power'
+            ? (layer.powerCustomIndex || 1) : (layer.customPortIndex || 1);
+        const fill = this.customRunFill(layer, kind, num);
+        const head = `${kind === 'power' ? 'Circuit' : 'Port'} ${this._customRunLabel(layer, kind, num)}`;
+        if (!fill.known) {
+            const pathsKey = kind === 'power' ? 'powerCustomPaths' : 'customPortPaths';
+            const n = this.getResolvedPathPanels(layer,
+                (layer[pathsKey] && layer[pathsKey][num]) || []).length;
+            el.textContent = `${head}: ${n} panels — no cap (`
+                + (kind === 'power'
+                    ? 'set voltage, amperage and watts per panel)'
+                    : 'no published port capacity for this processor)');
+            el.style.color = '';
+            return;
+        }
+        el.textContent = `${head}: ${this._formatRunUsed(fill.used)}/${fill.count} panels`
+            + `${fill.full ? ' · full' : ''} (${fill.at})`;
+        el.style.color = fill.full ? '#ffcc00' : '';
+    }
+
     /**
      * Append a cabinet to the active port's path. `panelLayer` names the
      * screen the cabinet came from when it is not currentLayer; leaving it out
@@ -5431,6 +5956,13 @@ class _Power {
             }
             return;
         }
+        // Capacity: refused, not advanced. See customRunCapacity.
+        if (!this.customRunAccepts(owner, 'data', portNum, source, panel)) {
+            if (typeof this._toast === 'function') {
+                this._toast(this._customRunFullMessage(owner, 'data', portNum), true);
+            }
+            return;
+        }
         owner.customPortPaths[portNum].push(this.makePathEntry(owner, source, panel));
         this.saveState('Custom Path Edit');
         this.saveClientSideProperties();
@@ -5443,6 +5975,7 @@ class _Power {
             });
         }
         this.updatePortLabelEditor();
+        this._syncCustomFillReadout('data');
         window.canvasRenderer.render();
     }
 
@@ -5468,6 +6001,13 @@ class _Power {
             }
             return;
         }
+        // Capacity: refused, not advanced. See customRunCapacity.
+        if (!this.customRunAccepts(owner, 'power', circuitNum, source, panel)) {
+            if (typeof this._toast === 'function') {
+                this._toast(this._customRunFullMessage(owner, 'power', circuitNum), true);
+            }
+            return;
+        }
         owner.powerCustomPaths[circuitNum].push(this.makePathEntry(owner, source, panel));
         this.saveState('Power Custom Path Edit');
         this.saveClientSideProperties();
@@ -5479,6 +6019,7 @@ class _Power {
                 layerId: source.id !== owner.id ? source.id : undefined,
             });
         }
+        this._syncCustomFillReadout('power');
         window.canvasRenderer.render();
     }
 
@@ -5772,116 +6313,195 @@ class _Power {
     }
 
     applyPatternToSelection(pattern) {
-        if (!this.currentLayer || !window.canvasRenderer) return;
-        if (!this.isCustomFlowEditing(this.currentLayer)) return;
-        if (this.customSelection.size === 0) return;
-
-        // The PORT stays on currentLayer even when the selection spans peers -
-        // a port is one physical output on one processor. Only the individual
-        // step records which screen the cable ran onto.
-        const owner = this.currentLayer;
-        this.ensureCustomFlowState(owner);
-        const picks = this._selectedPathPanels(owner, this.customSelection);
-        if (picks.length === 0) return;
-
-        const ordered = this._orderPicksForPattern(owner, pattern, picks);
-        if (ordered.length === 0) return;
-
-        const portNum = owner.customPortIndex || 1;
-        // Reject the entire pattern apply if any selected panel already
-        // belongs to a different port. Prevents silent double-mapping.
-        const conflicts = [];
-        for (const pick of ordered) {
-            // The claim may live on a peer now, which is why the sample below
-            // names both the cabinet's screen and the conflicting port's.
-            const claim = this._findPanelOwnerPort(owner, pick.panel, portNum, pick.layer);
-            if (claim) conflicts.push({ pick, owner: claim });
-        }
-        if (conflicts.length > 0) {
-            const sample = conflicts.slice(0, 3)
-                .map(c => `${this._describePathPanel(owner, c.pick.layer, c.pick.panel)}→${this._describePathConflict(c.owner, 'port')}`).join(', ');
-            const more = conflicts.length > 3 ? ` (+${conflicts.length - 3} more)` : '';
-            if (typeof this._toast === 'function') {
-                this._toast(`Cannot apply: ${conflicts.length} panel${conflicts.length === 1 ? '' : 's'} already wired to other ports, ${sample}${more}.`, true);
-            }
-            return;
-        }
-        // makePathEntry omits layerId for the owner's own cabinets, so a path
-        // that never leaves its screen is byte-for-byte the shape it has always
-        // been written in.
-        owner.customPortPaths[portNum] = ordered
-            .map(pick => this.makePathEntry(owner, pick.layer, pick.panel));
-        this.saveState('Custom Pattern Apply');
-        this.saveClientSideProperties();
-        // v0.8.2: PUT to server so the bulk pattern assignment persists.
-        // v0.11.0: the OWNER is added explicitly - a marquee that ended on a
-        // peer can leave currentLayer out of the layer selection entirely.
-        this.updateLayers(this._pathPersistLayers(owner));
-        if (this.customDebug) {
-            const first = ordered[0];
-            const last = ordered[ordered.length - 1];
-            console.log('[CustomFlow] Apply pattern', {
-                pattern,
-                portNum,
-                count: ordered.length,
-                first: first ? { row: first.panel.row, col: first.panel.col, layerId: first.layer.id } : null,
-                last: last ? { row: last.panel.row, col: last.panel.col, layerId: last.layer.id } : null
-            });
-        }
-        this.updatePortLabelEditor();
-        window.canvasRenderer.render();
+        this._applyPatternFill('data', pattern);
     }
 
     applyPowerPatternToSelection(pattern) {
-        if (!this.currentLayer || !window.canvasRenderer) return;
-        if (!this.isCustomPowerEditing(this.currentLayer)) return;
-        if (this.powerCustomSelection.size === 0) return;
+        this._applyPatternFill('power', pattern);
+    }
 
-        // Same ownership rule as applyPatternToSelection: the CIRCUIT belongs
-        // to currentLayer, only the step learns which screen it landed on.
+    // The pattern buttons on a selection, both sides through ONE walk.
+    //
+    // Used to write the WHOLE selection into the one active port or circuit.
+    // Now it walks the selection in pattern order and fills the active run
+    // up to its capacity (customRunCapacity - the sidebar's Panels/Circuit
+    // and Panels/Port), then steps to the next number and keeps going until
+    // the selection is consumed: a 14 x 6 block on serpentine at 14 a
+    // circuit is circuits 1..6 at 14 apiece, in one gesture.
+    //
+    // The numbers it fills are OVERWRITTEN - the active one always was, and
+    // the ones it advances into are told on in the toast. A cabinet already
+    // on a run OUTSIDE that set is a conflict and nothing is written, the
+    // rule this has always had. One undo entry for the whole fill, and the
+    // active index ends on the LAST number filled so the badge names what
+    // was just drawn.
+    //
+    // With one overridden run open for redrawing, the numbers the fill may
+    // step into are the layer's overrides after the open one - the same list
+    // Tab walks - and a selection that needs more than those is refused
+    // rather than spilled onto runs the user never took over.
+    _applyPatternFill(kind, pattern) {
+        const isPower = kind === 'power';
+        if (!this.currentLayer || !window.canvasRenderer) return;
+        // The PORT / CIRCUIT stays on currentLayer even when the selection
+        // spans peers - a port is one physical output on one processor. Only
+        // the individual step records which screen the cable ran onto.
         const owner = this.currentLayer;
-        this.ensureCustomPowerState(owner);
-        const picks = this._selectedPathPanels(owner, this.powerCustomSelection);
+        if (isPower ? !this.isCustomPowerEditing(owner) : !this.isCustomFlowEditing(owner)) return;
+        const selection = isPower ? this.powerCustomSelection : this.customSelection;
+        if (!selection || selection.size === 0) return;
+        if (isPower) this.ensureCustomPowerState(owner);
+        else this.ensureCustomFlowState(owner);
+        const picks = this._selectedPathPanels(owner, selection);
         if (picks.length === 0) return;
 
         const ordered = this._orderPicksForPattern(owner, pattern, picks);
         if (ordered.length === 0) return;
 
-        const circuitNum = owner.powerCustomIndex || 1;
-        // Reject if any selected panel already belongs to a different
-        // circuit, same policy as data-flow custom pattern apply.
+        const pathsKey = isPower ? 'powerCustomPaths' : 'customPortPaths';
+        const idxKey = isPower ? 'powerCustomIndex' : 'customPortIndex';
+        const noun = isPower ? 'circuit' : 'port';
+        const startNum = owner[idxKey] || 1;
+        const toast = (msg, isError) => {
+            if (typeof this._toast === 'function') this._toast(msg, isError);
+        };
+
+        const cut = this._chunkPicksByCapacity(owner, kind, startNum, ordered);
+        if (cut.error) {
+            toast(`Cannot apply: ${cut.error}`, true);
+            return;
+        }
+        const chunks = cut.chunks;
+        const filled = new Set(chunks.map(c => c.num));
+
+        // Reject the entire apply if any selected panel already belongs to a
+        // run this fill will not overwrite. Prevents silent double-mapping.
+        // The claim may live on a peer, which is why the sample names both
+        // the cabinet's screen and the conflicting run's.
         const conflicts = [];
         for (const pick of ordered) {
-            const claim = this._findPanelOwnerCircuit(owner, pick.panel, circuitNum, pick.layer);
-            if (claim) conflicts.push({ pick, owner: claim });
+            const claim = isPower
+                ? this._findPanelOwnerCircuit(owner, pick.panel, startNum, pick.layer)
+                : this._findPanelOwnerPort(owner, pick.panel, startNum, pick.layer);
+            if (!claim) continue;
+            if (!claim.foreign && filled.has(claim.number)) continue;
+            conflicts.push({ pick, owner: claim });
         }
         if (conflicts.length > 0) {
             const sample = conflicts.slice(0, 3)
-                .map(c => `${this._describePathPanel(owner, c.pick.layer, c.pick.panel)}→${this._describePathConflict(c.owner, 'circuit')}`).join(', ');
+                .map(c => `${this._describePathPanel(owner, c.pick.layer, c.pick.panel)}→${this._describePathConflict(c.owner, noun)}`).join(', ');
             const more = conflicts.length > 3 ? ` (+${conflicts.length - 3} more)` : '';
-            if (typeof this._toast === 'function') {
-                this._toast(`Cannot apply: ${conflicts.length} panel${conflicts.length === 1 ? '' : 's'} already wired to other circuits, ${sample}${more}.`, true);
-            }
+            toast(`Cannot apply: ${conflicts.length} panel${conflicts.length === 1 ? '' : 's'} already wired to other ${noun}s, ${sample}${more}.`, true);
             return;
         }
-        owner.powerCustomPaths[circuitNum] = ordered
-            .map(pick => this.makePathEntry(owner, pick.layer, pick.panel));
-        this.saveState('Power Custom Pattern Apply');
+
+        // Runs beyond the active one that held a drawing before this fill
+        // replaced it - the toast says so.
+        const replaced = chunks.map(c => c.num).filter(n => n !== startNum
+            && ((owner[pathsKey][n] || []).length > 0));
+        // makePathEntry omits layerId for the owner's own cabinets, so a path
+        // that never leaves its screen is byte-for-byte the shape it has
+        // always been written in.
+        chunks.forEach(c => {
+            owner[pathsKey][c.num] = c.picks
+                .map(pick => this.makePathEntry(owner, pick.layer, pick.panel));
+        });
+        const lastNum = chunks[chunks.length - 1].num;
+        owner[idxKey] = lastNum;
+        if (this._overrideEditing && this._overrideEditing.kind === kind
+                && this._overrideEditing.layerId === owner.id) {
+            this._overrideEditing.num = lastNum;
+        }
+        this.saveState(isPower ? 'Power Custom Pattern Apply' : 'Custom Pattern Apply');
         this.saveClientSideProperties();
-        // v0.8.2: PUT to server so the bulk pattern assignment persists.
+        // PUT to server so the bulk pattern assignment persists. The OWNER is
+        // added explicitly - a marquee that ended on a peer can leave
+        // currentLayer out of the layer selection entirely.
         this.updateLayers(this._pathPersistLayers(owner));
-        if (this.powerCustomDebug) {
+        if (chunks.length > 1) {
+            const cap = this.customRunCapacity(owner, kind);
+            let msg = `Filled ${noun}s ${this._customRunLabel(owner, kind, chunks[0].num)} to `
+                + `${this._customRunLabel(owner, kind, lastNum)} from the selection`
+                + ` (${cap.count} panels each at ${cap.at})`;
+            if (replaced.length > 0) {
+                msg += `; replaced ${noun}${replaced.length === 1 ? '' : 's'} `
+                    + replaced.map(n => this._customRunLabel(owner, kind, n)).join(', ');
+            }
+            toast(`${msg}.`, false);
+        }
+        if (isPower ? this.powerCustomDebug : this.customDebug) {
             const first = ordered[0];
             const last = ordered[ordered.length - 1];
-            console.log('[CustomPower] Apply pattern', {
+            console.log(isPower ? '[CustomPower] Apply pattern' : '[CustomFlow] Apply pattern', {
                 pattern,
-                circuitNum,
+                startNum,
+                lastNum,
                 count: ordered.length,
+                runs: chunks.map(c => ({ num: c.num, count: c.picks.length })),
                 first: first ? { row: first.panel.row, col: first.panel.col, layerId: first.layer.id } : null,
                 last: last ? { row: last.panel.row, col: last.panel.col, layerId: last.layer.id } : null
             });
         }
+        if (isPower) {
+            this.updateCustomPowerUI();
+        } else {
+            this.updateCustomFlowUI();
+            this.updatePortLabelEditor();
+        }
         window.canvasRenderer.render();
+    }
+
+    // The next number a fill may step into after `num`: the open number line
+    // in whole-screen custom, the layer's override list while one overridden
+    // run is being redrawn (null when that list is exhausted). Mirrors
+    // _steppedCustomIndex, which is what Tab does.
+    _nextCustomRunNumber(owner, kind, num) {
+        if (!this._isOverrideEditing(owner, kind)) return num + 1;
+        const nums = this.getOverrideNums(owner, kind);
+        const at = nums.indexOf(num);
+        return (at >= 0 && at + 1 < nums.length) ? nums[at + 1] : null;
+    }
+
+    // Cut an ordered pick list into runs at capacity: [{num, picks, load}]
+    // starting at `startNum`, each run holding as many picks in order as the
+    // cap allows (a run always takes at least one). No cap known means one
+    // run with everything, the old behaviour exactly. `error` instead when a
+    // single cabinet is over the cap on its own or the override list runs
+    // out - nothing is written in either case.
+    _chunkPicksByCapacity(owner, kind, startNum, ordered) {
+        const cap = this.customRunCapacity(owner, kind);
+        if (!cap.known) {
+            return { chunks: [{ num: startNum, picks: ordered.slice(), load: 0 }] };
+        }
+        const eps = CUSTOM_RUN_EPS;
+        const noun = kind === 'power' ? 'circuit' : 'port';
+        const fmt = (v) => (kind === 'power'
+            ? `${Math.round(v).toLocaleString()} W` : `${Math.round(v).toLocaleString()} px`);
+        const chunks = [];
+        let cur = { num: startNum, picks: [], load: 0 };
+        for (const pick of ordered) {
+            const load = this.customHitLoad(kind, pick.layer, pick.panel);
+            if (load > cap.limit + eps) {
+                return { error: `panel ${this._describePathPanel(owner, pick.layer, pick.panel)} `
+                    + `is ${fmt(load)} and a ${noun} carries ${fmt(cap.limit)}.` };
+            }
+            if (cur.picks.length > 0 && cur.load + load > cap.limit + eps) {
+                chunks.push(cur);
+                const next = this._nextCustomRunNumber(owner, kind, cur.num);
+                if (next === null) {
+                    const taken = this.getOverrideNums(owner, kind)
+                        .map(n => this._customRunLabel(owner, kind, n)).join(', ');
+                    return { error: `the selection does not fit on the taken-over `
+                        + `${noun}s (${taken}) at ${cap.describe}. Take over another `
+                        + `run or select a narrower block.` };
+                }
+                cur = { num: next, picks: [], load: 0 };
+            }
+            cur.picks.push(pick);
+            cur.load += load;
+        }
+        chunks.push(cur);
+        return { chunks };
     }
 
     getPatternOrderForGrid(pattern, grid) {

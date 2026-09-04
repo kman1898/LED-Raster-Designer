@@ -9,24 +9,29 @@ until somebody takes the offer.
 
 The four behaviours, and the reason each is awkward:
 
-* AUTO-NUMBERING PACKS DENSELY IN SCREEN ORDER. Six ports takes 1-6, the next
-  screen starts at 7. That is the behaviour asked for by name.
+* NOTHING LANDS BY ITSELF. A port is on a card only because somebody put it
+  there - a card drop fills a screen in order (place-overflow), a port drop
+  names a socket (place), and every placement is a pin. An unplaced port
+  is "not attached" and reported, never dealt out. Auto-numbering is
+  retired (user ruling, 2026-09-03: "we have no way to turn on or off auto.
+  but honestly auto should be removed now.").
 * A CLASH IS REPORTED, NOT FIXED. Both claimants keep the port. Bumping the
   loser is the silent renumber.
-* A SCREEN'S PORTS NEVER SPAN TWO CARDS UNASKED. Seventeen ports on a sixteen-
-  port card leaves one unplaced and says so; putting it on another card is a
-  patching decision with a physical consequence and belongs to a person.
-* A PIN WINS. Auto works around it and never over it, and releasing it hands
-  the port straight back.
+* A SCREEN'S PORTS NEVER SPAN TWO CARDS UNASKED. Seventeen ports dropped on
+  a sixteen-port card leaves one unattached and says so; putting it on
+  another card is a patching decision with a physical consequence and
+  belongs to a person.
+* A PIN HOLDS. Nothing re-packs around a release, nothing moves when a
+  neighbour moves, and a release leaves the port unattached until it is
+  placed again.
 
 The reporting surface moved with the consolidation round: the retired Port
 Numbering panel's issue boxes are rows on the hardware dock's issues strip
 (#hw-dock-issues) and the per-card usage foot is the card headers'
-used/capacity glance. The auto toggle is gone from the UI - the server
-keeps its auto state and this file's Flask-level auto tests still drive it
-at the endpoint, but the only UI lever left is the strip's turn-back-on
-offer. The numbering itself never left the server, which is why almost
-everything here still drives the API and re-points cleanly.
+used/capacity glance. The numbering itself never left the server, which is
+why almost everything here drives the API. A project saved under the old
+rule is frozen into pins once on load (section 1b) so its drawing does not
+change; PUT /api/port-assignments, the old auto switch, is 410 Gone.
 
 Values are asserted as they come BACK from the server, never as they were
 sent - this codebase drops unlisted fields silently in two separate places and
@@ -53,9 +58,9 @@ def _guard(flask_project_guard):
 
     Every test here builds its own project through the `client` fixture,
     which swaps the module-global the LIVE e2e server also serves - so the
-    last test's leftovers (a processor tree, auto-numbering switched off)
-    would otherwise become the next browser module's starting state. The
-    guard is the documented idiom for exactly this (see conftest)."""
+    last test's leftovers (a processor tree, a set of pins) would otherwise
+    become the next browser module's starting state. The guard is the
+    documented idiom for exactly this (see conftest)."""
 
 def add_processor(client, device_id):
     resp = client.post('/api/processors', json={'deviceId': device_id})
@@ -71,8 +76,8 @@ def set_card(client, proc_id, slot, device_id):
 
 
 def card_ids(state):
-    """Cards in the order the dock draws them, which is the order auto fills
-    them - processor by processor, slot 1 downward."""
+    """Cards in the order the dock draws them, which is the order a block
+    move searches them - processor by processor, slot 1 downward."""
     out = []
     for proc in state['resolved']:
         for slot in proc['slots']:
@@ -107,6 +112,31 @@ def place(client, layer_id, index, card_id, port, sc, confirm=False):
     if confirm:
         body['confirm'] = True
     return client.post('/api/port-assignments/place', json=body)
+
+
+def attach(client, layer_id, card_id, sc, first=None, last=None):
+    """Land one screen's unattached ports on a card, in order - the request
+    a card or box drop sends (place-overflow), and since auto-numbering was
+    retired (2026-09-03) the one way a whole screen gets onto a card. Every
+    port it lands is a pin. Returns the resolution that came back."""
+    body = {'layerId': layer_id, 'cardId': card_id, 'screens': sc}
+    if first is not None:
+        body['firstPort'] = first
+    if last is not None:
+        body['lastPort'] = last
+    resp = client.post('/api/port-assignments/place-overflow', json=body)
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    return resp.get_json()['resolution']
+
+
+def stored_state(client):
+    return client.get('/api/project').get_json().get(assignment.STATE_KEY)
+
+
+# What every project carries from birth (app._build_initial_project) and
+# what a legacy file is stamped with once it has been through retire_auto:
+# no pins, auto off for good, and the mark that says so.
+STAMP = {'auto': False, 'autoRetired': True, 'pins': []}
 
 
 def spots(resolution, name):
@@ -153,62 +183,93 @@ def two_cards(client):
     return client, pid, ids[0], ids[1]
 
 
-# ── 1. Auto-numbering ─────────────────────────────────────────────────────
+# ── 1. Nothing lands by itself ────────────────────────────────────────────
+#
+# Auto-numbering retired (user ruling, 2026-09-03). A screen's ports are on
+# a card because somebody dropped the screen on it - place-overflow, the
+# request a card drop sends - and the fill packs them in order from the
+# card's lowest free socket. Until then they are not attached, and the
+# resolution says so.
 
-def test_ports_pack_densely_in_screen_order(one_card):
-    """The behaviour asked for by name: a screen needing six ports takes 1-6
-    and the next one starts at 7. Screen order is the order the caller sent,
-    which is project layer order - re-sorting it here would renumber a show
-    behind the user's back."""
+def test_a_card_drop_fills_a_screen_in_order_and_the_next_follows_on(one_card):
+    """The drop's arithmetic: a screen needing six ports takes 1-6 on the
+    card it was dropped on, and the next screen dropped there starts at 7.
+    Every port it lands is a pin - there is no other way onto a card."""
     client, _pid, card = one_card
-    res = resolve(client, ('Main', 6), ('Side', 4), ('Upstage', 3))
+    sc = screens(('Main', 6), ('Side', 4), ('Upstage', 3))
+    attach(client, 'Main', card, sc)
+    attach(client, 'Side', card, sc)
+    res = attach(client, 'Upstage', card, sc)
 
     assert numbers(res, 'Main') == [1, 2, 3, 4, 5, 6]
     assert numbers(res, 'Side') == [7, 8, 9, 10]
     assert numbers(res, 'Upstage') == [11, 12, 13]
     assert all(c == card for c, _p in spots(res, 'Side'))
-    assert sources(res, 'Main') == ['auto'] * 6
+    assert sources(res, 'Main') == ['pin'] * 6
     assert res['issues'] == [], res['issues']
 
 
-def test_auto_is_on_before_anybody_turns_it_on(one_card):
-    """A project that has never been touched here must number itself, or the
-    drawing opens on a wall of blanks and every screen needs a decision before
-    it says anything."""
+def test_nothing_lands_until_somebody_places_it(one_card):
+    """A card with sixteen free sockets and a screen needing three: the
+    screen stays OFF the card until it is dropped there. The resolution
+    reports the three as not attached, and merely reading it changes
+    nothing on the project - the state is the birth stamp, untouched."""
     client, _pid, _card = one_card
     res = resolve(client, ('Main', 3))
-    assert res['auto'] is True
-    assert numbers(res, 'Main') == [1, 2, 3]
-    # And merely reading the resolution did not stamp state onto the project.
-    assert assignment.STATE_KEY not in client.get('/api/project').get_json()
+    assert numbers(res, 'Main') == [None, None, None]
+    assert sources(res, 'Main') == [None] * 3
+    assert issue(res, 'overflow')['ports'] == [1, 2, 3]
+    assert 'auto' not in res, 'the resolution still carries an auto flag'
+    assert stored_state(client) == STAMP
 
 
-def test_turning_auto_off_leaves_only_what_was_pinned(two_cards):
+def test_the_auto_switch_is_gone_for_good(two_cards):
+    """PUT /api/port-assignments was the auto switch. It answers 410 in
+    both directions and changes nothing: a pinned port stays pinned, the
+    screen's other ports stay unattached, and no auto-off row (or offer to
+    turn it back on) exists to be raised."""
     client, _pid, card_a, _card_b = two_cards
     resp = client.post('/api/port-assignments/pin', json={
         'layerId': 'Main', 'index': 1, 'cardId': card_a, 'port': 9,
         'screens': screens(('Main', 3)),
     })
     assert resp.status_code == 200
-    resp = client.put('/api/port-assignments', json={'auto': False})
-    assert resp.status_code == 200
-    res = resp.get_json()['resolution']
-    assert res['auto'] is False
-    # Sent with no screens, so nothing resolves; ask again with them.
+    before = stored_state(client)
+    for flag in (False, True):
+        resp = client.put('/api/port-assignments', json={'auto': flag})
+        assert resp.status_code == 410, resp.get_data(as_text=True)
+        assert 'retired' in resp.get_json()['error']
+    assert stored_state(client) == before
     res = resolve(client, ('Main', 3))
     assert numbers(res, 'Main') == [None, 9, None]
-    assert 'auto-off' in kinds(res)
+    assert 'auto-off' not in kinds(res)
+    assert not any(o['action'] == 'auto-on'
+                   for i in res['issues'] for o in i['offers'])
 
 
-def test_the_card_a_screen_lands_on_is_the_first_with_room_for_all_of_it(two_cards):
-    """Filling a card's last four ports with the first four of a six-port
-    screen would split a run for no reason. A screen goes onto the first card
-    that can hold the whole thing."""
+def test_a_screen_lands_on_the_card_it_was_dropped_on_and_nowhere_else(two_cards):
+    """Fourteen ports fill card A, and a six-port screen dropped on card A
+    takes the two sockets left and STOPS - the fill never walks on to card
+    B by itself. The four that did not fit are reported, and the second
+    card takes them only when the screen is dropped there too."""
     client, _pid, card_a, card_b = two_cards
-    res = resolve(client, ('Main', 14), ('Side', 6))
+    sc = screens(('Main', 14), ('Side', 6))
+    attach(client, 'Main', card_a, sc)
+    resp = client.post('/api/port-assignments/place-overflow',
+                       json={'layerId': 'Side', 'cardId': card_a, 'screens': sc})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    assert 'took 2 of 6 ports. 4 still have nowhere to go.' in \
+        resp.get_json()['moved']['note']
+    res = resp.get_json()['resolution']
     assert all(c == card_a for c, _p in spots(res, 'Main'))
-    assert spots(res, 'Side') == [(card_b, n) for n in range(1, 7)]
-    assert by_name(res, 'Side')['split'] is False
+    assert spots(res, 'Side') == [(card_a, 15), (card_a, 16)] + [(None, None)] * 4
+    assert issue(res, 'overflow')['ports'] == [3, 4, 5, 6]
+    assert not any(c == card_b for s in res['screens']
+                   for c, _p in [(p['cardId'], p['port']) for p in s['ports']])
+
+    res = attach(client, 'Side', card_b, sc)
+    assert spots(res, 'Side')[2:] == [(card_b, n) for n in range(1, 5)]
+    assert by_name(res, 'Side')['split'] is True
     assert res['issues'] == [], res['issues']
 
 
@@ -219,6 +280,8 @@ def test_a_cvt_gives_a_copy_opt_card_no_extra_ports_to_hand_out(one_card):
     wall would look like it fitted. It does not, and it must keep not fitting
     with both boxes hung on it."""
     client, pid, card = one_card
+    sc = screens(('Main', 17))
+    attach(client, 'Main', card, sc)
     for boxes in (0, 1, 2):
         res = resolve(client, ('Main', 17))
         assert res['cards'][0]['capacity'] == 16, (
@@ -227,6 +290,11 @@ def test_a_cvt_gives_a_copy_opt_card_no_extra_ports_to_hand_out(one_card):
         assert by_name(res, 'Main')['unplaced'] == [16], (
             'the seventeenth port found room that does not exist')
         assert 'overflow' in kinds(res)
+        # And a second drop finds the card as full as the first left it.
+        resp = client.post('/api/port-assignments/place-overflow',
+                           json={'layerId': 'Main', 'cardId': card,
+                                 'screens': sc})
+        assert resp.status_code == 409, resp.get_data(as_text=True)
         client.post(f'/api/processors/{pid}/cards/{card}/cvts',
                     json={'deviceId': 'novastar-cvt10'})
 
@@ -261,7 +329,7 @@ def test_boxes_hung_on_trunks_that_do_not_exist_hand_out_no_ports(client):
     assert card['trunksUsed'] == 6 and card['trunks'] == 4
     assert card['over'] is True, 'the over-subscribed drawing stopped showing'
 
-    res = resolve(client, ('Main', 40))
+    res = attach(client, 'Main', card['id'], screens(('Main', 40)))
     assert res['cards'][0]['capacity'] == 32, (
         'boxes on trunks that do not exist became assignable ports')
     assert numbers(res, 'Main')[:32] == list(range(1, 33))
@@ -284,7 +352,7 @@ def test_a_card_whose_boxes_cannot_reach_its_ceiling_says_so_here_too(client):
                            json={'deviceId': 'novastar-cvt4k-s'}
                            ).status_code == 201
 
-    res = resolve(client, ('Main', 40))
+    res = attach(client, 'Main', card, screens(('Main', 40)))
     assert res['cards'][0]['capacity'] == 40
     assert by_name(res, 'Main')['unplaced'] == []
     short = issue(res, 'card-short-of-its-ceiling')
@@ -317,7 +385,7 @@ def test_ports_taken_out_at_a_box_carry_that_boxs_label(one_card):
     cvt_id = resp.get_json()['resolved'][0]['slots'][0]['card']['cvts'][0]['id']
     client.put(f'/api/processors/{pid}/cvts/{cvt_id}', json={'name': 'CVT-A'})
 
-    res = resolve(client, ('Main', 10))
+    res = attach(client, 'Main', card, screens(('Main', 10)))
     labels = [p['label'] for p in by_name(res, 'Main')['ports']]
     assert labels[:3] == ['CVT-A-1', 'CVT-A-2', 'CVT-A-3']
     assert labels[8:] == ['SR-9', 'SR-10'], (
@@ -326,15 +394,265 @@ def test_ports_taken_out_at_a_box_carry_that_boxs_label(one_card):
         'the box changed the numbering as well as the label')
 
 
-def test_a_card_with_no_settled_port_count_is_not_filled_by_auto(client):
-    """The SQ200 publishes connectors and no port count. Auto-numbering onto a
-    guessed ceiling would silently cap a wall, which is the failure the catalog
-    exists to prevent, so it is offered to pins and to nothing else."""
-    add_processor(client, 'brompton-sq200')
+def test_a_card_with_no_settled_port_count_takes_no_whole_card_fill(client):
+    """The SQ200 publishes connectors and no port count. Filling onto a
+    guessed ceiling would silently cap a wall, which is the failure the
+    catalog exists to prevent, so a card drop is refused and the strip row
+    says the ports can still be placed one at a time (section 3b proves
+    that path)."""
+    state = add_processor(client, 'brompton-sq200')
+    card = card_ids(state)[0]
+    resp = client.post('/api/port-assignments/place-overflow',
+                       json={'layerId': 'Main', 'cardId': card,
+                             'screens': screens(('Main', 4))})
+    assert resp.status_code == 409, resp.get_data(as_text=True)
+    assert 'no free ports' in resp.get_json()['error']
     res = resolve(client, ('Main', 4))
     assert numbers(res, 'Main') == [None, None, None, None]
     assert 'capacity-unknown' in kinds(res)
     assert issue(res, 'capacity-unknown')['reason']
+    assert 'one at a time' in issue(res, 'capacity-unknown')['message']
+    assert 'auto' not in issue(res, 'capacity-unknown')['message'].lower()
+
+
+# ── 1b. A pre-ruling file is frozen into pins, once ───────────────────────
+#
+# A project saved while auto-numbering still ran was DRAWN with its ports
+# dealt out, and looms were cut to that drawing. Retiring auto must not
+# blank it: on load, every port the old rule dealt becomes a pin at that
+# exact socket (port_assignment.retire_auto), the state is stamped
+# autoRetired, and the freeze never runs again. The port counts that decide
+# where those ports were live on the client, so the freeze happens on the
+# first request that carries them - the resolve the client fires after a
+# load - and the project funnel (PUT /api/project) settles only the cases
+# it can without counts. A project born in this version carries the stamp
+# from birth and never goes near the freeze.
+
+def add_screen(client, name, columns=4, rows=1):
+    """A real screen layer, so the migration's this-project check has a
+    layer id and name to match the sent screens against."""
+    resp = client.post('/api/layer/add', json={
+        'name': name, 'columns': columns, 'rows': rows,
+        'cabinet_width': 128, 'cabinet_height': 128})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    return str(resp.get_json()['id'])
+
+
+def make_legacy(client, state):
+    """Round-trip the project through the funnel carrying a pre-ruling
+    state (or none), the way a saved file arrives. Returns the stored
+    state after the funnel has had its say."""
+    project = client.get('/api/project').get_json()
+    if state is None:
+        project.pop(assignment.STATE_KEY, None)
+    else:
+        project[assignment.STATE_KEY] = state
+    assert client.put('/api/project', json=project).status_code == 200
+    return stored_state(client)
+
+
+def lscreens(*pairs):
+    """(layerId, name, ports) as the client sends them after a load."""
+    return [{'layerId': lid, 'name': name, 'ports': count}
+            for lid, name, count in pairs]
+
+
+def test_a_legacy_file_is_frozen_into_pins_on_its_first_resolve(one_card):
+    """The user's own H9 show: every port dealt by auto, zero pins. Loaded
+    now, the funnel cannot place anything (no port counts), the first
+    resolve - which carries them - pins Main on 1-6 and Side on 7-10
+    exactly where the old rule drew them, says so with `migrated`, and
+    stamps the state so the drawing is frozen from here on."""
+    client, _pid, card = one_card
+    main, side = add_screen(client, 'Main'), add_screen(client, 'Side')
+    assert make_legacy(client, None) is None, (
+        'the funnel stamped a project whose ports it could not place')
+
+    sc = lscreens((main, 'Main', 6), (side, 'Side', 4))
+    resp = client.post('/api/port-assignments/resolve', json={'screens': sc})
+    assert resp.status_code == 200
+    assert resp.get_json().get('migrated') is True
+    res = resp.get_json()['resolution']
+    assert spots(res, main) == [(card, n) for n in range(1, 7)]
+    assert spots(res, side) == [(card, n) for n in range(7, 11)]
+    assert sources(res, main) == ['pin'] * 6
+    stored = stored_state(client)
+    assert stored['auto'] is False and stored['autoRetired'] is True
+    assert len(stored['pins']) == 10
+    assert res['issues'] == [], res['issues']
+
+
+def test_the_freeze_runs_once_and_never_again(one_card):
+    """Idempotent by the stamp: a second resolve, another trip through the
+    funnel, and a screen that has since grown a port all leave the frozen
+    pins exactly as they were. The new port is simply not attached - the
+    old rule would have dealt it out; the new one waits for a drop."""
+    client, _pid, card = one_card
+    main = add_screen(client, 'Main')
+    make_legacy(client, {'auto': True, 'pins': []})
+    sc = lscreens((main, 'Main', 3))
+    first = client.post('/api/port-assignments/resolve', json={'screens': sc})
+    assert first.get_json().get('migrated') is True
+    frozen = stored_state(client)
+
+    again = client.post('/api/port-assignments/resolve', json={'screens': sc})
+    assert 'migrated' not in again.get_json()
+    assert stored_state(client) == frozen
+    project = client.get('/api/project').get_json()
+    assert client.put('/api/project', json=project).status_code == 200
+    assert stored_state(client) == frozen
+
+    grown = client.post('/api/port-assignments/resolve',
+                        json={'screens': lscreens((main, 'Main', 4))})
+    assert 'migrated' not in grown.get_json()
+    res = grown.get_json()['resolution']
+    assert spots(res, main) == [(card, 1), (card, 2), (card, 3), (None, None)]
+    assert stored_state(client) == frozen
+
+
+def test_the_freeze_keeps_pins_clashes_and_overflow_as_drawn(two_cards):
+    """The awkward legacy shapes, each frozen to what the old rule drew.
+    Two pins on one socket stay a clash (the fill never lands on a claimed
+    socket, so it adds none). A seventeen-port wall no card could hold
+    whole went, under the old rule, onto the FIRST card with any free
+    socket - card A's thirteen, around the pins - and the four that did
+    not fit stayed unattached; the freeze pins exactly that, never tidying
+    the wall onto card B where it would fit better. Card B stays empty."""
+    client, _pid, card_a, card_b = two_cards
+    main, side = add_screen(client, 'Main'), add_screen(client, 'Side')
+    wall = add_screen(client, 'Wall')
+    make_legacy(client, {'auto': True, 'pins': [
+        {'layerId': main, 'index': 0, 'cardId': card_a, 'port': 5},
+        {'layerId': side, 'index': 0, 'cardId': card_a, 'port': 5},
+    ]})
+    sc = lscreens((main, 'Main', 2), (side, 'Side', 2), (wall, 'Wall', 17))
+    resp = client.post('/api/port-assignments/resolve', json={'screens': sc})
+    assert resp.get_json().get('migrated') is True
+    res = resp.get_json()['resolution']
+    assert spots(res, main) == [(card_a, 5), (card_a, 1)]
+    assert spots(res, side) == [(card_a, 5), (card_a, 2)]
+    assert issue(res, 'overlap')['port'] == 5
+    assert spots(res, wall)[:13] == \
+        [(card_a, n) for n in [3, 4] + list(range(6, 17))]
+    assert spots(res, wall)[13:] == [(None, None)] * 4
+    assert issue(res, 'overflow')['ports'] == [14, 15, 16, 17]
+    assert next(c for c in res['cards'] if c['cardId'] == card_b)['used'] == 0
+    assert all(s == 'pin' for name in (main, side) for s in sources(res, name))
+    assert len(stored_state(client)['pins']) == 17
+
+
+def test_the_freeze_pins_mains_and_the_backup_mirrors_follow(client):
+    """A sequential card's returns are derived from the mains on every
+    resolve, never stored - so the freeze pins the odd mains the old rule
+    dealt (1, 3) and the even sockets go on mirroring them, with nothing
+    extra in the file."""
+    _pid, card = sequential_card(client)
+    wall = add_screen(client, 'Wall')
+    make_legacy(client, None)
+    resp = client.post('/api/port-assignments/resolve',
+                       json={'screens': lscreens((wall, 'Wall', 2))})
+    assert resp.get_json().get('migrated') is True
+    res = resp.get_json()['resolution']
+    assert spots(res, wall) == [(card, 1), (card, 3)]
+    assert returns_on(res, card, 2) == \
+        [('Wall', 1, 'return', 'return', 1, 'SR-1')]
+    assert [(p['index'], p['port']) for p in stored_state(client)['pins']] == \
+        [(0, 1), (1, 3)]
+
+
+def test_a_legacy_file_with_auto_off_is_stamped_and_nothing_is_added(one_card):
+    """Auto off in the file means nothing was ever dealt: the funnel stamps
+    the state where it stands - its pins kept, no counts needed - and the
+    resolve that follows has nothing to freeze."""
+    client, _pid, card = one_card
+    main = add_screen(client, 'Main')
+    stored = make_legacy(client, {'auto': False, 'pins': [
+        {'layerId': main, 'index': 1, 'cardId': card, 'port': 9}]})
+    assert stored == {'auto': False, 'autoRetired': True, 'pins': [
+        {'layerId': main, 'index': 1, 'cardId': card, 'port': 9}]}
+    resp = client.post('/api/port-assignments/resolve',
+                       json={'screens': lscreens((main, 'Main', 3))})
+    assert 'migrated' not in resp.get_json()
+    assert spots(resp.get_json()['resolution'], main) == \
+        [(None, None), (card, 9), (None, None)]
+
+
+def test_a_legacy_file_with_no_hardware_is_stamped_at_the_funnel(client):
+    """No card with a settled count means the old rule drew nothing, so the
+    funnel can settle it alone: the stamp, no pins. Same for a file with
+    hardware but no screen layer."""
+    add_screen(client, 'Main')
+    assert make_legacy(client, None) == STAMP
+    assert make_legacy(client, {'auto': True, 'pins': []}) == STAMP
+    add_processor(client, 'brompton-sq200')  # connectors, no settled count
+    assert make_legacy(client, None) == STAMP
+
+
+def test_the_freeze_waits_for_this_projects_own_screens(one_card):
+    """The counts arrive from the client, and a resolve fired for the
+    project that was open a moment ago must not freeze ITS counts onto the
+    file just loaded - layer ids collide across projects, so the sent
+    screens have to carry this project's layer names. A list that does not
+    match is left alone (no freeze, no stamp, no `migrated`); an empty one
+    too; the matching list that follows does the job."""
+    client, _pid, card = one_card
+    main = add_screen(client, 'Main')
+    make_legacy(client, None)
+    for stale in (lscreens((main, 'Old Show Wall', 6)),
+                  lscreens(('99', 'Main', 6)), []):
+        resp = client.post('/api/port-assignments/resolve',
+                           json={'screens': stale})
+        assert resp.status_code == 200
+        assert 'migrated' not in resp.get_json(), stale
+        assert stored_state(client) is None, stale
+    resp = client.post('/api/port-assignments/resolve',
+                       json={'screens': lscreens((main, 'Main', 2))})
+    assert resp.get_json().get('migrated') is True
+    assert spots(resp.get_json()['resolution'], main) == [(card, 1), (card, 2)]
+
+
+def test_an_edit_freezes_first_so_it_lands_on_the_frozen_drawing(one_card):
+    """A legacy file's first request need not be a resolve: a place lands
+    on the drawing as frozen - Main on 1-2 and Side on 3, every one a pin
+    - so the old auto tenant of socket 1 is a pin the refusal can name,
+    the freeze is stored even though the edit was refused, and the edit
+    that follows moves Side's one port and nothing else."""
+    client, _pid, card = one_card
+    main, side = add_screen(client, 'Main'), add_screen(client, 'Side')
+    make_legacy(client, None)
+    sc = lscreens((main, 'Main', 2), (side, 'Side', 1))
+    resp = place(client, side, 0, card, 1, sc)
+    assert resp.status_code == 409, 'the freeze did not run before the edit'
+    assert 'Main port 1' in resp.get_json()['error']
+    stored = stored_state(client)
+    assert stored['autoRetired'] is True
+    assert [(p['layerId'], p['port']) for p in stored['pins']] == \
+        [(main, 1), (main, 2), (side, 3)]
+    resp = place(client, side, 0, card, 5, sc)
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    res = resp.get_json()['resolution']
+    assert spots(res, side) == [(card, 5)]
+    assert spots(res, main) == [(card, 1), (card, 2)]
+    assert resp.get_json()['moved']['from'] == {'cardId': card, 'port': 3}
+    assert len(stored_state(client)['pins']) == 3
+
+
+def test_a_project_born_here_never_meets_the_freeze(one_card):
+    """The other side of the stamp: a fresh project carries it from birth,
+    so an undo snapshot of it going through the funnel with hardware and
+    screens is NOT mistaken for a legacy file - nothing is pinned that
+    nobody placed, before or after the round trip."""
+    client, _pid, _card = one_card
+    main = add_screen(client, 'Main')
+    assert stored_state(client) == STAMP
+    project = client.get('/api/project').get_json()
+    assert client.put('/api/project', json=project).status_code == 200
+    assert stored_state(client) == STAMP
+    resp = client.post('/api/port-assignments/resolve',
+                       json={'screens': lscreens((main, 'Main', 3))})
+    assert 'migrated' not in resp.get_json()
+    assert spots(resp.get_json()['resolution'], main) == [(None, None)] * 3
+    assert stored_state(client) == STAMP
 
 
 # ── 2. A clash is found, and left alone ───────────────────────────────────
@@ -394,15 +712,24 @@ def test_the_clash_comes_with_an_offer_for_each_screen_on_it(one_card):
     assert sorted(o['layerId'] for o in offers) == ['Main', 'Side']
 
 
-def test_auto_alone_never_produces_a_clash(two_cards):
-    """Two screens can only land on one port if somebody put them there. Auto
-    hands out each port once, so a clash is always a pin against a pin."""
-    client, _pid, _a, _b = two_cards
-    res = resolve(client, ('A', 5), ('B', 5), ('C', 5), ('D', 5), ('E', 5))
+def test_card_drops_alone_never_produce_a_clash(two_cards):
+    """Two screens can only share a socket if somebody NAMED that socket
+    (a port drop, confirmed). A card drop hands out free sockets only, so
+    five screens dropped across two cards never collide, and the one that
+    finds its card full is left unattached rather than doubled up."""
+    client, _pid, card_a, card_b = two_cards
+    sc = screens(('A', 5), ('B', 5), ('C', 5), ('D', 5), ('E', 5))
+    for name in ('A', 'B', 'C'):
+        attach(client, name, card_a, sc)
+    attach(client, 'D', card_a, sc)  # one socket left: D takes it and stops
+    attach(client, 'D', card_b, sc)  # the rest of D lands where it is dropped
+    res = attach(client, 'E', card_b, sc)
     seen = [(p['cardId'], p['port']) for s in res['screens'] for p in s['ports']
             if p['cardId']]
-    assert len(seen) == len(set(seen)), 'auto handed the same port out twice'
+    assert len(seen) == 25 and len(seen) == len(set(seen)), (
+        'a drop handed the same socket out twice')
     assert 'overlap' not in kinds(res)
+    assert spots(res, 'D') == [(card_a, 16)] + [(card_b, n) for n in (1, 2, 3, 4)]
 
 
 # ── 3. The block move ─────────────────────────────────────────────────────
@@ -417,7 +744,7 @@ def test_the_block_move_relocates_the_whole_set_in_order(one_card):
         client.post('/api/port-assignments/pin', json={
             'layerId': 'Side', 'index': index, 'cardId': card, 'port': port,
             'screens': sc})
-    assert numbers(resolve(client, ('Main', 4), ('Side', 4)), 'Main') == [1, 2, 3, 4]
+    assert numbers(attach(client, 'Main', card, sc), 'Main') == [1, 2, 3, 4]
 
     resp = client.post('/api/port-assignments/move-block',
                        json={'layerId': 'Main', 'screens': sc})
@@ -431,42 +758,27 @@ def test_the_block_move_relocates_the_whole_set_in_order(one_card):
     assert all(c == card for c, _p in spots(res, 'Main'))
 
 
-def test_auto_ports_repack_and_pinned_ones_do_not(one_card):
-    """The trade-off in "packed densely", stated outright rather than left to
-    be discovered on site.
-
-    An auto port is arithmetic, not a decision: it is recomputed from scratch
-    every time and it re-packs into whatever room appears, so moving one screen
-    does slide another screen's AUTO ports down into the gap. That is the same
-    behaviour as a screen being deleted, and it is what dense packing means.
-
-    The way to hold a numbering is to pin it, which is the whole reason pinning
-    exists, and every port that will not move comes back marked as a pin for
-    the dock to draw. Nothing here happens quietly: the marks are on the page
-    before the move."""
+def test_nothing_repacks_when_a_screen_moves(one_card):
+    """The other half of "nothing lands by itself": nothing SLIDES by
+    itself either. Under the retired auto rule a moved screen left a gap
+    the next screen's auto ports packed down into; now every port is a
+    pin, so Main moving up to 9-12 leaves 1-4 empty and Side exactly where
+    it was on 5-8. A hole on a card is a hole until somebody fills it."""
     client, _pid, card = one_card
     sc = screens(('Main', 4), ('Side', 4))
-    assert numbers(resolve(client, ('Main', 4), ('Side', 4)), 'Side') == [5, 6, 7, 8]
+    attach(client, 'Main', card, sc)
+    assert numbers(attach(client, 'Side', card, sc), 'Side') == [5, 6, 7, 8]
 
     resp = client.post('/api/port-assignments/move-block',
                        json={'layerId': 'Main', 'screens': sc})
     assert resp.status_code == 200
     res = resp.get_json()['resolution']
-    assert numbers(res, 'Side') == [1, 2, 3, 4], (
-        'auto ports that could pack tighter did not')
-    assert sources(res, 'Side') == ['auto'] * 4, (
-        'a port that re-packed was still labelled as held')
-
-    # Pin them and the same move leaves them exactly where they were.
-    for index, port in enumerate((1, 2, 3, 4)):
-        client.post('/api/port-assignments/pin', json={
-            'layerId': 'Side', 'index': index, 'cardId': card, 'port': port,
-            'screens': sc})
-    before = numbers(resolve(client, ('Main', 4), ('Side', 4)), 'Side')
-    client.post('/api/port-assignments/move-block',
-                json={'layerId': 'Main', 'screens': sc})
-    after = numbers(resolve(client, ('Main', 4), ('Side', 4)), 'Side')
-    assert after == before == [1, 2, 3, 4]
+    assert numbers(res, 'Main') == [9, 10, 11, 12]
+    assert numbers(res, 'Side') == [5, 6, 7, 8], (
+        "Side's ports re-packed into the room Main left")
+    assert sources(res, 'Side') == ['pin'] * 4
+    summary = next(c for c in res['cards'] if c['cardId'] == card)
+    assert (summary['used'], summary['free']) == (8, 8)
 
 
 def test_a_block_move_clears_a_clash_without_touching_the_other_screen(one_card):
@@ -490,18 +802,19 @@ def test_a_block_move_clears_a_clash_without_touching_the_other_screen(one_card)
 
 def test_a_block_move_overrides_the_moving_screens_own_pins(one_card):
     """A named decision, and worth naming: the move re-pins every port of THIS
-    screen at the new block. Honouring its old pins would mean moving only the
-    auto ports and tearing the run in two, which is what the move exists to
+    screen at the new block. Honouring its old pins would mean moving only
+    the rest and tearing the run in two, which is what the move exists to
     prevent. Another screen's pins are obstacles and are never touched."""
     client, _pid, card = one_card
     sc = screens(('Main', 4), ('Side', 2))
     client.post('/api/port-assignments/pin', json={
-        'layerId': 'Main', 'index': 2, 'cardId': card, 'port': 15, 'screens': sc})
-    client.post('/api/port-assignments/pin', json={
         'layerId': 'Side', 'index': 0, 'cardId': card, 'port': 2, 'screens': sc})
+    attach(client, 'Main', card, sc)  # 1, 3, 4, 5 - around Side's pin
+    client.post('/api/port-assignments/pin', json={
+        'layerId': 'Main', 'index': 2, 'cardId': card, 'port': 15, 'screens': sc})
 
     before = resolve(client, ('Main', 4), ('Side', 2))
-    assert numbers(before, 'Main')[2] == 15, 'the pin did not hold'
+    assert numbers(before, 'Main') == [1, 3, 15, 5], 'the pin did not hold'
 
     resp = client.post('/api/port-assignments/move-block',
                        json={'layerId': 'Main', 'screens': sc})
@@ -513,7 +826,7 @@ def test_a_block_move_overrides_the_moving_screens_own_pins(one_card):
         f'the block is not consecutive: {main}')
     assert 15 not in main or main[2] == 15
     assert sources(res, 'Main') == ['pin'] * 4, (
-        'a block move must pin the whole set, or auto would undo it')
+        'a block move must pin the whole set')
     assert numbers(res, 'Side')[0] == 2, "another screen's pin was moved"
 
 
@@ -532,7 +845,9 @@ def test_a_block_move_with_nowhere_to_land_is_refused_not_half_done(one_card):
     placed what fitted and gave up would be the split this module refuses."""
     client, _pid, card = one_card
     sc = screens(('Main', 10), ('Side', 5))
-    before = resolve(client, ('Main', 10), ('Side', 5))
+    attach(client, 'Main', card, sc)
+    before = attach(client, 'Side', card, sc)
+    assert numbers(before, 'Side') == [11, 12, 13, 14, 15]
     resp = client.post('/api/port-assignments/move-block',
                        json={'layerId': 'Main', 'screens': sc})
     assert resp.status_code == 409, resp.get_data(as_text=True)
@@ -552,7 +867,7 @@ def test_a_block_move_with_nowhere_to_land_is_refused_not_half_done(one_card):
 def test_one_port_can_be_placed_on_the_card_port_somebody_chose(one_card):
     client, _pid, card = one_card
     sc = screens(('Main', 6),)
-    assert numbers(resolve(client, ('Main', 6)), 'Main') == [1, 2, 3, 4, 5, 6]
+    assert numbers(attach(client, 'Main', card, sc), 'Main') == [1, 2, 3, 4, 5, 6]
 
     resp = place(client, 'Main', 2, card, 12, sc)
     assert resp.status_code == 200, resp.get_data(as_text=True)
@@ -564,15 +879,13 @@ def test_one_port_can_be_placed_on_the_card_port_somebody_chose(one_card):
 
 
 def test_placing_one_port_leaves_the_screens_other_ports_where_they_were(one_card):
-    """The whole point of the control. Left to itself the tail of the run would
-    slide down into the port that was vacated - an auto port is arithmetic and
-    re-packs into whatever room appears - so one click would renumber four
-    ports on a drawing. The rest of the run is held first, which is the same
-    trade the block move makes, and comes back marked as pins just as
-    loudly."""
+    """The whole point of the control: moving one port moves ONE port. The
+    rest of the run are pins already - every port on a card is - so they
+    stay exactly where they were, socket 3 is left empty, and the note
+    names the one socket that changed and nothing else."""
     client, _pid, card = one_card
     sc = screens(('Main', 6),)
-    before = numbers(resolve(client, ('Main', 6)), 'Main')
+    before = numbers(attach(client, 'Main', card, sc), 'Main')
 
     resp = place(client, 'Main', 2, card, 12, sc)
     assert resp.status_code == 200, resp.get_data(as_text=True)
@@ -581,8 +894,26 @@ def test_placing_one_port_leaves_the_screens_other_ports_where_they_were(one_car
     assert after == [1, 2, 12, 4, 5, 6], after
     assert [after[i] for i in (0, 1, 3, 4, 5)] == \
         [before[i] for i in (0, 1, 3, 4, 5)], 'a port nobody moved was renumbered'
-    assert resp.get_json()['moved']['held'] == 5
-    assert 'held where they were' in resp.get_json()['moved']['note']
+    assert 'held' not in resp.get_json()['moved'], (
+        'the placement reports holding ports - nothing needs holding now')
+    assert resp.get_json()['moved']['note'] == (
+        'Main port 3 is now on H9 slot 1 port 12.')
+    assert resp.get_json()['resolution']['occupancy'][card].get('3') is None
+
+
+def test_a_port_can_be_placed_before_the_rest_of_its_screen(one_card):
+    """A port drop needs no card drop first: the one port lands, the
+    screen's other ports stay unattached (never dealt out beside it), and
+    the flag's report names exactly those."""
+    client, _pid, card = one_card
+    sc = screens(('Main', 4),)
+    resp = place(client, 'Main', 2, card, 12, sc)
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    res = resp.get_json()['resolution']
+    assert spots(res, 'Main') == [(None, None), (None, None), (card, 12),
+                                  (None, None)]
+    assert resp.get_json()['moved']['from'] is None
+    assert issue(res, 'overflow')['ports'] == [1, 2, 4]
 
 
 def test_placing_one_port_leaves_another_screens_pins_alone(one_card):
@@ -592,6 +923,7 @@ def test_placing_one_port_leaves_another_screens_pins_alone(one_card):
         client.post('/api/port-assignments/pin', json={
             'layerId': 'Side', 'index': index, 'cardId': card, 'port': port,
             'screens': sc})
+    attach(client, 'Main', card, sc)
 
     resp = place(client, 'Main', 0, card, 16, sc)
     assert resp.status_code == 200, resp.get_data(as_text=True)
@@ -607,7 +939,9 @@ def test_placing_onto_an_occupied_port_is_reported_rather_than_taken(one_card):
     not a retry's."""
     client, _pid, card = one_card
     sc = screens(('Main', 4), ('Side', 4))
-    assert numbers(resolve(client, ('Main', 4), ('Side', 4)), 'Side') == [5, 6, 7, 8]
+    attach(client, 'Main', card, sc)
+    assert numbers(attach(client, 'Side', card, sc), 'Side') == [5, 6, 7, 8]
+    before = stored_state(client)
 
     resp = place(client, 'Side', 0, card, 2, sc)
     assert resp.status_code == 409, resp.get_data(as_text=True)
@@ -619,41 +953,22 @@ def test_placing_onto_an_occupied_port_is_reported_rather_than_taken(one_card):
     after = resolve(client, ('Main', 4), ('Side', 4))
     assert numbers(after, 'Main') == [1, 2, 3, 4], 'the occupant was displaced'
     assert numbers(after, 'Side') == [5, 6, 7, 8], 'the refused move happened'
-    assert assignment.STATE_KEY not in client.get('/api/project').get_json(), (
-        'a refused placement stamped state onto the project')
+    assert stored_state(client) == before, (
+        'a refused placement changed the stored state')
 
 
-def test_the_refusal_says_which_of_the_two_things_would_happen(one_card):
-    """The two outcomes are nothing like each other, so a refusal that only
-    said "occupied" would be no use in choosing. An auto port gets out of the
-    way, which is the same thing as saying its screen is renumbered; a pinned
-    one is somebody's decision and stays, and the socket ends up claimed
-    twice."""
+def test_the_refusal_says_the_tenant_keeps_its_claim(one_card):
+    """Under the retired auto rule the refusal had two outcomes to choose
+    between (an auto tenant packed out of the way, a pinned one stayed).
+    Every tenant is a pin now, so there is one outcome and the refusal
+    says it: the socket would draw as a clash, nothing is renumbered."""
     client, _pid, card = one_card
     sc = screens(('Main', 4), ('Side', 4))
-    auto = place(client, 'Side', 0, card, 2, sc).get_json()['error']
-    assert 'renumbers that screen' in auto, auto
-
-    client.post('/api/port-assignments/pin', json={
-        'layerId': 'Main', 'index': 1, 'cardId': card, 'port': 2,
-        'screens': sc})
-    held = place(client, 'Side', 0, card, 2, sc).get_json()['error']
-    assert 'draw as a clash' in held, held
-
-
-def test_confirming_over_an_auto_port_packs_it_around_and_says_so(one_card):
-    """Nothing was silently rearranged: the renumbering was named in the
-    refusal, agreed to, and named again in what came back."""
-    client, _pid, card = one_card
-    sc = screens(('Main', 4), ('Side', 4))
-    assert place(client, 'Side', 0, card, 2, sc).status_code == 409
-
-    resp = place(client, 'Side', 0, card, 2, sc, confirm=True)
-    assert resp.status_code == 200, resp.get_data(as_text=True)
-    res = resp.get_json()['resolution']
-    assert numbers(res, 'Side')[0] == 2
-    assert numbers(res, 'Main') == [1, 3, 4, 5], 'auto did not pack around it'
-    assert 'Main' in resp.get_json()['moved']['note']
+    attach(client, 'Main', card, sc)
+    error = place(client, 'Side', 0, card, 2, sc).get_json()['error']
+    assert 'keeps its claim' in error, error
+    assert 'draw as a clash' in error, error
+    assert 'renumber' not in error and 'automatically' not in error, error
 
 
 def test_confirming_over_a_pinned_port_keeps_both_claims(one_card):
@@ -679,13 +994,14 @@ def test_confirming_over_a_pinned_port_keeps_both_claims(one_card):
 
 def test_a_placement_onto_another_card_says_the_run_now_spans_two(one_card):
     """The honest half of a per-port move: it CAN strand a run across two
-    machines, which auto-numbering would never have chosen on its own. It is
-    allowed - somebody asked - and it is said out loud, because two cards is
-    two trunks to one wall."""
+    machines, which a card drop would never do on its own. It is allowed -
+    somebody asked - and it is said out loud, because two cards is two
+    trunks to one wall."""
     client, pid, card_a = one_card
     state = set_card(client, pid, 1, 'novastar-card-h-16xrj45-2xfiber')
     card_b = card_ids(state)[1]
     sc = screens(('Main', 5),)
+    attach(client, 'Main', card_a, sc)
 
     resp = place(client, 'Main', 4, card_b, 1, sc)
     assert resp.status_code == 200, resp.get_data(as_text=True)
@@ -734,7 +1050,7 @@ def test_a_placement_past_the_cards_last_port_is_refused(one_card):
     resp = place(client, 'Main', 0, card, 20, screens(('Main', 2),))
     assert resp.status_code == 409
     assert '16 ports' in resp.get_json()['error']
-    assert assignment.STATE_KEY not in client.get('/api/project').get_json()
+    assert stored_state(client) == STAMP
 
 
 def test_a_placement_of_a_port_the_screen_does_not_have_is_refused(one_card):
@@ -745,10 +1061,10 @@ def test_a_placement_of_a_port_the_screen_does_not_have_is_refused(one_card):
 
 
 def test_a_card_with_no_settled_count_still_takes_a_placement(client):
-    """"Ports can still be pinned to it by hand" is what the capacity-unknown
-    row on the dock strip says about an SQ200, and this is the by-hand path. There is no ceiling to check
-    against, and inventing one to check against is the failure the catalog
-    exists to prevent."""
+    """"Ports can still be placed on it one at a time" is what the
+    capacity-unknown row on the dock strip says about an SQ200, and this is
+    that path. There is no ceiling to check against, and inventing one to
+    check against is the failure the catalog exists to prevent."""
     state = add_processor(client, 'brompton-sq200')
     card = card_ids(state)[0]
     resp = place(client, 'Main', 0, card, 6, screens(('Main', 2),))
@@ -791,7 +1107,7 @@ def test_a_wall_bigger_than_its_card_is_reported_rather_than_spilled(one_card):
     physical consequence - a second trunk to one wall - and belongs to a
     person, not to the app."""
     client, _pid, card = one_card
-    res = resolve(client, ('Main', 17))
+    res = attach(client, 'Main', card, screens(('Main', 17)))
     assert numbers(res, 'Main')[:16] == list(range(1, 17))
     assert numbers(res, 'Main')[16] is None
     assert by_name(res, 'Main')['unplaced'] == [16]
@@ -813,6 +1129,7 @@ def test_the_overflow_can_be_placed_on_a_different_card(two_cards):
     this same endpoint."""
     client, _pid, card_a, card_b = two_cards
     sc = screens(('Main', 17),)
+    attach(client, 'Main', card_a, sc)
 
     resp = client.post('/api/port-assignments/place-overflow',
                        json={'layerId': 'Main', 'cardId': card_b, 'screens': sc})
@@ -827,24 +1144,32 @@ def test_the_overflow_can_be_placed_on_a_different_card(two_cards):
     assert 'overflow' not in kinds(res)
 
 
-def test_placed_overflow_survives_the_next_auto_pass(two_cards):
+def test_placed_overflow_stays_put_when_the_next_screen_arrives(two_cards):
     """The overflow is stored as pins, so the numbering someone decided on
-    stays decided when the next screen is added."""
+    stays decided when the next screen is dropped beside it - the new
+    screen's fill works around the pin rather than over it."""
     client, _pid, card_a, card_b = two_cards
-    client.post('/api/port-assignments/place-overflow', json={
-        'layerId': 'Main', 'cardId': card_b, 'screens': screens(('Main', 17))})
-    res = resolve(client, ('Main', 17), ('Side', 4))
+    sc = screens(('Main', 17), ('Side', 4))
+    attach(client, 'Main', card_a, sc)
+    attach(client, 'Main', card_b, sc)
+    res = attach(client, 'Side', card_b, sc)
     assert spots(res, 'Main')[16] == (card_b, 1)
     assert sources(res, 'Main')[16] == 'pin'
-    # The new screen works around it rather than over it.
     assert spots(res, 'Side') == [(card_b, n) for n in (2, 3, 4, 5)]
 
 
 def test_an_overflow_with_no_card_anywhere_reads_the_same(one_card):
     """Whether room exists elsewhere or nowhere, the row is the same plain
     fact - the ports are not attached. The strip stopped weighing the
-    project's spare room the day it stopped offering places."""
-    client, _pid, _card = one_card
+    project's spare room the day it stopped offering places, and a drop on
+    a full card is refused with the same plain fact."""
+    client, _pid, card = one_card
+    sc = screens(('Main', 16), ('Side', 4))
+    attach(client, 'Main', card, sc)
+    resp = client.post('/api/port-assignments/place-overflow',
+                       json={'layerId': 'Side', 'cardId': card, 'screens': sc})
+    assert resp.status_code == 409, resp.get_data(as_text=True)
+    assert 'no free ports' in resp.get_json()['error']
     res = resolve(client, ('Main', 16), ('Side', 4))
     over = issue(res, 'overflow')
     assert over['layerId'] == 'Side'
@@ -852,24 +1177,26 @@ def test_an_overflow_with_no_card_anywhere_reads_the_same(one_card):
     assert 'not attached' in over['message']
 
 
-# ── 5. Manual override, and it wins ───────────────────────────────────────
+# ── 5. A pin holds ────────────────────────────────────────────────────────
 
-def test_auto_works_around_a_pin_and_never_over_it(one_card):
-    """Pins are placed first and auto fills in around whatever is left. Auto
-    cannot move a pin, only avoid it - and avoiding it leaves a gap in the run,
-    which is honest about where the ports actually are."""
+def test_a_fill_works_around_a_pin_and_never_over_it(one_card):
+    """A card drop fills the free sockets and only the free sockets. A pin
+    sitting at port 3 makes the next screen take 1, 2, 4, 5 - a gap in the
+    run, which is honest about where the ports actually are (the block
+    move is the way out of it)."""
     client, _pid, card = one_card
+    sc = screens(('Main', 4), ('Side', 1))
     resp = client.post('/api/port-assignments/pin', json={
         'layerId': 'Side', 'index': 0, 'cardId': card, 'port': 3,
-        'screens': screens(('Main', 4), ('Side', 1))})
+        'screens': sc})
     assert resp.status_code == 200, resp.get_data(as_text=True)
 
-    res = resolve(client, ('Main', 4), ('Side', 1))
+    res = attach(client, 'Main', card, sc)
     assert numbers(res, 'Side') == [3], 'the pinned port moved'
     assert sources(res, 'Side') == ['pin']
     assert numbers(res, 'Main') == [1, 2, 4, 5], (
-        'auto stamped over the pin or failed to work around it')
-    assert sources(res, 'Main') == ['auto'] * 4
+        'the fill stamped over the pin or failed to work around it')
+    assert sources(res, 'Main') == ['pin'] * 4
 
 
 def test_a_pin_holds_through_screens_being_added_and_removed(two_cards):
@@ -888,18 +1215,19 @@ def test_a_pin_holds_through_screens_being_added_and_removed(two_cards):
 
 
 def test_any_port_of_any_screen_can_be_pinned(two_cards):
-    """Not just the first, and not just to the card auto chose. The port in the
-    middle of a run is exactly the one somebody needs to hold when a patch was
-    made up before the drawing was."""
+    """Not just the first, and not just on the card the screen was dropped
+    on. The port in the middle of a run is exactly the one somebody needs
+    to hold when a patch was made up before the drawing was."""
     client, _pid, card_a, card_b = two_cards
     sc = screens(('Main', 5),)
+    attach(client, 'Main', card_a, sc)
     resp = client.post('/api/port-assignments/pin', json={
         'layerId': 'Main', 'index': 3, 'cardId': card_b, 'port': 7,
         'screens': sc})
     assert resp.status_code == 200, resp.get_data(as_text=True)
     res = resp.get_json()['resolution']
     assert spots(res, 'Main')[3] == (card_b, 7)
-    assert sources(res, 'Main') == ['auto', 'auto', 'auto', 'pin', 'auto']
+    assert sources(res, 'Main') == ['pin'] * 5
     assert [c for c, _p in spots(res, 'Main')][:3] == [card_a] * 3
     assert by_name(res, 'Main')['split'] is True, (
         'a pin onto another card splits the screen and should read that way')
@@ -931,38 +1259,48 @@ def test_a_pin_without_a_port_number_takes_the_cards_lowest_free_one(two_cards):
 def test_a_pin_onto_a_full_card_is_refused_rather_than_stacked(two_cards):
     client, _pid, card_a, _card_b = two_cards
     sc = screens(('Main', 16), ('Side', 2))
-    resolve(client, ('Main', 16), ('Side', 2))
+    attach(client, 'Main', card_a, sc)
     resp = client.post('/api/port-assignments/pin', json={
         'layerId': 'Side', 'index': 0, 'cardId': card_a, 'screens': sc})
     assert resp.status_code == 409
     assert 'free' in resp.get_json()['error']
 
 
-def test_which_ports_are_pinned_is_visible(one_card):
+def test_which_ports_are_attached_is_visible(one_card):
+    """A port's source says how it got there - 'pin' for every port on a
+    card, None for one that is not attached - so the dock can draw the
+    difference between held and missing without a second derivation."""
     client, _pid, card = one_card
+    sc = screens(('Main', 3))
     client.post('/api/port-assignments/pin', json={
         'layerId': 'Main', 'index': 1, 'cardId': card, 'port': 9,
-        'screens': screens(('Main', 3))})
+        'screens': sc})
     res = resolve(client, ('Main', 3))
-    assert sources(res, 'Main') == ['auto', 'pin', 'auto']
+    assert sources(res, 'Main') == [None, 'pin', None]
+    res = attach(client, 'Main', card, sc)
+    assert sources(res, 'Main') == ['pin', 'pin', 'pin']
+    assert numbers(res, 'Main') == [1, 9, 2]
 
 
-def test_releasing_a_pin_returns_the_port_to_auto(one_card):
-    """There is nothing to restore, because auto was never stored - it is
-    derived on every resolve, so the port simply falls back into the pack."""
+def test_releasing_a_pin_leaves_the_port_unattached(one_card):
+    """A release takes the port off its card and nothing more: the socket
+    it left stays empty, the screen's other ports stay where they are, and
+    the port is reported as not attached until somebody places it again."""
     client, _pid, card = one_card
     sc = screens(('Main', 3),)
+    attach(client, 'Main', card, sc)
     client.post('/api/port-assignments/pin', json={
         'layerId': 'Main', 'index': 1, 'cardId': card, 'port': 9, 'screens': sc})
-    assert numbers(resolve(client, ('Main', 3)), 'Main') == [1, 9, 2]
+    assert numbers(resolve(client, ('Main', 3)), 'Main') == [1, 9, 3]
 
     resp = client.post('/api/port-assignments/unpin',
                        json={'layerId': 'Main', 'index': 1, 'screens': sc})
     assert resp.status_code == 200, resp.get_data(as_text=True)
     res = resp.get_json()['resolution']
-    assert numbers(res, 'Main') == [1, 2, 3]
-    assert sources(res, 'Main') == ['auto'] * 3
-    assert resp.get_json()['state']['pins'] == []
+    assert numbers(res, 'Main') == [1, None, 3]
+    assert sources(res, 'Main') == ['pin', None, 'pin']
+    assert issue(res, 'overflow')['ports'] == [2]
+    assert [p['index'] for p in resp.get_json()['state']['pins']] == [0, 2]
 
 
 def test_releasing_a_whole_screen_releases_every_one_of_its_pins(one_card):
@@ -978,7 +1316,7 @@ def test_releasing_a_whole_screen_releases_every_one_of_its_pins(one_card):
                        json={'layerId': 'Main', 'screens': sc})
     assert resp.status_code == 200
     res = resp.get_json()['resolution']
-    assert numbers(res, 'Main') == [1, 2, 3]
+    assert numbers(res, 'Main') == [None, None, None]
     assert resp.get_json()['state']['pins'] == []
 
 
@@ -1007,7 +1345,7 @@ def test_a_pin_is_refused_onto_a_card_that_is_not_in_the_project(one_card):
         'layerId': 'Main', 'index': 0, 'cardId': 'cardNope', 'port': 1,
         'screens': screens(('Main', 2))})
     assert resp.status_code == 404
-    assert assignment.STATE_KEY not in client.get('/api/project').get_json()
+    assert stored_state(client) == STAMP
 
 
 # ── 6. Storage ────────────────────────────────────────────────────────────
@@ -1032,30 +1370,38 @@ def test_pins_round_trip_through_save_and_reload(two_cards):
     assert sources(res, 'Main')[2] == 'pin'
 
 
-def test_only_pins_and_the_auto_flag_are_stored(one_card):
-    """Nothing derived is kept. Storing the auto numbering would put a stale
-    copy in the file the moment a screen changed size, and the file would then
-    disagree with the dock drawn beside it."""
+def test_only_pins_and_the_retired_auto_stamp_are_stored(one_card):
+    """Nothing derived is kept. Storing a numbering would put a stale copy
+    in the file the moment a screen changed size, and the file would then
+    disagree with the dock drawn beside it. What IS stored beside the pins
+    is the retired-auto stamp: `auto` False for good, and `autoRetired`,
+    the mark that keeps the migration from ever running twice."""
     client, _pid, card = one_card
     client.post('/api/port-assignments/pin', json={
         'layerId': 'Main', 'index': 0, 'cardId': card, 'port': 3,
         'screens': screens(('Main', 8))})
     stored = client.get('/api/project').get_json()[assignment.STATE_KEY]
-    assert set(stored) == {'auto', 'pins'}
+    assert set(stored) == {'auto', 'autoRetired', 'pins'}
+    assert stored['auto'] is False and stored['autoRetired'] is True
     assert stored['pins'] == [{'layerId': 'Main', 'index': 0,
                                'cardId': card, 'port': 3}]
 
 
 # ── 7. The regression bar ─────────────────────────────────────────────────
+#
+# Every project is BORN with the state key now (the stamp, no pins) - that
+# is how the funnel tells a fresh project from a pre-ruling file. What the
+# bar holds is the same as ever: a read adds nothing, a refused edit adds
+# nothing, and a project nobody wired carries the stamp and only the stamp.
 
-def test_a_project_with_no_processors_is_shaped_exactly_as_before(client):
-    """Anyone who never opens the Data view, or defines no processor, sees no
-    change - including in the file they save. Resolving must not stamp the key
-    onto a project that has none, and an undefined machine is not an error to
-    report at somebody, it is the default."""
+def test_a_project_with_no_processors_carries_the_stamp_and_nothing_else(client):
+    """Anyone who never opens the Data view, or defines no processor, sees
+    the birth stamp and no more - including in the file they save.
+    Resolving must not add to it, and an undefined machine is not an error
+    to report at somebody, it is the default."""
     before = client.get('/api/project').get_json()
     assert 'processors' not in before
-    assert assignment.STATE_KEY not in before
+    assert before[assignment.STATE_KEY] == STAMP
 
     res = resolve(client, ('Main', 6), ('Side', 4))
     assert res['configured'] is False
@@ -1069,25 +1415,25 @@ def test_a_project_with_no_processors_is_shaped_exactly_as_before(client):
 
 
 def test_a_refused_edit_leaves_no_state_behind(client):
-    """A 409 must not be the thing that puts the key into a project. Editing
+    """A 409 must not be the thing that changes the stored state. Editing
     the stored dict in place and then refusing is exactly how that happens."""
     resp = client.post('/api/port-assignments/move-block',
                        json={'layerId': 'Main', 'screens': screens(('Main', 4))})
     assert resp.status_code == 409
     project = client.get('/api/project').get_json()
-    assert assignment.STATE_KEY not in project
+    assert project[assignment.STATE_KEY] == STAMP
     assert project['is_pristine'] is True
 
 
 def test_a_placement_with_no_processor_leaves_the_project_alone(client):
     """There is no socket to place onto, and saying so must not be the thing
-    that stamps assignment state onto a project that has none."""
+    that writes assignment state onto a project that has none."""
     resp = client.post('/api/port-assignments/place', json={
         'layerId': 'Main', 'index': 0, 'cardId': 'cardNope', 'port': 1,
         'screens': screens(('Main', 2))})
     assert resp.status_code == 404
     project = client.get('/api/project').get_json()
-    assert assignment.STATE_KEY not in project
+    assert project[assignment.STATE_KEY] == STAMP
     assert project['is_pristine'] is True
 
 
@@ -1096,7 +1442,7 @@ def test_releasing_a_pin_that_was_never_made_changes_nothing(client):
                        json={'layerId': 'Main', 'screens': screens(('Main', 2))})
     assert resp.status_code == 200
     project = client.get('/api/project').get_json()
-    assert assignment.STATE_KEY not in project
+    assert project[assignment.STATE_KEY] == STAMP
     assert project['is_pristine'] is True
 
 
@@ -1114,8 +1460,7 @@ def test_the_per_screen_port_templates_are_untouched(client_with_layer):
     layer = client_with_layer.get('/api/project').get_json()['layers'][0]
     assert layer['portLabelTemplatePrimary'] == 'SR-#'
     assert layer['portLabelTemplateReturn'] == 'SRB-#'
-    assert assignment.STATE_KEY not in \
-        client_with_layer.get('/api/project').get_json()
+    assert stored_state(client_with_layer) == STAMP
 
 
 def test_the_docks_assignment_controls_stay_out_of_the_field_sweep():
@@ -1184,8 +1529,8 @@ def test_the_docks_assignment_controls_stay_out_of_the_field_sweep():
     assert 'id="hw-dock-attach"' in html, 'the flag rows host is gone'
     assert 'id="port-assignment-issues"' not in html, (
         'the retired Port Numbering issue host is back')
-    # The auto checkbox is retired whole: a resurrected declaration would
-    # re-offer the auto:false trip the UI no longer takes.
+    # The auto checkbox is retired whole, and so is auto itself (2026-09-03):
+    # a resurrected declaration would offer a switch that no longer exists.
     assert 'id="port-assignment-auto"' not in html
     assert 'id="hw-dock-auto-wrap"' not in html
 
@@ -1199,17 +1544,20 @@ def test_a_ports_label_is_the_one_the_catalog_derived(one_card):
     client, pid, card = one_card
     resp = client.put(f'/api/processors/{pid}/cards/{card}', json={'name': 'SR'})
     assert resp.status_code == 200
-    res = resolve(client, ('Main', 3))
+    res = attach(client, 'Main', card, screens(('Main', 3)))
     assert [p['label'] for p in by_name(res, 'Main')['ports']] == \
         ['SR-1', 'SR-2', 'SR-3']
 
 
-def test_an_unnamed_card_gives_its_ports_no_label(one_card):
-    """With nothing named upstream there is no processor-derived label, which
-    leaves the per-screen templates in charge exactly as before."""
-    client, _pid, _card = one_card
-    res = resolve(client, ('Main', 2))
-    assert [p['label'] for p in by_name(res, 'Main')['ports']] == [None, None]
+def test_an_unnamed_card_labels_its_ports_with_their_sockets(one_card):
+    """With nothing named upstream there is no processor-derived label, and
+    the socket number stands in for it: the user's ruling (2026-09-03) is
+    that an attached port prints the numbering of the card it is attached
+    to, named or not. (This used to pin None here and leave the per-screen
+    template printing P1, P2 over sockets the dock called 1, 2.)"""
+    client, _pid, card = one_card
+    res = attach(client, 'Main', card, screens(('Main', 2)))
+    assert [p['label'] for p in by_name(res, 'Main')['ports']] == ['1', '2']
     assert numbers(res, 'Main') == [1, 2], 'an unnamed card still numbers'
 
 
@@ -1303,14 +1651,17 @@ def test_the_per_port_rows_stay_out_of_the_assignment_module():
     assert '_buildOffer(offer) {' in panel
     assert "getElementById('hw-dock-issues')" in panel, (
         'the issue rows stopped rendering onto the dock strip')
-    # The auto checkbox left the UI: nothing may sync it, and nothing may
-    # ever send auto:false - the PUT with auto:true (the strip's recovery
-    # offer) is the one auto request the module still makes.
+    # Auto-numbering is retired outright (2026-09-03): no checkbox, no
+    # auto-off row, no turn-back-on offer, and no request to the old switch
+    # (PUT /api/port-assignments answers 410 now).
     assert "port-assignment-auto" not in panel, (
         'the retired auto checkbox is back in the assignment module')
-    assert 'auto: false' not in panel and 'auto:false' not in panel, (
-        'the assignment module must never send auto:false - the toggle is '
-        'retired and only the recovery offer (auto: true) remains')
+    for gone in ('auto: false', 'auto:false', 'auto: true', 'auto:true',
+                 "'auto-on'", "'auto-off'", "'/api/port-assignments', 'PUT'",
+                 'Toggle Auto Numbering'):
+        assert gone not in panel, (
+            f'{gone!r} is back in the assignment module - auto-numbering '
+            f'is retired and nothing may offer it')
     # The overflow story lives under the attachment flag, not the strip.
     assert "kind !== 'overflow'" in panel, (
         'the strip is rendering overflow rows again - that story belongs '
@@ -1328,7 +1679,7 @@ def test_the_backup_template_rides_the_return_labels_here_too(one_card):
                json={'name': 'SR', 'returnLabelTemplate': 'BU-#'})
     client.put(f'/api/processors/{pid}/cards/{card}/ports/2',
                json={'returnName': 'HOUSE-RTN'})
-    res = resolve(client, ('Main', 3))
+    res = attach(client, 'Main', card, screens(('Main', 3)))
     scr = by_name(res, 'Main')
     assert [p['returnLabel'] for p in scr['ports']] == \
         ['BU-1', 'HOUSE-RTN', 'BU-3']
@@ -1346,7 +1697,7 @@ def test_the_backup_template_rides_the_return_labels_here_too(one_card):
 #
 # A port consumed by the redundancy mapping - the even half of a sequential
 # card, every port of a 1:1 backup unit, a manual pick - is CLAIMED BY ROLE:
-# auto numbers around it, a block cannot land across it, and a hand
+# a card drop fills around it, a block cannot land across it, and a hand
 # placement is refused outright with the main it returns named in the
 # refusal. Outright, unlike the occupied-port question: sharing a socket
 # with another screen is a real rig (a hot spare), sharing it with its own
@@ -1365,17 +1716,29 @@ def sequential_card(client):
     return pid, card
 
 
-def test_auto_numbering_skips_the_backing_ports(client):
-    """Three ports on a sequential six land on 1, 3, 5 - the odd mains - and
-    the card is full at three, because the evens are its returns."""
+def test_a_card_drop_skips_the_backing_ports(client):
+    """Three ports dropped on a sequential six land on 1, 3, 5 - the odd
+    mains - and the card is full at three, because the evens are its
+    returns. A fourth has nowhere to go, and a pin with no port number
+    (the card-level drop) finds the same three sockets and no more."""
     _pid, card = sequential_card(client)
-    sc = [('Wall', 3)]
-    res = resolve(client, *sc)
+    res = attach(client, 'Wall', card, screens(('Wall', 3)))
     assert spots(res, 'Wall') == [(card, 1), (card, 3), (card, 5)]
 
-    res = resolve(client, ('Wall', 4))
+    client.post('/api/port-assignments/unpin', json={'layerId': 'Wall'})
+    resp = client.post('/api/port-assignments/place-overflow',
+                       json={'layerId': 'Wall', 'cardId': card,
+                             'screens': screens(('Wall', 4))})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    assert 'took 3 of 4 ports' in resp.get_json()['moved']['note']
+    res = resp.get_json()['resolution']
     assert numbers(res, 'Wall') == [1, 3, 5, None]
     assert issue(res, 'overflow')
+    resp = client.post('/api/port-assignments/pin', json={
+        'layerId': 'Wall', 'index': 3, 'cardId': card,
+        'screens': screens(('Wall', 4))})
+    assert resp.status_code == 409, 'a card-level pin landed on a return socket'
+    assert 'no free ports' in resp.get_json()['error']
 
 
 def test_placing_onto_a_backing_port_is_refused_naming_the_main(client):
@@ -1383,6 +1746,8 @@ def test_placing_onto_a_backing_port_is_refused_naming_the_main(client):
     socket carries. Nothing moves and nothing is stamped on the project."""
     _pid, card = sequential_card(client)
     sc = screens(('Wall', 2))
+    attach(client, 'Wall', card, sc)
+    before = stored_state(client)
     resp = place(client, 'Wall', 1, card, 2, sc)
     assert resp.status_code == 409, resp.get_data(as_text=True)
     body = resp.get_json()
@@ -1393,13 +1758,13 @@ def test_placing_onto_a_backing_port_is_refused_naming_the_main(client):
     after = resolve(client, ('Wall', 2))
     assert spots(after, 'Wall') == [(card, 1), (card, 3)], (
         'the refused placement moved something')
-    assert assignment.STATE_KEY not in client.get('/api/project').get_json()
+    assert stored_state(client) == before
 
 
 def test_a_1to1_backup_unit_takes_nothing_and_refuses_by_role(client):
-    """Every port of the designated backup unit is consumed: auto never
-    reaches it, and a hand placement is refused with the main port it
-    returns - the claimed-by-role treatment, unit-wide."""
+    """Every port of the designated backup unit is consumed: a card drop
+    finds nothing free on it, and a hand placement is refused with the
+    main port it returns - the claimed-by-role treatment, unit-wide."""
     state = add_processor(client, 'novastar-mx20')
     main_pid = state['resolved'][0]['id']
     main_card = card_ids(state)[0]
@@ -1417,10 +1782,16 @@ def test_a_1to1_backup_unit_takes_nothing_and_refuses_by_role(client):
 
     # Eight ports against a mirrored six: the main fills, the backup takes
     # none, and the spill has nowhere to go.
-    res = resolve(client, ('Wall', 8))
+    sc = screens(('Wall', 8))
+    res = attach(client, 'Wall', main_card, sc)
     assert spots(res, 'Wall')[:6] == [(main_card, n) for n in range(1, 7)]
     assert spots(res, 'Wall')[6:] == [(None, None), (None, None)]
     assert issue(res, 'overflow')
+    resp = client.post('/api/port-assignments/place-overflow',
+                       json={'layerId': 'Wall', 'cardId': backup_card,
+                             'screens': sc})
+    assert resp.status_code == 409, 'the spill landed on the backup unit'
+    assert 'no free ports' in resp.get_json()['error']
 
     resp = place(client, 'Wall', 6, backup_card, 3, screens(('Wall', 8)))
     assert resp.status_code == 409, resp.get_data(as_text=True)
@@ -1433,7 +1804,7 @@ def test_the_card_summary_counts_backing_ports_out_of_free(client):
     row both read the summary, so a sequential card must not promise six
     sockets when three of them are spoken for by the role."""
     _pid, card = sequential_card(client)
-    res = resolve(client, ('Wall', 2))
+    res = attach(client, 'Wall', card, screens(('Wall', 2)))
     summary = next(c for c in res['cards'] if c['cardId'] == card)
     assert summary['capacity'] == 6
     assert summary['used'] == 2
@@ -1445,9 +1816,9 @@ def test_a_block_cannot_land_across_a_backing_port(client):
     """A block is contiguous or it is not a block, and the evens of a
     sequential card break every run of two - so the move is refused rather
     than landed astride a return socket."""
-    _pid, _card = sequential_card(client)
+    _pid, card = sequential_card(client)
     sc = screens(('Wall', 2))
-    resolve(client, ('Wall', 2))
+    attach(client, 'Wall', card, sc)
     resp = client.post('/api/port-assignments/move-block',
                        json={'layerId': 'Wall', 'screens': sc})
     assert resp.status_code == 409, resp.get_data(as_text=True)
@@ -1466,7 +1837,7 @@ def test_the_sx40_pair_claims_the_backing_boxes_whole(client):
     card = card_ids(state)[0]
     client.put(f'/api/processors/{pid}', json={'redundancy': True})
 
-    res = resolve(client, ('Wall', 12))
+    res = attach(client, 'Wall', card, screens(('Wall', 12)))
     assert numbers(res, 'Wall') == list(range(1, 11)) + [21, 22]
     summary = next(c for c in res['cards'] if c['cardId'] == card)
     assert (summary['capacity'], summary['backing']) == (40, 20)
@@ -1486,9 +1857,10 @@ def test_the_sx40_pair_claims_the_backing_boxes_whole(client):
 def test_the_halves_mode_claims_the_back_half_by_role(client):
     """The 2026-08-27 arrangement at the assignment's end: "1-8 on
     processor 1 and 9-16 as backups". With halves mode on a 16-port card,
-    auto packs the front half and stops - the back half is spoken for by
-    role - and a hand placement onto socket 9 gets the same hard refusal
-    every backing socket gets, naming the main whose return it carries."""
+    a card drop packs the front half and stops - the back half is spoken
+    for by role - and a hand placement onto socket 9 gets the same hard
+    refusal every backing socket gets, naming the main whose return it
+    carries."""
     state = add_processor(client, 'novastar-h9')
     pid = state['resolved'][0]['id']
     state = set_card(client, pid, 0, 'novastar-card-h-16xrj45-2xfiber')
@@ -1499,9 +1871,9 @@ def test_the_halves_mode_claims_the_back_half_by_role(client):
                       json={'redundancyMode': 'halves'})
     assert resp.status_code == 200, resp.get_data(as_text=True)
 
-    res = resolve(client, ('Wall', 10))
+    res = attach(client, 'Wall', card, screens(('Wall', 10)))
     assert numbers(res, 'Wall') == list(range(1, 9)) + [None, None], (
-        'auto crossed into the back half')
+        'the fill crossed into the back half')
     assert issue(res, 'overflow')
     summary = next(c for c in res['cards'] if c['cardId'] == card)
     assert (summary['capacity'], summary['backing']) == (16, 8)
@@ -1552,7 +1924,7 @@ def test_the_sx40s_b_sockets_carry_the_screens_returns(client):
                    json={'name': name})
     client.put(f'/api/processors/{pid}', json={'redundancy': True})
 
-    res = resolve(client, ('Wall', 12))
+    res = attach(client, 'Wall', card, screens(('Wall', 12)))
     assert returns_on(res, card, 11) == \
         [('Wall', 1, 'return', 'return', 1, 'A-1')]
     assert returns_on(res, card, 20) == \
@@ -1566,12 +1938,13 @@ def test_the_sx40s_b_sockets_carry_the_screens_returns(client):
     summary = next(c for c in res['cards'] if c['cardId'] == card)
     assert (summary['used'], summary['backing'], summary['free']) == \
         (12, 20, 8), 'the mirrored display leaked into the claim counts'
-    assert assignment.STATE_KEY not in client.get('/api/project').get_json(), (
+    assert len(stored_state(client)['pins']) == 12, (
         'derived occupancy stamped state onto the project')
 
     # Un-assigning the mains clears the backups' display with them - the
     # mirror is the main's occupant, so there is nothing to clear twice.
-    res = resolve(client, ('Wall', 0))
+    client.post('/api/port-assignments/unpin', json={'layerId': 'Wall'})
+    res = resolve(client, ('Wall', 12))
     assert res['occupancy'] == {}
 
 
@@ -1580,7 +1953,7 @@ def test_sequential_and_manual_sockets_mirror_the_same_way(client):
     card's even sockets carry the odd mains' occupants, and a manual pick
     mirrors exactly the socket somebody named - nothing else."""
     pid, card = sequential_card(client)
-    res = resolve(client, ('Wall', 2))
+    res = attach(client, 'Wall', card, screens(('Wall', 2)))
     assert spots(res, 'Wall') == [(card, 1), (card, 3)]
     assert returns_on(res, card, 2) == \
         [('Wall', 1, 'return', 'return', 1, 'SR-1')]
@@ -1614,7 +1987,7 @@ def test_a_1to1_backup_units_sockets_mirror_their_mains(client):
     client.put(f'/api/processors/{main_pid}/cards/{main_card}',
                json={'backupCardId': backup_card})
 
-    res = resolve(client, ('Wall', 3))
+    res = attach(client, 'Wall', main_card, screens(('Wall', 3)))
     assert spots(res, 'Wall') == [(main_card, n) for n in (1, 2, 3)]
     for n in (1, 2, 3):
         assert returns_on(res, backup_card, n) == \
@@ -1626,9 +1999,9 @@ def test_a_mirrored_return_is_not_a_pin_and_follows_the_mains_clear(client):
     """The mirrored entry's source is 'return', never 'pin', so no release
     path can mistake it for a claim it may act on - and releasing the MAIN
     is the whole of clearing both ends: with the pin gone the mirror is
-    gone, and the project holds pins and the auto flag and nothing else."""
+    gone, and the project holds pins and the retired-auto stamp and
+    nothing else."""
     _pid, card = sequential_card(client)
-    client.put('/api/port-assignments', json={'auto': False})
     resp = place(client, 'Wall', 0, card, 1, screens(('Wall', 1)))
     assert resp.status_code == 200, resp.get_data(as_text=True)
     res = resolve(client, ('Wall', 1))
@@ -1643,9 +2016,8 @@ def test_a_mirrored_return_is_not_a_pin_and_follows_the_mains_clear(client):
     res = resolve(client, ('Wall', 1))
     assert res['occupancy'].get(card, {}).get('2', []) == [], (
         'clearing the main left the mirrored return behind')
-    stored = client.get('/api/project').get_json()[assignment.STATE_KEY]
-    assert stored == {'auto': False, 'pins': []}, (
-        'something beyond pins and the flag was stored')
+    assert stored_state(client) == STAMP, (
+        'something beyond pins and the stamp was stored')
 
 
 # ── 12. The platform wall ─────────────────────────────────────────────────
@@ -1653,9 +2025,9 @@ def test_a_mirrored_return_is_not_a_pin_and_follows_the_mains_clear(client):
 # A screen's Processing setting and a card's product line have to agree
 # before a port may land (ruling, 2026-08-28): a Legacy screen never lands
 # on COEX gear, a NovaStar screen never lands on a Brompton, and so on for
-# every pairing. Auto skips a mismatched card the way it skips a full one;
-# every manual path refuses with both sides named; a saved pin that already
-# violates the wall is reported red and NEVER silently released.
+# every pairing. Every placement path - the card drop's fill included -
+# refuses with both sides named; a saved pin that already violates the
+# wall is reported red and NEVER silently released.
 
 
 def pscreens(*triples):
@@ -1718,25 +2090,39 @@ def test_the_matrix_covers_every_ported_device():
             f'{device["id"]}: accepts {got}, the matrix says {want}')
 
 
-def test_auto_lands_each_screen_on_its_own_lines_gear(mixed_lines):
-    """The Legacy screen walks PAST the first (COEX) card to the H card,
-    and the COEX screen takes the COEX card the Legacy one skipped - the
-    same first-fit rule, walked over matching gear only."""
+def test_a_card_drop_lands_only_on_its_own_lines_gear(mixed_lines):
+    """The Legacy screen dropped on the COEX card is refused with both
+    sides named; dropped on the H card it lands, and the COEX screen takes
+    the COEX card - one wall, the same answer whichever card the drop
+    names."""
     client, mx_card, h_card = mixed_lines
-    res = presolve(client, pscreens(('LEG', 2, 'novastar-armor'),
-                                    ('CX1', 2, 'novastar-coex-1g')))
+    sc = pscreens(('LEG', 2, 'novastar-armor'), ('CX1', 2, 'novastar-coex-1g'))
+    resp = client.post('/api/port-assignments/place-overflow',
+                       json={'layerId': 'LEG', 'cardId': mx_card, 'screens': sc})
+    assert resp.status_code == 409
+    assert resp.get_json()['error'] == (
+        'LEG is programmed NovaStar (Legacy); MX40 Pro slot 1 is COEX gear.')
+    attach(client, 'LEG', h_card, sc)
+    res = attach(client, 'CX1', mx_card, sc)
     assert spots(res, 'LEG') == [(h_card, 1), (h_card, 2)]
     assert spots(res, 'CX1') == [(mx_card, 1), (mx_card, 2)]
     assert kinds(res) == []
 
 
 def test_a_wall_with_no_matching_gear_stays_unplaced(mixed_lines):
-    """A Brompton screen among NovaStar cards goes NOWHERE - not onto the
-    least-wrong card - and the overflow report says its ports are not
-    attached. No mismatch row: nothing is pinned, so nothing is wrong that
-    a matching processor would not fix."""
-    client, _mx, _h = mixed_lines
-    res = presolve(client, pscreens(('Wall', 3, 'brompton')))
+    """A Brompton screen among NovaStar cards goes NOWHERE - every drop is
+    refused, never landed on the least-wrong card - and the overflow
+    report says its ports are not attached. No mismatch row: nothing is
+    pinned, so nothing is wrong that a matching processor would not fix."""
+    client, mx_card, h_card = mixed_lines
+    sc = pscreens(('Wall', 3, 'brompton'))
+    for card in (mx_card, h_card):
+        resp = client.post('/api/port-assignments/place-overflow',
+                           json={'layerId': 'Wall', 'cardId': card,
+                                 'screens': sc})
+        assert resp.status_code == 409, resp.get_data(as_text=True)
+        assert 'is programmed Brompton Tessera' in resp.get_json()['error']
+    res = presolve(client, sc)
     assert spots(res, 'Wall') == [(None, None)] * 3
     assert issue(res, 'overflow')['layerId'] == 'Wall'
     assert 'platform-mismatch' not in kinds(res)
@@ -1749,6 +2135,7 @@ def test_a_hand_placement_across_the_wall_is_refused_naming_both_sides(
     and the message is all the strip shows."""
     client, mx_card, h_card = mixed_lines
     sc = pscreens(('IMAG SR', 2, 'novastar-armor'))
+    attach(client, 'IMAG SR', h_card, sc)
     resp = place(client, 'IMAG SR', 0, mx_card, 1, sc)
     assert resp.status_code == 409
     assert resp.get_json()['error'] == (
@@ -1862,9 +2249,11 @@ def test_the_vendor_walls_hold_both_ways(client):
     sx_card = card_ids(state)[0]
     state = add_processor(client, 'megapixel-helios-jr')
     mp_card = card_ids(state)[1]
-    res = presolve(client, pscreens(('BR', 2, 'brompton'),
-                                    ('M1', 2, 'megapixel-1g'),
-                                    ('M2', 2, 'megapixel-2.5g')))
+    sc = pscreens(('BR', 2, 'brompton'), ('M1', 2, 'megapixel-1g'),
+                  ('M2', 2, 'megapixel-2.5g'))
+    attach(client, 'BR', sx_card, sc)
+    attach(client, 'M1', mp_card, sc)
+    res = attach(client, 'M2', mp_card, sc)
     assert {c for c, _p in spots(res, 'BR')} == {sx_card}
     assert {c for c, _p in spots(res, 'M1')} == {mp_card}
     assert {c for c, _p in spots(res, 'M2')} == {mp_card}
