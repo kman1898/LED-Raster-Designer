@@ -277,6 +277,35 @@ def _set_backup_processor(proc, partner_id):
     return None
 
 
+def _set_cards_redundancy_mode(proc, mode):
+    """Give EVERY card of `proc` the same redundancy mode, or refuse the lot.
+
+    The bar behind the processor's gear speaks for the whole unit - "Per
+    card" is every slot at 1:1, "Per port" is every slot at a port shape
+    - because the user found the old one-select-per-slot surface "wayyy
+    too busy" (2026-09-04). One request carries the level so one undo
+    takes it back. Every card's refusal is gathered BEFORE any card is
+    written: a chassis that stored slot 1 and then refused slot 2 would be
+    left half at one level and half at another, and the bar could not
+    say which. The first failure names its slot and nothing changes.
+
+    Only the mode moves. A stored 1:1 partner or a manual pick survives
+    underneath exactly as _set_redundancy_mode leaves it - "Per card"
+    after a whole-unit pairing keeps the pairing, since that pairing IS
+    every card's 1:1 pick.
+    """
+    if not mode or mode not in catalog.REDUNDANCY_MODES:
+        return f'Unknown redundancy mode: {mode}'
+    cards = list(_cards_of(proc))
+    for slot, card in cards:
+        why = _fixed_pairing_refusal(card)
+        if why:
+            return f'Slot {slot.get("index", 0) + 1}: {why}'
+    for _slot, card in cards:
+        _set_redundancy_mode(card, mode)
+    return None
+
+
 def _set_port_backup(card, card_id, number, spec):
     """Store or clear one main port's hand-picked backup port.
 
@@ -386,9 +415,16 @@ def update_processor(processor_id):
     if not proc:
         return jsonify({'error': 'Processor not found'}), 404
     data = request.json or {}
-    # The whole-processor pairing is validated, not allow-listed, like the
-    # card's redundancy fields: any slot that cannot mirror refuses the
-    # whole gesture with its reason, and nothing is stored.
+    # The whole-processor pairing and the whole-unit level are validated,
+    # not allow-listed, like the card's redundancy fields: any slot that
+    # cannot mirror (or cannot take the mode) refuses the whole gesture
+    # with its reason, and nothing is stored. The level rides in the same
+    # body as `redundancy: true`, so the bar's "Per card" / "Per port" is
+    # ONE request and ONE undo step.
+    if 'cardsRedundancyMode' in data:
+        why = _set_cards_redundancy_mode(proc, data.get('cardsRedundancyMode'))
+        if why:
+            return jsonify({'error': why}), 400
     if 'backupProcessorId' in data:
         why = _set_backup_processor(proc, data.get('backupProcessorId') or '')
         if why:
@@ -396,6 +432,8 @@ def update_processor(processor_id):
     changed = _apply(proc, data, ('name', 'mode', 'redundancy'))
     if 'backupProcessorId' in data:
         changed['backupProcessorId'] = data.get('backupProcessorId') or None
+    if 'cardsRedundancyMode' in data:
+        changed['cardsRedundancyMode'] = data.get('cardsRedundancyMode')
     log_event('processor_update', {'id': processor_id, 'changed': list(changed)})
     return _state()
 

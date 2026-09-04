@@ -630,6 +630,36 @@ select, .info-select {
   box-shadow:inset 0 3px 6px rgba(0,0,0,0.75),
              0 1px 0 rgba(255,255,255,0.08) !important;
 }
+/* ---- the redundancy pill: a PLUGGED socket in the backup role's gold,
+   at keycap contrast. The user's pick of option D's cheap half
+   (2026-09-04, src/static/redundancy-mock.html): a read-only pill on the
+   processor and card headers that states the shape in force - R → H9
+   BACKUP, R per card, R seq - and opens the processor's ⚙ where it is
+   set. Same geometry as the occupied chip above (top light, drop shadow,
+   the press pushes it back in); the gold is the role's family across the
+   dock - the backup tiles, the pair edge - and a state colour never
+   follows the accent. The header it sits on is uppercase caption text,
+   so the pill resets case and tracking to read as the label it is. */
+.hw-dock-redpill {
+  flex:0 0 auto; min-width:0; max-width:48%; overflow:hidden;
+  text-overflow:ellipsis; white-space:nowrap;
+  font:600 9.5px/1.6 var(--font-ps); text-transform:none; letter-spacing:0;
+  padding:0 6px; border-radius:4px; cursor:pointer; margin:0;
+  color:#f0d48a; border:1px solid #c8a04a;
+  background:#2a2010 linear-gradient(rgba(255,255,255,0.09), rgba(0,0,0,0.10));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.13),
+             0 2px 3px rgba(0,0,0,0.55),
+             0 1px 0 rgba(255,255,255,0.08);
+}
+.hw-dock-redpill:hover {
+  color:#fff; border-color:#e0bc5e;
+  background:#34281a linear-gradient(rgba(255,255,255,0.12), rgba(0,0,0,0.10));
+}
+.hw-dock-redpill:active {
+  transform:translateY(1px);
+  box-shadow:inset 0 2px 3px rgba(0,0,0,0.5), 0 1px 0 rgba(255,255,255,0.08);
+}
+.hw-dock-redpill:focus-visible { outline:1px solid #f0d48a; outline-offset:1px; }
 /* the meter wash follows the well's rounding */
 .hw-dock-fill { border-radius:3px 0 0 3px; }
 
@@ -664,41 +694,6 @@ select, .info-select {
 #hw-gear-popover input[type="checkbox"] {
   background:none !important; border:none !important; box-shadow:none !important;
   padding:0 !important; accent-color:var(--ps-accent);
-}
-/* ---- the redundancy switch: a real toggle at keycap contrast ----
-   The popover skin above strips every checkbox to nothing (no ground, no
-   border) and the 15px redundancy tick vanished into the card - the user
-   found the word "Redundancy" and "nothing to select or pair". The switch
-   is a pill track with a lit knob: an inset dark track with a visible rim
-   when off, the accent when on, the knob white either way. Contrast is
-   the point ("grey on grey is hard to read"), so the label word beside it
-   is the primary text colour, not the caption grey. */
-#hw-gear-popover .hw-pop-switch-row {
-  display:flex; align-items:center; gap:8px; margin-top:8px;
-  font-size:11px; font-weight:600; color:var(--ps-text) !important;
-  cursor:pointer; user-select:none;
-}
-#hw-gear-popover input[type="checkbox"].hw-pop-switch {
-  -webkit-appearance:none; appearance:none; position:relative; margin:0;
-  width:32px !important; height:18px !important; border-radius:9px !important;
-  background:var(--ps-inset) !important; border:1px solid #6a6a6a !important;
-  box-shadow:inset 0 2px 3px rgba(0,0,0,0.7), 0 1px 0 rgba(255,255,255,0.10) !important;
-  background-image:none !important; cursor:pointer; flex:0 0 auto;
-  transition:background-color .12s, border-color .12s;
-}
-#hw-gear-popover input[type="checkbox"].hw-pop-switch::after {
-  content:''; position:absolute; top:2px; left:2px; width:12px; height:12px;
-  border-radius:50%; background:#e8e8e8;
-  box-shadow:0 1px 2px rgba(0,0,0,0.6), inset 0 1px 0 #fff;
-  transition:left .12s;
-}
-#hw-gear-popover input[type="checkbox"].hw-pop-switch:checked {
-  background:var(--ps-accent) !important; border-color:var(--ps-accent-deep) !important;
-  box-shadow:inset 0 1px 2px rgba(0,0,0,0.35), 0 1px 0 rgba(255,255,255,0.10) !important;
-}
-#hw-gear-popover input[type="checkbox"].hw-pop-switch:checked::after { left:16px; }
-#hw-gear-popover input[type="checkbox"].hw-pop-switch:focus-visible {
-  outline:2px solid var(--ps-accent-hi); outline-offset:1px;
 }
 #hw-gear-popover .hw-pop-out b { color:var(--ps-text) !important; }
 #hw-gear-popover .hw-pop-out-sub, #hw-gear-popover .hw-pop-outs-hint,
@@ -824,6 +819,57 @@ select, .info-select {
   box-shadow:inset 0 1px 0 rgba(255,255,255,0.25), 0 2px 3px rgba(0,0,0,0.55) !important;
 }
 #balance-modal .balance-apply:hover { filter:brightness(1.08); }
+
+/* ---- the redundancy bar and its rows (the user's pick, 2026-09-04,
+   from src/static/redundancy-mock.html - option A: "one segmented bar,
+   one line under it" - after "redundancy toggling needs work. right now
+   it's wayyy too busy"; "remember our raised formatting"). The segments
+   ARE the raised popover buttons above, butted into one bar with the
+   ends rounded; the lit segment wears the accent exactly as the Balance
+   dialog's Apply does. The per-slot chips are the same recipe one size
+   down, the lit one in the backup role's gold as the mock draws it.
+   Legends are primary text ("grey on grey is hard to read"). ---- */
+#hw-gear-popover .hw-pop-seg { display:flex; margin-top:8px; }
+#hw-gear-popover .hw-pop-seg > button.hw-pop-seg-btn {
+  flex:1 1 0; min-width:0; position:relative; margin-left:-1px;
+  padding:3px 4px !important; border-radius:0 !important;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+#hw-gear-popover .hw-pop-seg > button.hw-pop-seg-btn:first-child {
+  margin-left:0; border-radius:3px 0 0 3px !important;
+}
+#hw-gear-popover .hw-pop-seg > button.hw-pop-seg-btn:last-child {
+  border-radius:0 3px 3px 0 !important;
+}
+#hw-gear-popover .hw-pop-seg > button.hw-pop-seg-btn.hw-pop-seg-on {
+  z-index:1;
+  background:linear-gradient(var(--ps-accent-hi),var(--ps-accent)) !important;
+  border-color:var(--ps-accent-deep) !important;
+  color:var(--ps-on-accent) !important;
+  text-shadow:0 1px 1px rgba(0,0,0,0.3);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.25), 0 2px 3px rgba(0,0,0,0.55) !important;
+}
+#hw-gear-popover .hw-pop-red-row {
+  display:flex; align-items:center; gap:6px; margin-top:6px; min-width:0;
+}
+#hw-gear-popover .hw-pop-red-key {
+  flex:0 1 auto; max-width:46%; min-width:0;
+  font-family:monospace; font-size:11px; color:var(--ps-text) !important;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+#hw-gear-popover .hw-pop-red-row > select { flex:1 1 0; min-width:0; }
+#hw-gear-popover .hw-pop-red-row-chips { flex-wrap:wrap; gap:3px 6px; }
+#hw-gear-popover .hw-pop-red-row-chips > .hw-pop-red-key { flex:0 0 100%; max-width:100%; }
+#hw-gear-popover .hw-pop-chips { display:flex; gap:4px; flex:1 1 100%; min-width:0; }
+#hw-gear-popover .hw-pop-chips > button.hw-pop-chip {
+  flex:1 1 0; min-width:0; padding:2px 4px !important; font-size:10px !important;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+#hw-gear-popover .hw-pop-chips > button.hw-pop-chip.hw-pop-chip-on {
+  background:linear-gradient(#4a3818,#3a2a10) !important;
+  border-color:#c8a04a !important; color:#f0d48a !important;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.18), 0 2px 3px rgba(0,0,0,0.55) !important;
+}
 /* the attachment flag presses like the button it is (red state only -
    the green pill is a readout, cursor:default in style.css) */
 #hw-dock-flag:not(.hw-dock-flag-ok):active {

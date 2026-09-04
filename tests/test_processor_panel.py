@@ -3790,6 +3790,61 @@ def test_a_backup_processor_cannot_be_shared_or_back_a_backup(client):
     assert why.startswith('Slot 1:') and 'has a backup of its own' in why, why
 
 
+def test_cards_redundancy_mode_sets_every_card_or_none(client):
+    """The bar's Per card / Per port is ONE request: `cardsRedundancyMode`
+    on the processor PUT gives every card the mode, in the same body as
+    `redundancy: true`. All checks run first; a slot the vendor fixes
+    refuses the lot BY SLOT and nothing is written - not the mode on the
+    slots before it, not the redundancy flag beside it."""
+    a = add_chassis(client)
+    b = add_chassis(client)
+    resp = client.put(f'/api/processors/{a}',
+                      json={'redundancy': True,
+                            'cardsRedundancyMode': 'sequential'})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    assert stored_proc(client, a)['redundancy'] is True
+    assert [c.get('redundancyMode') for c in stored_cards(client, a)] == \
+        ['sequential', 'sequential']
+    view = resolved_proc(client, a)
+    assert [s['card']['redundancyShape']['mode']
+            for s in view['slots'] if s.get('card')] == \
+        ['sequential', 'sequential']
+    # Back to 1:1 - stored as absence, on every card - and a stored
+    # partner survives the mode moving underneath it.
+    a_cards = stored_cards(client, a)
+    b_cards = stored_cards(client, b)
+    assert client.put(f'/api/processors/{a}/cards/{a_cards[0]["id"]}',
+                      json={'redundancyMode': '1to1',
+                            'backupCardId': b_cards[0]['id']}
+                      ).status_code == 200
+    resp = client.put(f'/api/processors/{a}',
+                      json={'redundancy': True, 'cardsRedundancyMode': '1to1'})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    assert all('redundancyMode' not in c for c in stored_cards(client, a))
+    assert stored_cards(client, a)[0].get('backupCardId') == b_cards[0]['id']
+    # An unknown mode is refused whole.
+    resp = client.put(f'/api/processors/{a}',
+                      json={'cardsRedundancyMode': 'zigzag'})
+    assert resp.status_code == 400
+    assert 'Unknown redundancy mode' in resp.get_json()['error']
+    assert all('redundancyMode' not in c for c in stored_cards(client, a))
+
+    # All or nothing, named by slot: a card whose vendor fixes the pairing
+    # in slot 2 refuses the whole gesture, and slot 1 is left exactly as it
+    # was - no mode, and the redundancy flag in the same body not applied.
+    c = add_chassis(client, cards=('novastar-card-h-16xrj45-2xfiber',
+                                   'brompton-sx40'))
+    resp = client.put(f'/api/processors/{c}',
+                      json={'redundancy': True,
+                            'cardsRedundancyMode': 'halves'})
+    assert resp.status_code == 400, resp.get_data(as_text=True)
+    why = resp.get_json()['error']
+    assert why.startswith('Slot 2:'), why
+    assert 'pairs adjacent outputs automatically' in why, why
+    assert all('redundancyMode' not in card for card in stored_cards(client, c))
+    assert not stored_proc(client, c).get('redundancy')
+
+
 def test_the_manual_pick_is_validated_like_a_placement(client):
     """The same situations read the same way: a port past the ceiling, a
     port backing itself, a port already spoken for by another main."""
@@ -3892,17 +3947,26 @@ def test_the_toggle_reaches_every_vendor_except_a_documented_no(client):
 
 
 def test_the_gear_wires_the_modes_the_house_way():
-    """Source-text pins, same register as sections 7 and 10: the mode row
-    (built for the card's gear popover) never draws for a vendor-fixed
-    pairing, every new edit takes a named history snapshot, and a
-    refusal's reason is surfaced instead of swallowed."""
+    """Source-text pins, same register as sections 7 and 10: the port-shape
+    chips (the bar's Per port zone) and the 1:1 partner pick never draw
+    for a vendor-fixed pairing, every new edit takes a named history
+    snapshot, and a refusal's reason is surfaced instead of swallowed."""
     source = js_source('app-processors.js')
-    body = source[source.index('_buildCardRedundancyRow(proc, card) {'):]
-    body = body[:body.index('\n    }')]
-    assert 'if (!shape || shape.forced) return null;' in body, (
-        'a fixed pairing grew a mode select')
-    for action in ("'Change Redundancy Mode'", "'Change Backup Unit'"):
+    for builder in ('_buildCardShapeChips(proc, card) {',
+                    '_buildCardBackupPick(proc, card) {'):
+        body = source[source.index(builder):]
+        body = body[:body.index('\n    }')]
+        assert 'if (!shape || shape.forced) return null;' in body, (
+            f'a fixed pairing grew a control in {builder}')
+    for action in ("'Change Redundancy Mode'", "'Change Backup Unit'",
+                   "'Set Redundancy Per Port'", "'Set Redundancy Per Card'",
+                   "'Set Redundancy Whole Unit'", "'Toggle Redundancy'"):
         assert action in source, f'{action} takes no history snapshot'
+    # The old surface is gone: no checkbox switch, no level select, no
+    # four-way mode select - the bar is the one control.
+    for gone in ('hw-pop-switch', 'processor-redundancy-level-',
+                 'processor-card-redundancy-', '_buildCardRedundancyRow'):
+        assert gone not in source, f'{gone} is back'
     # the per-port manual pick lives in the dock chip's editor now
     assert "'Change Port Backup'" in js_source('app-dock.js'), (
         "'Change Port Backup' takes no history snapshot")
@@ -3977,12 +4041,56 @@ async (pid) => {
 """
 
 
-def test_the_mode_select_draws_only_where_the_vendor_does_not_fix(panel_page):
-    """The MX20's PROCESSOR gear gets the four modes and the partner pick
-    directly under its switch - a standalone unit is its one card, so no
-    level question; the SX40's processor gear gets NO select and states
-    the fixed pairing under the switch instead - a fact is not a setting,
-    in the DOM either. Neither card gear offers a control."""
+# The bar behind the processor's gear, read and driven the way a user
+# does: BAR_JS reads what it lights and what sits under it, CLICK_SEG_JS
+# presses one segment, CLICK_CHIP_JS one port-shape chip.
+BAR_JS = """(pid) => {
+    const pop = document.getElementById('hw-gear-popover');
+    const bar = pop && pop.querySelector(
+        `[data-lrd-field="processor-redundancy-${pid}"]`);
+    if (!bar) return null;
+    const lit = bar.querySelector('.hw-pop-seg-on');
+    return {
+        role: bar.getAttribute('role'),
+        levels: Array.from(bar.children).map(b => b.dataset.level),
+        texts: Array.from(bar.children).map(b => b.textContent),
+        lit: lit ? lit.dataset.level : null,
+        litCount: bar.querySelectorAll('.hw-pop-seg-on').length,
+        rows: Array.from(pop.querySelectorAll('.hw-pop-red-key'))
+            .map(k => k.textContent),
+    };
+}"""
+
+CLICK_SEG_JS = """([pid, level]) => {
+    const seg = document.getElementById('hw-gear-popover').querySelector(
+        `[data-lrd-field="processor-redundancy-${pid}"] `
+        + `[data-level="${level}"]`);
+    if (!seg) return false;
+    seg.click();
+    return true;
+}"""
+
+CLICK_CHIP_JS = """([cid, mode]) => {
+    const chip = document.getElementById('hw-gear-popover').querySelector(
+        `[data-lrd-field="processor-card-shape-${cid}"] `
+        + `[data-mode="${mode}"]`);
+    if (!chip) return false;
+    chip.click();
+    return true;
+}"""
+
+LAST_ACTION_JS = "() => window.app.history.map(h => h.action).slice(-1)"
+HISTORY_LEN_JS = "() => window.app.history.length"
+
+
+def test_the_bar_draws_the_partner_row_only_where_the_vendor_does_not_fix(
+        panel_page):
+    """The MX20's PROCESSOR gear gets the standalone bar - Off · Backed up ·
+    Per port - lit at Backed up (1:1 is the default) with ONE row under
+    it: "mirrored by" and the partner pick. No level select, no mode
+    select anywhere. The SX40's processor gear gets the two-segment bar
+    and states the fixed pairing under it - a fact is not a setting, in
+    the DOM either. Neither card gear offers a control."""
     pytest.importorskip("playwright.sync_api",
                         reason="playwright is not installed")
     page = panel_page
@@ -3990,39 +4098,41 @@ def test_the_mode_select_draws_only_where_the_vendor_does_not_fix(panel_page):
     page.wait_for_timeout(800)
     assert page.evaluate(OPEN_GEAR_JS, f"proc-{ids['mxId']}"), (
         'the MX20 processor gear did not open')
+    bar = page.evaluate(BAR_JS, ids['mxId'])
+    assert bar, 'no redundancy bar in the MX20 processor gear'
+    assert bar['role'] == 'radiogroup', bar
+    assert bar['levels'] == ['off', 'unit', 'port'], bar
+    assert bar['texts'] == ['Off', 'Backed up', 'Per port'], bar
+    assert bar['lit'] == 'unit' and bar['litCount'] == 1, bar
+    assert bar['rows'] == ['mirrored by'], bar
     out = page.evaluate("""(ids) => {
         const pop = document.getElementById('hw-gear-popover');
-        const cb = pop.querySelector(
+        const bar = pop.querySelector(
             `[data-lrd-field="processor-redundancy-${ids.mxId}"]`);
-        const mx = pop.querySelector(
-            `[data-lrd-field="processor-card-redundancy-${ids.mxCardId}"]`);
         const partner = pop.querySelector(
             `[data-lrd-field="processor-card-backup-${ids.mxCardId}"]`);
-        const below = (el) => !!(cb && el
-            && (cb.compareDocumentPosition(el)
-                & Node.DOCUMENT_POSITION_FOLLOWING));
         return {
-            mxSelect: !!mx,
-            mxOptions: mx ? Array.from(mx.options).map(o => o.value) : [],
-            mxTexts: mx ? Array.from(mx.options).map(o => o.textContent) : [],
-            underSwitch: below(mx) && below(partner),
-            level: !!pop.querySelector(
-                `[data-lrd-field="processor-redundancy-level-${ids.mxId}"]`),
-            partner: !!partner,
+            underBar: !!(partner && (bar.compareDocumentPosition(partner)
+                & Node.DOCUMENT_POSITION_FOLLOWING)),
             partnerTexts: partner
                 ? Array.from(partner.options).map(o => o.textContent) : [],
+            levelSelect: !!pop.querySelector(
+                `[data-lrd-field="processor-redundancy-level-${ids.mxId}"]`),
+            modeSelect: !!pop.querySelector(
+                'select[data-lrd-field^="processor-card-redundancy-"]'),
+            switchBox: !!pop.querySelector(
+                'input[type="checkbox"][data-lrd-field^="processor-redundancy-"]'),
+            chips: !!pop.querySelector(
+                '[data-lrd-field^="processor-card-shape-"]'),
         };
     }""", ids)
-    assert out['mxSelect'], out
-    assert out['mxOptions'] == ['1to1', 'sequential', 'halves', 'manual'], out
-    # The level of each mode is in its own text: the card, or its ports.
-    assert out['mxTexts'][0].startswith('1:1 - this card'), out
-    assert 'ports' in out['mxTexts'][1], out
-    assert out['underSwitch'], 'the controls do not sit under the switch'
-    assert not out['level'], 'a standalone unit asked the level question'
-    assert out['partner'], 'the default 1:1 offers no partner pick'
-    assert out['partnerTexts'][0] == 'backed up by\u2026', out
+    assert out['underBar'], 'the partner pick does not sit under the bar'
+    assert out['partnerTexts'][0] == 'backed up by…', out
     assert any('BK - 6 ports' in t for t in out['partnerTexts']), out
+    assert not out['levelSelect'], 'the level select is back'
+    assert not out['modeSelect'], 'the four-way mode select is back'
+    assert not out['switchBox'], 'the checkbox switch is back'
+    assert not out['chips'], 'Backed up drew the port-shape chips'
 
     # The card gear: a passive line, no control.
     assert page.evaluate(OPEN_GEAR_JS, f"card-{ids['mxCardId']}"), (
@@ -4031,13 +4141,14 @@ def test_the_mode_select_draws_only_where_the_vendor_does_not_fix(panel_page):
         const pop = document.getElementById('hw-gear-popover');
         const fact = pop.querySelector('.hw-pop-red-fact');
         return {
-            select: !!pop.querySelector(
-                'select[data-lrd-field^="processor-card-redundancy-"], '
-                + 'select[data-lrd-field^="processor-card-backup-"]'),
+            control: !!pop.querySelector(
+                'select[data-lrd-field^="processor-card-backup-"], '
+                + '[data-lrd-field^="processor-card-shape-"], '
+                + '[data-lrd-field^="processor-redundancy-"]'),
             fact: fact ? fact.textContent : null,
         };
     }""", ids)
-    assert not out['select'], f'the card gear still offers a control: {out}'
+    assert not out['control'], f'the card gear still offers a control: {out}'
     assert out['fact'] == 'Redundancy: 1:1, no backup unit picked', out
 
     assert page.evaluate(OPEN_GEAR_JS, f"card-{ids['sxCardId']}"), (
@@ -4045,15 +4156,17 @@ def test_the_mode_select_draws_only_where_the_vendor_does_not_fix(panel_page):
     out = page.evaluate("""(ids) => {
         const pop = document.getElementById('hw-gear-popover');
         return {
-            sxSelect: !!pop.querySelector(
-                `[data-lrd-field="processor-card-redundancy-`
-                + `${ids.sxCardId}"]`),
+            sxChips: !!pop.querySelector(
+                `[data-lrd-field="processor-card-shape-${ids.sxCardId}"]`),
         };
     }""", ids)
-    assert not out['sxSelect'], 'the fixed pairing grew a mode select'
+    assert not out['sxChips'], 'the fixed pairing grew port-shape chips'
 
     assert page.evaluate(OPEN_GEAR_JS, f"proc-{ids['sxId']}"), (
         'the SX40 processor gear did not open')
+    bar = page.evaluate(BAR_JS, ids['sxId'])
+    assert bar and bar['levels'] == ['off', 'on'], bar
+    assert bar['texts'] == ['Off', 'On'] and bar['lit'] == 'on', bar
     out = page.evaluate("""() => {
         const pop = document.getElementById('hw-gear-popover');
         const texts = Array.from(pop.querySelectorAll('div'))
@@ -4062,20 +4175,27 @@ def test_the_mode_select_draws_only_where_the_vendor_does_not_fix(panel_page):
             statement: texts.some(t => t.includes('A backs up to B')),
             control: !!pop.querySelector(
                 'select[data-lrd-field*="redundancy"], '
-                + 'input[data-lrd-field*="pairing"]'),
+                + 'input[data-lrd-field*="pairing"], '
+                + '[data-lrd-field^="processor-card-shape-"]'),
+            rows: pop.querySelectorAll('.hw-pop-red-row').length,
         };
     }""")
     assert out['statement'], (
         f'the fixed pairing statement left the processor gear: {out}')
     assert not out['control'], f'the fixed pairing grew a control: {out}'
+    assert out['rows'] == 0, f'the fixed pairing grew rows: {out}'
     page.keyboard.press('Escape')
     page.wait_for_timeout(100)
 
 
-def test_the_redundancy_switch_is_visible(panel_page):
-    """The switch that was 15px of grey on grey: measured, it is a real
-    control - at least 14px each way, with a ground and a rim that differ
-    from the popover's own ground, and the accent once it is on."""
+def test_the_bar_is_raised_and_the_lit_segment_wears_the_accent(panel_page):
+    """"Remember our raised formatting" (2026-09-04): measured, every
+    segment is a raised button - a gradient ground (a background-image,
+    never 'none'), a rim and a drop shadow - and the lit one wears the
+    accent with white text, the way the Balance dialog's Apply does. The
+    legend under it is primary text, not caption grey ("grey on grey is
+    hard to read"). The old checkbox switch is gone from the DOM and
+    from the stylesheet."""
     pytest.importorskip("playwright.sync_api",
                         reason="playwright is not installed")
     page = panel_page
@@ -4085,34 +4205,51 @@ def test_the_redundancy_switch_is_visible(panel_page):
         'the processor gear did not open')
     out = page.evaluate("""(ids) => {
         const pop = document.getElementById('hw-gear-popover');
-        const cb = pop.querySelector(
+        const bar = pop.querySelector(
             `[data-lrd-field="processor-redundancy-${ids.mxId}"]`);
-        if (!cb) return null;
-        const cs = getComputedStyle(cb);
-        const r = cb.getBoundingClientRect();
-        const popBg = getComputedStyle(pop).backgroundColor;
-        const label = cb.closest('label');
+        if (!bar) return null;
+        const lit = bar.querySelector('.hw-pop-seg-on');
+        const dim = Array.from(bar.children).find(
+            b => !b.classList.contains('hw-pop-seg-on'));
+        const read = (el) => {
+            const cs = getComputedStyle(el);
+            const r = el.getBoundingClientRect();
+            return {
+                tag: el.tagName, w: r.width, h: r.height,
+                bgImage: cs.backgroundImage, color: cs.color,
+                border: cs.borderTopColor, borderW: cs.borderTopWidth,
+                shadow: cs.boxShadow,
+                visible: cs.visibility === 'visible' && cs.display !== 'none',
+            };
+        };
+        const key = pop.querySelector('.hw-pop-red-key');
         return {
-            checked: cb.checked,
-            w: r.width, h: r.height,
-            bg: cs.backgroundColor, border: cs.borderTopColor,
-            borderW: cs.borderTopWidth, popBg,
-            labelColor: label ? getComputedStyle(label).color : null,
-            visible: cs.visibility === 'visible' && cs.display !== 'none',
+            lit: read(lit), dim: read(dim),
+            keyColor: key ? getComputedStyle(key).color : null,
+            switchBox: !!pop.querySelector('.hw-pop-switch'),
         };
     }""", ids)
-    assert out, 'no redundancy switch in the processor gear'
-    assert out['checked'], 'the seed left redundancy off'
-    assert out['visible'], out
-    assert out['w'] >= 14 and out['h'] >= 14, out
-    transparent = ('rgba(0, 0, 0, 0)', 'transparent')
-    assert out['bg'] not in transparent and out['bg'] != out['popBg'], out
-    assert out['border'] not in transparent and out['border'] != out['popBg'], out
-    assert out['borderW'] != '0px', out
-    # On, it wears the accent - the one colour nothing grey can hide.
-    assert out['bg'] == 'rgb(226, 35, 48)', out
-    # The word beside it is primary text, not caption grey.
-    assert out['labelColor'] == 'rgb(240, 240, 240)', out
+    assert out, 'no redundancy bar in the processor gear'
+    for which in ('lit', 'dim'):
+        seg = out[which]
+        assert seg['tag'] == 'BUTTON', seg
+        assert seg['visible'] and seg['w'] >= 30 and seg['h'] >= 14, seg
+        assert seg['bgImage'] != 'none', f'{which} segment is flat: {seg}'
+        assert seg['shadow'] != 'none', f'{which} segment casts no shadow'
+        assert seg['borderW'] != '0px', seg
+    # Lit: the accent gradient (accent-hi over accent), white text.
+    assert 'rgb(239, 51, 64)' in out['lit']['bgImage'], out['lit']
+    assert 'rgb(226, 35, 48)' in out['lit']['bgImage'], out['lit']
+    assert out['lit']['color'] == 'rgb(255, 255, 255)', out['lit']
+    assert out['lit']['border'] == 'rgb(143, 18, 24)', out['lit']
+    # Unlit: the popover's grey recipe, primary text.
+    assert 'rgb(226, 35, 48)' not in out['dim']['bgImage'], out['dim']
+    assert out['dim']['color'] == 'rgb(240, 240, 240)', out['dim']
+    assert out['keyColor'] == 'rgb(240, 240, 240)', out
+    assert not out['switchBox'], 'the checkbox switch is still drawn'
+    css = open(os.path.join(os.path.dirname(__file__), '..', 'src', 'static',
+                            'css', 'theme.css'), encoding='utf-8').read()
+    assert 'hw-pop-switch' not in css, 'the switch CSS block is still there'
     page.keyboard.press('Escape')
     page.wait_for_timeout(100)
 
@@ -4155,17 +4292,53 @@ async () => {
 }
 """
 
+# Put the two chassis' stored redundancy where a test wants it, through the
+# real endpoints, and re-read the tree - the bar is DERIVED from this.
+CHASSIS_SET_JS = """
+async ([ids, spec]) => {
+    const send = (url, method, body) => fetch(url, {
+        method, headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    }).then(r => r.json());
+    if ('redundancy' in spec) {
+        await send(`/api/processors/${ids.mainId}`, 'PUT',
+                   { redundancy: spec.redundancy });
+    }
+    if ('partner' in spec) {
+        await send(`/api/processors/${ids.mainId}`, 'PUT',
+                   { backupProcessorId: spec.partner });
+    }
+    if (spec.modes) {
+        for (const [i, mode] of spec.modes.entries()) {
+            await send(`/api/processors/${ids.mainId}/cards/`
+                       + ids.mainCards[i], 'PUT', { redundancyMode: mode });
+        }
+    }
+    await window.app.refreshProcessors();
+    if (window.app._hwPopover) window.app._hwPopoverRefresh();
+}
+"""
+
+CHASSIS_CLEAN_JS = """async (ids) => {
+    for (const id of [ids.mainId, ids.backId]) {
+        await fetch(`/api/processors/${id}`, { method: 'DELETE' });
+    }
+    await window.app.refreshProcessors();
+}"""
+
 
 def test_a_chassis_chooses_its_level_and_pairs_whole_in_one_gesture(
         panel_page):
-    """The user's ruling (2026-09-04) in the DOM: behind the processor's
-    gear an H9 with two cards gets a level select under its switch. "Per
-    card / per port" (the reading with nothing paired) lists one row per
-    card, slot-headed, each carrying the card's own mode select and
-    partner pick; "Whole processor" shows the partner pick, and choosing
-    a partner sends ONE request that pairs card for card, enters history
-    as ONE entry, derives the level back as "whole processor", nests the
-    partner under its main on the dock, and undoes as one step."""
+    """The user's ruling (2026-09-04) in the DOM, on the calm surface he
+    picked: behind the processor's gear an H9 with two cards gets the
+    four-segment bar. It lights "Per card" with nothing paired and lists
+    one row per slot - the slot and the card's name, one partner pick,
+    no mode select. "Whole unit" is presentation until a partner is
+    picked (no request, no history): one row, "mirrored by", the partner
+    pick. Choosing a partner sends ONE request that pairs card for card,
+    enters history as ONE entry, derives the bar back to "Whole unit",
+    nests the partner under its main on the dock, and undoes as one
+    step."""
     pytest.importorskip("playwright.sync_api",
                         reason="playwright is not installed")
     page = panel_page
@@ -4173,47 +4346,38 @@ def test_a_chassis_chooses_its_level_and_pairs_whole_in_one_gesture(
     page.wait_for_timeout(800)
     assert page.evaluate(OPEN_GEAR_JS, f"proc-{ids['mainId']}"), (
         'the chassis gear did not open')
+    bar = page.evaluate(BAR_JS, ids['mainId'])
+    assert bar, 'no bar in the chassis gear'
+    assert bar['levels'] == ['off', 'unit', 'card', 'port'], bar
+    assert bar['texts'] == ['Off', 'Whole unit', 'Per card', 'Per port'], bar
+    assert bar['lit'] == 'card' and bar['litCount'] == 1, bar
+    assert bar['rows'] == ['Slot 1 · H_16xRJ45+2xfiber',
+                           'Slot 2 · H_16xRJ45+2xfiber'], bar
     out = page.evaluate("""(ids) => {
         const pop = document.getElementById('hw-gear-popover');
-        const level = pop.querySelector(
-            `[data-lrd-field="processor-redundancy-level-${ids.mainId}"]`);
-        const cb = pop.querySelector(
-            `[data-lrd-field="processor-redundancy-${ids.mainId}"]`);
-        const rows = Array.from(pop.querySelectorAll('.hw-pop-red-card'));
         return {
-            level: level ? level.value : null,
-            levelValues: level
-                ? Array.from(level.options).map(o => o.value) : [],
-            levelUnderSwitch: !!(cb && level
-                && (cb.compareDocumentPosition(level)
-                    & Node.DOCUMENT_POSITION_FOLLOWING)),
-            heads: rows.map(r => r.firstChild.textContent),
-            selects: ids.mainCards.map(id => !!pop.querySelector(
-                `[data-lrd-field="processor-card-redundancy-${id}"]`)),
             partners: ids.mainCards.map(id => !!pop.querySelector(
                 `[data-lrd-field="processor-card-backup-${id}"]`)),
+            modeSelects: !!pop.querySelector(
+                'select[data-lrd-field^="processor-card-redundancy-"]'),
+            chips: !!pop.querySelector(
+                '[data-lrd-field^="processor-card-shape-"]'),
             procPartner: !!pop.querySelector(
                 `[data-lrd-field="processor-backup-${ids.mainId}"]`),
         };
     }""", ids)
-    assert out['level'] == 'card', out
-    assert out['levelValues'] == ['processor', 'card'], out
-    assert out['levelUnderSwitch'], out
-    assert out['heads'] == ['Slot 1 - H_16xRJ45+2xfiber',
-                            'Slot 2 - H_16xRJ45+2xfiber'], out
-    assert out['selects'] == [True, True] and out['partners'] == [True, True]
+    assert out['partners'] == [True, True], out
+    assert not out['modeSelects'], 'a per-slot mode select is back'
+    assert not out['chips'], 'Per card drew the port-shape chips'
     assert not out['procPartner'], 'per-card view drew the unit partner pick'
 
-    # Whole processor: the level flips locally, the partner pick appears
-    # empty, and nothing has been stored or entered into history yet.
-    hist_before = page.evaluate("() => window.app.history.length")
-    page.evaluate("""(ids) => {
-        const sel = document.getElementById('hw-gear-popover').querySelector(
-            `[data-lrd-field="processor-redundancy-level-${ids.mainId}"]`);
-        sel.value = 'processor';
-        sel.dispatchEvent(new Event('change', { bubbles: true }));
-    }""", ids)
+    # Whole unit: the bar flips locally, the partner pick appears empty,
+    # and nothing has been stored or entered into history yet.
+    hist_before = page.evaluate(HISTORY_LEN_JS)
+    assert page.evaluate(CLICK_SEG_JS, [ids['mainId'], 'unit'])
     page.wait_for_timeout(300)
+    bar = page.evaluate(BAR_JS, ids['mainId'])
+    assert bar['lit'] == 'unit' and bar['rows'] == ['mirrored by'], bar
     out = page.evaluate("""(ids) => {
         const pop = document.getElementById('hw-gear-popover');
         const partner = pop.querySelector(
@@ -4224,15 +4388,15 @@ def test_a_chassis_chooses_its_level_and_pairs_whole_in_one_gesture(
             value: partner ? partner.value : null,
             texts: partner
                 ? Array.from(partner.options).map(o => o.textContent) : [],
-            cardSelects: !!pop.querySelector(
-                'select[data-lrd-field^="processor-card-redundancy-"]'),
+            cardPartners: !!pop.querySelector(
+                'select[data-lrd-field^="processor-card-backup-"]'),
         };
     }""", ids)
     assert out['open'] and out['partner'], out
     assert out['value'] == '', out
     assert 'SL - 2 cards, 32 ports' in out['texts'], out
-    assert not out['cardSelects'], out
-    assert page.evaluate("() => window.app.history.length") == hist_before
+    assert not out['cardPartners'], out
+    assert page.evaluate(HISTORY_LEN_JS) == hist_before
 
     page.evaluate("""(ids) => {
         const sel = document.getElementById('hw-gear-popover').querySelector(
@@ -4241,18 +4405,16 @@ def test_a_chassis_chooses_its_level_and_pairs_whole_in_one_gesture(
         sel.dispatchEvent(new Event('change', { bubbles: true }));
     }""", ids)
     page.wait_for_timeout(1000)
-    assert page.evaluate(
-        "() => window.app.history.map(h => h.action).slice(-1)") == \
-        ['Change Backup Processor']
-    assert page.evaluate("() => window.app.history.length") == hist_before + 1
+    assert page.evaluate(LAST_ACTION_JS) == ['Change Backup Processor']
+    assert page.evaluate(HISTORY_LEN_JS) == hist_before + 1
+    bar = page.evaluate(BAR_JS, ids['mainId'])
+    assert bar['lit'] == 'unit', bar
     out = page.evaluate("""(ids) => {
         const main = window.app._processorsResolved
             .find(p => p.id === ids.mainId);
         const stored = window.app.project.processors
             .find(p => p.id === ids.mainId);
         const pop = document.getElementById('hw-gear-popover');
-        const level = pop.querySelector(
-            `[data-lrd-field="processor-redundancy-level-${ids.mainId}"]`);
         const partner = pop.querySelector(
             `[data-lrd-field="processor-backup-${ids.mainId}"]`);
         const wrapOf = (pid) => {
@@ -4265,7 +4427,6 @@ def test_a_chassis_chooses_its_level_and_pairs_whole_in_one_gesture(
             derived: main.backupProcessorId,
             picks: stored.slots.filter(s => s.card)
                 .map(s => s.card.backupCardId),
-            level: level ? level.value : null,
             partner: partner ? partner.value : null,
             nested: !!(backWrap
                 && backWrap.classList.contains('lrd-red-backup')
@@ -4274,48 +4435,41 @@ def test_a_chassis_chooses_its_level_and_pairs_whole_in_one_gesture(
     }""", ids)
     assert out['derived'] == ids['backId'], out
     assert out['picks'] == ids['backCards'], out
-    assert out['level'] == 'processor' and out['partner'] == ids['backId'], out
+    assert out['partner'] == ids['backId'], out
     assert out['nested'], 'the backup processor is not nested under its main'
 
-    # The partner's own gear states its role and offers no controls.
+    # The partner's own gear: redundancy off on its own bar (Off lit);
+    # once on, it states its role and offers no bar and no controls.
     assert page.evaluate(OPEN_GEAR_JS, f"proc-{ids['backId']}"), (
         'the partner gear did not open')
-    out = page.evaluate("""() => {
-        const pop = document.getElementById('hw-gear-popover');
-        const fact = pop.querySelector('.hw-pop-red-fact');
-        return {
-            fact: fact ? fact.textContent : null,
-            controls: !!pop.querySelector(
-                'select[data-lrd-field*="redundancy"], '
-                + 'select[data-lrd-field^="processor-backup-"]'),
-        };
-    }""")
-    # The partner has redundancy OFF on its own switch; the role shows
-    # once it is on. Turn it on to read the fact.
-    page.evaluate("""(ids) => {
-        const cb = document.getElementById('hw-gear-popover').querySelector(
-            `[data-lrd-field="processor-redundancy-${ids.backId}"]`);
-        cb.checked = true;
-        cb.dispatchEvent(new Event('change', { bubbles: true }));
-    }""", ids)
+    bar = page.evaluate(BAR_JS, ids['backId'])
+    assert bar and bar['lit'] == 'off' and bar['rows'] == [], bar
+    assert page.evaluate(CLICK_SEG_JS, [ids['backId'], 'card'])
     page.wait_for_timeout(800)
-    out = page.evaluate("""() => {
+    assert page.evaluate(LAST_ACTION_JS) == ['Set Redundancy Per Card']
+    out = page.evaluate("""(ids) => {
         const pop = document.getElementById('hw-gear-popover');
         const fact = pop.querySelector('.hw-pop-red-fact');
         return {
             fact: fact ? fact.textContent : null,
+            bar: !!pop.querySelector(
+                `[data-lrd-field="processor-redundancy-${ids.backId}"]`),
             controls: !!pop.querySelector(
                 'select[data-lrd-field*="redundancy"], '
-                + 'select[data-lrd-field^="processor-backup-"]'),
+                + 'select[data-lrd-field^="processor-backup-"], '
+                + 'select[data-lrd-field^="processor-card-backup-"], '
+                + '[data-lrd-field^="processor-card-shape-"]'),
         };
-    }""")
+    }""", ids)
     assert out['fact'] and out['fact'].startswith('Backs up SR'), out
+    assert not out['bar'], 'a consumed unit still draws the bar'
     assert not out['controls'], out
     page.keyboard.press('Escape')
     page.wait_for_timeout(100)
 
-    # One undo takes the whole pairing back (the switch toggle above is
-    # its own entry, so two steps back lands before the pairing).
+    # One undo takes the whole pairing back (the partner's own level
+    # step above is its own entry, so two steps back lands before the
+    # pairing).
     page.evaluate("() => window.app.undo()")
     page.wait_for_timeout(800)
     page.evaluate("() => window.app.undo()")
@@ -4327,20 +4481,170 @@ def test_a_chassis_chooses_its_level_and_pairs_whole_in_one_gesture(
             .map(s => s.card.backupCardId || null);
     }""", ids)
     assert out == [None, None], out
-    assert page.evaluate("() => window.app.history.length") == hist_before + 2
+    assert page.evaluate(HISTORY_LEN_JS) == hist_before + 2
     # Leave the shared server the way the module's other tests expect it.
-    page.evaluate("""async (ids) => {
-        for (const id of [ids.mainId, ids.backId]) {
-            await fetch(`/api/processors/${id}`, { method: 'DELETE' });
-        }
-        await window.app.refreshProcessors();
-    }""", ids)
+    page.evaluate(CHASSIS_CLEAN_JS, ids)
+    page.wait_for_timeout(600)
+
+
+def test_the_bar_lights_the_derived_segment_for_each_state(panel_page):
+    """The lit segment is DERIVED from what is stored, never from what was
+    clicked: Off with redundancy off, Whole unit when the server derives
+    a partner, Per port when every card is in a port shape, Per card
+    otherwise - a half-and-half chassis included. A remembered pick can
+    move the light between Whole unit and Per card, and never past Off
+    or a port shape."""
+    pytest.importorskip("playwright.sync_api",
+                        reason="playwright is not installed")
+    page = panel_page
+    ids = page.evaluate(CHASSIS_SEED_JS)
+    page.wait_for_timeout(800)
+    assert page.evaluate(OPEN_GEAR_JS, f"proc-{ids['mainId']}"), (
+        'the chassis gear did not open')
+
+    def lit_after(spec):
+        page.evaluate(CHASSIS_SET_JS, [ids, spec])
+        page.wait_for_timeout(500)
+        assert page.evaluate(OPEN_GEAR_JS, f"proc-{ids['mainId']}")
+        bar = page.evaluate(BAR_JS, ids['mainId'])
+        assert bar, 'the bar left the gear'
+        assert bar['litCount'] == 1, bar
+        return bar['lit'], bar['rows']
+
+    assert lit_after({'redundancy': False}) == ('off', [])
+    assert lit_after({'redundancy': True})[0] == 'card'
+    assert lit_after({'partner': ids['backId']}) == ('unit', ['mirrored by'])
+    lit, rows = lit_after({'partner': '', 'modes': ['sequential', 'halves']})
+    assert lit == 'port' and len(rows) == 2, (lit, rows)
+    assert lit_after({'modes': ['1to1', 'halves']})[0] == 'card'
+    assert lit_after({'modes': ['manual', 'manual']})[0] == 'port'
+    # A remembered pick never contradicts a fact: Whole unit remembered,
+    # then the cards go to a port shape - the bar reports the shape; then
+    # redundancy goes off - the bar reports Off.
+    page.evaluate("(pid) => { window.app._procRedLevelPick = "
+                  "{ [pid]: 'unit' }; }", ids['mainId'])
+    assert lit_after({'modes': ['halves', 'halves']})[0] == 'port'
+    page.evaluate("(pid) => { window.app._procRedLevelPick = "
+                  "{ [pid]: 'unit' }; }", ids['mainId'])
+    assert lit_after({'redundancy': False}) == ('off', [])
+    page.evaluate("() => { window.app._procRedLevelPick = {}; }")
+    page.keyboard.press('Escape')
+    page.wait_for_timeout(100)
+    page.evaluate(CHASSIS_CLEAN_JS, ids)
+    page.wait_for_timeout(600)
+
+
+def test_off_per_card_and_per_port_are_each_one_history_entry(panel_page):
+    """Each segment is one request and one undo step: Per port sets every
+    card sequential in one write and lights the chip trio per slot; a
+    chip moves one card's shape; Per card drops every card back to 1:1 in
+    one write and lights the partner rows; Off is one write and clears
+    the zone. Undo walks each back as one step."""
+    pytest.importorskip("playwright.sync_api",
+                        reason="playwright is not installed")
+    page = panel_page
+    ids = page.evaluate(CHASSIS_SEED_JS)
+    page.wait_for_timeout(800)
+    assert page.evaluate(OPEN_GEAR_JS, f"proc-{ids['mainId']}"), (
+        'the chassis gear did not open')
+    modes_js = """(ids) => {
+        const stored = window.app.project.processors
+            .find(p => p.id === ids.mainId);
+        return {
+            redundancy: !!stored.redundancy,
+            modes: stored.slots.filter(s => s.card)
+                .map(s => s.card.redundancyMode || null),
+        };
+    }"""
+    chips_js = """(ids) => {
+        const pop = document.getElementById('hw-gear-popover');
+        return ids.mainCards.map(id => {
+            const g = pop.querySelector(
+                `[data-lrd-field="processor-card-shape-${id}"]`);
+            if (!g) return null;
+            const lit = g.querySelectorAll('.hw-pop-chip-on');
+            return {
+                role: g.getAttribute('role'),
+                modes: Array.from(g.children).map(c => c.dataset.mode),
+                texts: Array.from(g.children).map(c => c.textContent),
+                lit: lit.length === 1 ? lit[0].dataset.mode : lit.length,
+                raised: getComputedStyle(lit[0] || g.children[0])
+                    .backgroundImage !== 'none',
+            };
+        });
+    }"""
+    base = page.evaluate(HISTORY_LEN_JS)
+
+    assert page.evaluate(CLICK_SEG_JS, [ids['mainId'], 'port'])
+    page.wait_for_timeout(800)
+    assert page.evaluate(HISTORY_LEN_JS) == base + 1
+    assert page.evaluate(LAST_ACTION_JS) == ['Set Redundancy Per Port']
+    assert page.evaluate(modes_js, ids) == {
+        'redundancy': True, 'modes': ['sequential', 'sequential']}
+    bar = page.evaluate(BAR_JS, ids['mainId'])
+    assert bar['lit'] == 'port' and len(bar['rows']) == 2, bar
+    chips = page.evaluate(chips_js, ids)
+    assert all(c and c['role'] == 'radiogroup' for c in chips), chips
+    assert all(c['modes'] == ['sequential', 'halves', 'manual']
+               for c in chips), chips
+    assert all(c['texts'] == ['Sequential', 'Halves', 'Manual']
+               for c in chips), chips
+    assert [c['lit'] for c in chips] == ['sequential', 'sequential'], chips
+    assert all(c['raised'] for c in chips), chips
+
+    assert page.evaluate(CLICK_CHIP_JS, [ids['mainCards'][0], 'halves'])
+    page.wait_for_timeout(800)
+    assert page.evaluate(HISTORY_LEN_JS) == base + 2
+    assert page.evaluate(LAST_ACTION_JS) == ['Change Redundancy Mode']
+    assert page.evaluate(modes_js, ids)['modes'] == ['halves', 'sequential']
+    chips = page.evaluate(chips_js, ids)
+    assert [c['lit'] for c in chips] == ['halves', 'sequential'], chips
+    assert page.evaluate(BAR_JS, ids['mainId'])['lit'] == 'port'
+    # A press on the lit chip is a no-op: no request, no entry.
+    assert page.evaluate(CLICK_CHIP_JS, [ids['mainCards'][0], 'halves'])
+    page.wait_for_timeout(400)
+    assert page.evaluate(HISTORY_LEN_JS) == base + 2
+
+    assert page.evaluate(CLICK_SEG_JS, [ids['mainId'], 'card'])
+    page.wait_for_timeout(800)
+    assert page.evaluate(HISTORY_LEN_JS) == base + 3
+    assert page.evaluate(LAST_ACTION_JS) == ['Set Redundancy Per Card']
+    assert page.evaluate(modes_js, ids) == {
+        'redundancy': True, 'modes': [None, None]}
+    bar = page.evaluate(BAR_JS, ids['mainId'])
+    assert bar['lit'] == 'card' and len(bar['rows']) == 2, bar
+    assert page.evaluate(chips_js, ids) == [None, None]
+
+    assert page.evaluate(CLICK_SEG_JS, [ids['mainId'], 'off'])
+    page.wait_for_timeout(800)
+    assert page.evaluate(HISTORY_LEN_JS) == base + 4
+    assert page.evaluate(LAST_ACTION_JS) == ['Toggle Redundancy']
+    assert page.evaluate(modes_js, ids)['redundancy'] is False
+    bar = page.evaluate(BAR_JS, ids['mainId'])
+    assert bar['lit'] == 'off' and bar['rows'] == [], bar
+    # A press on the lit segment is a no-op too.
+    assert page.evaluate(CLICK_SEG_JS, [ids['mainId'], 'off'])
+    page.wait_for_timeout(400)
+    assert page.evaluate(HISTORY_LEN_JS) == base + 4
+
+    for expect_modes, expect_lit in (([None, None], 'card'),
+                                     (['halves', 'sequential'], 'port'),
+                                     (['sequential', 'sequential'], 'port'),
+                                     ([None, None], 'card')):
+        page.evaluate("() => window.app.undo()")
+        page.wait_for_timeout(900)
+        assert page.evaluate(OPEN_GEAR_JS, f"proc-{ids['mainId']}")
+        assert page.evaluate(modes_js, ids)['modes'] == expect_modes
+        assert page.evaluate(BAR_JS, ids['mainId'])['lit'] == expect_lit
+    page.keyboard.press('Escape')
+    page.wait_for_timeout(100)
+    page.evaluate(CHASSIS_CLEAN_JS, ids)
     page.wait_for_timeout(600)
 
 
 def test_the_mode_change_round_trips_through_undo(panel_page):
-    """Same contract as every processor edit, driven through the gear:
-    a named post-mutation snapshot, walked back and forward with the
+    """Same contract as every processor edit, driven through the gear's
+    bar: a named post-mutation snapshot, walked back and forward with the
     stored key following."""
     pytest.importorskip("playwright.sync_api",
                         reason="playwright is not installed")
@@ -4349,16 +4653,9 @@ def test_the_mode_change_round_trips_through_undo(panel_page):
     page.wait_for_timeout(800)
     assert page.evaluate(OPEN_GEAR_JS, f"proc-{ids['mxId']}"), (
         'the processor gear did not open')
-    page.evaluate("""(ids) => {
-        const sel = document.getElementById('hw-gear-popover').querySelector(
-            `[data-lrd-field="processor-card-redundancy-${ids.mxCardId}"]`);
-        sel.value = 'sequential';
-        sel.dispatchEvent(new Event('change', { bubbles: true }));
-    }""", ids)
+    assert page.evaluate(CLICK_SEG_JS, [ids['mxId'], 'port'])
     page.wait_for_timeout(800)
-    assert page.evaluate(
-        "() => window.app.history.map(h => h.action).slice(-1)") == \
-        ['Change Redundancy Mode']
+    assert page.evaluate(LAST_ACTION_JS) == ['Set Redundancy Per Port']
     assert page.evaluate(STORED_CARD_JS, ids['mxId']).get(
         'redundancyMode') == 'sequential'
     page.evaluate("() => window.app.undo()")
@@ -4372,15 +4669,15 @@ def test_the_mode_change_round_trips_through_undo(panel_page):
     page.wait_for_timeout(100)
 
 
-def test_the_halves_mode_commits_from_the_select_and_states_its_split(
+def test_the_halves_mode_commits_from_the_chip_and_states_its_split(
         panel_page):
-    """The 2026-08-27 arrangement as ONE gesture: pick "Halves" in the
-    processor gear's mode select and the back half backs the front half -
-    stored, mapped (an MX20's port 4 carries port 1's return), and stated
-    under the select with both spans, because this is the one mode whose
-    main and return wear different numbers. The popover re-renders in
-    place across the commit's rebuild, so the statement is read from the
-    same open popover the select lives in."""
+    """The 2026-08-27 arrangement as ONE gesture: Per port on the bar,
+    then the "Halves" chip, and the back half backs the front half -
+    stored, mapped (an MX20's port 4 carries port 1's return), lit on
+    the chip and stated in its tip with both spans, because this is the
+    one shape whose main and return wear different numbers. The popover
+    re-renders in place across the commit's rebuild, so the chip is read
+    from the same open popover it was pressed in."""
     pytest.importorskip("playwright.sync_api",
                         reason="playwright is not installed")
     page = panel_page
@@ -4388,39 +4685,36 @@ def test_the_halves_mode_commits_from_the_select_and_states_its_split(
     page.wait_for_timeout(800)
     assert page.evaluate(OPEN_GEAR_JS, f"proc-{ids['mxId']}"), (
         'the processor gear did not open')
-    page.evaluate("""(ids) => {
-        const sel = document.getElementById('hw-gear-popover').querySelector(
-            `[data-lrd-field="processor-card-redundancy-${ids.mxCardId}"]`);
-        sel.value = 'halves';
-        sel.dispatchEvent(new Event('change', { bubbles: true }));
-    }""", ids)
+    assert page.evaluate(CLICK_SEG_JS, [ids['mxId'], 'port'])
+    page.wait_for_timeout(800)
+    assert page.evaluate(CLICK_CHIP_JS, [ids['mxCardId'], 'halves'])
     page.wait_for_timeout(800)
     assert page.evaluate(STORED_CARD_JS, ids['mxId']).get(
         'redundancyMode') == 'halves'
-    assert page.evaluate(
-        "() => window.app.history.map(h => h.action).slice(-1)") == \
-        ['Change Redundancy Mode']
+    assert page.evaluate(LAST_ACTION_JS) == ['Change Redundancy Mode']
     out = page.evaluate("""(ids) => {
         const card = window.app._processorsResolved
             .find(p => p.id === ids.mxId).slots[0].card;
         const ports = Object.fromEntries(
             card.ports.map(p => [p.number, p]));
         const pop = document.getElementById('hw-gear-popover');
-        const texts = Array.from(pop.querySelectorAll('div'))
-            .map(d => d.textContent || '');
+        const lit = pop.querySelector(
+            `[data-lrd-field="processor-card-shape-${ids.mxCardId}"] `
+            + '.hw-pop-chip-on');
         return {
             popOpen: pop.style.display !== 'none',
             fourBacks: ports[4] && ports[4].backsUp
                 ? ports[4].backsUp.port : null,
             oneBackedOn: ports[1] && ports[1].backedBy
                 ? ports[1].backedBy.port : null,
-            stated: texts.some(t =>
-                t.includes('Ports 4-6 carry the returns of 1-3')),
+            lit: lit ? lit.dataset.mode : null,
+            tip: lit ? lit.title : '',
         };
     }""", ids)
     assert out['popOpen'], f'the commit\'s rebuild closed the popover: {out}'
     assert out['fourBacks'] == 1 and out['oneBackedOn'] == 4, out
-    assert out['stated'], out
+    assert out['lit'] == 'halves', out
+    assert 'Ports 4-6 carry the returns of 1-3' in out['tip'], out
     page.keyboard.press('Escape')
     page.wait_for_timeout(100)
     # Leave the module's shared server the way this test found it: the
@@ -4436,10 +4730,11 @@ def test_the_halves_mode_commits_from_the_select_and_states_its_split(
 
 
 def test_the_partner_pick_and_the_manual_picker_commit(panel_page):
-    """The 1:1 partner select (in the processor's gear) stores the pick and
-    the consumed unit states its role on its own dock header; manual mode
-    unfolds a per-port picker in the port's DOCK CHIP that stores the
-    sparse map - each through its own named action."""
+    """The 1:1 partner select (the "mirrored by" row in the processor's
+    gear) stores the pick and the consumed unit states its role on its
+    own dock header; Per port then the Manual chip unfolds a per-port
+    picker in the port's DOCK CHIP that stores the sparse map - each
+    through its own named action."""
     pytest.importorskip("playwright.sync_api",
                         reason="playwright is not installed")
     page = panel_page
@@ -4456,9 +4751,7 @@ def test_the_partner_pick_and_the_manual_picker_commit(panel_page):
     page.wait_for_timeout(800)
     assert page.evaluate(STORED_CARD_JS, ids['mxId']).get(
         'backupCardId') == ids['bkCardId']
-    assert page.evaluate(
-        "() => window.app.history.map(h => h.action).slice(-1)") == \
-        ['Change Backup Unit']
+    assert page.evaluate(LAST_ACTION_JS) == ['Change Backup Unit']
     # The consumed unit says so where it reads: its card header wears the
     # role tag (the old panel's 'Backs up SR' line, on the dock header).
     consumed = page.evaluate("""(ids) => {
@@ -4468,15 +4761,14 @@ def test_the_partner_pick_and_the_manual_picker_commit(panel_page):
     }""", ids)
     assert consumed, 'the consumed unit does not state its role'
 
-    # Manual mode: the mode select stays in the still-open gear; the pick
-    # itself lives in the port's dock chip editor.
-    page.evaluate("""(ids) => {
-        const sel = document.getElementById('hw-gear-popover').querySelector(
-            `[data-lrd-field="processor-card-redundancy-${ids.mxCardId}"]`);
-        sel.value = 'manual';
-        sel.dispatchEvent(new Event('change', { bubbles: true }));
-    }""", ids)
+    # Manual: Per port on the still-open gear's bar, then the chip; the
+    # pick itself lives in the port's dock chip editor.
+    assert page.evaluate(CLICK_SEG_JS, [ids['mxId'], 'port'])
     page.wait_for_timeout(800)
+    assert page.evaluate(CLICK_CHIP_JS, [ids['mxCardId'], 'manual'])
+    page.wait_for_timeout(800)
+    assert page.evaluate(STORED_CARD_JS, ids['mxId']).get(
+        'redundancyMode') == 'manual'
     page.evaluate(
         "(tid) => document.querySelector(`[data-lrd-tile=\"${tid}\"]`)"
         + ".querySelector('.lrd-tile-face').click()",
@@ -4492,9 +4784,7 @@ def test_the_partner_pick_and_the_manual_picker_commit(panel_page):
     stored = page.evaluate(STORED_CARD_JS, ids['mxId'])
     assert stored.get('backupPorts', {}).get('1') == \
         {'cardId': ids['mxCardId'], 'port': 5}
-    assert page.evaluate(
-        "() => window.app.history.map(h => h.action).slice(-1)") == \
-        ['Change Port Backup']
+    assert page.evaluate(LAST_ACTION_JS) == ['Change Port Backup']
 
 
 def test_a_redundant_pair_presents_as_one_group_on_the_dock(panel_page):
