@@ -315,6 +315,14 @@ STEP_READ_JS = """(view) => {
     ('data-flow', '#custom-prev-port', -1),
 ])
 def test_a_step_button_steps_once_however_the_keyboard_follows(page, view, button, delta):
+    # The real view button first: the custom controls live in that view's
+    # sidebar panel, and SETUP_JS only sets the renderer's viewMode - so
+    # without this the Next/Prev buttons exist but are not on screen, and
+    # the mouse click below times out on "element is not visible" (the
+    # 4 failed / 41 passed on the tip). Same wiring on both sides; only
+    # the pin's target was off screen.
+    page.locator(f'[data-mode="{view}"]').click()
+    page.wait_for_timeout(400)
     page.evaluate(STEP_SETUP_JS, view)
     try:
         page.locator(button).click()
