@@ -2240,3 +2240,276 @@ def test_the_breakout_select_gates_on_the_screen_voltage(page):
     d208 = {o['id']: o['disabled'] for o in out['at208']}
     for anything in d208:
         assert d208[anything] is False, (anything, out)
+
+
+# ── 17. the label authority is 1-based and agrees with itself, before and
+#        after the click ─────────────────────────────────────────────────
+#
+# User report (2026-09-03, custom power on SR - MAIN): "as i was doing
+# custom power it would say 3-1 and do 2-6. 2-6 was actually correct. then
+# it would go to 3-2 and i'd be drawing 3-1". The HUD badge names the
+# active circuit through getPowerCircuitLabel like every other surface -
+# but the active circuit holds no cabinet yet, so it is not in the plan,
+# and the authority's fallback for a number the plan did not hold was
+# arithmetic on the raw number (floor((n-1)/6)). The plan names a circuit
+# by the tail it lands on, so with one drawn number empty (a cleared
+# circuit, a skipped number, a splitter merge) the two disagreed by exactly
+# that gap: 13 drawn on 1,3..12 lands on ordinal 12 and reads S2-6, the
+# arithmetic said S3-1. The coordinator's probe on the user's copy showed
+# the same signature - n=6 -> S1-5, 7 -> S1-6, 12 -> S2-5 - which is the
+# plan reading one tail behind the number from the gap on.
+#
+# Ruling: getPowerCircuitLabel(layer, n) for a 1-based circuit n names the
+# circuit n WILL BE once drawn - the same string the bubble prints after
+# the first click - so with a contiguous 1..N the number is the tail
+# (6 -> S1-6, 7 -> S2-1, 12 -> S2-6, 13 -> S3-1) and with a gap the badge
+# moves with the wall (the user's "2-6 was actually correct").
+
+CUSTOM_WALL_JS = """
+window.__ph.customWall = function (id, name, nums, extra) {
+    // A 28x11 wall (the user's SR - MAIN) whose circuits are two-cabinet
+    // hand-drawn paths under exactly the numbers given, laid across the
+    // top rows so no two share a cabinet. 208V x 20A / 600W = 6 tiles per
+    // circuit, so the auto fallback for an unrouted screen boxes 52.
+    const paths = {};
+    let k = 0;
+    for (const n of nums) {
+        paths[n] = [{ row: Math.floor(k / 28), col: k % 28 },
+                    { row: Math.floor((k + 1) / 28), col: (k + 1) % 28 }];
+        k += 2;
+    }
+    return this.screen(Object.assign({
+        id, name, columns: 28, rows: 11,
+        cabinet_width: 500, cabinet_height: 500,
+        panelWatts: 600, powerVoltage: 208, powerAmperage: 20,
+        powerFlowPattern: 'custom', powerCustomPath: true,
+        powerCustomIndex: 1, powerCustomPaths: paths,
+        powerOrganized: false,
+    }, extra || {}));
+};
+window.__ph.labelFor = function (S, n) {
+    window.app._circuitTailCache = null;
+    return window.app.getPowerCircuitLabel(S, n);
+};
+// The last value of a string evaluate is what Playwright hands back, and a
+// FUNCTION handed back gets called with no arguments - so end on a plain
+// value, not on the helper just defined.
+true;
+"""
+
+
+def _range(a, b):
+    return list(range(a, b + 1))
+
+
+def test_an_auto_circuit_is_named_by_its_number_across_the_box_boundary(page):
+    """Auto mode, thirteen organized circuits on no distro: the number IS
+    the tail - 6 -> S1-6, 7 -> S2-1, 12 -> S2-6, 13 -> S3-1 - and a
+    fourteenth the plan does not hold reads where it would land (S3-2)."""
+    page.evaluate(CUSTOM_WALL_JS)
+    out = page.evaluate("""() => {
+        const ph = window.__ph;
+        const S = ph.col5(201, 'Auto13', 13);
+        return ph.withProject({ layers: [S] }, () => ({
+            drawn: ph.labelsOf(S),
+            probe: [1, 6, 7, 12, 13, 14].map(n => ph.labelFor(S, n)),
+        }));
+    }""")
+    assert out['drawn'] == ['S1-1', 'S1-2', 'S1-3', 'S1-4', 'S1-5', 'S1-6',
+                            'S2-1', 'S2-2', 'S2-3', 'S2-4', 'S2-5', 'S2-6',
+                            'S3-1']
+    assert out['probe'] == ['S1-1', 'S1-6', 'S2-1', 'S2-6', 'S3-1', 'S3-2']
+
+
+def test_a_custom_circuit_reads_the_same_before_and_after_it_is_drawn(page):
+    """Custom mode, 1..12 drawn: the undrawn 13 reads S3-1 on the badge,
+    and S3-1 again once its first cabinet lands. Same for 7 with 1..6
+    drawn. The ruling's contract, whole-screen custom, no distro."""
+    page.evaluate(CUSTOM_WALL_JS)
+    out = page.evaluate("""([r6, r12, r13, r7]) => {
+        const ph = window.__ph;
+        const S6 = ph.customWall(202, 'Six', r6);
+        const S12 = ph.customWall(203, 'Twelve', r12);
+        const S13 = ph.customWall(204, 'Thirteen', r13);
+        const S7 = ph.customWall(205, 'Seven', r7);
+        const read = (S, ns) => ph.withProject({ layers: [S] },
+            () => ns.map(n => ph.labelFor(S, n)));
+        return {
+            six: read(S6, [6, 7]),
+            twelve: read(S12, [6, 7, 12, 13]),
+            thirteen: read(S13, [12, 13]),
+            seven: read(S7, [6, 7]),
+            drawn13: ph.withProject({ layers: [S13] }, () => ph.labelsOf(S13)),
+        };
+    }""", [_range(1, 6), _range(1, 12), _range(1, 13), _range(1, 7)])
+    assert out['six'] == ['S1-6', 'S2-1'], 'undrawn 7 must open S2'
+    assert out['twelve'] == ['S1-6', 'S2-1', 'S2-6', 'S3-1'], \
+        'undrawn 13 must open S3'
+    assert out['thirteen'] == ['S2-6', 'S3-1'], \
+        'drawn 13 reads what the badge said'
+    assert out['seven'] == ['S1-6', 'S2-1']
+    assert out['drawn13'][-1] == 'S3-1'
+
+
+def test_a_gap_in_the_drawn_numbers_moves_the_badge_with_the_wall(page):
+    """The user's exact shape: circuit 2 never drawn (or cleared), 1 and
+    3..12 drawn. The wall names by the tail each circuit lands on - 3 is
+    S1-2, 7 is S1-6, 12 is S2-5 (the coordinator's probe on the user's
+    copy, verbatim) - so the undrawn 13 will land on tail S2-6, and that
+    is what the badge must say BEFORE the click, not the arithmetic S3-1
+    (the ruling: "2-6 was actually correct"). A cleared circuit (an empty
+    path under the number) and a splitter merge read identically."""
+    page.evaluate(CUSTOM_WALL_JS)
+    out = page.evaluate("""([gap]) => {
+        const ph = window.__ph;
+        const read = (S, ns) => ph.withProject({ layers: [S] },
+            () => ns.map(n => ph.labelFor(S, n)));
+        const missing = ph.customWall(206, 'Gap', gap);
+        const cleared = ph.customWall(207, 'Cleared', gap);
+        cleared.powerCustomPaths[2] = [];
+        const merged = ph.customWall(208, 'Merged', [2].concat(gap), {
+            powerSplitters: { enabled: false, maxWays: 2,
+                manual: { merge: [[1, 2]], split: [] } },
+        });
+        const drawn = ph.customWall(209, 'Drawn', gap.concat([13]));
+        return {
+            missing: read(missing, [1, 3, 6, 7, 12, 13]),
+            cleared: read(cleared, [13]),
+            merged: read(merged, [13]),
+            drawn: read(drawn, [12, 13]),
+        };
+    }""", [[1] + _range(3, 12)])
+    assert out['missing'] == ['S1-1', 'S1-2', 'S1-5', 'S1-6', 'S2-5', 'S2-6'], (
+        f"the badge must read where 13 will land: {out['missing']}")
+    assert out['cleared'] == ['S2-6']
+    assert out['merged'] == ['S2-6']
+    assert out['drawn'] == ['S2-5', 'S2-6'], \
+        'once drawn, 13 reads exactly what the badge said'
+
+
+def test_the_prediction_climbs_the_distros_name_ladder(page):
+    """On a distro named SL the multis read SL1, SL2, SL3 and the undrawn
+    circuit that opens the next box is named by that box: 1..6 drawn with
+    multi 2 also on SL, 7 reads SL2-1 before and after the click; 1..12
+    drawn, 13 reads SL3-1. A hand-typed name on the box-to-be wins the way
+    it wins on a drawn one. Auto mode on the same distro reads the same
+    across 6/7 and 12/13."""
+    page.evaluate(CUSTOM_WALL_JS)
+    out = page.evaluate("""([r6, r12, r13]) => {
+        const ph = window.__ph;
+        const distros = [ph.box('dl', 'SL')];
+        const on = { powerSocaDistro: { 1: 'dl', 2: 'dl', 3: 'dl' } };
+        const read = (S, ns) => ph.withProject({ layers: [S], distros },
+            () => ns.map(n => ph.labelFor(S, n)));
+        const S6 = ph.customWall(210, 'Six', r6, on);
+        const S12 = ph.customWall(211, 'Twelve', r12, on);
+        const S13 = ph.customWall(212, 'Thirteen', r13, on);
+        const named = ph.customWall(213, 'Named', r6, Object.assign({
+            powerSocaNames: { 2: 'FOH B' } }, on));
+        const auto = ph.col5(214, 'Auto13', 13, on);
+        return {
+            six: read(S6, [6, 7]),
+            twelve: read(S12, [12, 13]),
+            thirteen: read(S13, [12, 13]),
+            named: read(named, [7]),
+            auto: read(auto, [6, 7, 12, 13]),
+        };
+    }""", [_range(1, 6), _range(1, 12), _range(1, 13)])
+    assert out['six'] == ['SL1-6', 'SL2-1']
+    assert out['twelve'] == ['SL2-6', 'SL3-1']
+    assert out['thirteen'] == ['SL2-6', 'SL3-1']
+    assert out['named'] == ['FOH B-1']
+    assert out['auto'] == ['SL1-6', 'SL2-1', 'SL2-6', 'SL3-1']
+
+
+def test_the_badge_names_the_circuit_the_click_stores_under(page):
+    """The gesture, on the live project: custom mode enabled through the
+    app's own toggle on a 28x11 screen, 1..11 drawn, the active circuit
+    set to 12 through the sidebar input. The HUD badge
+    (renderPowerActiveCircuitBadge) prints the same string the bubble for
+    circuit 12 prints once its cabinets land - S2-6 - then Next advances
+    to 13, the badge reads S3-1, and the cabinets clicked next are stored
+    under 13 and bubble as S3-1."""
+    out = page.evaluate("""async () => {
+        const app = window.app, r = window.canvasRenderer;
+        let project = await (await fetch('/api/project')).json();
+        const savedLayers = project.layers;
+        project.layers = []; project.groups = [];
+        await fetch('/api/project', { method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(project) });
+        await fetch('/api/layer/add', { method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: 'SR - MAIN', columns: 28, rows: 11,
+                cabinet_width: 500, cabinet_height: 500,
+                offset_x: 0, offset_y: 0 }) });
+        app.project = await (await fetch('/api/project')).json();
+        const L = app.project.layers.filter(
+            l => (l.type || 'screen') === 'screen')[0];
+        L.powerFlowPattern = 'tl-h'; L.powerOrganized = false;
+        L.powerMaximize = false;
+        L.powerVoltage = 208; L.powerAmperage = 20; L.panelWatts = 600;
+        L.powerCustomPaths = {}; L.powerCustomOverrides = [];
+        app.currentLayer = L; app.selectedLayerIds = new Set([L.id]);
+        r.viewMode = 'power';
+        app.toggleCustomPowerMode(true);
+        let k = 0;
+        for (let n = 1; n <= 11; n++) {
+            L.powerCustomPaths[n] = [{ row: 0, col: k }, { row: 0, col: k + 1 }];
+            k += 2;
+        }
+        const active = document.getElementById('power-custom-active');
+        active.value = '12';
+        active.dispatchEvent(new Event('change', { bubbles: true }));
+        // One frame: the badge and every bubble, captured off the calls the
+        // renderer makes into the one authority.
+        const frame = () => {
+            const seen = {};
+            let badge = null, inBadge = false;
+            const origBadge = r._drawActiveBadge;
+            const origHud = r.renderPowerActiveCircuitBadge;
+            const origLabel = app.getPowerCircuitLabel;
+            r._drawActiveBadge = function (label) { badge = label; };
+            // The badge asks the authority too; only the bubbles' asks
+            // count as "what the wall prints".
+            r.renderPowerActiveCircuitBadge = function () {
+                inBadge = true;
+                try { return origHud.call(this); } finally { inBadge = false; }
+            };
+            app.getPowerCircuitLabel = function (layer, n) {
+                const v = origLabel.call(this, layer, n);
+                if (layer === L && !inBadge) seen[n] = v;
+                return v;
+            };
+            try { app._circuitTailCache = null; r.render(); }
+            finally { r._drawActiveBadge = origBadge;
+                      r.renderPowerActiveCircuitBadge = origHud;
+                      app.getPowerCircuitLabel = origLabel; }
+            return { idx: L.powerCustomIndex, badge,
+                     bubble: seen[L.powerCustomIndex] || null };
+        };
+        const before12 = frame();
+        app.addPanelToCustomPowerPath(app.getPanelByRowCol(L, 1, 0));
+        app.addPanelToCustomPowerPath(app.getPanelByRowCol(L, 1, 1));
+        const after12 = frame();
+        document.getElementById('power-custom-next').click();
+        const before13 = frame();
+        app.addPanelToCustomPowerPath(app.getPanelByRowCol(L, 1, 2));
+        const after13 = frame();
+        const stored = Object.keys(L.powerCustomPaths)
+            .map(n => [Number(n), L.powerCustomPaths[n].length]);
+        app.toggleCustomPowerMode(false);
+        project.layers = savedLayers;
+        await fetch('/api/project', { method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(project) });
+        app.project = await (await fetch('/api/project')).json();
+        app.currentLayer = app.project.layers[0] || null;
+        return { before12, after12, before13, after13, stored };
+    }""")
+    assert out['before12'] == {'idx': 12, 'badge': 'S2-6', 'bubble': None}, out
+    assert out['after12'] == {'idx': 12, 'badge': 'S2-6', 'bubble': 'S2-6'}, out
+    assert out['before13'] == {'idx': 13, 'badge': 'S3-1', 'bubble': None}, out
+    assert out['after13'] == {'idx': 13, 'badge': 'S3-1', 'bubble': 'S3-1'}, out
+    assert out['stored'][-2:] == [[12, 2], [13, 1]], \
+        'the cabinets clicked after Next must land under 13'
