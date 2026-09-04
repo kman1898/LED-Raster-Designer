@@ -1175,6 +1175,13 @@ def resolve_processor(proc):
         # never a control - Brompton pairs adjacent outputs automatically and
         # offers no other arrangement.
         'redundancyPairing': redundancy_pairing(device, proc.get('redundancy')),
+        # The processor that mirrors this one whole, card for card - filled
+        # in by resolve_all once every card's 1:1 link has resolved, because
+        # the partner is another processor and one cannot see that far from
+        # here. DERIVED, never stored: a whole-processor pairing IS its
+        # cards' 1:1 picks, and a second copy of that fact would be one
+        # more thing to drift.
+        'backupProcessorId': None,
         'requiresDistribution': bool(device.get('requiresDistribution')),
         'ceiling': ceiling,
         'ceilingKnown': known,
@@ -1363,7 +1370,45 @@ def _apply_backup_mapping(processors, resolved):
                 link(cid, n, target_id, t)
 
 
+def _derive_backup_processors(resolved):
+    """Name, on each main, the processor that backs it WHOLE.
+
+    The unit-level reading of the card-level facts, the same rule the
+    dock uses to nest a backup unit under its main: a processor whose
+    every card is consumed backing the cards of ONE other processor, card
+    N for card N in slot order, with no card left over on either side, is
+    that processor's backup unit. The reading drops the moment any one
+    card is repointed - a half-mirror is a per-card arrangement, and the
+    panel's level select follows this value.
+    """
+    by_id = {p['id']: p for p in resolved}
+
+    def cards_of(p):
+        return [s['card'] for s in p.get('slots') or [] if s.get('card')]
+
+    for backup in resolved:
+        cards = cards_of(backup)
+        if not cards or not all(c.get('backupFor') for c in cards):
+            continue
+        main_id = cards[0]['backupFor']['processorId']
+        if main_id == backup['id'] \
+                or any(c['backupFor']['processorId'] != main_id
+                       for c in cards):
+            continue
+        main = by_id.get(main_id)
+        if not main:
+            continue
+        main_cards = cards_of(main)
+        if len(main_cards) != len(cards):
+            continue
+        if any(bc['backupFor']['cardId'] != mc['id']
+               for mc, bc in zip(main_cards, cards)):
+            continue
+        main['backupProcessorId'] = backup['id']
+
+
 def resolve_all(processors):
     resolved = [resolve_processor(p) for p in (processors or [])]
     _apply_backup_mapping(processors, resolved)
+    _derive_backup_processors(resolved)
     return resolved

@@ -2400,14 +2400,23 @@ def test_the_gear_states_the_pairing_and_offers_no_control_for_it():
     assert 'pairing.statement' in source or \
         'redundancyPairing.statement' in source
     assert 'backs up ${who}' in source
-    # The statement lives in the PROCESSOR gear's content, under the switch.
-    assert source.index('_buildProcGearContent') \
-        < source.index('redundancyPairing') \
-        < source.index('_buildCardGearContent'), (
+    # The statement lives in the PROCESSOR gear's redundancy block, under
+    # the switch: _buildProcGearContent hands off to
+    # _buildProcRedundancyBlock, and the statement is the first thing that
+    # block can draw. The card gear draws nothing of it.
+    proc_gear = source[source.index('_buildProcGearContent(proc) {'):
+                       source.index('_buildCardGearContent(proc, card) {')]
+    assert '_buildProcRedundancyBlock(proc)' in proc_gear, (
+        'the processor gear no longer builds its redundancy block')
+    block = source[source.index('_buildProcRedundancyBlock(proc) {'):]
+    block = block[:block.index('_buildProcBackupPick(proc, cards) {')]
+    assert 'redundancyPairing.statement' in block, (
         'the pairing statement left the processor gear popover')
-    section = source[source.index('redundancyPairing'):]
-    head = section[:section.index('_buildCardGearContent')]
-    assert 'lrdField' not in head.split('appendChild(fact)')[0].rsplit(
+    card_gear = source[source.index('_buildCardGearContent(proc, card) {'):
+                       source.index('_buildBoxGearContent(proc, card, cvt) {')]
+    assert 'redundancyPairing' not in card_gear, (
+        'the card gear draws the pairing')
+    assert 'lrdField' not in block.split('appendChild(fact)')[0].rsplit(
         'const fact', 1)[-1], 'the pairing fact grew a focus key - a control'
 
 
@@ -3597,6 +3606,190 @@ def test_backup_links_never_dangle(client):
     assert 'backupPorts' not in stored, 'a manual pick outlived its unit'
 
 
+# ── 14b. The whole-processor pairing, as one gesture ──────────────────────
+#
+# The user's ruling (2026-09-04): "if you need to do processor redundancy i
+# need to be able to set that. but also sending card or port redundancy needs
+# to be an option." A whole-processor backup is every card pointed 1:1 at the
+# partner's card in the same position, stored as exactly that and derived
+# back for the view; one PUT sets or clears the lot.
+
+def add_chassis(client, cards=('novastar-card-h-16xrj45-2xfiber',) * 2,
+                device='novastar-h9'):
+    state = add_processor(client, device)
+    pid = state['resolved'][-1]['id']
+    for index, card in enumerate(cards):
+        resp = client.put(f'/api/processors/{pid}/slots/{index}',
+                          json={'deviceId': card})
+        assert resp.status_code == 200, resp.get_data(as_text=True)
+    return pid
+
+
+def stored_proc(client, pid):
+    state = client.get('/api/processors').get_json()
+    return next(p for p in state['processors'] if p['id'] == pid)
+
+
+def resolved_proc(client, pid):
+    state = client.get('/api/processors').get_json()
+    return next(p for p in state['resolved'] if p['id'] == pid)
+
+
+def stored_cards(client, pid):
+    return [s['card'] for s in stored_proc(client, pid)['slots']
+            if s.get('card')]
+
+
+def test_a_whole_processor_pairs_slot_for_slot_in_one_put(client):
+    """One PUT with backupProcessorId points every card of the main at the
+    partner's card in the same position and drops every stored mode to
+    1:1 (absence); the view derives the pairing back as backupProcessorId
+    on the main and nothing on the partner."""
+    a = add_chassis(client)
+    b = add_chassis(client)
+    client.put(f'/api/processors/{a}', json={'redundancy': True})
+    a_cards = stored_cards(client, a)
+    client.put(f'/api/processors/{a}/cards/{a_cards[1]["id"]}',
+               json={'redundancyMode': 'halves'})
+
+    resp = client.put(f'/api/processors/{a}', json={'backupProcessorId': b})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    a_cards = stored_cards(client, a)
+    b_cards = stored_cards(client, b)
+    assert [c.get('backupCardId') for c in a_cards] == \
+        [c['id'] for c in b_cards]
+    assert all('redundancyMode' not in c for c in a_cards), (
+        'a whole-processor mirror left a per-port mode behind')
+    assert 'backupProcessorId' not in stored_proc(client, a), (
+        'the pairing is derived, never stored')
+    assert resolved_proc(client, a)['backupProcessorId'] == b
+    assert resolved_proc(client, b)['backupProcessorId'] is None
+    # The response itself carries the derived view, like every mutation.
+    view = next(p for p in resp.get_json()['resolved'] if p['id'] == a)
+    assert view['backupProcessorId'] == b
+    for slot in resolved_proc(client, b)['slots']:
+        if slot['card']:
+            assert slot['card']['backupFor']['processorId'] == a
+
+
+def test_a_whole_processor_pairing_refuses_whole_and_names_the_slot(client):
+    """A card-count mismatch refuses with both counts; a port-count
+    mismatch in any slot refuses naming that slot in the wording the
+    single 1:1 pick uses - and either way NOTHING is written, not even the
+    slots that would have passed."""
+    a = add_chassis(client)
+    one = add_chassis(client, cards=('novastar-card-h-16xrj45-2xfiber',))
+    client.put(f'/api/processors/{a}', json={'redundancy': True})
+
+    resp = client.put(f'/api/processors/{a}',
+                      json={'backupProcessorId': one})
+    assert resp.status_code == 400
+    why = resp.get_json()['error']
+    assert 'has 1 card and' in why and 'has 2 cards' in why, why
+    assert 'card for card' in why, why
+
+    mixed = add_chassis(client, cards=('novastar-card-h-16xrj45-2xfiber',
+                                       'novastar-card-h-20xrj45'))
+    resp = client.put(f'/api/processors/{a}',
+                      json={'backupProcessorId': mixed})
+    assert resp.status_code == 400
+    why = resp.get_json()['error']
+    assert why.startswith('Slot 2:'), why
+    assert 'has 20 ports' in why and 'has 16' in why, why
+    assert 'counts must match' in why, why
+    assert all('backupCardId' not in c for c in stored_cards(client, a)), (
+        'a refused pairing wrote its passing slot')
+    assert resolved_proc(client, a)['backupProcessorId'] is None
+
+    resp = client.put(f'/api/processors/{a}', json={'backupProcessorId': a})
+    assert resp.status_code == 400
+    assert 'cannot back itself' in resp.get_json()['error']
+    resp = client.put(f'/api/processors/{a}',
+                      json={'backupProcessorId': 'proc999'})
+    assert resp.status_code == 400
+    assert resp.get_json()['error'] == 'That processor is not in this project.'
+
+
+def test_clearing_the_whole_processor_pairing_releases_every_card(client):
+    """backupProcessorId: '' pops the pick on every card that pointed at
+    the partner, and the partner's cards stop reporting a role."""
+    a = add_chassis(client)
+    b = add_chassis(client)
+    client.put(f'/api/processors/{a}', json={'redundancy': True})
+    assert client.put(f'/api/processors/{a}',
+                      json={'backupProcessorId': b}).status_code == 200
+    resp = client.put(f'/api/processors/{a}', json={'backupProcessorId': ''})
+    assert resp.status_code == 200
+    assert all('backupCardId' not in c for c in stored_cards(client, a))
+    assert resolved_proc(client, a)['backupProcessorId'] is None
+    for slot in resolved_proc(client, b)['slots']:
+        assert not (slot['card'] or {}).get('backupFor')
+
+
+def test_the_derived_pairing_drops_the_moment_one_card_is_repointed(client):
+    """The view says "whole processor" only while every card mirrors slot
+    for slot: repoint one card elsewhere and the main reads as a per-card
+    arrangement, with the other card's pick left exactly as it was."""
+    a = add_chassis(client)
+    b = add_chassis(client)
+    c = add_chassis(client)
+    client.put(f'/api/processors/{a}', json={'redundancy': True})
+    assert client.put(f'/api/processors/{a}',
+                      json={'backupProcessorId': b}).status_code == 200
+    assert resolved_proc(client, a)['backupProcessorId'] == b
+
+    a_cards = stored_cards(client, a)
+    c_cards = stored_cards(client, c)
+    resp = client.put(f'/api/processors/{a}/cards/{a_cards[1]["id"]}',
+                      json={'backupCardId': c_cards[1]['id']})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    assert resolved_proc(client, a)['backupProcessorId'] is None
+    b_cards = stored_cards(client, b)
+    assert stored_cards(client, a)[0]['backupCardId'] == b_cards[0]['id']
+    # Switching that one card to a port-level mode leaves the same reading.
+    client.put(f'/api/processors/{a}/cards/{a_cards[1]["id"]}',
+               json={'backupCardId': b_cards[1]['id']})
+    assert resolved_proc(client, a)['backupProcessorId'] == b
+    client.put(f'/api/processors/{a}/cards/{a_cards[1]["id"]}',
+               json={'redundancyMode': 'sequential'})
+    assert resolved_proc(client, a)['backupProcessorId'] is None
+
+
+def test_whole_processor_links_never_dangle(client):
+    """Deleting the partner clears every card's pick, the same rule the
+    single 1:1 pick follows - a link into reused ids is a trap."""
+    a = add_chassis(client)
+    b = add_chassis(client)
+    client.put(f'/api/processors/{a}', json={'redundancy': True})
+    assert client.put(f'/api/processors/{a}',
+                      json={'backupProcessorId': b}).status_code == 200
+    client.delete(f'/api/processors/{b}')
+    assert all('backupCardId' not in c for c in stored_cards(client, a)), (
+        'a whole-processor pick outlived its partner')
+    assert resolved_proc(client, a)['backupProcessorId'] is None
+
+
+def test_a_backup_processor_cannot_be_shared_or_back_a_backup(client):
+    """Consumed means consumed at the unit level too: a partner already
+    mirroring one main is refused to a second, naming the slot and the
+    card's role; a main cannot be picked as somebody's backup."""
+    a = add_chassis(client)
+    b = add_chassis(client)
+    c = add_chassis(client)
+    for pid in (a, c):
+        client.put(f'/api/processors/{pid}', json={'redundancy': True})
+    assert client.put(f'/api/processors/{a}',
+                      json={'backupProcessorId': b}).status_code == 200
+    resp = client.put(f'/api/processors/{c}', json={'backupProcessorId': b})
+    assert resp.status_code == 400
+    why = resp.get_json()['error']
+    assert why.startswith('Slot 1:') and 'already backs up' in why, why
+    resp = client.put(f'/api/processors/{c}', json={'backupProcessorId': a})
+    assert resp.status_code == 400
+    why = resp.get_json()['error']
+    assert why.startswith('Slot 1:') and 'has a backup of its own' in why, why
+
+
 def test_the_manual_pick_is_validated_like_a_placement(client):
     """The same situations read the same way: a port past the ceiling, a
     port backing itself, a port already spoken for by another main."""
@@ -3785,25 +3978,36 @@ async (pid) => {
 
 
 def test_the_mode_select_draws_only_where_the_vendor_does_not_fix(panel_page):
-    """The MX20's card gear gets the four modes; the SX40's card gear gets
-    NO select, and its processor gear states the fixed pairing under the
-    redundancy switch - a fact is not a setting, in the DOM either."""
+    """The MX20's PROCESSOR gear gets the four modes and the partner pick
+    directly under its switch - a standalone unit is its one card, so no
+    level question; the SX40's processor gear gets NO select and states
+    the fixed pairing under the switch instead - a fact is not a setting,
+    in the DOM either. Neither card gear offers a control."""
     pytest.importorskip("playwright.sync_api",
                         reason="playwright is not installed")
     page = panel_page
     ids = page.evaluate(REDUNDANCY_SEED_JS)
     page.wait_for_timeout(800)
-    assert page.evaluate(OPEN_GEAR_JS, f"card-{ids['mxCardId']}"), (
-        'the MX20 card gear did not open')
+    assert page.evaluate(OPEN_GEAR_JS, f"proc-{ids['mxId']}"), (
+        'the MX20 processor gear did not open')
     out = page.evaluate("""(ids) => {
         const pop = document.getElementById('hw-gear-popover');
+        const cb = pop.querySelector(
+            `[data-lrd-field="processor-redundancy-${ids.mxId}"]`);
         const mx = pop.querySelector(
             `[data-lrd-field="processor-card-redundancy-${ids.mxCardId}"]`);
         const partner = pop.querySelector(
             `[data-lrd-field="processor-card-backup-${ids.mxCardId}"]`);
+        const below = (el) => !!(cb && el
+            && (cb.compareDocumentPosition(el)
+                & Node.DOCUMENT_POSITION_FOLLOWING));
         return {
             mxSelect: !!mx,
             mxOptions: mx ? Array.from(mx.options).map(o => o.value) : [],
+            mxTexts: mx ? Array.from(mx.options).map(o => o.textContent) : [],
+            underSwitch: below(mx) && below(partner),
+            level: !!pop.querySelector(
+                `[data-lrd-field="processor-redundancy-level-${ids.mxId}"]`),
             partner: !!partner,
             partnerTexts: partner
                 ? Array.from(partner.options).map(o => o.textContent) : [],
@@ -3811,8 +4015,30 @@ def test_the_mode_select_draws_only_where_the_vendor_does_not_fix(panel_page):
     }""", ids)
     assert out['mxSelect'], out
     assert out['mxOptions'] == ['1to1', 'sequential', 'halves', 'manual'], out
+    # The level of each mode is in its own text: the card, or its ports.
+    assert out['mxTexts'][0].startswith('1:1 - this card'), out
+    assert 'ports' in out['mxTexts'][1], out
+    assert out['underSwitch'], 'the controls do not sit under the switch'
+    assert not out['level'], 'a standalone unit asked the level question'
     assert out['partner'], 'the default 1:1 offers no partner pick'
+    assert out['partnerTexts'][0] == 'backed up by\u2026', out
     assert any('BK - 6 ports' in t for t in out['partnerTexts']), out
+
+    # The card gear: a passive line, no control.
+    assert page.evaluate(OPEN_GEAR_JS, f"card-{ids['mxCardId']}"), (
+        'the MX20 card gear did not open')
+    out = page.evaluate("""(ids) => {
+        const pop = document.getElementById('hw-gear-popover');
+        const fact = pop.querySelector('.hw-pop-red-fact');
+        return {
+            select: !!pop.querySelector(
+                'select[data-lrd-field^="processor-card-redundancy-"], '
+                + 'select[data-lrd-field^="processor-card-backup-"]'),
+            fact: fact ? fact.textContent : null,
+        };
+    }""", ids)
+    assert not out['select'], f'the card gear still offers a control: {out}'
+    assert out['fact'] == 'Redundancy: 1:1, no backup unit picked', out
 
     assert page.evaluate(OPEN_GEAR_JS, f"card-{ids['sxCardId']}"), (
         'the SX40 card gear did not open')
@@ -3841,8 +4067,275 @@ def test_the_mode_select_draws_only_where_the_vendor_does_not_fix(panel_page):
     }""")
     assert out['statement'], (
         f'the fixed pairing statement left the processor gear: {out}')
+    assert not out['control'], f'the fixed pairing grew a control: {out}'
     page.keyboard.press('Escape')
     page.wait_for_timeout(100)
+
+
+def test_the_redundancy_switch_is_visible(panel_page):
+    """The switch that was 15px of grey on grey: measured, it is a real
+    control - at least 14px each way, with a ground and a rim that differ
+    from the popover's own ground, and the accent once it is on."""
+    pytest.importorskip("playwright.sync_api",
+                        reason="playwright is not installed")
+    page = panel_page
+    ids = page.evaluate(REDUNDANCY_SEED_JS)
+    page.wait_for_timeout(800)
+    assert page.evaluate(OPEN_GEAR_JS, f"proc-{ids['mxId']}"), (
+        'the processor gear did not open')
+    out = page.evaluate("""(ids) => {
+        const pop = document.getElementById('hw-gear-popover');
+        const cb = pop.querySelector(
+            `[data-lrd-field="processor-redundancy-${ids.mxId}"]`);
+        if (!cb) return null;
+        const cs = getComputedStyle(cb);
+        const r = cb.getBoundingClientRect();
+        const popBg = getComputedStyle(pop).backgroundColor;
+        const label = cb.closest('label');
+        return {
+            checked: cb.checked,
+            w: r.width, h: r.height,
+            bg: cs.backgroundColor, border: cs.borderTopColor,
+            borderW: cs.borderTopWidth, popBg,
+            labelColor: label ? getComputedStyle(label).color : null,
+            visible: cs.visibility === 'visible' && cs.display !== 'none',
+        };
+    }""", ids)
+    assert out, 'no redundancy switch in the processor gear'
+    assert out['checked'], 'the seed left redundancy off'
+    assert out['visible'], out
+    assert out['w'] >= 14 and out['h'] >= 14, out
+    transparent = ('rgba(0, 0, 0, 0)', 'transparent')
+    assert out['bg'] not in transparent and out['bg'] != out['popBg'], out
+    assert out['border'] not in transparent and out['border'] != out['popBg'], out
+    assert out['borderW'] != '0px', out
+    # On, it wears the accent - the one colour nothing grey can hide.
+    assert out['bg'] == 'rgb(226, 35, 48)', out
+    # The word beside it is primary text, not caption grey.
+    assert out['labelColor'] == 'rgb(240, 240, 240)', out
+    page.keyboard.press('Escape')
+    page.wait_for_timeout(100)
+
+
+CHASSIS_SEED_JS = """
+async () => {
+    const state = await (await fetch('/api/processors')).json();
+    for (const p of state.processors) {
+        await fetch(`/api/processors/${p.id}`, { method: 'DELETE' });
+    }
+    const send = (url, method, body) => fetch(url, {
+        method, headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    }).then(r => r.json());
+    const chassis = async (name) => {
+        let st = await send('/api/processors', 'POST',
+                            { deviceId: 'novastar-h9', name });
+        const proc = st.resolved[st.resolved.length - 1];
+        for (const i of [0, 1]) {
+            st = await send(`/api/processors/${proc.id}/slots/${i}`, 'PUT',
+                            { deviceId: 'novastar-card-h-16xrj45-2xfiber' });
+        }
+        const made = st.resolved.find(p => p.id === proc.id);
+        const cards = made.slots.filter(s => s.card).map(s => s.card.id);
+        for (const id of cards) {
+            try {
+                localStorage.removeItem(
+                    'ledRasterPanelCollapsed_hwdock-card-' + id);
+            } catch (e) { /* blocked storage never held the key */ }
+        }
+        return { id: proc.id, cards };
+    };
+    const main = await chassis('SR');
+    const back = await chassis('SL');
+    await send(`/api/processors/${main.id}`, 'PUT', { redundancy: true });
+    await window.app.refreshProcessors();
+    window.app.saveState('Seed Chassis Redundancy');
+    return { mainId: main.id, mainCards: main.cards,
+             backId: back.id, backCards: back.cards };
+}
+"""
+
+
+def test_a_chassis_chooses_its_level_and_pairs_whole_in_one_gesture(
+        panel_page):
+    """The user's ruling (2026-09-04) in the DOM: behind the processor's
+    gear an H9 with two cards gets a level select under its switch. "Per
+    card / per port" (the reading with nothing paired) lists one row per
+    card, slot-headed, each carrying the card's own mode select and
+    partner pick; "Whole processor" shows the partner pick, and choosing
+    a partner sends ONE request that pairs card for card, enters history
+    as ONE entry, derives the level back as "whole processor", nests the
+    partner under its main on the dock, and undoes as one step."""
+    pytest.importorskip("playwright.sync_api",
+                        reason="playwright is not installed")
+    page = panel_page
+    ids = page.evaluate(CHASSIS_SEED_JS)
+    page.wait_for_timeout(800)
+    assert page.evaluate(OPEN_GEAR_JS, f"proc-{ids['mainId']}"), (
+        'the chassis gear did not open')
+    out = page.evaluate("""(ids) => {
+        const pop = document.getElementById('hw-gear-popover');
+        const level = pop.querySelector(
+            `[data-lrd-field="processor-redundancy-level-${ids.mainId}"]`);
+        const cb = pop.querySelector(
+            `[data-lrd-field="processor-redundancy-${ids.mainId}"]`);
+        const rows = Array.from(pop.querySelectorAll('.hw-pop-red-card'));
+        return {
+            level: level ? level.value : null,
+            levelValues: level
+                ? Array.from(level.options).map(o => o.value) : [],
+            levelUnderSwitch: !!(cb && level
+                && (cb.compareDocumentPosition(level)
+                    & Node.DOCUMENT_POSITION_FOLLOWING)),
+            heads: rows.map(r => r.firstChild.textContent),
+            selects: ids.mainCards.map(id => !!pop.querySelector(
+                `[data-lrd-field="processor-card-redundancy-${id}"]`)),
+            partners: ids.mainCards.map(id => !!pop.querySelector(
+                `[data-lrd-field="processor-card-backup-${id}"]`)),
+            procPartner: !!pop.querySelector(
+                `[data-lrd-field="processor-backup-${ids.mainId}"]`),
+        };
+    }""", ids)
+    assert out['level'] == 'card', out
+    assert out['levelValues'] == ['processor', 'card'], out
+    assert out['levelUnderSwitch'], out
+    assert out['heads'] == ['Slot 1 - H_16xRJ45+2xfiber',
+                            'Slot 2 - H_16xRJ45+2xfiber'], out
+    assert out['selects'] == [True, True] and out['partners'] == [True, True]
+    assert not out['procPartner'], 'per-card view drew the unit partner pick'
+
+    # Whole processor: the level flips locally, the partner pick appears
+    # empty, and nothing has been stored or entered into history yet.
+    hist_before = page.evaluate("() => window.app.history.length")
+    page.evaluate("""(ids) => {
+        const sel = document.getElementById('hw-gear-popover').querySelector(
+            `[data-lrd-field="processor-redundancy-level-${ids.mainId}"]`);
+        sel.value = 'processor';
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+    }""", ids)
+    page.wait_for_timeout(300)
+    out = page.evaluate("""(ids) => {
+        const pop = document.getElementById('hw-gear-popover');
+        const partner = pop.querySelector(
+            `[data-lrd-field="processor-backup-${ids.mainId}"]`);
+        return {
+            open: pop.style.display !== 'none',
+            partner: !!partner,
+            value: partner ? partner.value : null,
+            texts: partner
+                ? Array.from(partner.options).map(o => o.textContent) : [],
+            cardSelects: !!pop.querySelector(
+                'select[data-lrd-field^="processor-card-redundancy-"]'),
+        };
+    }""", ids)
+    assert out['open'] and out['partner'], out
+    assert out['value'] == '', out
+    assert 'SL - 2 cards, 32 ports' in out['texts'], out
+    assert not out['cardSelects'], out
+    assert page.evaluate("() => window.app.history.length") == hist_before
+
+    page.evaluate("""(ids) => {
+        const sel = document.getElementById('hw-gear-popover').querySelector(
+            `[data-lrd-field="processor-backup-${ids.mainId}"]`);
+        sel.value = ids.backId;
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+    }""", ids)
+    page.wait_for_timeout(1000)
+    assert page.evaluate(
+        "() => window.app.history.map(h => h.action).slice(-1)") == \
+        ['Change Backup Processor']
+    assert page.evaluate("() => window.app.history.length") == hist_before + 1
+    out = page.evaluate("""(ids) => {
+        const main = window.app._processorsResolved
+            .find(p => p.id === ids.mainId);
+        const stored = window.app.project.processors
+            .find(p => p.id === ids.mainId);
+        const pop = document.getElementById('hw-gear-popover');
+        const level = pop.querySelector(
+            `[data-lrd-field="processor-redundancy-level-${ids.mainId}"]`);
+        const partner = pop.querySelector(
+            `[data-lrd-field="processor-backup-${ids.mainId}"]`);
+        const wrapOf = (pid) => {
+            const strip = document.querySelector(
+                `[data-lrd-field="processor-name-${pid}"]`);
+            return strip && strip.closest('.hw-dock-proc');
+        };
+        const backWrap = wrapOf(ids.backId);
+        return {
+            derived: main.backupProcessorId,
+            picks: stored.slots.filter(s => s.card)
+                .map(s => s.card.backupCardId),
+            level: level ? level.value : null,
+            partner: partner ? partner.value : null,
+            nested: !!(backWrap
+                && backWrap.classList.contains('lrd-red-backup')
+                && backWrap.parentElement.contains(wrapOf(ids.mainId))),
+        };
+    }""", ids)
+    assert out['derived'] == ids['backId'], out
+    assert out['picks'] == ids['backCards'], out
+    assert out['level'] == 'processor' and out['partner'] == ids['backId'], out
+    assert out['nested'], 'the backup processor is not nested under its main'
+
+    # The partner's own gear states its role and offers no controls.
+    assert page.evaluate(OPEN_GEAR_JS, f"proc-{ids['backId']}"), (
+        'the partner gear did not open')
+    out = page.evaluate("""() => {
+        const pop = document.getElementById('hw-gear-popover');
+        const fact = pop.querySelector('.hw-pop-red-fact');
+        return {
+            fact: fact ? fact.textContent : null,
+            controls: !!pop.querySelector(
+                'select[data-lrd-field*="redundancy"], '
+                + 'select[data-lrd-field^="processor-backup-"]'),
+        };
+    }""")
+    # The partner has redundancy OFF on its own switch; the role shows
+    # once it is on. Turn it on to read the fact.
+    page.evaluate("""(ids) => {
+        const cb = document.getElementById('hw-gear-popover').querySelector(
+            `[data-lrd-field="processor-redundancy-${ids.backId}"]`);
+        cb.checked = true;
+        cb.dispatchEvent(new Event('change', { bubbles: true }));
+    }""", ids)
+    page.wait_for_timeout(800)
+    out = page.evaluate("""() => {
+        const pop = document.getElementById('hw-gear-popover');
+        const fact = pop.querySelector('.hw-pop-red-fact');
+        return {
+            fact: fact ? fact.textContent : null,
+            controls: !!pop.querySelector(
+                'select[data-lrd-field*="redundancy"], '
+                + 'select[data-lrd-field^="processor-backup-"]'),
+        };
+    }""")
+    assert out['fact'] and out['fact'].startswith('Backs up SR'), out
+    assert not out['controls'], out
+    page.keyboard.press('Escape')
+    page.wait_for_timeout(100)
+
+    # One undo takes the whole pairing back (the switch toggle above is
+    # its own entry, so two steps back lands before the pairing).
+    page.evaluate("() => window.app.undo()")
+    page.wait_for_timeout(800)
+    page.evaluate("() => window.app.undo()")
+    page.wait_for_timeout(1000)
+    out = page.evaluate("""(ids) => {
+        const stored = window.app.project.processors
+            .find(p => p.id === ids.mainId);
+        return stored.slots.filter(s => s.card)
+            .map(s => s.card.backupCardId || null);
+    }""", ids)
+    assert out == [None, None], out
+    assert page.evaluate("() => window.app.history.length") == hist_before + 2
+    # Leave the shared server the way the module's other tests expect it.
+    page.evaluate("""async (ids) => {
+        for (const id of [ids.mainId, ids.backId]) {
+            await fetch(`/api/processors/${id}`, { method: 'DELETE' });
+        }
+        await window.app.refreshProcessors();
+    }""", ids)
+    page.wait_for_timeout(600)
 
 
 def test_the_mode_change_round_trips_through_undo(panel_page):
@@ -3854,8 +4347,8 @@ def test_the_mode_change_round_trips_through_undo(panel_page):
     page = panel_page
     ids = page.evaluate(REDUNDANCY_SEED_JS)
     page.wait_for_timeout(800)
-    assert page.evaluate(OPEN_GEAR_JS, f"card-{ids['mxCardId']}"), (
-        'the card gear did not open')
+    assert page.evaluate(OPEN_GEAR_JS, f"proc-{ids['mxId']}"), (
+        'the processor gear did not open')
     page.evaluate("""(ids) => {
         const sel = document.getElementById('hw-gear-popover').querySelector(
             `[data-lrd-field="processor-card-redundancy-${ids.mxCardId}"]`);
@@ -3882,7 +4375,7 @@ def test_the_mode_change_round_trips_through_undo(panel_page):
 def test_the_halves_mode_commits_from_the_select_and_states_its_split(
         panel_page):
     """The 2026-08-27 arrangement as ONE gesture: pick "Halves" in the
-    card gear's mode select and the back half backs the front half -
+    processor gear's mode select and the back half backs the front half -
     stored, mapped (an MX20's port 4 carries port 1's return), and stated
     under the select with both spans, because this is the one mode whose
     main and return wear different numbers. The popover re-renders in
@@ -3893,8 +4386,8 @@ def test_the_halves_mode_commits_from_the_select_and_states_its_split(
     page = panel_page
     ids = page.evaluate(REDUNDANCY_SEED_JS)
     page.wait_for_timeout(800)
-    assert page.evaluate(OPEN_GEAR_JS, f"card-{ids['mxCardId']}"), (
-        'the card gear did not open')
+    assert page.evaluate(OPEN_GEAR_JS, f"proc-{ids['mxId']}"), (
+        'the processor gear did not open')
     page.evaluate("""(ids) => {
         const sel = document.getElementById('hw-gear-popover').querySelector(
             `[data-lrd-field="processor-card-redundancy-${ids.mxCardId}"]`);
@@ -3943,8 +4436,8 @@ def test_the_halves_mode_commits_from_the_select_and_states_its_split(
 
 
 def test_the_partner_pick_and_the_manual_picker_commit(panel_page):
-    """The 1:1 partner select (in the card's gear) stores the pick and the
-    consumed unit states its role on its own dock header; manual mode
+    """The 1:1 partner select (in the processor's gear) stores the pick and
+    the consumed unit states its role on its own dock header; manual mode
     unfolds a per-port picker in the port's DOCK CHIP that stores the
     sparse map - each through its own named action."""
     pytest.importorskip("playwright.sync_api",
@@ -3952,8 +4445,8 @@ def test_the_partner_pick_and_the_manual_picker_commit(panel_page):
     page = panel_page
     ids = page.evaluate(REDUNDANCY_SEED_JS)
     page.wait_for_timeout(800)
-    assert page.evaluate(OPEN_GEAR_JS, f"card-{ids['mxCardId']}"), (
-        'the card gear did not open')
+    assert page.evaluate(OPEN_GEAR_JS, f"proc-{ids['mxId']}"), (
+        'the processor gear did not open')
     page.evaluate("""(ids) => {
         const sel = document.getElementById('hw-gear-popover').querySelector(
             `[data-lrd-field="processor-card-backup-${ids.mxCardId}"]`);
@@ -4018,9 +4511,9 @@ def test_a_redundant_pair_presents_as_one_group_on_the_dock(panel_page):
     ids = page.evaluate(REDUNDANCY_SEED_JS)
     page.wait_for_timeout(800)
     # Designate BK as SR's 1:1 backup through the real partner select,
-    # opened in the card's gear the way a user reaches it.
-    assert page.evaluate(OPEN_GEAR_JS, f"card-{ids['mxCardId']}"), (
-        'the card gear did not open')
+    # opened in the processor's gear the way a user reaches it.
+    assert page.evaluate(OPEN_GEAR_JS, f"proc-{ids['mxId']}"), (
+        'the processor gear did not open')
     page.evaluate("""(ids) => {
         const sel = document.getElementById('hw-gear-popover').querySelector(
             `[data-lrd-field="processor-card-backup-${ids.mxCardId}"]`);
