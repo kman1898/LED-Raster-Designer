@@ -867,7 +867,10 @@
                                 <div style="display: flex; gap: 6px; margin-bottom: 6px;">
                                     <button id="custom-clear-selection" class="btn" style="flex: 1; padding: 6px 8px; background: #333;">Clear Selection</button>
                                 </div>
-                                <p style="font-size: 11px; color: #888; margin: 0;">Click/drag to select panels. Click panels or use arrow keys to draw. Pattern buttons apply to selection.</p>
+                                <!-- The active port's fill against Panels/Port above: the
+                                     cap the badge and the click share, visible while drawing. -->
+                                <div id="custom-fill-readout" style="font-size: 11px; color: #aaa; margin: 0 0 6px 0; min-height: 1em;"></div>
+                                <p style="font-size: 11px; color: #888; margin: 0;">Click/drag to select panels. Click panels or use arrow keys to draw. Pattern buttons apply to selection and cut at capacity: a block wider than one port fills the next ports in turn.</p>
                             </div>
                         </div>
 
@@ -1316,7 +1319,10 @@
                                     <div style="display: flex; gap: 6px; margin-bottom: 6px;">
                                         <button id="power-custom-clear-selection" class="btn" style="flex: 1; padding: 6px 8px; background: #333;">Clear Selection</button>
                                     </div>
-                                    <p style="font-size: 11px; color: #888; margin: 0;">Click/drag to select panels. Click panels or use arrow keys to draw. Pattern buttons apply to selection.</p>
+                                    <!-- The active circuit's fill against Panels/Circuit above:
+                                         the cap the badge and the click share, visible while drawing. -->
+                                    <div id="power-custom-fill-readout" style="font-size: 11px; color: #aaa; margin: 0 0 6px 0; min-height: 1em;"></div>
+                                    <p style="font-size: 11px; color: #888; margin: 0;">Click/drag to select panels. Click panels or use arrow keys to draw. Pattern buttons apply to selection and cut at capacity: a block wider than one circuit fills the next circuits in turn.</p>
                                 </div>
                             </div>
                         </div>

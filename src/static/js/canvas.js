@@ -8557,7 +8557,10 @@ class CanvasRenderer {
         const label = window.app.getPortLabelText(layer, portNum, 'primary');
         const committedCount = this._getCustomPortPanelCount(layer, portNum);
         const selectedCount = (window.app.customSelection && window.app.customSelection.size) || 0;
-        this._drawActiveBadge(label, committedCount, selectedCount, 'rgba(0, 255, 0, 0.9)');
+        const fill = (typeof window.app.customRunFill === 'function')
+            ? window.app.customRunFill(layer, 'data', portNum) : null;
+        this._drawActiveBadge(label, committedCount, selectedCount, 'rgba(0, 255, 0, 0.9)',
+            fill, 'port');
     }
 
     renderPowerActiveCircuitBadge() {
@@ -8568,7 +8571,10 @@ class CanvasRenderer {
         const label = window.app.getPowerCircuitLabel(layer, circuitNum);
         const committedCount = this._getCustomPowerCircuitPanelCount(layer, circuitNum);
         const selectedCount = (window.app.powerCustomSelection && window.app.powerCustomSelection.size) || 0;
-        this._drawActiveBadge(label, committedCount, selectedCount, 'rgba(0, 255, 102, 0.9)');
+        const fill = (typeof window.app.customRunFill === 'function')
+            ? window.app.customRunFill(layer, 'power', circuitNum) : null;
+        this._drawActiveBadge(label, committedCount, selectedCount, 'rgba(0, 255, 102, 0.9)',
+            fill, 'circuit');
     }
 
     // "N on port" / "N on circuit". v0.11.0: counted through the shared path
@@ -8597,7 +8603,14 @@ class CanvasRenderer {
     //  - `selected`  = panels currently highlighted by a drag-select but
     //    not yet applied. Shown in yellow only when > 0 so the user can
     //    distinguish "locked in" vs "pending" at a glance.
-    _drawActiveBadge(label, committed, selected, labelColor) {
+    //  - `fill`      = app.customRunFill for the run: when a cap is known the
+    //    committed pill reads "9/14 on circuit" against it (whole-cabinet
+    //    equivalents, so a half-tile shows as a fraction) and "14/14 on
+    //    circuit · full" in the warning colour once another whole cabinet
+    //    would not fit. No cap known, and the pill counts as it always has.
+    // The text drawn is kept on `_lastActiveBadge` so it can be read back
+    // without scraping pixels.
+    _drawActiveBadge(label, committed, selected, labelColor, fill = null, noun = 'port') {
         this.ctx.save();
         this.ctx.setTransform(1, 0, 0, 1, 0, 0);
 
@@ -8619,7 +8632,14 @@ class CanvasRenderer {
 
         // Measure pills
         this.ctx.font = `bold ${countFontSize}px ${projectFontFamily()}`;
-        const committedText = `${committed} on port`;
+        const capped = !!(fill && fill.known);
+        const isFull = capped && !!fill.full;
+        const usedText = capped && window.app && typeof window.app._formatRunUsed === 'function'
+            ? window.app._formatRunUsed(fill.used) : `${committed}`;
+        const committedText = capped
+            ? `${usedText}/${fill.count} on ${noun}${isFull ? ' · full' : ''}`
+            : `${committed} on ${noun}`;
+        this._lastActiveBadge = { label, pill: committedText, full: isFull, selected };
         const committedW = this.ctx.measureText(committedText).width;
         const committedPillW = committedW + pillPadX * 2;
         const pillH = countFontSize + pillPadY * 2;
@@ -8646,11 +8666,13 @@ class CanvasRenderer {
         // Committed pill (white)
         const pillY = y + (boxH - pillH) / 2;
         let pillX = x + padding + labelW + gap;
-        this.ctx.fillStyle = committed > 0 ? 'rgba(255, 255, 255, 0.18)' : 'rgba(255, 255, 255, 0.08)';
+        this.ctx.fillStyle = isFull ? 'rgba(255, 204, 0, 0.85)'
+            : (committed > 0 ? 'rgba(255, 255, 255, 0.18)' : 'rgba(255, 255, 255, 0.08)');
         this._roundRect(pillX, pillY, committedPillW, pillH, 8);
         this.ctx.fill();
         this.ctx.font = `bold ${countFontSize}px ${projectFontFamily()}`;
-        this.ctx.fillStyle = committed > 0 ? '#ffffff' : 'rgba(255, 255, 255, 0.7)';
+        this.ctx.fillStyle = isFull ? '#000000'
+            : (committed > 0 ? '#ffffff' : 'rgba(255, 255, 255, 0.7)');
         this.ctx.fillText(committedText, pillX + pillPadX, pillY + pillPadY - 2);
 
         // Selected pill (yellow), only when drag-select has picked panels
