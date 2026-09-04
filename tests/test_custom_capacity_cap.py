@@ -174,7 +174,8 @@ def toasts(page):
 
 def test_power_serpentine_over_a_14x6_block_fills_circuits_1_to_6_at_14_each(page):
     """The user's gesture, exactly: 28 wide, select 14 x 6, press serpentine.
-    Six circuits of fourteen, snaking, one undo step, cursor on circuit 6."""
+    Six circuits of fourteen, every one read from the left, one undo step,
+    cursor on circuit 6."""
     reset(page)
     out = page.evaluate("""() => {
         const app = window.app, cap = window.__cap;
@@ -194,10 +195,12 @@ def test_power_serpentine_over_a_14x6_block_fills_circuits_1_to_6_at_14_each(pag
     assert sorted(int(k) for k in paths) == [1, 2, 3, 4, 5, 6], paths.keys()
     for n in range(1, 7):
         assert len(paths[str(n)]) == 14, (n, len(paths[str(n)]))
-    # Serpentine: row 0 left to right, row 1 right to left, ...
-    assert paths['1'] == [[0, c] for c in range(14)], paths['1']
-    assert paths['2'] == [[1, c] for c in range(13, -1, -1)], paths['2']
-    assert paths['6'] == [[5, c] for c in range(13, -1, -1)], paths['6']
+    # A new circuit restarts from the side the snake started on - its cable
+    # comes from where the first one's came from (the user, 2026-09-04:
+    # "the next row needs to restart on the same side as the serpentine
+    # started") - so with one row per circuit every row reads left to right.
+    for n in range(1, 7):
+        assert paths[str(n)] == [[n - 1, c] for c in range(14)], (n, paths[str(n)])
     # The active index ends on the LAST number filled.
     assert out['active'] == 6, out['active']
     # One undo entry for the whole fill.
@@ -206,6 +209,43 @@ def test_power_serpentine_over_a_14x6_block_fills_circuits_1_to_6_at_14_each(pag
     assert len(out['toasts']) == 1, out['toasts']
     assert out['toasts'][0].startswith('Filled circuits '), out['toasts'][0]
     assert '14 panels each at 110V/15A' in out['toasts'][0], out['toasts'][0]
+
+
+def test_a_run_snakes_inside_itself_and_the_next_restarts_from_the_start_side(page):
+    """Two rows per circuit (7 x 4 at 14 a circuit, from the top right):
+    circuit 1 reads row 0 right to left and row 1 left to right - one cable
+    - and circuit 2 starts row 2 from the RIGHT again, the way circuit 1
+    did, not from where circuit 1 ended."""
+    reset(page)
+    out = page.evaluate("""() => {
+        const app = window.app, cap = window.__cap;
+        app.selectPowerPanelsInRect(cap.layer(), cap.rect(7, 4, 128));
+        app.applyPowerPatternToSelection('tr-h');
+        return { paths: cap.paths('powerCustomPaths'),
+                 active: cap.layer().powerCustomIndex };
+    }""")
+    paths = out['paths']
+    assert sorted(int(k) for k in paths) == [1, 2], paths.keys()
+    assert paths['1'] == ([[0, c] for c in range(6, -1, -1)]
+                          + [[1, c] for c in range(7)]), paths['1']
+    assert paths['2'] == ([[2, c] for c in range(6, -1, -1)]
+                          + [[3, c] for c in range(7)]), paths['2']
+    assert out['active'] == 2, out['active']
+
+
+def test_without_a_cap_the_fill_is_one_continuous_snake(page):
+    """No wattage: no runs to restart, so the whole selection is one snake
+    on circuit 1 exactly as the pattern buttons have always drawn it."""
+    reset(page)
+    out = page.evaluate("""() => {
+        const app = window.app, cap = window.__cap;
+        cap.layer().panelWatts = 0;
+        app.selectPowerPanelsInRect(cap.layer(), cap.rect(3, 2, 128));
+        app.applyPowerPatternToSelection('tl-h');
+        return { paths: cap.paths('powerCustomPaths'), toasts: cap.toasts.slice() };
+    }""")
+    assert out['paths'] == {'1': [[0, 0], [0, 1], [0, 2], [1, 2], [1, 1], [1, 0]]}, out
+    assert out['toasts'] == [], out['toasts']
 
 
 def test_power_fill_is_one_undo_step_that_puts_everything_back(page):
@@ -277,8 +317,12 @@ def test_data_serpentine_cuts_at_the_pixel_derived_port_cap(page):
     paths = out['paths']
     assert [len(paths[str(n)]) for n in (1, 2, 3)] == [8, 8, 8], paths
     assert paths['1'] == [[0, c] for c in range(8)], paths['1']
+    # Port 2 is one run: it snakes from the end of row 0 back along row 1.
     assert paths['2'] == [[0, 8], [0, 9], [0, 10], [0, 11],
                           [1, 11], [1, 10], [1, 9], [1, 8]], paths['2']
+    # Port 3 is a new run: the rest of row 1, read from the left - the
+    # start side - not continuing port 2's snake from the right.
+    assert paths['3'] == [[1, c] for c in range(8)], paths['3']
     assert out['active'] == 3, out['active']
     assert out['hist'] == ['Initial State', 'Custom Pattern Apply'], out['hist']
     assert len(out['toasts']) == 1 and out['toasts'][0].startswith('Filled ports '), out['toasts']
