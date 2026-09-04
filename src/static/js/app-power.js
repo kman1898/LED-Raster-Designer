@@ -1028,7 +1028,8 @@ class _Power {
                 soca: n,
                 number: info ? info.number : n,
                 name: (info && info.name)
-                    || this._deriveMultiName(nm.tpl.prefix || 'S', n, nm.tpl),
+                    || this._deriveMultiName(nm.tpl.prefix || 'S',
+                                             (nm.tpl.start || 1) + n - 1, nm.tpl),
                 distroId: (info && info.distroId) || null,
                 legs: [], watts: 0, x1: Infinity, x2: -Infinity
             };
@@ -3994,8 +3995,31 @@ class _Power {
     //      A digit-ending distro name gets a separator first (_deriveMultiName):
     //      DISTRO 1's multis are DISTRO 1-1, DISTRO 1-2, never DISTRO 11
     //   4. the screen's powerLabelTemplate prefix plus the number - the
-    //      fallback for a multi on no distro
+    //      fallback for a multi on no distro. Numbered PER SCREEN from the
+    //      template's own number (S1-# -> S1, S2, S3 on every screen that
+    //      carries it), never out of a show-wide bucket: uniqueness across
+    //      screens is the distro's job, not the template's (ruling
+    //      2026-09-03, "SL main starts with 7-1")
     //
+    // The circuits a screen is NAMED by. For an automatic screen that is its
+    // plan. For a screen in custom mode it is the circuits the user DREW
+    // and nothing else - never the automatic requirement screenCircuits
+    // offers an unrouted custom screen for the distro roll-ups. That
+    // fallback is the right count of cables to order, but as a naming
+    // source it is a phantom: on the user's 28-wide wall it is empty (a
+    // full row does not fit one circuit) and on a narrower wall it is 52
+    // circuits that vanish the moment the first cabinet is clicked. A label
+    // read off it named the active circuit by boxes that were never going
+    // to exist (user, 2026-09-03: "i dont even have a port drawn and it
+    // shows S3-1 but when i draw it changes to 1-1"). An unrouted custom
+    // screen has no multis, so it takes no multi numbers and shifts no
+    // other screen's - its first drawn circuit opens its first box.
+    _labelCircuits(layer) {
+        if (!layer || typeof this.screenCircuits !== 'function') return [];
+        if (this.isCustomPower(layer) && !this.usesCustomCircuits(layer)) return [];
+        return this.screenCircuits(layer) || [];
+    }
+
     // Cached by layer object for the current render burst and dropped on the
     // next microtask: getPowerCircuitLabel runs for every circuit of every
     // screen on every frame, so it must never walk the show itself.
@@ -4019,8 +4043,7 @@ class _Power {
         const pins = new Map();         // distro id -> Set(pinned numbers)
         const circuitsBy = new Map();
         for (const l of screens) {
-            const circuits = (typeof this.screenCircuits === 'function'
-                && this.screenCircuits(l)) || [];
+            const circuits = this._labelCircuits(l);
             circuitsBy.set(l, circuits);
             const assign = l.powerSocaDistro || {};
             const chosen = l.powerSocaNumber || {};
@@ -4086,7 +4109,7 @@ class _Power {
         if (!layer || typeof this.screenCircuits !== 'function') {
             return { socas, slots, tpl };
         }
-        const circuits = circuitsIn || this.screenCircuits(layer) || [];
+        const circuits = circuitsIn || this._labelCircuits(layer);
         const assign = layer.powerSocaDistro || {};
         const named = layer.powerSocaNames || {};
         const chosen = layer.powerSocaNumber || {};
@@ -4104,32 +4127,40 @@ class _Power {
         });
         for (const [idx, nums] of perSoca) {
             const distroId = assign[idx] || null;
-            // An unassigned multi still gets a number, out of its own bucket -
-            // the same one getDistroLoads books its watts to - so nothing on
-            // the drawing goes blank waiting for a distro.
-            const bucket = distroId || '';
             const pin = distroId ? parseInt(chosen[idx], 10) : NaN;
             const pinned = Number.isFinite(pin) && pin >= 1;
             let number;
             if (pinned) {
                 number = pin;
-            } else {
-                // Next auto number, skipping every slot a pin claimed - a
-                // pin owns its number outright, wherever the pinned screen
-                // sits in layer order. With no pins this is the plain
-                // sequence it has always been.
-                const taken = (pins && pins.get(bucket)) || null;
-                let n = seq.get(bucket) || 0;
+            } else if (distroId) {
+                // Next auto number ON THAT DISTRO, skipping every slot a
+                // pin claimed - a pin owns its number outright, wherever
+                // the pinned screen sits in layer order. With no pins this
+                // is the plain per-distro sequence it has always been.
+                const taken = (pins && pins.get(distroId)) || null;
+                let n = seq.get(distroId) || 0;
                 do { n += 1; } while (taken && taken.has(n));
-                seq.set(bucket, n);
+                seq.set(distroId, n);
                 number = n;
+            } else {
+                // No distro: the SCREEN'S OWN template numbers its multis,
+                // from the template's number, per screen - S1-# names this
+                // screen's boxes S1, S2, S3 whatever every other screen
+                // prints. These multis used to take numbers out of a
+                // show-wide "unassigned" bucket in layer order, so a show
+                // of four S1-# screens with no distro read S1, S6, S7 and
+                // S12 down its layer list (user, 2026-09-03: "look at all
+                // the drawn ports they are all wrong SL main starts with
+                // 7-1"). Ruling: uniqueness across screens is not the
+                // template's job - a distro names its multis uniquely, a
+                // template names them the way it says. This is also the
+                // number the pre-index arithmetic always printed, so the
+                // per-screen ordinal and the raw number agree wherever the
+                // drawn set has no gap.
+                number = tpl.start + idx - 1;
             }
-            const distro = distroId ? distros.find(d => d.id === distroId) : null;
             const hand = String(named[idx] || '').trim();
-            const name = hand
-                || (distro && String(distro.name || '').trim()
-                    ? this._deriveMultiName(String(distro.name).trim(), number, tpl) : '')
-                || (tpl.ok ? this._deriveMultiName(tpl.prefix, number, tpl) : '');
+            const name = this._multiNameFor(layer, idx, number, distroId, tpl, distros);
             if (pinned) {
                 // Tails deferred: whether this pin shares its (distro,
                 // number) - and therefore which tails are free - is only
@@ -4154,6 +4185,24 @@ class _Power {
             }));
         }
         return { socas, slots, tpl };
+    }
+
+    // Rungs 2-4 of the name ladder for one multi (rung 1, the per-circuit
+    // override, is the label authority's): the name somebody typed on it,
+    // else its distro's name plus its number under that distro, else the
+    // screen's template prefix plus its number. One function so the multis
+    // the plan holds and the one a circuit is about to open climb the same
+    // ladder - _predictedCircuitSlot names the box a not-yet-drawn circuit
+    // will land on with this, and it must print what _namingFor will print
+    // once the circuit is drawn.
+    _multiNameFor(layer, idx, number, distroId, tpl, distros) {
+        const hand = String(((layer && layer.powerSocaNames) || {})[idx] || '').trim();
+        if (hand) return hand;
+        const list = distros || this.getDistros();
+        const distro = distroId ? list.find(d => d.id === distroId) : null;
+        const base = distro ? String(distro.name || '').trim() : '';
+        if (base) return this._deriveMultiName(base, number, tpl);
+        return tpl.ok ? this._deriveMultiName(tpl.prefix, number, tpl) : '';
     }
 
     // Deal each shared box's six tails across its members, and say out loud
@@ -4293,16 +4342,93 @@ class _Power {
         if (slot && slot.name) {
             return `${slot.name}${tpl.sep}${slot.tail}${tpl.suffix}`;
         }
-        // A circuit the plan does not hold - an editor row past the drawn
-        // circuits - or a template with no multi number to name. Both keep
-        // the arithmetic they have always had, wrapped at the screen's own
-        // box size (six on a soca, three on an L21-30).
+        // A template with no multi number in it has no multi to name.
         if (!tpl.ok) return tpl.raw.replace('#', circuitNum);
-        const size = this.socaBoxSize(layer);
+        // A circuit the plan does not hold: the number the custom badge is
+        // drawing under before its first cabinet lands, an editor row past
+        // the drawn circuits. It is named by WHERE IT WILL LAND - the multi
+        // and the tail the index above hands it the moment it holds a
+        // cabinet - and never by arithmetic on the raw number. The two used
+        // to disagree the moment the drawn numbers had a gap in them (a
+        // cleared circuit, a skipped number, a splitter merge): the plan
+        // names a circuit by its position on the fan, so with 2 empty the
+        // drawn 13 lands on ordinal 12 and reads S2-6, while floor((13-1)/6)
+        // said S3-1. The badge printed the arithmetic and the bubble printed
+        // the plan (user, 2026-09-03: "it would say 3-1 and do 2-6. 2-6 was
+        // actually correct. then it would go to 3-2 and i'd be drawing
+        // 3-1"). One authority, one answer, before and after the click.
+        const p = this._predictedCircuitSlot(layer, nm, circuitNum);
+        return `${p.name}${tpl.sep}${p.tail}${tpl.suffix}`;
+    }
+
+    // Where circuit `circuitNum` WOULD land if it were drawn now: the multi
+    // and physical tail the naming index will give it once it holds a
+    // cabinet. Its ordinal is its place among the plan's circuit numbers
+    // (with no gap that is the number itself), its multi the split-aware
+    // segment that ordinal falls in, and its tail the box's lowest free tail
+    // dealt in wall order with the tails already occupied - so a contiguous
+    // 1..12 predicts 13 as S3-1, and 1,3..12 predicts 13 as S2-6, exactly
+    // what the drawn circuit reads. A multi the plan does not have yet takes
+    // the next number in its bucket and the same name ladder _namingFor
+    // walks (hand-typed, distro-derived, template), so the label is the
+    // label the wall prints, not a guess at it.
+    _predictedCircuitSlot(layer, nm, circuitNum) {
         const n = Math.max(1, parseInt(circuitNum, 10) || 1);
-        const multi = tpl.start + Math.floor((n - 1) / size);
-        const circuitInMulti = ((n - 1) % size) + 1;
-        return `${tpl.prefix}${multi}${tpl.sep}${circuitInMulti}${tpl.suffix}`;
+        const drawn = [...nm.slots.keys()];
+        const ordinal = drawn.filter(k => k < n).length + 1;
+        const segs = this._socaSegments(layer, drawn.length + 1);
+        const seg = segs.find(s => ordinal >= s.start && ordinal <= s.end)
+            || segs[segs.length - 1];
+        const idx = seg.index;
+        const at = ordinal - seg.start + 1;
+        const rec = nm.socas.get(idx);
+        if (rec) {
+            // The box exists: the newcomer takes its lowest free tail, and
+            // the box's tails are then read ascending in wall order - the
+            // same rule socaCircuitPositions applies to a stored set.
+            const have = (rec.positions || []).slice();
+            let free = 1;
+            while (have.includes(free)) free += 1;
+            const tails = have.concat(free).sort((a, b) => a - b);
+            return { name: rec.name, tail: tails[at - 1] || at };
+        }
+        // A multi the plan does not have yet, numbered the way _namingFor
+        // will number it once it exists. On no distro that is the screen's
+        // own template number for this multi index - per screen, so the
+        // first box a screen opens is S1 whatever the rest of the show
+        // prints. On a distro it is the running sequence of that distro,
+        // walked in PROJECT LAYER ORDER up to and including this screen,
+        // next free number, every pin on the distro skipped - not "the
+        // show's last number plus one", which on a show whose FIRST screen
+        // is the one being drawn named its first box after every box the
+        // later screens already had. Its name comes off the same ladder the
+        // drawn multis climb.
+        const distroId = (layer.powerSocaDistro || {})[idx] || null;
+        let number = nm.tpl.start + idx - 1;
+        if (distroId) {
+            const screens = ((this.project && this.project.layers) || [])
+                .filter(l => (l.type || 'screen') === 'screen');
+            const entryOf = (l) => (this._circuitTailCache && this._circuitTailCache.get(l))
+                || (l === layer ? nm : null);
+            const pinned = new Set();
+            let seq = 0;
+            for (const l of screens.includes(layer) ? screens : [layer]) {
+                const entry = entryOf(l);
+                if (!entry) continue;
+                for (const r of entry.socas.values()) {
+                    if (r.distroId !== distroId) continue;
+                    if (r.pinned) pinned.add(r.number);
+                    else if (l === layer || screens.indexOf(l) < screens.indexOf(layer)) {
+                        seq = Math.max(seq, r.number);
+                    }
+                }
+            }
+            number = seq;
+            do { number += 1; } while (pinned.has(number));
+        }
+        const name = this._multiNameFor(layer, idx, number, distroId, nm.tpl);
+        const pos = this.socaCircuitPositions(layer, idx, at);
+        return { name, tail: pos[at - 1] || at };
     }
 
     getDefaultPowerCircuitColors() {

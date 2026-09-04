@@ -1218,23 +1218,35 @@ def test_multis_number_per_distro_in_layer_order_bottom_up(page):
 
 
 def test_unassigned_multis_are_numbered_too(page):
-    """Nothing goes blank waiting for a distro: multis on no distro number
-    themselves in their own bucket, over the whole show, in the same order -
-    so two screens with no distros anywhere read S1 and S2, never S1 and
-    S1."""
+    """Nothing goes blank waiting for a distro: multis on no distro are
+    named by the SCREEN'S OWN template, numbered per screen from the
+    template's number - so two S1-# screens with no distros anywhere BOTH
+    read S1, and a screen with two multis reads S1 then S2.
+
+    RE-POINTED (ruling 2026-09-03). This pin used to assert S1 and S2 - a
+    show-wide "unassigned" bucket numbered in layer order - and that is
+    what put S6-1, S7-1 and S12-1 on the user's four S1-# screens (user:
+    "look at all the drawn ports they are all wrong SL main starts with
+    7-1"). Uniqueness across screens is a distro's job (a distro still
+    numbers its multis per distro, show-wide - pinned above), never the
+    template's: S1-# means S1 on every screen that carries it."""
     out = page.evaluate("""() => {
         const ph = window.__ph;
         const A = ph.col5(13, 'A', 3);
         const B = ph.col5(14, 'B', 3);
-        return ph.withProject({ layers: [A, B] }, () => ({
-            names: [ph.planOf(A), ph.planOf(B)].map(p => p.map(s => s.name)),
-            labels: [ph.labelsOf(A), ph.labelsOf(B)],
+        const C = ph.col5(17, 'C', 8, { powerLabelTemplate: 'S3-#' });
+        return ph.withProject({ layers: [A, B, C] }, () => ({
+            names: [ph.planOf(A), ph.planOf(B), ph.planOf(C)]
+                .map(p => p.map(s => s.name)),
+            labels: [ph.labelsOf(A), ph.labelsOf(B), ph.labelsOf(C)],
         }));
     }""")
-    assert out['names'] == [['S1'], ['S2']], (
-        f"two screens both restarted at S1: {out['names']}")
+    assert out['names'] == [['S1'], ['S1'], ['S3', 'S4']], (
+        f"the template must number per screen, from its own number: {out['names']}")
     assert out['labels'] == [['S1-1', 'S1-2', 'S1-3'],
-                             ['S2-1', 'S2-2', 'S2-3']]
+                             ['S1-1', 'S1-2', 'S1-3'],
+                             ['S3-1', 'S3-2', 'S3-3', 'S3-4', 'S3-5', 'S3-6',
+                              'S4-1', 'S4-2']]
 
 
 def test_a_multi_keeps_its_length_tails_and_distro_when_its_number_changes(page):
@@ -2240,3 +2252,461 @@ def test_the_breakout_select_gates_on_the_screen_voltage(page):
     d208 = {o['id']: o['disabled'] for o in out['at208']}
     for anything in d208:
         assert d208[anything] is False, (anything, out)
+
+
+# ── 17. the label authority is 1-based and agrees with itself, before and
+#        after the click ─────────────────────────────────────────────────
+#
+# User report (2026-09-03, custom power on SR - MAIN): "as i was doing
+# custom power it would say 3-1 and do 2-6. 2-6 was actually correct. then
+# it would go to 3-2 and i'd be drawing 3-1". The HUD badge names the
+# active circuit through getPowerCircuitLabel like every other surface -
+# but the active circuit holds no cabinet yet, so it is not in the plan,
+# and the authority's fallback for a number the plan did not hold was
+# arithmetic on the raw number (floor((n-1)/6)). The plan names a circuit
+# by the tail it lands on, so with one drawn number empty (a cleared
+# circuit, a skipped number, a splitter merge) the two disagreed by exactly
+# that gap: 13 drawn on 1,3..12 lands on ordinal 12 and reads S2-6, the
+# arithmetic said S3-1. The coordinator's probe on the user's copy showed
+# the same signature - n=6 -> S1-5, 7 -> S1-6, 12 -> S2-5 - which is the
+# plan reading one tail behind the number from the gap on.
+#
+# Ruling: getPowerCircuitLabel(layer, n) for a 1-based circuit n names the
+# circuit n WILL BE once drawn - the same string the bubble prints after
+# the first click - so with a contiguous 1..N the number is the tail
+# (6 -> S1-6, 7 -> S2-1, 12 -> S2-6, 13 -> S3-1) and with a gap the badge
+# moves with the wall (the user's "2-6 was actually correct").
+
+CUSTOM_WALL_JS = """
+window.__ph.customWall = function (id, name, nums, extra) {
+    // A 28x11 wall (the user's SR - MAIN) whose circuits are two-cabinet
+    // hand-drawn paths under exactly the numbers given, laid across the
+    // top rows so no two share a cabinet. 208V x 20A / 600W = 6 tiles per
+    // circuit, so the auto fallback for an unrouted screen boxes 52.
+    const paths = {};
+    let k = 0;
+    for (const n of nums) {
+        paths[n] = [{ row: Math.floor(k / 28), col: k % 28 },
+                    { row: Math.floor((k + 1) / 28), col: (k + 1) % 28 }];
+        k += 2;
+    }
+    return this.screen(Object.assign({
+        id, name, columns: 28, rows: 11,
+        cabinet_width: 500, cabinet_height: 500,
+        panelWatts: 600, powerVoltage: 208, powerAmperage: 20,
+        powerFlowPattern: 'custom', powerCustomPath: true,
+        powerCustomIndex: 1, powerCustomPaths: paths,
+        powerOrganized: false,
+    }, extra || {}));
+};
+window.__ph.labelFor = function (S, n) {
+    window.app._circuitTailCache = null;
+    return window.app.getPowerCircuitLabel(S, n);
+};
+// The last value of a string evaluate is what Playwright hands back, and a
+// FUNCTION handed back gets called with no arguments - so end on a plain
+// value, not on the helper just defined.
+true;
+"""
+
+
+def _range(a, b):
+    return list(range(a, b + 1))
+
+
+def test_an_auto_circuit_is_named_by_its_number_across_the_box_boundary(page):
+    """Auto mode, thirteen organized circuits on no distro: the number IS
+    the tail - 6 -> S1-6, 7 -> S2-1, 12 -> S2-6, 13 -> S3-1 - and a
+    fourteenth the plan does not hold reads where it would land (S3-2)."""
+    page.evaluate(CUSTOM_WALL_JS)
+    out = page.evaluate("""() => {
+        const ph = window.__ph;
+        const S = ph.col5(201, 'Auto13', 13);
+        return ph.withProject({ layers: [S] }, () => ({
+            drawn: ph.labelsOf(S),
+            probe: [1, 6, 7, 12, 13, 14].map(n => ph.labelFor(S, n)),
+        }));
+    }""")
+    assert out['drawn'] == ['S1-1', 'S1-2', 'S1-3', 'S1-4', 'S1-5', 'S1-6',
+                            'S2-1', 'S2-2', 'S2-3', 'S2-4', 'S2-5', 'S2-6',
+                            'S3-1']
+    assert out['probe'] == ['S1-1', 'S1-6', 'S2-1', 'S2-6', 'S3-1', 'S3-2']
+
+
+def test_a_custom_circuit_reads_the_same_before_and_after_it_is_drawn(page):
+    """Custom mode, 1..12 drawn: the undrawn 13 reads S3-1 on the badge,
+    and S3-1 again once its first cabinet lands. Same for 7 with 1..6
+    drawn. The ruling's contract, whole-screen custom, no distro."""
+    page.evaluate(CUSTOM_WALL_JS)
+    out = page.evaluate("""([r6, r12, r13, r7]) => {
+        const ph = window.__ph;
+        const S6 = ph.customWall(202, 'Six', r6);
+        const S12 = ph.customWall(203, 'Twelve', r12);
+        const S13 = ph.customWall(204, 'Thirteen', r13);
+        const S7 = ph.customWall(205, 'Seven', r7);
+        const read = (S, ns) => ph.withProject({ layers: [S] },
+            () => ns.map(n => ph.labelFor(S, n)));
+        return {
+            six: read(S6, [6, 7]),
+            twelve: read(S12, [6, 7, 12, 13]),
+            thirteen: read(S13, [12, 13]),
+            seven: read(S7, [6, 7]),
+            drawn13: ph.withProject({ layers: [S13] }, () => ph.labelsOf(S13)),
+        };
+    }""", [_range(1, 6), _range(1, 12), _range(1, 13), _range(1, 7)])
+    assert out['six'] == ['S1-6', 'S2-1'], 'undrawn 7 must open S2'
+    assert out['twelve'] == ['S1-6', 'S2-1', 'S2-6', 'S3-1'], \
+        'undrawn 13 must open S3'
+    assert out['thirteen'] == ['S2-6', 'S3-1'], \
+        'drawn 13 reads what the badge said'
+    assert out['seven'] == ['S1-6', 'S2-1']
+    assert out['drawn13'][-1] == 'S3-1'
+
+
+def test_a_gap_in_the_drawn_numbers_moves_the_badge_with_the_wall(page):
+    """The user's exact shape: circuit 2 never drawn (or cleared), 1 and
+    3..12 drawn. The wall names by the tail each circuit lands on - 3 is
+    S1-2, 7 is S1-6, 12 is S2-5 (the coordinator's probe on the user's
+    copy, verbatim) - so the undrawn 13 will land on tail S2-6, and that
+    is what the badge must say BEFORE the click, not the arithmetic S3-1
+    (the ruling: "2-6 was actually correct"). A cleared circuit (an empty
+    path under the number) and a splitter merge read identically."""
+    page.evaluate(CUSTOM_WALL_JS)
+    out = page.evaluate("""([gap]) => {
+        const ph = window.__ph;
+        const read = (S, ns) => ph.withProject({ layers: [S] },
+            () => ns.map(n => ph.labelFor(S, n)));
+        const missing = ph.customWall(206, 'Gap', gap);
+        const cleared = ph.customWall(207, 'Cleared', gap);
+        cleared.powerCustomPaths[2] = [];
+        const merged = ph.customWall(208, 'Merged', [2].concat(gap), {
+            powerSplitters: { enabled: false, maxWays: 2,
+                manual: { merge: [[1, 2]], split: [] } },
+        });
+        const drawn = ph.customWall(209, 'Drawn', gap.concat([13]));
+        return {
+            missing: read(missing, [1, 3, 6, 7, 12, 13]),
+            cleared: read(cleared, [13]),
+            merged: read(merged, [13]),
+            drawn: read(drawn, [12, 13]),
+        };
+    }""", [[1] + _range(3, 12)])
+    assert out['missing'] == ['S1-1', 'S1-2', 'S1-5', 'S1-6', 'S2-5', 'S2-6'], (
+        f"the badge must read where 13 will land: {out['missing']}")
+    assert out['cleared'] == ['S2-6']
+    assert out['merged'] == ['S2-6']
+    assert out['drawn'] == ['S2-5', 'S2-6'], \
+        'once drawn, 13 reads exactly what the badge said'
+
+
+def test_the_prediction_climbs_the_distros_name_ladder(page):
+    """On a distro named SL the multis read SL1, SL2, SL3 and the undrawn
+    circuit that opens the next box is named by that box: 1..6 drawn with
+    multi 2 also on SL, 7 reads SL2-1 before and after the click; 1..12
+    drawn, 13 reads SL3-1. A hand-typed name on the box-to-be wins the way
+    it wins on a drawn one. Auto mode on the same distro reads the same
+    across 6/7 and 12/13."""
+    page.evaluate(CUSTOM_WALL_JS)
+    out = page.evaluate("""([r6, r12, r13]) => {
+        const ph = window.__ph;
+        const distros = [ph.box('dl', 'SL')];
+        const on = { powerSocaDistro: { 1: 'dl', 2: 'dl', 3: 'dl' } };
+        const read = (S, ns) => ph.withProject({ layers: [S], distros },
+            () => ns.map(n => ph.labelFor(S, n)));
+        const S6 = ph.customWall(210, 'Six', r6, on);
+        const S12 = ph.customWall(211, 'Twelve', r12, on);
+        const S13 = ph.customWall(212, 'Thirteen', r13, on);
+        const named = ph.customWall(213, 'Named', r6, Object.assign({
+            powerSocaNames: { 2: 'FOH B' } }, on));
+        const auto = ph.col5(214, 'Auto13', 13, on);
+        return {
+            six: read(S6, [6, 7]),
+            twelve: read(S12, [12, 13]),
+            thirteen: read(S13, [12, 13]),
+            named: read(named, [7]),
+            auto: read(auto, [6, 7, 12, 13]),
+        };
+    }""", [_range(1, 6), _range(1, 12), _range(1, 13)])
+    assert out['six'] == ['SL1-6', 'SL2-1']
+    assert out['twelve'] == ['SL2-6', 'SL3-1']
+    assert out['thirteen'] == ['SL2-6', 'SL3-1']
+    assert out['named'] == ['FOH B-1']
+    assert out['auto'] == ['SL1-6', 'SL2-1', 'SL2-6', 'SL3-1']
+
+
+def test_the_badge_names_the_circuit_the_click_stores_under(page):
+    """The gesture, on the live project: custom mode enabled through the
+    app's own toggle on a 28x11 screen, 1..11 drawn, the active circuit
+    set to 12 through the sidebar input. The HUD badge
+    (renderPowerActiveCircuitBadge) prints the same string the bubble for
+    circuit 12 prints once its cabinets land - S2-6 - then Next advances
+    to 13, the badge reads S3-1, and the cabinets clicked next are stored
+    under 13 and bubble as S3-1."""
+    out = page.evaluate("""async () => {
+        const app = window.app, r = window.canvasRenderer;
+        let project = await (await fetch('/api/project')).json();
+        const savedLayers = project.layers;
+        project.layers = []; project.groups = [];
+        await fetch('/api/project', { method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(project) });
+        await fetch('/api/layer/add', { method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: 'SR - MAIN', columns: 28, rows: 11,
+                cabinet_width: 500, cabinet_height: 500,
+                offset_x: 0, offset_y: 0 }) });
+        app.project = await (await fetch('/api/project')).json();
+        const L = app.project.layers.filter(
+            l => (l.type || 'screen') === 'screen')[0];
+        L.powerFlowPattern = 'tl-h'; L.powerOrganized = false;
+        L.powerMaximize = false;
+        L.powerVoltage = 208; L.powerAmperage = 20; L.panelWatts = 600;
+        L.powerCustomPaths = {}; L.powerCustomOverrides = [];
+        app.currentLayer = L; app.selectedLayerIds = new Set([L.id]);
+        r.viewMode = 'power';
+        app.toggleCustomPowerMode(true);
+        let k = 0;
+        for (let n = 1; n <= 11; n++) {
+            L.powerCustomPaths[n] = [{ row: 0, col: k }, { row: 0, col: k + 1 }];
+            k += 2;
+        }
+        const active = document.getElementById('power-custom-active');
+        active.value = '12';
+        active.dispatchEvent(new Event('change', { bubbles: true }));
+        // One frame: the badge and every bubble, captured off the calls the
+        // renderer makes into the one authority.
+        const frame = () => {
+            const seen = {};
+            let badge = null, inBadge = false;
+            const origBadge = r._drawActiveBadge;
+            const origHud = r.renderPowerActiveCircuitBadge;
+            const origLabel = app.getPowerCircuitLabel;
+            r._drawActiveBadge = function (label) { badge = label; };
+            // The badge asks the authority too; only the bubbles' asks
+            // count as "what the wall prints".
+            r.renderPowerActiveCircuitBadge = function () {
+                inBadge = true;
+                try { return origHud.call(this); } finally { inBadge = false; }
+            };
+            app.getPowerCircuitLabel = function (layer, n) {
+                const v = origLabel.call(this, layer, n);
+                if (layer === L && !inBadge) seen[n] = v;
+                return v;
+            };
+            try { app._circuitTailCache = null; r.render(); }
+            finally { r._drawActiveBadge = origBadge;
+                      r.renderPowerActiveCircuitBadge = origHud;
+                      app.getPowerCircuitLabel = origLabel; }
+            return { idx: L.powerCustomIndex, badge,
+                     bubble: seen[L.powerCustomIndex] || null };
+        };
+        const before12 = frame();
+        app.addPanelToCustomPowerPath(app.getPanelByRowCol(L, 1, 0));
+        app.addPanelToCustomPowerPath(app.getPanelByRowCol(L, 1, 1));
+        const after12 = frame();
+        document.getElementById('power-custom-next').click();
+        const before13 = frame();
+        app.addPanelToCustomPowerPath(app.getPanelByRowCol(L, 1, 2));
+        const after13 = frame();
+        const stored = Object.keys(L.powerCustomPaths)
+            .map(n => [Number(n), L.powerCustomPaths[n].length]);
+        app.toggleCustomPowerMode(false);
+        project.layers = savedLayers;
+        await fetch('/api/project', { method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(project) });
+        app.project = await (await fetch('/api/project')).json();
+        app.currentLayer = app.project.layers[0] || null;
+        return { before12, after12, before13, after13, stored };
+    }""")
+    assert out['before12'] == {'idx': 12, 'badge': 'S2-6', 'bubble': None}, out
+    assert out['after12'] == {'idx': 12, 'badge': 'S2-6', 'bubble': 'S2-6'}, out
+    assert out['before13'] == {'idx': 13, 'badge': 'S3-1', 'bubble': None}, out
+    assert out['after13'] == {'idx': 13, 'badge': 'S3-1', 'bubble': 'S3-1'}, out
+    assert out['stored'][-2:] == [[12, 2], [13, 1]], \
+        'the cabinets clicked after Next must land under 13'
+
+
+# ── 18. the fresh show, drawn with real clicks ───────────────────────────
+#
+# The user's workflow (2026-09-03, verbatim): "typically the drawing is
+# happening before adding to processor" - a brand-new show, no distro, no
+# processor, custom power on, circuits clicked in 1, 2, 3... Two rulings
+# pinned here on a clean page load driving the real controls:
+#
+#   - the SCREEN's template numbers its multis per screen: four S1-#
+#     screens with no distro all start at S1-1 (the show used to number
+#     them S1, S6, S7, S12 down the layer list - "SL main starts with 7-1");
+#   - the HUD badge names the circuit under the cursor before AND after
+#     the click, and reads exactly what the bubble prints: nothing drawn
+#     -> S1-1; 1..12 drawn -> 13 reads S3-1; never a label off the auto
+#     plan (which on this 28-wide wall is 28 phantom column circuits that
+#     vanish at the first click: "i dont even have a port drawn and it
+#     shows S3-1 but when i draw it changes to 1-1").
+
+FRESH_SHOW_JS = """async () => {
+    let project = await (await fetch('/api/project')).json();
+    const saved = JSON.stringify(project);
+    project.layers = []; project.groups = []; project.distros = []; project.processors = [];
+    await fetch('/api/project', { method: 'PUT',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(project) });
+    const ids = [];
+    // Laid out apart, the way a show is: four screens stacked on one
+    // origin would put the last-added one under every click.
+    for (const [name, columns, ox, oy] of [
+            ['SR - MAIN', 28, 0, 0], ['SR - Return', 6, 1800, 0],
+            ['SL - MAIN', 28, 0, 1500], ['SL - Return', 6, 1800, 1500]]) {
+        await fetch('/api/layer/add', { method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, columns, rows: 11, cabinet_width: 60,
+                cabinet_height: 120, offset_x: ox, offset_y: oy }) });
+        const layers = (await (await fetch('/api/project')).json()).layers;
+        const id = layers[layers.length - 1].id;
+        ids.push(id);
+        await fetch(`/api/layer/${id}`, { method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ panelWatts: 305, powerVoltage: 208,
+                powerAmperage: 20, powerOrganized: true, powerMaximize: false,
+                powerFlowPattern: 'tl-h' }) });
+    }
+    return { ids, saved };
+}"""
+
+FRESH_FRAME_JS = """(id) => {
+    const app = window.app, r = window.canvasRenderer;
+    const L = app.project.layers.find(l => l.id === id);
+    const seen = {};
+    let badge = null, inBadge = false;
+    const oB = r._drawActiveBadge, oH = r.renderPowerActiveCircuitBadge;
+    const oL = app.getPowerCircuitLabel;
+    r._drawActiveBadge = function (label) { badge = label; };
+    r.renderPowerActiveCircuitBadge = function () {
+        inBadge = true; try { return oH.call(this); } finally { inBadge = false; } };
+    app.getPowerCircuitLabel = function (layer, n) {
+        const v = oL.call(this, layer, n);
+        if (layer === L && !inBadge) seen[n] = v;
+        return v;
+    };
+    try { r.render(); }
+    finally { r._drawActiveBadge = oB; r.renderPowerActiveCircuitBadge = oH;
+              app.getPowerCircuitLabel = oL; }
+    return { idx: L.powerCustomIndex, badge, bubble: seen[L.powerCustomIndex] || null,
+             stored: Object.keys(L.powerCustomPaths || {})
+                 .map(k => [Number(k), (L.powerCustomPaths[k] || []).length]) };
+}"""
+
+FRESH_CLIENT_XY_JS = """([id, row, col]) => {
+    const r = window.canvasRenderer, app = window.app;
+    const L = app.project.layers.find(l => l.id === id);
+    const p = L.panels.find(q => q.row === row && q.col === col);
+    const rect = r.canvas.getBoundingClientRect();
+    const off = (typeof r.getLayerRenderOffset === 'function')
+        ? r.getLayerRenderOffset(L) : { x: 0, y: 0 };
+    const wx = p.x + (off.x || 0) + p.width / 2, wy = p.y + (off.y || 0) + p.height / 2;
+    return [rect.left + wx * r.zoom + r.panX, rect.top + wy * r.zoom + r.panY];
+}"""
+
+
+def test_distro_derived_names_still_number_per_distro_across_screens(page):
+    """The other half of the ruling, unchanged: a DISTRO numbers its multis
+    show-wide in layer order, so two screens on one distro named SL read
+    SL1-1..SL1-6 and SL2-1..SL2-3 - never SL1 twice - while the same two
+    screens with the distro taken away both read S1-1 upward."""
+    out = page.evaluate("""() => {
+        const ph = window.__ph;
+        const on = { powerSocaDistro: { 1: 'dl' } };
+        const A = ph.col5(215, 'A', 6, on);
+        const B = ph.col5(216, 'B', 3, on);
+        const distros = [ph.box('dl', 'SL')];
+        const withDistro = ph.withProject({ layers: [A, B], distros },
+            () => [ph.labelsOf(A), ph.labelsOf(B)]);
+        const A2 = ph.col5(217, 'A', 6);
+        const B2 = ph.col5(218, 'B', 3);
+        const without = ph.withProject({ layers: [A2, B2], distros },
+            () => [ph.labelsOf(A2), ph.labelsOf(B2)]);
+        return { withDistro, without };
+    }""")
+    assert out['withDistro'] == [
+        ['SL1-1', 'SL1-2', 'SL1-3', 'SL1-4', 'SL1-5', 'SL1-6'],
+        ['SL2-1', 'SL2-2', 'SL2-3']], out
+    assert out['without'] == [
+        ['S1-1', 'S1-2', 'S1-3', 'S1-4', 'S1-5', 'S1-6'],
+        ['S1-1', 'S1-2', 'S1-3']], out
+
+
+def test_a_fresh_show_names_every_circuit_under_the_cursor(page):
+    seed = page.evaluate(FRESH_SHOW_JS)
+    sr_main = seed['ids'][0]
+    try:
+        # A CLEAN load of the fresh show, the real view button, the real
+        # layer selection, the real custom checkbox. A roomy viewport so
+        # the fitted 28-wide wall is not under the dock: the clicks below
+        # have to land on cabinets.
+        page.set_viewport_size({'width': 1600, 'height': 1000})
+        page.reload(wait_until='domcontentloaded')
+        page.wait_for_timeout(2000)
+        page.evaluate(HELPERS_JS)
+        page.locator('[data-mode="power"]').click()
+        page.wait_for_timeout(500)
+        page.evaluate("""(id) => {
+            const app = window.app;
+            app.selectLayer(app.project.layers.find(l => l.id === id));
+            window.canvasRenderer.fitToView();
+        }""", sr_main)
+        page.wait_for_timeout(300)
+        starts = page.evaluate("""(ids) => ids.map(id => {
+            const L = window.app.project.layers.find(l => l.id === id);
+            window.app._circuitTailCache = null;
+            return [L.name, window.app.getPowerCircuitLabel(L, 1),
+                    window.app.getSocaPlan(L).map(s => s.name)[0] || null];
+        })""", seed['ids'])
+        assert [s[1] for s in starts] == ['S1-1'] * 4, (
+            f"every S1-# screen with no distro starts at S1-1: {starts}")
+        # The 28-wide MAINs have no automatic plan at all on tl-h (a full
+        # 28 x 305 W row does not fit one 4160 W circuit), so only the two
+        # Returns hold a multi to name - and each is S1, not S1 and S2.
+        assert [s[2] for s in starts] == [None, 'S1', None, 'S1'], starts
+        page.check('#power-custom-toggle')
+        page.wait_for_timeout(300)
+        nothing = page.evaluate(FRESH_FRAME_JS, sr_main)
+        assert nothing == {'idx': 1, 'badge': 'S1-1', 'bubble': None, 'stored': []}, (
+            f"nothing drawn: the badge must say S1-1 for circuit 1: {nothing}")
+        expected = ['S1-1', 'S1-2', 'S1-3', 'S1-4', 'S1-5', 'S1-6',
+                    'S2-1', 'S2-2', 'S2-3', 'S2-4', 'S2-5', 'S2-6', 'S3-1']
+        rows = []
+        k = 0
+        for n in range(1, 14):
+            before = page.evaluate(FRESH_FRAME_JS, sr_main)
+            for _ in range(14):
+                row, col = divmod(k, 28)
+                k += 1
+                x, y = page.evaluate(FRESH_CLIENT_XY_JS, [sr_main, row, col])
+                page.mouse.click(x, y)
+            page.wait_for_timeout(60)
+            after = page.evaluate(FRESH_FRAME_JS, sr_main)
+            rows.append((n, before['idx'], before['badge'], after['idx'],
+                         after['badge'], after['bubble'], after['stored'][-1]))
+            page.locator('#power-custom-next').click()
+            page.wait_for_timeout(60)
+        for n, idx0, badge0, idx1, badge1, bubble, stored in rows:
+            want = expected[n - 1]
+            assert idx0 == idx1 == n, rows
+            assert badge0 == badge1 == bubble == want, (
+                f"circuit {n}: badge before {badge0}, after {badge1}, "
+                f"bubble {bubble}, wanted {want}: {rows}")
+            # Stored under n. 13 or 14 cabinets: headless Chromium drops
+            # one of the two clicks that straddle a row wrap now and then,
+            # and the pin is the numbering, not the click count.
+            assert stored[0] == n and stored[1] >= 13, (
+                f"circuit {n} stored under {stored}: {rows}")
+    finally:
+        page.evaluate("""async (saved) => {
+            await fetch('/api/project', { method: 'PUT',
+                headers: { 'Content-Type': 'application/json' }, body: saved });
+        }""", seed['saved'])
+        page.set_viewport_size({'width': 1280, 'height': 720})
+        page.reload(wait_until='domcontentloaded')
+        page.wait_for_timeout(2000)
+        page.evaluate(HELPERS_JS)
+        page.locator('[data-mode="power"]').click()
+        page.wait_for_timeout(500)
