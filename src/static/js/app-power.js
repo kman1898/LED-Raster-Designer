@@ -4116,8 +4116,12 @@ class _Power {
                 seq.set(bucket, n);
                 number = n;
             }
+            const distro = distroId ? distros.find(d => d.id === distroId) : null;
             const hand = String(named[idx] || '').trim();
-            const name = this._multiNameFor(layer, idx, number, distroId, tpl, distros);
+            const name = hand
+                || (distro && String(distro.name || '').trim()
+                    ? this._deriveMultiName(String(distro.name).trim(), number, tpl) : '')
+                || (tpl.ok ? this._deriveMultiName(tpl.prefix, number, tpl) : '');
             if (pinned) {
                 // Tails deferred: whether this pin shares its (distro,
                 // number) - and therefore which tails are free - is only
@@ -4142,24 +4146,6 @@ class _Power {
             }));
         }
         return { socas, slots, tpl };
-    }
-
-    // Rungs 2-4 of the name ladder for one multi (rung 1, the per-circuit
-    // override, is the label authority's): the name somebody typed on it,
-    // else its distro's name plus its number under that distro, else the
-    // screen's template prefix plus its number. One function so the multis
-    // the plan holds and the one a circuit is about to open climb the same
-    // ladder - _predictedCircuitSlot names the box a not-yet-drawn circuit
-    // will land on with this, and it must print what _namingFor will print
-    // once the circuit is drawn.
-    _multiNameFor(layer, idx, number, distroId, tpl, distros) {
-        const hand = String(((layer && layer.powerSocaNames) || {})[idx] || '').trim();
-        if (hand) return hand;
-        const list = distros || this.getDistros();
-        const distro = distroId ? list.find(d => d.id === distroId) : null;
-        const base = distro ? String(distro.name || '').trim() : '';
-        if (base) return this._deriveMultiName(base, number, tpl);
-        return tpl.ok ? this._deriveMultiName(tpl.prefix, number, tpl) : '';
     }
 
     // Deal each shared box's six tails across its members, and say out loud
@@ -4299,74 +4285,16 @@ class _Power {
         if (slot && slot.name) {
             return `${slot.name}${tpl.sep}${slot.tail}${tpl.suffix}`;
         }
-        // A template with no multi number in it has no multi to name.
+        // A circuit the plan does not hold - an editor row past the drawn
+        // circuits - or a template with no multi number to name. Both keep
+        // the arithmetic they have always had, wrapped at the screen's own
+        // box size (six on a soca, three on an L21-30).
         if (!tpl.ok) return tpl.raw.replace('#', circuitNum);
-        // A circuit the plan does not hold: the number the custom badge is
-        // drawing under before its first cabinet lands, an editor row past
-        // the drawn circuits. It is named by WHERE IT WILL LAND - the multi
-        // and the tail the index above hands it the moment it holds a
-        // cabinet - and never by arithmetic on the raw number. The two used
-        // to disagree the moment the drawn numbers had a gap in them (a
-        // cleared circuit, a skipped number, a splitter merge): the plan
-        // names a circuit by its position on the fan, so with 2 empty the
-        // drawn 13 lands on ordinal 12 and reads S2-6, while floor((13-1)/6)
-        // said S3-1. The badge printed the arithmetic and the bubble printed
-        // the plan (user, 2026-09-03: "it would say 3-1 and do 2-6. 2-6 was
-        // actually correct. then it would go to 3-2 and i'd be drawing
-        // 3-1"). One authority, one answer, before and after the click.
-        const p = this._predictedCircuitSlot(layer, nm, circuitNum);
-        return `${p.name}${tpl.sep}${p.tail}${tpl.suffix}`;
-    }
-
-    // Where circuit `circuitNum` WOULD land if it were drawn now: the multi
-    // and physical tail the naming index will give it once it holds a
-    // cabinet. Its ordinal is its place among the plan's circuit numbers
-    // (with no gap that is the number itself), its multi the split-aware
-    // segment that ordinal falls in, and its tail the box's lowest free tail
-    // dealt in wall order with the tails already occupied - so a contiguous
-    // 1..12 predicts 13 as S3-1, and 1,3..12 predicts 13 as S2-6, exactly
-    // what the drawn circuit reads. A multi the plan does not have yet takes
-    // the next number in its bucket and the same name ladder _namingFor
-    // walks (hand-typed, distro-derived, template), so the label is the
-    // label the wall prints, not a guess at it.
-    _predictedCircuitSlot(layer, nm, circuitNum) {
+        const size = this.socaBoxSize(layer);
         const n = Math.max(1, parseInt(circuitNum, 10) || 1);
-        const drawn = [...nm.slots.keys()];
-        const ordinal = drawn.filter(k => k < n).length + 1;
-        const segs = this._socaSegments(layer, drawn.length + 1);
-        const seg = segs.find(s => ordinal >= s.start && ordinal <= s.end)
-            || segs[segs.length - 1];
-        const idx = seg.index;
-        const at = ordinal - seg.start + 1;
-        const rec = nm.socas.get(idx);
-        if (rec) {
-            // The box exists: the newcomer takes its lowest free tail, and
-            // the box's tails are then read ascending in wall order - the
-            // same rule socaCircuitPositions applies to a stored set.
-            const have = (rec.positions || []).slice();
-            let free = 1;
-            while (have.includes(free)) free += 1;
-            const tails = have.concat(free).sort((a, b) => a - b);
-            return { name: rec.name, tail: tails[at - 1] || at };
-        }
-        // A multi the plan does not have yet. Its number is the next one in
-        // its bucket after every multi the show already numbers there -
-        // exact when this screen is the last in layer order with a multi on
-        // that bucket, which is what a screen being drawn on is - and its
-        // name comes off the same ladder the drawn multis climb.
-        const distroId = (layer.powerSocaDistro || {})[idx] || null;
-        const bucket = distroId || '';
-        let last = 0;
-        const entries = this._circuitTailCache
-            ? [...this._circuitTailCache.values()] : [nm];
-        for (const entry of entries) {
-            for (const r of entry.socas.values()) {
-                if ((r.distroId || '') === bucket) last = Math.max(last, r.number);
-            }
-        }
-        const name = this._multiNameFor(layer, idx, last + 1, distroId, nm.tpl);
-        const pos = this.socaCircuitPositions(layer, idx, at);
-        return { name, tail: pos[at - 1] || at };
+        const multi = tpl.start + Math.floor((n - 1) / size);
+        const circuitInMulti = ((n - 1) % size) + 1;
+        return `${tpl.prefix}${multi}${tpl.sep}${circuitInMulti}${tpl.suffix}`;
     }
 
     getDefaultPowerCircuitColors() {
