@@ -1,7 +1,7 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
-v0.12.0 - September 3, 2026 (BETA)
+v0.12.0 - September 4, 2026 (BETA)
 ----------------------------
 
 - NEW: A distro says what it offers. Tick the connector types a distro
@@ -19,6 +19,13 @@ v0.12.0 - September 3, 2026 (BETA)
   block and apply a flow pattern and it deals the block out at capacity:
   14 wide by 6 tall on a 14-panel circuit becomes circuits 1 through 6.
   Same on the data side with ports.
+
+- FIX: Every circuit the fill deals out starts from the same side. The
+  fill used to snake the whole selection, so with one row per circuit
+  every second circuit read backwards and its cable was drawn arriving
+  from the far side. A new circuit or port now restarts at the pattern's
+  start side; within one run the rows still snake, and a fill that never
+  reaches capacity is the one continuous snake it always was.
 
 - CHANGE (IMPORTANT): Nothing lands on a card by itself. Auto-numbering is
   retired: ports attach only when you drag, drop or place them, the
