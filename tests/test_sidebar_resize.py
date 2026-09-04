@@ -848,6 +848,122 @@ def test_the_distro_gear_popover_shows_its_controls_inside_its_own_box(page):
         page.evaluate(DISTRO_CLEANUP_JS, seeded['added'])
 
 
+# One of every gear the dock draws - a processor with slots to fill, a slot
+# card, a breakout box hung on it, and a distro - so every popover kind can
+# be opened in turn. An H9 rather than the MX40 Pro: the MX40's card is the
+# machine's own outputs and carries no Remove, and a Remove that is there
+# is what the test below measures.
+POPOVER_KINDS_SEED_JS = """async () => {
+    const add = await (await fetch('/api/processors', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({deviceId: 'novastar-h9', name: 'POPTEST'}),
+    })).json();
+    const proc = add.resolved[add.resolved.length - 1];
+    const slot = await (await fetch(`/api/processors/${proc.id}/slots/0`, {
+        method: 'PUT', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({deviceId: 'novastar-card-h-16xrj45-2xfiber'}),
+    })).json();
+    const card = slot.resolved.find(p => p.id === proc.id).slots[0].card;
+    let box = null;
+    for (const dev of ['novastar-cvt4k-s', 'novastar-cvt10']) {
+        const r = await fetch(
+            `/api/processors/${proc.id}/cards/${card.id}/cvts`, {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({deviceId: dev})});
+        if (r.ok) { box = (await r.json()).resolved
+            .find(p => p.id === proc.id).slots[0].card.cvts[0]; break; }
+    }
+    const app = window.app;
+    const distro = app.getDistros().length ? null : app.addDistro().id;
+    await app.refreshProcessors();
+    app.refreshDistroPanel();
+    return {procId: proc.id, cardId: card.id, boxId: box && box.id,
+            distroId: app.getDistros()[0].id, addedDistro: distro};
+}"""
+
+POPOVER_KINDS_CLEANUP_JS = """async (ids) => {
+    await fetch(`/api/processors/${ids.procId}`, {method: 'DELETE'});
+    if (ids.addedDistro) window.app.removeDistro(ids.addedDistro);
+    await window.app.refreshProcessors();
+    window.app.refreshDistroPanel();
+}"""
+
+# The popover's Remove: where it is against the window and the popover's
+# own box, and whether a click aimed at its middle would land on it - the
+# hit test is the part a bounding box cannot answer, since a button under a
+# clipped, scrolling body has a rect and no reachable pixels.
+POPOVER_REMOVE_JS = """() => {
+    const pop = document.getElementById('hw-gear-popover');
+    if (!pop || pop.style.display !== 'block') return null;
+    const box = pop.getBoundingClientRect();
+    const btn = pop.querySelector('.hw-pop-remove');
+    if (!btn) return {label: null};
+    const r = btn.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2,
+                                          r.top + r.height / 2);
+    return {
+        label: btn.textContent,
+        inViewport: r.top >= 0 && r.bottom <= window.innerHeight
+            && r.left >= 0 && r.right <= window.innerWidth,
+        inPopover: r.top >= box.top - 0.5 && r.bottom <= box.bottom + 0.5,
+        clickable: !!hit && (hit === btn || btn.contains(hit)),
+        popInViewport: box.top >= 0 && box.bottom <= window.innerHeight,
+        top: Math.round(r.top), bottom: Math.round(r.bottom),
+        vh: window.innerHeight,
+    };
+}"""
+
+
+def test_every_gear_popovers_remove_is_on_screen_at_a_short_window(page):
+    """Remove processor, Remove card, Remove box, Remove distro: each lives
+    at the bottom of its gear popover, and at a laptop-height window the
+    popover used to clamp its height and scroll silently - the button was
+    in the DOM, below the fold, with nothing saying so (2026-09-03: "we
+    have no way of deleting a distro or processor"). The button now sits in
+    a footer pinned to the popover's bottom edge, so at 700px every one of
+    the four must be inside the viewport, inside the popover's box, and the
+    element a click at its center would land on."""
+    reset_widths(page, 'data-flow')
+    page.set_viewport_size({'width': 1280, 'height': 700})
+    page.wait_for_timeout(300)
+    ids = page.evaluate(POPOVER_KINDS_SEED_JS)
+    try:
+        assert ids['boxId'], f"no breakout box would go on the card: {ids}"
+        page.wait_for_timeout(400)
+        kinds = [('data-flow', f'proc-{ids["procId"]}', 'Remove processor'),
+                 ('data-flow', f'card-{ids["cardId"]}', 'Remove card'),
+                 ('data-flow', f'box-{ids["boxId"]}', 'Remove box'),
+                 ('power', f'distro-{ids["distroId"]}', 'Remove distro')]
+        seen = {}
+        for mode, key, label in kinds:
+            open_view(page, mode)
+            page.evaluate("""(k) => {
+                const el = document.querySelector(`[data-hwpop="${k}"]`);
+                if (el) el.scrollIntoView({block: 'nearest'});
+            }""", key)
+            page.locator(f'[data-hwpop="{key}"]').click()
+            page.wait_for_timeout(300)
+            m = page.evaluate(POPOVER_REMOVE_JS)
+            seen[label] = m
+            assert m, f"clicking the {key} gear opened no popover"
+            assert m['label'] == label, (
+                f"the {key} popover carries no {label!r}: {m}")
+            assert m['inViewport'] and m['popInViewport'], (
+                f"{label} sits off-screen at a {m['vh']}px window: {m}")
+            assert m['inPopover'], (
+                f"{label} lies outside the popover's own box: {m}")
+            assert m['clickable'], (
+                f"a click at the middle of {label} would not land on it: {m}")
+            page.keyboard.press('Escape')
+            page.wait_for_timeout(150)
+        assert len(seen) == 4, seen
+    finally:
+        page.keyboard.press('Escape')
+        page.evaluate(POPOVER_KINDS_CLEANUP_JS, ids)
+        page.set_viewport_size(VIEWPORT)
+        page.wait_for_timeout(300)
+
+
 # ── the hardware dock: the same system turned on its side ─────────────────
 #
 # The dock collapses from a chevron above its top edge and drag-resizes in

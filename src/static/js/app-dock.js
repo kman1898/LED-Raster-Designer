@@ -185,11 +185,26 @@ class _HardwareDock {
             const anchor = e.target && e.target.closest
                 && e.target.closest('[data-hwpop]');
             if (anchor && anchor.dataset.hwpop === this._hwPopover.id) return;
+            // A grab of the tray's resize strip is a resize, not a
+            // dismissal: the popover stays and follows its gear.
+            if (e.target && e.target.closest
+                    && e.target.closest('.lrd-resize-handle')) return;
             this._hwPopoverClose();
         });
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape' && this._hwPopover) this._hwPopoverClose();
         });
+        // The popover is placed against a window and a tray that both
+        // change size under it: re-place on either, so it never sits half
+        // off-screen after a resize or a dock drag.
+        window.addEventListener('resize', () => this._hwPopoverReflow());
+        const dockEl = document.getElementById('hardware-dock');
+        if (dockEl && typeof ResizeObserver !== 'undefined') {
+            try {
+                new ResizeObserver(() => this._hwPopoverReflow())
+                    .observe(dockEl);
+            } catch (e) { /* no observer: resize alone re-places */ }
+        }
     }
 
     // ── drawing ───────────────────────────────────────────────────────────
@@ -541,24 +556,105 @@ class _HardwareDock {
             this._hwPopoverClose();
             return;
         }
+        // A rebuild while open keeps the reader's place in a long body.
+        const oldBody = pop.querySelector('.hw-pop-body');
+        const keepScroll = oldBody ? oldBody.scrollTop : 0;
+        // Two parts: the fields scroll in a body; the destructive action
+        // sits in a footer pinned to the popover's bottom edge, visible no
+        // matter how long the body runs or how short the window is - a
+        // Remove that only exists below a scroll nobody knows about is a
+        // Remove that does not exist. The builders keep appending the
+        // button last as they always have; the shell lifts it out.
         pop.innerHTML = '';
-        pop.appendChild(content);
-        // Measure hidden, then place: above the gear when it fits (the
-        // tray hugs the window's bottom edge), below it otherwise, clamped
-        // to the viewport the way the context menu clamps itself.
+        const frame = document.createElement('div');
+        frame.className = 'hw-pop-frame';
+        const scroller = document.createElement('div');
+        scroller.className = 'hw-pop-scroll';
+        content.classList.add('hw-pop-body');
+        scroller.appendChild(content);
+        frame.appendChild(scroller);
+        const remove = Array.from(content.children)
+            .find(el => el.classList.contains('hw-pop-remove'));
+        if (remove) {
+            const foot = document.createElement('div');
+            foot.className = 'hw-pop-foot';
+            foot.appendChild(remove);
+            frame.appendChild(foot);
+        }
+        pop.appendChild(frame);
+        content.addEventListener('scroll', () => this._hwPopoverFade());
         pop.style.display = 'block';
+        this._hwPopoverPlace(anchor);
+        content.scrollTop = keepScroll;
+        this._hwPopoverFade();
+    }
+
+    // Placement: measure at natural height, then open on whichever side of
+    // the gear has the room - above when it fits there (the tray hugs the
+    // window's bottom edge, so that is the usual answer), below when only
+    // below fits, else the roomier side with the body clamped to it. The
+    // clamp lands on the frame, so the footer keeps its full height and
+    // only the body gives way. Re-run on resize and dock drags: a popover
+    // placed for one window must not end up half off another.
+    _hwPopoverPlace(anchor) {
+        const pop = document.getElementById('hw-gear-popover');
+        const frame = pop && pop.querySelector('.hw-pop-frame');
+        if (!pop || !frame || !anchor) return;
+        const margin = 8, gap = 6;
         pop.style.visibility = 'hidden';
+        frame.style.maxHeight = '';
         const r = anchor.getBoundingClientRect();
+        const natural = pop.getBoundingClientRect().height;
+        const roomAbove = r.top - gap - margin;
+        const roomBelow = window.innerHeight - r.bottom - gap - margin;
+        let above;
+        if (natural <= roomAbove) above = true;
+        else if (natural <= roomBelow) above = false;
+        else above = roomAbove >= roomBelow;
+        // A gear jammed against an edge still gets a usable panel: the
+        // floor lets the popover overlap the gear rather than shrink to a
+        // sliver, and the viewport clamp below keeps it on screen.
+        const floor = Math.min(160, window.innerHeight - 2 * margin);
+        const room = Math.max(above ? roomAbove : roomBelow, floor);
+        const chrome = pop.offsetHeight - frame.offsetHeight;  // borders
+        frame.style.maxHeight = `${Math.round(room - chrome)}px`;
         const pr = pop.getBoundingClientRect();
-        const margin = 8;
         let x = Math.min(r.left, window.innerWidth - pr.width - margin);
         x = Math.max(margin, x);
-        let y = r.top - pr.height - 6;
-        if (y < margin) y = Math.min(r.bottom + 6,
-                                     window.innerHeight - pr.height - margin);
+        let y = above ? r.top - gap - pr.height : r.bottom + gap;
+        y = Math.min(y, window.innerHeight - pr.height - margin);
+        y = Math.max(margin, y);
         pop.style.left = `${Math.round(x)}px`;
-        pop.style.top = `${Math.round(Math.max(margin, y))}px`;
+        pop.style.top = `${Math.round(y)}px`;
         pop.style.visibility = 'visible';
+    }
+
+    // The bottom fade says "there is more" only while there is: on while
+    // the body has content below its fold, off once the reader reaches it.
+    _hwPopoverFade() {
+        const pop = document.getElementById('hw-gear-popover');
+        const body = pop && pop.querySelector('.hw-pop-body');
+        if (!pop || !body) return;
+        pop.classList.toggle('hw-pop-scrolls',
+                             body.scrollHeight > body.clientHeight + 1);
+        pop.classList.toggle('hw-pop-more',
+            body.scrollHeight - body.clientHeight - body.scrollTop > 2);
+    }
+
+    // Reflow in place - no rebuild, so focus and scroll survive. An anchor
+    // that has left layout (the tray folded, the view left) takes the
+    // popover with it, the way a removed anchor does on refresh.
+    _hwPopoverReflow() {
+        if (!this._hwPopover) return;
+        const anchor = document.querySelector(
+            `[data-hwpop="${CSS.escape(this._hwPopover.id)}"]`);
+        const r = anchor && anchor.getBoundingClientRect();
+        if (!r || (r.width === 0 && r.height === 0)) {
+            this._hwPopoverClose();
+            return;
+        }
+        this._hwPopoverPlace(anchor);
+        this._hwPopoverFade();
     }
 
     _hwPopoverClose() {

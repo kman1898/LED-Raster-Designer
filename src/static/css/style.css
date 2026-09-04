@@ -1501,11 +1501,37 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 #hw-gear-popover {
     position: fixed; z-index: 1000; display: none;
     width: 300px; max-width: calc(100vw - 24px);
-    max-height: 60vh; overflow-y: auto;
+    overflow: hidden;
     background: #252525; border: 1px solid #3a3a3a; border-radius: 6px;
-    padding: 10px; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55);
+    padding: 0; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55);
     font-size: 11px; color: #ccc;
 }
+/* Two parts inside: the fields scroll in .hw-pop-body, the Remove sits in
+   .hw-pop-foot pinned to the bottom edge (app-dock.js _hwPopoverRender
+   lifts the builders' last button into it). The frame takes the height
+   clamp _hwPopoverPlace computes from the room beside the gear, so the
+   footer never gives way - only the body does, behind a thin scrollbar
+   and a bottom fade that shows only while there is more below. */
+.hw-pop-frame { display: flex; flex-direction: column; }
+.hw-pop-scroll {
+    position: relative; flex: 1 1 auto; min-height: 0;
+    display: flex; flex-direction: column;
+}
+.hw-pop-body {
+    flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 10px;
+    scrollbar-width: thin; scrollbar-color: #5a5a5a transparent;
+}
+.hw-pop-scroll::after {
+    content: ''; position: absolute; left: 0; right: 0; bottom: 0;
+    height: 24px; pointer-events: none; opacity: 0; transition: opacity .12s;
+    background: linear-gradient(rgba(37, 37, 37, 0), #252525);
+}
+#hw-gear-popover.hw-pop-more .hw-pop-scroll::after { opacity: 1; }
+.hw-pop-foot {
+    flex: 0 0 auto; padding: 8px 10px 10px;
+    border-top: 1px solid #3a3a3a; background: #252525;
+}
+.hw-pop-foot .hw-pop-remove { margin-top: 0; }
 #hw-gear-popover input, #hw-gear-popover select {
     background: #111; border: 1px solid #333; color: #fff;
     border-radius: 4px; padding: 3px 4px; font-size: 11px;
