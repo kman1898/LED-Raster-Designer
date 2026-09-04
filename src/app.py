@@ -11,6 +11,7 @@ import platform
 import subprocess
 from PIL import Image
 import numpy as np
+import port_assignment
 
 # v0.8.7: Pillow's default decompression-bomb guard refuses images larger
 # than ~89 megapixels. Our PSD scale feature legitimately produces images
@@ -525,6 +526,14 @@ def _build_initial_project():
         # sync_next_group_seq: a freed id is never reused, so an undo that
         # resurrects a deleted group cannot collide with a newer one.
         'next_group_seq': 1,
+        # Port attachment state, born with the project so the funnel can
+        # tell a new project from a file saved before auto-numbering was
+        # retired (2026-09-03): a project WITHOUT this key is a pre-ruling
+        # file, and retire_auto freezes its auto-drawn ports into pins once.
+        # A project born with the stamp never goes near that path, which is
+        # what keeps an undo snapshot of a fresh project from being mistaken
+        # for a legacy file and "migrated" onto pins nobody placed.
+        port_assignment.STATE_KEY: port_assignment.new_state(),
         'is_pristine': True,
     }
     # Pre-populate v0.8 fields so a fresh project already passes the

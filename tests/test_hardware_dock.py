@@ -56,10 +56,11 @@ What is pinned here, with real pointer drags (mouse down/move/up):
 
 And the right-click clears (real button='right' clicks), the other way back:
   * a drawn port run offers "Clear port <label>" - the existing unpin, one
-    'Release Port' undo step - and an auto run offers it DISABLED with the
-    drag-back reason as its title
-  * a dock port chip clears its pinned claimant; free and auto chips are
-    disabled with their reasons
+    'Release Port' undo step - whenever the port is on a card (every port
+    on a card is a pin: auto-numbering is retired, 2026-09-03), and offers
+    it DISABLED with the reason only when the port is not attached
+  * a dock port chip clears every claimant on its socket; a free chip is
+    disabled with its reason
   * a dock card clears every pin on the card as ONE undo step
   * a power circuit run offers "Clear multi <name>" - number then distro,
     one 'Clear Multi' undo step - disabled with the reason when unassigned
@@ -156,15 +157,34 @@ SEED_JS = """async () => {
     };
 }"""
 
-# Put the data-side assignment state back to virgin: no pins, auto on.
+# Put the data-side attachment back to the seed: WALL A on 1-5, WALL B on 6,
+# all pins - nothing lands by itself now (auto-numbering retired, user
+# ruling 2026-09-03), so the seed attaches explicitly, in layer order, the
+# way a card drop does. Six pins is the seed's whole attachment.
 RESET_DATA_JS = """async (ids) => {
     const app = window.app;
     await app._assignmentRequest('/api/port-assignments/unpin', 'POST',
                                  {layerId: String(ids.aId)});
     await app._assignmentRequest('/api/port-assignments/unpin', 'POST',
                                  {layerId: String(ids.bId)});
-    await app._assignmentRequest('/api/port-assignments', 'PUT', {auto: true});
+    await app._assignmentRequest('/api/port-assignments/place-overflow',
+                                 'POST', {layerId: String(ids.aId),
+                                          cardId: ids.cardId});
+    await app._assignmentRequest('/api/port-assignments/place-overflow',
+                                 'POST', {layerId: String(ids.bId),
+                                          cardId: ids.cardId});
     app.resetHistory('Dock Seed');
+    return (app.project.port_assignments || {}).pins || [];
+}"""
+
+# Take everything OFF the card: the state the retired auto switch used to
+# reach with auto off - every port of every screen unattached.
+UNATTACH_ALL_JS = """async (ids) => {
+    const app = window.app;
+    await app._assignmentRequest('/api/port-assignments/unpin', 'POST',
+                                 {layerId: String(ids.aId)});
+    await app._assignmentRequest('/api/port-assignments/unpin', 'POST',
+                                 {layerId: String(ids.bId)});
     return (app.project.port_assignments || {}).pins || [];
 }"""
 
@@ -495,7 +515,7 @@ def test_the_header_bar_shows_each_views_own_controls(dock_page):
     hid = page.evaluate("""() => {
         const app = window.app;
         const saved = app._assignment;
-        app._assignment = { configured: true, auto: true, issues: [],
+        app._assignment = { configured: true, issues: [],
                             cards: [], screens: [] };
         app.renderHardwareDock();
         const flag = document.getElementById('hw-dock-flag');
@@ -517,12 +537,12 @@ def test_the_header_bar_shows_each_views_own_controls(dock_page):
 
 def test_the_issues_strip_warns_offers_and_hides_when_empty(dock_page):
     """The refuse-and-offer surface: empty, it leaves layout entirely
-    (CSS :empty -> display:none). A project arriving with auto off (the
-    endpoint, driven the way a legacy save arrives - the UI carries no
-    toggle any more) renders the amber condition row whose inline button
-    is the one-click way back; the per-screen "not attached" rows do NOT
-    join it, because that story lives under the header's attachment flag.
-    A tail claimed twice still renders as a red power row."""
+    (CSS :empty -> display:none). With nothing attached at all it STAYS
+    empty - there is no auto-off row any more (auto-numbering retired,
+    2026-09-03) and the per-screen "not attached" rows never join it,
+    because that story lives under the header's attachment flag, which
+    turns red instead. A tail claimed twice still renders as a red power
+    row."""
     page, ids = dock_page
     open_view(page, 'data-flow')
     page.evaluate(RESET_DATA_JS, ids)
@@ -531,37 +551,31 @@ def test_the_issues_strip_warns_offers_and_hides_when_empty(dock_page):
     st = page.evaluate(STRIP_JS)
     assert st['rows'] == [] and st['display'] == 'none', (
         f'an empty strip must leave layout: {st}')
+    assert page.evaluate(FLAG_JS)['ok'], 'the seed left something unattached'
 
-    # auto lands off at the endpoint; the strip answers with the amber
-    # condition and its offer button inline in the row. With auto off
-    # every port is unplaced, but the strip stays free of red per-screen
-    # rows - the flag wears that count instead.
-    page.evaluate(
-        "() => window.app._assignmentRequest("
-        "'/api/port-assignments', 'PUT', {auto: false})")
+    # everything comes off the card: every port is unplaced, but the strip
+    # stays free of rows - no auto-off condition exists to report, and the
+    # flag wears the unattached count instead.
+    page.evaluate(UNATTACH_ALL_JS, ids)
     page.wait_for_timeout(700)
-    st = page.evaluate(STRIP_JS)
-    assert st['display'] != 'none', st
-    autoff = [r for r in st['rows'] if 'Auto-numbering is off' in r['text']]
-    assert autoff and autoff[0]['mild'], (
-        f'auto-off is a condition, so its row is amber: {st}')
-    assert autoff[0]['buttons'] == ['Turn auto-numbering on'], st
-    assert not any('not attached' in r['text'] for r in st['rows']), (
-        f'the overflow rows are back in the strip - they belong under the '
-        f'attachment flag: {st}')
-    assert all(r['mild'] for r in st['rows']), (
-        f'nothing red belongs in the strip here - the unattached story is '
-        f'the flag\'s: {st}')
-
-    page.locator(
-        '#hw-dock-issues button:has-text("Turn auto-numbering on")').click()
-    page.wait_for_timeout(700)
-    assert page.evaluate("() => !!window.app._assignment.auto"), (
-        'taking the offer did not turn auto back on')
-    assert page.evaluate(HIST_JS, 1) == ['Toggle Auto Numbering']
     st = page.evaluate(STRIP_JS)
     assert st['rows'] == [] and st['display'] == 'none', (
-        f'taking the offer must clear the strip: {st}')
+        f'nothing belongs in the strip with everything unattached - the '
+        f'unattached story is the flag\'s, and there is no auto-off row '
+        f'any more: {st}')
+    assert not page.evaluate(
+        "() => document.getElementById('hw-dock-issues').textContent"
+        ".includes('auto-numbering')"), 'the retired auto-off row is back'
+    flag = page.evaluate(FLAG_JS)
+    assert flag['shown'] and not flag['ok'] and flag['count'] == '2', flag
+
+    # re-attaching is the way back: the flag goes green, the strip stays empty
+    page.evaluate(RESET_DATA_JS, ids)
+    page.wait_for_timeout(700)
+    assert page.evaluate(FLAG_JS)['ok']
+    st = page.evaluate(STRIP_JS)
+    assert st['rows'] == [] and st['display'] == 'none', (
+        f're-attaching must leave the strip empty: {st}')
 
     # power view: a tail claimed twice is a red question in the same rows.
     # Two STORED tail sets that overlap are the only way a clash exists -
@@ -647,16 +661,14 @@ CENTER_JS = """(layerId) => {
     };
 }"""
 
-SET_AUTO_JS = ("(on) => window.app._assignmentRequest("
-               "'/api/port-assignments', 'PUT', {auto: on})")
-
 RESET_PAN_JS = ("() => { const r = window.canvasRenderer; "
                 "r.zoom = 0.28; r.panX = 60; r.panY = 40; r.render(); }")
 
 
 def test_the_flag_counts_screens_and_opens_its_rows_on_demand(dock_page):
-    """Data view: auto off leaves every port unattached, so the flag turns
-    red counting TWO screens (never six ports), its rows stay closed until
+    """Data view: with nothing attached every port is unattached, so the
+    flag turns red counting TWO screens (never six ports), its rows stay
+    closed until
     the pill is clicked, the open rows carry each screen's count and port
     chips (a long run elided), and the strip holds no overflow row while
     the flag speaks. A rebuild mid-look keeps the rows open - session view
@@ -673,7 +685,7 @@ def test_the_flag_counts_screens_and_opens_its_rows_on_demand(dock_page):
     assert 'all attached' in st['text'] and 'not all' not in st['text'], st
     assert st['rows'] == [] and not st['rowsShown'], st
 
-    page.evaluate(SET_AUTO_JS, False)
+    page.evaluate(UNATTACH_ALL_JS, ids)
     page.wait_for_timeout(700)
     st = page.evaluate(FLAG_JS)
     assert st['shown'] and not st['ok'], st
@@ -724,9 +736,9 @@ def test_the_flag_counts_screens_and_opens_its_rows_on_demand(dock_page):
     st = page.evaluate(FLAG_JS)
     assert not st['rowsShown'] and not st['ok'], st
 
-    # recovery through the strip's offer: green, nothing to open
-    page.locator(
-        '#hw-dock-issues button:has-text("Turn auto-numbering on")').click()
+    # recovery is re-attaching (the seed's explicit fill): green, nothing
+    # to open
+    page.evaluate(RESET_DATA_JS, ids)
     page.wait_for_timeout(700)
     st = page.evaluate(FLAG_JS)
     assert st['ok'] and st['rows'] == [], st
@@ -742,7 +754,7 @@ def test_a_flag_row_click_centers_the_canvas_and_earns_no_undo(dock_page):
     open_view(page, 'data-flow')
     page.evaluate(RESET_DATA_JS, ids)
     page.evaluate(RESET_PAN_JS)
-    page.evaluate(SET_AUTO_JS, False)
+    page.evaluate(UNATTACH_ALL_JS, ids)
     page.wait_for_timeout(700)
     page.locator('#hw-dock-flag').click()
     page.wait_for_timeout(300)
@@ -776,9 +788,9 @@ def test_a_flag_row_click_centers_the_canvas_and_earns_no_undo(dock_page):
     afterA = page.evaluate(CENTER_JS, ids['aId'])
     assert abs(afterA['dx']) < 1 and abs(afterA['dy']) < 1, afterA
 
-    # put the module state back: auto on, flag green, pan re-seeded
-    page.locator(
-        '#hw-dock-issues button:has-text("Turn auto-numbering on")').click()
+    # put the module state back: everything re-attached, flag green, pan
+    # re-seeded
+    page.evaluate(RESET_DATA_JS, ids)
     page.wait_for_timeout(700)
     page.evaluate(RESET_PAN_JS)
     st = page.evaluate(FLAG_JS)
@@ -991,8 +1003,9 @@ def test_a_press_on_a_header_control_never_arms_a_drag(dock_page):
 def test_a_port_tile_lands_on_the_run_it_is_dropped_on(dock_page):
     page, ids = dock_page
     open_view(page, 'data-flow')
-    page.evaluate(RESET_DATA_JS, ids)
+    seed = page.evaluate(RESET_DATA_JS, ids)
     page.wait_for_timeout(400)
+    assert len(seed) == 6, f'the seed did not attach both walls: {seed}'
 
     sx, sy = dock_tile_center(page, f'port-{ids["cardId"]}-8')
     tgt = panel_point(page, ids['aId'], {'port': 2})
@@ -1014,12 +1027,17 @@ def test_a_port_tile_lands_on_the_run_it_is_dropped_on(dock_page):
     assert len(mine) == 5, f'the hold did not pin the rest of the run: {pins}'
     assert page.evaluate(HIST_JS, 1) == ['Place Port']
 
+    # one undo walks the drop back to the seed's pins (auto retired,
+    # 2026-09-03: the seed is six pins, not an empty state), redo re-lands it
     page.evaluate("() => window.app.undo()")
     page.wait_for_timeout(900)
-    assert page.evaluate(PINS_JS) == [], 'one undo did not clear the drop'
+    assert page.evaluate(PINS_JS) == seed, 'one undo did not walk back the drop'
     page.evaluate("() => window.app.redo()")
     page.wait_for_timeout(900)
-    assert len(page.evaluate(PINS_JS)) == 5, 'redo did not re-apply the drop'
+    pins = page.evaluate(PINS_JS)
+    assert len(pins) == 6 and any(
+        p['index'] == 1 and p['layerId'] == str(ids['aId']) and p['port'] == 8
+        for p in pins), f'redo did not re-apply the drop: {pins}'
     page.evaluate(RESET_DATA_JS, ids)
     page.wait_for_timeout(300)
 
@@ -1029,10 +1047,10 @@ def test_dropping_on_an_occupied_socket_asks_first(dock_page):
     nothing has moved, confirm and it lands - never a silent displacement."""
     page, ids = dock_page
     open_view(page, 'data-flow')
-    page.evaluate(RESET_DATA_JS, ids)
+    seed = page.evaluate(RESET_DATA_JS, ids)
     page.wait_for_timeout(400)
 
-    # card port 1 is WALL A p1's auto seat; aiming it at run 3 is a conflict
+    # card port 1 is WALL A p1's pinned seat; aiming it at run 3 is a conflict
     seen = []
     page.once('dialog', lambda d: (seen.append(d.message), d.dismiss()))
     sx, sy = dock_tile_center(page, f'port-{ids["cardId"]}-1')
@@ -1040,7 +1058,7 @@ def test_dropping_on_an_occupied_socket_asks_first(dock_page):
     drag(page, sx, sy, tgt['x'], tgt['y'])
     assert seen and 'already on' in seen[0], (
         f'no conflict question was asked: {seen}')
-    assert page.evaluate(PINS_JS) == [], (
+    assert page.evaluate(PINS_JS) == seed, (
         'declining the question still moved something')
 
     page.once('dialog', lambda d: d.accept())
@@ -1059,13 +1077,12 @@ def test_a_whole_card_fills_in_order_from_the_first_unassigned(dock_page):
     page, ids = dock_page
     open_view(page, 'data-flow')
     page.evaluate(RESET_DATA_JS, ids)
-    # auto off: every port of every screen is unassigned, the fill's home case
-    page.evaluate("""async () => {
-        await window.app._assignmentRequest('/api/port-assignments', 'PUT',
-                                            {auto: false});
-        window.app.resetHistory('Dock Seed');
-    }""")
+    # nothing attached: every port of every screen is unassigned, the
+    # fill's home case (the state the retired auto switch used to reach)
+    page.evaluate(UNATTACH_ALL_JS, ids)
+    page.evaluate("() => window.app.resetHistory('Dock Seed')")
     page.wait_for_timeout(400)
+    assert page.evaluate(PINS_JS) == []
 
     sx, sy = dock_tile_center(page, f'card-{ids["cardId"]}')
     tgt = panel_point(page, ids['aId'], {})
@@ -1080,10 +1097,6 @@ def test_a_whole_card_fills_in_order_from_the_first_unassigned(dock_page):
     page.evaluate("() => window.app.undo()")
     page.wait_for_timeout(900)
     assert page.evaluate(PINS_JS) == [], 'undo did not clear the card fill'
-    page.evaluate("""async () => {
-        await window.app._assignmentRequest('/api/port-assignments', 'PUT',
-                                            {auto: true});
-    }""")
     page.evaluate(RESET_DATA_JS, ids)
     page.wait_for_timeout(300)
 
@@ -1092,19 +1105,36 @@ def test_a_whole_card_moves_the_block_when_nothing_is_unassigned(dock_page):
     page, ids = dock_page
     open_view(page, 'data-flow')
     page.evaluate(RESET_DATA_JS, ids)
+    # everything attached by the seed; WALL B is parked on port 8 first, so
+    # the move has somewhere to move FROM (a block move that re-pins the
+    # same socket changes nothing and earns no step - saveState refuses a
+    # no-op)
+    page.evaluate("""async (ids) => {
+        const app = window.app;
+        await app._assignmentRequest('/api/port-assignments/place', 'POST',
+            {layerId: String(ids.bId), index: 0, cardId: ids.cardId,
+             port: 8, confirm: false});
+        app.resetHistory('Dock Seed');
+    }""", ids)
     page.wait_for_timeout(400)
 
-    # everything auto-assigned; the drop means "this screen goes here"
+    # nothing unassigned; the drop means "this screen goes here" - the whole
+    # block moves to the first free run on the card, which is port 6 after
+    # WALL A's 1-5
     sx, sy = dock_tile_center(page, f'card-{ids["cardId"]}')
     tgt = panel_point(page, ids['bId'], {})
     drag(page, sx, sy, tgt['x'], tgt['y'])
     pins = page.evaluate(PINS_JS)
     mine = [p for p in pins if p['layerId'] == str(ids['bId'])]
     assert mine, f'the block move pinned nothing: {pins}'
+    assert [p['port'] for p in mine] == [6], (
+        f'the block did not move to the first free run: {pins}')
     assert page.evaluate(HIST_JS, 1) == ['Move Port Block']
     page.evaluate("() => window.app.undo()")
     page.wait_for_timeout(900)
-    assert page.evaluate(PINS_JS) == [], 'undo did not clear the block move'
+    pins = page.evaluate(PINS_JS)
+    assert [p['port'] for p in pins if p['layerId'] == str(ids['bId'])] \
+        == [8], f'undo did not put the block back where it was: {pins}'
     page.evaluate(RESET_DATA_JS, ids)
     page.wait_for_timeout(300)
 
@@ -1131,11 +1161,12 @@ def test_a_breakout_box_fills_only_its_own_span(dock_page):
                 last: Math.max(...nums), copy: !!cvt.duplicateOf};
     }""", ids)
     page.wait_for_timeout(600)
-    # auto off, and a blocker pinned INSIDE the box's span
+    # WALL A off the card entirely, and WALL B re-placed as a blocker pinned
+    # INSIDE the box's span
     page.evaluate("""async (args) => {
         const app = window.app;
-        await app._assignmentRequest('/api/port-assignments', 'PUT',
-                                     {auto: false});
+        await app._assignmentRequest('/api/port-assignments/unpin', 'POST',
+                                     {layerId: String(args.ids.aId)});
         await app._assignmentRequest('/api/port-assignments/place', 'POST',
             {layerId: String(args.ids.bId), index: 0,
              cardId: args.ids.cardId, port: args.box.first + 2,
@@ -1164,8 +1195,6 @@ def test_a_breakout_box_fills_only_its_own_span(dock_page):
         await fetch(`/api/processors/${args.ids.procId}/cvts/${args.box.id}`,
                     {method: 'DELETE'});
         await app.refreshProcessors();
-        await app._assignmentRequest('/api/port-assignments', 'PUT',
-                                     {auto: true});
     }""", {'ids': ids, 'box': box})
     page.evaluate(RESET_DATA_JS, ids)
     page.wait_for_timeout(400)
@@ -1176,7 +1205,7 @@ def test_an_invalid_target_refuses_with_a_reason(dock_page):
     sentence, on the status bar - and nothing mutates."""
     page, ids = dock_page
     open_view(page, 'data-flow')
-    page.evaluate(RESET_DATA_JS, ids)
+    seed = page.evaluate(RESET_DATA_JS, ids)
     img = page.evaluate("""async () => {
         // one transparent pixel: a layer with no ports to its name
         const resp = await fetch('/api/layer/add-image', {
@@ -1208,7 +1237,7 @@ def test_an_invalid_target_refuses_with_a_reason(dock_page):
         status: document.getElementById('status-message').textContent,
         pins: (window.app.project.port_assignments || {}).pins || []})""")
     assert out['status'] == 'That screen needs no ports.', out
-    assert out['pins'] == [], f'the refusal still mutated something: {out}'
+    assert out['pins'] == seed, f'the refusal still mutated something: {out}'
     page.evaluate("""async (id) => {
         await fetch(`/api/layer/${id}`, {method: 'DELETE'});
         window.app.project = await (await fetch('/api/project')).json();
@@ -1231,7 +1260,7 @@ def test_drag_back_to_the_dock_releases_the_port(dock_page):
         app.resetHistory('Dock Seed');
     }""", ids)
     page.wait_for_timeout(500)
-    assert len(page.evaluate(PINS_JS)) == 5
+    assert len(page.evaluate(PINS_JS)) == 6   # the seed's six, index 1 on 8
 
     sx, sy = dock_tile_center(page, f'port-{ids["cardId"]}-8')
     dock_box = page.locator('#hardware-dock-body').bounding_box()
@@ -1486,6 +1515,28 @@ def test_drag_back_to_the_dock_unassigns_the_multi(dock_page):
 
 # ── Backing ports in the tray ─────────────────────────────────────────────
 
+# The attachment these tests read against: WALL A pinned on the odds 1-9
+# and WALL B on 11 - the layout the retired auto pass dealt around a
+# sequential card, placed by hand now (auto retired, 2026-09-03) so the
+# evens are free to be returns.
+SEQ_SEED_JS = """async (ids) => {
+    const app = window.app;
+    await app._assignmentRequest('/api/port-assignments/unpin', 'POST',
+                                 {layerId: String(ids.aId)});
+    await app._assignmentRequest('/api/port-assignments/unpin', 'POST',
+                                 {layerId: String(ids.bId)});
+    for (let i = 0; i < 5; i++) {
+        await app._assignmentRequest('/api/port-assignments/pin', 'POST',
+            {layerId: String(ids.aId), index: i, cardId: ids.cardId,
+             port: 2 * i + 1});
+    }
+    await app._assignmentRequest('/api/port-assignments/pin', 'POST',
+        {layerId: String(ids.bId), index: 0, cardId: ids.cardId, port: 11});
+    app.resetHistory('Dock Seed');
+    return (app.project.port_assignments || {}).pins || [];
+}"""
+
+
 def test_a_backing_port_wears_its_role_in_the_dock(dock_page):
     """Sequential redundancy on the seeded card: the even tiles stop saying
     'free' and say what they carry, in the backup gold - the dock is where
@@ -1493,11 +1544,12 @@ def test_a_backing_port_wears_its_role_in_the_dock(dock_page):
     is needed. Two registers, by whether the main is working: a socket
     whose main carries a screen displays that screen-port's RETURN (the
     mirrored occupancy, derived through the backup link), and one whose
-    main is free states the bare role. WALL A's five auto ports sit on the
-    odds 1-9 and WALL B on 11, so socket 2 is a working return and socket
-    14 (main 13, free) is the bare role."""
+    main is free states the bare role. WALL A's five pinned ports sit on
+    the odds 1-9 and WALL B on 11, so socket 2 is a working return and
+    socket 14 (main 13, free) is the bare role."""
     page, ids = dock_page
     open_view(page, 'data-flow')
+    page.evaluate(SEQ_SEED_JS, ids)
     page.evaluate("""async (ids) => {
         const send = (url, method, body) => fetch(url, { method,
             headers: { 'Content-Type': 'application/json' },
@@ -1545,6 +1597,7 @@ def test_a_backing_port_wears_its_role_in_the_dock(dock_page):
                        { redundancy: false });
             await window.app.refreshProcessors();
         }""", ids)
+        page.evaluate(RESET_DATA_JS, ids)
         page.wait_for_timeout(600)
 
 
@@ -1557,6 +1610,7 @@ def test_a_mirrored_return_refuses_clear_and_drag_back_naming_the_screen(
     history - the mirror is derived, so there is nothing to undo."""
     page, ids = dock_page
     open_view(page, 'data-flow')
+    page.evaluate(SEQ_SEED_JS, ids)
     page.evaluate("""async (ids) => {
         const send = (url, method, body) => fetch(url, { method,
             headers: { 'Content-Type': 'application/json' },
@@ -1607,6 +1661,7 @@ def test_a_mirrored_return_refuses_clear_and_drag_back_naming_the_screen(
                        { redundancy: false });
             await window.app.refreshProcessors();
         }""", ids)
+        page.evaluate(RESET_DATA_JS, ids)
         page.wait_for_timeout(600)
 
 
@@ -1725,7 +1780,7 @@ def test_right_click_on_a_run_clears_its_pin(dock_page):
         app.resetHistory('Dock Seed');
     }""", ids)
     page.wait_for_timeout(500)
-    assert len(page.evaluate(PINS_JS)) == 5
+    assert len(page.evaluate(PINS_JS)) == 6   # the seed's six, index 1 on 8
 
     tgt = panel_point(page, ids['aId'], {'port': 2})
     item = right_click(page, tgt['x'], tgt['y'])
@@ -1751,7 +1806,12 @@ def test_right_click_on_a_run_clears_its_pin(dock_page):
     page.wait_for_timeout(300)
 
 
-def test_an_auto_run_offers_the_clear_disabled_with_the_reason(dock_page):
+def test_a_run_on_a_card_clears_and_an_unattached_run_is_disabled_with_the_reason(
+        dock_page):
+    """Clear always means release (auto retired, 2026-09-03): a run on a
+    card - every port on a card is a pin - offers the clear live, and its
+    title says the port stays unattached afterwards. The clear is disabled
+    only when the port is not attached, with that as the reason."""
     page, ids = dock_page
     open_view(page, 'data-flow')
     page.evaluate(RESET_DATA_JS, ids)
@@ -1759,18 +1819,36 @@ def test_an_auto_run_offers_the_clear_disabled_with_the_reason(dock_page):
 
     tgt = panel_point(page, ids['aId'], {'port': 2})
     item = right_click(page, tgt['x'], tgt['y'])
+    assert item['shown'] and not item['disabled'], item
+    assert item['label'].startswith('Clear port '), item
+    assert 'stays unattached' in item['title'], item
+    close_menu(page)
+
+    # WALL A off the card: the same run is not attached, so the clear is
+    # offered disabled with that reason
+    page.evaluate("""async (ids) => {
+        const app = window.app;
+        await app._assignmentRequest('/api/port-assignments/unpin', 'POST',
+                                     {layerId: String(ids.aId)});
+        app.resetHistory('Dock Seed');
+    }""", ids)
+    page.wait_for_timeout(500)
+    item = right_click(page, tgt['x'], tgt['y'])
     assert item['shown'] and item['disabled'], item
-    assert 'numbered automatically' in item['title'], item
-    assert 'no pin to release' in item['title'], item
+    assert 'not attached' in item['title'], item
     # a click on the disabled item performs NOTHING. The menu itself closes,
     # because this menu closes on every document click - the existing
     # click-away behaviour, which applies to the item too.
     take_clear(page)
     assert not page.evaluate(MENU_SHOWN_JS), (
         'the menu ignored the click-away rule it has everywhere else')
-    assert page.evaluate(PINS_JS) == [], 'a disabled clear still cleared'
+    pins = page.evaluate(PINS_JS)
+    assert not any(p['layerId'] == str(ids['aId']) for p in pins), (
+        f'a disabled clear still changed WALL A: {pins}')
     assert page.evaluate(HIST_JS, 1) == ['Dock Seed'], (
         'a disabled clear earned a history entry')
+    page.evaluate(RESET_DATA_JS, ids)
+    page.wait_for_timeout(300)
 
 
 def test_a_dock_card_right_click_clears_every_pin_as_one_step(dock_page):
@@ -1785,13 +1863,16 @@ def test_a_dock_card_right_click_clears_every_pin_as_one_step(dock_page):
         app.resetHistory('Dock Seed');
     }""", ids)
     page.wait_for_timeout(500)
-    assert len(page.evaluate(PINS_JS)) == 5
+    # the seed's six pins (WALL A on five sockets, WALL B on one), all on
+    # this card - so the card clear empties the whole state
+    assert len(page.evaluate(PINS_JS)) == 6
     before = page.evaluate(HIST_LEN_JS)
 
     sx, sy = dock_tile_center(page, f'card-{ids["cardId"]}')
     item = right_click(page, sx, sy)
     assert item['shown'] and not item['disabled'], item
     assert item['label'].startswith('Clear '), item
+    assert item['title'].startswith('Take every screen port off '), item
     take_clear(page)
     assert page.evaluate(PINS_JS) == [], 'the card clear left pins behind'
     assert page.evaluate(HIST_JS, 1) == ['Release Ports']
@@ -1799,51 +1880,90 @@ def test_a_dock_card_right_click_clears_every_pin_as_one_step(dock_page):
         'the batch clear is not ONE history entry')
     page.evaluate("() => window.app.undo()")
     page.wait_for_timeout(900)
-    assert len(page.evaluate(PINS_JS)) == 5, (
+    assert len(page.evaluate(PINS_JS)) == 6, (
         'one undo did not put every pin back')
     page.evaluate(RESET_DATA_JS, ids)
     page.wait_for_timeout(300)
 
 
-def test_a_dock_port_chip_clears_only_a_pinned_claimant(dock_page):
+def test_a_dock_port_chip_clears_its_claimant_and_a_free_chip_is_disabled(
+        dock_page):
+    """A chip with a claimant clears it - every claim on a socket is a pin
+    (auto retired, 2026-09-03), the same release as the drag-back, one
+    'Release Port' entry - and a FREE chip is disabled with that reason."""
     page, ids = dock_page
     open_view(page, 'data-flow')
     page.evaluate(RESET_DATA_JS, ids)
     page.wait_for_timeout(500)
 
-    # an AUTO claimant: nothing to release, and the title says what would
-    sx, sy = dock_tile_center(page, f'port-{ids["cardId"]}-3')
-    item = right_click(page, sx, sy)
-    assert item['shown'] and item['disabled'], item
-    assert 'no pin to release' in item['title'], item
-    close_menu(page)
-
     # a FREE socket: nothing on it at all
-    sx, sy = dock_tile_center(page, f'port-{ids["cardId"]}-16')
+    sx, sy = dock_tile_center(page, f'port-{ids["cardId"]}-12')
     item = right_click(page, sx, sy)
     assert item['shown'] and item['disabled'], item
-    assert 'free' in item['title'], item
+    assert 'is free' in item['title'], item
     close_menu(page)
 
-    # a PINNED claimant clears, same release as the drag-back
-    page.evaluate("""async (ids) => {
-        const app = window.app;
-        await app._assignmentRequest('/api/port-assignments/place', 'POST',
-            {layerId: String(ids.aId), index: 1, cardId: ids.cardId,
-             port: 8, confirm: false});
-        app.resetHistory('Dock Seed');
-    }""", ids)
-    page.wait_for_timeout(500)
-    sx, sy = dock_tile_center(page, f'port-{ids["cardId"]}-8')
+    # the seed's claimant on port 1 (WALL A p1) clears, same release as the
+    # drag-back
+    sx, sy = dock_tile_center(page, f'port-{ids["cardId"]}-1')
     item = right_click(page, sx, sy)
     assert item['shown'] and not item['disabled'], item
+    assert item['title'].startswith('Take the screen port off this socket'), (
+        item)
     take_clear(page)
     pins = page.evaluate(PINS_JS)
-    assert not any(p['port'] == 8 for p in pins), (
-        f'the chip clear did not release the pin: {pins}')
+    assert not any(p['port'] == 1 for p in pins), (
+        f'the chip clear did not release the claimant: {pins}')
+    assert not any(p['layerId'] == str(ids['aId']) and p['index'] == 0
+                   for p in pins), f'WALL A p1 is still attached: {pins}'
+    assert len(pins) == 5, f'the chip clear took more than its socket: {pins}'
     assert page.evaluate(HIST_JS, 1) == ['Release Port']
     page.evaluate(RESET_DATA_JS, ids)
     page.wait_for_timeout(300)
+
+
+def test_a_fresh_project_attaches_nothing_until_dragged(dock_page):
+    """Nothing lands by itself (auto retired, 2026-09-03): with both walls
+    off the card, adding a second processor attaches nothing - no pins
+    appear, every screen's ports stay unplaced, and the flag stays red
+    counting both screens - until somebody drags."""
+    page, ids = dock_page
+    open_view(page, 'data-flow')
+    page.evaluate(RESET_DATA_JS, ids)
+    page.evaluate(UNATTACH_ALL_JS, ids)
+    page.wait_for_timeout(500)
+    assert page.evaluate(PINS_JS) == []
+
+    made = page.evaluate("""async () => {
+        const send = (url, method, body) => fetch(url, { method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body) }).then(r => r.json());
+        const added = await send('/api/processors', 'POST',
+                                 { deviceId: 'novastar-mx40-pro' });
+        const proc = added.resolved[added.resolved.length - 1];
+        await window.app.refreshProcessors();
+        await window.app.refreshPortAssignment();
+        return { id: proc.id };
+    }""")
+    page.wait_for_timeout(800)
+    try:
+        assert page.evaluate(PINS_JS) == [], (
+            'a new processor attached something by itself')
+        out = page.evaluate("""() => (window.app._assignment.screens || [])
+            .map(s => ({ name: s.name, required: s.required,
+                         unplaced: s.unplaced.length }))""")
+        assert out and all(s['unplaced'] == s['required'] for s in out), (
+            f'a screen found a card without being dragged: {out}')
+        assert {s['name'] for s in out} == {'WALL A', 'WALL B'}, out
+        st = page.evaluate(FLAG_JS)
+        assert st['shown'] and not st['ok'] and st['count'] == '2', st
+    finally:
+        page.evaluate("""async (made) => {
+            await fetch(`/api/processors/${made.id}`, { method: 'DELETE' });
+            await window.app.refreshProcessors();
+        }""", made)
+        page.evaluate(RESET_DATA_JS, ids)
+        page.wait_for_timeout(600)
 
 
 def test_right_click_on_a_circuit_clears_the_multi_in_one_step(dock_page):
@@ -3812,7 +3932,7 @@ def test_clear_card_forgets_backup_picks_and_keeps_port_names(dock_page):
         app.resetHistory('Dock Seed');
     }""", ids)
     page.wait_for_timeout(1200)
-    assert len(page.evaluate(PINS_JS)) == 5, 'the seed pins did not land'
+    assert len(page.evaluate(PINS_JS)) == 6, 'the seed pins did not land'
     before = page.evaluate(HIST_LEN_JS)
 
     sx, sy = dock_tile_center(page, f'card-{ids["cardId"]}')
@@ -3846,7 +3966,7 @@ def test_clear_card_forgets_backup_picks_and_keeps_port_names(dock_page):
     }""", ids)
     assert (restored['picks'].get('4') or {}).get('port') == 12, (
         f'one undo did not restore the backup pick: {restored}')
-    assert len(restored['pins']) == 5, (
+    assert len(restored['pins']) == 6, (
         f'one undo did not restore the pins: {restored}')
     # clean: drop the pick and the name, release the pin
     page.evaluate("""async (ids) => {

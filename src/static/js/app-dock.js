@@ -1109,7 +1109,7 @@ class _HardwareDock {
                 ? '. A backup port is that port\'s return end - nothing '
                     + 'else can land on it.'
                 : '; drag onto a port run to place it there'
-                    + (occupants.some(o => o.source === 'pin')
+                    + (occupants.some(o => !o.role)
                         ? '; drag back onto this tray to release it.' : '.'));
 
         // How full the socket is, worn twice (ground meter + bottom bar),
@@ -2866,23 +2866,17 @@ class _HardwareDock {
                 if (back) this._dockSay(this._returnFollowsNote(payload, back));
                 return;
             }
-            const pinned = occupants.filter(o => o.source === 'pin');
-            if (!pinned.length) {
-                this._dockSay(
-                    `${occupants[0].name} is numbered automatically - there `
-                    + 'is no pin to release; drag its ports where they '
-                    + 'belong instead.');
-                return;
-            }
-            // One release per claimant, one history entry for the gesture:
-            // the snapshot is taken after the last request lands, so a
-            // single Ctrl+Z empties the socket back to how it was.
+            // Every claim on a socket is a pin - nothing lands any other
+            // way - so every claimant is released. One release per
+            // claimant, one history entry for the gesture: the snapshot is
+            // taken after the last request lands, so a single Ctrl+Z
+            // empties the socket back to how it was.
             let chain = Promise.resolve();
-            pinned.forEach((o, i) => {
+            occupants.forEach((o, i) => {
                 chain = chain.then(() => this._assignmentRequest(
                     '/api/port-assignments/unpin', 'POST',
                     { layerId: o.layerId, index: o.number - 1 },
-                    null, i === pinned.length - 1 ? 'Release Port' : null));
+                    null, i === occupants.length - 1 ? 'Release Port' : null));
             });
             return chain;
         }
@@ -3191,7 +3185,10 @@ class _HardwareDock {
     }
 
     // A drawn port run in Data view: clear = release that screen-port's pin,
-    // the same unpin the panel's release buttons and the drag-back send.
+    // the same unpin the strip's release buttons and the drag-back send. A
+    // port on a card is always a pin (auto-numbering is retired - user
+    // ruling, 2026-09-03), so the clear is offered live whenever the port
+    // is attached and disabled only when it is not.
     _clearMenuForDataRun(hit) {
         const run = this._dockBuildDataMap().get(hit.panel);
         if (!run) return null;
@@ -3209,23 +3206,15 @@ class _HardwareDock {
         if (!port || !port.cardId) {
             return {
                 label: `Clear port ${label}`, disabled: true,
-                title: `${label} is not on a sending card - there is `
-                    + 'nothing to clear.',
-            };
-        }
-        if (port.source !== 'pin') {
-            // The drag-back rule, said before the gesture instead of after.
-            return {
-                label: `Clear port ${label}`, disabled: true,
-                title: `${label} is numbered automatically - there is no pin `
-                    + 'to release; drag the screen\'s ports where they '
-                    + 'belong instead.',
+                title: `${label} is not attached to a sending card - there `
+                    + 'is nothing to clear.',
             };
         }
         return {
             label: `Clear port ${label}`,
-            title: 'Hand this port back to auto-numbering. Names and '
-                + 'templates are untouched, and undo puts it back.',
+            title: 'Take this port off its card; it stays unattached until '
+                + 'you place it again. Names and templates are untouched, '
+                + 'and undo puts it back.',
             run: () => {
                 sendClientLog('dock_clear', { kind: 'run',
                     layerId: scr.layerId, index: port.index });
@@ -3662,28 +3651,21 @@ class _HardwareDock {
                         + 'clear.',
                 };
             }
-            const pinned = occupants.filter(o => o.source === 'pin');
-            if (!pinned.length) {
-                if (pick) return pickOnly();
-                return {
-                    label, disabled: true,
-                    title: `${occupants[0].name} is numbered automatically - `
-                        + 'there is no pin to release; drag the screen\'s '
-                        + 'ports where they belong instead.',
-                };
-            }
+            // Every claim is a pin (nothing lands any other way), so an
+            // occupied socket always clears: every claimant comes off.
             return {
                 label,
-                title: 'Release the pinned claim on this socket back to '
-                    + 'auto-numbering'
-                    + (pick ? ', and clear its hand-picked backup port'
+                title: 'Take the screen port off this socket - it stays '
+                    + 'unattached until placed again'
+                    + (pick ? ', and clear the socket\'s hand-picked '
+                        + 'backup port'
                         : '')
                     + '. Undo puts it back.',
                 run: () => {
                     sendClientLog('dock_clear', { kind: 'port', payload });
                     const release = this._dockReleasePins(
-                        pinned.map(o => ({ layerId: o.layerId,
-                                           index: o.number - 1 })),
+                        occupants.map(o => ({ layerId: o.layerId,
+                                              index: o.number - 1 })),
                         pick ? null : 'Release Port');
                     // The pick clear rides the same gesture: the snapshot
                     // moves to the LAST request, so the whole clear stays
@@ -3699,10 +3681,13 @@ class _HardwareDock {
             const label = `Clear ${payload.title}`;
             const first = payload.type === 'box' ? payload.first : -Infinity;
             const last = payload.type === 'box' ? payload.last : Infinity;
+            // Every screen port on the card (or inside the box's span) is a
+            // pin - there is no other way onto a card - and the clear takes
+            // all of them off.
             const pins = [];
             ((this._assignment && this._assignment.screens) || [])
                 .forEach(scr => (scr.ports || []).forEach(p => {
-                    if (p.source === 'pin' && p.cardId === payload.cardId
+                    if (p.cardId === payload.cardId
                             && p.port >= first && p.port <= last) {
                         pins.push({ layerId: scr.layerId, index: p.index });
                     }
@@ -3723,18 +3708,17 @@ class _HardwareDock {
             if (!pins.length && !picks.length) {
                 return {
                     label, disabled: true,
-                    title: `${payload.title} holds no pins and no per-port `
-                        + 'backup picks - its occupied ports are numbered '
-                        + 'automatically, and there is nothing stored to '
-                        + 'clear.',
+                    title: `Nothing is attached to ${payload.title} and it `
+                        + 'holds no per-port backup picks - there is '
+                        + 'nothing to clear.',
                 };
             }
             return {
                 label,
-                title: `Release every pin on ${payload.title} back to `
-                    + 'auto-numbering'
+                title: `Take every screen port off ${payload.title} - they `
+                    + 'stay unattached until placed again'
                     + (picks.length
-                        ? ' and clear its per-port backup picks' : '')
+                        ? ' - and clear its per-port backup picks' : '')
                     + ', as one undoable step.',
                 run: () => {
                     sendClientLog('dock_clear',

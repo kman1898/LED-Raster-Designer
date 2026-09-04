@@ -117,6 +117,29 @@ def resolve(client, *pairs):
     return resp.get_json()['resolution']
 
 
+def assigned(client, *pairs):
+    """Every screen dropped, in order, on the first card that takes it, then
+    the resolution. Auto-numbering is retired (user ruling, 2026-09-03), so
+    a port is on a card only because somebody dropped it there: this is
+    that drop (place-overflow, the card-drop request), and it lands exactly
+    what the old pass used to deal out for free - the lowest free sockets,
+    in the screen's order, around every pin and every backing socket. A
+    card that refuses (full, the wrong platform, nothing left to place) is
+    passed over for the next; ports that fit nowhere stay unattached."""
+    state = client.get('/api/processors').get_json()
+    cards = [slot['card']['id'] for proc in state.get('resolved') or []
+             for slot in proc['slots'] if slot['card']]
+    sc = screens(*pairs)
+    for name, _count in pairs:
+        for card in cards:
+            resp = client.post('/api/port-assignments/place-overflow',
+                               json={'layerId': name, 'cardId': card,
+                                     'screens': sc})
+            if resp.status_code == 200:
+                break
+    return resolve(client, *pairs)
+
+
 def labels(resolution, name):
     """The label each of one screen's own ports carries, in its own order.
     None where the port takes none - which is the client's cue to fall back to
@@ -162,7 +185,7 @@ def test_an_assigned_port_takes_its_label_from_the_card(client):
     card_id = first_card(only(state))['id']
     name_card(client, pid, card_id, 'SR')
 
-    res = resolve(client, ('Main', 4))
+    res = assigned(client, ('Main', 4))
     assert labels(res, 'Main') == ['SR-1', 'SR-2', 'SR-3', 'SR-4']
 
 
@@ -182,7 +205,7 @@ def test_a_box_in_front_of_the_card_names_the_port_instead(client):
                       json={'name': 'BOX-A'})
     assert resp.status_code == 200, resp.get_data(as_text=True)
 
-    res = resolve(client, ('Main', 3))
+    res = assigned(client, ('Main', 3))
     assert labels(res, 'Main') == ['BOX-A-1', 'BOX-A-2', 'BOX-A-3'], (
         'the card outranked the box the ports actually come out of')
 
@@ -196,7 +219,7 @@ def test_an_all_in_one_labels_its_ports_off_its_own_name(client):
     assert client.put(f'/api/processors/{pid}',
                       json={'name': 'FOH'}).status_code == 200
 
-    res = resolve(client, ('Main', 2))
+    res = assigned(client, ('Main', 2))
     assert labels(res, 'Main') == ['FOH-1', 'FOH-2']
 
 
@@ -221,7 +244,7 @@ def test_a_name_typed_on_one_port_beats_the_generated_one(client):
     assert card['ports'][3]['label'] == 'SR-4', (
         'naming one port renamed its neighbours')
 
-    res = resolve(client, ('Main', 4))
+    res = assigned(client, ('Main', 4))
     assert labels(res, 'Main') == ['SR-1', 'SR-2', 'HOUSE-LEFT', 'SR-4']
 
 
@@ -238,7 +261,7 @@ def test_a_hand_named_port_beats_the_box_in_front_of_it_too(client):
     client.put(f'/api/processors/{pid}/cvts/{cvt_id}', json={'name': 'BOX-A'})
     assert name_port(client, pid, card_id, 2, 'SPARE').status_code == 200
 
-    res = resolve(client, ('Main', 3))
+    res = assigned(client, ('Main', 3))
     assert labels(res, 'Main') == ['BOX-A-1', 'SPARE', 'BOX-A-3']
 
 
@@ -306,7 +329,7 @@ def test_a_port_with_nowhere_to_go_takes_no_processor_label(client):
     assert client.put(f'/api/processors/{pid}',
                       json={'name': 'FOH'}).status_code == 200
 
-    res = resolve(client, ('Main', 7))
+    res = assigned(client, ('Main', 7))
     assert labels(res, 'Main') == ['FOH-1', 'FOH-2', 'FOH-3', 'FOH-4',
                                    None, None, None]
 
@@ -320,7 +343,7 @@ def test_an_assigned_port_on_a_card_nobody_named_takes_no_label(client):
     pid = only(state)['id']
     set_card(client, pid, 0, 'novastar-card-h-20xrj45')
 
-    res = resolve(client, ('Main', 3))
+    res = assigned(client, ('Main', 3))
     assert labels(res, 'Main') == [None, None, None]
     assert res['configured'] is True, 'the card is there; only its name is not'
 
@@ -366,7 +389,7 @@ def test_a_port_row_names_the_screen_on_it_and_reads_free_when_empty(client):
     state = set_card(client, pid, 0, 'novastar-card-h-20xrj45')
     card_id = first_card(only(state))['id']
 
-    res = resolve(client, ('Upstage', 2), ('Downstage', 3))
+    res = assigned(client, ('Upstage', 2), ('Downstage', 3))
     assert [o['name'] for o in occupants(res, card_id, 1)] == ['Upstage']
     assert occupants(res, card_id, 1)[0]['number'] == 1
     assert occupants(res, card_id, 2)[0]['number'] == 2
@@ -396,7 +419,7 @@ def test_a_contested_port_names_every_screen_claiming_it(client):
         })
         assert resp.status_code == 200, resp.get_data(as_text=True)
 
-    res = resolve(client, ('Upstage', 2), ('Downstage', 2))
+    res = assigned(client, ('Upstage', 2), ('Downstage', 2))
     here = occupants(res, card_id, 4)
     assert [o['name'] for o in here] == ['Upstage', 'Downstage'], here
     assert all(o['overlap'] for o in here)
@@ -405,7 +428,7 @@ def test_a_contested_port_names_every_screen_claiming_it(client):
 
 def test_occupancy_follows_a_pin_rather_than_the_screen_order(client):
     """A pinned port is somebody's decision and the panel has to show where it
-    actually is, not where auto would have put it."""
+    actually is, not where a fill would have put it."""
     state = add_processor(client, 'novastar-h9')
     pid = only(state)['id']
     state = set_card(client, pid, 0, 'novastar-card-h-20xrj45')
@@ -417,16 +440,17 @@ def test_occupancy_follows_a_pin_rather_than_the_screen_order(client):
     })
     assert resp.status_code == 200, resp.get_data(as_text=True)
 
-    res = resolve(client, ('Main', 2))
+    res = assigned(client, ('Main', 2))
     assert occupants(res, card_id, 9)[0]['name'] == 'Main'
     assert occupants(res, card_id, 9)[0]['number'] == 1
     assert occupants(res, card_id, 9)[0]['source'] == 'pin'
-    # The screen's other port is still auto and still packs from the front, so
+    # The screen's other port lands where the fill puts it - the front - so
     # this screen's run is split across 1 and 9 and both rows say so. Showing
-    # the pinned port back at 1 as well - where auto would have put it - is the
-    # failure this asserts against.
+    # the pinned port back at 1 as well - where a fill would have put it - is
+    # the failure this asserts against. (Every placed port is a pin since
+    # auto-numbering was retired, 2026-09-03; the fill's port is one too.)
     assert occupants(res, card_id, 1)[0]['number'] == 2
-    assert occupants(res, card_id, 1)[0]['source'] == 'auto'
+    assert occupants(res, card_id, 1)[0]['source'] == 'pin'
     assert occupants(res, card_id, 2) == []
 
 
@@ -664,7 +688,7 @@ def test_a_typed_return_name_reaches_the_resolution_the_canvas_reads(client):
     name_card(client, pid, card_id, 'SR')
     assert name_return(client, pid, card_id, 1, 'BU-1').status_code == 200
 
-    res = resolve(client, ('Main', 3))
+    res = assigned(client, ('Main', 3))
     assert labels(res, 'Main') == ['SR-1', 'SR-2', 'SR-3']
     assert return_labels(res, 'Main') == ['BU-1', 'SR-2R', 'SR-3R']
 
@@ -680,7 +704,7 @@ def test_an_untyped_return_end_is_still_the_primary_with_an_r(client):
     name_card(client, pid, card_id, 'SR')
     assert name_port(client, pid, card_id, 2, 'HOUSE-LEFT').status_code == 200
 
-    res = resolve(client, ('Main', 2))
+    res = assigned(client, ('Main', 2))
     assert return_labels(res, 'Main') == ['SR-1R', 'HOUSE-LEFTR']
 
 
@@ -693,7 +717,7 @@ def test_a_port_with_no_primary_label_offers_no_derived_return(client):
     assert client.put(f'/api/processors/{pid}',
                       json={'name': 'FOH'}).status_code == 200
 
-    res = resolve(client, ('Main', 7))
+    res = assigned(client, ('Main', 7))
     assert return_labels(res, 'Main') == ['FOH-1R', 'FOH-2R', 'FOH-3R',
                                           'FOH-4R', None, None, None]
 
@@ -709,7 +733,7 @@ def test_a_card_named_p1_returns_as_r1(client):
     card_id = first_card(only(state))['id']
     name_card(client, pid, card_id, 'P1')
 
-    res = resolve(client, ('Main', 5))
+    res = assigned(client, ('Main', 5))
     assert labels(res, 'Main') == ['P1-1', 'P1-2', 'P1-3', 'P1-4', None]
     assert return_labels(res, 'Main') == ['R1-1', 'R1-2', 'R1-3', 'R1-4',
                                           None], (
@@ -725,7 +749,7 @@ def test_the_derived_return_keeps_the_case_the_name_was_typed_in(client):
     card_id = first_card(only(state))['id']
     name_card(client, pid, card_id, 'p1')
 
-    res = resolve(client, ('Main', 2))
+    res = assigned(client, ('Main', 2))
     assert labels(res, 'Main') == ['p1-1', 'p1-2']
     assert return_labels(res, 'Main') == ['r1-1', 'r1-2']
 
@@ -740,15 +764,15 @@ def test_a_typed_name_and_a_template_still_beat_the_derived_return_on_a_p_card(c
     name_card(client, pid, card_id, 'P1')
     assert name_return(client, pid, card_id, 1, 'HOUSE-RTN').status_code == 200
 
-    res = resolve(client, ('Main', 3))
+    res = assigned(client, ('Main', 3))
     assert return_labels(res, 'Main') == ['HOUSE-RTN', 'R1-2', 'R1-3']
 
     set_return_template(client, pid, card_id, 'BU-#')
-    res = resolve(client, ('Main', 3))
+    res = assigned(client, ('Main', 3))
     assert return_labels(res, 'Main') == ['HOUSE-RTN', 'BU-2', 'BU-3']
 
     set_return_template(client, pid, card_id, '')
-    res = resolve(client, ('Main', 3))
+    res = assigned(client, ('Main', 3))
     assert return_labels(res, 'Main') == ['HOUSE-RTN', 'R1-2', 'R1-3']
 
 
@@ -1062,7 +1086,7 @@ def test_the_template_reaches_the_resolution_the_canvas_reads(client):
     set_return_template(client, pid, card_id, 'BU-#')
     name_return(client, pid, card_id, 2, 'HOUSE-RTN')
 
-    res = resolve(client, ('Main', 3))
+    res = assigned(client, ('Main', 3))
     assert labels(res, 'Main') == ['SR-1', 'SR-2', 'SR-3']
     assert return_labels(res, 'Main') == ['BU-1', 'HOUSE-RTN', 'BU-3']
 
@@ -1226,7 +1250,7 @@ def test_a_1to1_main_returns_on_the_backup_units_matching_port(client):
         'P1-1', 'P1-2', 'P1-3', 'P1-4', 'P1-5', 'P1-6']
     # And the mapped return rides the assignment to the canvas: same
     # resolution, no second derivation anywhere.
-    resolution = resolve(client, ('Wall', 3))
+    resolution = assigned(client, ('Wall', 3))
     assert labels(resolution, 'Wall') == ['P1-1', 'P1-2', 'P1-3']
     assert return_labels(resolution, 'Wall') == ['R1-1', 'R1-2', 'R1-3']
 

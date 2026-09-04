@@ -17,7 +17,8 @@ test_power_undo_coverage.py pins the power feature's:
   entries through per-setter snapshots before.
 * The processor seq counter rides the client's project copy, so an undo
   round-trip cannot make the next add mint a duplicate id.
-* A pure read never stamps port_assignments onto a clean project.
+* A pure read never adds to port_assignments; the stamp every project
+  carries is the funnel's, not the read's.
 * The gradient funnel's empty-final commit (what the stop-marker drag's
   mouseup now calls) persists AND records exactly one coalesced step.
 * Ctrl+Z mid-drag commits the gesture first instead of being silently
@@ -61,7 +62,10 @@ def page(e2e_server, pw_browser):
 # reset also strips processors / port_assignments / next_processor_seq /
 # distros so every test starts from a project that never defined them (PUT
 # replaces wholesale, so deleting the keys client-side deletes them
-# server-side).
+# server-side). One exception since auto-numbering was retired
+# (2026-09-03): the PUT funnel re-stamps the retired-auto mark, so the
+# project comes back carrying port_assignments as
+# {auto: false, autoRetired: true, pins: []} - the stamp, and nothing else.
 RESET_JS = """async () => {
     const app = window.app, r = window.canvasRenderer;
     let project = await (await fetch('/api/project')).json();
@@ -367,26 +371,36 @@ def test_processor_add_undo_add_mints_no_duplicate_ids(page):
         'duplicate processor ids on the server', out)
 
 
-# ── a pure read stamps nothing ────────────────────────────────────────────
+# ── a pure read adds nothing ──────────────────────────────────────────────
 
 def test_resolve_read_does_not_stamp_port_assignments(page):
+    """Every project carries port_assignments from birth (or from the PUT
+    funnel's retired-auto stamp - auto retired, 2026-09-03), so the line a
+    read must hold is narrower than "no key": the state before the read is
+    the funnel's bare stamp, and after the read - and the save that
+    follows it - the client's copy and the server's are exactly that
+    stamp still. No pins appeared, nothing was added."""
     reset_project(page)
     out = page.evaluate("""async () => {
         const app = window.app;
+        const server0 = await (await fetch('/api/project')).json();
+        const before = server0.port_assignments;
         await app.refreshPortAssignment();
         await new Promise(r => setTimeout(r, 200));
-        const clientHasKey = app.project.port_assignments !== undefined;
-        // And the key must not sneak to the server through the next save.
+        const client = app.project.port_assignments;
+        // And nothing extra may sneak to the server through the next save.
         await fetch('/api/project', {
             method: 'PUT', headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(app.project),
         });
         const server = await (await fetch('/api/project')).json();
-        return { clientHasKey,
-                 serverHasKey: server.port_assignments !== undefined };
+        return { before, client, after: server.port_assignments };
     }""")
-    assert out['clientHasKey'] is False, out
-    assert out['serverHasKey'] is False, out
+    stamp = {'auto': False, 'autoRetired': True, 'pins': []}
+    assert out['before'] == stamp, (
+        f'the reset did not leave the funnel\'s bare stamp: {out}')
+    assert out['client'] == stamp, f'the read added to the client copy: {out}'
+    assert out['after'] == stamp, f'the read reached the server: {out}'
 
 
 # ── the gradient funnel's final commit ────────────────────────────────────

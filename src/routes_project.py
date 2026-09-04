@@ -10,6 +10,7 @@ project, so this blueprint sets it through the app module attribute
 from flask import Blueprint, request, jsonify
 
 import app
+import port_assignment
 import processor_catalog
 from app import log_event, socketio
 
@@ -83,6 +84,9 @@ def save_project():
     # payload already holds.
     processor_catalog.sync_next_processor_seq(app.current_project)
     processor_catalog.stock_default_cvts(app.current_project)
+    # Same funnel duty for port attachment: see restore_project below.
+    if port_assignment.retire_auto(app.current_project):
+        log_event('port_assignment_auto_retired', {'at': 'save_project'})
     app.sync_next_layer_id()
     log_event('save_project', {'name': app.current_project.get('name')})
     return jsonify({'status': 'success'})
@@ -172,6 +176,16 @@ def restore_project():
     # exists for.
     processor_catalog.sync_next_processor_seq(app.current_project)
     processor_catalog.stock_default_cvts(app.current_project)
+    # Auto-numbering retired (user ruling, 2026-09-03): a file saved before
+    # it carries no `autoRetired` mark, and its auto-drawn ports have to be
+    # frozen into pins ONCE so the drawing does not change on load. The
+    # counts that decide where those ports were live on the client, so this
+    # funnel settles only what it can without them (no hardware, no
+    # screens, auto already off: stamp and done) and the first
+    # port-assignment request after the load - which carries the screens -
+    # settles the rest. Idempotent by the mark; see retire_auto.
+    if port_assignment.retire_auto(app.current_project):
+        log_event('port_assignment_auto_retired', {'at': 'restore_project'})
     app.sync_next_layer_id()
     log_event('restore_project', {
         'name': app.current_project.get('name', '?'),

@@ -14,16 +14,21 @@
 // header's attachment flag now (app-dock.js _renderDockFlag), not in the
 // strip: one pill with a screen count instead of a wall of red rows, so
 // the strip filters kind 'overflow' out below. The per-card usage counts
-// are the card headers' glance. There is no auto toggle in the UI any
-// more; the server keeps its auto state, and the amber auto-off strip row
-// (with its turn-back-on offer) stays as the recovery path for a legacy
-// project saved with auto off.
+// are the card headers' glance.
+//
+// Auto-numbering is retired (user ruling, 2026-09-03: "auto should be
+// removed now"). Nothing lands on a card unless a person put it there -
+// every placement is a pin, an unpinned port is "not attached" and the
+// flag counts it - so there is no auto state to toggle, no auto-off row
+// and no offer to turn it back on. A legacy file's auto-drawn ports are
+// frozen into pins once by the server (port_assignment.retire_auto); the
+// resolve that does it says `migrated`, and _assignmentRequest takes the
+// returned state on that word so the client's copy carries the pins too.
 //
 // KNOWN GAP: with the rows gone the data side, like the power side, has no
 // keyboard path for MAKING an assignment - the drag is the only gesture. The
 // offer buttons below stay real buttons, so the recovery paths (resolve a
-// clash, place an overflow, release a stranded pin, turn auto back on) are
-// still reachable by keyboard.
+// clash, release a stranded pin) are still reachable by keyboard.
 //
 // It derives nothing. The allocation order, the clashes, the overflow and the
 // port labels all come back from /api/port-assignments, which resolves them in
@@ -135,9 +140,8 @@ class _PortAssignment {
                     return;
                 }
                 // A move that worked still has something to say: which socket
-                // it landed on, what it held to get there, and the parts
-                // nobody asked for - another screen's auto ports packing into
-                // the room it left, a run that now spans two cards. It reads
+                // it landed on, and the parts nobody asked for - a run that
+                // now spans two cards, a socket deliberately shared. It reads
                 // where an error would but not in an error's colour: a move
                 // that did exactly what it was told is not a warning, and
                 // colouring the two alike trains people past both.
@@ -145,16 +149,21 @@ class _PortAssignment {
                 this._assignmentNote = (data.moved && data.moved.note) || null;
                 if (data.resolution) this._assignment = data.resolution;
                 // Undo audit: the server holds the read-must-not-create-the-
-                // key line three times over (_working/_store in
-                // routes_port_assignment.py), and this unconditional store
-                // defeated it from the client side - the boot-time /resolve
-                // stamped {auto:true, pins:[]} onto a project that never had
-                // the key, and every snapshot and save carried it from then
-                // on. A MUTATING call (one that names a history action) always
-                // stores its state; a read stores it only where the key
-                // already exists to update.
+                // key line (_working/_store in routes_port_assignment.py),
+                // and an unconditional store here once defeated it from the
+                // client side - the boot-time /resolve stamped state onto a
+                // project that never had the key, and every snapshot and
+                // save carried it from then on. A MUTATING call (one that
+                // names a history action) always stores its state; a read
+                // stores it only where the key already exists to update -
+                // or where the server says `migrated`: a legacy file's
+                // auto-drawn ports were just frozen into pins, and the
+                // client's copy (which has no key at all) has to carry
+                // them or the next snapshot hands the server a project it
+                // must freeze all over again.
                 if (data.state && this.project
-                        && (action || this.project.port_assignments !== undefined)) {
+                        && (action || data.migrated
+                            || this.project.port_assignments !== undefined)) {
                     this.project.port_assignments = data.state;
                 }
                 this._applyAssignmentResolution();
@@ -305,12 +314,12 @@ class _PortAssignment {
     _buildIssue(issue) {
         const row = document.createElement('div');
         row.className = 'hw-dock-issue';
-        // An unknown port count, auto being off, and a card whose boxes cannot
-        // reach its ceiling are all CONDITIONS - true, worth knowing, nothing
-        // to answer right now. A clash, an overflow or a stranded pin is a
-        // question waiting on a person. Colouring them the same would train
-        // people to skim past the ones that matter.
-        const mild = ['capacity-unknown', 'auto-off',
+        // An unknown port count and a card whose boxes cannot reach its
+        // ceiling are CONDITIONS - true, worth knowing, nothing to answer
+        // right now. A clash, an overflow or a stranded pin is a question
+        // waiting on a person. Colouring them the same would train people
+        // to skim past the ones that matter.
+        const mild = ['capacity-unknown',
                       'card-short-of-its-ceiling'].includes(issue.kind);
         if (mild) row.classList.add('hw-dock-issue-mild');
         const msg = document.createElement('span');
@@ -333,14 +342,15 @@ class _PortAssignment {
         // A block move re-pins the WHOLE run, this screen's existing pins
         // included. That is a real decision and the button should say so
         // before it is pressed, not after: honouring the old pins would move
-        // only the auto ports and tear the run in two, which is the thing the
+        // only the rest and tear the run in two, which is the thing the
         // move exists to prevent. Other screens' pins are never touched.
         if (offer.action === 'move-block') {
             btn.title = 'Move every port of this screen to the next free run, '
-                + 'in the same order, and hold them there. Any port of this '
-                + 'screen pinned elsewhere comes with it.';
+                + 'in the same order, and hold them there. Every port of '
+                + 'this screen comes with it, wherever it sits now.';
         } else if (offer.action === 'release') {
-            btn.title = 'Hand these ports back to auto-numbering.';
+            btn.title = 'Take these ports off their card. They stay '
+                + 'unattached until you place them again.';
         }
         btn.addEventListener('click', () => this._takeOffer(offer));
         return btn;
@@ -374,10 +384,6 @@ class _PortAssignment {
                 '/api/port-assignments/unpin', 'POST',
                 { layerId: offer.layerId, index: offer.index },
                 null, 'Release Ports');
-        } else if (offer.action === 'auto-on') {
-            return this._assignmentRequest('/api/port-assignments', 'PUT',
-                                           { auto: true }, null,
-                                           'Toggle Auto Numbering');
         }
     }
 
@@ -417,10 +423,6 @@ class _PortAssignment {
     // The per-card usage foot the old panel drew is the card headers'
     // n/N + fill glance now (app-dock.js _dockBuildCard reads the same
     // assignment summary). Nothing is left for a foot builder to build.
-    // The auto-on offer above is the ONLY auto lever in the UI: the PUT
-    // endpoint still takes auto either way, but nothing here ever turns
-    // auto OFF - the amber strip row exists to recover a legacy project
-    // saved that way, not to offer the trip.
 }
 
 for (const k of Object.getOwnPropertyNames(_PortAssignment.prototype)) {

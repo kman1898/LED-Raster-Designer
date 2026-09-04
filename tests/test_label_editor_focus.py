@@ -105,6 +105,11 @@ RESET_JS = """async () => {
     if (window.canvasRenderer) window.canvasRenderer.render();
     const proc = app._processorsResolved[0];
     const card = proc.slots.map(s => s.card).find(Boolean);
+    // Nothing lands by itself (auto retired, 2026-09-03): the screen is
+    // put on the card by an explicit fill, so the chips under test hold
+    // the same occupant the old seed gave them.
+    await app._assignmentRequest('/api/port-assignments/place-overflow',
+        'POST', {layerId: String(screen.id), cardId: card.id});
     return {screenId: screen.id, procId: proc.id, cardId: card.id};
 }"""
 

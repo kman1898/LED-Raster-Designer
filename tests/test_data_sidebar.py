@@ -279,9 +279,9 @@ RETIRED_IDS = [
     'port-assignment-issues', 'port-assignment-foot',
     'processor-list', 'processor-add-row',
     'power-soca-runs', 'power-splitters', 'power-distros',
-    # The auto-numbering switch left the UI whole: the server keeps its
-    # auto state, the strip's amber auto-off row is the one recovery path,
-    # and a resurrected checkbox would re-offer the trip.
+    # Auto-numbering is retired outright (user ruling, 2026-09-03): nothing
+    # lands on a card unless a person put it there, so a resurrected
+    # checkbox would re-offer a switch that no longer exists.
     'port-assignment-auto', 'hw-dock-auto-wrap',
 ]
 

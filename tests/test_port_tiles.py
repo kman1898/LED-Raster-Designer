@@ -58,8 +58,9 @@ def _guard(server_project_guard):
 
 
 # One MX20 named SR: an all-in-one whose six ports give the grid something
-# to be a grid about, with the shared screen sitting on its first port so
-# occupied and free both exist to tell apart.
+# to be a grid about, with the shared screen put on its first port by an
+# explicit fill (nothing lands by itself - auto-numbering retired,
+# 2026-09-03) so occupied and free both exist to tell apart.
 #
 # The screen's NAME is normalized to Screen1 here rather than trusted: the
 # shared server's screen is Screen1 only until some earlier module's Flask
@@ -99,6 +100,16 @@ SEED_JS = """async () => {
         body: JSON.stringify({ name: 'SR' }),
     });
     await window.app.refreshProcessors();
+    // The explicit fill: Screen1 onto the new card's first port - off
+    // whatever card a previous seed left it pinned to first, so a stale
+    // pin (or a recurring card id) never decides where it sits.
+    if (screen) {
+        await window.app._assignmentRequest('/api/port-assignments/unpin',
+            'POST', { layerId: String(screen.id) });
+        await window.app._assignmentRequest(
+            '/api/port-assignments/place-overflow', 'POST',
+            { layerId: String(screen.id), cardId: card.id });
+    }
     window.app.saveState('Seed Tiles');
     return { procId: proc.id, cardId: card.id };
 }"""
@@ -207,8 +218,9 @@ def test_a_contested_port_wears_the_clash_state(panel_page):
             });
             app.project = await (await fetch('/api/project')).json();
             await app.refreshPortAssignment();
-            // Screen1's port is auto-numbered and would politely re-pack out
-            // of the way; a clash needs it HELD where it is first.
+            // Screen1's port is already a pin on socket 1 (the seed's
+            // fill); re-pinning the same socket is harmless and says in
+            // the test itself that the clash is between two HELD claims.
             const screen1 = app.project.layers.find(l => l.name === 'Screen1');
             await app._assignmentRequest('/api/port-assignments/pin', 'POST',
                                          { layerId: String(screen1.id),
