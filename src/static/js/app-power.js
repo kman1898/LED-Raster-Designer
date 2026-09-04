@@ -5783,7 +5783,9 @@ class _Power {
     // serpentine, get circuits 1..6 at 14 apiece - which only works if the
     // pattern fill CUTS at capacity instead of pouring the whole selection
     // into the one active circuit, and if a click past the cap is refused
-    // instead of quietly overloading the run.
+    // instead of quietly overloading the run. And each of those six reads
+    // from the SAME side: a new run restarts the snake at the pattern's
+    // start corner rather than continuing it (_chunkPicksByCapacity).
     //
     // ONE authority per side, and each is the sidebar's own readout:
     //   power  "Panels/Circuit" - watts per circuit (V x A) against each
@@ -6327,7 +6329,8 @@ class _Power {
     // up to its capacity (customRunCapacity - the sidebar's Panels/Circuit
     // and Panels/Port), then steps to the next number and keeps going until
     // the selection is consumed: a 14 x 6 block on serpentine at 14 a
-    // circuit is circuits 1..6 at 14 apiece, in one gesture.
+    // circuit is circuits 1..6 at 14 apiece, in one gesture, every one of
+    // them read from the side the first one started on.
     //
     // The numbers it fills are OVERWRITTEN - the active one always was, and
     // the ones it advances into are told on in the toast. A cabinet already
@@ -6355,8 +6358,9 @@ class _Power {
         const picks = this._selectedPathPanels(owner, selection);
         if (picks.length === 0) return;
 
-        const ordered = this._orderPicksForPattern(owner, pattern, picks);
-        if (ordered.length === 0) return;
+        const lattice = this._latticeGridForPicks(owner, picks);
+        const lines = this._patternLines(pattern, lattice.grid, lattice.bucket);
+        if (lines.length === 0) return;
 
         const pathsKey = isPower ? 'powerCustomPaths' : 'customPortPaths';
         const idxKey = isPower ? 'powerCustomIndex' : 'customPortIndex';
@@ -6366,12 +6370,15 @@ class _Power {
             if (typeof this._toast === 'function') this._toast(msg, isError);
         };
 
-        const cut = this._chunkPicksByCapacity(owner, kind, startNum, ordered);
+        const cut = this._chunkPicksByCapacity(owner, kind, startNum, lines);
         if (cut.error) {
             toast(`Cannot apply: ${cut.error}`, true);
             return;
         }
         const chunks = cut.chunks;
+        // The picks in the order they were dealt, run after run.
+        const ordered = chunks.flatMap(c => c.picks);
+        if (ordered.length === 0) return;
         const filled = new Set(chunks.map(c => c.num));
 
         // Reject the entire apply if any selected panel already belongs to a
@@ -6462,49 +6469,96 @@ class _Power {
         return (at >= 0 && at + 1 < nums.length) ? nums[at + 1] : null;
     }
 
-    // Cut an ordered pick list into runs at capacity: [{num, picks, load}]
-    // starting at `startNum`, each run holding as many picks in order as the
-    // cap allows (a run always takes at least one). No cap known means one
-    // run with everything, the old behaviour exactly. `error` instead when a
-    // single cabinet is over the cap on its own or the override list runs
-    // out - nothing is written in either case.
-    _chunkPicksByCapacity(owner, kind, startNum, ordered) {
+    // Cut the pattern's lines into runs at capacity: [{num, picks, load}]
+    // starting at `startNum`, each run holding as many picks as the cap
+    // allows (a run always takes at least one). No cap known means one run
+    // with everything.
+    //
+    // THE WALK. Within one run the lines snake - the first in the pattern's
+    // own direction, the next back, and so on - because a run is one cable
+    // daisy-chained through the block. A NEW run does not continue the
+    // snake: it starts again from the pattern's start side, on whatever line
+    // it begins, because its cable comes from where the first one's came
+    // from. The user, 2026-09-04, on a 14-wide wall at 14 a circuit: "the
+    // next row needs to restart on the same side as the serpentine started.
+    // because the cables typically come from the same side." So a 14 x 6
+    // block at 14 a circuit reads left to right on every row; a 12 x 2
+    // block at 8 a port gives port 2 the right end of row 1 and, snaking,
+    // the right end of row 2, and port 3 the rest of row 2 read from the
+    // left. Where no cap is reached this is one run, and one run's snake is
+    // the order getPatternOrderForGrid has always produced (two cabinets
+    // sharing a lattice cell swap places on a reversed line, and nowhere
+    // else).
+    //
+    // `error` instead when a single cabinet is over the cap on its own or
+    // the override list runs out - nothing is written in either case.
+    _chunkPicksByCapacity(owner, kind, startNum, lines) {
         const cap = this.customRunCapacity(owner, kind);
-        if (!cap.known) {
-            return { chunks: [{ num: startNum, picks: ordered.slice(), load: 0 }] };
-        }
+        const limit = cap.known ? cap.limit : Infinity;
         const eps = CUSTOM_RUN_EPS;
         const noun = kind === 'power' ? 'circuit' : 'port';
         const fmt = (v) => (kind === 'power'
             ? `${Math.round(v).toLocaleString()} W` : `${Math.round(v).toLocaleString()} px`);
         const chunks = [];
         let cur = { num: startNum, picks: [], load: 0 };
-        for (const pick of ordered) {
-            const load = this.customHitLoad(kind, pick.layer, pick.panel);
-            if (load > cap.limit + eps) {
-                return { error: `panel ${this._describePathPanel(owner, pick.layer, pick.panel)} `
-                    + `is ${fmt(load)} and a ${noun} carries ${fmt(cap.limit)}.` };
+        let lineInRun = 0;
+        // Close the run in hand and open the next number - or say why not.
+        const closeRun = () => {
+            chunks.push(cur);
+            const next = this._nextCustomRunNumber(owner, kind, cur.num);
+            if (next === null) {
+                const taken = this.getOverrideNums(owner, kind)
+                    .map(n => this._customRunLabel(owner, kind, n)).join(', ');
+                return `the selection does not fit on the taken-over `
+                    + `${noun}s (${taken}) at ${cap.describe}. Take over another `
+                    + `run or select a narrower block.`;
             }
-            if (cur.picks.length > 0 && cur.load + load > cap.limit + eps) {
-                chunks.push(cur);
-                const next = this._nextCustomRunNumber(owner, kind, cur.num);
-                if (next === null) {
-                    const taken = this.getOverrideNums(owner, kind)
-                        .map(n => this._customRunLabel(owner, kind, n)).join(', ');
-                    return { error: `the selection does not fit on the taken-over `
-                        + `${noun}s (${taken}) at ${cap.describe}. Take over another `
-                        + `run or select a narrower block.` };
+            cur = { num: next, picks: [], load: 0 };
+            lineInRun = 0;
+            return null;
+        };
+        for (const line of lines) {
+            // What the line still has to give, kept in the pattern's own
+            // direction; a reversed pass reads it from the far end.
+            let cells = line.slice();
+            while (cells.length > 0) {
+                const reversed = lineInRun % 2 === 1;
+                const seq = reversed ? cells.slice().reverse() : cells;
+                let took = 0;
+                for (const pick of seq) {
+                    const load = this.customHitLoad(kind, pick.layer, pick.panel);
+                    if (cap.known && load > limit + eps) {
+                        return { error: `panel ${this._describePathPanel(owner, pick.layer, pick.panel)} `
+                            + `is ${fmt(load)} and a ${noun} carries ${fmt(limit)}.` };
+                    }
+                    if (cur.picks.length > 0 && cur.load + load > limit + eps) break;
+                    cur.picks.push(pick);
+                    cur.load += load;
+                    took += 1;
                 }
-                cur = { num: next, picks: [], load: 0 };
+                cells = reversed ? cells.slice(0, cells.length - took) : cells.slice(took);
+                if (cells.length > 0) {
+                    // Full with line to spare: this run is done, and the rest
+                    // of the line opens the next one from the start side.
+                    const why = closeRun();
+                    if (why) return { error: why };
+                }
             }
-            cur.picks.push(pick);
-            cur.load += load;
+            lineInRun += 1;
         }
         chunks.push(cur);
         return { chunks };
     }
 
-    getPatternOrderForGrid(pattern, grid) {
+    // The compacted grid's lines - rows for a horizontal-first pattern,
+    // columns for a vertical-first one - in the order the pattern visits
+    // them, each line's cells in the pattern's own direction and never
+    // reversed here. The serpentine's alternation belongs to whoever walks
+    // the lines: getPatternOrderForGrid for one continuous snake,
+    // _chunkPicksByCapacity per run. ONE home for the corner and direction
+    // logic, so the two walks cannot drift apart. `bucket` expands a
+    // representative pick into every pick sharing its cell.
+    _patternLines(pattern, grid, bucket = null) {
         const rows = grid.length;
         const cols = rows > 0 ? grid[0].length : 0;
         if (rows === 0 || cols === 0) return [];
@@ -6525,39 +6579,37 @@ class _Power {
                 startRow = 0; startCol = 0; rowDir = 1; colDir = 1;
         }
 
-        const ordered = [];
-        const isVerticalFirst = (direction === 'v');
-
-        if (isVerticalFirst) {
+        const expand = (pick) => (bucket && bucket.get(pick)) || [pick];
+        const lines = [];
+        if (direction === 'v') {
             for (let c = startCol; c >= 0 && c < cols; c += colDir) {
-                const colOffset = Math.abs(c - startCol);
-                const shouldReverse = colOffset % 2 === 1;
-                if (shouldReverse) {
-                    for (let r = startRow + (rows - 1) * rowDir; r >= 0 && r < rows; r -= rowDir) {
-                        if (grid[r] && grid[r][c]) ordered.push(grid[r][c]);
-                    }
-                } else {
-                    for (let r = startRow; r >= 0 && r < rows; r += rowDir) {
-                        if (grid[r] && grid[r][c]) ordered.push(grid[r][c]);
-                    }
+                const line = [];
+                for (let r = startRow; r >= 0 && r < rows; r += rowDir) {
+                    if (grid[r] && grid[r][c]) line.push(...expand(grid[r][c]));
                 }
+                lines.push(line);
             }
         } else {
             for (let r = startRow; r >= 0 && r < rows; r += rowDir) {
-                const rowOffset = Math.abs(r - startRow);
-                const shouldReverse = rowOffset % 2 === 1;
-                if (shouldReverse) {
-                    for (let c = startCol + (cols - 1) * colDir; c >= 0 && c < cols; c -= colDir) {
-                        if (grid[r] && grid[r][c]) ordered.push(grid[r][c]);
-                    }
-                } else {
-                    for (let c = startCol; c >= 0 && c < cols; c += colDir) {
-                        if (grid[r] && grid[r][c]) ordered.push(grid[r][c]);
-                    }
+                const line = [];
+                for (let c = startCol; c >= 0 && c < cols; c += colDir) {
+                    if (grid[r] && grid[r][c]) line.push(...expand(grid[r][c]));
                 }
+                lines.push(line);
             }
         }
+        return lines;
+    }
 
+    // One continuous snake over the grid: the first line in the pattern's
+    // own direction, every second line back. A line that is empty (hidden
+    // cabinets, or a group's gap) still counts, so it does not reverse the
+    // line after it - the rule this has always had.
+    getPatternOrderForGrid(pattern, grid) {
+        const ordered = [];
+        this._patternLines(pattern, grid).forEach((line, i) => {
+            ordered.push(...(i % 2 === 1 ? line.slice().reverse() : line));
+        });
         return ordered;
     }
     
