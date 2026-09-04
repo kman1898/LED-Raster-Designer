@@ -276,6 +276,14 @@ def cards_in(processors):
                 # refusal has to say which main it returns.
                 'backupRoles': {p['number']: p['backsUp']
                                 for p in card['ports'] if p.get('backsUp')},
+                # The other end of the link: the socket each main's return
+                # lands on, by the number written beside THAT socket. Read
+                # by _attached_labels when nothing upstream is named, so an
+                # unnamed card's return end prints the socket it comes back
+                # on rather than nothing.
+                'backupSockets': {p['number']: p['backedBy']['localPort']
+                                  for p in card['ports']
+                                  if p.get('backedBy')},
             })
     return out
 
@@ -288,6 +296,45 @@ def _card_title(card):
     if card['processorName']:
         return f"{card['processorName']} slot {(card['slot'] or 0) + 1}"
     return card['deviceName']
+
+
+def _attached_labels(card, port):
+    """What an ATTACHED port prints, both ends: the label the catalog
+    derived where anything upstream is named, and the socket's own number
+    where nothing is.
+
+    The user's ruling (2026-09-03): "Whatever card they are attached to
+    those are the ports in the numbering that they should be taking, which
+    has been the standard since we added this new stuff." A screen's ports
+    count 1..N on their own (P1, P2 - the screen's template) only while
+    they sit on nothing; the moment one is on a card socket it prints that
+    socket. A card nobody named used to give no answer here, and the client
+    fell back to the screen's template - so SL - MAIN on H9 slot 1 sockets
+    6-9 printed P1 P2 P3 P4 while the dock said 6 7 8 9. Now the bare socket
+    number IS the label: "6" on an unnamed card, the box's own silkscreen
+    ("1".."10" on XD B just like XD A) behind an unnamed box. Nothing
+    changes where a name or template exists - H9-6 stays H9-6 - because
+    the catalog already answered and that answer wins outright.
+
+    The return end goes the same way: the catalog's ladder where it spoke
+    (a typed name, a template, the mapped backup's own label, the derived
+    P-to-R), else the socket the return LANDS on where the redundancy
+    mapping put one there (main on socket 1 of XD A returns on XD B's own
+    socket 1 - "1"), else the primary's number with the derived R after it
+    (derive_return_label, the one statement of that rule). The silkscreen
+    number is the resolver's localNumber, reused rather than re-derived.
+    """
+    if card is None:
+        return None, None
+    label = (card.get('labels') or {}).get(port)
+    return_label = (card.get('returnLabels') or {}).get(port)
+    if label is None:
+        label = str((card.get('localNumbers') or {}).get(port, port))
+    if return_label is None:
+        lands_on = (card.get('backupSockets') or {}).get(port)
+        return_label = (str(lands_on) if lands_on is not None
+                        else catalog.derive_return_label(label))
+    return label, return_label
 
 
 def _port_title(card, port):
@@ -478,15 +525,21 @@ def resolve(processors, screens, state=None, _legacy_auto=False):
                 continue
             card = by_id.get(spot['cardId'])
             capacity = card['capacity'] if card else None
+            # THE ONE AUTHORITY on what an attached port prints. The canvas
+            # bubbles, the dock chips and every export index these two
+            # fields (the client's _indexAssignmentLabels) and fall back to
+            # the screen's own P#/R# template only where they are None -
+            # which, since the 2026-09-03 ruling, is only a port that sits
+            # on nothing. See _attached_labels.
+            label, return_label = _attached_labels(card, spot['port'])
             ports.append({
                 'index': index,
                 'number': index + 1,
                 'cardId': spot['cardId'],
                 'cardName': _card_title(card) if card else spot['cardId'],
                 'port': spot['port'],
-                'label': (card or {}).get('labels', {}).get(spot['port']),
-                'returnLabel': (card or {}).get('returnLabels', {})
-                               .get(spot['port']),
+                'label': label,
+                'returnLabel': return_label,
                 'source': spot['source'],
                 'overlap': (spot['cardId'], spot['port']) in overlapping,
                 'beyondCapacity': bool(capacity and spot['port'] > capacity),

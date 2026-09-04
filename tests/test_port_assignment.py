@@ -1549,12 +1549,15 @@ def test_a_ports_label_is_the_one_the_catalog_derived(one_card):
         ['SR-1', 'SR-2', 'SR-3']
 
 
-def test_an_unnamed_card_gives_its_ports_no_label(one_card):
-    """With nothing named upstream there is no processor-derived label, which
-    leaves the per-screen templates in charge exactly as before."""
+def test_an_unnamed_card_labels_its_ports_with_their_sockets(one_card):
+    """With nothing named upstream there is no processor-derived label, and
+    the socket number stands in for it: the user's ruling (2026-09-03) is
+    that an attached port prints the numbering of the card it is attached
+    to, named or not. (This used to pin None here and leave the per-screen
+    template printing P1, P2 over sockets the dock called 1, 2.)"""
     client, _pid, card = one_card
     res = attach(client, 'Main', card, screens(('Main', 2)))
-    assert [p['label'] for p in by_name(res, 'Main')['ports']] == [None, None]
+    assert [p['label'] for p in by_name(res, 'Main')['ports']] == ['1', '2']
     assert numbers(res, 'Main') == [1, 2], 'an unnamed card still numbers'
 
 

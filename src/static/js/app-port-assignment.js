@@ -219,9 +219,11 @@ class _PortAssignment {
     // problem on a wall with thirty screens.
     //
     // A port with no label is left OUT rather than stored as null, so the
-    // lookup's own miss is the fallback: an unassigned port, a card nobody
-    // named, or a project with no processor at all all land on the layer's own
-    // template with nothing extra to check.
+    // lookup's own miss is the fallback: an unassigned port, or a project
+    // with no processor at all, lands on the layer's own template with
+    // nothing extra to check. (A card nobody named is no longer a miss: the
+    // server labels its sockets with their own numbers - the 2026-09-03
+    // ruling - and those arrive here like any other label.)
     //
     // The return ends get a map of their own, built from the same resolution
     // in the same pass. Two maps rather than one holding pairs, because the

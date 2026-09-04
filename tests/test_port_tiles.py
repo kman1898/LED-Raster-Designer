@@ -387,6 +387,89 @@ def test_a_card_named_p1_shows_r1_everywhere_the_return_is_advertised(panel_page
         panel_page.wait_for_timeout(100)
 
 
+def test_an_unnamed_cards_chip_canvas_and_export_all_print_the_socket(panel_page):
+    """The user's ruling (2026-09-03): "Whatever card they are attached to
+    those are the ports in the numbering that they should be taking." With
+    the card's name cleared, the screen on socket 1 prints "1" - the number
+    the chip's face leads with - on every surface that prints a label: the
+    API the canvas bubbles ask (getPortLabelText, spied through a real
+    render), the same API asked again in export mode (the export path is
+    the renderer in exportMode - app-export-io.js has no label branch of
+    its own), and the dock chip, which carries no second label to
+    contradict its number. The return end is the same socket, R'd. None of
+    it is the screen's own P1: the socket is on a card, and that is what
+    it prints."""
+    ids = seed(panel_page)
+    panel_page.evaluate(RENAME_CARD_JS, dict(ids, name=''))
+    panel_page.wait_for_timeout(600)
+    try:
+        out = panel_page.evaluate("""(args) => {
+            const app = window.app;
+            const screen = app.project.layers.find(
+                l => (l.type || 'screen') === 'screen');
+            const tile = document.querySelector(
+                `[data-lrd-tile="port-${args.cardId}-1"]`);
+            // The face's glance line: the socket number, then the label
+            // span only where the card resolved one.
+            const line = tile && tile.querySelector(
+                ':scope > .lrd-tile-face .lrd-tile-line');
+            const spans = line ? [...line.querySelectorAll('span')] : [];
+            // Spy on the one label authority through two real renders -
+            // the drawing as the user sees it, and the drawing as the
+            // export captures it - recording what the renderer asked for
+            // and was told about this screen's first port.
+            const asked = { canvas: [], export: [] };
+            const real = app.getPortLabelText;
+            const spy = (bucket) => function (layer, portNum, type) {
+                const text = real.call(app, layer, portNum, type);
+                if (layer && layer.id === screen.id && portNum === 1) {
+                    bucket.push([type || 'primary', text]);
+                }
+                return text;
+            };
+            const r = window.canvasRenderer;
+            try {
+                app.getPortLabelText = spy(asked.canvas);
+                r.render();
+                app.getPortLabelText = spy(asked.export);
+                r.exportMode = true;
+                r.render();
+            } finally {
+                r.exportMode = false;
+                app.getPortLabelText = real;
+                r.render();
+            }
+            const uniq = (rows) => [...new Set(rows.map(x => x.join('=')))];
+            return {
+                chipNumber: spans[0] ? spans[0].textContent : null,
+                chipLabel: spans[1] ? spans[1].textContent : null,
+                onProcessor: app.getProcessorPortLabel(screen, 1),
+                printsPrimary: app.getPortLabelText(screen, 1),
+                printsReturn: app.getPortLabelText(screen, 1, 'return'),
+                canvasAsked: uniq(asked.canvas),
+                exportAsked: uniq(asked.export),
+            };
+        }""", {'cardId': ids['cardId']})
+        assert out['chipNumber'] == '1', out
+        assert out['chipLabel'] is None, (
+            f'the chip prints a second label beside its number: {out}')
+        assert out['onProcessor'] == '1', (
+            f'the resolution gives an unnamed card\'s socket no label: {out}')
+        assert out['printsPrimary'] == '1', (
+            f'the drawing prints the screen\'s own count over a socket: {out}')
+        assert out['printsReturn'] == '1R', out
+        assert 'primary=1' in out['canvasAsked'], (
+            f'the canvas bubble did not print the socket: {out}')
+        assert 'primary=1' in out['exportAsked'], (
+            f'the export did not print the socket: {out}')
+        assert out['canvasAsked'] == out['exportAsked'], (
+            f'the export prints something the canvas does not: {out}')
+        assert 'primary=P1' not in out['canvasAsked'], out
+    finally:
+        panel_page.evaluate(RENAME_CARD_JS, dict(ids, name='SR'))
+        panel_page.wait_for_timeout(300)
+
+
 def test_edits_through_the_open_editor_round_trip_with_the_same_actions(panel_page):
     """Typed through the visible field the way a user types: the rename and
     the return land on the server under the actions the rows always earned,

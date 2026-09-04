@@ -12,9 +12,16 @@ anymore, it will be autolabeled by default", and the rule that gets there is:
 Everything below is that rule and the two things it must not break:
 
 * A PORT THAT IS NOT ASSIGNED KEEPS THE OLD BEHAVIOUR, EXACTLY. So does every
-  port of a project with no processor, and so does a port on a card nobody has
-  named. Drawings have been issued off those labels; a release that blanked
-  them would be wrong on paper that is already in a truck.
+  port of a project with no processor. Drawings have been issued off those
+  labels; a release that blanked them would be wrong on paper that is already
+  in a truck.
+* AN ASSIGNED PORT ON A CARD NOBODY NAMED PRINTS THE SOCKET IT SITS ON. The
+  user's ruling (2026-09-03): "Whatever card they are attached to those are
+  the ports in the numbering that they should be taking, which has been the
+  standard since we added this new stuff." Its screen's own P# count is what
+  it prints only while it sits on nothing; attached, it prints the socket -
+  "6" on an unnamed card, "H9-6" once the card is named, a box's own 1..N
+  behind a box. No other port's number shifts because of an attachment.
 * AN ASSIGNED PORT IS STILL NAMEABLE. The screen's override no longer reaches
   it, so the name moves to the port itself, on the card, where a socket's name
   belongs - it survives the wall in front of it being renumbered or deleted.
@@ -334,18 +341,136 @@ def test_a_port_with_nowhere_to_go_takes_no_processor_label(client):
                                    None, None, None]
 
 
-def test_an_assigned_port_on_a_card_nobody_named_takes_no_label(client):
+def test_an_assigned_port_on_a_card_nobody_named_prints_its_socket(client):
     """A processor added and nothing named is the state every processor is in
     for the first minute of its life. Ports are assigned, and no name exists
-    anywhere upstream to build a label out of, so the screen's own template is
-    still doing the work and the drawing does not change."""
+    upstream to build a label out of - and the label is the socket number
+    itself, because that is what is silkscreened beside the socket the port
+    is plugged into. This used to pin the opposite (no label, the screen's
+    own P# template doing the work) until the user's ruling (2026-09-03):
+    "Whatever card they are attached to those are the ports in the numbering
+    that they should be taking, which has been the standard since we added
+    this new stuff." The return end is the same socket, R'd the way every
+    untyped return is (derive_return_label)."""
     state = add_processor(client, 'novastar-h9')
     pid = only(state)['id']
     set_card(client, pid, 0, 'novastar-card-h-20xrj45')
 
     res = assigned(client, ('Main', 3))
-    assert labels(res, 'Main') == [None, None, None]
+    assert labels(res, 'Main') == ['1', '2', '3']
+    assert return_labels(res, 'Main') == ['1R', '2R', '3R']
     assert res['configured'] is True, 'the card is there; only its name is not'
+
+
+def place(client, layer_id, index, card_id, port, sc):
+    """One port of one screen onto one socket by hand - the dock's drop."""
+    resp = client.post('/api/port-assignments/place', json={
+        'layerId': layer_id, 'index': index, 'cardId': card_id,
+        'port': port, 'screens': sc})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    return resp.get_json()['resolution']
+
+
+def test_an_unnamed_card_numbers_an_attached_port_by_its_own_socket(client):
+    """The user's evidence, rebuilt: "2026 Experts Only", an H9 with unnamed
+    16-port cards, SL - MAIN on slot 1's sockets 6-9. The dock said 6 7 8 9
+    and the DATA drawing printed P1 P2 P3 P4. Now the drawing prints what
+    the dock says - and a second screen on the SECOND card counts that
+    card's sockets from 1, not on from 16, because each card's face is its
+    own silkscreen. The screen's own P# count (P1..P4) is what an
+    UNATTACHED port prints, and nothing else. Naming the card changes
+    nothing about which socket prints - only what it is called."""
+    state = add_processor(client, 'novastar-h9')
+    pid = only(state)['id']
+    state = set_card(client, pid, 0, 'novastar-card-h-16xrj45-2xfiber')
+    state = set_card(client, pid, 1, 'novastar-card-h-16xrj45-2xfiber')
+    proc = only(state)
+    slot1, slot2 = [s['card']['id'] for s in proc['slots'] if s['card']][:2]
+
+    # Every port placed by hand - the only way a port lands on a card now
+    # that auto-numbering is retired - so the sockets are the ones this
+    # test names.
+    sc = screens(('SL - MAIN', 4), ('SR', 3))
+    res = None
+    for index, socket in enumerate((6, 7, 8, 9)):
+        res = place(client, 'SL - MAIN', index, slot1, socket, sc)
+    for index, socket in enumerate((1, 2, 3)):
+        res = place(client, 'SR', index, slot2, socket, sc)
+
+    main = next(s for s in res['screens'] if s['layerId'] == 'SL - MAIN')
+    assert [(p['cardId'], p['port']) for p in main['ports']] == \
+        [(slot1, 6), (slot1, 7), (slot1, 8), (slot1, 9)]
+    assert labels(res, 'SL - MAIN') == ['6', '7', '8', '9'], (
+        'an attached port on an unnamed card is still printing the '
+        'screen\'s own P# count')
+    assert return_labels(res, 'SL - MAIN') == ['6R', '7R', '8R', '9R']
+    assert labels(res, 'SR') == ['1', '2', '3'], (
+        'the second card did not number off its own face')
+
+    # Named, the same sockets print the name - exactly as they always did.
+    name_card(client, pid, slot1, 'H9')
+    res = resolve(client, *[(s['name'], s['ports']) for s in sc])
+    assert labels(res, 'SL - MAIN') == ['H9-6', 'H9-7', 'H9-8', 'H9-9']
+    assert return_labels(res, 'SL - MAIN') == \
+        ['H9-6R', 'H9-7R', 'H9-8R', 'H9-9R']
+    assert labels(res, 'SR') == ['1', '2', '3'], (
+        'naming one card renamed the other')
+
+
+def test_an_unnamed_box_numbers_an_attached_port_by_its_own_silkscreen(client):
+    """A breakout box counts 1..N on its own face whichever trunk it hangs
+    on (the 2026-08-27 silkscreen ruling), so a port attached behind an
+    unnamed box prints the box's number, not the card-wide one: the twelve
+    ports of a wall on an SX40's XD A and XD B print 1..10 and then 1, 2 -
+    XD B's own first two sockets. Redundancy on, the same twelve sit on A
+    and C and their returns land on B's and D's matching sockets, so the
+    return end prints THAT socket's own number: A-1 out on "1", back on
+    B's "1". The number is the resolver's localNumber, read, not
+    re-derived."""
+    state = add_processor(client, 'brompton-sx40')
+    pid = only(state)['id']
+    card_id = first_card(only(state))['id']
+
+    sc = screens(('Wall', 12))
+    res = None
+    for index in range(12):
+        res = place(client, 'Wall', index, card_id, index + 1, sc)
+    assert labels(res, 'Wall') == \
+        [str(n) for n in range(1, 11)] + ['1', '2']
+    assert return_labels(res, 'Wall') == \
+        [f'{n}R' for n in range(1, 11)] + ['1R', '2R']
+
+    # Redundancy on: B backs up A and D backs up C, socket for socket.
+    client.post('/api/port-assignments/unpin', json={'layerId': 'Wall'})
+    assert client.put(f'/api/processors/{pid}',
+                      json={'redundancy': True}).status_code == 200
+    for index, socket in enumerate(list(range(1, 11)) + [21, 22]):
+        res = place(client, 'Wall', index, card_id, socket, sc)
+    assert labels(res, 'Wall') == \
+        [str(n) for n in range(1, 11)] + ['1', '2']
+    assert return_labels(res, 'Wall') == \
+        [str(n) for n in range(1, 11)] + ['1', '2'], (
+        'the return end is not printing the socket it lands on')
+
+
+def test_an_attachment_shifts_no_other_ports_number(client):
+    """The other half of the ruling, verbatim: "the numbering should default
+    one through whatever but on a port that has been added to a processor
+    or sending card that should show the port that it is attached to."
+    Seven ports dropped on an unnamed four-port machine: the four that
+    attached print their sockets, and the three that did not carry no label
+    at all - the client's cue to print P5, P6, P7 off the screen's own
+    count, which an attachment elsewhere on the screen does not move."""
+    state = add_processor(client, 'novastar-vx400')
+    assert only(state)['name'] == '', 'the fixture came pre-named'
+
+    res = assigned(client, ('Main', 7))
+    assert labels(res, 'Main') == ['1', '2', '3', '4', None, None, None]
+    assert return_labels(res, 'Main') == \
+        ['1R', '2R', '3R', '4R', None, None, None]
+    assert [p['number'] for p in
+            next(s for s in res['screens'] if s['layerId'] == 'Main')['ports']
+            ] == list(range(1, 8)), 'the screen\'s own count moved'
 
 
 def test_a_project_with_no_processors_offers_no_labels_at_all(client):
@@ -480,8 +605,9 @@ def test_the_processor_is_consulted_before_any_per_layer_override():
 
 def test_the_layer_template_is_still_the_fallback():
     """The half of getPortLabelText that must never be deleted. Every project
-    with no processor, every port with no card and every card with no name
-    arrives here, including drawings already issued."""
+    with no processor and every port with no card arrives here, including
+    drawings already issued. (A card with no name no longer does: since the
+    2026-09-03 ruling its sockets arrive as labels of their own.)"""
     body = function_body(js('app-power.js'),
                          'getPortLabelText(layer, portNum, type) {')
     assert "layer.portLabelTemplateReturn || 'R#'" in body
