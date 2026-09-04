@@ -1,8 +1,49 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
-v0.12.0 - September 1, 2026 (BETA)
+v0.12.0 - September 3, 2026 (BETA)
 ----------------------------
+
+- NEW: A distro says what it offers. Tick the connector types a distro
+  carries (Soca 208, Soca 120, L21-30) behind its gear, and each one
+  becomes a plug you drag onto a screen. While you drag, the exact
+  circuits the drop will feed light up with a pending bracket and a pill
+  ("SL 3 -> circuits 7-12 - 81 A"); a screen set to a different breakout
+  refuses with a message, and the pill warns when the box would push the
+  distro's legs past rating. Right-click a screen for the same thing as a
+  menu. Soca brackets carry the connector type as a badge.
+
+- NEW: Custom drawing stops at capacity. In custom mode a circuit or port
+  takes only as many cabinets as its settings allow - the badge counts
+  "9/14 on circuit", a click past full is refused and says so. Select a
+  block and apply a flow pattern and it deals the block out at capacity:
+  14 wide by 6 tall on a 14-panel circuit becomes circuits 1 through 6.
+  Same on the data side with ports.
+
+- CHANGE (IMPORTANT): Nothing lands on a card by itself. Auto-numbering is
+  retired: ports attach only when you drag, drop or place them, the
+  attachment flag counts what is left, and Clear always releases. A file
+  saved under the old rule keeps its drawing exactly - its automatic
+  placements are frozen into pins the first time it loads.
+
+- CHANGE (IMPORTANT): An attached port prints the socket it sits on. On a
+  card with no name the drawing now reads 6, 7, 8, 9 - the same sockets
+  the tray shows - instead of the screen's own P1-P4; named cards read
+  H9-6 as before. Unattached ports keep the screen's numbering.
+
+- FIX (IMPORTANT): Every screen counts its own multis from one. Screens
+  with no distro used to share one running count across the show, so
+  the second wall started at S7-1; each screen now starts at its
+  template's number.
+
+- FIX: Removing a processor, card, box or distro was hidden below the
+  gear popover's fold. The Remove button now sits in a footer that never
+  leaves the screen, and the popover opens on whichever side has room.
+
+- FIX: The custom-drawing badge named the wrong circuit after a skipped
+  number, and pressing Next then Tab (or Enter) could skip a number in
+  the first place. Both fixed: the badge names the circuit under the
+  cursor, and Next drops focus so the keyboard cannot double-step.
 
 THE HARDWARE TRAY - one home for all the hardware
 
