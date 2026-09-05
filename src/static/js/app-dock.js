@@ -1642,9 +1642,9 @@ class _HardwareDock {
             chip.title = `${t.name} from ${name}. Drag onto a screen: the `
                 + `next free multi on ${name} lands on the screen's next `
                 + `unassigned circuits as a ${t.name} - the circuits it `
-                + 'would feed light up under the cursor. Refused, with '
-                + 'the reason, when the screen\'s breakout does not take '
-                + `a ${t.name}.`;
+                + 'would feed light up under the cursor, and the box it '
+                + 'makes wears the type. Refused, with the reason, when '
+                + `the screen\'s breakout does not take a ${t.name}.`;
             this._dockWireDraggable(chip, {
                 type: 'plug', distroId: d.id, output: t.id,
                 title: `${name} · ${t.name}`,
@@ -1694,25 +1694,23 @@ class _HardwareDock {
         let legs = 0;
         let boxAmps = 0;
         let capA = 0;               // smallest member figure: the honest bound
-        // The box's fan is as big as its occupants' breakout says - six
-        // tails on a soca, three on an L21-30 (the smallest member figure
-        // when they disagree, matching _resolveSharedSocas). A free slot
-        // has no occupant to read, so it offers the full six.
-        let boxSize = 6;
-        let feedLegA = 0;           // L21-30: the feed's per-leg rating
+        // The box IS a connector type (distroBoxType, the one resolver):
+        // stored on the distro by its chip or by the drop that made the
+        // box, else read off its occupants' breakout (the smallest member
+        // figure when they disagree, matching _resolveSharedSocas), else
+        // the first type the distro offers. Its fan and its feed rating
+        // follow the type exactly - six circuits on a soca, three on an
+        // L21-30 at 30 A per leg - so a spare box typed L21-30 wears three
+        // chips before anything lands on it.
+        const typeInfo = this.distroBoxType(d, n, members);
+        const boxType = typeInfo.type;
+        const boxSize = boxType.boxSize;
+        const feedLegA = boxType.feedLegA || 0;   // L21-30: per-leg rating
         members.forEach(m => {
             const l = (this.project.layers || []).find(x => x.id === m.layerId);
             if (!l) return;
             const s = this.getSocaPlan(l).find(x => x.soca === m.soca);
             memberRecs.push({ layer: l, m, s });
-            boxSize = memberRecs.length === 1
-                ? this.socaBoxSize(l)
-                : Math.min(boxSize, this.socaBoxSize(l));
-            const bt = this.getPowerBreakout(l);
-            if (bt.feedLegA > 0) {
-                feedLegA = feedLegA > 0
-                    ? Math.min(feedLegA, bt.feedLegA) : bt.feedLegA;
-            }
             if (s) {
                 const a = parseFloat(l.powerAmperage) || 0;
                 if (a > 0) capA = capA > 0 ? Math.min(capA, a) : a;
@@ -1739,6 +1737,26 @@ class _HardwareDock {
             this._dockPowerWarnings.push({
                 text: `${boxName} — more circuits than the `
                     + `${boxSize === 3 ? 'three' : 'six'} the box holds.`,
+            });
+        }
+        // A stored type that contradicts what is on the box - the screen's
+        // breakout changed under a typed box, or the numbers shifted - is
+        // said, never silently overridden: the stored type is paperwork.
+        // The fix offered is the one the read-only chip cannot make.
+        if (typeInfo.clash) {
+            sec.classList.add('hw-dock-multi-clash');
+            this._dockPowerWarnings.push({
+                text: `${boxName} is typed ${boxType.name} but holds `
+                    + `${typeInfo.implied.name} circuits.`,
+                offer: {
+                    label: `Make it ${typeInfo.implied.name}`,
+                    title: `Retype ${boxName} to follow its circuits. `
+                        + 'One undoable step.',
+                    run: () => {
+                        this.setDistroBoxType(d.id, n, typeInfo.implied.id);
+                        this.renderHardwareDock();
+                    },
+                },
             });
         }
         // An L21-30 box's feed is rated per leg (30 A), and the box's
@@ -1785,11 +1803,20 @@ class _HardwareDock {
             + 'splits it there and this box takes the rest'
             + (members.length
                 ? '; drag back onto this tray to unassign it.' : '.');
+        // A box with nothing on it drags AS ITS PLUG (2026-09-05: "when a
+        // new Multi/group of circuits is where the port type should be
+        // moved to"): the payload carries the type, and the drop resolves
+        // through the plug gate - the same compatibility rule, refusal
+        // and pill the OUTPUTS row's chips get - before the anchored-span
+        // take decides which circuits. An occupied box carries no type on
+        // its payload: its drop is the join/move it always was.
+        const payload = {
+            type: 'slot', distroId: d.id, number: n,
+            title: `${d.name || d.id} ${n}`,
+        };
+        if (!members.length) payload.output = boxType.id;
         const head = this._dockBuildHandle(
-            {
-                type: 'slot', distroId: d.id, number: n,
-                title: `${d.name || d.id} ${n}`,
-            },
+            payload,
             `slot-${d.id}-${n}`,
             memberRecs.length ? '' : `${d.name || d.id} ${n}`,
             memberRecs.length
@@ -1823,6 +1850,17 @@ class _HardwareDock {
         // text stops following. The fields live on a LINE of their own
         // under the glance line (density pass, 2026-08-30) - still inside
         // the header, so the fold and the drag keep their scope.
+        // The TYPE CHIP rides every box header after the name (user pick,
+        // 2026-09-05: "Type chip on the spare box" - "or both places
+        // rather", so the OUTPUTS row stays as the second way). On a box
+        // with nothing on it the chip is the picker; on an occupied box it
+        // reads what the occupants make it.
+        const typeChip = this._dockBuildTypeChip(d, n, typeInfo,
+                                                 !members.length);
+        if (!memberRecs.length) {
+            const label = head.querySelector('.hw-dock-unit-name');
+            head.insertBefore(typeChip, label ? label.nextSibling : null);
+        }
         if (memberRecs.length) {
             const namesRow = document.createElement('span');
             namesRow.className = 'hw-dock-names';
@@ -1848,6 +1886,7 @@ class _HardwareDock {
                 },
             });
             namesRow.appendChild(nameField);
+            namesRow.appendChild(typeChip);
             const len = this._dockHeadName({
                 value: (first.layer.powerSocaLengths || {})[first.m.soca]
                     || (first.s && first.s.length) || '',
@@ -1876,6 +1915,53 @@ class _HardwareDock {
         }
         body.appendChild(grid);
         return sec;
+    }
+
+    // The box's type chip: the connector's face and plain name in the
+    // plug chips' machined-tab register. `editable` (a box with no
+    // members) makes it a button whose click cycles through the types the
+    // distro offers - the same list the OUTPUTS row shows - and stores the
+    // pick as ONE 'Set Multi Type' entry; a button, so the header's drag
+    // guard treats the press as the chip's gesture, not a pickup. An
+    // occupied box's chip is a plain span: the type follows what is on
+    // the box and changes by clearing it. Keyed as a field so focus
+    // survives the tray's rebuild after the click.
+    _dockBuildTypeChip(d, n, info, editable) {
+        const t = info.type;
+        const el = document.createElement(editable ? 'button' : 'span');
+        if (editable) el.type = 'button';
+        el.className = 'hw-dock-typechip'
+            + (editable ? '' : ' hw-dock-typechip-ro')
+            + (info.clash ? ' hw-dock-typechip-clash' : '');
+        el.dataset.lrdField = `distro-box-type-${d.id}-${n}`;
+        el.appendChild(this.plugGlyph(t.glyph));
+        const name = document.createElement('b');
+        name.textContent = t.name;
+        el.appendChild(name);
+        const boxName = `${d.name || d.id} ${n}`;
+        if (editable) {
+            const offered = this.distroOutputs(d);
+            const list = offered.length ? offered : this.getDistroOutputTypes();
+            el.title = `${boxName} is a ${t.name} box. Click to cycle - `
+                + `${list.map(x => x.name).join(' → ')}. Drag the box onto `
+                + `a circuit and it lands as a ${t.name}; refused, with the `
+                + 'reason, when the screen\'s breakout does not take one.';
+            el.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const i = list.findIndex(x => x.id === t.id);
+                const next = list[(i + 1) % list.length];
+                this.setDistroBoxType(d.id, n, next.id);
+                this.renderHardwareDock();
+            });
+        } else {
+            el.title = info.clash
+                ? `${boxName} is typed ${t.name} but holds `
+                    + `${info.implied.name} circuits - the strip offers the `
+                    + 'fix.'
+                : `${boxName} is a ${t.name} box - the type follows what `
+                    + 'is on it. Clear the box to change it.';
+        }
+        return el;
     }
 
     // One tail of the fan as one chip of its multi's grid, the data port
@@ -2442,15 +2528,22 @@ class _HardwareDock {
         const ghost = document.createElement('div');
         ghost.id = 'hw-dock-ghost';
         ghost.textContent = payload.title || payload.type;
-        if (payload.type === 'plug') {
+        if (payload.type === 'plug'
+                || (payload.type === 'slot' && payload.output)) {
             // The chip itself rides the cursor - the connector is the
-            // thing being carried, so the ghost wears its face.
+            // thing being carried, so the ghost wears its face. A typed
+            // spare box is that plug with a number on it.
             const t = this.getDistroOutputTypes()
                 .find(x => x.id === payload.output);
             if (t) {
                 ghost.textContent = '';
                 ghost.classList.add('hw-dock-ghost-plug');
-                ghost.appendChild(this._plugChip(t, true));
+                const chip = this._plugChip(t, true);
+                if (payload.type === 'slot') {
+                    chip.querySelector('b').textContent =
+                        `${payload.title} · ${t.name}`;
+                }
+                ghost.appendChild(chip);
             }
         }
         document.body.appendChild(ghost);
@@ -2476,7 +2569,9 @@ class _HardwareDock {
             dock.classList.toggle('hw-dock-drop-target',
                 !!(target && target.kind === 'dock'));
         }
-        if (drag.payload.type === 'plug') this._dockPlugPill(drag, ev, target);
+        if (drag.payload.type === 'plug' || drag.payload.output) {
+            this._dockPlugPill(drag, ev, target);
+        }
         if (changed && window.canvasRenderer) {
             // One paint per target change, not per mousemove: the highlight
             // only moves when the run under the cursor does.
@@ -2586,7 +2681,27 @@ class _HardwareDock {
                         // (_socaTakePlan), so what lights is what lands,
                         // and nothing where the drop would refuse; a tail
                         // pip takes the hovered circuit alone.
-                        if (drag.payload.type === 'slot') {
+                        if (drag.payload.type === 'slot'
+                                && drag.payload.output) {
+                            // A typed spare box: the plug gate first (a
+                            // mismatch lights nothing and reddens the
+                            // pill with the fix), then the same anchored
+                            // take - the drop's own resolution.
+                            const ordinal = this.screenCircuits(circuit.owner)
+                                .findIndex(c => c.num === circuit.circuitNum)
+                                + 1;
+                            const plan = this._boxPlanFor(
+                                drag, circuit.owner, ordinal);
+                            target.nums = plan.ok ? plan.nums.slice() : [];
+                            target.plug = plan.ok
+                                ? { ok: true, socaIndex: plan.socaIndex,
+                                    number: plan.number,
+                                    boxName: plan.boxName, badge: plan.badge,
+                                    glyph: plan.glyph, text: plan.text,
+                                    warn: plan.warn }
+                                : { ok: false, glyph: plan.glyph,
+                                    message: plan.message };
+                        } else if (drag.payload.type === 'slot') {
                             const ordinal = this.screenCircuits(circuit.owner)
                                 .findIndex(c => c.num === circuit.circuitNum)
                                 + 1;
@@ -2657,29 +2772,9 @@ class _HardwareDock {
     //     glyph, warn }             - warn: the LEGS-past-rating sentence
     //   { ok: false, message, glyph }
     _plugDropPlan(payload, layer) {
-        const d = this.getDistros().find(x => x.id === payload.distroId);
-        const type = this.getDistroOutputTypes()
-            .find(t => t.id === payload.output);
-        const glyph = type ? type.glyph : 'soca';
-        if (!d || !type) {
-            return { ok: false, glyph, message: 'That output no longer exists.' };
-        }
-        if (!layer || (layer.type || 'screen') !== 'screen') {
-            return { ok: false, glyph,
-                     message: `${(layer && layer.name) || 'That layer'} `
-                        + 'draws no power.' };
-        }
-        // The screen always has an effective breakout (getPowerBreakout
-        // defaults a 110V screen to Edison, everything else to True1), so
-        // the match is always against something real. A mismatch names
-        // the screen and the fix; it never re-types the screen.
-        const bt = this.getPowerBreakout(layer);
-        if (!type.breakouts.includes(bt.id)) {
-            return { ok: false, glyph,
-                     message: `${layer.name} is set to `
-                        + `${this._breakoutShortName(bt)} — change its `
-                        + 'breakout first' };
-        }
+        const gate = this._plugGate(payload, layer);
+        if (!gate.ok) return gate;
+        const { d, type, glyph } = gate;
         const plan = this.getSocaPlan(layer);
         const s = plan.find(x => !x.distroId);
         if (!s) {
@@ -2742,6 +2837,103 @@ class _HardwareDock {
         };
     }
 
+    // The gate every plug-shaped drop passes first - the OUTPUTS chip and
+    // the typed spare box alike (ONE rule, so preview == drop for both):
+    // the output and distro still exist, the layer draws power, and the
+    // connector matches the screen's effective breakout. The screen
+    // always has one (getPowerBreakout defaults a 110V screen to Edison,
+    // everything else to True1), so the match is always against something
+    // real; a mismatch names the screen and the fix and never re-types
+    // the screen. Returns { ok: true, d, type, glyph } or the refusal
+    // { ok: false, glyph, message }.
+    _plugGate(payload, layer) {
+        const d = this.getDistros().find(x => x.id === payload.distroId);
+        const type = this.getDistroOutputTypes()
+            .find(t => t.id === payload.output);
+        const glyph = type ? type.glyph : 'soca';
+        if (!d || !type) {
+            return { ok: false, glyph, message: 'That output no longer exists.' };
+        }
+        if (!layer || (layer.type || 'screen') !== 'screen') {
+            return { ok: false, glyph,
+                     message: `${(layer && layer.name) || 'That layer'} `
+                        + 'draws no power.' };
+        }
+        const bt = this.getPowerBreakout(layer);
+        if (!type.breakouts.includes(bt.id)) {
+            return { ok: false, glyph,
+                     message: `${layer.name} is set to `
+                        + `${this._breakoutShortName(bt)} — change its `
+                        + 'breakout first' };
+        }
+        return { ok: true, d, type, glyph };
+    }
+
+    // A typed spare box dropped on a specific circuit: the plug gate, then
+    // the anchored take (_socaTakePlan, the 2026-09-05 rule - the box
+    // takes its cell's circuits from the FIRST up to the dropped one, as
+    // many as it has free). The pill and the underlay read this; the
+    // release runs it again and takes exactly this. `socaIndex` names the
+    // multi for the pending bracket only when the take is that whole
+    // multi - a partial take has no committed shape to preview yet.
+    // Returns the plug plan's shape: { ok, glyph, socaIndex, nums, number,
+    // boxName, amps, badge, warn, text } or { ok: false, glyph, message }.
+    _boxDropPlan(payload, layer, ordinal) {
+        const gate = this._plugGate(payload, layer);
+        if (!gate.ok) return gate;
+        const { d, type, glyph } = gate;
+        const plan = this._socaTakePlan(layer, ordinal, payload.distroId,
+                                        payload.number);
+        if (!plan.ok) {
+            const c = this.screenCircuits(layer)[ordinal - 1];
+            const label = c ? this.getPowerCircuitLabel(layer, c.num) : '';
+            return { ok: false, glyph,
+                     message: this._takeRefusalText(payload, plan, label) };
+        }
+        const nums = plan.nums;
+        const amps = this.getSocaPlan(layer)
+            .flatMap(s => s.legs)
+            .filter(g => nums.includes(g.circuit))
+            .reduce((t, g) => t + (g.amps || 0), 0);
+        const boxName = `${d.name || d.id} ${plan.number}`;
+        const whole = plan.seg && plan.spanStart === plan.seg.start
+            && plan.spanEnd === plan.seg.end;
+        return {
+            ok: true, glyph, socaIndex: whole ? plan.seg.index : null,
+            nums, number: plan.number, boxName, amps, badge: type.badge,
+            warn: null,
+            text: `${boxName} → circuit${nums.length === 1 ? '' : 's'} `
+                + `${this._fmtTails(nums).replace(/-/g, '–')} · `
+                + `${Math.round(amps)} A`,
+        };
+    }
+
+    // The take's refusals in one voice, for the pill and the strip alike.
+    _takeRefusalText(payload, r, label) {
+        if (r.why === 'other-box') {
+            // A circuit on another box is somebody's feed: the drop never
+            // pulls it off. Clear it first.
+            return `${label} is already on a box - clear it first; `
+                + `${payload.title} never pulls a circuit off another box.`;
+        }
+        // The place-overflow refusal, in circuits: a box with no free
+        // circuit takes nothing, and no cut happens for nothing.
+        const len = r.tailLen != null ? r.tailLen : r.remaining;
+        return `${payload.title} has no free circuits - the ${len} circuit`
+            + `${len === 1 ? '' : 's'} up to ${label} stay where they are.`;
+    }
+
+    // The box plan per (screen, circuit), once per drag - the hit test
+    // runs per mousemove and the state cannot change mid-drag.
+    _boxPlanFor(drag, layer, ordinal) {
+        if (!drag.plans) drag.plans = new Map();
+        const key = `${layer.id}:${ordinal}`;
+        if (!drag.plans.has(key)) {
+            drag.plans.set(key, this._boxDropPlan(drag.payload, layer, ordinal));
+        }
+        return drag.plans.get(key);
+    }
+
     // The plan for one screen, once per drag: the state cannot change
     // mid-drag, and the hit test runs per mousemove.
     _plugPlanFor(drag, layer) {
@@ -2801,6 +2993,11 @@ class _HardwareDock {
         if (!plan.ok) {
             this._dockSay(plan.message);
             return;
+        }
+        // The box this makes wears the type it was dragged as - stamped
+        // before the assignment's entry, so the gesture stays one step.
+        if (plan.number != null) {
+            this._stampBoxType(payload.distroId, plan.number, payload.output);
         }
         const touched = this.setSocaDistro(layer, plan.socaIndex,
                                            payload.distroId, false);
@@ -3047,24 +3244,23 @@ class _HardwareDock {
                 .findIndex(c => c.num === target.num) + 1;
             if (!rec || at < 0 || ordinal < 1) return;
             const label = this.getPowerCircuitLabel(layer, target.num);
+            if (payload.output) {
+                // A typed spare box: the plug gate and the take, exactly
+                // as the preview resolved them (_boxDropPlan); a refusal
+                // is said and changes nothing. The box wears its type
+                // from the drop on - stamped before the take's own entry.
+                const plan = this._boxDropPlan(payload, layer, ordinal);
+                if (!plan.ok) {
+                    this._dockSay(plan.message);
+                    return;
+                }
+                this._stampBoxType(payload.distroId, payload.number,
+                                   payload.output);
+            }
             const r = this.takeSocaOnto(layer, ordinal, payload.distroId,
                                         payload.number, 'Assign Multi Distro');
             if (!r.ok) {
-                if (r.why === 'other-box') {
-                    // A circuit on another box is somebody's feed: the
-                    // drop never pulls it off. Clear it first.
-                    this._dockSay(`${label} is already on a box - `
-                        + `clear it first; ${payload.title} never pulls `
-                        + 'a circuit off another box.');
-                    return;
-                }
-                // The place-overflow refusal, in circuits: a box with no
-                // free circuit takes nothing, and no cut happens for
-                // nothing.
-                this._dockSay(`${payload.title} has no free circuits - `
-                    + `the ${r.tailLen} circuit`
-                    + `${r.tailLen === 1 ? '' : 's'} up to ${label} `
-                    + 'stay where they are.');
+                this._dockSay(this._takeRefusalText(payload, r, label));
                 return;
             }
             if (r.took < r.tailLen) {

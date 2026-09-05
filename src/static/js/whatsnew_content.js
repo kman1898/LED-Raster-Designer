@@ -28,7 +28,7 @@ window.WHATS_NEW_CONTENT = {
             { h: 'Take over one run with Alt',
               d: 'Hold Alt and route a single data run by hand. The rest of the wall keeps auto-cabling around it, so one custom run no longer costs you the automatic layout.' },
             { h: '110V and L21-30 power',
-              d: 'Power planning now covers Edison (110V) breakouts and L21-30 feeds splitting to three 208V circuits at 30 A per leg, alongside soca, with True1 and powerCON connectors.' },
+              d: 'Power planning now covers Edison (110V) breakouts and L21-30 feeds splitting to three 208V circuits at 30 A per leg, alongside soca, with True1 and powerCON connectors. Every multi box in the tray wears its connector type on a chip; pick it on the spare box, and the box lands as that plug.' },
             { h: 'A screen only lands on gear that can drive it',
               d: 'Dragging a screen onto hardware from a different product line is refused up front, so a patch that could never work is never drawn.' },
             { h: 'Labels wrap instead of inflating',

@@ -1536,7 +1536,24 @@ class _Power {
     // mismatch like any other, refused with the fix said out loud, never
     // silently re-typed. `faces` are the breakout connectors the popover
     // row shows beside the type; `badge` is the bracket's text sub-pill.
+    //
+    // Each type also carries the BOX SHAPE its breakouts share - `boxSize`
+    // (six circuits on a soca, three on an L21-30) and `feedLegA` (the
+    // L21-30 feed's per-leg rating) - read off the breakout table above,
+    // never restated, so a box typed by its chip and a box typed by its
+    // occupants' breakout answer to the one authority (2026-09-05, the
+    // type moved onto the box: "when a new Multi/group of circuits is
+    // where the port type should be moved to").
     getDistroOutputTypes() {
+        const bts = this.getPowerBreakoutTypes();
+        const shape = (ids) => {
+            const m = bts.filter(b => ids.includes(b.id));
+            return {
+                boxSize: m.length
+                    ? Math.min(...m.map(b => Number(b.boxSize) || 6)) : 6,
+                feedLegA: Math.max(0, ...m.map(b => Number(b.feedLegA) || 0)),
+            };
+        };
         return [
             { id: 'soca208', name: 'Soca 208', sub: 'True1 / powerCON',
               glyph: 'soca', faces: ['true1', 'powercon'],
@@ -1547,7 +1564,7 @@ class _Power {
             { id: 'l2130', name: 'L21-30', sub: '3 × 208V',
               glyph: 'l2130', faces: ['true1', 'powercon'],
               breakouts: ['l2130-true1', 'l2130-powercon'], badge: 'L21-30' },
-        ];
+        ].map(t => Object.assign(t, shape(t.breakouts)));
     }
 
     // What one distro offers, as type records, in catalog order. No
@@ -1563,6 +1580,135 @@ class _Power {
 
     distroOffers(d, typeId) {
         return this.distroOutputs(d).some(t => t.id === typeId);
+    }
+
+    // ---- box types: the connector a MULTI BOX is -------------------------
+    //
+    // The type lives on the box as well as on the distro's OUTPUTS row
+    // (user, 2026-09-05: "the soca, l21 and what not is a bit silly on the
+    // distro. when a new Multi/group of circuits is where the port type
+    // should be moved to you know?" - and, asked where it gets picked,
+    // "Type chip on the spare box ... or both places rather"). Stored as
+    // `distro.boxTypes = { [number]: typeId }`; the server round-trips a
+    // distro as an opaque record (routes_project.py merges the payload
+    // wholesale), so no allow-list to extend.
+    //
+    // THE CONTRACT - distroBoxType(d, number, members?) resolves ONE type
+    // for a box, in this order, and says which rung it came from:
+    //   1. stored     - boxTypes[number] names a catalog type
+    //   2. members    - an occupied box reads the type its members'
+    //                   breakout implies, the smallest-fan member deciding
+    //                   when they disagree (_resolveSharedSocas' rule), so
+    //                   every file from before boxTypes existed reads right
+    //   3. neighbour  - a box with nothing on it follows the distro's
+    //                   other boxes: the nearest lower-numbered box that
+    //                   resolves by rung 1 or 2 (else the nearest higher),
+    //                   so a spare on an Edison distro is Edison and never
+    //                   needs retyping show after show
+    //   4. offered    - the first type the distro offers
+    //   5. default    - Soca 208, when the distro offers nothing yet
+    // Returns { type, source, implied, clash }: `implied` is rung 2's
+    // reading whenever the box is occupied (null when no member's breakout
+    // is named by the table), and `clash` is true when a STORED type
+    // contradicts it - the stored type still stands (it is somebody's
+    // paperwork, never silently overridden) and the dock warns.
+    // `members` is _distroMultiNumbers' record for the number; passed in
+    // by callers that already hold it, looked up otherwise.
+    distroBoxType(d, number, members) {
+        const types = this.getDistroOutputTypes();
+        const n = parseInt(number, 10);
+        const list = Array.isArray(members) ? members
+            : (d ? (this._distroMultiNumbers(d.id).get(n) || []) : []);
+        let implied = null;
+        for (const m of list) {
+            const l = ((this.project && this.project.layers) || [])
+                .find(x => x.id === m.layerId);
+            const t = l ? this.outputTypeForBreakout(this.getPowerBreakout(l))
+                : null;
+            if (t && (!implied || t.boxSize < implied.boxSize)) implied = t;
+        }
+        const stored = this.distroStoredBoxType(d, n);
+        if (stored) {
+            return { type: stored, source: 'stored', implied,
+                     clash: !!(implied && implied.id !== stored.id) };
+        }
+        if (implied) {
+            return { type: implied, source: 'members', implied, clash: false };
+        }
+        const neighbour = this._distroNeighbourBoxType(d, n);
+        if (neighbour) {
+            return { type: neighbour, source: 'neighbour', implied: null,
+                     clash: false };
+        }
+        const offered = this.distroOutputs(d);
+        if (offered.length) {
+            return { type: offered[0], source: 'offered', implied: null,
+                     clash: false };
+        }
+        return { type: types[0], source: 'default', implied: null,
+                 clash: false };
+    }
+
+    // Rung 3: what the distro's OTHER boxes are. Only boxes that settle by
+    // rung 1 or 2 (a stored type, or members whose breakout names one)
+    // count - a memberless untyped box has nothing to say and asking it
+    // would ask this question again. The nearest lower number wins (the
+    // box before this one), else the nearest higher; null when the distro
+    // has no settled box at all.
+    _distroNeighbourBoxType(d, number) {
+        if (!d) return null;
+        const n = parseInt(number, 10);
+        const numbers = new Set();
+        for (const k of Object.keys(d.boxTypes || {})) numbers.add(parseInt(k, 10));
+        for (const k of this._distroMultiNumbers(d.id).keys()) numbers.add(k);
+        const settled = [...numbers]
+            .filter(k => Number.isFinite(k) && k !== n)
+            .map(k => {
+                const stored = this.distroStoredBoxType(d, k);
+                if (stored) return { k, type: stored };
+                const r = this.distroBoxType(d, k);
+                return r.source === 'members' ? { k, type: r.type } : null;
+            })
+            .filter(Boolean);
+        if (!settled.length) return null;
+        const lower = settled.filter(s => s.k < n).sort((a, b) => b.k - a.k);
+        if (lower.length) return lower[0].type;
+        return settled.sort((a, b) => a.k - b.k)[0].type;
+    }
+
+    // Rung 1 alone: the stored type of box `number`, or null. Reads no
+    // member and touches no naming cache, so it is safe from inside the
+    // cache's own build.
+    distroStoredBoxType(d, number) {
+        const map = d && d.boxTypes;
+        if (!map || typeof map !== 'object') return null;
+        const id = map[parseInt(number, 10)];
+        return this.getDistroOutputTypes().find(t => t.id === id) || null;
+    }
+
+    // The chip's pick: ONE 'Set Multi Type' entry. A null type forgets the
+    // box's stored type (it falls back down the rungs).
+    setDistroBoxType(distroId, number, typeId) {
+        const d = this.getDistros().find(x => x.id === distroId);
+        if (!d) return null;
+        const map = Object.assign({}, d.boxTypes || {});
+        map[parseInt(number, 10)] = typeId || null;
+        return this.updateDistro(distroId, { boxTypes: map }, 'Set Multi Type');
+    }
+
+    // The drop's stamp: a plug drop, or a typed spare box's drop, records
+    // the type of the box it makes WITHOUT an entry of its own - it runs
+    // before the assignment's own saveState, so the gesture stays one
+    // undo step and one Ctrl+Z forgets the type with the assignment.
+    _stampBoxType(distroId, number, typeId) {
+        const d = this.getDistros().find(x => x.id === distroId);
+        const n = parseInt(number, 10);
+        if (!d || !Number.isFinite(n) || n < 1) return;
+        if (!this.getDistroOutputTypes().some(t => t.id === typeId)) return;
+        if (!d.boxTypes || typeof d.boxTypes !== 'object') d.boxTypes = {};
+        if (d.boxTypes[n] === typeId) return;
+        d.boxTypes[n] = typeId;
+        this._persistDistros();
     }
 
     // The output type a screen's (effective) breakout takes, or null for a
@@ -1702,7 +1848,7 @@ class _Power {
         return d;
     }
 
-    updateDistro(id, patch = {}) {
+    updateDistro(id, patch = {}, action = 'Edit Distro') {
         const d = this.getDistros().find(x => x.id === id);
         if (!d) return null;
         if (patch.name !== undefined) d.name = String(patch.name).trim() || d.name;
@@ -1725,13 +1871,34 @@ class _Power {
                 delete d.outputs;
             }
         }
+        // The type each numbered box IS (distroBoxType). Stored as a clean
+        // { number: typeId } map - non-numbers and unknown ids dropped, a
+        // null entry forgetting that box's type; an emptied map forgets
+        // the key, so a file never carries `boxTypes: {}`.
+        if (patch.boxTypes !== undefined) {
+            const src = patch.boxTypes;
+            const known = new Set(this.getDistroOutputTypes().map(t => t.id));
+            const clean = {};
+            if (src && typeof src === 'object') {
+                Object.keys(src).forEach(k => {
+                    const n = parseInt(k, 10);
+                    if (Number.isFinite(n) && n >= 1 && known.has(src[k])) {
+                        clean[n] = src[k];
+                    }
+                });
+            }
+            if (Object.keys(clean).length) d.boxTypes = clean;
+            else delete d.boxTypes;
+        }
         // The NAME is a label input: every multi following this distro is
         // renamed by it, and so is every circuit hanging off those multis.
         // (Location is not - it is descriptive and names nothing.)
         this._circuitTailCache = null;
         // One entry per committed field (these fire on change, not per
-        // keystroke), same as the other discrete label edits.
-        this.saveState('Edit Distro');
+        // keystroke), same as the other discrete label edits - under the
+        // caller's name where the field has one of its own (the box type
+        // chip's 'Set Multi Type').
+        this.saveState(action || 'Edit Distro');
         this._persistDistros();
         return d;
     }

@@ -2742,6 +2742,19 @@ def test_the_slot_chip_offers_the_merge_for_its_split_off_part(dock_page):
     page, ids = dock_page
     open_view(page, 'power')
     st = split_seed(page, ids, off=4, cen=4)
+    # Box 1 is a SPARE box, and a spare box drags as its type (2026-09-05,
+    # the type chip on the box): these 100 V screens break out to Edison,
+    # so the box must be Soca 120 or the drop refuses as a plug would
+    # (test_distro_outputs.py pins that refusal). Set by the chip's own
+    # setter rather than counted clicks: what the spare reads by default
+    # depends on the distro's other boxes (the neighbour rung), so a click
+    # from an unknown start could land anywhere in the cycle.
+    page.evaluate("(a) => window.app.setDistroBoxType(a[0], 1, 'soca120')",
+                  [st['d2']])
+    page.wait_for_timeout(400)
+    assert page.evaluate(
+        "(k) => document.querySelector(`[data-lrd-field=\"${k}\"]`).textContent",
+        f'distro-box-type-{st["d2"]}-1') == 'Soca 120'
     sx, sy = dock_tile_center(page, f'slot-{st["d2"]}-1')
     tgt = panel_point(page, st['cenId'], {'circuit': 1})
     drag(page, sx, sy, tgt['x'], tgt['y'])
