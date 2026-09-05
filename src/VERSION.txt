@@ -27,6 +27,16 @@ v0.12.0 - September 4, 2026 (BETA)
   start side; within one run the rows still snake, and a fill that never
   reaches capacity is the one continuous snake it always was.
 
+- FIX (IMPORTANT): A multi dropped on a circuit takes what its box has
+  free. Drop a multi on circuit 7 and it takes circuits 7 through 12 -
+  six on an empty box, five when one circuit is already on it, bounded
+  by the box grid - and says "took 5 of 6" when it was short. One-circuit
+  leftovers in its path are absorbed. And a clear forgets the cuts too:
+  a wall once worked circuit by circuit no longer reads S2, S3, S4 down
+  the wall after Clear; every unassigned cut welds back to the natural
+  six-per-box grid, while a multi that stays assigned keeps its name and
+  number. One undo restores it all.
+
 - CHANGE (IMPORTANT): Redundancy is one bar in one place. Behind the
   processor's gear a raised segmented bar - Off, Whole unit, Per card,
   Per port (Off, Backed up, Per port on a standalone unit) - and exactly
