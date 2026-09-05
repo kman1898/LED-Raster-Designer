@@ -1070,18 +1070,20 @@ def test_multi_name_and_length_edit_on_the_dock_header(page):
         f'the chips state the slot the old where line stated: {out}')
 
 
-# ── 10b. the drop-implied split: the boundary falls out of the drop ───────
+# ── 10b. the drop-implied cut: the boundary falls out of the drop ─────────
 #
 # splitSocaOnto is the engine under app-dock's slot drop: a multi slot
-# dropped on a circuit that is NOT the first of its multi splits the multi
-# there and the tail-end circuits take the dropped (distro, number) in the
-# same motion. Real pointer drags exercising it live in
-# test_hardware_dock.py; here the composition itself is pinned.
+# dropped on a circuit that is NOT the last of its multi takes the multi's
+# FIRST circuits up to it (anchored at the cell's first circuit, 2026-09-05:
+# "start at the 1st circuit regardless of naming. should just be in order")
+# onto the dropped (distro, number) and cuts the rest off in the same
+# motion. Real pointer drags exercising it live in test_hardware_dock.py;
+# here the composition itself is pinned.
 
-def test_split_onto_splits_and_assigns_in_one_motion(page):
+def test_split_onto_takes_the_first_circuits_in_one_motion(page):
     """Dropping box (d1, No. 2) on the 3rd circuit of a 4-circuit multi:
-    split after 2, the tail part takes the pin - the stores land exactly as
-    the old Split-select-then-number-pick pair left them."""
+    the first three take the pin, cut after 3, the fourth stays as its own
+    unassigned multi."""
     out = page.evaluate("""() => {
         const sh = window.__sh;
         const S = sh.screen({ id: 51, name: 'DropSplit', columns: 4 });
@@ -1099,17 +1101,17 @@ def test_split_onto_splits_and_assigns_in_one_motion(page):
             };
         });
     }""")
-    assert out['r'] == {'ok': True, 'took': 2, 'tailLen': 2, 'free': 6}, out
-    assert out['splits'] == [2]
-    assert out['distro'] == {'2': 'd1'} and out['num'] == {'2': 2}, out
-    assert out['shape'] == [{'soca': 1, 'legs': 2}, {'soca': 2, 'legs': 2}], out
+    assert out['r'] == {'ok': True, 'took': 3, 'tailLen': 3, 'free': 6}, out
+    assert out['splits'] == [3]
+    assert out['distro'] == {'1': 'd1'} and out['num'] == {'1': 2}, out
+    assert out['shape'] == [{'soca': 1, 'legs': 3}, {'soca': 2, 'legs': 1}], out
 
 
 def test_split_onto_derives_the_center_beach_labels(page):
-    """The CEN SL US arrangement in ONE gesture: the remainder joins the
-    OFF SL US box (No. 2, tails 1-4 taken) on tails 5-6 and derives C2-2-5,
-    C2-2-6 - the strings the user used to hand-type - with the head keeping
-    its own multi."""
+    """The CEN SL US arrangement in ONE gesture: the box has two free
+    tails, so CEN's first two join the OFF SL US box (No. 2, tails 1-4
+    taken) on tails 5-6 and derive C2-2-5, C2-2-6 - the strings the user
+    used to hand-type - and the rest stay behind on their own auto."""
     out = page.evaluate("""() => {
         const sh = window.__sh;
         const OFF = sh.screen({ id: 52, name: 'OFF SL US', columns: 4,
@@ -1122,7 +1124,7 @@ def test_split_onto_derives_the_center_beach_labels(page):
             app._circuitTailCache = null;
             const r = app.splitSocaOnto(CEN, 1, 2, 'd1', 2);
             const labels = sh.labelsOf(CEN);
-            const share = sh.shareOf(CEN, 2);
+            const share = sh.shareOf(CEN, 1);
             return {
                 ok: r.ok, labels,
                 clash: !!(share && (share.clash || share.overflow)),
@@ -1132,7 +1134,7 @@ def test_split_onto_derives_the_center_beach_labels(page):
         });
     }""")
     assert out['ok'] is True
-    assert out['labels'][2:] == ['C2-2-5', 'C2-2-6'], out
+    assert out['labels'][:2] == ['C2-2-5', 'C2-2-6'], out
     assert out['clash'] is False
     assert out['tails'] == [
         {'layer': 'OFF SL US', 'tails': [1, 2, 3, 4]},
@@ -1141,10 +1143,10 @@ def test_split_onto_derives_the_center_beach_labels(page):
 
 def test_split_onto_takes_what_fits_and_leaves_the_rest(page):
     """place-overflow's convention, in tails: the box holds one free tail
-    (an incumbent pinned on 5), the drop offers four circuits - one lands,
-    on the box's last tail, and the other three become their own multi,
-    UNASSIGNED and visible as spare, never rammed onto the full fan as an
-    overflow clash."""
+    (an incumbent pinned on 5), the drop reaches for three circuits - the
+    FIRST lands, on the box's last tail, and the other five become their
+    own multi, UNASSIGNED and visible as spare, never rammed onto the full
+    fan as an overflow clash."""
     out = page.evaluate("""() => {
         const sh = window.__sh;
         const OFF = sh.screen({ id: 54, name: 'BigWall', columns: 5,
@@ -1165,17 +1167,16 @@ def test_split_onto_takes_what_fits_and_leaves_the_rest(page):
                     ({ soca: s.soca, legs: s.legs.length,
                        distro: s.distroId || null })),
                 clash: !!(share && (share.clash || share.overflow)),
-                joinedTail: sh.labelsOf(B)[2],
+                joinedTail: sh.labelsOf(B)[0],
             };
         });
     }""")
-    assert out['r'] == {'ok': True, 'took': 1, 'tailLen': 4, 'free': 1}, out
-    assert out['splits'] == [2, 3], out
-    assert out['distro'] == {'2': 'd1'} and out['num'] == {'2': 2}, out
+    assert out['r'] == {'ok': True, 'took': 1, 'tailLen': 3, 'free': 1}, out
+    assert out['splits'] == [1], out
+    assert out['distro'] == {'1': 'd1'} and out['num'] == {'1': 2}, out
     assert out['shape'] == [
-        {'soca': 1, 'legs': 2, 'distro': None},
-        {'soca': 2, 'legs': 1, 'distro': 'd1'},
-        {'soca': 3, 'legs': 3, 'distro': None}], out
+        {'soca': 1, 'legs': 1, 'distro': 'd1'},
+        {'soca': 2, 'legs': 5, 'distro': None}], out
     assert out['clash'] is False, 'take-what-fits must never overflow the box'
     assert out['joinedTail'] == 'C2-2-6', out
 
@@ -1202,7 +1203,7 @@ def test_split_onto_refuses_a_full_box_and_moves_nothing(page):
             };
         });
     }""")
-    assert out['r'] == {'ok': False, 'free': 0, 'tailLen': 2}, out
+    assert out['r'] == {'ok': False, 'why': 'full', 'free': 0, 'tailLen': 3}, out
     assert out['splits'] and out['distro'] and out['num'], (
         f'a refused drop mutated a store: {out}')
 

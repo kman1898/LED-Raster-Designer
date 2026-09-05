@@ -2424,12 +2424,13 @@ def test_the_canvas_run_menu_keeps_layer_items_beside_the_clear(dock_page):
 # A multi IS a 6-tail box, so its slot chip wears the six tail sockets as
 # pips - who holds each one on hover, the clash red where two stored sets
 # collide. And WHICH circuit a slot chip is dropped on decides the gesture:
-# the first circuit of a multi takes the whole multi (as always), a LATER
-# circuit splits the multi there - the boundary the sidebar's Split select
-# used to ask for, implied by the drop (takeSocaOnto, one undo entry for
-# split and assignment together). The way back is right-click "Merge back
-# into <name>" on the circuit run or the chip, offered only where a stored
-# boundary exists.
+# the box takes the cell's circuits from its FIRST up to the dropped one
+# (2026-09-05: "start at the 1st circuit regardless of naming. should just
+# be in order") - the last circuit takes the whole multi, an earlier one
+# takes the first N and the boundary after it is implied by the drop
+# (takeSocaOnto, one undo entry for cut and assignment together). The way
+# back is right-click "Merge back into <name>" on the circuit run or the
+# chip, offered only where a stored boundary exists.
 #
 # The screens here are purpose-built off to the side of WALL A/B: 100V x 5A
 # against 100W panels puts a 5-tile tl-v column exactly on a circuit, so
@@ -2572,26 +2573,28 @@ def test_a_multi_section_wears_six_circuit_chips(dock_page):
     split_clean(page, ids, st)
 
 
-def test_a_drop_past_the_first_circuit_splits_the_multi_there(dock_page):
+def test_a_drop_on_a_later_circuit_takes_the_first_circuits(dock_page):
     """The 2026 NCMF center-beach shape (2+2), by DRAG alone: box C2 No. 2
     holds OFF SL's four circuits on tails 1-4; dropping its chip on CEN SL's
-    THIRD circuit splits CEN's multi after 2, the two tail circuits join the
-    box on tails 5-6, and their labels derive C2-2-5 and C2-2-6 - the exact
-    strings the reference file hand-typed - as ONE undo entry."""
+    SECOND circuit takes CEN's first two (the span is anchored at the
+    cell's first circuit, 2026-09-05), cuts the multi after 2, the two
+    join the box on tails 5-6, and their labels derive C2-2-5 and C2-2-6
+    - the exact strings the reference file hand-typed - as ONE undo
+    entry."""
     page, ids = dock_page
     open_view(page, 'power')
     st = split_seed(page, ids, off=4, cen=4)
     before = page.evaluate(HIST_LEN_JS)
 
     sx, sy = dock_tile_center(page, f'slot-{st["d2"]}-2')
-    tgt = panel_point(page, st['cenId'], {'circuit': 2})
+    tgt = panel_point(page, st['cenId'], {'circuit': 1})
     drag(page, sx, sy, tgt['x'], tgt['y'])
     page.wait_for_timeout(400)
     out = page.evaluate("""(st) => {
         const app = window.app;
         const cen = app.project.layers.find(l => l.id === st.cenId);
         app._circuitTailCache = null;
-        const share = app.getSocaShare(cen, 2);
+        const share = app.getSocaShare(cen, 1);
         return {
             splits: cen.powerSocaSplits || [],
             distro: cen.powerSocaDistro || {},
@@ -2603,9 +2606,9 @@ def test_a_drop_past_the_first_circuit_splits_the_multi_there(dock_page):
         };
     }""", st)
     assert out['splits'] == [2], out
-    assert out['distro'] == {'2': st['d2']}, out
-    assert out['num'] == {'2': 2}, out
-    assert out['labels'][2:] == ['C2-2-5', 'C2-2-6'], (
+    assert out['distro'] == {'1': st['d2']}, out
+    assert out['num'] == {'1': 2}, out
+    assert out['labels'][:2] == ['C2-2-5', 'C2-2-6'], (
         f'the joined labels must derive character for character: {out}')
     assert out['tails'] == [[1, 2, 3, 4], [5, 6]], out
     assert out['clash'] is False, out
@@ -2630,8 +2633,8 @@ def test_a_drop_past_the_first_circuit_splits_the_multi_there(dock_page):
 
 def test_the_six_two_shape_lands_whole_on_the_grid_boundary(dock_page):
     """The NCMF 6+2: on an 8-circuit screen the 6-grid already puts the
-    boundary after circuit 6, so a drop on circuit 7 is the FIRST circuit
-    of its multi - the whole 2-circuit multi joins the dropped box's free
+    boundary after circuit 6, so a drop on circuit 8 reaches back to 7,
+    never to 1 - the whole 2-circuit multi joins the dropped box's free
     tails with no split stored, through the two existing setters exactly
     as before, and the labels still derive character for character."""
     page, ids = dock_page
@@ -2639,7 +2642,7 @@ def test_the_six_two_shape_lands_whole_on_the_grid_boundary(dock_page):
     st = split_seed(page, ids, off=4, cen=8)
 
     sx, sy = dock_tile_center(page, f'slot-{st["d2"]}-2')
-    tgt = panel_point(page, st['cenId'], {'circuit': 6})
+    tgt = panel_point(page, st['cenId'], {'circuit': 7})
     drag(page, sx, sy, tgt['x'], tgt['y'])
     page.wait_for_timeout(400)
     out = page.evaluate("""(st) => {
@@ -2673,15 +2676,15 @@ def test_the_six_two_shape_lands_whole_on_the_grid_boundary(dock_page):
 def test_right_click_merges_the_split_back_into_its_head(dock_page):
     """The reverse gesture, now that Un-split left the sidebar: the split-off
     circuit run offers "Merge back into <head>" on right-click, the merge
-    removes the boundary (the tail's assignment goes with its identity, the
-    existing un-split), one 'Un-split Multi' entry, and one undo puts the
-    split back. A circuit with no stored boundary keeps the item off the
-    menu entirely."""
+    removes the boundary (the head's assignment survives, the tail's goes
+    with its identity - the existing un-split), one 'Un-split Multi'
+    entry, and one undo puts the split back. A circuit with no stored
+    boundary keeps the item off the menu entirely."""
     page, ids = dock_page
     open_view(page, 'power')
     st = split_seed(page, ids, off=4, cen=4)
     sx, sy = dock_tile_center(page, f'slot-{st["d2"]}-2')
-    tgt = panel_point(page, st['cenId'], {'circuit': 2})
+    tgt = panel_point(page, st['cenId'], {'circuit': 1})
     drag(page, sx, sy, tgt['x'], tgt['y'])
     page.wait_for_timeout(400)
 
@@ -2712,8 +2715,8 @@ def test_right_click_merges_the_split_back_into_its_head(dock_page):
                  distro: cen.powerSocaDistro || {},
                  num: cen.powerSocaNumber || {} };
     }""", st)
-    assert out == {'splits': [], 'distro': {}, 'num': {}}, (
-        f'the merge did not weld the parts back: {out}')
+    assert out == {'splits': [], 'distro': {'1': st['d2']}, 'num': {'1': 2}}, (
+        f'the merge did not weld the parts back under the head: {out}')
     assert page.evaluate(HIST_JS, 1) == ['Un-split Multi']
     assert page.evaluate(HIST_LEN_JS) == before + 1
 
@@ -2724,7 +2727,7 @@ def test_right_click_merges_the_split_back_into_its_head(dock_page):
         return { splits: cen.powerSocaSplits || [],
                  distro: cen.powerSocaDistro || {} };
     }""", st)
-    assert out['splits'] == [2] and out['distro'] == {'2': st['d2']}, (
+    assert out['splits'] == [2] and out['distro'] == {'1': st['d2']}, (
         f'one undo did not restore the split and its assignment: {out}')
     split_clean(page, ids, st)
 
@@ -2732,14 +2735,31 @@ def test_right_click_merges_the_split_back_into_its_head(dock_page):
 def test_the_slot_chip_offers_the_merge_for_its_split_off_part(dock_page):
     """The chip is the box: holding a split-off part, its right-click menu
     carries the merge beside the clear - and ONLY those two, the chip
-    scoping rule - and the merge from the chip welds the same boundary."""
+    scoping rule - and the merge from the chip welds the same boundary.
+    The split-off part on box 2: CEN's [1-2] go on box 1 first, then box
+    2 dropped on CEN's 4th circuit skips that head (it is on another box)
+    and takes [3-4] - the anchored span, 2026-09-05."""
     page, ids = dock_page
     open_view(page, 'power')
     st = split_seed(page, ids, off=4, cen=4)
-    sx, sy = dock_tile_center(page, f'slot-{st["d2"]}-2')
-    tgt = panel_point(page, st['cenId'], {'circuit': 2})
+    sx, sy = dock_tile_center(page, f'slot-{st["d2"]}-1')
+    tgt = panel_point(page, st['cenId'], {'circuit': 1})
     drag(page, sx, sy, tgt['x'], tgt['y'])
     page.wait_for_timeout(400)
+    sx, sy = dock_tile_center(page, f'slot-{st["d2"]}-2')
+    tgt = panel_point(page, st['cenId'], {'circuit': 3})
+    drag(page, sx, sy, tgt['x'], tgt['y'])
+    page.wait_for_timeout(400)
+    shape = page.evaluate("""(st) => {
+        const app = window.app;
+        const cen = app.project.layers.find(l => l.id === st.cenId);
+        app._circuitTailCache = null;
+        return { splits: cen.powerSocaSplits || [],
+                 distro: cen.powerSocaDistro || {},
+                 num: cen.powerSocaNumber || {} };
+    }""", st)
+    assert shape == {'splits': [2], 'distro': {'1': st['d2'], '2': st['d2']},
+                     'num': {'1': 1, '2': 2}}, shape
 
     sx, sy = dock_tile_center(page, f'slot-{st["d2"]}-2')
     page.mouse.click(sx, sy, button='right')
@@ -2755,10 +2775,11 @@ def test_the_slot_chip_offers_the_merge_for_its_split_off_part(dock_page):
     out = page.evaluate("""(st) => {
         const cen = window.app.project.layers.find(l => l.id === st.cenId);
         return { splits: cen.powerSocaSplits || [],
-                 distro: cen.powerSocaDistro || {} };
+                 distro: cen.powerSocaDistro || {},
+                 num: cen.powerSocaNumber || {} };
     }""", st)
-    assert out == {'splits': [], 'distro': {}}, (
-        f'the chip merge did not weld the parts back: {out}')
+    assert out == {'splits': [], 'distro': {'1': st['d2']}, 'num': {'1': 1}}, (
+        f'the chip merge did not weld the parts back under the head: {out}')
     split_clean(page, ids, st)
 
 
@@ -2795,9 +2816,10 @@ def test_a_drop_on_a_box_with_no_free_tail_refuses_with_the_counts(dock_page):
 #
 # Mid-flight, the underlay must light EVERYTHING the release will touch -
 # the data tab's rule, where a port drop lights exactly the run it takes.
-# A slot chip over a multi's FIRST circuit lights the whole multi; over a
-# later circuit it lights the split-off tail and leaves the head dark; a
-# distro lights every unassigned multi's circuits and nothing on a screen
+# A slot chip over a multi's LAST circuit lights the whole multi; over an
+# earlier circuit it lights the first circuits up to it and leaves the
+# rest dark (anchored at the cell's first circuit, 2026-09-05); a distro
+# lights every unassigned multi's circuits and nothing on a screen
 # with nothing left to feed. And the slot chip's six tail pips are draggable
 # themselves: pip N onto a circuit run puts that ONE circuit on tail N of
 # that box (the drop-implied split shrunk to one circuit, the stored tail
@@ -2866,21 +2888,22 @@ def test_the_preview_lights_the_drops_whole_reach(dock_page):
     assert len(nums) == 3, f'WALL A must make three circuits: {nums}'
     whole = sorted((ids['aId'], n) for n in nums)
 
-    # slot over the FIRST circuit: the whole multi lights, all 3 circuits
+    # slot over the LAST circuit: the whole multi lights, all 3 circuits
     sx, sy = dock_tile_center(page, f'slot-{ids["distroId"]}-1')
-    tgt = panel_point(page, ids['aId'], {'circuit': 0})
+    tgt = panel_point(page, ids['aId'], {'circuit': 2})
     lit, target = drag_probe(page, sx, sy, tgt['x'], tgt['y'])
     assert lit == whole, (
         f'the whole-multi drop must light every circuit it takes: {lit}')
     assert target and target['nums'] == nums, target
 
-    # slot over a MID circuit: the split-off tail lights, the head stays dark
+    # slot over a MID circuit: the first circuits up to it light, the
+    # rest stay dark
     sx, sy = dock_tile_center(page, f'slot-{ids["distroId"]}-1')
     tgt = panel_point(page, ids['aId'], {'circuit': 1})
     lit, target = drag_probe(page, sx, sy, tgt['x'], tgt['y'])
-    assert lit == sorted((ids['aId'], n) for n in nums[1:]), (
-        f'the split drop must light the tail circuits only: {lit}')
-    assert target and target['nums'] == nums[1:], target
+    assert lit == sorted((ids['aId'], n) for n in nums[:2]), (
+        f'the drop must light the first circuits up to the cursor: {lit}')
+    assert target and target['nums'] == nums[:2], target
 
     # distro over the screen: every unassigned multi's circuits light
     sx, sy = dock_tile_center(page, f'distro-{ids["distroId"]}')
@@ -3755,19 +3778,22 @@ def test_a_circuit_chips_menu_is_the_circuit_runs_menu(dock_page):
 
 
 def test_a_circuit_chip_offers_the_merge_for_its_split_off_part(dock_page):
-    """The chip holding a split-off circuit merges exactly as right-clicking
-    that circuit's drawn run does - both surfaces, one boundary."""
+    """The chip holding a circuit on either side of a boundary merges
+    exactly as right-clicking that circuit's drawn run does - both
+    surfaces, one boundary."""
     page, ids = dock_page
     open_view(page, 'power')
     st = split_seed(page, ids, off=4, cen=4)
     sx, sy = dock_tile_center(page, f'slot-{st["d2"]}-2')
-    tgt = panel_point(page, st['cenId'], {'circuit': 2})
+    tgt = panel_point(page, st['cenId'], {'circuit': 1})
     drag(page, sx, sy, tgt['x'], tgt['y'])
     page.wait_for_timeout(400)
 
-    # CEN SL's split-off circuits joined tails 5-6; the tail-5 chip offers
-    # the merge beside the clear - and, since a circuit chip names its
-    # screen (2026-08-31), the screen's outputs submenu; nothing else
+    # CEN SL's first two circuits joined tails 5-6 with the cut after
+    # them; the tail-5 chip offers the merge (the head takes its
+    # split-off tail back) beside the clear - and, since a circuit chip
+    # names its screen (2026-08-31), the screen's outputs submenu;
+    # nothing else
     sx, sy = dock_tile_center(page, f'tail-{st["d2"]}-2-5')
     page.mouse.click(sx, sy, button='right')
     page.wait_for_timeout(400)
@@ -3784,8 +3810,8 @@ def test_a_circuit_chip_offers_the_merge_for_its_split_off_part(dock_page):
         return { splits: cen.powerSocaSplits || [],
                  distro: cen.powerSocaDistro || {} };
     }""", st)
-    assert out == {'splits': [], 'distro': {}}, (
-        f'the chip merge did not weld the parts back: {out}')
+    assert out == {'splits': [], 'distro': {'1': st['d2']}}, (
+        f'the chip merge did not weld the parts back under the head: {out}')
     split_clean(page, ids, st)
 
 

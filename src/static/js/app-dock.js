@@ -2578,8 +2578,11 @@ class _HardwareDock {
                         // underlay can light everything the release will
                         // touch - the data tab's rule, where a port drop
                         // lights exactly the run it takes. A slot takes
-                        // what the box has room for from the hovered
-                        // circuit on - the drop's own resolution
+                        // the box cell's circuits from its FIRST up to
+                        // the hovered one, as many as the box has room
+                        // for (user, 2026-09-05: "start at the 1st
+                        // circuit regardless of naming. should just be
+                        // in order") - the drop's own resolution
                         // (_socaTakePlan), so what lights is what lands,
                         // and nothing where the drop would refuse; a tail
                         // pip takes the hovered circuit alone.
@@ -3028,14 +3031,16 @@ class _HardwareDock {
             const layer = (this.project.layers || [])
                 .find(l => l.id === target.layerId);
             if (!layer) return;
-            // ONE rule for the whole-multi drop and the mid-multi split-drop
+            // ONE rule for the whole-multi drop and the mid-multi drop
             // (user, 2026-09-04: "drag multi 2 onto 6 ports it only lets
-            // me do 1 ... it should allow me to do up to 6"): from the
-            // dropped circuit on, the box takes up to its free circuits -
-            // absorbing the one-circuit leftovers a run of pip drops left
-            // behind, stopping at the natural grid line and short of any
-            // later multi already on a distro. takeSocaOnto resegments,
-            // re-keys and assigns in ONE history entry; the tray talks.
+            // me do 1 ... it should allow me to do up to 6"; 2026-09-05:
+            // "i need it to start at 1-1 instead and increase to 1-6"):
+            // the box takes its cell's circuits from the FIRST up to the
+            // dropped one, as many as it has free - absorbing the
+            // one-circuit leftovers a run of pip drops left behind,
+            // skipping the head circuits already on another box, never
+            // crossing the grid line. takeSocaOnto resegments, re-keys
+            // and assigns in ONE history entry; the tray talks.
             const rec = this._powerNaming(layer).socas.get(target.socaIndex);
             const at = rec ? rec.circuits.indexOf(target.num) : -1;
             const ordinal = this.screenCircuits(layer)
@@ -3045,22 +3050,30 @@ class _HardwareDock {
             const r = this.takeSocaOnto(layer, ordinal, payload.distroId,
                                         payload.number, 'Assign Multi Distro');
             if (!r.ok) {
+                if (r.why === 'other-box') {
+                    // A circuit on another box is somebody's feed: the
+                    // drop never pulls it off. Clear it first.
+                    this._dockSay(`${label} is already on a box - `
+                        + `clear it first; ${payload.title} never pulls `
+                        + 'a circuit off another box.');
+                    return;
+                }
                 // The place-overflow refusal, in circuits: a box with no
                 // free circuit takes nothing, and no cut happens for
                 // nothing.
                 this._dockSay(`${payload.title} has no free circuits - `
                     + `the ${r.tailLen} circuit`
-                    + `${r.tailLen === 1 ? '' : 's'} from ${label} on `
-                    + `stay ${at > 0 ? `with ${rec.name || 'their multi'}`
-                                     : 'where they are'}.`);
+                    + `${r.tailLen === 1 ? '' : 's'} up to ${label} `
+                    + 'stay where they are.');
                 return;
             }
             if (r.took < r.tailLen) {
                 // Take-what-fits, said out loud - the same convention
-                // place-overflow follows with spare ports.
+                // place-overflow follows with spare ports: the FIRST
+                // circuits land, the rest wait.
                 this._dockSay(`${payload.title} had ${r.free} free `
                     + `circuit${r.free === 1 ? '' : 's'} - took ${r.took} `
-                    + `of the ${r.tailLen} circuits from ${label} on; `
+                    + `of the ${r.tailLen} circuits up to ${label}; `
                     + 'the rest stay as their own unassigned multi.');
             }
             this._restateNaming();
