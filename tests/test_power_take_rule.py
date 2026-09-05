@@ -34,6 +34,19 @@ Two rulings, pinned here:
      by fed multis on BOTH sides keeps both cuts - forgetting either would
      weld a multi that was not cleared into another and lose its number.
 
+  3. ONE CIRCUIT COMES OFF ITS BOX ON ITS OWN (2026-09-05: "lets say i
+     pair 6 circuits on power but i want to delete the 6th circuit from
+     the distro we have no way of doing that. can only clear the whole
+     multi."). The circuit chip's clear - and the chip dragged back onto
+     the tray - takes THAT circuit off the box and nothing else: it
+     becomes its own unassigned one-circuit multi, the head part keeps
+     the multi's identity, pin and rendered tails, a tail part after it
+     stays on the SAME box holding the tails it showed, so the remaining
+     circuits neither move nor renumber. The chip is the circuit, the
+     multi header is the box, the distro is everything. ONE 'Clear
+     Circuit' entry; one undo puts the cuts, stores and positions back.
+     The freed circuit is then a leftover the take rule absorbs.
+
   2. A MULTI DROPPED ON A CIRCUIT TAKES UP TO ITS FREE CIRCUITS. From the
      dropped circuit on, to the natural grid line, absorbing the
      unassigned leftovers in between and stopping short of a later multi
@@ -702,3 +715,236 @@ def test_the_preview_lights_exactly_what_the_drop_takes(page):
     assert out['free'] == {'ok': True, 'nums': [7, 8, 9, 10, 11, 12]}, out
     assert out['one'] == {'ok': True, 'nums': [7, 8, 9, 10, 11]}, out
     assert out['full'] == {'ok': False, 'nums': []}, out
+
+
+# ── 3. one circuit comes off its box on its own ───────────────────────────
+
+def chip_clear(page, distro_id, number, tail, title):
+    """The circuit chip's right-click clear, through the same menu item the
+    context menu arms. Returns the item (label, title) it ran."""
+    item = page.evaluate("""([d, n, t, title]) => {
+        const item = window.app._clearMenuForDock(
+            { type: 'tail', distroId: d, number: n, tail: t, title });
+        if (!item || item.disabled) throw new Error(JSON.stringify(item));
+        item.run();
+        return { label: item.label, title: item.title };
+    }""", [distro_id, number, tail, title])
+    page.wait_for_timeout(600)
+    return item
+
+
+def labels(page, layer_id):
+    return page.evaluate("""(id) => {
+        const app = window.app;
+        const l = app.project.layers.find(x => x.id === id);
+        app._circuitTailCache = null;
+        return app.screenCircuits(l)
+            .map(c => app.getPowerCircuitLabel(l, c.num));
+    }""", layer_id)
+
+
+def tail_holder(page, distro_id, number, tail):
+    return page.evaluate("""([d, n, t]) => {
+        window.app._circuitTailCache = null;
+        const h = window.app._dockTailHolder(d, n, t);
+        return h ? { layer: h.layer.name, soca: h.rec.index,
+                     circuit: h.circuit } : null;
+    }""", [distro_id, number, tail])
+
+
+def test_clear_the_sixth_circuit_leaves_the_other_five_where_they_were(page):
+    """The user's own case: six circuits on SR 1, the chip on tail 6
+    cleared. The box holds 1-5 on tails 1-5 (held, not re-dealt), circuit
+    6 is its own unassigned multi, the menu said "Clear circuit", ONE
+    'Clear Circuit' entry, and one undo puts the cut, the pin and the
+    positions back."""
+    ids = seed(page, [{'name': 'W', 'columns': 6, 'fields': {
+        'powerSocaDistro': {'1': 'dtk'}, 'powerSocaNumber': {'1': 1},
+        'powerSocaLengths': {'1': 25},
+    }}])
+    lid = ids['W']
+    before = read(page, lid)
+    assert before['shape'] == [6] and before['plan'][0]['tails'] == [1, 2, 3, 4, 5, 6]
+    assert labels(page, lid) == ['SR1-1', 'SR1-2', 'SR1-3', 'SR1-4', 'SR1-5', 'SR1-6']
+    hist = page.evaluate(HIST_LEN_JS)
+    item = chip_clear(page, 'dtk', 1, 6, 'SR 1 circuit 6')
+    assert item['label'] == 'Clear circuit SR1-6', item
+    assert 'other 5 circuits stay where they are' in item['title'], item
+    assert 'tail' not in item['title'].lower(), item
+    out = read(page, lid)
+    assert out['splits'] == [5] and out['shape'] == [5, 1], out
+    assert out['distro'] == {'1': 'dtk'} and out['num'] == {'1': 1}, out
+    assert out['pos'] == {'1': [1, 2, 3, 4, 5]}, out
+    assert out['names'] == {} and out['lengths'] == {'1': 25}, out
+    assert out['plan'][0]['tails'] == [1, 2, 3, 4, 5], out
+    assert out['plan'][1]['ords'] == [6] and out['plan'][1]['distro'] is None, out
+    assert labels(page, lid)[:5] == ['SR1-1', 'SR1-2', 'SR1-3', 'SR1-4', 'SR1-5']
+    assert tail_holder(page, 'dtk', 1, 6) is None, 'tail 6 is not free'
+    assert page.evaluate(HIST_LEN_JS) == hist + 1, 'not ONE history entry'
+    assert page.evaluate(HIST_JS, 1) == ['Clear Circuit']
+    undo(page)
+    assert read(page, lid) == before, 'one undo did not put it back whole'
+
+
+def test_clear_a_middle_circuit_keeps_the_tail_part_on_the_box(page):
+    """The third of six cleared: head [1-2] keeps the identity on tails 1-2,
+    the tail part [4-6] STAYS on the same box on tails 4-6 with its labels
+    unchanged - SR1-1 SR1-2 SR1-4 SR1-5 SR1-6 - circuit 3 free as its own
+    multi and tail 3 free on the box. The label override on the cleared
+    circuit goes; the others' stay."""
+    ids = seed(page, [{'name': 'W', 'columns': 6, 'fields': {
+        'powerSocaDistro': {'1': 'dtk'}, 'powerSocaNumber': {'1': 1},
+    }}])
+    lid = ids['W']
+    page.evaluate("""(id) => {
+        const app = window.app;
+        const l = app.project.layers.find(x => x.id === id);
+        const cs = app.screenCircuits(l);
+        l.powerLabelOverrides = { [cs[2].num]: 'GONE', [cs[4].num]: 'KEPT' };
+        app._circuitTailCache = null;
+        app.updateLayers([l], true, 'Name Circuits');
+    }""", lid)
+    page.wait_for_timeout(400)
+    before = read(page, lid)
+    hist = page.evaluate(HIST_LEN_JS)
+    chip_clear(page, 'dtk', 1, 3, 'SR 1 circuit 3')
+    out = read(page, lid)
+    assert out['splits'] == [2, 3] and out['shape'] == [2, 1, 3], out
+    assert out['distro'] == {'1': 'dtk', '3': 'dtk'}, out
+    assert out['num'] == {'1': 1, '3': 1}, out
+    assert out['pos'] == {'1': [1, 2], '3': [4, 5, 6]}, out
+    assert [s['tails'] for s in out['plan']] == [[1, 2], [1], [4, 5, 6]], out
+    assert [s['distro'] for s in out['plan']] == ['dtk', None, 'dtk'], out
+    lb = labels(page, lid)
+    assert lb[:2] == ['SR1-1', 'SR1-2'] and lb[3:] == ['SR1-4', 'KEPT', 'SR1-6'], lb
+    assert tail_holder(page, 'dtk', 1, 3) is None, 'tail 3 is not free'
+    assert tail_holder(page, 'dtk', 1, 4)['circuit'] == circuit_num(page, lid, 4)
+    overrides = page.evaluate("""(id) => window.app.project.layers
+        .find(x => x.id === id).powerLabelOverrides""", lid)
+    assert list(overrides.values()) == ['KEPT'], overrides
+    assert page.evaluate(HIST_LEN_JS) == hist + 1, 'not ONE history entry'
+    assert page.evaluate(HIST_JS, 1) == ['Clear Circuit']
+    # ... and the box dropped back on the freed circuit puts it on its old
+    # tail: the take rule reaches circuit 3 alone (4-6 are fed) and the
+    # join deals into the one free tail, 3.
+    drop_slot(page, lid, 3, 'dtk', 1, 'SR 1')
+    out = read(page, lid)
+    assert out['shape'] == [2, 1, 3] and out['splits'] == [2, 3], out
+    assert [s['tails'] for s in out['plan']] == [[1, 2], [3], [4, 5, 6]], out
+    assert [s['distro'] for s in out['plan']] == ['dtk'] * 3, out
+    assert labels(page, lid) == ['SR1-1', 'SR1-2', 'SR1-3', 'SR1-4', 'KEPT', 'SR1-6']
+    assert page.evaluate(HIST_JS, 1) == ['Assign Multi Distro']
+    undo(page)
+    undo(page)
+    assert read(page, lid) == before, 'two undos did not put it back whole'
+
+
+def test_clear_the_first_circuit_hands_the_identity_to_the_rest(page):
+    """The first of six cleared: the multi is the circuits that stay, so
+    the part [2-6] keeps the typed name, distro, number and tails 2-6;
+    circuit 1 is the leftover in front of it."""
+    ids = seed(page, [{'name': 'W', 'columns': 6, 'fields': {
+        'powerSocaDistro': {'1': 'dtk'}, 'powerSocaNumber': {'1': 1},
+        'powerSocaNames': {'1': 'STAGE LEFT'}, 'powerSocaLengths': {'1': 25},
+    }}])
+    lid = ids['W']
+    before = read(page, lid)
+    chip_clear(page, 'dtk', 1, 1, 'SR 1 circuit 1')
+    out = read(page, lid)
+    assert out['splits'] == [1] and out['shape'] == [1, 5], out
+    assert out['distro'] == {'2': 'dtk'} and out['num'] == {'2': 1}, out
+    assert out['pos'] == {'2': [2, 3, 4, 5, 6]}, out
+    assert out['names'] == {'2': 'STAGE LEFT'} and out['lengths'] == {'2': 25}, out
+    assert [s['tails'] for s in out['plan']] == [[1], [2, 3, 4, 5, 6]], out
+    assert labels(page, lid)[1:] == [
+        'STAGE LEFT-2', 'STAGE LEFT-3', 'STAGE LEFT-4', 'STAGE LEFT-5',
+        'STAGE LEFT-6']
+    assert page.evaluate(HIST_JS, 1) == ['Clear Circuit']
+    undo(page)
+    assert read(page, lid) == before
+
+
+def test_a_typed_name_rides_both_parts_so_no_label_changes(page):
+    """The labels derive from the typed multi name, so the tail part
+    carries it too: STAGE LEFT-4 must not turn into SR1-4 when circuit 3
+    comes off. The home-run length stays with the head alone - one cable,
+    counted once."""
+    ids = seed(page, [{'name': 'W', 'columns': 6, 'fields': {
+        'powerSocaDistro': {'1': 'dtk'}, 'powerSocaNumber': {'1': 1},
+        'powerSocaNames': {'1': 'STAGE LEFT'}, 'powerSocaLengths': {'1': 25},
+    }}])
+    lid = ids['W']
+    before = labels(page, lid)
+    assert before == ['STAGE LEFT-%d' % i for i in range(1, 7)], before
+    chip_clear(page, 'dtk', 1, 3, 'SR 1 circuit 3')
+    out = read(page, lid)
+    assert out['names'] == {'1': 'STAGE LEFT', '3': 'STAGE LEFT'}, out
+    assert out['lengths'] == {'1': 25}, out
+    lb = labels(page, lid)
+    assert lb[:2] == before[:2] and lb[3:] == before[3:], lb
+
+
+def test_clear_on_a_shared_box_leaves_the_other_screens_tails_alone(page):
+    """OFF's four circuits on box 2 (tails 1-4, rendered, unstored) and
+    CEN's two on tails 5-6. OFF's circuit 2 cleared: OFF reads [1] [3-4]
+    on tails 1 and 3-4, CEN's rendered 5-6 are stamped first and do not
+    move, tail 2 is free on the box."""
+    ids = seed(page, [
+        {'name': 'OFF', 'columns': 4, 'fields': {
+            'powerSocaDistro': {'1': 'dtk'}, 'powerSocaNumber': {'1': 2}}},
+        {'name': 'CEN', 'columns': 2, 'fields': {
+            'powerSocaDistro': {'1': 'dtk'}, 'powerSocaNumber': {'1': 2}}},
+    ])
+    cen_before = read(page, ids['CEN'])
+    assert cen_before['plan'][0]['tails'] == [5, 6] and cen_before['pos'] == {}
+    hist = page.evaluate(HIST_LEN_JS)
+    chip_clear(page, 'dtk', 2, 2, 'SR 2 circuit 2')
+    off = read(page, ids['OFF'])
+    cen = read(page, ids['CEN'])
+    assert off['splits'] == [1, 2] and off['shape'] == [1, 1, 2], off
+    assert off['distro'] == {'1': 'dtk', '3': 'dtk'}, off
+    assert off['num'] == {'1': 2, '3': 2}, off
+    assert off['pos'] == {'1': [1], '3': [3, 4]}, off
+    assert [s['tails'] for s in off['plan']] == [[1], [1], [3, 4]], off
+    assert cen['plan'][0]['tails'] == [5, 6], f"the other screen's tails moved: {cen}"
+    assert cen['pos'] == {'1': [5, 6]}, f"the incumbent was not held: {cen}"
+    assert tail_holder(page, 'dtk', 2, 2) is None, 'tail 2 is not free'
+    assert page.evaluate(HIST_LEN_JS) == hist + 1, 'not ONE history entry'
+    undo(page)
+    assert read(page, ids['CEN']) == cen_before, 'undo did not release the stamp'
+
+
+def test_the_chip_dragged_back_onto_the_tray_runs_the_same_clear(page):
+    """The drag-back: a circuit chip dropped anywhere inside the tray
+    (target kind 'dock') takes its one circuit off the box exactly as the
+    right-click does - same result, same 'Clear Circuit' entry - and a
+    free chip dropped there does nothing."""
+    ids = seed(page, [{'name': 'W', 'columns': 6, 'fields': {
+        'powerSocaDistro': {'1': 'dtk'}, 'powerSocaNumber': {'1': 1},
+    }}])
+    lid = ids['W']
+    hist = page.evaluate(HIST_LEN_JS)
+    page.evaluate("""() => window.app._dockPerformDrop(
+        { type: 'tail', distroId: 'dtk', number: 1, tail: 6,
+          title: 'SR 1 circuit 6' }, { kind: 'dock' })""")
+    page.wait_for_timeout(600)
+    out = read(page, lid)
+    assert out['splits'] == [5] and out['shape'] == [5, 1], out
+    assert out['pos'] == {'1': [1, 2, 3, 4, 5]}, out
+    assert page.evaluate(HIST_LEN_JS) == hist + 1, 'not ONE history entry'
+    assert page.evaluate(HIST_JS, 1) == ['Clear Circuit']
+    page.evaluate("""() => window.app._dockPerformDrop(
+        { type: 'tail', distroId: 'dtk', number: 1, tail: 6,
+          title: 'SR 1 circuit 6' }, { kind: 'dock' })""")
+    page.wait_for_timeout(400)
+    assert read(page, lid) == out, 'a free chip dropped on the tray moved something'
+    assert page.evaluate(HIST_LEN_JS) == hist + 1
+    # The hit-test agrees: a tail drag over the tray IS the dock target.
+    hit = page.evaluate("""() => {
+        const dock = document.getElementById('hardware-dock');
+        const r = dock.getBoundingClientRect();
+        return window.app._dockHitTest(
+            { clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 },
+            { payload: { type: 'tail', distroId: 'dtk', number: 1, tail: 1 } });
+    }""")
+    assert hit == {'kind': 'dock'}, hit

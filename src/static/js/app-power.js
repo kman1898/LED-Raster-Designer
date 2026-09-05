@@ -1155,6 +1155,131 @@ class _Power {
         return true;
     }
 
+    // ---- one circuit off its box, the rest of the multi staying put -----
+    //
+    // User (2026-09-05): "lets say i pair 6 circuits on power but i want
+    // to delete the 6th circuit from the distro we have no way of doing
+    // that. can only clear the whole multi."
+    //
+    // The circuit chip's clear (and its drag back onto the tray) takes
+    // THAT circuit off the box and nothing else. The circuit becomes its
+    // own unassigned one-circuit multi - a cut before it where it is not
+    // already a segment start, a cut after it where it is not the multi's
+    // last - and the rest of the multi stays exactly as the wall showed
+    // it: the HEAD part (the circuits before it) keeps the multi's
+    // identity - typed name, home-run length, distro, number - and holds
+    // the tails it was rendering; a TAIL part (the circuits after it, when
+    // the circuit was in the middle) stays on the SAME box, (distroId,
+    // number), holding the tails IT was rendering, so SR1-1 SR1-2 SR1-4
+    // SR1-5 SR1-6 keep reading exactly that with tail 3 free on the box
+    // and nobody moves or renumbers - and a typed multi name rides the
+    // tail part too, because the labels derive from it (STAGE LEFT-4
+    // must not turn into SR1-4: same name on the same number IS the
+    // shared-box shape). The home-run length stays with the head alone:
+    // one cable, counted once. When the circuit was the multi's FIRST the
+    // identity goes to the part after it - the multi is the circuits
+    // that stay, whichever end came off. The other members of a
+    // shared box hold their rendered tails first, as every join and split
+    // freezes them. The multi's shown number becomes its pin where it was
+    // auto - a head and a tail part on one box need the pin to be one box
+    // (what was showing becomes held, the tail rule applied to the
+    // number).
+    //
+    // No history entry and none of the circuit's own paperwork here: the
+    // dock's _clearCircuitChip wraps this with the wipe of the removed
+    // circuit's programming (label override, manual splitter entries) and
+    // the one 'Clear Circuit' entry, so a single undo puts back the cuts,
+    // the stores and the positions together. Returns { touched,
+    // removedIdx } or null when the circuit is not in that multi.
+    //
+    // The store moves ride _resegmentSocaStores, which follows a multi by
+    // its START circuit - the removed circuit itself when it was the
+    // first - so this multi's own entries are lifted out before the
+    // re-key and put back by hand on the part that keeps the identity;
+    // every OTHER multi on the screen keeps its stores under its stepped
+    // index the ordinary way. A one-circuit multi has no rest to keep:
+    // the dock clears it by the multi-scope rule it always ran.
+    _socaReleaseCircuit(layer, socaIndex, circuitNum) {
+        if (!layer) return null;
+        const idx = Number(socaIndex);
+        const rec = this._powerNaming(layer).socas.get(idx);
+        const at = rec ? rec.circuits.indexOf(circuitNum) : -1;
+        if (!rec || at < 0 || rec.circuits.length < 2) return null;
+        const circuits = this.screenCircuits(layer);
+        const count = circuits.length;
+        const o = circuits.findIndex(c => c.num === circuitNum) + 1;
+        const seg = this._socaSegments(layer, count)
+            .find(s => s.index === idx);
+        if (!seg || o < seg.start || o > seg.end) return null;
+        const L = rec.circuits.length;
+        // The tails the wall was showing, held only when they are a fan
+        // arrangement worth holding - the _materializeSocaBox test.
+        const cap = this.socaBoxSize(layer);
+        const shown = rec.positions;
+        const pos = (Array.isArray(shown) && shown.length === L
+            && shown.every(p => Number.isInteger(p) && p >= 1 && p <= cap)
+            && new Set(shown).size === L) ? shown.slice() : null;
+        const n = parseInt(rec.number, 10);
+        const onBox = !!rec.distroId && Number.isFinite(n) && n >= 1;
+        const touched = new Set([layer]);
+        if (onBox) {
+            this._materializeSocaBox(rec.distroId, n, layer, idx)
+                .forEach(l => touched.add(l));
+        }
+        const points = this._socaSplitPoints(layer, count);
+        if (o > seg.start) points.push(o - 1);
+        if (o < seg.end) points.push(o);
+        const fields = ['powerSocaDistro', 'powerSocaLengths',
+                        'powerSocaPhasePos', 'powerSocaPhaseOffset',
+                        'powerSocaNames', 'powerSocaNumber'];
+        const carried = {};
+        for (const field of fields) {
+            const store = layer[field];
+            if (!store || store[idx] === undefined) continue;
+            carried[field] = store[idx];
+            delete store[idx];
+        }
+        this._resegmentSocaStores(layer, points);
+        const idxOf = this._socaIndexByOrdinal(
+            this._socaSegments(layer, count));
+        const headIdx = o > seg.start ? idxOf[seg.start] : null;
+        const tailIdx = o < seg.end ? idxOf[o + 1] : null;
+        const keepIdx = headIdx != null ? headIdx : tailIdx;
+        const put = (field, i, v) => {
+            (layer[field] || (layer[field] = {}))[i] = v;
+        };
+        // Identity onto the part that keeps it. The stored tail set and
+        // the legacy breaker offset are not carried: the arrangement
+        // covered circuits the part no longer has (the split rule) - the
+        // shown tails go back on below, part by part.
+        for (const field of ['powerSocaDistro', 'powerSocaLengths',
+                             'powerSocaNames', 'powerSocaNumber']) {
+            if (carried[field] === undefined) continue;
+            put(field, keepIdx, carried[field]);
+        }
+        if (onBox) {
+            put('powerSocaDistro', keepIdx, rec.distroId);
+            put('powerSocaNumber', keepIdx, n);
+            if (headIdx != null && tailIdx != null) {
+                put('powerSocaDistro', tailIdx, rec.distroId);
+                put('powerSocaNumber', tailIdx, n);
+                if (carried.powerSocaNames !== undefined) {
+                    put('powerSocaNames', tailIdx, carried.powerSocaNames);
+                }
+            }
+        }
+        if (pos) {
+            if (headIdx != null) {
+                put('powerSocaPhasePos', headIdx, pos.slice(0, at));
+            }
+            if (tailIdx != null) {
+                put('powerSocaPhasePos', tailIdx, pos.slice(at + 1));
+            }
+        }
+        this._circuitTailCache = null;
+        return { touched: [...touched], removedIdx: idxOf[o] };
+    }
+
     getSocaPlan(layer) {
         if (!layer) return [];
         const circuits = this.screenCircuits(layer);   // [{num, panels}] in circuit order

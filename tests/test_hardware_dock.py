@@ -3723,7 +3723,9 @@ def test_a_circuit_chips_menu_is_the_circuit_runs_menu(dock_page):
 
     # the chip holding WALL B's circuit - a ONE-circuit multi, so the clear
     # is the circuit-scope clear (2026-08-30: clears forget programming;
-    # a chip inside a bigger multi still offers 'Clear multi ...')
+    # since 2026-09-05 every held chip offers 'Clear circuit ...' - a chip
+    # inside a bigger multi takes its one circuit off, the rest stay -
+    # see test_power_take_rule.py section 3)
     sx, sy = dock_tile_center(page, f'tail-{ids["distroId"]}-1-1')
     item = right_click(page, sx, sy)
     assert item['menuShown'] and item['shown'] and not item['disabled'], item
