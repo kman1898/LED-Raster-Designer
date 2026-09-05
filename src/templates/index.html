@@ -1727,6 +1727,12 @@
                     <button id="btn-zoom-in" data-tooltip="Zoom in">+</button>
                     <button id="btn-fit" data-tooltip="Fit raster to view (Ctrl/Cmd+Shift+1)">Fit</button>
                     <button id="btn-zoom-actual" data-tooltip="Zoom to Selection, Zoom to fit the selected screen layer at actual size (Ctrl/Cmd+Shift+2)">1:1</button>
+                    <!-- The custom-run readout: the active port (Data) or
+                         circuit (Power) while a custom flow is being drawn,
+                         its count against the cap, and any pending marquee
+                         count. canvas.js _drawActiveBadge is its only writer;
+                         it hides on any frame that draws no custom run. -->
+                    <span id="custom-run-readout" hidden data-tooltip="Active run, The port or circuit you are drawing, how many cabinets it holds against its capacity, and how many cabinets a pending selection would add."><span class="cr-label"></span><span class="cr-pill"></span><span class="cr-selected" hidden></span></span>
                     <label class="magnet-toggle" style="margin-left: 15px;" data-tooltip="Snap layers to grid when dragging (Ctrl/Cmd+Shift+')">
                         <input type="checkbox" id="magnetic-snap" checked>
                         <span>🧲 Snap</span>
