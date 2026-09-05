@@ -858,6 +858,67 @@ class _Power {
         }
     }
 
+    // Re-key every per-multi store from the OLD segmentation to a NEW set
+    // of split points, in one move - the general form of the splice above
+    // for gestures that change several boundaries at once (a clear that
+    // forgets the cuts at its edges, a drop that absorbs the one-circuit
+    // leftovers in its span). Each old multi is followed by its START
+    // ordinal: whichever new segment holds that circuit inherits the
+    // stores under the new index. When two old multis land in one new
+    // segment the FIRST claimant wins, per store: the earlier multi's
+    // entry stands, the later's drops, and a field the earlier never set
+    // takes the later's - so nothing on file is lost that need not be.
+    // The callers arrange that little collides anyway: a cleared multi
+    // was wiped first, an absorbed leftover is unassigned. A multi whose
+    // SPAN changed (it grew or was cut) sheds its stored tail set and
+    // breaker offset the way the split and un-split always did - the
+    // arrangement covered circuits the multi no longer has, or too few
+    // for the ones it has now - while name, distro, number and length
+    // are identity and carry. Writes `layer.powerSocaSplits` (normalized)
+    // and drops the naming cache. Returns Map(oldIndex -> { index:
+    // newIndex, same: span unchanged }).
+    _resegmentSocaStores(layer, newSplitPoints) {
+        if (!layer) return new Map();
+        const count = this.screenCircuits(layer).length;
+        const oldSegs = this._socaSegments(layer, count);
+        layer.powerSocaSplits = this._socaSplitPoints(
+            { powerSocaSplits: newSplitPoints }, count);
+        const newSegs = this._socaSegments(layer, count);
+        const newIdxOf = this._socaIndexByOrdinal(newSegs);
+        const map = new Map();
+        for (const s of oldSegs) {
+            const ni = newIdxOf[s.start];
+            if (!ni) continue;
+            const t = newSegs[ni - 1];
+            map.set(s.index, { index: ni,
+                               same: t.start === s.start && t.end === s.end });
+        }
+        for (const field of ['powerSocaDistro', 'powerSocaLengths',
+                             'powerSocaPhasePos', 'powerSocaPhaseOffset',
+                             'powerSocaNames', 'powerSocaNumber']) {
+            const store = layer[field];
+            if (!store || typeof store !== 'object') continue;
+            const next = {};
+            const keys = Object.keys(store).sort((a, b) =>
+                (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0));
+            for (const key of keys) {
+                const n = parseInt(key, 10);
+                // Not a multi index, so not ours to move - carried across,
+                // same rule as _spliceSocaStores.
+                if (!Number.isFinite(n)) { next[key] = store[key]; continue; }
+                const m = map.get(n);
+                if (!m) continue;
+                if (!m.same && (field === 'powerSocaPhasePos'
+                                || field === 'powerSocaPhaseOffset')) continue;
+                if (next[m.index] !== undefined) continue;
+                next[m.index] = store[key];
+            }
+            layer[field] = next;
+        }
+        this._circuitTailCache = null;
+        return map;
+    }
+
     // The split MUTATION on its own, no history entry: validation, the
     // incumbent stamp, the store splice. splitSocaAfter wraps it with the
     // one-entry snapshot; the dock's drop-implied split composes it with
@@ -907,25 +968,151 @@ class _Power {
         return true;
     }
 
-    // The drop-implied split: a multi slot dropped on a circuit that is NOT
-    // the first of its multi means "from this circuit on, feed from that
-    // box". The boundary falls out of where the drop landed - the Split
-    // select this replaces asked for the same fact in words - and the
-    // tail-end circuits take (distroId, number) in the same motion, so the
-    // whole gesture is ONE history entry: a single Ctrl+Z heals the split
-    // and the assignment together.
+    // ---- a multi dropped on a circuit takes up to the box's free circuits --
     //
-    // Capacity follows place-overflow's convention: TAKE WHAT FITS. When
-    // the box's free tails cannot hold the whole tail-end, a second
-    // boundary caps the assigned part at what fits and the remainder
-    // stays behind as its own unassigned multi (the spare-ports rule
-    // transposed); a box with no free tail at all refuses outright.
-    // Only PINNED incumbents hold tails against the drop - an auto at
-    // this number re-deals around the new pin, so it defends nothing.
+    // User (2026-09-04): "if i add circuits the numbering is all wrong and
+    // when i try and say drag multi 2 onto 6 ports it only lets me do 1
+    // because of the incorrect numbering. we need to audit this so it
+    // allows me to do up to 6 if i am doing multi/soca. so even if i have
+    // 1 circuit taken on multi 1 then i have 5 circuits left and i should
+    // only be able to add 5 more to that multi."
     //
-    // Returns { ok, took, tailLen, free } - or { ok: false, free, tailLen }
-    // for the refusal - so the dock can phrase the note; the engine moves
-    // stores, the tray talks.
+    // The wall he was looking at: circuit-pip drops (_dockDropTail) cut
+    // before and after their circuit by design, so a run of them leaves a
+    // trail of one-circuit multis - S2[7] S3[8] ... - and a slot dropped on
+    // circuit 7 used to assign exactly the multi under the cursor: one
+    // circuit onto a box with six free. ONE rule now, for the plain
+    // whole-multi drop and the mid-multi split-drop alike:
+    //
+    //   From the dropped circuit's ordinal `o`, take min(free, remaining)
+    //   circuits forward. `free` is what the box can still hold, computed
+    //   the way the join always did (the smallest box size among the
+    //   box's members, minus the legs its PINNED incumbents hold - an auto
+    //   at that number re-deals and defends nothing). `remaining` runs to
+    //   the natural grid line (_socaSegments always cuts at multiples of
+    //   the box size, so a multi never crosses one) and stops short of the
+    //   first later multi that is already ON a distro - the unassigned
+    //   leftovers in between are absorbed, an assigned neighbour is
+    //   somebody's feed and is never pulled off its box by a drop aimed
+    //   elsewhere. A full box refuses outright and moves nothing.
+    //
+    // The store moves are a resegmentation: a boundary before `o` where
+    // `o` is not already a multi's first circuit (the head keeps its
+    // identity and re-deals on its own box, the split rule), every stored
+    // point strictly inside the taken span removed, a boundary at the
+    // span's end where it stops short of the grid line (the remainder
+    // stays behind as its own unassigned multi - take-what-fits, the
+    // place-overflow convention), then _resegmentSocaStores re-keys what
+    // survives and the one taken segment gets (distroId, number) with the
+    // incumbents' tails frozen first, as every join freezes them. ONE
+    // history entry for the whole gesture.
+
+    // The resolution on its own, no mutation - the preview lights exactly
+    // these circuits and the release takes exactly these circuits, so the
+    // two can never disagree. `ordinal` is 1-based in the plan's circuit
+    // order. Returns { ok, free, remaining, take, nums, ... } - or
+    // { ok: false, free, remaining, seg } for a refusal.
+    _socaTakePlan(layer, ordinal, distroId, number) {
+        const none = { ok: false, free: 0, remaining: 0, take: 0, nums: [] };
+        if (!layer || !distroId) return none;
+        const circuits = this.screenCircuits(layer);
+        const count = circuits.length;
+        const o = parseInt(ordinal, 10);
+        if (!Number.isFinite(o) || o < 1 || o > count) return none;
+        const segs = this._socaSegments(layer, count);
+        const seg = segs.find(s => s.start <= o && o <= s.end);
+        if (!seg) return none;
+        const size = this.socaBoxSize(layer);
+        const assign = layer.powerSocaDistro || {};
+        // The reach: to the grid line, stopping before a later multi that
+        // is already fed.
+        let spanEnd = Math.min(count, Math.ceil(o / size) * size);
+        for (const s of segs) {
+            if (s.start <= o || s.start > spanEnd) continue;
+            if (assign[s.index]) { spanEnd = s.start - 1; break; }
+        }
+        const remaining = spanEnd - o + 1;
+        const n = parseInt(number, 10);
+        const head = o - seg.start;
+        let held = 0;
+        // The target box's fan is as big as the SMALLEST breakout claiming
+        // it - a 3-tail L21-30 box has three tails whoever else lands on
+        // it, and pretending to six would deal tails that do not exist.
+        let cap = size;
+        for (const m of (this._distroMultiNumbers(distroId).get(n) || [])) {
+            const ml = ((this.project && this.project.layers) || [])
+                .find(l => l.id === m.layerId);
+            if (ml) cap = Math.min(cap, this.socaBoxSize(ml));
+            if (!m.pinned) continue;
+            // The multi under the drop, already on the target box, counts
+            // at its HEAD size: everything from `o` on is what moves in.
+            held += (m.layerId === layer.id && m.soca === seg.index)
+                ? head : m.legs;
+        }
+        const free = Math.max(0, cap - held);
+        if (!free) return { ok: false, free, remaining, take: 0, nums: [],
+                            seg, head };
+        const take = Math.min(remaining, free);
+        return {
+            ok: true, free, remaining, take, seg, head, number: n,
+            spanEnd: o + take - 1, gridEnd: spanEnd, ordinal: o,
+            nums: circuits.slice(o - 1, o - 1 + take).map(c => c.num),
+        };
+    }
+
+    // The mutation: resegment, re-key, stamp, assign - ONE history entry
+    // under `action`. Returns { ok, took, tailLen, free } (`tailLen` is
+    // the span the drop reached for, so a caller can say "took N of M")
+    // or { ok: false, free, tailLen } for the refusal, with nothing moved.
+    takeSocaOnto(layer, ordinal, distroId, number, action) {
+        const plan = this._socaTakePlan(layer, ordinal, distroId, number);
+        if (!plan.ok) return { ok: false, free: plan.free,
+                               tailLen: plan.remaining };
+        const count = this.screenCircuits(layer).length;
+        const size = this.socaBoxSize(layer);
+        const o = plan.ordinal;
+        const touched = new Set([layer]);
+        if (plan.head > 0) {
+            // The head keeps its pin but sheds circuits, so it re-deals
+            // its tails on its box - and if that box is shared, the OTHER
+            // members' rendered tails must be held first (stamped before
+            // any store moves, while the naming cache still shows the
+            // pre-split wall).
+            this._materializeSocaBox(
+                (layer.powerSocaDistro || {})[plan.seg.index],
+                (layer.powerSocaNumber || {})[plan.seg.index],
+                layer, plan.seg.index).forEach(l => touched.add(l));
+        }
+        const points = this._socaSplitPoints(layer, count)
+            .filter(p => p < o - 1 || p > plan.spanEnd);
+        if (o > 1 && (o - 1) % size !== 0) points.push(o - 1);
+        if (plan.spanEnd < count && plan.spanEnd % size !== 0) {
+            points.push(plan.spanEnd);
+        }
+        this._resegmentSocaStores(layer, points);
+        const idx = this._socaIndexByOrdinal(
+            this._socaSegments(layer, count))[o];
+        // Landing on an occupied box is the JOIN: the incumbents' rendered
+        // tails freeze first so the taken part deals into what is
+        // genuinely free - the same stamp the panel's number pick made.
+        this._materializeSocaBox(distroId, plan.number, layer, idx)
+            .forEach(l => touched.add(l));
+        (layer.powerSocaDistro || (layer.powerSocaDistro = {}))[idx]
+            = distroId;
+        (layer.powerSocaNumber || (layer.powerSocaNumber = {}))[idx]
+            = plan.number;
+        this._circuitTailCache = null;
+        this.updateLayers([...touched], true, action || 'Assign Multi Distro');
+        return { ok: true, took: plan.take, tailLen: plan.remaining,
+                 free: plan.free };
+    }
+
+    // The drop-implied split spelled as it always was - multi `socaIndex`
+    // cut after its `afterLeg`-th circuit, the tail-end onto (distroId,
+    // number) - now a thin wrapper over takeSocaOnto: the cut IS "from
+    // this ordinal on", and the take rule decides how much of the box the
+    // tail-end gets. Kept under its own history name for the callers that
+    // ask for a split by name; the dock's drop records the assignment.
     splitSocaOnto(layer, socaIndex, afterLeg, distroId, number) {
         if (!layer || !distroId) return { ok: false, free: 0, tailLen: 0 };
         const count = this.screenCircuits(layer).length;
@@ -936,49 +1123,8 @@ class _Power {
                 || cut >= seg.end - seg.start + 1) {
             return { ok: false, free: 0, tailLen: 0 };
         }
-        const tailLen = (seg.end - seg.start + 1) - cut;
-        const n = parseInt(number, 10);
-        let held = 0;
-        // The target box's fan is as big as the SMALLEST breakout claiming
-        // it - a 3-tail L21-30 box has three tails whoever else lands on
-        // it, and pretending to six would deal tails that do not exist.
-        let cap = this.socaBoxSize(layer);
-        for (const m of (this._distroMultiNumbers(distroId).get(n) || [])) {
-            const ml = ((this.project && this.project.layers) || [])
-                .find(l => l.id === m.layerId);
-            if (ml) cap = Math.min(cap, this.socaBoxSize(ml));
-            if (!m.pinned) continue;
-            // The multi being split already on the target box counts at its
-            // HEAD size: its tail-end is exactly what is moving in.
-            held += (m.layerId === layer.id && m.soca === Number(socaIndex))
-                ? cut : m.legs;
-        }
-        const free = Math.max(0, cap - held);
-        if (!free) return { ok: false, free, tailLen };
-        const take = Math.min(tailLen, free);
-        const touched = new Set([layer]);
-        const first = this._splitSocaApply(layer, socaIndex, cut);
-        if (!first) return { ok: false, free, tailLen };
-        first.forEach(l => touched.add(l));
-        const tailIdx = Number(socaIndex) + 1;
-        if (take < tailLen) {
-            // The capped remainder becomes its own multi, unassigned - the
-            // circuits that did not fit stay visible as spare, never rammed
-            // onto a full fan as an overflow clash.
-            const capped = this._splitSocaApply(layer, tailIdx, take);
-            if (capped) capped.forEach(l => touched.add(l));
-        }
-        // Landing on an occupied box is the JOIN: the incumbents' rendered
-        // tails freeze first so the new part deals into what is genuinely
-        // free - the same stamp the panel's number pick always made.
-        this._materializeSocaBox(distroId, n, layer, tailIdx)
-            .forEach(l => touched.add(l));
-        (layer.powerSocaDistro || (layer.powerSocaDistro = {}))[tailIdx]
-            = distroId;
-        (layer.powerSocaNumber || (layer.powerSocaNumber = {}))[tailIdx] = n;
-        this._circuitTailCache = null;
-        this.updateLayers([...touched], true, 'Split Multi');
-        return { ok: true, took: take, tailLen, free };
+        return this.takeSocaOnto(layer, seg.start + cut, distroId, number,
+                                 'Split Multi');
     }
 
     // Remove the stored boundary at the end of part `socaIndex`: the part
@@ -3296,8 +3442,86 @@ class _Power {
     // re-assigning resurrected the old balance layout. Now the clear wipes
     // the cleared thing's stored programming too, and the caller folds
     // every wipe into ONE history entry so a single undo restores all of
-    // it. Split boundaries STAY: they define which circuits the multi
-    // holds, not how it was programmed.
+    // it. The split boundaries at the cleared multi's edges go too, and
+    // so does every cut left between multis nobody is feeding (user
+    // ruling, 2026-09-04, extending the above: a wall of one-circuit
+    // multis left by circuit-pip drops read S1[1-6] S2[7] S3[8] ... after
+    // a clear - "the numbering is all wrong") - see _socaClearSplitPoints.
+
+    // The split points that survive clearing `indices` on this layer.
+    // Two rules, one home:
+    //
+    // 1. The cleared multis' own edges. The boundary that ends each
+    //    cleared multi and the one that ends the multi before it are
+    //    forgotten, so the cleared circuits fall back onto the natural box
+    //    grid (_socaSegments cuts at every multiple of socaBoxSize
+    //    whatever is stored). A run of cleared multis inside one grid
+    //    cell is treated as one: its interior cuts always go; the cut to
+    //    a KEPT neighbour goes when the run has a kept neighbour on ONE
+    //    side only (the run welds onto it - the neighbour keeps its
+    //    identity and re-deals its tails, the un-split rule), and both
+    //    cuts stay when kept multis flank the run on both sides -
+    //    forgetting either would weld two multis that were not cleared
+    //    into one and lose the second's distro, number and name, which
+    //    the ruling never asked for. Grid lines are never stored, so a
+    //    neighbour across one is not a neighbour here.
+    //
+    // 2. The leftovers. Every remaining stored cut that sits between two
+    //    multis which are BOTH unassigned (no distro) once the clear has
+    //    run goes too, welding them back onto the natural grid. On the
+    //    user's own show (2026-09-04) a run of circuit-pip drops had left
+    //    twelve one-circuit multis S2..S13 behind S1, already unassigned,
+    //    so rule 1 alone cleared S1 and left the wall reading S1[1-6]
+    //    S2[7] S3[8] ... - "if i add circuits the numbering is all wrong",
+    //    and "we need to audit this so it allows me to do up to 6 if i am
+    //    doing multi/soca". An unassigned cut is programming nobody is
+    //    using, and a clear must not remember how the wall was programmed
+    //    (the 2026-08-30 ruling above). A cut with an ASSIGNED multi on
+    //    either side stays: that multi keeps its identity, its number and
+    //    its circuits under its new index (_resegmentSocaStores), so a
+    //    flanked run of leftovers between two fed multis keeps both cuts
+    //    - rule 1's flanked case is the same test with the cleared run
+    //    counted as unassigned.
+    //
+    // Pure: reads the stores as the caller left them (the wipe ran first,
+    // so a cleared multi's distro is already gone; `indices` covers it
+    // regardless) and returns the surviving points - the caller re-keys
+    // with _resegmentSocaStores, so the whole clear is still ONE history
+    // entry and one undo puts every cut back.
+    _socaClearSplitPoints(layer, indices) {
+        const count = this.screenCircuits(layer).length;
+        const segs = this._socaSegments(layer, count);
+        const stored = new Set(this._socaSplitPoints(layer, count));
+        const size = this.socaBoxSize(layer);
+        const cleared = new Set((indices || []).map(Number));
+        const gone = new Set();
+        for (let i = 0; i < segs.length; i++) {
+            if (!cleared.has(segs[i].index)) continue;
+            let j = i;
+            while (j + 1 < segs.length && cleared.has(segs[j + 1].index)
+                    && segs[j].end % size !== 0) j++;
+            for (let k = i; k < j; k++) gone.add(segs[k].end);
+            const before = segs[i].start - 1;
+            const after = segs[j].end;
+            const keptBefore = before >= 1 && before % size !== 0
+                && stored.has(before);
+            const keptAfter = after < count && after % size !== 0
+                && stored.has(after);
+            if (!(keptBefore && keptAfter)) {
+                if (keptBefore) gone.add(before);
+                if (keptAfter) gone.add(after);
+            }
+            i = j;
+        }
+        const assign = layer.powerSocaDistro || {};
+        const fed = s => !cleared.has(s.index) && !!assign[s.index];
+        for (let i = 0; i + 1 < segs.length; i++) {
+            const p = segs[i].end;
+            if (!stored.has(p) || gone.has(p)) continue;
+            if (!fed(segs[i]) && !fed(segs[i + 1])) gone.add(p);
+        }
+        return [...stored].filter(p => !gone.has(p));
+    }
 
     // One multi's circuits and their splitter run ids, read BEFORE any
     // store moves - the naming pass and the run ids describe the pre-clear

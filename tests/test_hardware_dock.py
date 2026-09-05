@@ -2426,7 +2426,7 @@ def test_the_canvas_run_menu_keeps_layer_items_beside_the_clear(dock_page):
 # collide. And WHICH circuit a slot chip is dropped on decides the gesture:
 # the first circuit of a multi takes the whole multi (as always), a LATER
 # circuit splits the multi there - the boundary the sidebar's Split select
-# used to ask for, implied by the drop (splitSocaOnto, one undo entry for
+# used to ask for, implied by the drop (takeSocaOnto, one undo entry for
 # split and assignment together). The way back is right-click "Merge back
 # into <name>" on the circuit run or the chip, offered only where a stored
 # boundary exists.
@@ -2611,7 +2611,9 @@ def test_a_drop_past_the_first_circuit_splits_the_multi_there(dock_page):
     assert out['clash'] is False, out
     assert page.evaluate(HIST_LEN_JS) == before + 1, (
         'split + assignment must be ONE history entry')
-    assert page.evaluate(HIST_JS, 1) == ['Split Multi']
+    # One rule for the whole-multi drop and the split-drop since the
+    # 2026-09-04 take ruling (takeSocaOnto), so both record the assignment.
+    assert page.evaluate(HIST_JS, 1) == ['Assign Multi Distro']
 
     page.evaluate("() => window.app.undo()")
     page.wait_for_timeout(900)
