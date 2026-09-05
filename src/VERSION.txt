@@ -48,6 +48,25 @@ v0.12.0 - September 5, 2026 (BETA)
   1:1. Nothing is drawn over a cabinet while you draw; "+N selected"
   shows there while a selection is pending.
 
+- CHANGE (IMPORTANT): A multi fills from its first circuit. Dragging a
+  box over a wall used to reach from the hovered circuit forward, so the
+  sweep ran backwards. Now the span starts at the first circuit of the
+  six and grows to the one under the cursor - one, then two, then six,
+  in order - skipping circuits already on another box and capped at
+  what the box has free.
+
+- NEW: A box wears its connector type. Every multi box in the tray
+  carries a chip - Soca 208, Soca 120, L21-30. On an empty box, click
+  it to pick the type; drag that box onto a screen and it behaves
+  exactly as dragging that plug does. An occupied box reads the type
+  its circuits imply. A spare box follows the distro's other boxes, so
+  an Edison distro's next box is Edison without a click. The OUTPUTS
+  row stays as the second way.
+
+- FIX: The redundancy bar says what it is for. Every processor's bar
+  now carries a REDUNDANCY caption - the Brompton's fixed pairing read a
+  bare "Off / On" before.
+
 - CHANGE (IMPORTANT): Redundancy is one bar in one place. Behind the
   processor's gear a raised segmented bar - Off, Whole unit, Per card,
   Per port (Off, Backed up, Per port on a standalone unit) - and exactly
