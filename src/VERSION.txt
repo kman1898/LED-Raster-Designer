@@ -1,7 +1,7 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
-v0.12.0 - September 4, 2026 (BETA)
+v0.12.0 - September 5, 2026 (BETA)
 ----------------------------
 
 - NEW: A distro says what it offers. Tick the connector types a distro
@@ -36,6 +36,17 @@ v0.12.0 - September 4, 2026 (BETA)
   the wall after Clear; every unassigned cut welds back to the natural
   six-per-box grid, while a multi that stays assigned keeps its name and
   number. One undo restores it all.
+
+- NEW: One circuit comes off its box. Right-click a circuit chip in the
+  tray (or drag it back onto the tray) and "Clear circuit SR1-6" takes
+  that one circuit off the multi; the other five stay on their tails and
+  keep their labels. The box header still clears the whole multi and
+  the distro clears everything.
+
+- CHANGE: The custom-mode readout ("S4-4 · 14/14 on circuit · full") has
+  moved off the wall into the strip above the canvas, beside Fit and
+  1:1. Nothing is drawn over a cabinet while you draw; "+N selected"
+  shows there while a selection is pending.
 
 - CHANGE (IMPORTANT): Redundancy is one bar in one place. Behind the
   processor's gear a raised segmented bar - Off, Whole unit, Per card,
