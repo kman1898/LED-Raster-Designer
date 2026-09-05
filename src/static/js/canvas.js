@@ -6711,12 +6711,17 @@ class CanvasRenderer {
     }
 
     // The plug drag's pending box on this screen, off the dock's live drop
-    // target (app-dock.js _dockScreenTarget stamps `plug` on it): the multi
-    // index the drop would feed and the name the box would get. Null when
-    // no plug drag targets this screen, or the drop would be refused.
+    // target (app-dock.js _dockScreenTarget stamps `plug` on it, and so
+    // does the hit test for a typed spare box over a circuit - a `run`
+    // target): the multi index the drop would feed and the name the box
+    // would get. Null when no plug drag targets this screen, or the drop
+    // would be refused.
     _pendingPlugFor(layer) {
         const t = window.app && window.app._dockDropTarget;
-        if (!t || t.kind !== 'screen' || t.layerId !== layer.id) return null;
+        if (!t || (t.kind !== 'screen' && t.kind !== 'run')
+                || t.layerId !== layer.id) {
+            return null;
+        }
         return (t.plug && t.plug.ok) ? t.plug : null;
     }
 

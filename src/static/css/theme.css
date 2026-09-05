@@ -830,6 +830,16 @@ select, .info-select {
    down, the lit one in the backup role's gold as the mock draws it.
    Legends are primary text ("grey on grey is hard to read"). ---- */
 #hw-gear-popover .hw-pop-seg { display:flex; margin-top:8px; }
+/* the bar's name (2026-09-05: "it doesnt say it is for redundancy") -
+   the dock's strip caption (LEGS / OUTPUTS) in primary text, above the
+   bar so the chassis's four segments keep the popover's whole width */
+#hw-gear-popover .hw-pop-red-strip { margin-top:8px; }
+#hw-gear-popover .hw-pop-red-cap {
+  display:block; margin-bottom:3px;
+  font:9px ui-monospace, Menlo, monospace; letter-spacing:0.5px;
+  text-transform:uppercase; color:var(--ps-text) !important;
+}
+#hw-gear-popover .hw-pop-red-strip > .hw-pop-seg { margin-top:0; }
 #hw-gear-popover .hw-pop-seg > button.hw-pop-seg-btn {
   flex:1 1 0; min-width:0; position:relative; margin-left:-1px;
   padding:3px 4px !important; border-radius:0 !important;

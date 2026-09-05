@@ -35,6 +35,14 @@ Pinned here, with real pointer drags and real right-clicks:
   * the submenu lists offering distros with their loads, greys the rest
     with the reason, and a pick is the same drop
   * brackets wear the type badge on screen and in export mode
+  * the type lives on the BOX too (2026-09-05, "Type chip on the spare
+    box ... or both places rather"): every multi header wears a type
+    chip; a spare box's chip cycles the offered types (one 'Set Multi
+    Type' entry, undo restores), an occupied box's chip is read-only and
+    reads its members' breakout; a typed spare box drags as its plug -
+    same gate, same refusal, same pill - and lands with the anchored
+    take; every drop stamps `boxTypes`; a legacy distro without the key
+    reads its occupied boxes from their members and shows no clash
 
 Run locally:
     python3 -m pytest tests/test_distro_outputs.py -q --browser chromium
@@ -128,6 +136,7 @@ RESET_JS = """(ids) => {
     if (touched.length) app.updateLayers([...new Set(touched)]);
     const d = app.getDistros().find(x => x.id === ids.distroId);
     delete d.outputs;
+    delete d.boxTypes;
     d.ratingA = 400;
     app._circuitTailCache = null;
     app._restateNaming();
@@ -781,4 +790,317 @@ def test_a_distro_with_no_outputs_key_still_drags_whole(page):
         return p.distros.find(x => x.id === id).outputs;
     }""", d)
     assert served == ['soca120'], served
+    pg.evaluate(RESET_JS, ids)
+
+
+# ── the type chip on the box ──────────────────────────────────────────────
+
+TYPECHIP_JS = """([distroId, n]) => {
+    const el = document.querySelector(
+        `[data-lrd-field="distro-box-type-${distroId}-${n}"]`);
+    if (!el) return null;
+    const head = el.closest('[data-hwdock]');
+    const sec = el.closest('.hw-dock-multi');
+    const chips = sec ? Array.from(sec.querySelectorAll(
+        `[data-hwdock^="tail-${distroId}-${n}-"]`)).length : 0;
+    const strip = Array.from(document.querySelectorAll(
+        '#hardware-dock .hw-dock-issue-msg')).map(e => e.textContent);
+    return {
+        tag: el.tagName, text: el.textContent, title: el.title,
+        ro: el.classList.contains('hw-dock-typechip-ro'),
+        clash: el.classList.contains('hw-dock-typechip-clash'),
+        boxClash: !!(sec && sec.classList.contains('hw-dock-multi-clash')),
+        handle: head && head.dataset.hwdock,
+        payload: head ? JSON.parse(head.dataset.hwdockPayload) : null,
+        chips,
+        stripTyped: strip.filter(t => t.includes('is typed')),
+    };
+}"""
+
+BOX_TYPES_JS = """(id) => {
+    const d = window.app.getDistros().find(x => x.id === id);
+    return d.boxTypes === undefined ? null : d.boxTypes;
+}"""
+
+
+def test_the_spare_box_wears_the_first_offered_type_and_a_click_cycles_it(page):
+    pg, ids = page
+    pg.evaluate(RESET_JS, ids)
+    pg.wait_for_timeout(400)
+    d = ids['distroId']
+    # a legacy distro offers everything: the spare box reads Soca 208, the
+    # catalog's first, stored nowhere yet
+    chip = pg.evaluate(TYPECHIP_JS, [d, 1])
+    assert chip and chip['tag'] == 'BUTTON' and not chip['ro'], chip
+    assert chip['text'] == 'Soca 208' and chip['chips'] == 6, chip
+    assert chip['payload']['output'] == 'soca208', chip
+    assert pg.evaluate(BOX_TYPES_JS, d) is None
+    before = pg.evaluate(HIST_LEN_JS)
+    pg.locator(f'[data-lrd-field="distro-box-type-{d}-1"]').click()
+    pg.wait_for_timeout(400)
+    chip = pg.evaluate(TYPECHIP_JS, [d, 1])
+    assert chip['text'] == 'Soca 120' and chip['chips'] == 6, chip
+    assert pg.evaluate(BOX_TYPES_JS, d) == {'1': 'soca120'}
+    assert pg.evaluate(HIST_LEN_JS) == before + 1
+    assert pg.evaluate(HIST_JS, 1) == ['Set Multi Type']
+    # the pick rides the drag payload, so the box drags as that plug
+    assert chip['payload']['output'] == 'soca120', chip
+    pg.locator(f'[data-lrd-field="distro-box-type-{d}-1"]').click()
+    pg.wait_for_timeout(400)
+    chip = pg.evaluate(TYPECHIP_JS, [d, 1])
+    # an L21-30 box is a three-circuit box before anything lands on it
+    assert chip['text'] == 'L21-30' and chip['chips'] == 3, chip
+    assert pg.evaluate(BOX_TYPES_JS, d) == {'1': 'l2130'}
+    # wraps
+    pg.locator(f'[data-lrd-field="distro-box-type-{d}-1"]').click()
+    pg.wait_for_timeout(400)
+    assert pg.evaluate(TYPECHIP_JS, [d, 1])['text'] == 'Soca 208'
+    assert pg.evaluate(BOX_TYPES_JS, d) == {'1': 'soca208'}
+    # undo walks one pick back
+    pg.evaluate("() => window.app.undo()")
+    pg.wait_for_timeout(800)
+    assert pg.evaluate(BOX_TYPES_JS, d) == {'1': 'l2130'}
+    chip = pg.evaluate(TYPECHIP_JS, [d, 1])
+    assert chip['text'] == 'L21-30' and chip['chips'] == 3, chip
+    # the stored type survives a project round-trip (no server allow-list)
+    served = pg.evaluate("""async (id) => {
+        const p = await (await fetch('/api/project')).json();
+        return p.distros.find(x => x.id === id).boxTypes;
+    }""", d)
+    assert served == {'1': 'l2130'}, served
+    # the cycle is the distro's OWN list: offering only two, the spare box
+    # reads the first offered and the click skips the unticked one
+    pg.evaluate("""(id) => {
+        const app = window.app;
+        const dd = app.getDistros().find(x => x.id === id);
+        delete dd.boxTypes;
+        app.updateDistro(id, {outputs: ['soca120', 'l2130']});
+        app.renderHardwareDock();
+    }""", d)
+    pg.wait_for_timeout(400)
+    assert pg.evaluate(TYPECHIP_JS, [d, 1])['text'] == 'Soca 120'
+    pg.locator(f'[data-lrd-field="distro-box-type-{d}-1"]').click()
+    pg.wait_for_timeout(400)
+    assert pg.evaluate(TYPECHIP_JS, [d, 1])['text'] == 'L21-30'
+    pg.locator(f'[data-lrd-field="distro-box-type-{d}-1"]').click()
+    pg.wait_for_timeout(400)
+    assert pg.evaluate(TYPECHIP_JS, [d, 1])['text'] == 'Soca 120'
+    # nothing offered: the default is Soca 208
+    pg.evaluate("""(id) => {
+        const app = window.app;
+        const dd = app.getDistros().find(x => x.id === id);
+        delete dd.boxTypes;
+        app.updateDistro(id, {outputs: []});
+        app.renderHardwareDock();
+    }""", d)
+    pg.wait_for_timeout(400)
+    assert pg.evaluate(TYPECHIP_JS, [d, 1])['text'] == 'Soca 208'
+    pg.evaluate(RESET_JS, ids)
+
+
+def test_a_spare_box_follows_the_distro_s_other_boxes(page):
+    """Rung 3: a box with nothing on it and no stored type reads the type of
+    the nearest lower-numbered settled box (else the nearest higher), so a
+    spare on an Edison distro is Edison without a click. Only boxes that
+    settle by a stored type or by members count - a memberless untyped box
+    is not asked, or it would ask the same question back."""
+    pg, ids = page
+    pg.evaluate(RESET_JS, ids)
+    pg.wait_for_timeout(400)
+    d = ids['distroId']
+    out = pg.evaluate("""(id) => {
+        const app = window.app;
+        const dd = app.getDistros().find(x => x.id === id);
+        const read = (n) => { const r = app.distroBoxType(dd, n); return [r.type.id, r.source]; };
+        dd.boxTypes = { 1: 'soca120' };
+        const a = read(2);
+        dd.boxTypes = { 1: 'l2130', 3: 'soca120' };
+        const b = [read(2), read(4), read(5)];
+        dd.boxTypes = { 4: 'soca120' };
+        const c = read(1);
+        delete dd.boxTypes;
+        const e = read(2);
+        return { a, b, c, e };
+    }""", d)
+    assert out['a'] == ['soca120', 'neighbour'], out
+    # nearest LOWER wins: box 2 follows box 1, boxes 4 and 5 follow box 3
+    assert out['b'] == [['l2130', 'neighbour'], ['soca120', 'neighbour'],
+                        ['soca120', 'neighbour']], out
+    # nothing lower: the nearest higher
+    assert out['c'] == ['soca120', 'neighbour'], out
+    # no settled box anywhere: back to the offered list
+    assert out['e'][1] in ('offered', 'default'), out
+    pg.evaluate(RESET_JS, ids)
+
+
+def test_an_occupied_box_chip_is_read_only_and_reads_its_members(page):
+    pg, ids = page
+    pg.evaluate(RESET_JS, ids)
+    pg.wait_for_timeout(400)
+    d = ids['distroId']
+    # a plug drop makes box 1 and stamps its type
+    sx, sy = chip_center(pg, f'plug-{d}-soca208')
+    tgt = panel_point(pg, ids['aId'], {})
+    drag(pg, sx, sy, tgt['x'], tgt['y'])
+    assert pg.evaluate(POWER_STATE_JS, ids['aId'])['distro'] == {'1': d}
+    assert pg.evaluate(BOX_TYPES_JS, d) == {'1': 'soca208'}
+    assert pg.evaluate(HIST_JS, 1) == ['Assign Multi Distro']
+    chip = pg.evaluate(TYPECHIP_JS, [d, 1])
+    assert chip['tag'] == 'SPAN' and chip['ro'], chip
+    assert chip['text'] == 'Soca 208' and chip['chips'] == 6, chip
+    assert 'Clear the box' in chip['title'], chip
+    assert 'output' not in chip['payload'], chip
+    assert not chip['clash'] and chip['stripTyped'] == [], chip
+    # one undo forgets the stamp with the assignment
+    pg.evaluate("() => window.app.undo()")
+    pg.wait_for_timeout(800)
+    assert pg.evaluate(BOX_TYPES_JS, d) is None
+    assert pg.evaluate(POWER_STATE_JS, ids['aId'])['distro'] == {}
+    pg.evaluate("() => window.app.redo()")
+    pg.wait_for_timeout(800)
+    assert pg.evaluate(BOX_TYPES_JS, d) == {'1': 'soca208'}
+    # a LEGACY distro (no boxTypes) reads its occupied boxes off their
+    # members: WALL B as an L21-30 box on number 2, WALL A's soca on 1
+    pg.evaluate("""(ids) => {
+        const app = window.app;
+        const dd = app.getDistros().find(x => x.id === ids.distroId);
+        delete dd.boxTypes;
+        const b = app.project.layers.find(x => x.id === ids.bId);
+        b.powerBreakoutType = 'l2130-true1';
+        app.setSocaDistro(b, 1, ids.distroId, false);
+        app.setSocaNumber(b, 1, 2, false);
+        app.updateLayers([b]);
+        app._restateNaming();
+        app.renderHardwareDock();
+    }""", ids)
+    pg.wait_for_timeout(600)
+    assert pg.evaluate(BOX_TYPES_JS, d) is None
+    one = pg.evaluate(TYPECHIP_JS, [d, 1])
+    two = pg.evaluate(TYPECHIP_JS, [d, 2])
+    assert one['text'] == 'Soca 208' and one['chips'] == 6, one
+    assert two['text'] == 'L21-30' and two['chips'] == 3 and two['ro'], two
+    assert not one['clash'] and not two['clash'], (one, two)
+    assert two['stripTyped'] == [], two
+    # a stored type at odds with the box's circuits is a clash: said on
+    # the strip with the fix, the stored type still standing on the chip
+    pg.evaluate("""(id) => {
+        window.app.updateDistro(id, {boxTypes: {2: 'soca208'}});
+        window.app.renderHardwareDock();
+    }""", d)
+    pg.wait_for_timeout(500)
+    two = pg.evaluate(TYPECHIP_JS, [d, 2])
+    assert two['text'] == 'Soca 208' and two['clash'] and two['boxClash'], two
+    assert two['stripTyped'] == ['PD 2 is typed Soca 208 but holds L21-30 '
+                                 'circuits.'], two
+    # the strip's fix retypes it to follow the circuits, one entry
+    n = pg.evaluate(HIST_LEN_JS)
+    pg.locator('#hardware-dock .hw-dock-issue button',
+               has_text='Make it L21-30').click()
+    pg.wait_for_timeout(500)
+    assert pg.evaluate(BOX_TYPES_JS, d) == {'2': 'l2130'}
+    assert pg.evaluate(HIST_LEN_JS) == n + 1
+    assert pg.evaluate(HIST_JS, 1) == ['Set Multi Type']
+    two = pg.evaluate(TYPECHIP_JS, [d, 2])
+    assert two['text'] == 'L21-30' and not two['clash'], two
+    assert two['stripTyped'] == [], two
+    pg.evaluate(RESET_JS, ids)
+
+
+def test_a_typed_spare_box_drags_as_its_plug(page):
+    pg, ids = page
+    pg.evaluate(RESET_JS, ids)
+    pg.wait_for_timeout(400)
+    d = ids['distroId']
+    # type the spare box L21-30 by its chip (two clicks from Soca 208)
+    pg.locator(f'[data-lrd-field="distro-box-type-{d}-1"]').click()
+    pg.wait_for_timeout(300)
+    pg.locator(f'[data-lrd-field="distro-box-type-{d}-1"]').click()
+    pg.wait_for_timeout(400)
+    assert pg.evaluate(TYPECHIP_JS, [d, 1])['text'] == 'L21-30'
+    n = pg.evaluate(HIST_LEN_JS)
+    # onto a soca screen: the plug's own refusal, nothing lit, nothing moved
+    sx, sy = chip_center(pg, f'slot-{d}-1')
+    tgt = panel_point(pg, ids['aId'], {'circuit': 0})
+    mid = drag(pg, sx, sy, tgt['x'], tgt['y'],
+               mid_check=lambda p: p.evaluate(MID_JS, ids['aId']))
+    assert mid['ghost'], mid
+    t = mid['target']
+    assert t and t['kind'] == 'run' and t['nums'] == [], mid
+    assert mid['lit'] == [], mid
+    assert mid['pill'] and mid['pill']['cls'] == 'hw-dock-pill-bad', mid
+    assert mid['pill']['text'] == \
+        'WALL A is set to Multi → True1 — change its breakout first', mid
+    assert pg.evaluate(STATUS_JS) == \
+        'WALL A is set to Multi → True1 — change its breakout first'
+    assert pg.evaluate(POWER_STATE_JS, ids['aId'])['distro'] == {}
+    assert pg.evaluate(HIST_LEN_JS) == n, 'a refused drop earned an entry'
+    # onto an L21-30 screen, dropped on its THIRD circuit: the anchored
+    # take - circuits 1-3 - previewed and landed, the box pinned to 1
+    pg.evaluate("""(ids) => {
+        const app = window.app;
+        const b = app.project.layers.find(x => x.id === ids.bId);
+        app.setPowerBreakout(b, 'l2130-true1');
+        app._restateNaming();
+    }""", ids)
+    pg.wait_for_timeout(600)
+    n = pg.evaluate(HIST_LEN_JS)
+    sx, sy = chip_center(pg, f'slot-{d}-1')
+    tgt = panel_point(pg, ids['bId'], {'circuit': 2})
+    mid = drag(pg, sx, sy, tgt['x'], tgt['y'],
+               mid_check=lambda p: p.evaluate(MID_JS, ids['bId']))
+    t = mid['target']
+    assert t['kind'] == 'run' and t['nums'] == [1, 2, 3], mid
+    assert mid['lit'] == [1, 2, 3], mid
+    assert t['plug']['ok'] and t['plug']['boxName'] == 'PD 1', mid
+    assert t['plug']['badge'] == 'L21-30', mid
+    assert mid['pill']['cls'] == '', mid
+    assert mid['pill']['text'].startswith('PD 1 → circuits 1–3 · '), mid
+    st = pg.evaluate(POWER_STATE_JS, ids['bId'])
+    assert st['distro'] == {'1': d} and st['num'] == {'1': 1}, st
+    assert pg.evaluate(HIST_LEN_JS) == n + 1
+    assert pg.evaluate(HIST_JS, 1) == ['Assign Multi Distro']
+    assert pg.evaluate(BOX_TYPES_JS, d) == {'1': 'l2130'}
+    one = pg.evaluate(TYPECHIP_JS, [d, 1])
+    assert one['ro'] and one['text'] == 'L21-30' and one['chips'] == 3, one
+    pg.evaluate(RESET_JS, ids)
+    # the stamp, proven where nothing was stored: a distro offering only
+    # L21-30 types its spare box L21-30 by default, and the drop records it
+    pg.evaluate("""(ids) => {
+        const app = window.app;
+        app.updateDistro(ids.distroId, {outputs: ['l2130']});
+        const b = app.project.layers.find(x => x.id === ids.bId);
+        app.setPowerBreakout(b, 'l2130-true1');
+        app._restateNaming();
+        app.renderHardwareDock();
+    }""", ids)
+    pg.wait_for_timeout(600)
+    assert pg.evaluate(BOX_TYPES_JS, d) is None
+    assert pg.evaluate(TYPECHIP_JS, [d, 1])['text'] == 'L21-30'
+    sx, sy = chip_center(pg, f'slot-{d}-1')
+    tgt = panel_point(pg, ids['bId'], {'circuit': 0})
+    drag(pg, sx, sy, tgt['x'], tgt['y'])
+    assert pg.evaluate(POWER_STATE_JS, ids['bId'])['distro'] == {'1': d}
+    assert pg.evaluate(BOX_TYPES_JS, d) == {'1': 'l2130'}
+    # one undo takes the type away with the assignment
+    pg.evaluate("() => window.app.undo()")
+    pg.wait_for_timeout(800)
+    assert pg.evaluate(BOX_TYPES_JS, d) is None
+    assert pg.evaluate(POWER_STATE_JS, ids['bId'])['distro'] == {}
+    pg.evaluate(RESET_JS, ids)
+    # a typed Soca 208 spare box on a soca screen's fourth circuit takes
+    # 1-4 (the anchored span), and the next spare box appears typed
+    pg.wait_for_timeout(400)
+    sx, sy = chip_center(pg, f'slot-{d}-1')
+    tgt = panel_point(pg, ids['aId'], {'circuit': 3})
+    mid = drag(pg, sx, sy, tgt['x'], tgt['y'],
+               mid_check=lambda p: p.evaluate(MID_JS, ids['aId']))
+    assert mid['target']['nums'] == [1, 2, 3, 4], mid
+    assert mid['lit'] == [1, 2, 3, 4], mid
+    assert mid['pill']['text'].startswith('PD 1 → circuits 1–4 · '), mid
+    st = pg.evaluate(POWER_STATE_JS, ids['aId'])
+    first = next(s for s in st['plan'] if s['distroId'] == d)
+    assert first['circuits'] == [1, 2, 3, 4] and first['number'] == 1, st
+    assert pg.evaluate(BOX_TYPES_JS, d) == {'1': 'soca208'}
+    two = pg.evaluate(TYPECHIP_JS, [d, 2])
+    assert two and two['tag'] == 'BUTTON' and two['text'] == 'Soca 208', two
     pg.evaluate(RESET_JS, ids)

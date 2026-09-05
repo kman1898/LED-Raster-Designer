@@ -323,8 +323,9 @@ def test_power_write_is_undoable_and_redoable(page, action, seed, mutate, read):
 
 
 def test_drop_implied_split_is_one_undo_entry(page):
-    """splitSocaOnto - the dock's slot-drop-on-a-later-circuit - is split
-    AND assignment in one motion, so it must be EXACTLY one history entry:
+    """splitSocaOnto - the dock's slot-drop-on-a-later-circuit, the first
+    circuits up to it taken - is cut AND assignment in one motion, so it
+    must be EXACTLY one history entry:
     a single Ctrl+Z heals the boundary and takes the assignment back
     together, never leaving a split multi still pinned to the box."""
     ids = reset_project(page)['ids']

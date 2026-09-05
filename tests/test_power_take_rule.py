@@ -47,16 +47,23 @@ Two rulings, pinned here:
      Circuit' entry; one undo puts the cuts, stores and positions back.
      The freed circuit is then a leftover the take rule absorbs.
 
-  2. A MULTI DROPPED ON A CIRCUIT TAKES UP TO ITS FREE CIRCUITS. From the
-     dropped circuit on, to the natural grid line, absorbing the
-     unassigned leftovers in between and stopping short of a later multi
-     already on a distro; capped at what the box can still hold (its
-     smallest member's box size minus the pinned incumbents' legs), the
-     rest staying as its own unassigned multi ("took N of M"); a full box
-     refuses and moves nothing. The plain whole-multi drop and the
-     mid-multi split-drop are ONE rule (takeSocaOnto), ONE history entry
-     ('Assign Multi Distro'); the pip drop (_dockDropTail) stays the
-     finest grain.
+  2. A MULTI DROPPED ON A CIRCUIT TAKES THE BOX'S FIRST CIRCUITS, UP TO
+     ITS FREE ONES. Anchored at the START of the box cell (2026-09-05:
+     "data and power when dragged onto a screen in bulk starts say s1-6
+     and then as you drag towards 1-1 it fills all 6 circuits. i need it
+     to start at 1-1 instead and increase to 1-6 instead. it is backwards
+     for how it should work." - "start at the 1st circuit regardless of
+     naming. should just be in order."): the span runs from the cell's
+     first circuit TO the dropped one - hover the 6th, six light; the
+     1st, one - absorbing the unassigned leftovers in between, skipping
+     head circuits already on another box (and refusing on a circuit
+     that itself is), never crossing the grid line; capped at what the
+     box can still hold (its smallest member's box size minus the pinned
+     incumbents' legs), the FIRST circuits landing and the rest staying
+     as their own unassigned multi ("took N of M"); a full box refuses
+     and moves nothing. The plain whole-multi drop and the mid-multi drop
+     are ONE rule (takeSocaOnto), ONE history entry ('Assign Multi
+     Distro'); the pip drop (_dockDropTail) stays the finest grain.
 
 Run locally (ONE pytest at a time - the browser-test servers use fixed
 ports; LRD_E2E_PORT picks another):
@@ -189,6 +196,9 @@ READ_JS = """(layerId) => {
 HIST_JS = "(n) => window.app.history.map(h => h.action).slice(-n)"
 HIST_LEN_JS = "() => window.app.history.length"
 SAID_JS = "() => document.getElementById('status-message').textContent"
+# A silent drop leaves the last line standing, so a test that asserts
+# silence blanks the status bar first.
+HUSH_JS = "() => { document.getElementById('status-message').textContent = ''; }"
 
 
 def seed(page, screens, distros=None):
@@ -432,11 +442,11 @@ def test_clear_distro_welds_leftovers_that_were_already_unassigned(page):
     undo(page)
     assert read(page, lid) == before, 'one undo did not restore every cut'
     # ... and the user's next gesture on the healed wall: SR 2 dropped on
-    # circuit 7 takes the whole natural box 7-12.
+    # circuit 12 takes the whole natural box 7-12.
     page.evaluate("""() => window.app._clearMenuForDock(
         { type: 'distro', distroId: 'dtk', title: 'SR' }).run()""")
     page.wait_for_timeout(600)
-    drop_slot(page, lid, 7, 'dtk', 2, 'SR 2')
+    drop_slot(page, lid, 12, 'dtk', 2, 'SR 2')
     out = read(page, lid)
     assert out['shape'] == [6, 6, 6, 4] and out['splits'] == [], out
     assert out['plan'][1]['ords'] == [7, 8, 9, 10, 11, 12], out
@@ -530,19 +540,23 @@ def test_clear_circuit_chip_welds_the_neighbouring_leftovers_too(page):
     assert read(page, lid) == before, 'one undo did not restore every cut'
 
 
-# ── 2. a multi dropped on a circuit takes up to its free circuits ─────────
+# ── 2. a multi dropped on a circuit takes the box's first circuits ────────
+#
+# Anchored at the START of the box cell (2026-09-05): the span runs from
+# the cell's first circuit to the hovered one, so hovering the 6th of a
+# six lights all six and hovering the 1st lights one.
 
-def test_slot_drop_on_a_chopped_wall_takes_the_whole_box(page):
+def test_slot_drop_on_the_cells_last_circuit_takes_the_whole_box(page):
     """The user's gesture on his own wall, after the clear that kept the
-    cuts: SR 2 dropped on circuit 7 takes 7-12 - the one-circuit leftovers
-    absorbed, the grid line at 12 respected - as ONE 'Assign Multi Distro'
-    entry, and the leftovers past 12 are not touched."""
+    cuts: SR 2 dropped on circuit 12 takes 7-12 - anchored at the cell's
+    first circuit, the one-circuit leftovers absorbed - as ONE 'Assign
+    Multi Distro' entry, and the leftovers past 12 are not touched."""
     ids = seed(page, [{'name': 'SR MAIN', 'columns': 22,
                        'fields': chopped_fields(False)}])
     lid = ids['SR MAIN']
     before = read(page, lid)
     hist = page.evaluate(HIST_LEN_JS)
-    drop_slot(page, lid, 7, 'dtk', 2, 'SR 2')
+    drop_slot(page, lid, 12, 'dtk', 2, 'SR 2')
     out = read(page, lid)
     assert out['splits'] == [13, 14, 15, 16, 17], out
     assert out['shape'] == [6, 6, 1, 1, 1, 1, 1, 1, 4], out
@@ -558,18 +572,35 @@ def test_slot_drop_on_a_chopped_wall_takes_the_whole_box(page):
     assert read(page, lid) == before, 'one undo did not heal the drop'
 
 
+def test_slot_drop_on_the_cells_first_circuit_takes_that_one_alone(page):
+    """Hover the cell's 1st and that circuit alone: SR 2 dropped on circuit
+    7 of the chopped wall takes [7] - the box reads 1/6 - and 8-12 stay
+    the leftovers they were."""
+    ids = seed(page, [{'name': 'SR MAIN', 'columns': 22,
+                       'fields': chopped_fields(False)}])
+    lid = ids['SR MAIN']
+    drop_slot(page, lid, 7, 'dtk', 2, 'SR 2')
+    out = read(page, lid)
+    assert out['splits'] == CHOPPED, out
+    assert out['plan'][1]['ords'] == [7] and out['plan'][1]['distro'] == 'dtk', out
+    assert out['plan'][2]['ords'] == [8] and out['plan'][2]['distro'] is None, out
+    assert out['distro'] == {'2': 'dtk'} and out['num'] == {'2': 2}, out
+    assert 'took' not in page.evaluate(SAID_JS), 'no cap, no note'
+
+
 def test_slot_drop_takes_what_the_box_has_free_and_says_so(page):
     """One circuit already pinned on box 2 (another screen's): SR 2 dropped
-    on circuit 7 takes five - 7-11 on the box's free tails 2-6 - and 12
-    stays behind as its own unassigned multi; the status bar says "took 5
-    of the 6". The incumbent keeps its tail."""
+    on circuit 12 reaches for 7-12 and takes the FIRST five - 7-11 on the
+    box's free tails 2-6 - and 12 stays behind as its own unassigned
+    multi; the status bar says "took 5 of the 6". The incumbent keeps its
+    tail."""
     ids = seed(page, [
         {'name': 'SR MAIN', 'columns': 22, 'fields': chopped_fields(False)},
         {'name': 'DJ', 'columns': 1, 'fields': {
             'powerSocaDistro': {'1': 'dtk'}, 'powerSocaNumber': {'1': 2}}},
     ])
     lid = ids['SR MAIN']
-    drop_slot(page, lid, 7, 'dtk', 2, 'SR 2')
+    drop_slot(page, lid, 12, 'dtk', 2, 'SR 2')
     out = read(page, lid)
     assert out['splits'] == [11, 13, 14, 15, 16, 17], out
     assert out['shape'] == [6, 5, 1, 1, 1, 1, 1, 1, 1, 4], out
@@ -596,41 +627,73 @@ def test_slot_drop_on_a_full_box_refuses_and_moves_nothing(page):
     lid = ids['SR MAIN']
     before = read(page, lid)
     hist = page.evaluate(HIST_LEN_JS)
-    drop_slot(page, lid, 7, 'dtk', 2, 'SR 2')
+    drop_slot(page, lid, 12, 'dtk', 2, 'SR 2')
     assert read(page, lid) == before, 'a refused drop mutated the wall'
     assert page.evaluate(HIST_LEN_JS) == hist
     said = page.evaluate(SAID_JS)
     assert 'SR 2 has no free circuits' in said and '6 circuits' in said, said
 
 
-def test_slot_drop_stops_short_of_a_multi_already_on_a_distro(page):
-    """[7] unassigned, [8] pinned on No. 3, [9-12] unassigned: SR 2 dropped
-    on 7 takes 7 alone - a neighbour that is somebody's feed is never
-    pulled off its box by a drop aimed elsewhere - and 8 keeps its pin."""
+def test_head_circuits_on_another_box_are_skipped(page):
+    """[1-2] pinned on No. 3, [3-6] unassigned: SR 2 dropped on the cell's
+    4th circuit takes 3-4 - the head that is somebody's feed is never
+    pulled off its box by a drop aimed elsewhere - and [1-2] keeps its
+    pin. Dropped on circuit 2 (on No. 3 itself) it refuses: nothing
+    lights, nothing moves, the tray says so."""
     ids = seed(page, [{'name': 'W', 'columns': 12, 'fields': {
-        'powerSocaSplits': [7, 8],
-        'powerSocaDistro': {'3': 'dtk'}, 'powerSocaNumber': {'3': 3},
+        'powerSocaSplits': [2],
+        'powerSocaDistro': {'1': 'dtk'}, 'powerSocaNumber': {'1': 3},
     }}])
     lid = ids['W']
-    drop_slot(page, lid, 7, 'dtk', 2, 'SR 2')
+    assert page.evaluate("""(id) => {
+        const app = window.app;
+        const l = app.project.layers.find(x => x.id === id);
+        app._circuitTailCache = null;
+        const p = app._socaTakePlan(l, 2, 'dtk', 2);
+        return { ok: p.ok, why: p.why, nums: p.nums };
+    }""", lid) == {'ok': False, 'why': 'other-box', 'nums': []}
+    before = read(page, lid)
+    hist = page.evaluate(HIST_LEN_JS)
+    drop_slot(page, lid, 2, 'dtk', 2, 'SR 2')
+    assert read(page, lid) == before, 'a refused drop mutated the wall'
+    assert page.evaluate(HIST_LEN_JS) == hist
+    assert 'already on a box' in page.evaluate(SAID_JS)
+
+    page.evaluate(HUSH_JS)
+    drop_slot(page, lid, 4, 'dtk', 2, 'SR 2')
     out = read(page, lid)
-    assert out['splits'] == [7, 8] and out['shape'] == [6, 1, 1, 4], out
-    assert out['distro'] == {'2': 'dtk', '3': 'dtk'}, out
-    assert out['num'] == {'2': 2, '3': 3}, out
+    assert out['splits'] == [2, 4] and out['shape'] == [2, 2, 2, 6], out
+    assert out['plan'][1]['ords'] == [3, 4], out
+    assert out['distro'] == {'1': 'dtk', '2': 'dtk'}, out
+    assert out['num'] == {'1': 3, '2': 2}, out
     assert 'took' not in page.evaluate(SAID_JS)
+
+
+def test_the_span_never_crosses_a_grid_line(page):
+    """A drop in cell two starts at circuit 7, never at 1: SR 2 on circuit
+    9 of a 12-circuit screen takes 7-9, and cell one is not touched."""
+    ids = seed(page, [{'name': 'W', 'columns': 12}])
+    lid = ids['W']
+    drop_slot(page, lid, 9, 'dtk', 2, 'SR 2')
+    out = read(page, lid)
+    assert out['splits'] == [9] and out['shape'] == [6, 3, 3], out
+    assert out['plan'][1]['ords'] == [7, 8, 9], out
+    assert out['plan'][0]['distro'] is None and out['plan'][2]['distro'] is None, out
+    assert out['distro'] == {'2': 'dtk'} and out['num'] == {'2': 2}, out
 
 
 def test_slot_drop_on_a_whole_multi_takes_what_fits_too(page):
     """The ruling on the plain whole-multi drop: a 6-circuit multi dropped
-    on a box with one pinned circuit takes five and leaves one - it never
-    lands seven legs on a six-tail fan as an overflow clash."""
+    on a box with one pinned circuit (the drop on its 6th) takes the first
+    five and leaves the sixth - it never lands seven legs on a six-tail
+    fan as an overflow clash."""
     ids = seed(page, [
         {'name': 'W', 'columns': 6},
         {'name': 'DJ', 'columns': 1, 'fields': {
             'powerSocaDistro': {'1': 'dtk'}, 'powerSocaNumber': {'1': 2}}},
     ])
     lid = ids['W']
-    drop_slot(page, lid, 1, 'dtk', 2, 'SR 2')
+    drop_slot(page, lid, 6, 'dtk', 2, 'SR 2')
     out = read(page, lid)
     assert out['splits'] == [5] and out['shape'] == [5, 1], out
     assert out['distro'] == {'1': 'dtk'} and out['num'] == {'1': 2}, out
@@ -639,11 +702,12 @@ def test_slot_drop_on_a_whole_multi_takes_what_fits_too(page):
     assert 'took 5 of the 6 circuits' in said, said
 
 
-def test_mid_multi_drop_still_splits_there_as_one_entry(page):
-    """The split-drop: SR 2 on the THIRD circuit of a 4-circuit multi cuts
-    after 2 and the tail-end takes the pin - the head keeps its own
-    identity - under the one 'Assign Multi Distro' entry the drop records
-    now; one undo heals the cut and the assignment together."""
+def test_a_drop_on_a_later_circuit_takes_the_first_n_as_one_entry(page):
+    """The old "from here on" split-drop is gone: SR 2 on the THIRD circuit
+    of a 4-circuit multi takes its first three, the fourth stays as its
+    own unassigned multi, and the typed name rides the taken part - under
+    the one 'Assign Multi Distro' entry; one undo heals the cut and the
+    assignment together."""
     ids = seed(page, [{'name': 'W', 'columns': 4, 'fields': {
         'powerSocaNames': {'1': 'HEAD'}}}])
     lid = ids['W']
@@ -651,26 +715,47 @@ def test_mid_multi_drop_still_splits_there_as_one_entry(page):
     hist = page.evaluate(HIST_LEN_JS)
     drop_slot(page, lid, 3, 'dtk', 2, 'SR 2')
     out = read(page, lid)
-    assert out['splits'] == [2] and out['shape'] == [2, 2], out
-    assert out['distro'] == {'2': 'dtk'} and out['num'] == {'2': 2}, out
+    assert out['splits'] == [3] and out['shape'] == [3, 1], out
+    assert out['distro'] == {'1': 'dtk'} and out['num'] == {'1': 2}, out
     assert out['names'] == {'1': 'HEAD'}, out
+    assert out['plan'][1]['distro'] is None, out
     assert page.evaluate(HIST_LEN_JS) == hist + 1
     assert page.evaluate(HIST_JS, 1) == ['Assign Multi Distro']
     undo(page)
     assert read(page, lid) == before
 
 
+def test_a_redrop_onto_its_own_box_counts_at_what_stays(page):
+    """[1-6] pinned on No. 2, rendered on tails 1-6; SR 2 dropped again on
+    circuit 3 re-takes 1-3 and cuts 4-6 off as their own multi on the SAME
+    box holding tails 4-6 - the multi counts at what stays, nothing on the
+    fan moves, and the remainder keeps the box it was on."""
+    ids = seed(page, [{'name': 'W', 'columns': 6, 'fields': {
+        'powerSocaDistro': {'1': 'dtk'}, 'powerSocaNumber': {'1': 2}}}])
+    lid = ids['W']
+    assert read(page, lid)['plan'][0]['tails'] == [1, 2, 3, 4, 5, 6]
+    page.evaluate(HUSH_JS)
+    drop_slot(page, lid, 3, 'dtk', 2, 'SR 2')
+    out = read(page, lid)
+    assert out['splits'] == [3] and out['shape'] == [3, 3], out
+    assert out['distro'] == {'1': 'dtk', '2': 'dtk'}, out
+    assert out['num'] == {'1': 2, '2': 2}, out
+    assert out['plan'][0]['tails'] == [1, 2, 3], out
+    assert out['plan'][1]['tails'] == [4, 5, 6], out
+    assert 'took' not in page.evaluate(SAID_JS)
+
+
 def test_shared_box_still_holds_its_incumbents_tails(page):
     """The 2026 NCMF shape through the take rule: OFF's four circuits on
     box 2 (tails 1-4, rendered, unstored) and SR 2 dropped on CEN's
-    seventh circuit: CEN [7-8] joins on tails 5-6 and OFF's rendered tails
+    eighth circuit: CEN [7-8] joins on tails 5-6 and OFF's rendered tails
     are stamped first, so nothing it may have cabled moves."""
     ids = seed(page, [
         {'name': 'OFF', 'columns': 4, 'fields': {
             'powerSocaDistro': {'1': 'dtk'}, 'powerSocaNumber': {'1': 2}}},
         {'name': 'CEN', 'columns': 8},
     ], distros=[{'id': 'dtk', 'name': 'C2'}])
-    drop_slot(page, ids['CEN'], 7, 'dtk', 2, 'C2 2')
+    drop_slot(page, ids['CEN'], 8, 'dtk', 2, 'C2 2')
     cen = read(page, ids['CEN'])
     off = read(page, ids['OFF'])
     assert cen['splits'] == [] and cen['shape'] == [6, 2], cen
@@ -690,9 +775,11 @@ def test_shared_box_still_holds_its_incumbents_tails(page):
 
 def test_the_preview_lights_exactly_what_the_drop_takes(page):
     """What lights under the cursor is what lands: the hit-test's reach for
-    a slot over circuit 7 of the chopped wall is circuits 7-12 with six
-    free, 7-11 with one pinned elsewhere, and nothing where the drop would
-    refuse."""
+    a slot over the chopped wall's cell 7-12 is anchored at 7 - over
+    circuit 12 it is 7-12 with six free, 7-11 with one pinned elsewhere,
+    over circuit 7 it is [7], over circuit 10 it is 7-10, and nothing
+    where the drop would refuse. Then the drop on 10 lands exactly the
+    preview's circuits."""
     ids = seed(page, [
         {'name': 'SR MAIN', 'columns': 22, 'fields': chopped_fields(False)},
         {'name': 'DJ', 'columns': 1, 'fields': {
@@ -700,21 +787,30 @@ def test_the_preview_lights_exactly_what_the_drop_takes(page):
         {'name': 'FULL', 'columns': 6, 'fields': {
             'powerSocaDistro': {'1': 'dtk'}, 'powerSocaNumber': {'1': 4}}},
     ])
+    lid = ids['SR MAIN']
     out = page.evaluate("""(id) => {
         const app = window.app;
         const l = app.project.layers.find(x => x.id === id);
         app._circuitTailCache = null;
         const circuits = app.screenCircuits(l);
         const ord = new Map(circuits.map((c, i) => [c.num, i + 1]));
-        const reach = (n) => {
-            const p = app._socaTakePlan(l, 7, 'dtk', n);
+        const reach = (o, n) => {
+            const p = app._socaTakePlan(l, o, 'dtk', n);
             return { ok: p.ok, nums: p.nums.map(x => ord.get(x)) };
         };
-        return { free: reach(2), one: reach(3), full: reach(4) };
-    }""", ids['SR MAIN'])
+        return { free: reach(12, 2), one: reach(12, 3), full: reach(12, 4),
+                 first: reach(7, 2), fourth: reach(10, 2) };
+    }""", lid)
     assert out['free'] == {'ok': True, 'nums': [7, 8, 9, 10, 11, 12]}, out
     assert out['one'] == {'ok': True, 'nums': [7, 8, 9, 10, 11]}, out
     assert out['full'] == {'ok': False, 'nums': []}, out
+    assert out['first'] == {'ok': True, 'nums': [7]}, out
+    assert out['fourth'] == {'ok': True, 'nums': [7, 8, 9, 10]}, out
+    drop_slot(page, lid, 10, 'dtk', 2, 'SR 2')
+    got = read(page, lid)
+    assert got['plan'][1]['ords'] == out['fourth']['nums'], (
+        f'preview and drop disagree: {got}')
+    assert got['plan'][1]['distro'] == 'dtk', got
 
 
 # ── 3. one circuit comes off its box on its own ───────────────────────────
@@ -825,13 +921,15 @@ def test_clear_a_middle_circuit_keeps_the_tail_part_on_the_box(page):
     assert page.evaluate(HIST_LEN_JS) == hist + 1, 'not ONE history entry'
     assert page.evaluate(HIST_JS, 1) == ['Clear Circuit']
     # ... and the box dropped back on the freed circuit puts it on its old
-    # tail: the take rule reaches circuit 3 alone (4-6 are fed) and the
-    # join deals into the one free tail, 3.
+    # tail: the anchored take (2026-09-05) reaches 1-3 - 1-2 are already
+    # on this box and are re-taken, 4-6 stay held - so the wall welds to
+    # [1-3] [4-6] on SR 1 and the freed circuit deals into the one free
+    # tail, 3.
     drop_slot(page, lid, 3, 'dtk', 1, 'SR 1')
     out = read(page, lid)
-    assert out['shape'] == [2, 1, 3] and out['splits'] == [2, 3], out
-    assert [s['tails'] for s in out['plan']] == [[1, 2], [3], [4, 5, 6]], out
-    assert [s['distro'] for s in out['plan']] == ['dtk'] * 3, out
+    assert out['shape'] == [3, 3] and out['splits'] == [3], out
+    assert [s['tails'] for s in out['plan']] == [[1, 2, 3], [4, 5, 6]], out
+    assert [s['distro'] for s in out['plan']] == ['dtk'] * 2, out
     assert labels(page, lid) == ['SR1-1', 'SR1-2', 'SR1-3', 'SR1-4', 'KEPT', 'SR1-6']
     assert page.evaluate(HIST_JS, 1) == ['Assign Multi Distro']
     undo(page)

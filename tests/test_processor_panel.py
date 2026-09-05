@@ -4188,6 +4188,87 @@ def test_the_bar_draws_the_partner_row_only_where_the_vendor_does_not_fix(
     page.wait_for_timeout(100)
 
 
+CAPTION_JS = """(pid) => {
+    const pop = document.getElementById('hw-gear-popover');
+    const bar = pop && pop.querySelector(
+        `[data-lrd-field="processor-redundancy-${pid}"]`);
+    if (!bar) return null;
+    const block = bar.closest('.hw-pop-red-block');
+    const cap = block && block.querySelector('.hw-pop-red-cap');
+    // --ps-text, resolved the way the caption resolves it
+    const probe = document.createElement('span');
+    probe.style.color = 'var(--ps-text)';
+    pop.appendChild(probe);
+    const want = getComputedStyle(probe).color;
+    probe.remove();
+    return {
+        text: cap ? cap.textContent : null,
+        before: !!(cap && (cap.compareDocumentPosition(bar)
+            & Node.DOCUMENT_POSITION_FOLLOWING)),
+        insideBar: !!(cap && bar.contains(cap)),
+        color: cap ? getComputedStyle(cap).color : null, want,
+        upper: cap ? getComputedStyle(cap).textTransform : null,
+        levels: Array.from(bar.children).map(b => b.dataset.level),
+        field: !!(cap && cap.dataset.lrdField),
+    };
+}"""
+
+
+def test_the_bar_says_it_is_for_redundancy_on_every_device(panel_page):
+    """User (2026-09-05): "under sx 40 naming we just have off and on for
+    redundancy it doesnt say it is for redundancy." Every device's bar
+    wears a REDUNDANCY legend - the dock's strip caption, primary text -
+    just before the segmented control and outside it (the bar's children
+    stay its segments, its field key stays): the chassis's Off · Whole
+    unit · Per card · Per port, the standalone's three, and the SX40's
+    Off · On with the fixed statement still under it."""
+    pytest.importorskip("playwright.sync_api",
+                        reason="playwright is not installed")
+    page = panel_page
+    ids = page.evaluate(REDUNDANCY_SEED_JS)
+    ids['h2Id'] = page.evaluate("""async () => {
+        const st = await fetch('/api/processors', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ deviceId: 'novastar-h2' }),
+        }).then(r => r.json());
+        const h2 = st.resolved[st.resolved.length - 1];
+        await window.app.refreshProcessors();
+        return h2.id;
+    }""")
+    page.wait_for_timeout(800)
+    for key, levels in (('h2Id', ['off', 'unit', 'card', 'port']),
+                        ('mxId', ['off', 'unit', 'port']),
+                        ('sxId', ['off', 'on'])):
+        assert page.evaluate(OPEN_GEAR_JS, f"proc-{ids[key]}"), (
+            f'the {key} processor gear did not open')
+        out = page.evaluate(CAPTION_JS, ids[key])
+        assert out, f'{key}: no redundancy bar'
+        assert out['levels'] == levels, (key, out)
+        assert out['text'] == 'REDUNDANCY', (key, out)
+        assert out['before'] and not out['insideBar'], (key, out)
+        assert out['color'] == out['want'], (
+            f'{key}: the caption is not primary text: {out}')
+        assert out['upper'] == 'uppercase', (key, out)
+        assert not out['field'], f'{key}: the caption grew a field key'
+        page.keyboard.press('Escape')
+        page.wait_for_timeout(100)
+    # the SX40 still states its fixed pairing under the captioned bar
+    assert page.evaluate(OPEN_GEAR_JS, f"proc-{ids['sxId']}")
+    out = page.evaluate("""() => {
+        const pop = document.getElementById('hw-gear-popover');
+        const cap = pop.querySelector('.hw-pop-red-cap');
+        const fact = pop.querySelector('.hw-pop-red-fact');
+        return {
+            statement: !!(fact && fact.textContent.includes('A backs up to B')),
+            factAfter: !!(cap && fact && (cap.compareDocumentPosition(fact)
+                & Node.DOCUMENT_POSITION_FOLLOWING)),
+        };
+    }""")
+    assert out == {'statement': True, 'factAfter': True}, out
+    page.keyboard.press('Escape')
+    page.wait_for_timeout(100)
+
+
 def test_the_bar_is_raised_and_the_lit_segment_wears_the_accent(panel_page):
     """"Remember our raised formatting" (2026-09-04): measured, every
     segment is a raised button - a gradient ground (a background-image,

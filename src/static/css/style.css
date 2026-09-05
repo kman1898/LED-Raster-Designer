@@ -1604,6 +1604,34 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 .hw-dock-plug:active { cursor: grabbing; transform: translateY(1px); }
 .hw-dock-plug-mini { padding: 2px 6px 2px 4px; gap: 4px; font-size: 10px; }
 .hw-dock-plug-mini .hw-plug-g { width: 1.6em; height: 1.6em; }
+/* the box's TYPE CHIP on a multi header (2026-09-05, "Type chip on the
+   spare box ... or both places rather"): the plug chip's machined tab one
+   size down, riding after the name. A button on a spare box (the picker:
+   click cycles the offered types), a plain span on an occupied one (the
+   type follows what is on the box). */
+.hw-dock-typechip {
+    display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto;
+    padding: 1px 6px 1px 3px; border-radius: 3px; cursor: pointer;
+    background: linear-gradient(#2c2c2c, #202020); border: 1px solid #0a0a0a;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.09),
+                inset 0 -1px 0 rgba(0,0,0,0.35), 0 1px 2px rgba(0,0,0,0.5);
+    color: #f0f0f0; font-size: 10px; line-height: 1.3; letter-spacing: 0;
+    font-family: 'Segoe UI', system-ui, 'Helvetica Neue', Arial, sans-serif;
+    white-space: nowrap; user-select: none; vertical-align: baseline;
+    transition: filter .12s, border-color .12s;
+}
+.hw-dock-typechip b { font-weight: 600; }
+.hw-dock-typechip .hw-plug-g { width: 1.5em; height: 1.5em; color: #fff; }
+button.hw-dock-typechip:hover { filter: brightness(1.18); border-color: #444; }
+button.hw-dock-typechip:active { transform: translateY(1px); }
+button.hw-dock-typechip:focus-visible { outline: 1px solid var(--ps-accent, #ef3340); outline-offset: 1px; }
+/* read-only: the same tab, no hand, one step dimmer - a reading, not a
+   control */
+.hw-dock-typechip-ro { cursor: inherit; color: #c8c8c8; }
+.hw-dock-typechip-ro .hw-plug-g { color: #c8c8c8; }
+/* a stored type at odds with the box's circuits wears the clash rim */
+.hw-dock-typechip-clash { border-color: #8a3a34; color: #d08a82; }
+.hw-dock-typechip-clash .hw-plug-g { color: #d08a82; }
 /* the ghost of a plug drag IS the chip; the box around it goes */
 #hw-dock-ghost.hw-dock-ghost-plug {
     padding: 0 !important; background: none !important;

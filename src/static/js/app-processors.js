@@ -569,7 +569,7 @@ class _Processors {
             // drawn as a control. The sentence comes from the server (the
             // one authority on the rule); no statement arrives for vendors
             // with none documented, and nothing is invented for them here.
-            block.appendChild(this._buildRedundancyBar(
+            block.appendChild(this._buildRedundancyStrip(
                 proc, [['off', 'Off'], ['on', 'On']], 'on'));
             const fact = document.createElement('div');
             fact.className = 'hw-pop-red-fact';
@@ -609,14 +609,14 @@ class _Processors {
             // Off, on a fixed-pairing unit: the same two-segment bar, so
             // "On" is the one gesture and never a shape the device would
             // refuse.
-            block.appendChild(this._buildRedundancyBar(
+            block.appendChild(this._buildRedundancyStrip(
                 proc, [['off', 'Off'], ['on', 'On']], 'off'));
             return block;
         }
 
         const chassis = proc.form === 'chassis';
         const shown = this._procRedundancyShown(proc);
-        block.appendChild(this._buildRedundancyBar(proc, chassis
+        block.appendChild(this._buildRedundancyStrip(proc, chassis
             ? [['off', 'Off'], ['unit', 'Whole unit'], ['card', 'Per card'],
                ['port', 'Per port']]
             : [['off', 'Off'], ['unit', 'Backed up'], ['port', 'Per port']],
@@ -679,6 +679,26 @@ class _Processors {
     // redundancy field, each segment carrying its level, so the focus
     // machinery and the tests address it the way they addressed the
     // switch it replaces.
+    // The bar with its name. User (2026-09-05), on the SX40's gear:
+    // "under sx 40 naming we just have off and on for redundancy it doesnt
+    // say it is for redundancy." So every device's bar - the chassis's
+    // four segments and the fixed-pairing pair alike - sits under a small
+    // REDUNDANCY legend, the strip caption the dock wears over LEGS and
+    // OUTPUTS, in primary text (never grey on grey). The bar itself is
+    // unchanged and keeps its field key; the caption is a label, not a
+    // control.
+    _buildRedundancyStrip(proc, segments, shown) {
+        const strip = document.createElement('div');
+        strip.className = 'hw-pop-red-strip';
+        const cap = document.createElement('span');
+        cap.className = 'hw-pop-red-cap';
+        cap.textContent = 'REDUNDANCY';
+        cap.title = 'Redundancy for this processor.';
+        strip.appendChild(cap);
+        strip.appendChild(this._buildRedundancyBar(proc, segments, shown));
+        return strip;
+    }
+
     _buildRedundancyBar(proc, segments, shown) {
         const bar = document.createElement('div');
         bar.className = 'hw-pop-seg';
