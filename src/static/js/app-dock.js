@@ -2572,19 +2572,20 @@ class _HardwareDock {
                         // The drop's true reach rides on the target so the
                         // underlay can light everything the release will
                         // touch - the data tab's rule, where a port drop
-                        // lights exactly the run it takes. A slot takes its
-                        // whole multi from the hovered circuit on (all of
-                        // it from the first); a tail pip takes the hovered
-                        // circuit alone.
+                        // lights exactly the run it takes. A slot takes
+                        // what the box has room for from the hovered
+                        // circuit on - the drop's own resolution
+                        // (_socaTakePlan), so what lights is what lands,
+                        // and nothing where the drop would refuse; a tail
+                        // pip takes the hovered circuit alone.
                         if (drag.payload.type === 'slot') {
-                            const rec = this._powerNaming(circuit.owner)
-                                .socas.get(slot.multi);
-                            const at = rec
-                                ? rec.circuits.indexOf(circuit.circuitNum)
-                                : -1;
-                            target.nums = rec
-                                ? rec.circuits.slice(Math.max(at, 0))
-                                : [circuit.circuitNum];
+                            const ordinal = this.screenCircuits(circuit.owner)
+                                .findIndex(c => c.num === circuit.circuitNum)
+                                + 1;
+                            const plan = this._socaTakePlan(
+                                circuit.owner, ordinal,
+                                drag.payload.distroId, drag.payload.number);
+                            target.nums = plan.ok ? plan.nums.slice() : [];
                         } else if (drag.payload.type === 'tail') {
                             target.nums = [circuit.circuitNum];
                         }
@@ -3022,60 +3023,41 @@ class _HardwareDock {
             const layer = (this.project.layers || [])
                 .find(l => l.id === target.layerId);
             if (!layer) return;
-            // WHICH circuit of the multi took the drop decides the gesture:
-            // the first circuit means the whole multi (as it always has),
-            // and a later circuit means "from here on, feed from this box"
-            // - the split the sidebar's Split select used to spell out,
-            // implied by where the drop landed (splitSocaOnto, one undo
-            // entry for the boundary and the assignment together).
+            // ONE rule for the whole-multi drop and the mid-multi split-drop
+            // (user, 2026-09-04: "drag multi 2 onto 6 ports it only lets
+            // me do 1 ... it should allow me to do up to 6"): from the
+            // dropped circuit on, the box takes up to its free circuits -
+            // absorbing the one-circuit leftovers a run of pip drops left
+            // behind, stopping at the natural grid line and short of any
+            // later multi already on a distro. takeSocaOnto resegments,
+            // re-keys and assigns in ONE history entry; the tray talks.
             const rec = this._powerNaming(layer).socas.get(target.socaIndex);
             const at = rec ? rec.circuits.indexOf(target.num) : -1;
-            if (rec && at > 0) {
-                const label = this.getPowerCircuitLabel(layer, target.num);
-                const r = this.splitSocaOnto(
-                    layer, target.socaIndex, at,
-                    payload.distroId, payload.number);
-                if (!r.ok) {
-                    // The place-overflow refusal, in tails: a box with no
-                    // free tail takes nothing, and the split does not
-                    // happen for nothing.
-                    this._dockSay(`${payload.title} has no free circuits - `
-                        + `the ${r.tailLen} circuit`
-                        + `${r.tailLen === 1 ? '' : 's'} from ${label} on `
-                        + `stay with ${rec.name || 'their multi'}.`);
-                    return;
-                }
-                if (r.took < r.tailLen) {
-                    // Take-what-fits, said out loud - the same convention
-                    // place-overflow follows with spare ports.
-                    this._dockSay(`${payload.title} had ${r.free} free `
-                        + `circuit${r.free === 1 ? '' : 's'} - took ${r.took} `
-                        + `of the ${r.tailLen} circuits from ${label} on; `
-                        + 'the rest stay as their own unassigned multi.');
-                }
-                this._restateNaming();
+            const ordinal = this.screenCircuits(layer)
+                .findIndex(c => c.num === target.num) + 1;
+            if (!rec || at < 0 || ordinal < 1) return;
+            const label = this.getPowerCircuitLabel(layer, target.num);
+            const r = this.takeSocaOnto(layer, ordinal, payload.distroId,
+                                        payload.number, 'Assign Multi Distro');
+            if (!r.ok) {
+                // The place-overflow refusal, in circuits: a box with no
+                // free circuit takes nothing, and no cut happens for
+                // nothing.
+                this._dockSay(`${payload.title} has no free circuits - `
+                    + `the ${r.tailLen} circuit`
+                    + `${r.tailLen === 1 ? '' : 's'} from ${label} on `
+                    + `stay ${at > 0 ? `with ${rec.name || 'their multi'}`
+                                     : 'where they are'}.`);
                 return;
             }
-            // The two existing setters, in the canonical order the panel's
-            // selects fired them: distro first (a number means nothing off a
-            // distro), then the pin. Landing on an occupied slot is the join
-            // gesture, exactly as picking the number was - the incumbents'
-            // tails freeze and this multi deals into what is free.
-            //
-            // Undo audit: record=false + ONE updateLayers, the convention the
-            // split-drop above and _dockDropTail below already keep. As two
-            // recorded setter calls, one drag cost two Ctrl+Z presses and the
-            // first landed on a half-state (new distro, pin gone) the user
-            // never made.
-            const touched = new Set();
-            const current = (layer.powerSocaDistro || {})[target.socaIndex];
-            if (current !== payload.distroId) {
-                this.setSocaDistro(layer, target.socaIndex, payload.distroId,
-                                   false).forEach(l => touched.add(l));
+            if (r.took < r.tailLen) {
+                // Take-what-fits, said out loud - the same convention
+                // place-overflow follows with spare ports.
+                this._dockSay(`${payload.title} had ${r.free} free `
+                    + `circuit${r.free === 1 ? '' : 's'} - took ${r.took} `
+                    + `of the ${r.tailLen} circuits from ${label} on; `
+                    + 'the rest stay as their own unassigned multi.');
             }
-            this.setSocaNumber(layer, target.socaIndex, payload.number, false)
-                .forEach(l => touched.add(l));
-            this.updateLayers([...touched], true, 'Assign Multi Distro');
             this._restateNaming();
             return;
         }
@@ -3958,8 +3940,16 @@ class _HardwareDock {
     // distro, number, the stored tail set and breaker offset, the typed
     // name and home-run length, the circuits' label overrides, and the
     // manual share/split entries covering those circuits - see
-    // _wipeSocaProgramming. Split boundaries stay: they define which
-    // circuits the multi holds, not how it was programmed.
+    // _wipeSocaProgramming. The cuts at the cleared multis' edges go too,
+    // and with them every cut left between two multis nobody is feeding
+    // on the touched layers (user ruling, 2026-09-04, extending the
+    // above: after a clear the one-circuit multis a run of pip drops left
+    // behind still read S1[1-6] S2[7] S3[8] ..., "the numbering is all
+    // wrong"), so the cleared circuits AND the unassigned leftovers fall
+    // back onto the natural box grid - _socaClearSplitPoints decides
+    // which points, _resegmentSocaStores re-keys every multi that was NOT
+    // cleared so it keeps its name, distro, number and length under its
+    // new index. Still ONE history entry.
     _clearMultis(members, action) {
         sendClientLog('dock_clear', { kind: 'multis', action,
                                       count: members.length });
@@ -3977,6 +3967,19 @@ class _HardwareDock {
         if (!jobs.length) return;
         jobs.forEach(j =>
             this._wipeSocaProgramming(j.layer, j.soca, j.targets));
+        // The wipe deleted the cleared multis' entries under their OLD
+        // indexes; now the cuts go and the survivors move to their new
+        // ones - per layer, every cleared multi of that layer at once.
+        const byLayer = new Map();
+        jobs.forEach(j => {
+            const arr = byLayer.get(j.layer) || [];
+            arr.push(j.soca);
+            byLayer.set(j.layer, arr);
+        });
+        for (const [layer, socas] of byLayer) {
+            this._resegmentSocaStores(
+                layer, this._socaClearSplitPoints(layer, socas));
+        }
         // The clear renumbers both buckets it touches, so every label
         // on the show can move - same cache drop the setters make.
         this._circuitTailCache = null;
@@ -3991,7 +3994,12 @@ class _HardwareDock {
     // any manual share entries - so re-assigning deals naturally instead
     // of resurrecting the old seat. The multi's typed name and home-run
     // length are identity, not programming, and stay at this scope (the
-    // multi's own clear forgets those). ONE history entry.
+    // multi's own clear forgets those). The two cuts the pip drop made
+    // around the circuit go with it, and so does every cut between the
+    // unassigned leftovers its neighbours were chopped into (user ruling,
+    // 2026-09-04), so the whole run falls back into the natural box -
+    // _socaClearSplitPoints, the same rule the multi clear runs. ONE
+    // history entry.
     _clearCircuitChip(layer, socaIndex, circuitNum) {
         sendClientLog('dock_clear', { kind: 'circuit', layerId: layer.id,
                                       soca: socaIndex, circuit: circuitNum });
@@ -4009,6 +4017,8 @@ class _HardwareDock {
             delete layer.powerLabelOverrides[circuitNum];
         }
         this._wipeSplitterManualFor(layer, runIds);
+        this._resegmentSocaStores(
+            layer, this._socaClearSplitPoints(layer, [idx]));
         this._circuitTailCache = null;
         this.updateLayers([layer], true, 'Clear Circuit');
         this._restateNaming();
