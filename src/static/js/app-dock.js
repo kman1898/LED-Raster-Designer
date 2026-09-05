@@ -45,8 +45,9 @@
 //     windowed to the box's span for a box);
 //   - a whole DISTRO lands anywhere on a screen: the screen's unassigned
 //     multis take that distro, numbered automatically;
-//   - an OCCUPIED port tile or multi slot dragged back onto the dock releases
-//     that assignment (unpin / clear distro+number), undoable like the rest.
+//   - an OCCUPIED port tile, multi slot or circuit chip dragged back onto the
+//     dock releases that assignment (unpin / clear distro+number / take the
+//     one circuit off its box), undoable like the rest.
 //
 // Right-click is the other way back: a drawn port run, a power circuit, a
 // dock chip, a card, a box or a distro right-clicked gets a "Clear …" item on
@@ -1924,7 +1925,10 @@ class _HardwareDock {
                 + (holders.length > 1 ? ' (claimed twice)' : '')
             : 'free')
             + '. Drag onto a circuit to land that ONE circuit here'
-            + (holders.length ? '; click to edit its label.' : '.');
+            + (holders.length
+                ? '; drag back onto this tray to clear it; click to edit '
+                    + 'its label.'
+                : '.');
 
         // An occupied chip is the circuit's editor too, the port chips'
         // grammar: click (no movement) opens the label override in place -
@@ -2513,7 +2517,8 @@ class _HardwareDock {
             if (ev.clientX >= r.left && ev.clientX <= r.right
                     && ev.clientY >= r.top && ev.clientY <= r.bottom) {
                 const t = drag.payload.type;
-                return (t === 'port' || t === 'slot') ? { kind: 'dock' } : null;
+                return (t === 'port' || t === 'slot' || t === 'tail')
+                    ? { kind: 'dock' } : null;
             }
         }
         const renderer = window.canvasRenderer;
@@ -3087,6 +3092,18 @@ class _HardwareDock {
     // under the wall-order rule - a set of one has nothing to reorder. ONE
     // history entry for the whole gesture, like the split-drop above.
     _dockDropTail(payload, target) {
+        if (target.kind === 'dock') {
+            // The drag-back: the chip is the circuit, and pulling it off
+            // the wall takes that one circuit off its box - the SAME clear
+            // the right-click of this very chip runs (_clearCircuitChip),
+            // one gesture, one 'Clear Circuit' entry. A free chip has
+            // nothing to release.
+            const held = this._dockTailHolder(
+                payload.distroId, parseInt(payload.number, 10), payload.tail);
+            if (!held) return;
+            return this._clearCircuitChip(held.layer, held.rec.index,
+                                          held.circuit);
+        }
         if (target.kind !== 'run') return;
         const layer = (this.project.layers || [])
             .find(l => l.id === target.layerId);
@@ -3823,13 +3840,19 @@ class _HardwareDock {
             };
         }
         if (payload.type === 'tail') {
-            // The circuit chip's clear, re-aimed from the hardware end. A
-            // free chip states its freedom. A chip whose holder is a
-            // ONE-circuit multi (the pip drop's product) clears at circuit
-            // scope: assignment, stored position and label override are
-            // forgotten, the multi's name and home-run length stay. A chip
-            // inside a bigger multi clears as its multi - a member circuit
-            // has no assignment of its own to shed.
+            // The circuit chip's clear, re-aimed from the hardware end -
+            // the finest grain of the tray's three clears: the CHIP is the
+            // circuit (this item), the multi header is the BOX ('Clear
+            // multi', the slot branch below) and the distro header is
+            // EVERYTHING on it ('Clear <distro>'). A free chip states its
+            // freedom. A held chip clears at circuit scope whatever its
+            // multi holds (user, 2026-09-05: "i want to delete the 6th
+            // circuit from the distro ... can only clear the whole
+            // multi"): the circuit comes off the box and forgets how it
+            // was programmed - its position, its label override, its
+            // manual splitter entries - and the multi's other circuits
+            // stay exactly where the wall showed them, the multi's name
+            // and home-run length with them (_clearCircuitChip).
             const held = this._dockTailHolder(
                 payload.distroId, parseInt(payload.number, 10), payload.tail);
             if (!held) {
@@ -3839,29 +3862,22 @@ class _HardwareDock {
                         + 'clear.',
                 };
             }
-            if (held.rec.circuits.length === 1) {
-                const label = this.getPowerCircuitLabel(held.layer,
-                                                        held.circuit);
-                return {
-                    label: `Clear circuit ${label}`,
-                    title: 'Take this circuit off the box and forget how it '
-                        + 'was programmed - its stored position and its '
-                        + 'label override go with the assignment. One undo '
-                        + 'puts it all back.',
-                    run: () => this._clearCircuitChip(
-                        held.layer, held.rec.index, held.circuit),
-                };
-            }
-            const name = held.rec.name || `multi ${held.rec.number}`;
+            const label = this.getPowerCircuitLabel(held.layer,
+                                                    held.circuit);
+            const rest = held.rec.circuits.length - 1;
             return {
-                label: `Clear multi ${name}`,
-                title: 'Clear this circuit\'s multi - its distro, number, '
-                    + 'stored positions, typed name, home-run length and '
-                    + 'label overrides are all forgotten. One undo puts '
-                    + 'everything back.',
-                run: () => this._clearMultis(
-                    [{ layerId: held.layer.id, soca: held.rec.index }],
-                    'Clear Multi'),
+                label: `Clear circuit ${label}`,
+                title: 'Take this circuit off the box and forget how it '
+                    + 'was programmed - its stored position and its '
+                    + 'label override go with the assignment'
+                    + (rest
+                        ? `; the multi's other ${rest} circuit`
+                            + `${rest === 1 ? ' stays' : 's stay'} where `
+                            + `${rest === 1 ? 'it is' : 'they are'}`
+                        : '')
+                    + '. One undo puts it all back.',
+                run: () => this._clearCircuitChip(
+                    held.layer, held.rec.index, held.circuit),
             };
         }
         if (payload.type === 'slot') {
@@ -3988,18 +4004,29 @@ class _HardwareDock {
         this._restateNaming();
     }
 
-    // One circuit chip's clear, where its holder is a multi of ONE circuit
-    // (the pip drop's product): the assignment goes AND the programming
-    // the gesture stored - the position on the box, the label override,
-    // any manual share entries - so re-assigning deals naturally instead
-    // of resurrecting the old seat. The multi's typed name and home-run
+    // One circuit chip's clear - the chip is the circuit, so ONE circuit
+    // comes off the box: the assignment goes AND the programming the
+    // gesture stored - the position on the box, the label override, any
+    // manual share entries - so re-assigning deals naturally instead of
+    // resurrecting the old seat. The multi's typed name and home-run
     // length are identity, not programming, and stay at this scope (the
-    // multi's own clear forgets those). The two cuts the pip drop made
-    // around the circuit go with it, and so does every cut between the
-    // unassigned leftovers its neighbours were chopped into (user ruling,
-    // 2026-09-04), so the whole run falls back into the natural box -
-    // _socaClearSplitPoints, the same rule the multi clear runs. ONE
-    // history entry.
+    // multi's own clear forgets those).
+    //
+    // Where the holder is a multi of ONE circuit (the pip drop's product)
+    // the multi IS the circuit: the two cuts the pip drop made around it
+    // go with it, and so does every cut between the unassigned leftovers
+    // its neighbours were chopped into (user ruling, 2026-09-04), so the
+    // whole run falls back into the natural box - _socaClearSplitPoints,
+    // the same rule the multi clear runs. Where the holder has MORE
+    // circuits (user, 2026-09-05: "delete the 6th circuit from the
+    // distro"), the circuit is cut out on its own and the rest of the
+    // multi stays put - head and tail parts on the same box, holding the
+    // tails they showed (_socaReleaseCircuit); the freed circuit is then
+    // a one-circuit unassigned leftover, and the NEXT clear beside it
+    // welds it by the 2026-09-04 rule, the next drop absorbs it by the
+    // take rule. The removed circuit's own paperwork is forgotten AFTER
+    // the cut, which read the wall as shown - the tails held are the
+    // tails the user saw. ONE history entry either way.
     _clearCircuitChip(layer, socaIndex, circuitNum) {
         sendClientLog('dock_clear', { kind: 'circuit', layerId: layer.id,
                                       soca: socaIndex, circuit: circuitNum });
@@ -4009,6 +4036,19 @@ class _HardwareDock {
             if (c.num !== circuitNum) return;
             (c.runIds || [c.num]).forEach(id => runIds.push(id));
         });
+        const rec = this._powerNaming(layer).socas.get(idx);
+        if (rec && rec.circuits.length > 1) {
+            const r = this._socaReleaseCircuit(layer, idx, circuitNum);
+            if (!r) return;
+            if (layer.powerLabelOverrides) {
+                delete layer.powerLabelOverrides[circuitNum];
+            }
+            this._wipeSplitterManualFor(layer, runIds);
+            this._circuitTailCache = null;
+            this.updateLayers(r.touched, true, 'Clear Circuit');
+            this._restateNaming();
+            return;
+        }
         for (const field of ['powerSocaNumber', 'powerSocaDistro',
                              'powerSocaPhasePos', 'powerSocaPhaseOffset']) {
             if (layer[field]) delete layer[field][idx];

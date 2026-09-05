@@ -471,6 +471,22 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 #canvas-controls { background: #252525; border-bottom: 1px solid #3a3a3a; padding: 8px; display: flex; gap: 10px; align-items: center; justify-content: flex-start; }
 #canvas-controls button { background: #3a3a3a; border: 1px solid #4a4a4a; color: #e0e0e0; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 13px; }
 #canvas-controls button:hover { background: #4a4a4a; }
+/* The custom-run readout in the canvas strip (2026-09-05: the 72px badge
+   left the canvas). A flat readout, not a button: the run label in the
+   view's green, the count in a quiet green-outlined pill while there is
+   room and a yellow one at capacity, a yellow "+N selected" while a
+   marquee is pending. Hidden whenever no custom run is being drawn. */
+#custom-run-readout { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; white-space: nowrap; }
+#custom-run-readout[hidden] { display: none; }
+#custom-run-readout .cr-label { font-family: "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; font-weight: 700; font-size: 15px; letter-spacing: 0.5px; line-height: 1; color: rgba(0, 255, 0, 0.9); }
+#custom-run-readout.cr-power .cr-label { color: rgba(0, 255, 102, 0.9); }
+#custom-run-readout .cr-pill,
+#custom-run-readout .cr-selected { font-size: 11px; font-weight: 700; line-height: 1.4; border-radius: 10px; padding: 2px 9px; }
+#custom-run-readout .cr-pill { background: #2f3a2f; color: #bfe8bf; border: 1px solid #4a6a4a; }
+#custom-run-readout.cr-empty .cr-pill { color: #9cc09c; border-color: #3e553e; }
+#custom-run-readout.cr-full .cr-pill { background: #f2c744; color: #111; border-color: #f2c744; }
+#custom-run-readout .cr-selected { background: #f2c744; color: #111; border: 1px solid #f2c744; }
+#custom-run-readout .cr-selected[hidden] { display: none; }
 .canvas-raster-input { width: 82px; text-align: center; background: #1a1a1a; border: 1px solid #3a3a3a; color: #e0e0e0; padding: 4px 8px; border-radius: 4px; font-size: 12px; }
 #zoom-level { color: #888; font-size: 13px; min-width: 50px; text-align: center; }
 #canvas-wrapper { flex: 1; overflow: hidden; position: relative; background: #0a0a0a; }

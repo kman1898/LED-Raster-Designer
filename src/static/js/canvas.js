@@ -4494,6 +4494,12 @@ class CanvasRenderer {
                 this._renderCrossMemberPaths(this.viewMode === 'power' ? 'power' : 'data');
             }
 
+            // The custom-run readout in the canvas strip follows this frame:
+            // whichever view is up, if no badge call fired (not custom mode,
+            // another view, no layer) the readout hides. An export render
+            // never touches it - the strip is not on paper and the next
+            // interactive frame is the one that decides.
+            if (!this.exportMode) this._activeBadgeShown = false;
             if (!this.exportMode && this.viewMode === 'data-flow') {
                 this.renderCustomSelectionOverlay();
                 this.renderCustomActivePortBadge();
@@ -4502,6 +4508,7 @@ class CanvasRenderer {
                 this.renderPowerSelectionOverlay();
                 this.renderPowerActiveCircuitBadge();
             }
+            if (!this.exportMode && !this._activeBadgeShown) this._syncCustomRunReadout(null);
             if (!this.exportMode && this.viewMode === 'pixel-map') {
                 this.renderPixelMapSelectionOverlay();
                 this.renderPixelMapSelectionBadge();
@@ -8608,8 +8615,14 @@ class CanvasRenderer {
         return this._resolvePathPanels(layer, path).length;
     }
 
-    // Shared renderer for the active-port / active-circuit badge in the
-    // top-left of the canvas when a custom flow is being built.
+    // The active-port / active-circuit READOUT while a custom flow is being
+    // built. It used to be painted at 72px in the canvas's top-left, over
+    // whatever cabinets sat there ("when i am in custom mode on data and
+    // power this is in my way very often" - the user, 2026-09-05); it now
+    // lives in the canvas strip above the canvas (#custom-run-readout, next
+    // to Fit / 1:1) and nothing is drawn on the wall. The name and the
+    // signature are kept: the two view-specific callers and the tests know
+    // this method, and the text it settles on is still the one authority.
     //  - `committed` = panels already assigned to this port/circuit
     //  - `selected`  = panels currently highlighted by a drag-select but
     //    not yet applied. Shown in yellow only when > 0 so the user can
@@ -8619,30 +8632,10 @@ class CanvasRenderer {
     //    equivalents, so a half-tile shows as a fraction) and "14/14 on
     //    circuit · full" in the warning colour once another whole cabinet
     //    would not fit. No cap known, and the pill counts as it always has.
-    // The text drawn is kept on `_lastActiveBadge` so it can be read back
-    // without scraping pixels.
+    // The text shown is kept on `_lastActiveBadge` so it can be read back
+    // without scraping the DOM. `labelColor` is the view's green; the strip
+    // keys its label colour off `noun` (port = data, circuit = power).
     _drawActiveBadge(label, committed, selected, labelColor, fill = null, noun = 'port') {
-        this.ctx.save();
-        this.ctx.setTransform(1, 0, 0, 1, 0, 0);
-
-        const x = 20;
-        const y = 20;
-        const fontSize = 72;
-        const countFontSize = Math.round(fontSize * 0.5);
-        const padding = 12;
-        const gap = 14;
-        const pillGap = 8;
-        const pillPadX = 10;
-        const pillPadY = 6;
-
-        // Measure label
-        this.ctx.font = `bold ${fontSize}px ${projectFontFamily()}`;
-        this.ctx.textAlign = 'left';
-        this.ctx.textBaseline = 'top';
-        const labelW = this.ctx.measureText(label).width;
-
-        // Measure pills
-        this.ctx.font = `bold ${countFontSize}px ${projectFontFamily()}`;
         const capped = !!(fill && fill.known);
         const isFull = capped && !!fill.full;
         const usedText = capped && window.app && typeof window.app._formatRunUsed === 'function'
@@ -8651,67 +8644,41 @@ class CanvasRenderer {
             ? `${usedText}/${fill.count} on ${noun}${isFull ? ' · full' : ''}`
             : `${committed} on ${noun}`;
         this._lastActiveBadge = { label, pill: committedText, full: isFull, selected };
-        const committedW = this.ctx.measureText(committedText).width;
-        const committedPillW = committedW + pillPadX * 2;
-        const pillH = countFontSize + pillPadY * 2;
-
-        const showSelected = selected > 0;
-        const selectedText = `+${selected} selected`;
-        const selectedW = showSelected ? this.ctx.measureText(selectedText).width : 0;
-        const selectedPillW = showSelected ? selectedW + pillPadX * 2 : 0;
-
-        // Outer box dimensions
-        const pillsW = committedPillW + (showSelected ? pillGap + selectedPillW : 0);
-        const boxW = labelW + gap + pillsW + padding * 2;
-        const boxH = fontSize + padding * 2;
-
-        // Background
-        this.ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-        this.ctx.fillRect(x, y, boxW, boxH);
-
-        // Label (big)
-        this.ctx.font = `bold ${fontSize}px ${projectFontFamily()}`;
-        this.ctx.fillStyle = labelColor;
-        this.ctx.fillText(label, x + padding, y + padding);
-
-        // Committed pill (white)
-        const pillY = y + (boxH - pillH) / 2;
-        let pillX = x + padding + labelW + gap;
-        this.ctx.fillStyle = isFull ? 'rgba(255, 204, 0, 0.85)'
-            : (committed > 0 ? 'rgba(255, 255, 255, 0.18)' : 'rgba(255, 255, 255, 0.08)');
-        this._roundRect(pillX, pillY, committedPillW, pillH, 8);
-        this.ctx.fill();
-        this.ctx.font = `bold ${countFontSize}px ${projectFontFamily()}`;
-        this.ctx.fillStyle = isFull ? '#000000'
-            : (committed > 0 ? '#ffffff' : 'rgba(255, 255, 255, 0.7)');
-        this.ctx.fillText(committedText, pillX + pillPadX, pillY + pillPadY - 2);
-
-        // Selected pill (yellow), only when drag-select has picked panels
-        if (showSelected) {
-            pillX += committedPillW + pillGap;
-            this.ctx.fillStyle = 'rgba(255, 204, 0, 0.85)';
-            this._roundRect(pillX, pillY, selectedPillW, pillH, 8);
-            this.ctx.fill();
-            this.ctx.fillStyle = '#000000';
-            this.ctx.fillText(selectedText, pillX + pillPadX, pillY + pillPadY - 2);
-        }
-
-        this.ctx.restore();
+        this._activeBadgeShown = true;
+        this._syncCustomRunReadout({
+            label, pill: committedText, full: isFull, selected,
+            committed, kind: noun === 'circuit' ? 'power' : 'data',
+        });
     }
 
-    _roundRect(x, y, w, h, r) {
-        const radius = Math.min(r, w / 2, h / 2);
-        this.ctx.beginPath();
-        this.ctx.moveTo(x + radius, y);
-        this.ctx.lineTo(x + w - radius, y);
-        this.ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
-        this.ctx.lineTo(x + w, y + h - radius);
-        this.ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
-        this.ctx.lineTo(x + radius, y + h);
-        this.ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
-        this.ctx.lineTo(x, y + radius);
-        this.ctx.quadraticCurveTo(x, y, x + radius, y);
-        this.ctx.closePath();
+    // Writes the readout into the strip, or hides it. Called with a state by
+    // _drawActiveBadge and with null from render()'s post-pass whenever the
+    // frame drew no badge - so leaving custom mode, switching view, changing
+    // layer or undoing all clear it on the very next frame, with no second
+    // computation of the label or the count anywhere.
+    _syncCustomRunReadout(state) {
+        const el = document.getElementById('custom-run-readout');
+        if (!el) return;
+        if (!state) {
+            if (!el.hidden) el.hidden = true;
+            return;
+        }
+        const labelEl = el.querySelector('.cr-label');
+        const pillEl = el.querySelector('.cr-pill');
+        const selEl = el.querySelector('.cr-selected');
+        if (labelEl && labelEl.textContent !== state.label) labelEl.textContent = state.label;
+        if (pillEl && pillEl.textContent !== state.pill) pillEl.textContent = state.pill;
+        el.classList.toggle('cr-full', !!state.full);
+        el.classList.toggle('cr-empty', !state.full && !(state.committed > 0));
+        el.classList.toggle('cr-power', state.kind === 'power');
+        el.classList.toggle('cr-data', state.kind !== 'power');
+        if (selEl) {
+            const show = state.selected > 0;
+            const text = show ? `+${state.selected} selected` : '';
+            if (selEl.textContent !== text) selEl.textContent = text;
+            if (selEl.hidden === show) selEl.hidden = !show;
+        }
+        if (el.hidden) el.hidden = false;
     }
 }
 

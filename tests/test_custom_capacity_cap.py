@@ -509,3 +509,162 @@ def test_the_auto_power_refusal_names_the_pattern_fill_route(page):
     assert why and 'a full row is' in why, why
     assert 'select a narrower block and apply a pattern' in why, why
     assert 'circuits cut at capacity' in why, why
+
+
+# ── The readout lives in the canvas strip, not on the wall ────────────────
+# 2026-09-05: "when i am in custom mode on data and power this is in my way
+# very often". The 72px badge left the canvas; the same text now sits in
+# #custom-run-readout beside Fit / 1:1, written only by _drawActiveBadge and
+# hidden by any frame that draws no custom run.
+
+READOUT_JS = """() => {
+    const el = document.getElementById('custom-run-readout');
+    if (!el) return null;
+    const sel = el.querySelector('.cr-selected');
+    return {
+        hidden: el.hidden,
+        visible: !el.hidden && getComputedStyle(el).display !== 'none',
+        label: el.querySelector('.cr-label').textContent,
+        pill: el.querySelector('.cr-pill').textContent,
+        full: el.classList.contains('cr-full'),
+        power: el.classList.contains('cr-power'),
+        selected: sel.hidden ? null : sel.textContent,
+        selectedVisible: !sel.hidden && getComputedStyle(sel).display !== 'none',
+        inStrip: !!el.closest('#canvas-controls'),
+    };
+}"""
+
+
+def readout_el(page):
+    return page.evaluate(READOUT_JS)
+
+
+def test_the_strip_readout_carries_the_badge_text_while_drawing(page):
+    reset(page)
+    page.evaluate("""() => {
+        const app = window.app, cap = window.__cap;
+        for (let c = 0; c < 9; c++) app.addPanelToCustomPowerPath(cap.panel(0, c));
+        cap.badge();
+    }""")
+    badge = page.evaluate("() => window.canvasRenderer._lastActiveBadge")
+    ro = readout_el(page)
+    assert ro is not None, 'no #custom-run-readout in the strip'
+    assert ro['inStrip'], ro
+    assert ro['visible'], ro
+    assert ro['label'] == badge['label'], (ro, badge)
+    assert ro['pill'] == badge['pill'] == '9/14 on circuit', (ro, badge)
+    assert ro['full'] is False and ro['power'] is True, ro
+    assert ro['selectedVisible'] is False, ro
+
+
+def test_the_strip_readout_goes_yellow_at_capacity(page):
+    reset(page)
+    page.evaluate("""() => {
+        const app = window.app, cap = window.__cap;
+        for (let c = 0; c < 14; c++) app.addPanelToCustomPowerPath(cap.panel(0, c));
+        cap.badge();
+    }""")
+    ro = readout_el(page)
+    assert ro['visible'] and ro['pill'] == '14/14 on circuit · full', ro
+    assert ro['full'] is True, ro
+
+
+def test_the_strip_readout_shows_the_pending_marquee_count(page):
+    reset(page)
+    page.evaluate("""() => {
+        const app = window.app, cap = window.__cap;
+        app.selectPowerPanelsInRect(cap.layer(), cap.rect(14, 6, 128));
+        cap.badge();
+    }""")
+    badge = page.evaluate("() => window.canvasRenderer._lastActiveBadge")
+    ro = readout_el(page)
+    assert badge['selected'] == 84, badge
+    assert ro['visible'] and ro['selectedVisible'], ro
+    assert ro['selected'] == '+84 selected', ro
+    # Clearing the marquee takes the yellow pill with it on the next frame.
+    page.evaluate("""() => {
+        window.app.powerCustomSelection.clear();
+        window.__cap.badge();
+    }""")
+    ro = readout_el(page)
+    assert ro['visible'] and ro['selectedVisible'] is False, ro
+
+
+def test_the_data_side_feeds_the_same_readout(page):
+    reset(page, columns=12, rows=2, cab=256, view='data-flow')
+    page.evaluate("""() => {
+        const app = window.app, cap = window.__cap;
+        for (let c = 0; c < 3; c++) app.addPanelToCustomPath(cap.panel(0, c));
+        cap.badge();
+    }""")
+    badge = page.evaluate("() => window.canvasRenderer._lastActiveBadge")
+    ro = readout_el(page)
+    assert ro['visible'] and ro['power'] is False, ro
+    assert ro['label'] == badge['label'] and ro['pill'] == badge['pill'] == '3/8 on port', (ro, badge)
+
+
+def test_the_strip_readout_hides_when_custom_mode_is_off_or_the_view_changes(page):
+    reset(page)
+    page.evaluate("""() => {
+        const app = window.app, cap = window.__cap;
+        for (let c = 0; c < 4; c++) app.addPanelToCustomPowerPath(cap.panel(0, c));
+        cap.badge();
+    }""")
+    assert readout_el(page)['visible'] is True
+    # Another view: the power view's readout has no business on Pixel Map.
+    page.evaluate("""() => {
+        window.canvasRenderer.viewMode = 'pixel-map';
+        window.__cap.badge();
+    }""")
+    assert readout_el(page)['visible'] is False, readout_el(page)
+    # Back to Power, still custom: it returns with the same text.
+    page.evaluate("""() => {
+        window.canvasRenderer.viewMode = 'power';
+        window.__cap.badge();
+    }""")
+    ro = readout_el(page)
+    assert ro['visible'] and ro['pill'] == '4/14 on circuit', ro
+    # Custom mode off on this layer: hidden on the very next frame.
+    page.evaluate("""() => {
+        const l = window.__cap.layer();
+        l.powerFlowPattern = 'tl-h';
+        l.powerCustomPath = false;
+        window.__cap.badge();
+    }""")
+    assert readout_el(page)['visible'] is False, readout_el(page)
+    # Auto power on the power view, custom on data: the data view shows its
+    # own run, the power view shows nothing.
+    reset(page, autoPower=True)
+    page.evaluate("() => window.__cap.badge()")
+    assert readout_el(page)['visible'] is False, readout_el(page)
+    page.evaluate("""() => {
+        window.canvasRenderer.viewMode = 'data-flow';
+        window.__cap.badge();
+    }""")
+    ro = readout_el(page)
+    assert ro['visible'] and ro['power'] is False and 'on port' in ro['pill'], ro
+
+
+def test_nothing_is_painted_on_the_canvas_for_the_badge(page):
+    """A render in custom mode with a full run and a pending marquee writes
+    neither pill text through the canvas context - the readout is DOM."""
+    reset(page)
+    out = page.evaluate("""() => {
+        const app = window.app, cap = window.__cap, r = window.canvasRenderer;
+        for (let c = 0; c < 14; c++) app.addPanelToCustomPowerPath(cap.panel(0, c));
+        app.selectPowerPanelsInRect(cap.layer(), { x1: 1, y1: 129, x2: 5 * 128 - 1, y2: 2 * 128 - 1 });
+        const ctx = r.ctx;
+        const calls = [];
+        const orig = ctx.fillText;
+        ctx.fillText = function (text) { calls.push(String(text)); return orig.apply(this, arguments); };
+        try { r.render(); } finally { ctx.fillText = orig; }
+        const badge = r._lastActiveBadge;
+        return { badge, texts: calls };
+    }""")
+    badge = out['badge']
+    assert badge['pill'] == '14/14 on circuit · full' and badge['selected'] == 5, badge
+    texts = out['texts']
+    assert badge['pill'] not in texts, [t for t in texts if 'on circuit' in t]
+    assert not any('on circuit' in t or 'selected' in t for t in texts), texts
+    ro = readout_el(page)
+    assert ro['visible'] and ro['full'] and ro['selected'] == '+5 selected', ro
