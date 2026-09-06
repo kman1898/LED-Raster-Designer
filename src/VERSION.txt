@@ -1,7 +1,7 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
-v0.12.0 - September 5, 2026 (BETA)
+v0.12.0 - September 6, 2026 (BETA)
 ----------------------------
 
 - NEW: A distro says what it offers. Tick the connector types a distro
@@ -66,6 +66,22 @@ v0.12.0 - September 5, 2026 (BETA)
 - FIX: The redundancy bar says what it is for. Every processor's bar
   now carries a REDUNDANCY caption - the Brompton's fixed pairing read a
   bare "Off / On" before.
+
+- NEW: Every circuit can carry its cable. A raised ≡ on a multi box
+  flips its chips into a cable sheet - tail, circuit, screen, feet,
+  connector - with Tab walking the column, quick fills for a whole box
+  and a count by length and connector at the foot. The connector
+  follows the box (Soca 208 → True1), so mostly you type a number. A
+  chip wears its cable in its corner when the sheet is closed. Clearing
+  a circuit or multi forgets its cables.
+
+- NEW: Show Cable Tags. A per-screen switch under Show 2fer / 3fer Tags,
+  off by default, draws each circuit's cable as a gold tag beside its
+  label on the wall and in the export - for the per-screen docs.
+
+- NEW: Show 2fer / 3fer Tags. A per-screen switch in Power Settings
+  hides the 2fer / 3fer text on the wall while keeping the bracket. An
+  over-capacity gang still prints OVER with the tags off.
 
 - CHANGE (IMPORTANT): Redundancy is one bar in one place. Behind the
   processor's gear a raised segmented bar - Off, Whole unit, Per card,
