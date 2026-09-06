@@ -89,11 +89,13 @@ BRACKET_PASS_JS = """() => {
     const layer = app.currentLayer;
     const oT = ctx.fillText, oS = ctx.stroke;
     const texts = [];
-    let strokes = 0;
-    ctx.fillText = function (t, x, y, w) { texts.push(String(t)); return oT.call(ctx, t, x, y, w); };
-    ctx.stroke = function () { strokes++; return oS.apply(ctx, arguments); };
+    let strokes = 0, pillStrokes = 0;
+    const pill = {};
+    ctx.fillText = function (t, x, y, w) { texts.push(String(t)); pill.fill = ctx.fillStyle; return oT.call(ctx, t, x, y, w); };
+    // the bracket strokes with the run-wide width; the tag's rim is the thinner stroke right before its text
+    ctx.stroke = function () { if (ctx.lineWidth >= 1.5) strokes++; else { pillStrokes++; pill.rim = ctx.strokeStyle; } return oS.apply(ctx, arguments); };
     try { r.renderNferBrackets(layer); } finally { ctx.fillText = oT; ctx.stroke = oS; }
-    return { strokes, texts, flag: layer.showPowerNferTags };
+    return { strokes, pillStrokes, texts, flag: layer.showPowerNferTags, pill, labelBg: layer.powerLabelBgColor || '#D95000' };
 }"""
 
 # Every fillText the real render pass paints in power view - interactively
@@ -301,6 +303,24 @@ def test_an_over_gang_still_says_over_with_the_tags_off(page):
     page.evaluate('(id) => { window.__nferLayerId = id; }', built['id'])
     assert page.evaluate(STATE_JS)['flag'] is True
     assert page.evaluate(OVER_TEXTS_JS) == ['2fer']
+
+
+def test_the_gang_tag_never_wears_the_label_colour(page):
+    """"when two fer is shown it should not be the same color as the power
+    label due to it being hard to read" (2026-09-06): the pill is the
+    tray's gang chip - dark, white text, grey rim - whatever the label
+    colour is, so it never reads as one more label disc."""
+    out = page.evaluate(BRACKET_PASS_JS)
+    assert out['texts'] == ['2fer'], out
+    assert out['pill']['fill'].lower() == '#ffffff', f'white text on the pill: {out}'
+    assert out['pillStrokes'] == 1 and out['pill']['rim'].lower() == '#9aa4b2', out
+    # and it stays that way when the label colour is changed to the same grey
+    out2 = page.evaluate("""() => {
+        const l = window.app.currentLayer; const was = l.powerLabelBgColor;
+        l.powerLabelBgColor = '#9aa4b2';
+        try { return (%s)(); } finally { l.powerLabelBgColor = was; }
+    }""" % BRACKET_PASS_JS)
+    assert out2['pill']['rim'].lower() == '#9aa4b2' and out2['pill']['fill'].lower() == '#ffffff', out2
 
 
 def test_the_switch_reads_the_selected_screen(page):
