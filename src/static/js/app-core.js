@@ -276,6 +276,16 @@ export class LEDRasterApp {
         });
     }
 
+    // Whether `container`'s fold hides `el`: the fold hides exactly the
+    // section's body (.lrd-sec-body / .panel-content, style.css), so an
+    // element on the header or on anything the section carries outside
+    // its body stays visible through the fold.
+    _sectionFoldHides(container, el) {
+        const body = container.querySelector(
+            ':scope > .lrd-sec-body, :scope > .panel-content');
+        return !!(body && body.contains(el));
+    }
+
     _setSectionCollapsed(container, collapsed) {
         container.classList.toggle('lrd-sec-collapsed', collapsed);
         const btn = container.querySelector(
@@ -311,7 +321,14 @@ export class LEDRasterApp {
                     && !n.classList.contains('lrd-tile-open')) {
                 this._setTileOpen(n, true);
             }
-            if (n.classList.contains('lrd-sec-collapsed')) {
+            // Only a fold that actually HIDES the field: the fold hides the
+            // section's body, and a control on its header (the dock's ≡,
+            // a name box) or on a strip that rides outside the fold (a
+            // distro's LEGS line, a box's cable sheet) is visible folded.
+            // Unfolding for those rewrote the user's fold on every
+            // rebuild that restored focus into a header control.
+            if (n.classList.contains('lrd-sec-collapsed')
+                    && this._sectionFoldHides(n, el)) {
                 this._setSectionCollapsed(n, false);
             }
             // A backup nested in a redundant pair hides WHOLE when its main

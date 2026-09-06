@@ -5939,8 +5939,13 @@ class CanvasRenderer {
                     && typeof window.app.dataPortCableForScreen === 'function') {
                 const cable = window.app.dataPortCableForScreen(layer, portNum);
                 if (cable && cable.text) {
-                    this.drawCableTag(cable.text, px + primaryFit.radius, py,
-                                      labelSize, DATA_CABLE_TAG_COLORS);
+                    // Inside the screen, as on the power side.
+                    const w = this.cableTagWidth(cable.text, labelSize);
+                    const flip = px + primaryFit.radius + w > layerRight
+                        && px - primaryFit.radius - w >= layerLeft;
+                    this.drawCableTag(cable.text,
+                                      flip ? px - primaryFit.radius : px + primaryFit.radius,
+                                      py, labelSize, DATA_CABLE_TAG_COLORS, { flip });
                 }
             }
 
@@ -6321,8 +6326,14 @@ class CanvasRenderer {
                     && typeof window.app.powerCircuitCable === 'function') {
                 const cable = window.app.powerCircuitCable(layer, circuitNum);
                 if (cable) {
-                    this.drawCableTag(cable.text, px + layout.radius, py,
-                                      labelSize);
+                    // Inside the screen: right of the label when that
+                    // fits, else left of it.
+                    const w = this.cableTagWidth(cable.text, labelSize);
+                    const flip = px + layout.radius + w > layerRight
+                        && px - layout.radius - w >= layerLeft;
+                    this.drawCableTag(cable.text,
+                                      flip ? px - layout.radius : px + layout.radius,
+                                      py, labelSize, undefined, { flip });
                 }
             }
         };
@@ -6859,8 +6870,26 @@ class CanvasRenderer {
     // `colors` swaps the family - the data side's snake / home-run tag
     // wears the data cable's blue (DATA_CABLE_TAG_COLORS) through this
     // same drawer rather than a second one.
-    drawCableTag(text, x, y, labelSize, colors) {
+    //
+    // `opts.flip` hangs the tag off the LEFT edge instead (x is then the
+    // circle's left edge): a label on the wall's right edge would push
+    // its tag off the screen and under the next one - "there are no tags
+    // for SR 1-1 and so on. they are to the right behind the other screen.
+    // they should be on the inside of the screen" (2026-09-06). The
+    // callers measure with cableTagWidth and flip when the right side
+    // would leave the screen.
+    cableTagWidth(text, labelSize) {
+        const size = Math.max(8, labelSize * 0.7);
+        this.ctx.save();
+        this.ctx.font = `bold ${size}px ${projectFontFamily()}`;
+        const tw = this.ctx.measureText(text).width;
+        this.ctx.restore();
+        return labelSize * 0.25 + tw + size * 0.9;   // gap + pill
+    }
+
+    drawCableTag(text, x, y, labelSize, colors, opts) {
         const c = colors || POWER_CABLE_TAG_COLORS;
+        const flip = !!(opts && opts.flip);
         const size = Math.max(8, labelSize * 0.7);
         this.ctx.save();
         this.ctx.font = `bold ${size}px ${projectFontFamily()}`;
@@ -6868,7 +6897,7 @@ class CanvasRenderer {
         const padX = size * 0.45;
         const pillH = size + 4;
         const gap = labelSize * 0.25;
-        const left = x + gap;
+        const left = flip ? x - gap - (tw + padX * 2) : x + gap;
         this.ctx.beginPath();
         if (this.ctx.roundRect) {
             this.ctx.roundRect(left, y - pillH / 2, tw + padX * 2, pillH,

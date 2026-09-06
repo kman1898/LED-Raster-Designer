@@ -931,3 +931,95 @@ def test_quick_fill_is_one_entry_and_leaves_snakes_alone(page):
     assert st['card']['cables'] == {'9': {'ft': 50, 'connector': None},
                                     '10': {'ft': 75, 'connector': 'fiber'}}
     _sheet_open(pg, 'card', cid, False)
+
+
+# ── the sheet leaves the fold alone ──────────────────────────────────────
+#
+# The power side's rule ("when i have the multi collapsed and i open the
+# cable size page and make changes and close the page it uncollapses the
+# multi" - user, 2026-09-06), worn by the card and the box: the sheet
+# rides between the header and the foldable body, so a folded record
+# shows it without unfolding, and the commit's rebuild never opens a
+# fold that never hid the field.
+
+FOLD_JS = """([secId, kind, id]) => {
+    const head = document.querySelector(`[data-lrd-sec="${secId}"]`);
+    const sec = head.parentElement;
+    const body = sec.querySelector(':scope > .lrd-sec-body');
+    const sheet = document.querySelector(
+        `.hw-dock-cablesheet[data-lrd-cable-sheet="${kind}:${id}"]`);
+    const grid = document.querySelector(
+        `.hw-dock-grid[data-lrd-snake-owner="${kind}:${id}"]`);
+    return {
+        collapsed: sec.classList.contains('lrd-sec-collapsed'),
+        stored: localStorage.getItem(`ledRasterPanelCollapsed_${secId}`),
+        bodyHidden: getComputedStyle(body).display === 'none',
+        sheet: !!sheet,
+        sheetVisible: !!(sheet && sheet.offsetParent !== null),
+        gridVisible: !!(grid && grid.offsetParent !== null),
+    };
+}"""
+
+
+def _fold_arrow(page, sec_id):
+    page.locator(f'[data-lrd-sec="{sec_id}"] .lrd-sec-arrow').click()
+    page.wait_for_timeout(300)
+
+
+@pytest.mark.parametrize('which', ['card', 'box'])
+def test_the_sheet_leaves_the_fold_alone(page, which):
+    """Fold the record, open its sheet, type a length, close the sheet:
+    still folded, key and render alike; unfolded stays unfolded through
+    the same round."""
+    pg, ids = page
+    kind = 'card' if which == 'card' else 'cvt'
+    owner = ids['cardId'] if which == 'card' else ids['boxId']
+    sec = (f'hwdock-card-{ids["cardId"]}' if which == 'card'
+           else f'hwdock-box-{ids["boxId"]}')
+    _sheet_open(pg, kind, owner, False)
+    args = [sec, kind, owner]
+    _fold_arrow(pg, sec)
+    st = pg.evaluate(FOLD_JS, args)
+    assert st['collapsed'] and st['stored'] == '1' and st['bodyHidden'], st
+    _sheet_open(pg, kind, owner, True)
+    st = pg.evaluate(FOLD_JS, args)
+    assert st['sheet'] and st['sheetVisible'], (
+        f'a folded {which} must still show the sheet it was asked for: {st}')
+    assert st['collapsed'] and st['stored'] == '1', (
+        f'opening the sheet unfolded the {which}: {st}')
+    sheet = pg.evaluate(SHEET_JS, [kind, owner])
+    row = next(r for r in sheet['rows'] if r['ftKey'] and r['kind'] != 'snake')
+    index = pg.evaluate(STATE_JS, ids)['index']
+    ft = pg.locator(f'[data-lrd-field="{row["ftKey"]}"]')
+    ft.fill('20')
+    ft.press('Tab')
+    pg.wait_for_timeout(900)
+    assert pg.evaluate(STATE_JS, ids)['index'] == index + 1
+    st = pg.evaluate(FOLD_JS, args)
+    assert st['collapsed'] and st['stored'] == '1' and st['sheetVisible'], (
+        f'a length commit unfolded the {which}: {st}')
+    _sheet_open(pg, kind, owner, False)
+    st = pg.evaluate(FOLD_JS, args)
+    assert not st['sheet'] and not st['gridVisible'], st
+    assert st['collapsed'] and st['stored'] == '1' and st['bodyHidden'], (
+        f'closing the sheet unfolded the {which}: {st}')
+    _fold_arrow(pg, sec)
+    st = pg.evaluate(FOLD_JS, args)
+    assert not st['collapsed'] and st['stored'] == '0' and st['gridVisible'], st
+    # unfolded stays unfolded through the same round
+    _sheet_open(pg, kind, owner, True)
+    ft = pg.locator(f'[data-lrd-field="{row["ftKey"]}"]')
+    ft.fill('30')
+    ft.press('Tab')
+    pg.wait_for_timeout(900)
+    assert pg.evaluate(STATE_JS, ids)['index'] == index + 2
+    st = pg.evaluate(FOLD_JS, args)
+    assert st['sheetVisible'] and not st['collapsed'] and st['stored'] == '0', st
+    _sheet_open(pg, kind, owner, False)
+    st = pg.evaluate(FOLD_JS, args)
+    assert st['gridVisible'] and not st['collapsed'] and st['stored'] == '0', st
+    pg.evaluate('() => window.app.undo()')
+    pg.wait_for_timeout(1200)
+    pg.evaluate('() => window.app.undo()')
+    pg.wait_for_timeout(1200)
+    assert pg.evaluate(STATE_JS, ids)['index'] == index
