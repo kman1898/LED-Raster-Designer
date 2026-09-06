@@ -1877,3 +1877,7 @@ button.hw-dock-typechip:focus-visible { outline: 1px solid var(--ps-accent, #ef3
     min-width: 0;
     max-width: 300px;
 }
+/* A folded card with its cable sheet up (the sheet rides outside the
+   fold, app-dock.js) is the sheet's width, not the header's cap. */
+#hardware-dock-body .hw-dock-proc
+    .hw-dock-unit.lrd-sec-collapsed.hw-dock-sheet-up { max-width: none; }

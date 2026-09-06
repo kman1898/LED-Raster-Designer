@@ -521,6 +521,57 @@ def test_the_canvas_tag_follows_the_switch(page):
     assert pg.evaluate(STATE_JS, ids['id'])['flag'] is False
 
 
+# Where each tag sits relative to its label, in the power pass: for every
+# label row, the x of the label text and of the tag text painted at that y.
+TAG_SIDES_JS = """([pattern, labelSize]) => {
+    const app = window.app, r = window.canvasRenderer, l = app.currentLayer;
+    l.powerFlowPattern = pattern;
+    if (labelSize) l.powerLabelSize = labelSize;
+    l._powerCircuits = null;          // the cached auto plan follows the pattern
+    l._powerCircuitNumKeys = null;
+    app._circuitTailCache = null;
+    const ctx = r.ctx, oT = ctx.fillText, texts = [];
+    ctx.fillText = function (t, x, y, w) { texts.push([String(t), x, y]); return oT.call(ctx, t, x, y, w); };
+    const prev = r.viewMode;
+    try { r.viewMode = 'power'; r.render(); } finally { ctx.fillText = oT; r.viewMode = prev; }
+    const tags = texts.filter(t => /^\\d+(\\.\\d+)?' /.test(t[0]));
+    const labels = texts.filter(t => /^S[A-Z]*\\d+-\\d+$/.test(t[0]));
+    return tags.map(t => {
+        const lab = labels.find(x => Math.abs(x[2] - t[2]) < 1);
+        return { tag: t[0], side: lab ? (t[1] > lab[1] ? 'right' : 'left') : 'none',
+                 lx: lab ? Math.round(lab[1]) : null, tx: Math.round(t[1]) };
+    });
+}"""
+
+
+def test_a_tag_on_the_wall_s_edge_flips_inside_the_screen(page):
+    """A label on the right edge of the wall would push its tag off the
+    screen and under the next one - "there are no tags for SR 1-1 and so
+    on. they are to the right behind the other screen. they should be on
+    the inside of the screen" (2026-09-06). Runs from the left: tags hang
+    right of the label. Runs from the right: the label sits on the wall's
+    right edge and the tag flips to its left, inside."""
+    pg, ids = page
+    box = pg.locator('#show-power-cable-tags')
+    if not box.is_checked():
+        box.click()
+        pg.wait_for_timeout(700)
+    size = pg.evaluate('() => window.app.currentLayer.powerLabelSize')
+    try:
+        # Big labels, so a right-edge label plus its tag cannot fit inside
+        # the last cabinet - the shape of the user's 60 px wall at 30 px.
+        left_runs = pg.evaluate(TAG_SIDES_JS, ['tl-h', 60])
+        assert left_runs and all(t['side'] == 'right' for t in left_runs), left_runs
+        right_runs = pg.evaluate(TAG_SIDES_JS, ['tr-h', 60])
+        assert right_runs and all(t['side'] == 'left' for t in right_runs), (
+            f'a right-edge label must carry its tag on the inside: {right_runs}')
+    finally:
+        pg.evaluate(TAG_SIDES_JS, ['tl-h', size])
+        box.click()
+        pg.wait_for_timeout(600)
+    assert not box.is_checked()
+
+
 def test_the_switch_reads_the_selected_screen(page):
     """loadLayerToInputs: the box follows the layer it shows, and an absent
     key reads OFF - the docs option is opted into, never inherited."""
@@ -579,3 +630,116 @@ def test_a_box_typed_l2130_defaults_its_tails_to_that_breakout(page):
         'soca120': 'Edison', 'offDistro': 'True1',
         'powerconHolder': 'powerCON', 'offDistroL620': 'L6-20',
     }, out
+
+
+# ── the sheet leaves the fold alone ──────────────────────────────────────
+#
+# "when i have the multi collapsed and i open the cable size page and make
+# changes and close the page it uncollapses the multi. this seems clunky."
+# (user, 2026-09-06). The fold is the user's; the sheet must not touch it.
+# The sheet rides between the header and the foldable body - the LEGS
+# line's seat on a distro - so a folded box shows it without unfolding,
+# and each commit's rebuild puts the caret back without opening a fold
+# that never hid the field.
+
+FOLD_JS = """([distroId, n]) => {
+    const secId = `hwdock-multi-${distroId}-${n}`;
+    const head = document.querySelector(`[data-lrd-sec="${secId}"]`);
+    const sec = head.parentElement;
+    const body = sec.querySelector(':scope > .lrd-sec-body');
+    const sheet = sec.querySelector('.hw-dock-cablesheet');
+    return {
+        collapsed: sec.classList.contains('lrd-sec-collapsed'),
+        stored: localStorage.getItem(`ledRasterPanelCollapsed_${secId}`),
+        bodyHidden: getComputedStyle(body).display === 'none',
+        sheet: !!sheet,
+        sheetVisible: !!(sheet && sheet.offsetParent !== null),
+        gridVisible: !!(sec.querySelector('.hw-dock-grid')
+                        && sec.querySelector('.hw-dock-grid').offsetParent),
+    };
+}"""
+
+
+def _fold(page, ids):
+    return page.evaluate(FOLD_JS, [ids['distroId'], 1])
+
+
+def _flip(page, ids):
+    page.locator(
+        f'[data-lrd-field="power-cable-sheet-{ids["distroId"]}-1"]').click()
+    page.wait_for_timeout(500)
+
+
+def test_the_sheet_leaves_a_folded_box_folded(page):
+    """Fold the box, open the sheet, type a length, close the sheet: the
+    box is still folded - stored key and rendered state alike - and the
+    sheet was visible the whole time it was open."""
+    pg, ids = page
+    _sheet(pg, ids)['open'] and _flip(pg, ids)
+    pg.locator(
+        f'[data-lrd-sec="hwdock-multi-{ids["distroId"]}-1"] .lrd-sec-arrow'
+    ).click()
+    pg.wait_for_timeout(300)
+    st = _fold(pg, ids)
+    assert st['collapsed'] and st['stored'] == '1' and st['bodyHidden'], st
+    _flip(pg, ids)
+    st = _fold(pg, ids)
+    assert st['sheet'] and st['sheetVisible'], (
+        f'a folded box must still show the sheet it was asked for: {st}')
+    assert st['collapsed'] and st['stored'] == '1', (
+        f'opening the sheet unfolded the box: {st}')
+    before = pg.evaluate(STATE_JS, ids['id'])
+    _ft_field(pg, ids, 5).fill('12')
+    _ft_field(pg, ids, 5).press('Tab')
+    pg.wait_for_timeout(900)
+    st_c = pg.evaluate(STATE_JS, ids['id'])
+    assert st_c['cables'].get('5') == {'ft': 12, 'connector': None}, st_c
+    assert st_c['index'] == before['index'] + 1, st_c
+    assert pg.evaluate(FOCUS_JS) == f'power-cable-ft-{ids["id"]}-6', (
+        'Tab must still walk the column on a folded box')
+    st = _fold(pg, ids)
+    assert st['collapsed'] and st['stored'] == '1' and st['sheetVisible'], (
+        f'a length commit unfolded the box: {st}')
+    _flip(pg, ids)
+    st = _fold(pg, ids)
+    assert not st['sheet'] and not st['gridVisible'], st
+    assert st['collapsed'] and st['stored'] == '1' and st['bodyHidden'], (
+        f'closing the sheet unfolded the box: {st}')
+    # leave the box open and the cable gone for the tests that follow
+    pg.locator(
+        f'[data-lrd-sec="hwdock-multi-{ids["distroId"]}-1"] .lrd-sec-arrow'
+    ).click()
+    pg.wait_for_timeout(300)
+    pg.evaluate('() => window.app.undo()')
+    pg.wait_for_timeout(900)
+    st_c = pg.evaluate(STATE_JS, ids['id'])
+    assert st_c['cables'] == before['cables'] and st_c['index'] == before['index']
+    st = _fold(pg, ids)
+    assert not st['collapsed'] and st['stored'] == '0', st
+
+
+def test_the_sheet_leaves_an_open_box_open(page):
+    """The other half of the rule: an unfolded box stays unfolded through
+    open, commit and close - and the sheet never writes the fold key."""
+    pg, ids = page
+    st = _fold(pg, ids)
+    assert not st['collapsed'] and st['stored'] == '0', st
+    _flip(pg, ids)
+    st = _fold(pg, ids)
+    assert st['sheetVisible'] and not st['collapsed'] and st['stored'] == '0', st
+    before = pg.evaluate(STATE_JS, ids['id'])
+    _ft_field(pg, ids, 6).fill('12')
+    _ft_field(pg, ids, 6).press('Tab')
+    pg.wait_for_timeout(900)
+    st = _fold(pg, ids)
+    assert st['sheetVisible'] and not st['collapsed'] and st['stored'] == '0', st
+    _flip(pg, ids)
+    st = _fold(pg, ids)
+    assert st['gridVisible'] and not st['collapsed'] and st['stored'] == '0', st
+    st_c = pg.evaluate(STATE_JS, ids['id'])
+    assert st_c['cables'].get('6') == {'ft': 12, 'connector': None}, st_c
+    assert st_c['index'] == before['index'] + 1, st_c
+    pg.evaluate('() => window.app.undo()')
+    pg.wait_for_timeout(900)
+    st_c = pg.evaluate(STATE_JS, ids['id'])
+    assert st_c['cables'] == before['cables'] and st_c['index'] == before['index']

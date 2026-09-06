@@ -878,6 +878,16 @@ class _HardwareDock {
             },
         });
         unit.appendChild(head);
+        // The card's sheet rides between the header and the foldable body
+        // (the power box's rule, 2026-09-06): a folded card shows the
+        // sheet it was asked for, and the fold - the user's - never moves
+        // for it. The loose grid the sheet stands in for stays inside the
+        // fold.
+        const cardSheetUp = !!loose.length && this._dataCableSheetOpen(cardOwner);
+        if (cardSheetUp) {
+            unit.classList.add('hw-dock-sheet-up');
+            unit.appendChild(this._dockBuildDataCableSheet(cardOwner, loose));
+        }
         // Everything under the header folds as one body - the section
         // machinery's shape, transposed onto the tray's card unit.
         const unitBody = this._dockSectionBody(unit, head,
@@ -888,10 +898,9 @@ class _HardwareDock {
         // ports no box delivers stay directly under the card. A copy/backup
         // box lists the SAME card ports again - dragging it lands on the same
         // sockets as dragging its primary, because they are the same sockets.
-        if (loose.length) {
-            unitBody.appendChild(this._dataCableSheetOpen(cardOwner)
-                ? this._dockBuildDataCableSheet(cardOwner, loose)
-                : this._dockBuildPortGrid(proc, card, loose, '', cardOwner));
+        if (loose.length && !cardSheetUp) {
+            unitBody.appendChild(
+                this._dockBuildPortGrid(proc, card, loose, '', cardOwner));
         }
         const boxEls = new Map();
         cvts.forEach(cvt => {
@@ -973,12 +982,19 @@ class _HardwareDock {
                 },
             });
             box.appendChild(boxHead);
+            // The box's sheet sits outside its fold too (same rule).
+            const boxSheetUp = this._dataCableSheetOpen(boxOwner);
+            if (boxSheetUp) {
+                box.classList.add('hw-dock-sheet-up');
+                box.appendChild(this._dockBuildDataCableSheet(
+                    boxOwner, cvt.ports || []));
+            }
             const boxBody = this._dockSectionBody(box, boxHead,
                                                   `hwdock-box-${cvt.id}`);
-            boxBody.appendChild(this._dataCableSheetOpen(boxOwner)
-                ? this._dockBuildDataCableSheet(boxOwner, cvt.ports || [])
-                : this._dockBuildPortGrid(proc, card, cvt.ports || [],
-                                          boxTitle, boxOwner));
+            if (!boxSheetUp) {
+                boxBody.appendChild(this._dockBuildPortGrid(
+                    proc, card, cvt.ports || [], boxTitle, boxOwner));
+            }
             // A redundant pair of boxes is one group here too: B nests
             // under the A it backs (the panel's rule, worn by the tray),
             // and a box with no role stays the plain strip it was.
@@ -1013,7 +1029,11 @@ class _HardwareDock {
     _dockRevealSections(el) {
         for (let n = el && el.parentElement; n; n = n.parentElement) {
             if (!n.classList) continue;
-            if (n.classList.contains('lrd-sec-collapsed')) {
+            // Only a fold that hides `el` (its body): a header control or
+            // a cable sheet is visible on a folded unit, and unfolding
+            // for it would overwrite the user's fold.
+            if (n.classList.contains('lrd-sec-collapsed')
+                    && this._sectionFoldHides(n, el)) {
                 this._setSectionCollapsed(n, false);
             }
             if (n.classList.contains('lrd-red-pair')) {
@@ -1964,13 +1984,22 @@ class _HardwareDock {
             head.appendChild(namesRow);
         }
         sec.appendChild(head);
+        // The sheet rides between the header and the foldable body - the
+        // LEGS line's seat on a distro - so a folded box shows the sheet
+        // it was asked for without its fold moving, and closing the sheet
+        // hands back exactly the fold it found ("when i have the multi
+        // collapsed and i open the cable size page and make changes and
+        // close the page it uncollapses the multi" - user, 2026-09-06).
+        // The fold is the user's; the sheet never touches it.
+        const sheetUp = !!memberRecs.length && this._cableSheetOpen(d.id, n);
+        if (sheetUp) {
+            sec.classList.add('hw-dock-sheet-up');
+            sec.appendChild(this._dockBuildCableSheet(
+                d, n, boxSize, byTail));
+        }
         const body = this._dockSectionBody(sec, head,
                                            `hwdock-multi-${d.id}-${n}`);
-        if (memberRecs.length && this._cableSheetOpen(d.id, n)) {
-            body.appendChild(this._dockBuildCableSheet(
-                d, n, boxSize, byTail));
-            return sec;
-        }
+        if (sheetUp) return sec;
         const grid = document.createElement('div');
         grid.className = 'lrd-tile-grid hw-dock-grid';
         for (let t = 1; t <= boxSize; t++) {
