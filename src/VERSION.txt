@@ -83,6 +83,22 @@ v0.12.0 - September 6, 2026 (BETA)
   hides the 2fer / 3fer text on the wall while keeping the bracket. An
   over-capacity gang still prints OVER with the tags off.
 
+- NEW: Ports snake. Hold Alt and sweep the port chips of a card or box,
+  right-click "Snake these 6", and they share one home run under a blue
+  bracket - "SNAKE A · 6-way · 100'". Or open the card's cable sheet
+  (the ≡ on its header), tick the ports and press Snake. A port outside
+  a snake carries its own home run; the connector follows the socket,
+  CAT or fiber. Snakes and home runs belong to the socket, so clearing a
+  port off a wall keeps them. Show Cable Tags has a data-side switch.
+
+- CHANGE: The tours tell 0.12 as it shipped. The What's New tour is
+  twenty-three steps across Data and Power, the Advanced Guide's stale
+  sections say what the app does now, and the splash carries the eight
+  things to hear first.
+
+- FIX: Undo back past a released pin re-resolves the tray, so the
+  socket reads occupied again instead of free.
+
 - CHANGE (IMPORTANT): Redundancy is one bar in one place. Behind the
   processor's gear a raised segmented bar - Off, Whole unit, Per card,
   Per port (Off, Backed up, Per port on a standalone unit) - and exactly
