@@ -186,6 +186,28 @@ window.__gc = {
         return texts;
     },
 
+    // Every string the renderer draws during one frame WITH where it lands,
+    // in canvas device pixels (the ctx transform applied, so a rotated or
+    // Show-Look-shifted member's text is compared where the eye sees it).
+    // Cabinet numbers are dropped; they are the same in every display.
+    drawnAt() {
+        const r = window.canvasRenderer;
+        const ctx = r.ctx;
+        const original = ctx.fillText;
+        const out = [];
+        ctx.fillText = function (t, x, y, w) {
+            const m = ctx.getTransform();
+            out.push({
+                t: String(t),
+                x: Math.round((m.a * x + m.c * y + m.e) * 100) / 100,
+                y: Math.round((m.b * x + m.d * y + m.f) * 100) / 100,
+            });
+            return original.call(ctx, t, x, y, w);
+        };
+        try { r.render(); } finally { ctx.fillText = original; }
+        return out.filter(c => !/^\\d+$/.test(c.t));
+    },
+
     // Every circle the renderer draws, rounded. The circle-with-X test
     // pattern is the only arc in pixel-map view, so this counts patterns.
     arcs() {
@@ -668,8 +690,11 @@ def test_the_name_display_defaults_to_group_byte_for_byte(page):
 
 
 def test_screens_display_gives_each_member_its_own_name_back(page):
-    """'screens': the members' names, no group name - and the combined info
-    bar still consolidates, because the switch moves names, not figures."""
+    """'screens' labels the SCREENS: each member's own name and each member's
+    own figures, nothing consolidated. The group's name, its combined info
+    bar and its "N Screens" clause do not appear anywhere - the info bar on
+    the wall is JP5's own (Half Panels has showLabelInfo off), quoting JP5's
+    grid and JP5's cabinets."""
     texts = _grouped_wall(page, """
             window.app.project.groupNameDisplay = 'screens';
             return gc.drawn();
@@ -679,8 +704,10 @@ def test_screens_display_gives_each_member_its_own_name_back(page):
     assert 'Main Wall' not in texts
     info = [t for t in texts if 'Cabinets Total' in t]
     assert len(info) == 1, info
-    assert '260 Cabinets Total' in info[0], info[0]
-    assert '2 Screens' in info[0], info[0]
+    assert '180 Cabinets Total' in info[0], info[0]
+    assert '20 Columns X 9 Rows' in info[0], info[0]
+    assert '2 Screens' not in info[0], info[0]
+    assert not any('260 Cabinets' in t for t in texts), texts
 
 
 def test_both_display_draws_the_headline_and_every_member_name(page):
@@ -979,3 +1006,244 @@ def test_export_mode_bakes_the_display_choice(page):
     assert texts.count('Half Panels') == 1, texts
     assert not result['cachedName']
     assert not result['cachedGroup']
+
+
+# ── 'screens' labels every member exactly as an ungrouped screen ──────────
+# The report (2026-09-06): "when using groups and setting labels to screen
+# we have an issue with x,y coordinates and other info being in the wrong
+# place". In 'screens' the members drew their names but every figure - the
+# "W x H" size line, the weight, the info bar, the Data ports line, the Power
+# circuits line - still consolidated onto ONE label at the group union's
+# centre and bottom edge, which on a two-section wall is the seam between the
+# sections or empty raster under the gap. Now a 'screens' wall has no group
+# label: each member's whole label draws against its own bounds and its own
+# stored offset, byte for byte where it draws ungrouped.
+
+# Two same-panel screens with a gap between them, so the union's centre and
+# bottom edge are nowhere near either member's own centre.
+APART_PAIR_JS = """
+    const a = gc.screen({
+        id: 1, name: 'Alpha', columns: 6, rows: 4,
+        cabinet_width: 128, cabinet_height: 128,
+        showLabelInfo: true, showLabelSizePx: true, showLabelWeight: true,
+        showDataFlowPortInfo: true, showPowerCircuitInfo: true,
+    });
+    const b = gc.screen({
+        id: 2, name: 'Bravo', columns: 4, rows: 4,
+        cabinet_width: 128, cabinet_height: 128,
+        offset_x: 900, offset_y: 200,
+        showLabelInfo: true, showLabelSizePx: true, showLabelWeight: true,
+        showDataFlowPortInfo: true, showPowerCircuitInfo: true,
+    });
+    const group = gc.group([a, b], { name: 'Apart Wall' });
+"""
+
+# Bravo carrying a dragged name offset in every view, a Show Look move and a
+# quarter turn - each of which the member pass must read from BRAVO.
+DECORATE_B_JS = """
+    b.screenNameOffsetXPixelMap = 100; b.screenNameOffsetYPixelMap = -150;
+    b.screenNameOffsetXCabinet = -80; b.screenNameOffsetYCabinet = 120;
+    b.screenNameOffsetXDataFlow = 60; b.screenNameOffsetYDataFlow = -100;
+    b.screenNameOffsetXPower = -60; b.screenNameOffsetYPower = 100;
+    b.screenNameOffsetXShowLook = 90; b.screenNameOffsetYShowLook = -90;
+    b.showOffsetX = 1200; b.showOffsetY = 400;
+    b.rotation = 90;
+"""
+
+LABEL_VIEWS = ('pixel-map', 'cabinet-id', 'data-flow', 'power', 'show-look')
+
+
+def _is_figure(text):
+    return (text.startswith('W ') or text.startswith('Weight')
+            or 'Cabinets Total' in text or 'Aspect Ratio' in text
+            or 'Ports' in text or 'Circuits' in text)
+
+
+def _labels_grouped_vs_ungrouped(page, view, decorate, mode='screens',
+                                 export=False):
+    """Every name/figure draw (text + device x,y) for the pair ungrouped and
+    for the same pair grouped under `mode`, in `view`."""
+    return page.evaluate("""(args) => {
+        const gc = window.__gc;
+        %s
+        if (args.decorate) { %s }
+        const r = window.canvasRenderer;
+        const keep = c => ['Alpha', 'Bravo', 'Apart Wall'].includes(c.t)
+            || /^(W |Weight)/.test(c.t) || /Cabinets Total|Aspect Ratio|Ports|Circuits/.test(c.t);
+        // The display mode is set INSIDE withProject: it lives on the
+        // project, and withProject swaps in a fresh synthetic one.
+        const run = (groups) => gc.withProject([a, b], groups, args.view, () => {
+            window.app.project.groupNameDisplay = args.mode;
+            r.exportMode = !!args.export;
+            try { return gc.drawnAt().filter(keep); }
+            finally { r.exportMode = false; }
+        });
+        const ungrouped = run([]);
+        a.group_id = 'g1'; b.group_id = 'g1';
+        const grouped = run([group]);
+        return { ungrouped: ungrouped, grouped: grouped };
+    }""" % (APART_PAIR_JS, DECORATE_B_JS),
+        {'view': view, 'decorate': decorate, 'mode': mode, 'export': export})
+
+
+@pytest.mark.parametrize('view', LABEL_VIEWS)
+@pytest.mark.parametrize('decorate', [False, True], ids=['plain', 'offset+moved+rotated'])
+def test_screens_display_draws_every_member_where_it_draws_ungrouped(page, view, decorate):
+    """Both names land on the very same device pixel grouped-'screens' as
+    ungrouped, in every view, with Bravo's own offsets, Show Look move and
+    rotation honoured; the group's name is nowhere on the wall."""
+    res = _labels_grouped_vs_ungrouped(page, view, decorate)
+    names_u = {c['t']: (c['x'], c['y']) for c in res['ungrouped'] if c['t'] in ('Alpha', 'Bravo')}
+    names_g = {c['t']: (c['x'], c['y']) for c in res['grouped'] if c['t'] in ('Alpha', 'Bravo')}
+    assert set(names_u) == {'Alpha', 'Bravo'}, res['ungrouped']
+    assert names_g == names_u, (names_g, names_u)
+    assert sum(1 for c in res['grouped'] if c['t'] == 'Alpha') == 1
+    assert sum(1 for c in res['grouped'] if c['t'] == 'Bravo') == 1
+    assert not any(c['t'] == 'Apart Wall' for c in res['grouped']), res['grouped']
+
+
+@pytest.mark.parametrize('decorate', [False, True], ids=['plain', 'offset+moved+rotated'])
+def test_screens_display_keeps_each_members_own_figures_on_the_member(page, decorate):
+    """Pixel Map: the size line, the weight line and the info bar are each
+    member's own, on the member, byte for byte the ungrouped frame - no
+    '2 Screens', no union-sized 'W 1412 X H 712' anywhere."""
+    res = _labels_grouped_vs_ungrouped(page, 'pixel-map', decorate)
+    assert res['grouped'] == res['ungrouped'], (res['grouped'], res['ungrouped'])
+    texts = [c['t'] for c in res['grouped']]
+    assert 'W 768 X H 512' in texts and 'W 512 X H 512' in texts, texts
+    assert not any('1412' in t or 'Screens' in t for t in texts), texts
+
+
+@pytest.mark.parametrize('view', ['data-flow', 'power'])
+def test_screens_display_hangs_the_port_and_circuit_line_under_its_member(page, view):
+    """Data and Power: every figures line drawn sits exactly where that
+    member's own line sits ungrouped - under its own name, never at the
+    union's centre. (The figure itself follows the group-aware authority:
+    a crossing wall's one combined walk is carried by the first member and
+    a peer-served member draws no line, as the Data label always has.)"""
+    res = _labels_grouped_vs_ungrouped(page, view, False)
+    own_spots = {(c['x'], c['y']) for c in res['ungrouped'] if _is_figure(c['t'])}
+    lines = [c for c in res['grouped'] if _is_figure(c['t'])]
+    assert lines, res['grouped']
+    for c in lines:
+        assert (c['x'], c['y']) in own_spots, (c, own_spots)
+
+
+def test_screens_display_power_line_says_the_load_its_circuits_carry(page):
+    """On a crossing wall the first member's circuit count is the whole
+    wall's; its amps must be the whole wall's too, not one member's cabinets
+    against every member's circuits. A member reporting zero circuits (its
+    cabinets ride a peer's) draws no line at all."""
+    res = page.evaluate("""() => {
+        const gc = window.__gc;
+        %s
+        a.group_id = 'g1'; b.group_id = 'g1';
+        return gc.withProject([a, b], [group], 'power', () => {
+            const app = window.app;
+            app.project.groupNameDisplay = 'screens';
+            const lines = gc.drawnAt().filter(c => /Circuits/.test(c.t)).map(c => c.t);
+            const totals = app.getGroupTotals(app.project.groups[0], 'c1');
+            return {
+                lines: lines,
+                counts: [app.screenCircuitCount(a), app.screenCircuitCount(b)],
+                amps1: totals.amps1ph, circuits: totals.circuits,
+            };
+        });
+    }""" % APART_PAIR_JS)
+    assert res['counts'][1] == 0, res
+    assert len(res['lines']) == 1, res
+    line = res['lines'][0]
+    assert line.startswith('%d Multi, %d Circuits' % (
+        -(-res['circuits'] // 6), res['circuits'])) or ('%d Circuits' % res['circuits']) in line, res
+    assert ('%.2fA 1φ' % res['amps1']) in line, res
+
+
+def test_both_display_puts_the_headline_on_the_wall_and_each_name_on_its_member(page):
+    """'both': the group's name once, centred on the union (x = 706 for a
+    0..1412 wall), and every member's name on that member's own centre x."""
+    res = _labels_grouped_vs_ungrouped(page, 'cabinet-id', False, mode='both')
+    by_text = {c['t']: (c['x'], c['y']) for c in res['grouped']}
+    assert sum(1 for c in res['grouped'] if c['t'] == 'Apart Wall') == 1, res['grouped']
+    ung = {c['t']: (c['x'], c['y']) for c in res['ungrouped']}
+    assert by_text['Alpha'][0] == ung['Alpha'][0]
+    assert by_text['Bravo'][0] == ung['Bravo'][0]
+    assert by_text['Apart Wall'][0] == pytest.approx((0 + 1412) / 2, abs=1)
+
+
+@pytest.mark.parametrize('view', LABEL_VIEWS)
+def test_screens_display_exports_the_frame_it_shows(page, view):
+    """exportMode draws the 'screens' wall through the same path: in the
+    export frame every member's name lands exactly where the same member
+    lands ungrouped in the export frame, and every figures line sits on one
+    of the ungrouped export frame's own anchors. (Export snaps text to whole
+    pixels, so the export frame is compared with the export frame, not with
+    the live one; and on Data/Power the figure text follows the group-aware
+    walk, so only its place is compared.)"""
+    exported = _labels_grouped_vs_ungrouped(page, view, True, export=True)
+    names_u = {c['t']: (c['x'], c['y']) for c in exported['ungrouped'] if c['t'] in ('Alpha', 'Bravo')}
+    names_g = {c['t']: (c['x'], c['y']) for c in exported['grouped'] if c['t'] in ('Alpha', 'Bravo')}
+    assert set(names_u) == {'Alpha', 'Bravo'}
+    assert names_g == names_u, (names_g, names_u)
+    own_spots = {(c['x'], c['y']) for c in exported['ungrouped'] if _is_figure(c['t'])}
+    for c in exported['grouped']:
+        if _is_figure(c['t']):
+            assert (c['x'], c['y']) in own_spots, (c, own_spots)
+    if view == 'pixel-map':
+        assert exported['grouped'] == exported['ungrouped']
+
+
+def test_a_dragged_member_name_offset_survives_leaving_and_rejoining_the_group(page):
+    """Drag Bravo's name in 'screens': the offset is stored on BRAVO and read
+    back from Bravo - after the group is dissolved and after it is formed
+    again the name draws at Bravo's own centre plus that offset, exactly
+    where the same lone screen with the same offset draws it."""
+    res = page.evaluate("""() => {
+        const gc = window.__gc;
+        %s
+        const app = window.app;
+        const r = window.canvasRenderer;
+        const nameAt = () => {
+            const hit = gc.drawnAt().find(c => c.t === 'Bravo');
+            return hit ? [hit.x, hit.y] : null;
+        };
+        {
+            a.group_id = 'g1'; b.group_id = 'g1';
+            return gc.withProject([a, b], [group], 'pixel-map', () => {
+                app.project.groupNameDisplay = 'screens';
+                app.selectLayer(b);
+                r._extendSelectionToGroups();
+                r.render();
+                const rect = b._screenNameHitRect;
+                if (!rect) return { rect: null };
+                const cx = (rect.x1 + rect.x2) / 2, cy = (rect.y1 + rect.y2) / 2;
+                r.handleMouseDown(gc.ev(cx, cy));
+                const started = r.isDraggingScreenName;
+                r.handleMouseMove(gc.ev(cx + 50, cy + 30));
+                r.handleMouseUp(gc.ev(cx + 50, cy + 30));
+                const stored = { x: b.screenNameOffsetXPixelMap, y: b.screenNameOffsetYPixelMap };
+                const peer = { x: a.screenNameOffsetXPixelMap || 0, y: a.screenNameOffsetYPixelMap || 0 };
+                const grp = { x: group.screenNameOffsetXPixelMap || 0, y: group.screenNameOffsetYPixelMap || 0 };
+                const grouped = nameAt();
+                // dissolve the group
+                app.project.groups = [];
+                delete a.group_id; delete b.group_id;
+                const alone = nameAt();
+                const storedAlone = { x: b.screenNameOffsetXPixelMap, y: b.screenNameOffsetYPixelMap };
+                // form it again
+                app.project.groups = [group];
+                a.group_id = 'g1'; b.group_id = 'g1';
+                const regrouped = nameAt();
+                const storedAgain = { x: b.screenNameOffsetXPixelMap, y: b.screenNameOffsetYPixelMap };
+                return { rect, started, stored, peer, grp, grouped, alone, regrouped, storedAlone, storedAgain };
+            });
+        }
+    }""" % APART_PAIR_JS)
+    assert res['rect'], 'Bravo cached no hit rect of its own'
+    assert res['started'], 'mousedown on Bravo\'s name did not start its drag'
+    assert res['stored']['x'] == pytest.approx(50, abs=1)
+    assert res['stored']['y'] == pytest.approx(30, abs=1)
+    assert res['peer'] == {'x': 0, 'y': 0}
+    assert res['grp'] == {'x': 0, 'y': 0}
+    assert res['storedAlone'] == res['stored']
+    assert res['storedAgain'] == res['stored']
+    assert res['grouped'] == res['alone'] == res['regrouped'], res
