@@ -756,6 +756,7 @@ export class LEDRasterApp {
             showPowerCircuitInfo: layer.showPowerCircuitInfo,
             showPowerNferTags: layer.showPowerNferTags,
             showPowerCableTags: layer.showPowerCableTags,
+            showDataCableTags: layer.showDataCableTags,
             powerVoltage: layer.powerVoltage,
             powerVoltageCustom: layer.powerVoltageCustom,
             powerAmperage: layer.powerAmperage,
@@ -1122,6 +1123,7 @@ export class LEDRasterApp {
                         if (layerProps.showPowerCircuitInfo !== undefined) layer.showPowerCircuitInfo = layerProps.showPowerCircuitInfo;
                         if (layerProps.showPowerNferTags !== undefined) layer.showPowerNferTags = layerProps.showPowerNferTags;
                         if (layerProps.showPowerCableTags !== undefined) layer.showPowerCableTags = layerProps.showPowerCableTags;
+                        if (layerProps.showDataCableTags !== undefined) layer.showDataCableTags = layerProps.showDataCableTags;
                         if (layerProps.screenNameOffsetXPixelMap !== undefined) layer.screenNameOffsetXPixelMap = layerProps.screenNameOffsetXPixelMap;
                         if (layerProps.screenNameOffsetYPixelMap !== undefined) layer.screenNameOffsetYPixelMap = layerProps.screenNameOffsetYPixelMap;
                         if (layerProps.screenNameOffsetXCabinet !== undefined) layer.screenNameOffsetXCabinet = layerProps.screenNameOffsetXCabinet;
@@ -1261,6 +1263,10 @@ export class LEDRasterApp {
             // ink for the docs - "i like having D as an option when doing
             // the docs per screen" (2026-09-06) - not for the wall.
             if (layer.showPowerCableTags === undefined) layer.showPowerCableTags = false;
+            // Its data twin - a port's snake name or own cable beside its
+            // label - defaults OFF for the same reason ("the same option
+            // for data homeruns", 2026-09-06).
+            if (layer.showDataCableTags === undefined) layer.showDataCableTags = false;
             // Show Look position, default to processor offset for older
             // projects so they open looking identical to before.
             if (layer.showOffsetX === undefined || layer.showOffsetX === null) {
@@ -1484,6 +1490,7 @@ export class LEDRasterApp {
                 showPowerCircuitInfo: layer.showPowerCircuitInfo,
                 showPowerNferTags: layer.showPowerNferTags,
                 showPowerCableTags: layer.showPowerCableTags,
+                showDataCableTags: layer.showDataCableTags,
                 // Text layer properties
                 textContent: layer.textContent,
                 textContentPixelMap: layer.textContentPixelMap,
@@ -3319,6 +3326,7 @@ export class LEDRasterApp {
         const showPowerCircuitInfoEl = document.getElementById('show-power-circuit-info');
         const showPowerNferTagsEl = document.getElementById('show-power-nfer-tags');
         const showPowerCableTagsEl = document.getElementById('show-power-cable-tags');
+        const showDataCableTagsEl = document.getElementById('show-data-cable-tags');
 
         const updatePowerVoltageUI = () => {
             if (!powerVoltageSelect || !powerVoltageCustomInput) return;
@@ -3617,6 +3625,19 @@ export class LEDRasterApp {
                 });
                 this.saveClientSideProperties();
                 this.updateLayers(this.getSelectedLayers(), true, 'Toggle Cable Tags');
+                window.canvasRenderer.render();
+            });
+        }
+        // The data side's switch, the same shape: a port's snake name or
+        // its own cable beside its label, off by default ("the same option
+        // for data homeruns", 2026-09-06).
+        if (showDataCableTagsEl) {
+            showDataCableTagsEl.addEventListener('change', () => {
+                this.applyToSelectedLayers(layer => {
+                    layer.showDataCableTags = showDataCableTagsEl.checked;
+                });
+                this.saveClientSideProperties();
+                this.updateLayers(this.getSelectedLayers(), true, 'Toggle Data Cable Tags');
                 window.canvasRenderer.render();
             });
         }

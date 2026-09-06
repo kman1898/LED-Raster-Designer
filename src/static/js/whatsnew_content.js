@@ -15,24 +15,24 @@
  */
 window.WHATS_NEW_CONTENT = {
     '0.12': {
-        title: 'The hardware dock, and power that matches the rack',
+        title: 'The hardware tray, and power that matches the rack',
         items: [
-            { h: 'Hardware lives in a dock',
-              d: 'Processors and power distros sit in a dock along the bottom of the window. Wire a screen by dragging it onto a device; ports and circuits are patched right on the dock, so there is one place to see the whole patch.' },
-            { h: 'A flag for unattached screens',
-              d: 'While any screen still has unwired ports or circuits, the dock header shows a red flag with the count. Click it for a row per screen, and click a row to fly the view straight to it.' },
+            { h: 'Hardware lives in a tray',
+              d: 'Processors and power distros sit in a tray along the bottom of the window, and the middle sidebars are gone. Wire a screen by dragging a port, card, box, multi or distro onto it, so there is one place to see the whole patch. A red flag on the tray header counts what is still unattached; click it and a row flies you to the screen.' },
+            { h: 'Nothing lands by itself',
+              d: 'Auto-numbering is retired: a port is on a card only because you dragged it there, Clear always releases it, and the flag counts what is left. An attached port prints the socket it sits on - 6, 7, 8, 9 on an unnamed card, H9-6 on a named one - the same numbers the tray shows.' },
             { h: 'Redundancy, one bar and a pill',
-              d: 'One bar behind the processor’s gear sets redundancy - Off, Whole unit, Per card or Per port - and a small gold pill on each processor and card header reads the shape in force; click it to open the bar. The redundant end of P1-1 is R1-1, a backup travels with its main, and every box numbers its ports the way its own silkscreen does.' },
-            { h: 'Circuits are chips with meters',
-              d: 'Each circuit is a chip whose fill bar shows how loaded it is at a glance, and a fully-patched box folds away to keep the dock short. A box also opens into a cable sheet, so each circuit can carry the length and connector of its cable for the paperwork, with a Show Cable Tags switch that prints them beside the labels on the map.' },
-            { h: 'Take over one run with Alt',
-              d: 'Hold Alt and route a single data run by hand. The rest of the wall keeps auto-cabling around it, so one custom run no longer costs you the automatic layout.' },
-            { h: '110V and L21-30 power',
-              d: 'Power planning now covers Edison (110V) breakouts and L21-30 feeds splitting to three 208V circuits at 30 A per leg, alongside soca, with True1 and powerCON connectors. Every multi box in the tray wears its connector type on a chip; pick it on the spare box, and the box lands as that plug.' },
-            { h: 'A screen only lands on gear that can drive it',
-              d: 'Dragging a screen onto hardware from a different product line is refused up front, so a patch that could never work is never drawn.' },
-            { h: 'Labels wrap instead of inflating',
-              d: 'A spaced port or circuit label breaks at the space before its circle grows, so a name like "SR A1" stacks into two lines instead of swallowing the neighboring cabinets.' }
+              d: 'One raised bar behind the processor’s gear sets it - Off, Whole unit, Per card, Per port - with exactly one thing beneath: a mirrored-by pick, a partner per slot, or Sequential / Halves / Manual chips. Every tray header wears a gold pill that reads the shape in force; click it to open the bar.' },
+            { h: 'A box wears its type',
+              d: 'Every multi box carries a chip - Soca 208, Soca 120, L21-30. Click the spare box’s chip to pick, drag that box onto a screen and it lands as that plug; the distro’s OUTPUTS row holds the same plugs. While you drag, the circuits the drop will feed light up with a pill, and a screen set to a different breakout refuses with the reason.' },
+            { h: 'A multi takes what its box has free',
+              d: 'Drag a multi over a wall and the span starts at the first circuit of the six and grows to the one under your cursor, capped at what the box has free - it says "took 5 of 6" when short. Right-click a circuit chip and Clear circuit takes that one circuit off the box while the other five stay put; clearing a multi welds the wall back to its six-per-box grid.' },
+            { h: 'Drawing stops at capacity',
+              d: 'In custom mode a circuit or port takes only as many cabinets as its settings allow, and a flow pattern applied to a block deals it out at capacity, every run starting from the same side. The readout ("S4-4 · 14/14 on circuit · full") now sits in the strip beside Fit and 1:1 instead of over the wall.' },
+            { h: 'Every circuit carries its cable',
+              d: 'The ≡ on a multi box flips its chips into a cable sheet - a length and connector per circuit, Tab walking the column, a count at the foot - and a chip wears its cable in its corner. Show Cable Tags, per screen and off by default, prints them beside the labels on the wall and in the export; Show 2fer / 3fer Tags drops the gang text and keeps the bracket.' },
+            { h: 'Ports snake',
+              d: 'Hold Alt and sweep the port chips of one card or box, then right-click Snake these N - or tick them in the card’s cable sheet and press Snake. A snake reads as a blue bracket (SNAKE A · 6-way · 100’) under its ports, a loose port carries its own length, and the Data panel’s Show Cable Tags prints them on the wall.' }
         ]
     },
     '0.11': {

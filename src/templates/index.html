@@ -165,6 +165,16 @@
             <div class="menu-option hw-batch-only" data-action="hw-batch-n1" style="display: none;"></div>
             <div class="menu-option hw-batch-only" data-action="hw-batch-n2" style="display: none;"></div>
             <div class="menu-option hw-batch-only" data-action="hw-batch-unshare" style="display: none;"></div>
+            <!-- Data snakes (2026-09-06): "Snake these N" (Alt+Enter),
+                 "Set home run…", "Loosen" on the chips an Alt-sweep lit in
+                 the tray; "Rename", "Set home run", "Loosen" on a snake's
+                 tag or a snaked chip. Armed by _prepareSnakeMenu
+                 (app-dock.js); slots written at open time. -->
+            <div class="menu-divider hw-snake-only" style="display: none;"></div>
+            <div class="menu-option hw-snake-only" data-action="hw-snake-n0" style="display: none;"></div>
+            <div class="menu-option hw-snake-only" data-action="hw-snake-n1" style="display: none;"></div>
+            <div class="menu-option hw-snake-only" data-action="hw-snake-n2" style="display: none;"></div>
+            <div class="menu-option hw-snake-only" data-action="hw-snake-n3" style="display: none;"></div>
         </div>
 
         <div id="toolbar">
@@ -622,6 +632,10 @@
                         <div class="info-row checkbox-row" data-tooltip="Show Port Load, Print each port's load under its port marker, as a percentage of that port's capacity. Orange from 90%, red at or over 100%.">
                             <input type="checkbox" id="show-data-flow-port-load">
                             <label for="show-data-flow-port-load">Show Port Load %</label>
+                        </div>
+                        <div class="info-row checkbox-row" data-tooltip="Show Cable Tags, Print each port's home run beside its label - the snake it rides (SNAKE A) or its own cable (50' CAT). Off by default; turn on for the per-screen docs.">
+                            <input type="checkbox" id="show-data-cable-tags">
+                            <label for="show-data-cable-tags">Show Cable Tags</label>
                         </div>
 
                         <p style="font-size: 11px; color: #888; margin: 4px 0 12px 0;">Click & drag the screen name to reposition</p>

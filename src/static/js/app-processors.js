@@ -57,6 +57,12 @@ class _Processors {
         if (!data || !data.resolved) return;
         this._processorsResolved = data.resolved;
         this._processorsRaw = JSON.stringify(data.processors || []);
+        // The connectors a data cable can be typed as, served with the
+        // tree (catalog DATA_CABLE_CONNECTORS) so the sheet's select and
+        // the server's refusals name one list.
+        if (Array.isArray(data.dataCableConnectors)) {
+            this._dataCableConnectors = data.dataCableConnectors;
+        }
         // Only stamp the key onto the project once there is something to
         // store. Writing an empty array here would put `processors: []` into
         // every saved file of every user who never opens this panel, and the
@@ -1142,6 +1148,280 @@ class _Processors {
         return wrap;
     }
 
+
+
+    // ── data cables: snakes and port home runs ──────────────────────────
+    //
+    // "we need to have the same option for data homeruns. we can combine
+    // ports into a snake as well as adding lengths to each if not snakes."
+    // (user, 2026-09-06). Power's distro → multi (one home run) → circuit
+    // cable becomes card or box → SNAKE (one name, one home run, N ports)
+    // → port cable; a port outside any snake carries its own home run.
+    // Both stores sit on the HARDWARE record (the resolved card for the
+    // ports on its face, the resolved box for the ports it delivers):
+    //     rec.snakes     = [{ id, name, ft, connector, ports: [socket…] }]
+    //     rec.portCables = { [socket]: { ft, connector } }
+    // keyed by the card-wide socket number the chips and the assignment
+    // run on. A home run belongs to the socket, not the screen: unlike a
+    // power circuit's cable (per-screen programming, forgotten by a
+    // clear), a port cleared from its screen KEEPS its snake and cable.
+    // The server validates and normalises (processor_catalog
+    // check_cable_store / apply_cable_store); this side only reads the
+    // resolved stores and sends whole stores back through one PUT per
+    // gesture, so every commit is ONE history entry.
+
+    getDataCableConnectors() {
+        return (this._dataCableConnectors || [
+            { id: 'cat', name: 'CAT' }, { id: 'fiber', name: 'Fiber' },
+        ]).map(c => ({ id: c.id, name: c.name }));
+    }
+
+    dataCableConnectorName(id) {
+        const hit = this.getDataCableConnectors().find(c => c.id === id);
+        return hit ? hit.name : null;
+    }
+
+    // The record that OWNS a socket's home run: the first breakout box
+    // delivering it (the one that names it - resolve_card), else the card
+    // itself. Returns { kind: 'card'|'cvt', id, procId, cardId, rec } or
+    // null for a socket nothing resolves to.
+    _dataPortOwner(cardId, socket) {
+        const found = this._dockFindCard(cardId);
+        if (!found) return null;
+        const n = parseInt(socket, 10);
+        const box = (found.card.cvts || []).find(c =>
+            (c.ports || []).some(p => p.number === n));
+        if (box) {
+            return { kind: 'cvt', id: box.id, procId: found.proc.id,
+                     cardId, rec: box };
+        }
+        if (!(found.card.ports || []).some(p => p.number === n)) return null;
+        return { kind: 'card', id: cardId, procId: found.proc.id, cardId,
+                 rec: found.card };
+    }
+
+    // An owner by its own key, for the sheet and the sweep, which know
+    // the record they are standing on rather than a socket.
+    _dataCableOwner(kind, id) {
+        if (kind === 'cvt') {
+            const found = this._dockFindCvt(id);
+            return found ? { kind, id, procId: found.proc.id,
+                             cardId: found.card.id, rec: found.cvt } : null;
+        }
+        const found = this._dockFindCard(id);
+        return found ? { kind: 'card', id, procId: found.proc.id,
+                         cardId: id, rec: found.card } : null;
+    }
+
+    _dataCableOwnerUrl(owner) {
+        return owner.kind === 'cvt'
+            ? `/api/processors/${owner.procId}/cvts/${owner.id}`
+            : `/api/processors/${owner.procId}/cards/${owner.id}`;
+    }
+
+    // The snake a socket rides on its owner, or null.
+    dataPortSnake(owner, socket) {
+        const n = parseInt(socket, 10);
+        return ((owner && owner.rec && owner.rec.snakes) || [])
+            .find(s => (s.ports || []).includes(n)) || null;
+    }
+
+    // The connector a socket's cable FOLLOWS: the stored pick where there
+    // is one, else the catalog's word for the device the port comes out of
+    // (rec.portConnector - the box, else the card, else the processor),
+    // else null: no name is printed rather than a guessed one.
+    dataPortConnectorId(owner, stored) {
+        if (stored && this.dataCableConnectorName(stored)) return stored;
+        const follows = owner && owner.rec && owner.rec.portConnector;
+        return follows && this.dataCableConnectorName(follows)
+            ? follows : null;
+    }
+
+    // What one socket's home run reads as: the snake it rides
+    // ({ kind: 'snake', snake, text: 'SNAKE A' }) or its own cable
+    // ({ kind: 'cable', ft, connector, id, name, text: "50' CAT" }), or
+    // null for a socket with neither. `text` is what the chip corner, the
+    // canvas tag and the paperwork print.
+    dataPortCable(cardId, socket) {
+        const owner = this._dataPortOwner(cardId, socket);
+        if (!owner) return null;
+        return this._dataPortCableOn(owner, socket);
+    }
+
+    _dataPortCableOn(owner, socket) {
+        const snake = this.dataPortSnake(owner, socket);
+        if (snake) {
+            return { kind: 'snake', snake, owner, text: snake.name || '' };
+        }
+        const rec = (owner.rec.portCables || {})[String(socket)];
+        const ft = rec ? Number(rec.ft) : NaN;
+        if (!rec || !Number.isFinite(ft) || ft <= 0) return null;
+        const id = this.dataPortConnectorId(owner, rec.connector);
+        const name = this.dataCableConnectorName(id) || '';
+        return {
+            kind: 'cable', owner, ft, connector: rec.connector || null,
+            id, name, text: this.cableText(ft, name),
+        };
+    }
+
+    // The same reading for one port of a screen, through the assignment:
+    // the port's pinned socket, then the socket's owner. Null while the
+    // port is on no card.
+    dataPortCableForScreen(layer, portNum) {
+        const scr = ((this._assignment && this._assignment.screens) || [])
+            .find(s => String(s.layerId) === String(layer.id));
+        const port = scr && (scr.ports || [])
+            .find(p => p.number === parseInt(portNum, 10));
+        if (!port || !port.cardId || port.port == null) return null;
+        return this.dataPortCable(port.cardId, port.port);
+    }
+
+    // The snake's tag as the bracket and the sheet print it:
+    // "SNAKE A · 6-way · 100'" (ways = however many ports it holds).
+    snakeTagText(snake, withFt = true) {
+        const ways = (snake.ports || []).length;
+        let text = `${snake.name || 'snake'} · ${ways}-way`;
+        const ft = Number(snake.ft);
+        if (withFt && Number.isFinite(ft) && ft > 0) {
+            text += ` · ${this.cableText(ft, '')}`;
+        }
+        return text;
+    }
+
+    // ---- writes: whole stores back through one PUT each -----------------
+
+    _dataCableStores(owner) {
+        const rec = owner.rec || {};
+        return {
+            snakes: (rec.snakes || []).map(s => ({
+                id: s.id, name: s.name, ft: s.ft, connector: s.connector,
+                ports: (s.ports || []).slice(),
+            })),
+            portCables: JSON.parse(JSON.stringify(rec.portCables || {})),
+        };
+    }
+
+    _dataCablePut(owner, stores, action) {
+        return this._processorRequest(this._dataCableOwnerUrl(owner), 'PUT',
+                                      stores, action);
+    }
+
+    // Snake these sockets: they leave any snake they were in and any own
+    // cable they carried, and form one new snake (name defaulted server-
+    // side to the first free SNAKE letter). ONE 'Snake Ports' entry.
+    // Resolves to the new snake's id, read off the refreshed tree.
+    snakePorts(owner, sockets, ft = null) {
+        const nums = [...new Set(sockets.map(n => parseInt(n, 10)))]
+            .filter(n => Number.isFinite(n)).sort((a, b) => a - b);
+        if (!nums.length) return Promise.resolve(null);
+        const stores = this._dataCableStores(owner);
+        const chosen = new Set(nums);
+        stores.snakes = stores.snakes
+            .map(s => Object.assign({}, s,
+                { ports: s.ports.filter(n => !chosen.has(n)) }))
+            .filter(s => s.ports.length);
+        nums.forEach(n => { delete stores.portCables[String(n)]; });
+        const fresh = { name: '', ports: nums };
+        if (ft != null) fresh.ft = ft;
+        stores.snakes.push(fresh);
+        const before = new Set((owner.rec.snakes || []).map(s => s.id));
+        return this._dataCablePut(owner, stores, 'Snake Ports').then(() => {
+            const again = this._dataCableOwner(owner.kind, owner.id);
+            const made = again && (again.rec.snakes || [])
+                .find(s => !before.has(s.id)
+                    && s.ports.length === nums.length
+                    && s.ports.every((n, i) => n === nums[i]));
+            return made ? made.id : null;
+        });
+    }
+
+    // Loosen sockets out of their snakes (a snake left empty goes).
+    // `sockets` null loosens a whole snake by id. ONE 'Loosen Snake'.
+    loosenPorts(owner, sockets, snakeId = null) {
+        const stores = this._dataCableStores(owner);
+        const chosen = new Set((sockets || []).map(n => parseInt(n, 10)));
+        stores.snakes = stores.snakes
+            .filter(s => !(snakeId && s.id === snakeId))
+            .map(s => Object.assign({}, s,
+                { ports: s.ports.filter(n => !chosen.has(n)) }))
+            .filter(s => s.ports.length);
+        return this._dataCablePut(owner, stores, 'Loosen Snake');
+    }
+
+    // Rename / re-length / re-plug one snake. `patch` carries any of
+    // name, ft, connector; `action` names the entry ('Rename Snake',
+    // 'Set Snake Home Run').
+    setSnake(owner, snakeId, patch, action) {
+        const stores = this._dataCableStores(owner);
+        const snake = stores.snakes.find(s => s.id === snakeId);
+        if (!snake) return Promise.resolve();
+        const before = JSON.stringify(snake);
+        if ('name' in patch) snake.name = (patch.name || '').trim();
+        if ('ft' in patch) {
+            const ft = Number(patch.ft);
+            snake.ft = Number.isFinite(ft) && ft > 0 ? ft : null;
+        }
+        if ('connector' in patch) {
+            snake.connector = patch.connector
+                && this.dataCableConnectorName(patch.connector)
+                ? patch.connector : null;
+        }
+        if (JSON.stringify(snake) === before) return Promise.resolve();
+        return this._dataCablePut(owner, stores, action);
+    }
+
+    // One loose socket's own cable: { ft, connector } - blank or zero ft
+    // with no connector forgets it. A socket in a snake is refused here:
+    // its run is the snake's. ONE 'Set Port Cable'.
+    setPortCable(owner, socket, cable, action = 'Set Port Cable') {
+        if (this.dataPortSnake(owner, socket)) return Promise.resolve();
+        const stores = this._dataCableStores(owner);
+        const key = String(parseInt(socket, 10));
+        const before = JSON.stringify(stores.portCables[key] || null);
+        const ft = cable ? Number(cable.ft) : NaN;
+        const connector = cable && cable.connector
+            && this.dataCableConnectorName(cable.connector)
+            ? cable.connector : null;
+        if (!(Number.isFinite(ft) && ft > 0) && !connector) {
+            delete stores.portCables[key];
+        } else {
+            stores.portCables[key] = {};
+            if (Number.isFinite(ft) && ft > 0) stores.portCables[key].ft = ft;
+            if (connector) stores.portCables[key].connector = connector;
+        }
+        if (JSON.stringify(stores.portCables[key] || null) === before) {
+            return Promise.resolve();
+        }
+        return this._dataCablePut(owner, stores, action);
+    }
+
+    // Quick fill: every LOOSE socket among `ports` (the sockets the
+    // owner's sheet lists - a card's are the ones no box delivers, so the
+    // fill never reaches into a box's span) gets the one length (its
+    // connector pick untouched), or forgets its cable; snakes are left
+    // alone - they carry their own run. ONE 'Set Port Cable'.
+    fillPortCables(owner, ft, ports) {
+        const stores = this._dataCableStores(owner);
+        const snaked = new Set();
+        stores.snakes.forEach(s => s.ports.forEach(n => snaked.add(n)));
+        const before = JSON.stringify(stores.portCables);
+        (ports || owner.rec.ports || []).forEach(p => {
+            if (snaked.has(p.number)) return;
+            const key = String(p.number);
+            const cur = stores.portCables[key] || {};
+            if (ft == null) {
+                delete stores.portCables[key];
+                return;
+            }
+            const next = { ft };
+            if (cur.connector) next.connector = cur.connector;
+            stores.portCables[key] = next;
+        });
+        if (JSON.stringify(stores.portCables) === before) {
+            return Promise.resolve();
+        }
+        return this._dataCablePut(owner, stores, 'Set Port Cable');
+    }
 
     // Who is sitting on one card port, as the assignment last resolved it.
     // Read from the resolution rather than worked out here, for the same

@@ -48,7 +48,7 @@ def add_layer():
         'powerLabelSize', 'powerLabelBgColor', 'powerLabelTextColor', 'powerLabelTemplate', 'powerLabelOverrides',
         'powerCircuitCables',
         'powerCustomPaths', 'powerCustomIndex', 'showPowerCircuitInfo',
-        'showPowerNferTags', 'showPowerCableTags',
+        'showPowerNferTags', 'showPowerCableTags', 'showDataCableTags',
         'powerColorCodedView',
         'powerCircuitColors',
         'showLabelName', 'showLabelNameCabinet', 'showLabelNameDataFlow', 'showLabelNamePower',
@@ -370,6 +370,10 @@ def update_layer(layer_id):
                 # The cable tag beside a circuit's label (default off;
                 # only an explicit true draws it).
                 'showPowerCableTags',
+                # The data side's twin: a port's snake name or own cable
+                # beside its label (default off; 2026-09-06 "the same
+                # option for data homeruns").
+                'showDataCableTags',
                 # Production suite: Soca home-run lengths ({socaNum: '100ft'}),
                 # breakout type (soca-true1 / soca-powercon / soca-edison /
                 # soca-l620), and the power-map bracket toggle.
