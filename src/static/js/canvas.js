@@ -7568,15 +7568,27 @@ class CanvasRenderer {
         // here - peers keep drawing their own cabinets, only the label
         // consolidates. `plan` is null for an ungrouped layer, so everything
         // below is unchanged for a project without groups.
-        const plan = this._groupLabelPlan(layer);
-        // The NAMES switch (_groupNameMode). In 'screens' and 'both' every
-        // member draws its own name again - exactly the ungrouped path - so
-        // the group's consolidated label moves to a separate pass, hosted by
-        // the same last member as always: with the group's name in 'both',
-        // with no name line at all in 'screens'. The combined figures
-        // consolidate either way; only the NAME element changes hands.
-        const nameMode = plan ? this._groupNameMode() : 'group';
-        const memberNamePass = !!plan && nameMode !== 'group' && !groupLabelPass;
+        // The NAMES switch (_groupNameMode). 'screens' labels the SCREENS:
+        // every member draws its whole label - name, sizes, weight, port and
+        // circuit figures, info bar - against its own bounds and its own
+        // stored offset, byte for byte the ungrouped path, and the group draws
+        // no label at all. Drawn the old way (member names, one consolidated
+        // figure set at the union) the wall's "W x H" and info bar landed
+        // wherever the union's centre and bottom edge happened to fall: over
+        // one member's edge, in the gap between sections, in empty raster
+        // below the wall - figures that read as nobody's. So a 'screens' wall
+        // has no group plan here; only the circle-and-X still spans the group.
+        // In 'both' every member draws its own name and the group's
+        // consolidated label moves to a separate pass hosted by the last
+        // member, carrying the group's name as the wall's headline.
+        const nameMode = this._groupNameMode();
+        const plan = nameMode === 'screens' ? null : this._groupLabelPlan(layer);
+        const memberNamePass = !!plan && nameMode === 'both' && !groupLabelPass;
+        // No headline is drawn in 'screens', so no ghost of one may be left
+        // to grab from the frame before the switch.
+        if (nameMode === 'screens' && layer && layer._groupNameHitRect) {
+            layer._groupNameHitRect = null;
+        }
         if (memberNamePass && plan.host.id === layer.id) {
             this.renderLayerLabels(layer, true);
         }
@@ -7863,8 +7875,34 @@ class CanvasRenderer {
                         }, 0)
                     : 0;
                 const totalWatts = panelWatts * equivalentPanels;
-                const amps1 = voltage > 0 ? (totalWatts / voltage) : 0;
-                const amps3 = voltage > 0 ? (totalWatts / (voltage * 1.73)) : 0;
+                let amps1 = voltage > 0 ? (totalWatts / voltage) : 0;
+                let amps3 = voltage > 0 ? (totalWatts / (voltage * 1.73)) : 0;
+                // A group member labelling itself (the 'screens' display)
+                // reads the same circuit authority the roll-up does, and on a
+                // crossing wall that authority hands the wall's ONE combined
+                // walk to the first member and zero to every peer. The amps
+                // must say the same thing the circuits do: a peer-served
+                // member draws no line at all (its cabinets are on the
+                // neighbour's circuits, counted there - exactly what the
+                // Data label already does for ports), and the member that
+                // carries every circuit of the wall carries the wall's load,
+                // so its amps come from the roll-up rather than from its own
+                // cabinets alone. A member whose circuits are its own keeps
+                // its own figure.
+                let peerServed = false;
+                const screensPlan = (nameMode === 'screens') ? this._groupLabelPlan(layer) : null;
+                if (screensPlan && typeof window.app.getGroupTotals === 'function') {
+                    if (circuits <= 0) {
+                        peerServed = true;
+                    } else {
+                        const gt = window.app.getGroupTotals(
+                            screensPlan.group, this._effectiveLayerCanvasId(layer));
+                        if (gt && gt.circuits === circuits && !gt.voltageMismatch) {
+                            amps1 = gt.amps1ph || 0;
+                            amps3 = gt.amps3ph || 0;
+                        }
+                    }
+                }
                 // Split-aware: a multi broken at a chosen boundary is two
                 // multis, and this line must agree with the soca panel.
                 const multis = circuits > 0
@@ -7872,7 +7910,9 @@ class CanvasRenderer {
                         ? window.app.socaCountFor(layer, circuits)
                         : Math.ceil(circuits / 6))
                     : 0;
-                centerLines.push(`${multis} Multi, ${circuits} Circuits | ${amps1.toFixed(2)}A 1φ / ${amps3.toFixed(2)}A 3φ`);
+                if (!peerServed) {
+                    centerLines.push(`${multis} Multi, ${circuits} Circuits | ${amps1.toFixed(2)}A 1φ / ${amps3.toFixed(2)}A 3φ`);
+                }
             }
         }
         
