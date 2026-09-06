@@ -111,6 +111,7 @@ class _ScreenGroups {
             'powerArrowColor', 'powerRandomColors', 'powerColorCodedView',
             'powerCircuitColors', 'powerLabelBgColor', 'powerLabelTextColor',
             'powerLabelSize', 'powerLabelTemplate', 'showPowerCircuitInfo',
+            'showPowerNferTags',
             // Cabinet fill / borders
             'color1', 'color2', 'transparentFill',
             'gradientEnabled', 'gradientType', 'gradientScope',

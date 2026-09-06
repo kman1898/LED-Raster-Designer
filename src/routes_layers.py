@@ -47,6 +47,7 @@ def add_layer():
         'powerLineWidth', 'powerLineColor', 'powerArrowColor', 'powerRandomColors',
         'powerLabelSize', 'powerLabelBgColor', 'powerLabelTextColor', 'powerLabelTemplate', 'powerLabelOverrides',
         'powerCustomPaths', 'powerCustomIndex', 'showPowerCircuitInfo',
+        'showPowerNferTags',
         'powerColorCodedView',
         'powerCircuitColors',
         'showLabelName', 'showLabelNameCabinet', 'showLabelNameDataFlow', 'showLabelNamePower',
@@ -358,6 +359,9 @@ def update_layer(layer_id):
                 'group_id',
                 'showDataFlowPortInfo', 'showDataFlowPortLoad',
                 'showPowerCircuitInfo',
+                # The 2fer / 3fer tag switch on the Nfer bracket (default
+                # on; only an explicit false hides the text).
+                'showPowerNferTags',
                 # Production suite: Soca home-run lengths ({socaNum: '100ft'}),
                 # breakout type (soca-true1 / soca-powercon / soca-edison /
                 # soca-l620), and the power-map bracket toggle.

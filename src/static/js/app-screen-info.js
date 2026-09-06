@@ -1051,6 +1051,9 @@ class _ScreenInfo {
         if (this.currentLayer.showPowerCircuitInfo === undefined) {
             this.currentLayer.showPowerCircuitInfo = false;
         }
+        if (this.currentLayer.showPowerNferTags === undefined) {
+            this.currentLayer.showPowerNferTags = true;
+        }
         if (this.currentLayer.number_size === undefined) {
             this.currentLayer.number_size = 30;
         }
@@ -1449,6 +1452,7 @@ class _ScreenInfo {
                     lastPowerFlowPattern: this.currentLayer.lastPowerFlowPattern,
                     showDataFlowPortInfo: this.currentLayer.showDataFlowPortInfo,
                     showPowerCircuitInfo: this.currentLayer.showPowerCircuitInfo,
+                    showPowerNferTags: this.currentLayer.showPowerNferTags,
                     _powerTotalAmps1: this.currentLayer._powerTotalAmps1,
                     _powerTotalAmps3: this.currentLayer._powerTotalAmps3,
                     _powerCircuitsRequired: this.currentLayer._powerCircuitsRequired,
@@ -1574,7 +1578,7 @@ class _ScreenInfo {
                 'lastFlowPattern',
                 'sizeByDimensions', 'targetWidth', 'targetHeight',
                 'targetUnit',
-                'showPowerCircuitInfo', '_powerTotalAmps1',
+                'showPowerCircuitInfo', 'showPowerNferTags', '_powerTotalAmps1',
                 '_powerTotalAmps3', '_powerCircuitsRequired',
                 '_portsRequired', '_autoPortsRequired',
                 'panel_weight', 'weight_unit', 'infoLabelSize',
@@ -2456,6 +2460,11 @@ class _ScreenInfo {
         const showPowerCircuitInfoEl = document.getElementById('show-power-circuit-info');
         if (showPowerCircuitInfoEl) {
             showPowerCircuitInfoEl.checked = !!this.currentLayer.showPowerCircuitInfo;
+        }
+        const showPowerNferTagsEl = document.getElementById('show-power-nfer-tags');
+        if (showPowerNferTagsEl) {
+            // Default ON: only an explicit false unticks it.
+            showPowerNferTagsEl.checked = this.currentLayer.showPowerNferTags !== false;
         }
         if (document.getElementById('power-line-color')) {
             document.getElementById('power-line-color').value = this.currentLayer.powerLineColor || '#FF0000';

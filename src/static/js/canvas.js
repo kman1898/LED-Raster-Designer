@@ -6782,7 +6782,18 @@ class CanvasRenderer {
             this.ctx.lineTo(x2 - 2, y);
             this.ctx.lineTo(x2 - 2, y - tick);
             this.ctx.stroke();
-            const label = `${c.runIds.length}fer${over ? ' · OVER' : ''}`;
+            // The bracket above is the share itself and always draws; the
+            // tag is text the user may not want on the wall - "i need a
+            // way to disable the twofer/3fer text on the screen if i dont
+            // want it there" (2026-09-06). Per screen, default on, and
+            // the same test in exportMode so the PDF matches the screen.
+            // An OVER gang is a warning, not decoration: with the tags
+            // off it still prints OVER alone, because a red stroke by
+            // itself is easy to miss on a busy wall.
+            const tagsOff = layer.showPowerNferTags === false;
+            if (tagsOff && !over) continue;
+            const label = tagsOff ? 'OVER'
+                : `${c.runIds.length}fer${over ? ' · OVER' : ''}`;
             this.ctx.font = `bold ${labelSize}px ${projectFontFamily()}`;
             const cx = (x1 + x2) / 2;
             const tw = this.ctx.measureText(label).width;

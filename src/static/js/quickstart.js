@@ -77,7 +77,7 @@
         { target: '#power-breakout-type', place: 'right', title: 'Breakouts, including L21-30',
           body: 'How the multi terminates: <b>True1</b> or <b>powerCON</b> feed panels directly, <b>Edison</b> is the 110V option, and <b>L21-30 (3 &times; 208V)</b> turns the box into three circuits at 30&nbsp;A per leg.' },
         { target: '#power-splitters-enabled', place: 'right', title: 'Share circuits',
-          body: 'Turn on <b>Share circuits via splitters</b> and adjacent runs gang onto one circuit through the smallest Y-cable that fits. Share or un-share one circuit by <b>right-clicking</b> it on the map or its chip in the tray.' },
+          body: 'Turn on <b>Share circuits via splitters</b> and adjacent runs gang onto one circuit through the smallest Y-cable that fits. Share or un-share one circuit by <b>right-clicking</b> it on the map or its chip in the tray. A shared circuit wears a bracket and a <b>2fer / 3fer</b> tag on the map; untick <b>Show 2fer / 3fer Tags</b> to keep the bracket and drop the text.' },
         { target: '[data-menu="help"]', place: 'bottom', title: 'That&rsquo;s 0.12',
           body: 'Reopen this any time from <b>Help &rsaquo; What&rsquo;s New in 0.12</b>. For the whole app in depth, take the <b>Advanced Guide</b> next door in the same menu.' }
     ];
@@ -139,7 +139,7 @@
         { target: '#power-breakout-type', place: 'right', title: 'Breakouts',
           body: 'How the multi terminates: <b>True1</b> / <b>powerCON</b> feed panels directly, <b>Edison</b> is the 110V option, <b>L6-20</b> adds L6-20-to-panel cables per circuit, and <b>L21-30 (3 &times; 208V)</b> is a three-circuit box at 30&nbsp;A per leg. Drives the gear checklist.' },
         { target: '#power-splitters-enabled', place: 'right', title: 'Splitter packing',
-          body: '<b>Share circuits via splitters</b> gangs adjacent runs onto one circuit through the smallest Y-cable that fits, up to <b>Max splitter</b>. Right-click one circuit on the map or its chip to <b>Share</b> / <b>Un-share</b> by hand.' },
+          body: '<b>Share circuits via splitters</b> gangs adjacent runs onto one circuit through the smallest Y-cable that fits, up to <b>Max splitter</b>. Right-click one circuit on the map or its chip to <b>Share</b> / <b>Un-share</b> by hand. A shared circuit wears a bracket and a <b>2fer / 3fer</b> tag on the map; <b>Show 2fer / 3fer Tags</b> drops the text and keeps the bracket.' },
         { target: '#power-label-template', place: 'right', title: 'Circuit labels',
           body: 'One ladder, top wins: a hand-typed label on a chip &rsaquo; the multi&rsquo;s own name &rsaquo; its distro&rsquo;s name and number (SL &rarr; SL1-1&hellip;) &rsaquo; this <b>Template</b> (S1-#) for multis on no distro. <b>Apply</b> stamps overrides on the selected screens.' },
         { target: '#power-distro-add', place: 'bottom', title: 'Distros &amp; multis',
