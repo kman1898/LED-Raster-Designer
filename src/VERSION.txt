@@ -99,6 +99,13 @@ v0.12.0 - September 6, 2026 (BETA)
 - FIX: Undo back past a released pin re-resolves the tray, so the
   socket reads occupied again instead of free.
 
+- FIX: Opening a box's cable sheet no longer unfolds a folded box, and
+  closing it hands the fold back as it was.
+
+- FIX: A cable tag on a label at the wall's edge now sits inside the
+  screen, to the label's left, instead of off the edge under the next
+  screen.
+
 - CHANGE (IMPORTANT): Redundancy is one bar in one place. Behind the
   processor's gear a raised segmented bar - Off, Whole unit, Per card,
   Per port (Off, Backed up, Per port on a standalone unit) - and exactly
