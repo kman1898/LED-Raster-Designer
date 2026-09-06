@@ -46,8 +46,9 @@ def add_layer():
         'powerMaximize', 'powerOrganized', 'powerCustomPath', 'powerFlowPattern',
         'powerLineWidth', 'powerLineColor', 'powerArrowColor', 'powerRandomColors',
         'powerLabelSize', 'powerLabelBgColor', 'powerLabelTextColor', 'powerLabelTemplate', 'powerLabelOverrides',
+        'powerCircuitCables',
         'powerCustomPaths', 'powerCustomIndex', 'showPowerCircuitInfo',
-        'showPowerNferTags',
+        'showPowerNferTags', 'showPowerCableTags',
         'powerColorCodedView',
         'powerCircuitColors',
         'showLabelName', 'showLabelNameCabinet', 'showLabelNameDataFlow', 'showLabelNamePower',
@@ -297,6 +298,10 @@ def update_layer(layer_id):
                 'powerMaximize', 'powerOrganized', 'powerCustomPath', 'powerFlowPattern', 'powerLineWidth',
                 'powerLineColor', 'powerArrowColor', 'powerRandomColors', 'powerColorCodedView', 'powerCircuitColors', 'powerLabelSize', 'powerLabelBgColor', 'powerLabelTextColor',
                 'powerLabelTemplate', 'powerLabelOverrides', 'powerCustomPaths', 'powerCustomIndex',
+                # Per-circuit cables ({circuit: {ft, connector}}) - the
+                # length and plug on each circuit for the paperwork
+                # (2026-09-06); forgotten with the circuit's overrides.
+                'powerCircuitCables',
                 'lastPowerFlowPattern', 'type', 'imageData', 'imageWidth', 'imageHeight', 'imageScale',
                 # Sizing a screen by physical dimensions, and the pattern a
                 # custom data path falls back to. Both were missing here, so
@@ -362,6 +367,9 @@ def update_layer(layer_id):
                 # The 2fer / 3fer tag switch on the Nfer bracket (default
                 # on; only an explicit false hides the text).
                 'showPowerNferTags',
+                # The cable tag beside a circuit's label (default off;
+                # only an explicit true draws it).
+                'showPowerCableTags',
                 # Production suite: Soca home-run lengths ({socaNum: '100ft'}),
                 # breakout type (soca-true1 / soca-powercon / soca-edison /
                 # soca-l620), and the power-map bracket toggle.

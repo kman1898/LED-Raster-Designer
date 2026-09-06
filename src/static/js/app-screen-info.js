@@ -1054,6 +1054,9 @@ class _ScreenInfo {
         if (this.currentLayer.showPowerNferTags === undefined) {
             this.currentLayer.showPowerNferTags = true;
         }
+        if (this.currentLayer.showPowerCableTags === undefined) {
+            this.currentLayer.showPowerCableTags = false;
+        }
         if (this.currentLayer.number_size === undefined) {
             this.currentLayer.number_size = 30;
         }
@@ -1431,6 +1434,7 @@ class _ScreenInfo {
                     powerLabelTextColor: this.currentLayer.powerLabelTextColor,
                     powerLabelTemplate: this.currentLayer.powerLabelTemplate,
                     powerLabelOverrides: this.currentLayer.powerLabelOverrides,
+                    powerCircuitCables: this.currentLayer.powerCircuitCables,
                     powerSocaLengths: this.currentLayer.powerSocaLengths,
                     powerSocaPhaseOffset: this.currentLayer.powerSocaPhaseOffset,
                     powerSocaPhasePos: this.currentLayer.powerSocaPhasePos,
@@ -1453,6 +1457,7 @@ class _ScreenInfo {
                     showDataFlowPortInfo: this.currentLayer.showDataFlowPortInfo,
                     showPowerCircuitInfo: this.currentLayer.showPowerCircuitInfo,
                     showPowerNferTags: this.currentLayer.showPowerNferTags,
+                    showPowerCableTags: this.currentLayer.showPowerCableTags,
                     _powerTotalAmps1: this.currentLayer._powerTotalAmps1,
                     _powerTotalAmps3: this.currentLayer._powerTotalAmps3,
                     _powerCircuitsRequired: this.currentLayer._powerCircuitsRequired,
@@ -1569,7 +1574,7 @@ class _ScreenInfo {
                 'powerRandomColors', 'powerColorCodedView',
                 'powerCircuitColors', 'powerLabelSize',
                 'powerLabelBgColor', 'powerLabelTextColor',
-                'powerLabelTemplate', 'powerLabelOverrides',
+                'powerLabelTemplate', 'powerLabelOverrides', 'powerCircuitCables',
                 'powerCustomPaths', 'powerCustomIndex',
                 'powerCustomOverrides',
                 'border_color_pixel', 'border_color_cabinet',
@@ -1578,7 +1583,8 @@ class _ScreenInfo {
                 'lastFlowPattern',
                 'sizeByDimensions', 'targetWidth', 'targetHeight',
                 'targetUnit',
-                'showPowerCircuitInfo', 'showPowerNferTags', '_powerTotalAmps1',
+                'showPowerCircuitInfo', 'showPowerNferTags', 'showPowerCableTags',
+                '_powerTotalAmps1',
                 '_powerTotalAmps3', '_powerCircuitsRequired',
                 '_portsRequired', '_autoPortsRequired',
                 'panel_weight', 'weight_unit', 'infoLabelSize',
@@ -2465,6 +2471,11 @@ class _ScreenInfo {
         if (showPowerNferTagsEl) {
             // Default ON: only an explicit false unticks it.
             showPowerNferTagsEl.checked = this.currentLayer.showPowerNferTags !== false;
+        }
+        const showPowerCableTagsEl = document.getElementById('show-power-cable-tags');
+        if (showPowerCableTagsEl) {
+            // Default OFF: only an explicit true ticks it.
+            showPowerCableTagsEl.checked = this.currentLayer.showPowerCableTags === true;
         }
         if (document.getElementById('power-line-color')) {
             document.getElementById('power-line-color').value = this.currentLayer.powerLineColor || '#FF0000';

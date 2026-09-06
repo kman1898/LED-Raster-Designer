@@ -1571,6 +1571,7 @@ class _Presets {
         layer.powerLabelTextColor = '#000000';
         layer.powerLabelTemplate = 'S1-#';
         layer.powerLabelOverrides = {};
+        layer.powerCircuitCables = {};
         layer.powerSocaNames = {};
         // Born keyed by the multi's stable index, so the one-time rekey never
         // runs over a screen that was already built the new way.

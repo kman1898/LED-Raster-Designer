@@ -71,7 +71,7 @@
         { target: '#hardware-dock-body .hw-dock-legs', place: 'top', title: 'Leg meters and Balance',
           body: 'A 3-phase distro header carries live <b>X / Y / Z leg meters</b>. <b>Balance</b> searches which breakers each partly-filled multi should land on &mdash; nothing changes until you accept it.' },
         { target: '#hardware-dock-body .hw-dock-tile', place: 'top', title: 'Circuit chips',
-          body: 'Every chip is a meter: its bar is that circuit&rsquo;s load against your <b>Amperage</b>. Click an occupied chip to rename that one circuit; clear the box and the derived name comes back.' },
+          body: 'Every chip is a meter: its bar is that circuit&rsquo;s load against your <b>Amperage</b>. Click an occupied chip to rename that one circuit; clear the box and the derived name comes back. The box header&rsquo;s <b>&#8801;</b> flips it into a <b>cable sheet</b> &mdash; a length and connector per circuit for the paperwork, and a chip wears its cable in its corner.' },
         { target: '#power-voltage-select', place: 'right', title: '110V screens',
           body: 'Voltage is per screen. A <b>110V</b> screen breaks out to <b>Edison</b> and its circuits ride <b>one leg each</b>; 208V circuits take a leg pair &mdash; and both can feed from the same distro.' },
         { target: '#power-breakout-type', place: 'right', title: 'Breakouts, including L21-30',

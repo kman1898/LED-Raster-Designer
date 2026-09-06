@@ -1719,6 +1719,138 @@ class _Power {
             .find(t => t.breakouts.includes(id)) || null;
     }
 
+    // ---- per-circuit cables: the 10' True1 on circuit 1 ------------------
+    //
+    // "we need to be able to add cables to each circuit on the distro
+    // besides just soca length or l620 length etc. like say circuit 1
+    // needs a 10ft true 1 and circuit 2 needs 6ft and 3/4 need nothing and
+    // 5 needs 6ft and 6 needs a 10 ft. since we are going to have those
+    // pdf docs we need to be able to have that info if i want to add it."
+    // (user, 2026-09-06). For ONE circuit of ONE screen an optional cable
+    // is a length in feet plus a connector, stored per screen and keyed
+    // by circuit number the way powerLabelOverrides is:
+    //     layer.powerCircuitCables = { [circuitNum]: { ft, connector } }
+    // `connector` null means "follows the box" - the connector the
+    // circuit's box breaks out to (True1 on a Soca 208 feeding a True1
+    // screen, Edison on a Soca 120, the L21-30 breakout's own tail
+    // connector) - so most of the time only a length gets typed. No entry
+    // means no cable. A cleared circuit, multi or distro forgets its
+    // cables with its label overrides: cables are programming.
+
+    // The connectors a cable can be typed as - the breakout table's own
+    // connector names, once each, in table order. Ids are the plug chips'
+    // face ids (true1 / powercon / edison / l620), so the select's value
+    // and the OUTPUTS row's faces name the same thing.
+    getPowerCableConnectors() {
+        const seen = new Set();
+        const out = [];
+        this.getPowerBreakoutTypes().forEach(bt => {
+            const id = this._cableConnectorId(bt.connector);
+            if (!id || seen.has(id)) return;
+            seen.add(id);
+            out.push({ id, name: bt.connector });
+        });
+        return out;
+    }
+
+    _cableConnectorId(name) {
+        return String(name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    }
+
+    cableConnectorName(id) {
+        const hit = this.getPowerCableConnectors().find(c => c.id === id);
+        return hit ? hit.name : null;
+    }
+
+    // The connector a box's tails break out to: the box's resolved type
+    // (distroBoxType - stored, members, neighbour, offered) names the
+    // breakouts it feeds, and the holder screen's own breakout picks among
+    // them (a Soca 208 feeds True1 OR powerCON; the screen says which);
+    // a box nobody holds, or a screen whose breakout the box does not
+    // name, reads the type's first breakout. Off any distro the screen's
+    // own breakout is the whole answer. Returns a connector id.
+    boxTailConnector(d, number, layer) {
+        const bts = this.getPowerBreakoutTypes();
+        const own = layer ? this.getPowerBreakout(layer) : null;
+        if (!d) {
+            return this._cableConnectorId((own || bts[0]).connector);
+        }
+        const type = this.distroBoxType(d, number).type;
+        const ids = (type && type.breakouts) || [];
+        const pick = (own && ids.includes(own.id))
+            ? own
+            : bts.find(b => ids.includes(b.id)) || own || bts[0];
+        return this._cableConnectorId(pick.connector);
+    }
+
+    // Where one circuit of a screen sits: its multi's stable index, the
+    // distro record (null off any distro) and the box number - read off
+    // the naming index, the one authority for which box a circuit is on.
+    _circuitBox(layer, circuitNum) {
+        const nm = this._powerNaming(layer);
+        const slot = nm.slots.get(parseInt(circuitNum, 10));
+        if (!slot) return { idx: null, d: null, number: null };
+        const idx = slot.multi;
+        const distroId = (layer.powerSocaDistro || {})[idx] || null;
+        const d = distroId
+            ? this.getDistros().find(x => x.id === distroId) || null : null;
+        return { idx, d, number: slot.number };
+    }
+
+    // The stored cable on one circuit, resolved for printing: null when
+    // the circuit has none, else { ft, connector (the stored id or null),
+    // id (the id in force), name, text } - text is what the chip corner,
+    // the canvas tag and the paperwork all print ("10' True1").
+    powerCircuitCable(layer, circuitNum) {
+        const store = layer && layer.powerCircuitCables;
+        const rec = store && store[circuitNum];
+        const ft = rec ? Number(rec.ft) : NaN;
+        if (!rec || !Number.isFinite(ft) || ft <= 0) return null;
+        let id = rec.connector && this.cableConnectorName(rec.connector)
+            ? rec.connector : null;
+        if (!id) {
+            const box = this._circuitBox(layer, circuitNum);
+            id = this.boxTailConnector(box.d, box.number, layer);
+        }
+        const name = this.cableConnectorName(id) || '';
+        return {
+            ft, connector: rec.connector || null, id, name,
+            text: this.cableText(ft, name),
+        };
+    }
+
+    cableText(ft, name) {
+        const n = Number(ft);
+        const len = Number.isInteger(n) ? String(n) : String(+n.toFixed(1));
+        return `${len}'${name ? ` ${name}` : ''}`;
+    }
+
+    // Write one circuit's cable. `cable` is { ft, connector } - a blank or
+    // zero length forgets the entry (no cable), a null connector follows
+    // the box. `record` false is the sheet's quick-fill, which issues ONE
+    // updateLayers over every layer it touched itself, so a fill is one
+    // undo step the way a length commit is.
+    setCircuitCable(layer, circuitNum, cable, record = true) {
+        if (!layer) return false;
+        const store = layer.powerCircuitCables
+            || (layer.powerCircuitCables = {});
+        const ft = cable ? Number(cable.ft) : NaN;
+        const before = JSON.stringify(store[circuitNum] || null);
+        if (!Number.isFinite(ft) || ft <= 0) {
+            delete store[circuitNum];
+        } else {
+            const connector = cable.connector
+                && this.cableConnectorName(cable.connector)
+                ? cable.connector : null;
+            store[circuitNum] = { ft, connector };
+        }
+        const changed = JSON.stringify(store[circuitNum] || null) !== before;
+        if (record && changed) {
+            this.updateLayers([layer], true, 'Set Circuit Cable');
+        }
+        return changed;
+    }
+
     // How a refusal names the screen's breakout - "set to L21-30", "set to
     // Edison (110V)" - the connector the box is set to, said the way the
     // crew says it.
@@ -3933,6 +4065,13 @@ class _Power {
         if (layer.powerLabelOverrides) {
             t.circuits.forEach(num => {
                 delete layer.powerLabelOverrides[num];
+            });
+        }
+        // A circuit's cable is programming the same way its label override
+        // is (2026-09-06): the cleared circuits forget theirs.
+        if (layer.powerCircuitCables) {
+            t.circuits.forEach(num => {
+                delete layer.powerCircuitCables[num];
             });
         }
         this._wipeSplitterManualFor(layer, t.runIds);

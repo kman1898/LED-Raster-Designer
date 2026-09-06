@@ -1632,6 +1632,57 @@ button.hw-dock-typechip:focus-visible { outline: 1px solid var(--ps-accent, #ef3
 /* a stored type at odds with the box's circuits wears the clash rim */
 .hw-dock-typechip-clash { border-color: #8a3a34; color: #d08a82; }
 .hw-dock-typechip-clash .hw-plug-g { color: #d08a82; }
+/* ── the box's cable sheet (2026-09-06, option B of cables-mock.html:
+   "Option B is the Best for overall use case") ──────────────────────────
+   The box flips between its chips and one row per tail - tail · circuit ·
+   screen · ft · connector - with this box's pull list under the rows and
+   the quick fills under that. Fields are inset, the totals a flat readout,
+   the fills raised keycaps (theme.css dresses the buttons). */
+.hw-dock-cablesheet { padding: 4px 2px 2px; }
+.hw-dock-cablesheet table {
+    border-collapse: collapse; width: 100%;
+    font: 10.5px ui-monospace, Menlo, monospace; color: #dddddd;
+}
+.hw-dock-cablesheet th {
+    text-align: left; color: #9aa4aa; font-weight: 600; font-size: 9.5px;
+    text-transform: uppercase; padding: 2px 5px; border-bottom: 1px solid #444;
+}
+.hw-dock-cablesheet td {
+    padding: 2px 5px; border-bottom: 1px solid #2c2c2c; white-space: nowrap;
+}
+.hw-dock-cablesheet td.hw-dock-cable-who { color: #aaaaaa; }
+.hw-dock-cablesheet tr.hw-dock-cable-free td { color: #6a6a6a; }
+/* the totals row is a reading in the cable's gold, not a control */
+.hw-dock-cablesheet tr.hw-dock-cable-total td {
+    color: #f0d48a; border-top: 1px solid #555; border-bottom: none;
+}
+.hw-dock-cable-ft {
+    width: 44px; background: #0d0d0d; color: #eeeeee; border: 1px solid #555;
+    border-radius: 3px; padding: 1px 4px;
+    font: 10.5px ui-monospace, Menlo, monospace; -moz-appearance: textfield;
+}
+.hw-dock-cable-ft::-webkit-outer-spin-button,
+.hw-dock-cable-ft::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.hw-dock-cable-ft:focus { outline: none; border-color: var(--ps-accent, #ef3340); }
+.hw-dock-cable-connector {
+    width: 150px; background: #0d0d0d; color: #eeeeee; border: 1px solid #555;
+    border-radius: 3px; padding: 1px 4px;
+    font: 10.5px ui-monospace, Menlo, monospace;
+}
+.hw-dock-cable-connector:focus { outline: none; border-color: var(--ps-accent, #ef3340); }
+.hw-dock-cable-quick {
+    display: flex; gap: 6px; align-items: center; padding: 5px 4px 2px;
+    font-size: 11px; color: #bbbbbb;
+}
+/* a chip with a cable wears it small in its corner, in the cable's gold.
+   TOP right: the chip's bottom edge is the meter's bar row, which would
+   cover a bottom-corner reading. */
+.hw-dock-chip-cable {
+    position: absolute; right: 5px; top: 3px; font-size: 8.5px;
+    max-width: 48%; overflow: hidden; text-overflow: ellipsis;
+    color: #f0d48a; font-family: ui-monospace, Menlo, monospace;
+    pointer-events: none; white-space: nowrap;
+}
 /* the ghost of a plug drag IS the chip; the box around it goes */
 #hw-dock-ghost.hw-dock-ghost-plug {
     padding: 0 !important; background: none !important;

@@ -749,6 +749,7 @@ def create_layer(name, columns, rows, cabinet_width, cabinet_height, offset_x=0,
         'powerLabelTextColor': '#000000',
         'powerLabelTemplate': 'S1-#',
         'powerLabelOverrides': {},
+        'powerCircuitCables': {},
         'powerCustomPaths': {},
         'powerCustomIndex': 1,
         # Per-layer label settings

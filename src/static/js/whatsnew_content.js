@@ -24,7 +24,7 @@ window.WHATS_NEW_CONTENT = {
             { h: 'Redundancy, one bar and a pill',
               d: 'One bar behind the processor’s gear sets redundancy - Off, Whole unit, Per card or Per port - and a small gold pill on each processor and card header reads the shape in force; click it to open the bar. The redundant end of P1-1 is R1-1, a backup travels with its main, and every box numbers its ports the way its own silkscreen does.' },
             { h: 'Circuits are chips with meters',
-              d: 'Each circuit is a chip whose fill bar shows how loaded it is at a glance, and a fully-patched box folds away to keep the dock short.' },
+              d: 'Each circuit is a chip whose fill bar shows how loaded it is at a glance, and a fully-patched box folds away to keep the dock short. A box also opens into a cable sheet, so each circuit can carry the length and connector of its cable for the paperwork, with a Show Cable Tags switch that prints them beside the labels on the map.' },
             { h: 'Take over one run with Alt',
               d: 'Hold Alt and route a single data run by hand. The rest of the wall keeps auto-cabling around it, so one custom run no longer costs you the automatic layout.' },
             { h: '110V and L21-30 power',
