@@ -662,6 +662,29 @@ select, .info-select {
 .hw-dock-redpill:focus-visible { outline:1px solid #f0d48a; outline-offset:1px; }
 /* the meter wash follows the well's rounding */
 .hw-dock-fill { border-radius:3px 0 0 3px; }
+/* ---- the cable sheet's ≡: the gear's raised recipe, one size down, on
+   the multi header's second line (2026-09-06, option B). While the sheet
+   is open the keycap reads pressed-in with the accent rim, so the box's
+   second face is announced by the switch that opened it. ---- */
+.hw-dock-cablebtn {
+  flex:0 0 auto; margin-left:auto; cursor:pointer; line-height:1;
+  font-size:13px; padding:0 6px; border-radius:3px;
+  color:var(--ps-dim);
+  background:linear-gradient(#454545,#373737);
+  border:1px solid #1a1a1a;
+  box-shadow:inset 0 1px 0 #575757, 0 1px 2px rgba(0,0,0,0.45);
+}
+.hw-dock-cablebtn:hover {
+  color:#fff; background:linear-gradient(#505050,#404040);
+  box-shadow:inset 0 1px 0 #626262, 0 1px 2px rgba(0,0,0,0.45);
+}
+.hw-dock-cablebtn:active, .hw-dock-cablebtn-on {
+  transform:translateY(1px);
+  background:linear-gradient(#2c2c2c,#343434);
+  box-shadow:inset 0 1px 3px rgba(0,0,0,0.5);
+}
+.hw-dock-cablebtn-on { color:#f0d48a; border-color:#c8a04a; }
+.hw-dock-cablebtn:focus-visible { outline:1px solid var(--ps-accent); outline-offset:1px; }
 
 /* ---- gear popover: a Preferences card that floats ---- */
 #hw-gear-popover {

@@ -6281,7 +6281,7 @@ class CanvasRenderer {
             if (py + circleRadius > layerBottom) py = layerBottom - circleRadius;
             return { px: this.snap(px), py: this.snap(py) };
         };
-        const drawLabelBubble = (layout, px, py) => {
+        const drawLabelBubble = (layout, px, py, circuitNum) => {
             this.ctx.fillStyle = powerLabelBgColor;
             this.ctx.beginPath();
             this.ctx.arc(px, py, layout.radius, 0, Math.PI * 2);
@@ -6291,6 +6291,19 @@ class CanvasRenderer {
             this.ctx.textAlign = 'center';
             this.ctx.textBaseline = 'middle';
             this._fillWrappedLabel(layout.lines, px, py, labelSize);
+            // The circuit's cable, as a small gold tag beside the label -
+            // option D of cables-mock.html, "an option when doing the docs
+            // per screen" (2026-09-06): per screen, default OFF, and the
+            // same test in exportMode so the PDF is what was asked for.
+            if (layer.showPowerCableTags === true && circuitNum != null
+                    && window.app
+                    && typeof window.app.powerCircuitCable === 'function') {
+                const cable = window.app.powerCircuitCable(layer, circuitNum);
+                if (cable) {
+                    this.drawCableTag(cable.text, px + layout.radius, py,
+                                      labelSize);
+                }
+            }
         };
         const drawCircuitLabel = (panelStart, panelNext, circuitNum) => {
             const label = window.app ? window.app.getPowerCircuitLabel(layer, circuitNum) : `S1-${circuitNum}`;
@@ -6298,7 +6311,7 @@ class CanvasRenderer {
             const { px, py } = clampLabelCenter(
                 panelStart.x + panelStart.width / 2,
                 panelStart.y + panelStart.height / 2, layout.radius);
-            drawLabelBubble(layout, px, py);
+            drawLabelBubble(layout, px, py, circuitNum);
         };
 
         if (useColorCodedView) {
@@ -6441,7 +6454,7 @@ class CanvasRenderer {
                 this.ctx.stroke();
             }
             this.ctx.restore();
-            drawLabelBubble(layout, px, py);
+            drawLabelBubble(layout, px, py, circuitNum);
         };
 
         if (isCustom && layer.powerCustomPaths) {
@@ -6782,7 +6795,18 @@ class CanvasRenderer {
             this.ctx.lineTo(x2 - 2, y);
             this.ctx.lineTo(x2 - 2, y - tick);
             this.ctx.stroke();
-            const label = `${c.runIds.length}fer${over ? ' · OVER' : ''}`;
+            // The bracket above is the share itself and always draws; the
+            // tag is text the user may not want on the wall - "i need a
+            // way to disable the twofer/3fer text on the screen if i dont
+            // want it there" (2026-09-06). Per screen, default on, and
+            // the same test in exportMode so the PDF matches the screen.
+            // An OVER gang is a warning, not decoration: with the tags
+            // off it still prints OVER alone, because a red stroke by
+            // itself is easy to miss on a busy wall.
+            const tagsOff = layer.showPowerNferTags === false;
+            if (tagsOff && !over) continue;
+            const label = tagsOff ? 'OVER'
+                : `${c.runIds.length}fer${over ? ' · OVER' : ''}`;
             this.ctx.font = `bold ${labelSize}px ${projectFontFamily()}`;
             const cx = (x1 + x2) / 2;
             const tw = this.ctx.measureText(label).width;
@@ -6804,6 +6828,38 @@ class CanvasRenderer {
             this.ctx.textBaseline = 'middle';
             this._fillText(label, cx, y);
         }
+        this.ctx.restore();
+    }
+
+    // The cable tag: "10' True1" in the mock's gold on near-black with a
+    // gold rim (.cl .tag of cables-mock.html), hung off the right edge of
+    // the label circle in the label's own size register - a reading beside
+    // the label, never a second label. `x` is the circle's right edge.
+    drawCableTag(text, x, y, labelSize) {
+        const size = Math.max(8, labelSize * 0.7);
+        this.ctx.save();
+        this.ctx.font = `bold ${size}px ${projectFontFamily()}`;
+        const tw = this.ctx.measureText(text).width;
+        const padX = size * 0.45;
+        const pillH = size + 4;
+        const gap = labelSize * 0.25;
+        const left = x + gap;
+        this.ctx.beginPath();
+        if (this.ctx.roundRect) {
+            this.ctx.roundRect(left, y - pillH / 2, tw + padX * 2, pillH,
+                               pillH / 2);
+        } else {
+            this.ctx.rect(left, y - pillH / 2, tw + padX * 2, pillH);
+        }
+        this.ctx.fillStyle = '#1c1c1c';
+        this.ctx.fill();
+        this.ctx.lineWidth = Math.max(1, size * 0.1);
+        this.ctx.strokeStyle = '#c8a04a';
+        this.ctx.stroke();
+        this.ctx.fillStyle = '#f0d48a';
+        this.ctx.textAlign = 'left';
+        this.ctx.textBaseline = 'middle';
+        this._fillText(text, left + padX, y);
         this.ctx.restore();
     }
 

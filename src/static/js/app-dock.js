@@ -1902,11 +1902,23 @@ class _HardwareDock {
             });
             len.classList.add('hw-dock-name-len');
             namesRow.appendChild(len);
+            // The cable sheet's switch (user pick, 2026-09-06, option B of
+            // src/static/cables-mock.html: "Option B is the Best for
+            // overall use case"): a small raised ≡ that flips the box
+            // between its chips and one row per circuit with a length and
+            // connector. A button, so the header's drag guard treats the
+            // press as the control's gesture.
+            namesRow.appendChild(this._dockBuildCableSheetButton(d, n));
             head.appendChild(namesRow);
         }
         sec.appendChild(head);
         const body = this._dockSectionBody(sec, head,
                                            `hwdock-multi-${d.id}-${n}`);
+        if (memberRecs.length && this._cableSheetOpen(d.id, n)) {
+            body.appendChild(this._dockBuildCableSheet(
+                d, n, boxSize, byTail));
+            return sec;
+        }
         const grid = document.createElement('div');
         grid.className = 'lrd-tile-grid hw-dock-grid';
         for (let t = 1; t <= boxSize; t++) {
@@ -1915,6 +1927,251 @@ class _HardwareDock {
         }
         body.appendChild(grid);
         return sec;
+    }
+
+    // ── the box's cable sheet ─────────────────────────────────────────────
+    //
+    // "we need to be able to add cables to each circuit on the distro
+    // besides just soca length or l620 length etc. like say circuit 1 needs
+    // a 10ft true 1 and circuit 2 needs 6ft and 3/4 need nothing and 5
+    // needs 6ft and 6 needs a 10 ft. since we are going to have those pdf
+    // docs we need to be able to have that info if i want to add it."
+    // (user, 2026-09-06). The fact is per circuit - a length in feet and a
+    // connector that follows the box unless changed - stored on the holder
+    // screen (powerCircuitCables, app-power.js). This is where it gets
+    // typed: the box flips into a sheet, one row per tail, and Tab walks
+    // the length column so six cables is one open. Which face a box shows
+    // is a viewing choice, remembered per box in localStorage and never in
+    // the project - the same doctrine the fold state follows.
+
+    _cableSheetKey(distroId, n) {
+        return `lrd_cable_sheet_${distroId}_${n}`;
+    }
+
+    _cableSheetOpen(distroId, n) {
+        try {
+            return localStorage.getItem(this._cableSheetKey(distroId, n)) === '1';
+        } catch (_) {
+            return false;
+        }
+    }
+
+    _setCableSheetOpen(distroId, n, open) {
+        try {
+            if (open) localStorage.setItem(this._cableSheetKey(distroId, n), '1');
+            else localStorage.removeItem(this._cableSheetKey(distroId, n));
+        } catch (_) { /* no storage: the flip lasts the render */ }
+    }
+
+    _dockBuildCableSheetButton(d, n) {
+        const open = this._cableSheetOpen(d.id, n);
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'hw-dock-cablebtn' + (open ? ' hw-dock-cablebtn-on' : '');
+        btn.textContent = '≡';
+        btn.title = open
+            ? 'Cable sheet - click to show the chips again.'
+            : 'Cable sheet - a length and connector per circuit, for the '
+                + 'paperwork. Click to flip the box into the sheet.';
+        btn.dataset.lrdField = `power-cable-sheet-${d.id}-${n}`;
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this._setCableSheetOpen(d.id, n, !open);
+            this.renderHardwareDock();
+        });
+        return btn;
+    }
+
+    // One box's sheet: tail · circuit · screen · ft · connector, a free
+    // tail as a dim row with no fields, totals under the rows (this box's
+    // pull list: count by length and connector) and the quick fills. Each
+    // commit - one length, one connector, one quick fill - is ONE 'Set
+    // Circuit Cable' entry; the DOM restates a macrotask later so the Tab
+    // the change rode lands on a real element (_rebuildAfterGesture).
+    _dockBuildCableSheet(d, n, boxSize, byTail) {
+        const sheet = document.createElement('div');
+        sheet.className = 'hw-dock-cablesheet';
+        const table = document.createElement('table');
+        const thead = document.createElement('tr');
+        ['tail', 'circuit', 'screen', 'cable', 'connector'].forEach(h => {
+            const th = document.createElement('th');
+            th.textContent = h;
+            thead.appendChild(th);
+        });
+        table.appendChild(thead);
+        const layerOf = (id) => (this.project.layers || [])
+            .find(l => l.id === id);
+        const connectors = this.getPowerCableConnectors();
+        const held = [];   // {layer, circuit} - every circuit on this box
+        const ftInputs = [];
+        const commit = (layer, circuit, ft, connector) => {
+            const changed = this.setCircuitCable(
+                layer, circuit, { ft, connector: connector || null });
+            if (!changed) return;
+            this.saveClientSideProperties();
+            if (window.canvasRenderer) window.canvasRenderer.render();
+            this._rebuildAfterGesture(() => this.renderHardwareDock());
+        };
+        for (let t = 1; t <= boxSize; t++) {
+            const holders = byTail.get(t) || [];
+            if (!holders.length) {
+                const tr = document.createElement('tr');
+                tr.className = 'hw-dock-cable-free';
+                const td0 = document.createElement('td');
+                td0.textContent = String(t);
+                tr.appendChild(td0);
+                const td1 = document.createElement('td');
+                td1.textContent = 'free';
+                td1.colSpan = 4;
+                tr.appendChild(td1);
+                table.appendChild(tr);
+                continue;
+            }
+            holders.forEach((h, hi) => {
+                const layer = layerOf(h.layerId);
+                if (!layer) return;
+                held.push({ layer, circuit: h.circuit });
+                const stored = (layer.powerCircuitCables || {})[h.circuit]
+                    || null;
+                const tr = document.createElement('tr');
+                const td0 = document.createElement('td');
+                td0.textContent = hi === 0 ? String(t) : '';
+                tr.appendChild(td0);
+                const td1 = document.createElement('td');
+                td1.textContent = h.label;
+                tr.appendChild(td1);
+                const td2 = document.createElement('td');
+                td2.className = 'hw-dock-cable-who';
+                td2.textContent = h.who;
+                tr.appendChild(td2);
+
+                // The length: blank is no cable. Tab walks THIS column -
+                // the sheet exists so six cables is one open - and the
+                // connector stays a click away for the odd one.
+                const td3 = document.createElement('td');
+                const ft = document.createElement('input');
+                ft.type = 'number';
+                ft.min = '0';
+                ft.step = 'any';
+                ft.placeholder = '—';
+                ft.className = 'hw-dock-cable-ft';
+                ft.value = stored && Number(stored.ft) > 0
+                    ? String(stored.ft) : '';
+                ft.dataset.lrdField = `power-cable-ft-${layer.id}-${h.circuit}`;
+                ft.title = 'Length in feet. Blank = no cable.';
+                td3.appendChild(ft);
+                td3.appendChild(document.createTextNode(' ft'));
+                tr.appendChild(td3);
+
+                const td4 = document.createElement('td');
+                const sel = document.createElement('select');
+                sel.className = 'hw-dock-cable-connector';
+                sel.dataset.lrdField =
+                    `power-cable-connector-${layer.id}-${h.circuit}`;
+                const follows = this.cableConnectorName(
+                    this.boxTailConnector(d, n, layer)) || '';
+                const blank = document.createElement('option');
+                blank.value = '';
+                blank.textContent = `follows box (${follows})`;
+                sel.appendChild(blank);
+                connectors.forEach(c => {
+                    const o = document.createElement('option');
+                    o.value = c.id;
+                    o.textContent = c.name;
+                    sel.appendChild(o);
+                });
+                sel.value = stored && stored.connector
+                    && connectors.some(c => c.id === stored.connector)
+                    ? stored.connector : '';
+                sel.title = 'The plug on this cable. Follows the box unless '
+                    + 'changed - only the odd one needs picking.';
+                td4.appendChild(sel);
+                tr.appendChild(td4);
+
+                ft.addEventListener('change', () => {
+                    commit(layer, h.circuit, ft.value.trim(), sel.value);
+                });
+                sel.addEventListener('change', () => {
+                    commit(layer, h.circuit, ft.value.trim(), sel.value);
+                });
+                ft.addEventListener('keydown', (e) => {
+                    if (e.key !== 'Tab') return;
+                    const i = ftInputs.indexOf(ft);
+                    const next = ftInputs[e.shiftKey ? i - 1 : i + 1];
+                    if (!next) return;
+                    e.preventDefault();
+                    next.focus();
+                    if (typeof next.select === 'function') next.select();
+                });
+                ftInputs.push(ft);
+                table.appendChild(tr);
+            });
+        }
+        // This box's pull list, the way the packet's back page counts it:
+        // by length and connector. A flat readout, not a control.
+        const counts = new Map();
+        held.forEach(({ layer, circuit }) => {
+            const c = this.powerCircuitCable(layer, circuit);
+            if (!c) return;
+            counts.set(c.text, (counts.get(c.text) || 0) + 1);
+        });
+        const tot = document.createElement('tr');
+        tot.className = 'hw-dock-cable-total';
+        const tl = document.createElement('td');
+        tl.colSpan = 3;
+        tl.textContent = 'this box';
+        tot.appendChild(tl);
+        const tv = document.createElement('td');
+        tv.colSpan = 2;
+        tv.textContent = counts.size
+            ? [...counts.entries()].map(([k, v]) => `${v} × ${k}`).join(' · ')
+            : 'no cables';
+        tot.appendChild(tv);
+        table.appendChild(tot);
+        sheet.appendChild(table);
+
+        // Quick fill: every held circuit on THIS box gets the one length
+        // (its connector pick untouched), or forgets its cable. ONE entry.
+        const quick = document.createElement('div');
+        quick.className = 'hw-dock-cable-quick';
+        const cap = document.createElement('span');
+        cap.textContent = 'Quick fill:';
+        quick.appendChild(cap);
+        const fill = (label, ft, title) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'btn hw-dock-btn';
+            b.textContent = label;
+            b.title = title;
+            b.dataset.lrdField =
+                `power-cable-fill-${d.id}-${n}-${ft === null ? 'none' : ft}`;
+            b.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const touched = new Set();
+                held.forEach(({ layer, circuit }) => {
+                    const cur = (layer.powerCircuitCables || {})[circuit];
+                    const changed = this.setCircuitCable(layer, circuit,
+                        ft === null ? null
+                            : { ft, connector: cur ? cur.connector : null },
+                        false);
+                    if (changed) touched.add(layer);
+                });
+                if (!touched.size) return;
+                this.saveClientSideProperties();
+                this.updateLayers([...touched], true, 'Set Circuit Cable');
+                if (window.canvasRenderer) window.canvasRenderer.render();
+                this._rebuildAfterGesture(() => this.renderHardwareDock());
+            });
+            return b;
+        };
+        quick.appendChild(fill("all 10'", 10,
+            'Every circuit on this box gets a 10 ft cable. One undo step.'));
+        quick.appendChild(fill("all 6'", 6,
+            'Every circuit on this box gets a 6 ft cable. One undo step.'));
+        quick.appendChild(fill('none', null,
+            'Every circuit on this box forgets its cable. One undo step.'));
+        sheet.appendChild(quick);
+        return sheet;
     }
 
     // The box's type chip: the connector's face and plain name in the
@@ -2004,6 +2261,19 @@ class _HardwareDock {
             who.textContent = holders[0].who;
         }
         face.appendChild(who);
+        // A chip with a cable wears it small in its corner ("10' True1"),
+        // so the fact reads without opening the sheet (2026-09-06, the
+        // mock's chip corner). Nothing on a chip with none.
+        const cables = holders.map(h => {
+            const l = (this.project.layers || []).find(x => x.id === h.layerId);
+            return l ? this.powerCircuitCable(l, h.circuit) : null;
+        }).filter(Boolean);
+        if (cables.length) {
+            const corner = document.createElement('span');
+            corner.className = 'hw-dock-chip-cable';
+            corner.textContent = cables.map(c => c.text).join(' / ');
+            face.appendChild(corner);
+        }
         tile.appendChild(face);
 
         face.title = `Circuit ${t} - ` + (holders.length
@@ -4252,6 +4522,9 @@ class _HardwareDock {
             if (layer.powerLabelOverrides) {
                 delete layer.powerLabelOverrides[circuitNum];
             }
+            if (layer.powerCircuitCables) {
+                delete layer.powerCircuitCables[circuitNum];
+            }
             this._wipeSplitterManualFor(layer, runIds);
             this._circuitTailCache = null;
             this.updateLayers(r.touched, true, 'Clear Circuit');
@@ -4264,6 +4537,10 @@ class _HardwareDock {
         }
         if (layer.powerLabelOverrides) {
             delete layer.powerLabelOverrides[circuitNum];
+        }
+        // The cable is programming like the label (2026-09-06).
+        if (layer.powerCircuitCables) {
+            delete layer.powerCircuitCables[circuitNum];
         }
         this._wipeSplitterManualFor(layer, runIds);
         this._resegmentSocaStores(

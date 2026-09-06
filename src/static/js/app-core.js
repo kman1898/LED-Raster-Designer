@@ -754,6 +754,8 @@ export class LEDRasterApp {
             showDataFlowPortInfo: layer.showDataFlowPortInfo,
             showDataFlowPortLoad: layer.showDataFlowPortLoad,
             showPowerCircuitInfo: layer.showPowerCircuitInfo,
+            showPowerNferTags: layer.showPowerNferTags,
+            showPowerCableTags: layer.showPowerCableTags,
             powerVoltage: layer.powerVoltage,
             powerVoltageCustom: layer.powerVoltageCustom,
             powerAmperage: layer.powerAmperage,
@@ -774,6 +776,7 @@ export class LEDRasterApp {
             powerLabelTextColor: layer.powerLabelTextColor,
             powerLabelTemplate: layer.powerLabelTemplate,
             powerLabelOverrides: layer.powerLabelOverrides,
+            powerCircuitCables: layer.powerCircuitCables,
             powerCustomPaths: layer.powerCustomPaths,
             powerCustomIndex: layer.powerCustomIndex,
             powerCustomOverrides: layer.powerCustomOverrides,
@@ -1099,6 +1102,7 @@ export class LEDRasterApp {
                         if (layerProps.powerLabelTextColor !== undefined) layer.powerLabelTextColor = layerProps.powerLabelTextColor;
                         if (layerProps.powerLabelTemplate !== undefined) layer.powerLabelTemplate = layerProps.powerLabelTemplate;
                         if (layerProps.powerLabelOverrides !== undefined) layer.powerLabelOverrides = layerProps.powerLabelOverrides;
+                        if (layerProps.powerCircuitCables !== undefined) layer.powerCircuitCables = layerProps.powerCircuitCables;
                         if (layerProps.powerCustomPaths !== undefined) layer.powerCustomPaths = layerProps.powerCustomPaths;
                         if (layerProps.powerCustomIndex !== undefined) layer.powerCustomIndex = layerProps.powerCustomIndex;
                         if (layerProps.powerCustomOverrides !== undefined) layer.powerCustomOverrides = layerProps.powerCustomOverrides;
@@ -1116,6 +1120,8 @@ export class LEDRasterApp {
                         if (layerProps.showDataFlowPortInfo !== undefined) layer.showDataFlowPortInfo = layerProps.showDataFlowPortInfo;
                         if (layerProps.showDataFlowPortLoad !== undefined) layer.showDataFlowPortLoad = layerProps.showDataFlowPortLoad;
                         if (layerProps.showPowerCircuitInfo !== undefined) layer.showPowerCircuitInfo = layerProps.showPowerCircuitInfo;
+                        if (layerProps.showPowerNferTags !== undefined) layer.showPowerNferTags = layerProps.showPowerNferTags;
+                        if (layerProps.showPowerCableTags !== undefined) layer.showPowerCableTags = layerProps.showPowerCableTags;
                         if (layerProps.screenNameOffsetXPixelMap !== undefined) layer.screenNameOffsetXPixelMap = layerProps.screenNameOffsetXPixelMap;
                         if (layerProps.screenNameOffsetYPixelMap !== undefined) layer.screenNameOffsetYPixelMap = layerProps.screenNameOffsetYPixelMap;
                         if (layerProps.screenNameOffsetXCabinet !== undefined) layer.screenNameOffsetXCabinet = layerProps.screenNameOffsetXCabinet;
@@ -1213,6 +1219,9 @@ export class LEDRasterApp {
             if (layer.powerLabelTextColor === undefined) layer.powerLabelTextColor = '#000000';
             if (layer.powerLabelTemplate === undefined) layer.powerLabelTemplate = 'S1-#';
             if (layer.powerLabelOverrides === undefined) layer.powerLabelOverrides = {};
+            // Per-circuit cables ({circuit: {ft, connector}}) - the
+            // paperwork's 10' True1 on circuit 1 (2026-09-06).
+            if (layer.powerCircuitCables === undefined) layer.powerCircuitCables = {};
             if (layer.powerSocaNames === undefined) layer.powerSocaNames = {};
             // Reads the template it just defaulted above, so it has to run
             // after it: the shift it applies is the template's own start
@@ -1243,6 +1252,15 @@ export class LEDRasterApp {
             // and export exactly as it did before.
             if (layer.showDataFlowPortLoad === undefined) layer.showDataFlowPortLoad = false;
             if (layer.showPowerCircuitInfo === undefined) layer.showPowerCircuitInfo = false;
+            // The 2fer / 3fer tag on a shared circuit's bracket defaults ON;
+            // the switch exists because "i need a way to disable the
+            // twofer/3fer text on the screen if i dont want it there"
+            // (2026-09-06). A project saved before the switch keeps its tags.
+            if (layer.showPowerNferTags === undefined) layer.showPowerNferTags = true;
+            // The cable tag beside a circuit's label defaults OFF: it is
+            // ink for the docs - "i like having D as an option when doing
+            // the docs per screen" (2026-09-06) - not for the wall.
+            if (layer.showPowerCableTags === undefined) layer.showPowerCableTags = false;
             // Show Look position, default to processor offset for older
             // projects so they open looking identical to before.
             if (layer.showOffsetX === undefined || layer.showOffsetX === null) {
@@ -1464,6 +1482,8 @@ export class LEDRasterApp {
                 showDataFlowPortInfo: layer.showDataFlowPortInfo,
                 showDataFlowPortLoad: layer.showDataFlowPortLoad,
                 showPowerCircuitInfo: layer.showPowerCircuitInfo,
+                showPowerNferTags: layer.showPowerNferTags,
+                showPowerCableTags: layer.showPowerCableTags,
                 // Text layer properties
                 textContent: layer.textContent,
                 textContentPixelMap: layer.textContentPixelMap,
@@ -3297,6 +3317,8 @@ export class LEDRasterApp {
         const showDataFlowPortInfoEl = document.getElementById('show-data-flow-port-info');
         const showDataFlowPortLoadEl = document.getElementById('show-data-flow-port-load');
         const showPowerCircuitInfoEl = document.getElementById('show-power-circuit-info');
+        const showPowerNferTagsEl = document.getElementById('show-power-nfer-tags');
+        const showPowerCableTagsEl = document.getElementById('show-power-cable-tags');
 
         const updatePowerVoltageUI = () => {
             if (!powerVoltageSelect || !powerVoltageCustomInput) return;
@@ -3568,6 +3590,33 @@ export class LEDRasterApp {
                 });
                 this.saveClientSideProperties();
                 this.updateLayers(this.getSelectedLayers(), true, 'Toggle Circuit Info Labels');
+                window.canvasRenderer.render();
+            });
+        }
+        // Same shape as Show Circuit Info: one tick writes every selected
+        // screen, one history step. It hides only the tag text - the
+        // bracket stays, since the user wanted the TEXT gone, not the
+        // share ("disable the twofer/3fer text", 2026-09-06).
+        if (showPowerNferTagsEl) {
+            showPowerNferTagsEl.addEventListener('change', () => {
+                this.applyToSelectedLayers(layer => {
+                    layer.showPowerNferTags = showPowerNferTagsEl.checked;
+                });
+                this.saveClientSideProperties();
+                this.updateLayers(this.getSelectedLayers(), true, 'Toggle 2fer / 3fer Tags');
+                window.canvasRenderer.render();
+            });
+        }
+        // The cable tag switch, same shape: every selected screen, one
+        // history step. Default off - the tag is for "the docs per
+        // screen" (2026-09-06), so it is turned on for the export.
+        if (showPowerCableTagsEl) {
+            showPowerCableTagsEl.addEventListener('change', () => {
+                this.applyToSelectedLayers(layer => {
+                    layer.showPowerCableTags = showPowerCableTagsEl.checked;
+                });
+                this.saveClientSideProperties();
+                this.updateLayers(this.getSelectedLayers(), true, 'Toggle Cable Tags');
                 window.canvasRenderer.render();
             });
         }
