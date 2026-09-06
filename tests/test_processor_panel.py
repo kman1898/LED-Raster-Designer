@@ -1474,7 +1474,13 @@ def test_a_project_with_no_processors_is_shaped_exactly_as_before(client):
 
     resp = client.get('/api/processors')
     assert resp.status_code == 200
-    assert resp.get_json() == {'processors': [], 'resolved': []}
+    # dataCableConnectors is a catalog constant (the plugs a data cable can
+    # be typed as, 2026-09-06), served with the tree so the sheet's select
+    # and the server's refusals name one list - never project state, so
+    # the project below stays byte-for-byte what it was.
+    assert resp.get_json() == {
+        'processors': [], 'resolved': [],
+        'dataCableConnectors': catalog.data_cable_connectors()}
 
     after = client.get('/api/project').get_json()
     assert after == before, (

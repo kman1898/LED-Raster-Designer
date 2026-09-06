@@ -100,6 +100,7 @@ class _ScreenGroups {
             'portMappingMode', 'flowPattern',
             'portLabelTemplatePrimary', 'portLabelTemplateReturn',
             'showDataFlowPortInfo', 'showDataFlowPortLoad',
+            'showDataCableTags',
             'dataFlowColor', 'dataFlowLabelSize',
             'arrowColor', 'arrowLineWidth', 'arrowSize',
             'primaryColor', 'primaryTextColor', 'backupColor',

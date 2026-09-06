@@ -6,6 +6,12 @@ function projectFontFamily() {
         ? window.app.getProjectFont() : 'Arial';
 }
 
+// The cable tags' two families (2026-09-06): power's gold on near-black
+// (.cl .tag of cables-mock.html) and the data side's blue on dark (.snake
+// .tag of snake-mock.html). One drawer, drawCableTag, takes either.
+const POWER_CABLE_TAG_COLORS = { fill: '#1c1c1c', rim: '#c8a04a', ink: '#f0d48a' };
+const DATA_CABLE_TAG_COLORS = { fill: '#10202c', rim: '#8fd0ff', ink: '#cfeaff' };
+
 class CanvasRenderer {
     constructor(canvasId) {
         this.canvas = document.getElementById(canvasId);
@@ -5923,6 +5929,21 @@ class CanvasRenderer {
                 this._fillWrappedLabel(returnFit.lines, rx, ry, returnFit.size);
             }
 
+            // The port's home run, as a small blue tag beside its label -
+            // the snake it rides ("SNAKE A") or its own cable ("50' CAT"):
+            // "the same option for data homeruns" (2026-09-06), per screen,
+            // default OFF, and the same test in exportMode so the PDF is
+            // what was asked for. The power tag's drawer, in the data
+            // cable's colours.
+            if (layer.showDataCableTags === true && window.app
+                    && typeof window.app.dataPortCableForScreen === 'function') {
+                const cable = window.app.dataPortCableForScreen(layer, portNum);
+                if (cable && cable.text) {
+                    this.drawCableTag(cable.text, px + primaryFit.radius, py,
+                                      labelSize, DATA_CABLE_TAG_COLORS);
+                }
+            }
+
             // v0.11.0: how close this port is to its limit, under the primary
             // marker so it reads with the port it belongs to and never covers
             // the port number itself. Runs for the hand-drawn custom paths too,
@@ -6835,7 +6856,11 @@ class CanvasRenderer {
     // gold rim (.cl .tag of cables-mock.html), hung off the right edge of
     // the label circle in the label's own size register - a reading beside
     // the label, never a second label. `x` is the circle's right edge.
-    drawCableTag(text, x, y, labelSize) {
+    // `colors` swaps the family - the data side's snake / home-run tag
+    // wears the data cable's blue (DATA_CABLE_TAG_COLORS) through this
+    // same drawer rather than a second one.
+    drawCableTag(text, x, y, labelSize, colors) {
+        const c = colors || POWER_CABLE_TAG_COLORS;
         const size = Math.max(8, labelSize * 0.7);
         this.ctx.save();
         this.ctx.font = `bold ${size}px ${projectFontFamily()}`;
@@ -6851,12 +6876,12 @@ class CanvasRenderer {
         } else {
             this.ctx.rect(left, y - pillH / 2, tw + padX * 2, pillH);
         }
-        this.ctx.fillStyle = '#1c1c1c';
+        this.ctx.fillStyle = c.fill;
         this.ctx.fill();
         this.ctx.lineWidth = Math.max(1, size * 0.1);
-        this.ctx.strokeStyle = '#c8a04a';
+        this.ctx.strokeStyle = c.rim;
         this.ctx.stroke();
-        this.ctx.fillStyle = '#f0d48a';
+        this.ctx.fillStyle = c.ink;
         this.ctx.textAlign = 'left';
         this.ctx.textBaseline = 'middle';
         this._fillText(text, left + padX, y);

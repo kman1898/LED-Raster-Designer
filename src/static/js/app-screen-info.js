@@ -1057,6 +1057,9 @@ class _ScreenInfo {
         if (this.currentLayer.showPowerCableTags === undefined) {
             this.currentLayer.showPowerCableTags = false;
         }
+        if (this.currentLayer.showDataCableTags === undefined) {
+            this.currentLayer.showDataCableTags = false;
+        }
         if (this.currentLayer.number_size === undefined) {
             this.currentLayer.number_size = 30;
         }
@@ -1458,6 +1461,7 @@ class _ScreenInfo {
                     showPowerCircuitInfo: this.currentLayer.showPowerCircuitInfo,
                     showPowerNferTags: this.currentLayer.showPowerNferTags,
                     showPowerCableTags: this.currentLayer.showPowerCableTags,
+                    showDataCableTags: this.currentLayer.showDataCableTags,
                     _powerTotalAmps1: this.currentLayer._powerTotalAmps1,
                     _powerTotalAmps3: this.currentLayer._powerTotalAmps3,
                     _powerCircuitsRequired: this.currentLayer._powerCircuitsRequired,
@@ -1584,6 +1588,7 @@ class _ScreenInfo {
                 'sizeByDimensions', 'targetWidth', 'targetHeight',
                 'targetUnit',
                 'showPowerCircuitInfo', 'showPowerNferTags', 'showPowerCableTags',
+                'showDataCableTags',
                 '_powerTotalAmps1',
                 '_powerTotalAmps3', '_powerCircuitsRequired',
                 '_portsRequired', '_autoPortsRequired',
@@ -2476,6 +2481,10 @@ class _ScreenInfo {
         if (showPowerCableTagsEl) {
             // Default OFF: only an explicit true ticks it.
             showPowerCableTagsEl.checked = this.currentLayer.showPowerCableTags === true;
+        }
+        const showDataCableTagsEl = document.getElementById('show-data-cable-tags');
+        if (showDataCableTagsEl) {
+            showDataCableTagsEl.checked = this.currentLayer.showDataCableTags === true;
         }
         if (document.getElementById('power-line-color')) {
             document.getElementById('power-line-color').value = this.currentLayer.powerLineColor || '#FF0000';

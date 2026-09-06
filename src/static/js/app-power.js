@@ -78,8 +78,15 @@ class _Power {
         const outs = (typeof this._prepareOutputsMenu === 'function')
             ? this._prepareOutputsMenu(x, y) : null;
         this._outputsMenuActions = outs;
+        // Data snakes (2026-09-06, "B to form it"): on a lit port chip
+        // the sweep gathered, on a snake's tag, or on a chip riding a
+        // snake - "Snake these N", "Set home run…", "Loosen", "Rename"
+        // (app-dock.js _prepareSnakeMenu). Tray only; absent elsewhere.
+        const snake = (typeof this._prepareSnakeMenu === 'function')
+            ? this._prepareSnakeMenu(x, y) : null;
+        this._snakeMenuActions = snake;
         if (inDock && !clear && !merge && !sharing.share
-                && !sharing.unshare && !outs) {
+                && !sharing.unshare && !outs && !snake) {
             this.hideContextMenu();
             return;
         }
@@ -88,9 +95,9 @@ class _Power {
         menu.querySelectorAll(
             '.menu-option:not(.hw-clear-only):not(.hw-merge-only)'
             + ':not(.hw-share-only):not(.hw-unshare-only)'
-            + ':not(.hw-batch-only):not(.hw-out-only), '
+            + ':not(.hw-batch-only):not(.hw-out-only):not(.hw-snake-only), '
             + '.menu-divider:not(.hw-clear-only):not(.hw-batch-only)'
-            + ':not(.hw-out-only)')
+            + ':not(.hw-out-only):not(.hw-snake-only)')
             .forEach(el => {
                 el.style.display = inDock ? 'none' : '';
             });
@@ -184,6 +191,26 @@ class _Power {
         const bdiv = menu.querySelector('.menu-divider.hw-batch-only');
         if (bdiv && (batchEntries.length || (batch && batch.unshare))) {
             bdiv.style.display = '';
+        }
+        // The snake entries: up to four slots written at open time like
+        // the batch's; a shortcut hint (Alt+Enter) rides the first where
+        // the entry carries one.
+        menu.querySelectorAll('.hw-snake-only').forEach(el => {
+            el.style.display = 'none';
+        });
+        const snakeEntries = (snake && snake.entries) || [];
+        snakeEntries.slice(0, 4).forEach((en, i) => {
+            const item = menu.querySelector(`[data-action="hw-snake-n${i}"]`);
+            if (!item) return;
+            item.style.display = '';
+            item.textContent = en.shortcut
+                ? `${en.label} (${en.shortcut})` : en.label;
+            item.title = en.title || '';
+            item.classList.toggle('menu-disabled', !!en.disabled);
+        });
+        const sdiv = menu.querySelector('.menu-divider.hw-snake-only');
+        if (sdiv && snakeEntries.length && (clear || merge)) {
+            sdiv.style.display = '';
         }
         // The outputs submenu: parent label names the screen's connector,
         // one entry per distro written at open time like every hw item.

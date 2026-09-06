@@ -479,7 +479,7 @@ def sync_next_processor_seq(project):
 
     def _note(raw_id):
         nonlocal max_n
-        m = re.match(r'^(?:proc|card|cvt)(\d+)', raw_id or '')
+        m = re.match(r'^(?:proc|card|cvt|snk)(\d+)', raw_id or '')
         if m:
             n = int(m.group(1))
             if n > max_n:
@@ -491,14 +491,321 @@ def sync_next_processor_seq(project):
             card = (slot or {}).get('card')
             if card:
                 _note(card.get('id'))
+                for snake in card.get('snakes') or []:
+                    _note((snake or {}).get('id'))
                 for cvt in card.get('cvts') or []:
                     _note((cvt or {}).get('id'))
+                    for snake in (cvt or {}).get('snakes') or []:
+                        _note((snake or {}).get('id'))
     try:
         stored = int(project.get('next_processor_seq'))
     except (TypeError, ValueError):
         stored = 0
     project['next_processor_seq'] = max(stored, max_n + 1)
     return project['next_processor_seq']
+
+
+# ── Data cables: snakes and port home runs ────────────────────────────────
+#
+# "we need to have the same option for data homeruns. we can combine ports
+# into a snake as well as adding lengths to each if not snakes." (user,
+# 2026-09-06). The shape mirrors power's distro → multi (one home run) →
+# circuit cable: a card or box → a SNAKE (one name, one home run, N ports)
+# → a port's own cable. Both stores live on the HARDWARE record - the
+# processor card for the ports it carries on its own face, the breakout
+# box (``cvt``) for the ports it delivers - because a home run belongs to
+# the socket, not to the screen plugged into it. That is the one place this
+# differs from power, where a circuit cable is per-screen programming and a
+# clear forgets it: a port released from a screen KEEPS its snake and cable,
+# since the loom is still hanging off that socket whatever the wall does.
+#
+#   node['snakes']     = [{id, name, ft?, connector?, ports: [socket, ...]}]
+#   node['portCables'] = {str(socket): {ft?, connector?}}
+#
+# Sockets are the CARD-WIDE port numbers (port['number']) - the same key the
+# assignment, the chips and the port-name stores run on - so a box that
+# delivers the card's 1-8 again stores against 1-8 like the box before it,
+# each in its own record. A port is in at most one snake, and a port in a
+# snake has no own cable: its run is the snake's. ``connector`` null means
+# "follows the port" - the connector the catalog documents for the device
+# the port comes out of (data_port_connector), and NOTHING where the catalog
+# is silent: a reading that guessed copper for an undocumented box would be
+# a hardware assumption, so it prints the length alone instead. A snake's
+# way count is whatever was put in it - no 4/6/12-way shapes are assumed.
+
+DATA_CABLE_CONNECTORS = (
+    {'id': 'cat', 'name': 'CAT'},
+    {'id': 'fiber', 'name': 'Fiber'},
+)
+
+# The catalog's connector words, mapped to the cable connector they imply.
+# Only documented kinds map: 'rj45' is copper, 'fiber' is fiber.
+_PORT_KIND_CONNECTOR = {'rj45': 'cat', 'fiber': 'fiber'}
+
+SNAKE_NAME_PREFIX = 'SNAKE '
+
+
+def data_cable_connectors():
+    return [dict(c) for c in DATA_CABLE_CONNECTORS]
+
+
+def data_cable_connector_ids():
+    return [c['id'] for c in DATA_CABLE_CONNECTORS]
+
+
+def data_port_connector(cvt_device, card_device, proc_device):
+    """The cable connector a port FOLLOWS, from the catalog alone.
+
+    The nearest device downstream that documents a ``connector`` answers:
+    the breakout box the port comes out of, else the card, else the
+    processor. None where none of them says - the reading then carries no
+    connector name rather than an invented one.
+    """
+    for device in (cvt_device, card_device, proc_device):
+        kind = (device or {}).get('connector')
+        if kind in _PORT_KIND_CONNECTOR:
+            return _PORT_KIND_CONNECTOR[kind]
+    return None
+
+
+def _snake_letter_name(taken):
+    """The first free default name - SNAKE A, SNAKE B, ... SNAKE Z, SNAKE AA."""
+    n = 0
+    while True:
+        letters = ''
+        k = n
+        while True:
+            letters = chr(ord('A') + k % 26) + letters
+            k = k // 26 - 1
+            if k < 0:
+                break
+        name = SNAKE_NAME_PREFIX + letters
+        if name not in taken:
+            return name
+        n += 1
+
+
+def _cable_ft(value):
+    """A stored length: a positive finite number, else None (no length).
+
+    Zero and blank both mean "no length" - the same reading the power sheet
+    gives a blank field - so nothing stores a 0 that later prints as 0'.
+    """
+    if value is None or value == '':
+        return None
+    try:
+        ft = float(value)
+    except (TypeError, ValueError):
+        return None
+    if ft != ft or ft in (float('inf'), float('-inf')) or ft <= 0:
+        return None
+    return int(ft) if ft == int(ft) else ft
+
+
+def check_cable_store(data, port_numbers, what='card'):
+    """Why a PUT's ``snakes`` / ``portCables`` cannot be stored, or None.
+
+    Every refusal names its reason: a socket the card or box does not have,
+    a port in two snakes, a length that is not a non-negative number, a
+    connector the list does not know. Nothing is stored on a refusal.
+    """
+    allowed = set(int(n) for n in port_numbers)
+    ids = set(data_cable_connector_ids())
+
+    def _check_cable(rec, where):
+        if rec is None:
+            return None
+        if not isinstance(rec, dict):
+            return f'{where}: a cable is an object with ft and connector.'
+        if 'ft' in rec and rec['ft'] not in (None, ''):
+            try:
+                ft = float(rec['ft'])
+            except (TypeError, ValueError):
+                return f'{where}: ft must be a number of feet.'
+            if ft != ft or ft < 0 or ft in (float('inf'), float('-inf')):
+                return f'{where}: ft must be a non-negative number.'
+        conn = rec.get('connector')
+        if conn not in (None, '') and conn not in ids:
+            return (f'{where}: unknown connector {conn!r} - one of '
+                    f'{", ".join(sorted(ids))}, or null to follow the port.')
+        return None
+
+    if 'snakes' in data:
+        snakes = data.get('snakes')
+        if snakes is None:
+            snakes = []
+        if not isinstance(snakes, list):
+            return 'snakes must be a list.'
+        seen = set()
+        for i, snake in enumerate(snakes):
+            where = f'snake {i + 1}'
+            if not isinstance(snake, dict):
+                return f'{where}: a snake is an object with name, ft and ports.'
+            if (snake.get('name') is not None
+                    and not isinstance(snake.get('name'), str)):
+                return f'{where}: name must be text.'
+            ports = snake.get('ports')
+            if not isinstance(ports, list):
+                return f'{where}: ports must be a list of socket numbers.'
+            for raw in ports:
+                try:
+                    n = int(raw)
+                except (TypeError, ValueError):
+                    return f'{where}: port {raw!r} is not a socket number.'
+                if n not in allowed:
+                    return (f'{where}: there is no socket {n} on this {what}'
+                            + (f' (sockets {min(allowed)}-{max(allowed)})'
+                               if allowed else '') + '.')
+                if n in seen:
+                    return (f'{where}: socket {n} is already in another '
+                            f'snake - a port rides one snake.')
+                seen.add(n)
+            why = _check_cable(snake, where)
+            if why:
+                return why
+    if 'portCables' in data:
+        cables = data.get('portCables')
+        if cables is None:
+            cables = {}
+        if not isinstance(cables, dict):
+            return 'portCables must be an object keyed by socket number.'
+        for key, rec in cables.items():
+            try:
+                n = int(key)
+            except (TypeError, ValueError):
+                return f'portCables: {key!r} is not a socket number.'
+            if n not in allowed:
+                return (f'portCables: there is no socket {n} on this {what}'
+                        + (f' (sockets {min(allowed)}-{max(allowed)})'
+                           if allowed else '') + '.')
+            why = _check_cable(rec, f'port {n}')
+            if why:
+                return why
+    return None
+
+
+def apply_cable_store(node, data, port_numbers, next_seq):
+    """Store a checked ``snakes`` / ``portCables`` payload on a card or box.
+
+    Normalises as it stores: sockets sorted and unique per snake, an empty
+    snake dropped, a missing id minted off the processor counter (``snk<N>``
+    - one counter, so undo cannot resurrect a collision), a blank name given
+    the first free default letter (typed names win), a port in a snake
+    stripped of any own cable. Either key alone is a valid PUT; the other
+    store is left as it was and re-pruned against the result.
+    """
+    if 'snakes' in data:
+        out = []
+        taken = set()
+        raw = data.get('snakes') or []
+        for snake in raw:
+            name = (snake.get('name') or '').strip()
+            if name:
+                taken.add(name)
+        for snake in raw:
+            ports = sorted({int(p) for p in (snake.get('ports') or [])})
+            if not ports:
+                continue
+            rec = {
+                'id': (snake.get('id') or '').strip() or f'snk{next_seq()}',
+                'ports': ports,
+            }
+            name = (snake.get('name') or '').strip()
+            if not name:
+                name = _snake_letter_name(taken)
+                taken.add(name)
+            rec['name'] = name
+            ft = _cable_ft(snake.get('ft'))
+            if ft is not None:
+                rec['ft'] = ft
+            conn = snake.get('connector')
+            if conn in data_cable_connector_ids():
+                rec['connector'] = conn
+            out.append(rec)
+        if out:
+            node['snakes'] = out
+        else:
+            node.pop('snakes', None)
+    if 'portCables' in data:
+        out = {}
+        for key, rec in (data.get('portCables') or {}).items():
+            if rec is None:
+                continue
+            ft = _cable_ft(rec.get('ft'))
+            conn = rec.get('connector')
+            conn = conn if conn in data_cable_connector_ids() else None
+            if ft is None and conn is None:
+                continue
+            cable = {}
+            if ft is not None:
+                cable['ft'] = ft
+            if conn is not None:
+                cable['connector'] = conn
+            out[str(int(key))] = cable
+        if out:
+            node['portCables'] = out
+        else:
+            node.pop('portCables', None)
+    prune_cable_store(node, port_numbers)
+
+
+def prune_cable_store(node, port_numbers):
+    """Drop what the device no longer has: sockets past its port range (a
+    card whose mode halved it, a box whose trunk cap shrank it), the empty
+    snakes that leaves, and any own cable on a snaked socket. Keys vanish
+    when nothing is left, so a plain card stays a plain card in the file.
+    """
+    allowed = set(int(n) for n in port_numbers)
+    snaked = set()
+    snakes = []
+    for snake in node.get('snakes') or []:
+        ports = sorted({int(p) for p in (snake.get('ports') or [])
+                        if int(p) in allowed and int(p) not in snaked})
+        if not ports:
+            continue
+        snaked.update(ports)
+        snake = dict(snake, ports=ports)
+        snakes.append(snake)
+    if snakes:
+        node['snakes'] = snakes
+    else:
+        node.pop('snakes', None)
+    cables = {}
+    for key, rec in (node.get('portCables') or {}).items():
+        try:
+            n = int(key)
+        except (TypeError, ValueError):
+            continue
+        if n not in allowed or n in snaked or not rec:
+            continue
+        cables[str(n)] = rec
+    if cables:
+        node['portCables'] = cables
+    else:
+        node.pop('portCables', None)
+
+
+def resolved_cable_store(node):
+    """The two stores as the panel reads them: always present (empty when
+    absent) so no reader has to guard the key, ports as ints, keys as
+    strings - the JSON shape either way."""
+    snakes = []
+    for snake in node.get('snakes') or []:
+        snakes.append({
+            'id': snake.get('id'),
+            'name': snake.get('name') or '',
+            'ft': snake.get('ft'),
+            'connector': snake.get('connector') or None,
+            'ports': [int(p) for p in (snake.get('ports') or [])],
+        })
+    cables = {}
+    for key, rec in (node.get('portCables') or {}).items():
+        cables[str(key)] = {
+            'ft': (rec or {}).get('ft'),
+            'connector': (rec or {}).get('connector') or None,
+        }
+    return snakes, cables
+
 
 
 def stock_default_cvts(project):
@@ -848,6 +1155,13 @@ def resolve_card(card, proc):
             'beyondTrunks': over_trunk,
             'ports': [],
         }
+        # The box's snakes and port cables ride the resolved box, with the
+        # connector its sockets FOLLOW (the catalog's word for the box,
+        # else the card's, else nothing - see data_port_connector).
+        resolved['snakes'], resolved['portCables'] = \
+            resolved_cable_store(cvt)
+        resolved['portConnector'] = data_port_connector(
+            cvt_device, device, get_device(proc.get('deviceId')))
         cvts.append(resolved)
         placed_by_id[resolved['id']] = resolved
         if size:
@@ -1034,7 +1348,7 @@ def resolve_card(card, proc):
             'reachesWith': _fills_the_card(device, ceiling),
         }
 
-    return {
+    out = {
         'id': card.get('id'),
         'deviceId': card.get('deviceId'),
         'deviceName': device.get('name', card.get('deviceId')),
@@ -1119,6 +1433,13 @@ def resolve_card(card, proc):
         'cvts': cvts,
         'ports': ports,
     }
+    # The card's own snakes and port cables, for the ports on its face;
+    # the connector those sockets follow is the card's documented kind,
+    # else the processor's, else nothing.
+    out['snakes'], out['portCables'] = resolved_cable_store(card)
+    out['portConnector'] = data_port_connector(
+        None, device, get_device(proc.get('deviceId')))
+    return out
 
 
 def resolve_processor(proc):

@@ -1683,6 +1683,53 @@ button.hw-dock-typechip:focus-visible { outline: 1px solid var(--ps-accent, #ef3
     color: #f0d48a; font-family: ui-monospace, Menlo, monospace;
     pointer-events: none; white-space: nowrap;
 }
+/* ── data snakes and port home runs (2026-09-06, snake-mock.html: "B to
+   form it and A to type it") ──────────────────────────────────────────────
+   A snake is a blue bracket under its ports with a tag; a loose port wears
+   its own length in its corner in the same blue. A grid carrying a snake
+   (or a sweep in progress) opens its rows up so the bracket has a lane. */
+.hw-dock-grid-snaked { position: relative; row-gap: 20px; padding-bottom: 14px; }
+.hw-dock-snake {
+    position: absolute; height: 8px; box-sizing: border-box;
+    border: 2px solid #8fd0ff; border-top: none; border-radius: 0 0 5px 5px;
+    pointer-events: none;
+}
+.hw-dock-snake-tag {
+    position: absolute; left: 50%; top: 1px; transform: translateX(-50%);
+    background: #10202c; border: 1px solid #8fd0ff; border-radius: 8px;
+    padding: 0 7px; font: 9px ui-monospace, Menlo, monospace; color: #cfeaff;
+    white-space: nowrap; pointer-events: auto; cursor: context-menu;
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+}
+.hw-dock-snake-ghost { border-style: dashed; opacity: .85; }
+.hw-dock-snake-ghost .hw-dock-snake-tag { border-style: dashed; }
+/* the data chip's top line carries "9 SR-9", so its corner rides the
+   SECOND line (the occupant, "free" / "WALL" - short), above the bar row */
+.hw-dock-chip-cable-data { color: #8fd0ff; top: auto; bottom: 12px; }
+/* the sweep's lit chips: the canvas Alt-sweep's look (the mock's .sel) */
+.hw-dock-tile.hw-dock-chip-sel {
+    border-color: #ff5555 !important;
+    box-shadow: 0 0 0 2px rgba(255, 85, 85, .35), 0 2px 3px rgba(0, 0, 0, .55) !important;
+}
+/* the data sheet: a snake row in the cable's blue, members and free rows dim */
+.hw-dock-cablesheet-data tr.hw-dock-cable-snake td {
+    background: #10202c; color: #cfeaff; border-bottom-color: #1e3a4c;
+}
+.hw-dock-cablesheet-data tr.hw-dock-cable-snake .hw-dock-cable-ft,
+.hw-dock-cablesheet-data tr.hw-dock-cable-snake .hw-dock-cable-name {
+    color: #cfeaff; border-color: #8fd0ff;
+}
+.hw-dock-cablesheet-data tr.hw-dock-cable-member td:nth-child(2) { padding-left: 18px; color: #9ab; }
+.hw-dock-cablesheet-data tr.hw-dock-cable-member td { color: #7a8a94; }
+.hw-dock-cablesheet-data .hw-dock-cable-dim { color: #666666; }
+.hw-dock-cable-snake-cap { margin-right: 6px; white-space: nowrap; }
+.hw-dock-cable-name {
+    width: 90px; background: #0d0d0d; color: #eeeeee; border: 1px solid #555;
+    border-radius: 3px; padding: 1px 4px;
+    font: 10.5px ui-monospace, Menlo, monospace;
+}
+.hw-dock-cable-name:focus { outline: none; border-color: var(--ps-accent, #ef3340); }
+.hw-dock-cable-tick { margin: 0; vertical-align: middle; accent-color: var(--ps-accent, #e22330); }
 /* the ghost of a plug drag IS the chip; the box around it goes */
 #hw-dock-ghost.hw-dock-ghost-plug {
     padding: 0 !important; background: none !important;

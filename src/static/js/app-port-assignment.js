@@ -165,6 +165,16 @@ class _PortAssignment {
                         && (action || data.migrated
                             || this.project.port_assignments !== undefined)) {
                     this.project.port_assignments = data.state;
+                    // The key names the state THIS resolution was drawn
+                    // from. A mutating call (a pin, a release) changes the
+                    // stored pins and gets a fresh resolution back, so the
+                    // key moves with it - left where refreshPortAssignment
+                    // last set it, an undo back to the pre-release pins
+                    // compared EQUAL to the stale key, updateUI skipped the
+                    // re-resolve, and the tray kept the released socket
+                    // free while the project already held the pin
+                    // (2026-09-06, found by tests/test_data_snakes.py).
+                    this._assignmentKeyRaw = this._assignmentKey();
                 }
                 this._applyAssignmentResolution();
                 if (action && typeof this.saveState === 'function') {

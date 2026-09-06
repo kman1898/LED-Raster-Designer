@@ -123,6 +123,14 @@ class _HardwareDock {
             this._dockColRedealT = setTimeout(() => {
                 const mode = window.canvasRenderer
                     ? window.canvasRenderer.viewMode : '';
+                // The data side's snake brackets sit under their chips by
+                // measurement (2026-09-06): a resize that reflows a grid
+                // without a rebuild moves the chips out from under them,
+                // so the same watcher re-places them.
+                if (mode === 'data-flow') {
+                    this._dockPlaceSnakeBrackets(body);
+                    return;
+                }
                 if (mode !== 'power') return;
                 if (this._dockColPick == null) return;
                 if (this._dockPickColCount() !== this._dockColPick) {
@@ -251,6 +259,10 @@ class _HardwareDock {
         if (typeof this._wireSectionCollapse === 'function') {
             this._wireSectionCollapse(body);
         }
+        // The snake brackets ride under their chips by measurement, so
+        // they are placed once the grids have laid out - after the fold
+        // state above, which decides what is visible to measure.
+        if (mode === 'data-flow') this._dockPlaceSnakeBrackets(body);
         if (focused) {
             const again = body.querySelector(
                 `[data-hwdock="${CSS.escape(focused)}"]`);
@@ -824,8 +836,24 @@ class _HardwareDock {
         // panel's card block carried lives behind the ⚙. The redundancy
         // pill between them is a readout, not an editor.
         const cardPill = this._dockRedundancyPill(proc, card);
+        // The ports draw grouped the way they arrive (below): each box its
+        // own strip, the rest directly under the card. The card's cable
+        // sheet (2026-09-06) covers THAT rest - its own face's sockets -
+        // so the ≡ only appears where the card has loose ports to sheet.
+        const cvts = card.cvts || [];
+        const covered = new Set();
+        cvts.forEach(cvt => {
+            (cvt.ports || []).forEach(p => covered.add(p.number));
+        });
+        const loose = (card.ports || []).filter(p => !covered.has(p.number));
+        const cardOwner = { kind: 'card', id: card.id, procId: proc.id,
+                            cardId: card.id, rec: card };
+        const cardControls = cardPill ? [cardPill] : [];
+        if (loose.length) {
+            cardControls.push(this._dockBuildDataCableSheetButton(cardOwner));
+        }
         this._dockHeadAugment(head, {
-            controls: cardPill ? [cardPill] : [],
+            controls: cardControls,
             name: {
                 value: card.name,
                 placeholder: proc.name || 'unnamed',
@@ -860,14 +888,10 @@ class _HardwareDock {
         // ports no box delivers stay directly under the card. A copy/backup
         // box lists the SAME card ports again - dragging it lands on the same
         // sockets as dragging its primary, because they are the same sockets.
-        const cvts = card.cvts || [];
-        const covered = new Set();
-        cvts.forEach(cvt => {
-            (cvt.ports || []).forEach(p => covered.add(p.number));
-        });
-        const loose = (card.ports || []).filter(p => !covered.has(p.number));
         if (loose.length) {
-            unitBody.appendChild(this._dockBuildPortGrid(proc, card, loose));
+            unitBody.appendChild(this._dataCableSheetOpen(cardOwner)
+                ? this._dockBuildDataCableSheet(cardOwner, loose)
+                : this._dockBuildPortGrid(proc, card, loose, '', cardOwner));
         }
         const boxEls = new Map();
         cvts.forEach(cvt => {
@@ -922,7 +946,12 @@ class _HardwareDock {
             // The box's name edits inline; unnamed, the placeholder speaks
             // the RESOLVED title (trunk letter included), so "Tessera XD A"
             // still reads on the header the server's refusals name.
+            const boxOwner = { kind: 'cvt', id: cvt.id, procId: proc.id,
+                               cardId: card.id, rec: cvt };
             this._dockHeadAugment(boxHead, {
+                // The box's ≡: its cable sheet, for the sockets it
+                // delivers (2026-09-06).
+                controls: [this._dockBuildDataCableSheetButton(boxOwner)],
                 name: {
                     value: cvt.name,
                     placeholder: cvt.displayTitle || 'unnamed',
@@ -946,9 +975,10 @@ class _HardwareDock {
             box.appendChild(boxHead);
             const boxBody = this._dockSectionBody(box, boxHead,
                                                   `hwdock-box-${cvt.id}`);
-            boxBody.appendChild(this._dockBuildPortGrid(proc, card,
-                                                        cvt.ports || [],
-                                                        boxTitle));
+            boxBody.appendChild(this._dataCableSheetOpen(boxOwner)
+                ? this._dockBuildDataCableSheet(boxOwner, cvt.ports || [])
+                : this._dockBuildPortGrid(proc, card, cvt.ports || [],
+                                          boxTitle, boxOwner));
             // A redundant pair of boxes is one group here too: B nests
             // under the A it backs (the panel's rule, worn by the tray),
             // and a box with no role stays the plain strip it was.
@@ -1005,12 +1035,16 @@ class _HardwareDock {
     // to one - the disambiguator now that every box numbers its own sockets
     // from 1 (two boxes both have a "3", and the box name is how they are
     // told apart).
-    _dockBuildPortGrid(proc, card, ports, boxTitle) {
+    _dockBuildPortGrid(proc, card, ports, boxTitle, owner) {
         const grid = document.createElement('div');
         grid.className = 'lrd-tile-grid hw-dock-grid';
+        // The grid names the record whose snakes bracket its chips
+        // (_dockPlaceSnakeBrackets) and whose sockets an Alt-sweep may
+        // gather - one owner per grid, so a sweep never crosses records.
+        if (owner) grid.dataset.lrdSnakeOwner = `${owner.kind}:${owner.id}`;
         ports.forEach(port => {
             grid.appendChild(this._dockBuildPortTile(proc, card, port,
-                                                     boxTitle));
+                                                     boxTitle, owner));
         });
         return grid;
     }
@@ -1024,9 +1058,14 @@ class _HardwareDock {
     // _wireTiles machinery, press-and-move drags. The editor is hidden,
     // never detached (style.css .lrd-tile-body), so every field keeps
     // answering the focus-restore lookup from inside a closed chip.
-    _dockBuildPortTile(proc, card, port, boxTitle) {
+    _dockBuildPortTile(proc, card, port, boxTitle, owner) {
         const tile = document.createElement('div');
         tile.className = 'lrd-tile hw-dock-tile';
+        // Mid-sweep (or with a sweep parked), the gathered chips light the
+        // canvas Alt-sweep's way (.sel of snake-mock.html).
+        if (owner && this._traySweepHas(owner, port.number)) {
+            tile.classList.add('hw-dock-chip-sel');
+        }
         // The tile machinery's keys, so the open editor comes back by id
         // through the tray's wholesale rebuilds - one open editor per card.
         // Keyed by the card-wide number ON PURPOSE: two boxes both display
@@ -1097,6 +1136,19 @@ class _HardwareDock {
             who.textContent = occupants[0].name;
         }
         face.appendChild(who);
+        // A loose socket with its own home run wears its LENGTH small in
+        // its corner, in the data cable's blue ("50'" - snake-mock.html's
+        // chip corner, 2026-09-06); the connector reads on the sheet and
+        // the map, where there is room. A snaked socket wears nothing
+        // here: the bracket under it says what it rides.
+        const own = owner ? this._dataPortCableOn(owner, port.number) : null;
+        if (own && own.kind === 'cable') {
+            const corner = document.createElement('span');
+            corner.className = 'hw-dock-chip-cable hw-dock-chip-cable-data';
+            corner.textContent = this.cableText(own.ft, '');
+            corner.title = own.text;
+            face.appendChild(corner);
+        }
         tile.appendChild(face);
 
         face.title = `Port ${spoken}`
@@ -2174,6 +2226,748 @@ class _HardwareDock {
         return sheet;
     }
 
+
+    // ── data cables: the sheet, the sweep and the brackets ───────────────
+    //
+    // "we need to have the same option for data homeruns. we can combine
+    // ports into a snake as well as adding lengths to each if not snakes."
+    // (user, 2026-09-06). Of src/static/snake-mock.html the pick was "B to
+    // form it and A to type it but can be made with both": the Alt-sweep
+    // across port chips (the canvas 2fer's own gesture) forms a snake by
+    // right-click, and the ≡ on a card's or box's header flips its chips
+    // into a cable sheet that types names, home runs and the loose ports'
+    // lengths - the power sheet transposed. The stores live on the
+    // hardware record (app-processors.js, the data cable model); this is
+    // where they are read and typed. Which face a record shows is a
+    // viewing choice, remembered per record in localStorage and never in
+    // the project - the fold state's doctrine.
+
+    _dataCableSheetKey(owner) {
+        return `lrd_data_cable_sheet_${owner.kind}_${owner.id}`;
+    }
+
+    _dataCableSheetOpen(owner) {
+        try {
+            return localStorage.getItem(this._dataCableSheetKey(owner)) === '1';
+        } catch (_) {
+            return false;
+        }
+    }
+
+    _setDataCableSheetOpen(owner, open) {
+        try {
+            if (open) localStorage.setItem(this._dataCableSheetKey(owner), '1');
+            else localStorage.removeItem(this._dataCableSheetKey(owner));
+        } catch (_) { /* no storage: the flip lasts the render */ }
+    }
+
+    _dockBuildDataCableSheetButton(owner) {
+        const open = this._dataCableSheetOpen(owner);
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'hw-dock-cablebtn hw-dock-cablebtn-data'
+            + (open ? ' hw-dock-cablebtn-on' : '');
+        btn.textContent = '≡';
+        btn.title = open
+            ? 'Cable sheet - click to show the chips again.'
+            : 'Cable sheet - snakes and home runs per port, for the '
+                + 'paperwork. Click to flip into the sheet.';
+        btn.dataset.lrdField = `data-cable-sheet-${owner.id}`;
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this._setDataCableSheetOpen(owner, !open);
+            this.renderHardwareDock();
+        });
+        return btn;
+    }
+
+    // Tick state for the sheet's "With ticked" buttons - in memory, keyed
+    // by owner and socket, so it rides the tray's wholesale rebuilds the
+    // way the open tile does and dies with the page like every gesture.
+    _cableTickKey(owner, socket) {
+        return `${owner.kind}:${owner.id}:${socket}`;
+    }
+
+    _cableTicked(owner, socket) {
+        return !!(this._cableTicks && this._cableTicks.has(
+            this._cableTickKey(owner, socket)));
+    }
+
+    _setCableTick(owner, socket, on) {
+        if (!this._cableTicks) this._cableTicks = new Set();
+        const key = this._cableTickKey(owner, socket);
+        if (on) this._cableTicks.add(key);
+        else this._cableTicks.delete(key);
+    }
+
+    _cableTickedSockets(owner, ports) {
+        return ports.map(p => p.number)
+            .filter(n => this._cableTicked(owner, n));
+    }
+
+    // One record's sheet: tick · port · screen · home run · connector, a
+    // snake as a folded row (tick · "SNAKE A · 6-way" · name · ft ·
+    // connector) with its members dim "in snake" under it, a free socket
+    // dim. Under the rows: "With ticked: Snake / Loosen" and the quick
+    // fills. Each commit is ONE entry ('Set Port Cable' / 'Set Snake Home
+    // Run' / 'Rename Snake' / 'Snake Ports' / 'Loosen Snake'); the DOM
+    // restates after the round-trip, and Tab walks the ft column across it.
+    _dockBuildDataCableSheet(owner, ports) {
+        const sheet = document.createElement('div');
+        sheet.className = 'hw-dock-cablesheet hw-dock-cablesheet-data';
+        sheet.dataset.lrdCableSheet = `${owner.kind}:${owner.id}`;
+        const table = document.createElement('table');
+        const thead = document.createElement('tr');
+        ['', 'port', 'screen', 'home run', 'connector'].forEach(h => {
+            const th = document.createElement('th');
+            th.textContent = h;
+            thead.appendChild(th);
+        });
+        table.appendChild(thead);
+        const connectors = this.getDataCableConnectors();
+        const follows = this.dataCableConnectorName(
+            this.dataPortConnectorId(owner, null));
+        const ftInputs = [];
+        const walk = (ft) => {
+            ft.addEventListener('keydown', (e) => {
+                if (e.key !== 'Tab') return;
+                const i = ftInputs.indexOf(ft);
+                const next = ftInputs[e.shiftKey ? i - 1 : i + 1];
+                if (!next) return;
+                e.preventDefault();
+                next.focus();
+                if (typeof next.select === 'function') next.select();
+            });
+            ftInputs.push(ft);
+        };
+        const after = () => {
+            if (window.canvasRenderer) window.canvasRenderer.render();
+        };
+        const connectorSelect = (key, value, title) => {
+            const sel = document.createElement('select');
+            sel.className = 'hw-dock-cable-connector';
+            sel.dataset.lrdField = key;
+            const blank = document.createElement('option');
+            blank.value = '';
+            blank.textContent = follows
+                ? `follows port (${follows})` : 'follows port';
+            sel.appendChild(blank);
+            connectors.forEach(c => {
+                const o = document.createElement('option');
+                o.value = c.id;
+                o.textContent = c.name;
+                sel.appendChild(o);
+            });
+            sel.value = value && connectors.some(c => c.id === value)
+                ? value : '';
+            sel.title = title;
+            return sel;
+        };
+        const ftInput = (key, value, title) => {
+            const ft = document.createElement('input');
+            ft.type = 'number';
+            ft.min = '0';
+            ft.step = 'any';
+            ft.placeholder = '—';
+            ft.className = 'hw-dock-cable-ft';
+            ft.value = Number(value) > 0 ? String(value) : '';
+            ft.dataset.lrdField = key;
+            ft.title = title;
+            return ft;
+        };
+        const tick = (key, on, title, onChange) => {
+            const box = document.createElement('input');
+            box.type = 'checkbox';
+            box.className = 'hw-dock-cable-tick';
+            box.checked = on;
+            box.dataset.lrdField = key;
+            box.title = title;
+            box.addEventListener('change', () => onChange(box.checked));
+            return box;
+        };
+        const whoOf = (n) => {
+            const occ = this._portOccupants(owner.cardId, n);
+            if (!occ.length) return '';
+            return occ.map(o => `${o.name}${o.role === 'return'
+                ? ` p${o.number} return` : ''}`).join(', ');
+        };
+        const seenSnakes = new Set();
+        ports.forEach(port => {
+            const n = port.number;
+            const spoken = port.localNumber || n;
+            const snake = this.dataPortSnake(owner, n);
+            if (snake && !seenSnakes.has(snake.id)) {
+                seenSnakes.add(snake.id);
+                const tr = document.createElement('tr');
+                tr.className = 'hw-dock-cable-snake';
+                tr.dataset.lrdSnakeRow = snake.id;
+                const td0 = document.createElement('td');
+                const all = snake.ports.every(m => this._cableTicked(owner, m));
+                td0.appendChild(tick(
+                    `data-snake-tick-${owner.id}-s-${snake.id}`, all,
+                    'Tick the whole snake - for Loosen below.',
+                    (on) => snake.ports.forEach(
+                        m => this._setCableTick(owner, m, on))));
+                tr.appendChild(td0);
+                const td1 = document.createElement('td');
+                const cap = document.createElement('span');
+                cap.className = 'hw-dock-cable-snake-cap';
+                cap.textContent = this.snakeTagText(snake, false);
+                td1.appendChild(cap);
+                const name = document.createElement('input');
+                name.type = 'text';
+                name.className = 'hw-dock-cable-name';
+                name.value = snake.name || '';
+                name.placeholder = 'name';
+                name.dataset.lrdField = `data-snake-name-${owner.id}-${snake.id}`;
+                name.title = 'The snake’s name - what the packet and '
+                    + 'the tag on the map print. Typed names win over the '
+                    + 'SNAKE A default.';
+                name.addEventListener('change', () => {
+                    this.setSnake(owner, snake.id, { name: name.value },
+                                  'Rename Snake').then(after);
+                });
+                td1.appendChild(name);
+                tr.appendChild(td1);
+                const td2 = document.createElement('td');
+                td2.className = 'hw-dock-cable-who';
+                td2.textContent = [...new Set(snake.ports.map(whoOf)
+                    .filter(Boolean))].join(', ');
+                tr.appendChild(td2);
+                const td3 = document.createElement('td');
+                const ft = ftInput(`data-snake-ft-${owner.id}-${snake.id}`,
+                                   snake.ft,
+                                   'The snake’s home run in feet. '
+                                   + 'Blank = no length.');
+                const sel = connectorSelect(
+                    `data-snake-connector-${owner.id}-${snake.id}`,
+                    snake.connector,
+                    'The snake’s connector. Follows the port unless '
+                    + 'changed.');
+                ft.addEventListener('change', () => {
+                    this.setSnake(owner, snake.id, { ft: ft.value.trim() },
+                                  'Set Snake Home Run').then(after);
+                });
+                sel.addEventListener('change', () => {
+                    this.setSnake(owner, snake.id,
+                                  { connector: sel.value },
+                                  'Set Snake Home Run').then(after);
+                });
+                walk(ft);
+                td3.appendChild(ft);
+                td3.appendChild(document.createTextNode(' ft'));
+                tr.appendChild(td3);
+                const td4 = document.createElement('td');
+                td4.appendChild(sel);
+                tr.appendChild(td4);
+                table.appendChild(tr);
+            }
+            const tr = document.createElement('tr');
+            const occupied = !!this._portOccupants(owner.cardId, n).length;
+            if (snake) tr.className = 'hw-dock-cable-member';
+            else if (!occupied) tr.className = 'hw-dock-cable-free';
+            const td0 = document.createElement('td');
+            td0.appendChild(tick(
+                `data-snake-tick-${owner.id}-${n}`,
+                this._cableTicked(owner, n),
+                snake ? 'Tick to loosen this port out of its snake.'
+                    : 'Tick, then Snake below to form a snake of the ticked '
+                        + 'ports.',
+                (on) => this._setCableTick(owner, n, on)));
+            tr.appendChild(td0);
+            const td1 = document.createElement('td');
+            td1.textContent = port.label
+                ? `${spoken} · ${port.label}` : String(spoken);
+            tr.appendChild(td1);
+            const td2 = document.createElement('td');
+            td2.className = 'hw-dock-cable-who';
+            td2.textContent = whoOf(n) || (occupied ? '' : 'free');
+            tr.appendChild(td2);
+            const td3 = document.createElement('td');
+            const td4 = document.createElement('td');
+            if (snake) {
+                td3.textContent = 'in snake';
+                td3.className = 'hw-dock-cable-dim';
+                td4.textContent = '—';
+                td4.className = 'hw-dock-cable-dim';
+            } else {
+                const stored = (owner.rec.portCables || {})[String(n)] || null;
+                const ft = ftInput(`data-cable-ft-${owner.id}-${n}`,
+                                   stored && stored.ft,
+                                   'This port’s own home run in feet. '
+                                   + 'Blank = no cable.');
+                const sel = connectorSelect(
+                    `data-cable-connector-${owner.id}-${n}`,
+                    stored && stored.connector,
+                    'The plug on this cable. Follows the port unless '
+                    + 'changed.');
+                const commit = () => this.setPortCable(owner, n, {
+                    ft: ft.value.trim(), connector: sel.value,
+                }).then(after);
+                ft.addEventListener('change', commit);
+                sel.addEventListener('change', commit);
+                walk(ft);
+                td3.appendChild(ft);
+                td3.appendChild(document.createTextNode(' ft'));
+                td4.appendChild(sel);
+            }
+            tr.appendChild(td3);
+            tr.appendChild(td4);
+            table.appendChild(tr);
+        });
+        sheet.appendChild(table);
+
+        // With ticked: Snake / Loosen. Quick fill: all 100' / none.
+        const quick = document.createElement('div');
+        quick.className = 'hw-dock-cable-quick';
+        const button = (label, key, title, run) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'btn hw-dock-btn';
+            b.textContent = label;
+            b.title = title;
+            b.dataset.lrdField = key;
+            b.addEventListener('click', (e) => {
+                e.stopPropagation();
+                run();
+            });
+            return b;
+        };
+        const cap = document.createElement('span');
+        cap.textContent = 'With ticked:';
+        quick.appendChild(cap);
+        quick.appendChild(button('Snake', `data-cable-snake-${owner.id}`,
+            'Form one snake of the ticked ports - one name, one home run. '
+            + 'One undo step.',
+            () => {
+                const nums = this._cableTickedSockets(owner, ports);
+                if (nums.length < 1) {
+                    this._dockSay('Tick the ports first, then Snake.');
+                    return;
+                }
+                nums.forEach(n => this._setCableTick(owner, n, false));
+                this.snakePorts(owner, nums).then(after);
+            }));
+        quick.appendChild(button('Loosen', `data-cable-loosen-${owner.id}`,
+            'Take the ticked ports out of their snakes. One undo step.',
+            () => {
+                const nums = this._cableTickedSockets(owner, ports)
+                    .filter(n => this.dataPortSnake(owner, n));
+                if (!nums.length) {
+                    this._dockSay('Tick a port that is in a snake, then '
+                        + 'Loosen.');
+                    return;
+                }
+                nums.forEach(n => this._setCableTick(owner, n, false));
+                this.loosenPorts(owner, nums).then(after);
+            }));
+        const sp = document.createElement('span');
+        sp.style.flex = '1';
+        quick.appendChild(sp);
+        const cap2 = document.createElement('span');
+        cap2.textContent = 'Quick fill:';
+        quick.appendChild(cap2);
+        quick.appendChild(button("all 100'", `data-cable-fill-${owner.id}-100`,
+            'Every loose port here gets a 100 ft home run; snakes keep '
+            + 'theirs. One undo step.',
+            () => this.fillPortCables(owner, 100, ports).then(after)));
+        quick.appendChild(button('none', `data-cable-fill-${owner.id}-none`,
+            'Every loose port here forgets its cable; snakes keep theirs. '
+            + 'One undo step.',
+            () => this.fillPortCables(owner, null, ports).then(after)));
+        sheet.appendChild(quick);
+        return sheet;
+    }
+
+    // ── the brackets ─────────────────────────────────────────────────────
+    //
+    // A snake reads as a blue bracket under its ports with a tag "SNAKE A
+    // · 6-way · 100'" (snake-mock.html, "How a snake reads"). Placed by
+    // measurement after layout: one bracket per contiguous run of the
+    // snake's chips in grid order, split again where the grid wraps a run
+    // to the next row, the tag on the first. A grid carrying a snake (or a
+    // sweep) opens its rows up to make room. The sweep's ghost is the same
+    // bracket dashed, saying what the right-click will make.
+    _dockPlaceSnakeBrackets(body) {
+        const host = body || document.getElementById('hardware-dock-body');
+        if (!host) return;
+        host.querySelectorAll('.hw-dock-grid[data-lrd-snake-owner]')
+            .forEach(grid => {
+                grid.querySelectorAll(':scope > .hw-dock-snake')
+                    .forEach(el => el.remove());
+                const [kind, id] = grid.dataset.lrdSnakeOwner.split(':');
+                const owner = this._dataCableOwner(kind, id);
+                const snakes = (owner && owner.rec.snakes) || [];
+                const sweep = this._traySweep
+                    && this._traySweep.ownerKind === kind
+                    && this._traySweep.ownerId === id
+                    && this._traySweep.sockets.length
+                    ? this._traySweep : null;
+                grid.classList.toggle('hw-dock-grid-snaked',
+                                      snakes.length > 0 || !!sweep);
+                if (!snakes.length && !sweep) return;
+                if (!grid.offsetParent) return;   // folded away: nothing to measure
+                const tiles = [...grid.querySelectorAll(':scope > .lrd-tile')];
+                const socketOf = (t) => parseInt(
+                    (t.dataset.lrdTile || '').split('-').pop(), 10);
+                const runsFor = (set) => {
+                    const runs = [];
+                    let cur = null;
+                    tiles.forEach((t, i) => {
+                        if (!set.has(socketOf(t))) { cur = null; return; }
+                        if (cur && i === cur.last + 1
+                                && t.offsetTop === cur.top) {
+                            cur.last = i;
+                            cur.tiles.push(t);
+                        } else {
+                            cur = { last: i, top: t.offsetTop, tiles: [t] };
+                            runs.push(cur);
+                        }
+                    });
+                    return runs;
+                };
+                const place = (runs, text, snake) => {
+                    runs.forEach((run, i) => {
+                        const first = run.tiles[0];
+                        const last = run.tiles[run.tiles.length - 1];
+                        const el = document.createElement('div');
+                        el.className = 'hw-dock-snake'
+                            + (snake ? '' : ' hw-dock-snake-ghost');
+                        el.style.left = `${first.offsetLeft}px`;
+                        el.style.width = `${last.offsetLeft + last.offsetWidth
+                            - first.offsetLeft}px`;
+                        el.style.top = `${first.offsetTop
+                            + first.offsetHeight + 2}px`;
+                        if (snake) {
+                            el.dataset.lrdSnakeOwner = grid.dataset.lrdSnakeOwner;
+                            el.dataset.lrdSnakeId = snake.id;
+                        }
+                        if (i === 0) {
+                            const tag = document.createElement('span');
+                            tag.className = 'hw-dock-snake-tag';
+                            tag.textContent = text;
+                            tag.title = snake
+                                ? `${text}. Right-click to rename, set the `
+                                    + 'home run or loosen the snake.'
+                                : 'Right-click the lit chips to snake them '
+                                    + '(Alt+Enter).';
+                            el.appendChild(tag);
+                        }
+                        grid.appendChild(el);
+                    });
+                };
+                snakes.forEach(snake => place(
+                    runsFor(new Set(snake.ports)),
+                    this.snakeTagText(snake), snake));
+                if (sweep) {
+                    place(runsFor(new Set(sweep.sockets)),
+                          `snake · ${sweep.sockets.length}-way`, null);
+                }
+            });
+    }
+
+    // ── the sweep ────────────────────────────────────────────────────────
+    //
+    // Hold Alt and drag across the port chips of ONE card or box: the
+    // chips light, a ghost bracket says "snake · N-way", and a right-click
+    // (or Alt+Enter) forms the snake. The selection is the CONTIGUOUS
+    // range of the grid between the anchor chip and the hovered one, in
+    // the order the chips sit - the canvas sweep's rule, on the tray's own
+    // set (_traySweep, never the canvas's _sweepSelection). A chip on
+    // another card or box refuses with a message and the range stays;
+    // Escape, a plain click elsewhere or the snake itself clears it.
+
+    _traySweepHas(owner, socket) {
+        const sw = this._traySweep;
+        return !!(sw && sw.ownerKind === owner.kind && sw.ownerId === owner.id
+            && sw.sockets.includes(parseInt(socket, 10)));
+    }
+
+    _traySweepOwnerOf(el) {
+        const grid = el && el.closest
+            ? el.closest('.hw-dock-grid[data-lrd-snake-owner]') : null;
+        if (!grid) return null;
+        const [kind, id] = grid.dataset.lrdSnakeOwner.split(':');
+        return { kind, id, grid };
+    }
+
+    _traySweepStart(e, payload, el) {
+        const at = this._traySweepOwnerOf(el);
+        if (!at) return;
+        const socket = parseInt(payload.port, 10);
+        const order = [...at.grid.querySelectorAll(':scope > .lrd-tile')]
+            .map(t => parseInt((t.dataset.lrdTile || '').split('-').pop(), 10));
+        this._traySweepClear(false);
+        this._traySweep = {
+            ownerKind: at.kind, ownerId: at.id, cardId: payload.cardId,
+            anchor: socket, sockets: [socket], order, refused: false,
+        };
+        this._traySweepPaint();
+        const move = (ev) => this._traySweepExtend(ev.clientX, ev.clientY);
+        const up = () => {
+            document.removeEventListener('mousemove', move);
+            document.removeEventListener('mouseup', up);
+            // The press that armed the sweep still synthesizes a click on
+            // the chip face, and that click would open the chip's editor
+            // nobody asked for - swallow exactly that one (the drag's own
+            // trick), lifted on the next macrotask.
+            const swallow = (ce) => {
+                ce.stopPropagation();
+                ce.preventDefault();
+            };
+            document.addEventListener('click', swallow, true);
+            setTimeout(() => {
+                document.removeEventListener('click', swallow, true);
+            }, 0);
+        };
+        document.addEventListener('mousemove', move);
+        document.addEventListener('mouseup', up);
+        this._traySweepArmKeys();
+    }
+
+    _traySweepExtend(clientX, clientY) {
+        const sw = this._traySweep;
+        if (!sw) return;
+        const el = document.elementFromPoint(clientX, clientY);
+        const chip = el && el.closest ? el.closest('[data-hwdock^="port-"]') : null;
+        if (!chip) return;
+        const payload = this._dockChipPayload(chip);
+        const at = this._traySweepOwnerOf(chip);
+        if (!payload || !at) return;
+        if (at.kind !== sw.ownerKind || at.id !== sw.ownerId) {
+            if (!sw.refused) {
+                sw.refused = true;
+                this._dockSay('A snake stays on one card or box - the '
+                    + 'sweep does not cross to another.');
+            }
+            return;
+        }
+        sw.refused = false;
+        const ai = sw.order.indexOf(sw.anchor);
+        const ci = sw.order.indexOf(parseInt(payload.port, 10));
+        if (ai < 0 || ci < 0) return;
+        const lo = Math.min(ai, ci);
+        const hi = Math.max(ai, ci);
+        const next = sw.order.slice(lo, hi + 1);
+        if (next.length === sw.sockets.length
+                && next.every((n, i) => n === sw.sockets[i])) return;
+        sw.sockets = next;
+        this._traySweepPaint();
+    }
+
+    // Light the gathered chips in place and re-place the brackets, without
+    // rebuilding the tray under the moving mouse.
+    _traySweepPaint() {
+        const body = document.getElementById('hardware-dock-body');
+        if (!body) return;
+        const sw = this._traySweep;
+        body.querySelectorAll('.hw-dock-chip-sel')
+            .forEach(t => t.classList.remove('hw-dock-chip-sel'));
+        if (sw && sw.sockets.length) {
+            const grid = body.querySelector(
+                `.hw-dock-grid[data-lrd-snake-owner="${sw.ownerKind}:${sw.ownerId}"]`);
+            if (grid) {
+                grid.querySelectorAll(':scope > .lrd-tile').forEach(t => {
+                    const n = parseInt((t.dataset.lrdTile || '').split('-').pop(), 10);
+                    if (sw.sockets.includes(n)) t.classList.add('hw-dock-chip-sel');
+                });
+            }
+        }
+        this._dockPlaceSnakeBrackets(body);
+    }
+
+    _traySweepClear(paint = true) {
+        if (!this._traySweep) return;
+        this._traySweep = null;
+        this._traySweepDisarmKeys();
+        if (paint) this._traySweepPaint();
+    }
+
+    _traySweepArmKeys() {
+        if (this._traySweepKeyHandler) return;
+        this._traySweepKeyHandler = (e) => {
+            if (!this._traySweep) return;
+            const a = document.activeElement;
+            const typing = a && (a.tagName === 'INPUT'
+                || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT');
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                this._traySweepClear();
+                return;
+            }
+            if (e.key === 'Enter' && e.altKey && !typing) {
+                e.preventDefault();
+                e.stopPropagation();
+                this._traySweepSnake();
+            }
+        };
+        // A plain press anywhere but on a lit chip or the menu drops the
+        // selection - the canvas sweep's own rule.
+        this._traySweepDownHandler = (e) => {
+            if (!this._traySweep || e.button !== 0 || e.altKey) return;
+            const t = e.target;
+            if (t && t.closest && (t.closest('#context-menu')
+                    || t.closest('.hw-dock-chip-sel'))) return;
+            this._traySweepClear();
+        };
+        document.addEventListener('keydown', this._traySweepKeyHandler, true);
+        document.addEventListener('mousedown', this._traySweepDownHandler, true);
+    }
+
+    _traySweepDisarmKeys() {
+        if (this._traySweepKeyHandler) {
+            document.removeEventListener('keydown', this._traySweepKeyHandler, true);
+            this._traySweepKeyHandler = null;
+        }
+        if (this._traySweepDownHandler) {
+            document.removeEventListener('mousedown', this._traySweepDownHandler, true);
+            this._traySweepDownHandler = null;
+        }
+    }
+
+    // Form the snake from the parked selection: ONE 'Snake Ports' entry;
+    // resolves to the new snake's id.
+    _traySweepSnake() {
+        const sw = this._traySweep;
+        if (!sw || !sw.sockets.length) return Promise.resolve(null);
+        const owner = this._dataCableOwner(sw.ownerKind, sw.ownerId);
+        const sockets = sw.sockets.slice();
+        this._traySweepClear(false);
+        if (!owner) return Promise.resolve(null);
+        sendClientLog('data_snake_ports', { owner: sw.ownerId, sockets });
+        return this.snakePorts(owner, sockets).then(id => {
+            if (window.canvasRenderer) window.canvasRenderer.render();
+            return id;
+        });
+    }
+
+    // Open the owner's sheet and land focus on one of its fields (a
+    // snake's ft or name) - the prompt-free "Set home run…" / "Rename".
+    _dataCableFocusField(owner, key) {
+        this._setDataCableSheetOpen(owner, true);
+        this.renderHardwareDock();
+        const el = document.querySelector(`[data-lrd-field="${key}"]`);
+        if (!el) return;
+        this._dockRevealSections(el);
+        el.focus();
+        if (typeof el.select === 'function') el.select();
+    }
+
+    // The context menu's snake entries. Armed on a lit chip (the sweep's
+    // selection), on a snake's tag, or on a chip that rides a snake -
+    // each entry names its own deal and runs through the model's one-PUT
+    // writes. Null everywhere else.
+    _prepareSnakeMenu(x, y) {
+        const el = document.elementFromPoint(x, y);
+        if (!el || !el.closest || !el.closest('#hardware-dock')) return null;
+        const bracket = el.closest('.hw-dock-snake[data-lrd-snake-id]');
+        const chip = el.closest('[data-hwdock^="port-"]');
+        const sw = this._traySweep;
+        const entries = [];
+        const snakeEntries = (owner, snake) => {
+            const name = snake.name || 'snake';
+            entries.push({
+                label: `Rename ${name}`,
+                title: 'Open the sheet on the snake’s name.',
+                run: () => this._dataCableFocusField(owner,
+                    `data-snake-name-${owner.id}-${snake.id}`),
+            });
+            entries.push({
+                label: `Set home run of ${name}…`,
+                title: 'Open the sheet on the snake’s length.',
+                run: () => this._dataCableFocusField(owner,
+                    `data-snake-ft-${owner.id}-${snake.id}`),
+            });
+            entries.push({
+                label: `Loosen ${name}`,
+                title: `Take every port out of ${name}; the ports stay `
+                    + 'where they are. One undo step.',
+                run: () => {
+                    sendClientLog('data_loosen_snake',
+                                  { owner: owner.id, snake: snake.id });
+                    this._traySweepClear(false);
+                    this.loosenPorts(owner, null, snake.id).then(() => {
+                        if (window.canvasRenderer) window.canvasRenderer.render();
+                    });
+                },
+            });
+        };
+        if (bracket) {
+            const [kind, id] = bracket.dataset.lrdSnakeOwner.split(':');
+            const owner = this._dataCableOwner(kind, id);
+            const snake = owner && (owner.rec.snakes || [])
+                .find(s => s.id === bracket.dataset.lrdSnakeId);
+            if (!snake) return null;
+            snakeEntries(owner, snake);
+            return { entries };
+        }
+        if (!chip) return null;
+        const at = this._traySweepOwnerOf(chip);
+        const payload = this._dockChipPayload(chip);
+        if (!at || !payload) return null;
+        const owner = this._dataCableOwner(at.kind, at.id);
+        if (!owner) return null;
+        const socket = parseInt(payload.port, 10);
+        const lit = sw && sw.ownerKind === at.kind && sw.ownerId === at.id
+            && sw.sockets.includes(socket) ? sw.sockets.slice() : null;
+        if (lit) {
+            const n = lit.length;
+            const inside = lit.map(m => this.dataPortSnake(owner, m));
+            const oneSnake = inside[0] && inside.every(
+                s => s && s.id === inside[0].id);
+            const whole = oneSnake && inside[0].ports.length === n;
+            if (!whole) {
+                entries.push({
+                    label: `Snake these ${n}`,
+                    shortcut: 'Alt+Enter',
+                    title: `Form one snake of the ${n} lit ports - one `
+                        + 'name, one home run. Alt+Enter does the same. '
+                        + 'One undo step.',
+                    run: () => this._traySweepSnake(),
+                });
+            }
+            entries.push({
+                label: 'Set home run…',
+                title: whole
+                    ? 'Open the sheet on the snake’s length.'
+                    : 'Snake the lit ports, then open the sheet on the '
+                        + 'new snake’s length.',
+                run: () => {
+                    if (whole) {
+                        this._traySweepClear(false);
+                        this._dataCableFocusField(owner,
+                            `data-snake-ft-${owner.id}-${inside[0].id}`);
+                        return;
+                    }
+                    this._traySweepSnake().then(id => {
+                        if (!id) return;
+                        this._dataCableFocusField(owner,
+                            `data-snake-ft-${owner.id}-${id}`);
+                    });
+                },
+            });
+            if (inside.some(Boolean)) {
+                entries.push({
+                    label: n === 1 ? 'Loosen' : `Loosen these ${n}`,
+                    title: 'Take the lit ports out of their snakes; the '
+                        + 'ports stay where they are. One undo step.',
+                    run: () => {
+                        this._traySweepClear(false);
+                        this.loosenPorts(owner, lit).then(() => {
+                            if (window.canvasRenderer) window.canvasRenderer.render();
+                        });
+                    },
+                });
+            }
+            return { entries, scope: 'selection' };
+        }
+        const snake = this.dataPortSnake(owner, socket);
+        if (!snake) return null;
+        snakeEntries(owner, snake);
+        return { entries };
+    }
+
     // The box's type chip: the connector's face and plain name in the
     // plug chips' machined-tab register. `editable` (a box with no
     // members) makes it a button whose click cycles through the types the
@@ -2722,6 +3516,14 @@ class _HardwareDock {
                 return;
             }
             e.preventDefault();
+            // Alt+press on a port chip ARMS the tray sweep - the gesture
+            // the canvas 2fer taught, transposed ("B to form it",
+            // 2026-09-06) - never a drag: dragging is placement, and a
+            // snake moves nothing, it only names the run the ports share.
+            if (e.altKey && payload.type === 'port') {
+                this._traySweepStart(e, payload, el);
+                return;
+            }
             this._dockArmDrag(e, payload, el);
         });
     }

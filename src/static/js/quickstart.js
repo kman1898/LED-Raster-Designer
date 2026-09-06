@@ -123,7 +123,7 @@
         { target: '#hw-dock-data-controls', place: 'bottom', title: 'The hardware tray',
           body: 'Pick a model, press <b>Add</b>, and the processor&rsquo;s cards, boxes and ports appear below. Drag a <b>port</b> onto a run to place it, a whole <b>card</b> or <b>box</b> onto a screen to fill in order, or drag back to the tray to release.' },
         { target: '#hardware-dock-body', place: 'top', title: 'Headers name their thing',
-          body: 'Every card, box and port names itself inline: name a card <b>SR</b> and its ports read SR-1, SR-2. A port&rsquo;s chip is also its editor &mdash; click to rename that one port, and its return name derives from it (P1-1 &rarr; R1-1).' },
+          body: 'Every card, box and port names itself inline: name a card <b>SR</b> and its ports read SR-1, SR-2. A port&rsquo;s chip is also its editor &mdash; click to rename that one port, and its return name derives from it (P1-1 &rarr; R1-1). Hold <b>Alt</b> and drag across port chips, then right-click to <b>snake</b> them into one home run; the header&rsquo;s <b>&#8801;</b> opens a cable sheet for snake names, home runs and each loose port&rsquo;s length.' },
         { target: '#hardware-dock-body .hw-dock-gear', place: 'top', title: 'The &#9881; popover',
           body: 'Each header&rsquo;s <b>&#9881;</b> holds its configuration: label and return templates, card slots and breakout boxes. <b>Redundancy</b> is one bar behind the <b>processor&rsquo;s</b> &#9881;.' },
         { target: '#hardware-dock-body .hw-dock-gear', place: 'top', title: 'Redundancy, one bar',

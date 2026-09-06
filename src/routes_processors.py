@@ -86,6 +86,38 @@ def _resolved_card(card_id):
     return None
 
 
+def _port_numbers(card_id, cvt_id=None):
+    """The sockets a card (or one of its boxes) resolves to right now -
+    the range a snake or a port cable may name. Read off the resolved tree,
+    never re-derived: a box's count is the trunk cap's answer, and a card's
+    is its mode's."""
+    rcard = _resolved_card(card_id) or {}
+    if cvt_id is None:
+        return [p['number'] for p in rcard.get('ports') or []]
+    for box in rcard.get('cvts') or []:
+        if box.get('id') == cvt_id:
+            return [p['number'] for p in box.get('ports') or []]
+    return []
+
+
+def _take_cable_store(node, data, card_id, cvt_id=None):
+    """Store a PUT's snakes / portCables on a card or box, or say why not.
+
+    Validated, not allow-listed (the redundancy fields' rule): a socket the
+    device does not have, a port in two snakes, a bad length or connector
+    refuses the whole body with the reason and stores nothing.
+    """
+    if 'snakes' not in data and 'portCables' not in data:
+        return None
+    ports = _port_numbers(card_id, cvt_id)
+    why = catalog.check_cable_store(data, ports,
+                                    'box' if cvt_id else 'card')
+    if why:
+        return why
+    catalog.apply_cable_store(node, data, ports, _next_seq)
+    return None
+
+
 def _prune_backup_refs(removed_ids):
     """Drop redundancy links that name a card which is no longer there.
 
@@ -368,6 +400,7 @@ def _state(status=200):
         'processors': _processors(),
         'resolved': catalog.resolve_all(_processors()),
         'next_processor_seq': app.current_project.get('next_processor_seq'),
+        'dataCableConnectors': catalog.data_cable_connectors(),
     }), status
 
 
@@ -392,6 +425,10 @@ def get_processors():
     return jsonify({
         'processors': _processors(),
         'resolved': catalog.resolve_all(_processors()),
+        # The connectors a data cable can be typed as (catalog
+        # DATA_CABLE_CONNECTORS) - served, so the sheet's select and the
+        # server's refusals name the same list.
+        'dataCableConnectors': catalog.data_cable_connectors(),
     })
 
 
@@ -503,11 +540,25 @@ def update_card(processor_id, card_id):
         why = _set_backup_card(card, card_id, data.get('backupCardId') or '')
         if why:
             return jsonify({'error': why}), 400
+    # Data snakes and port home runs (2026-09-06): the card's own stores,
+    # validated against the sockets it resolves to, before anything else in
+    # the body is written - a refused cable leaves the name and mode alone.
+    why = _take_cable_store(card, data, card_id)
+    if why:
+        return jsonify({'error': why}), 400
     changed = _apply(card, data, ('name', 'portLabelTemplate',
                                   'returnLabelTemplate', 'mode'))
-    for key in ('redundancyMode', 'backupCardId'):
+    for key in ('redundancyMode', 'backupCardId', 'snakes', 'portCables'):
         if key in data:
             changed[key] = card.get(key)
+    if 'mode' in data:
+        # A mode can halve the card (H_4xfiber independent → copy/backup):
+        # snakes and cables on sockets that no longer exist go with them,
+        # and so do the boxes' - a box's span follows the card's count.
+        catalog.prune_cable_store(card, _port_numbers(card_id))
+        for cvt in card.get('cvts') or []:
+            catalog.prune_cable_store(
+                cvt, _port_numbers(card_id, cvt.get('id')))
     # A blank template is the ABSENCE of one, on either side. The primary
     # falls back to the built-in {name}-#, the return to the derived return
     # (derive_return_label) - rung two of its ladder stepping aside. Deleted rather than stored empty,
@@ -618,12 +669,22 @@ def update_cvt(processor_id, cvt_id):
     proc = _find_processor(processor_id)
     if not proc:
         return jsonify({'error': 'Processor not found'}), 404
-    _card, cvt = _find_cvt(proc, cvt_id)
+    card, cvt = _find_cvt(proc, cvt_id)
     if not cvt:
         return jsonify({'error': 'Breakout box not found'}), 404
     data = request.json or {}
+    # The box's snakes and port home runs, against the sockets IT delivers
+    # (2026-09-06). Same door as the card's, same refusals.
+    why = _take_cable_store(cvt, data, card.get('id'), cvt_id)
+    if why:
+        return jsonify({'error': why}), 400
     changed = _apply(cvt, data, ('name', 'portLabelTemplate',
                                  'returnLabelTemplate', 'mode'))
+    for key in ('snakes', 'portCables'):
+        if key in data:
+            changed[key] = cvt.get(key)
+    if 'mode' in data:
+        catalog.prune_cable_store(cvt, _port_numbers(card.get('id'), cvt_id))
     # Same clearing rule as the card's, for the same reason: a blank hands
     # either template back to what it derives from, and stores nothing.
     for key in ('portLabelTemplate', 'returnLabelTemplate'):

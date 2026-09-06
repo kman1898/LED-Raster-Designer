@@ -18,7 +18,7 @@ window.WHATS_NEW_CONTENT = {
         title: 'The hardware dock, and power that matches the rack',
         items: [
             { h: 'Hardware lives in a dock',
-              d: 'Processors and power distros sit in a dock along the bottom of the window. Wire a screen by dragging it onto a device; ports and circuits are patched right on the dock, so there is one place to see the whole patch.' },
+              d: 'Processors and power distros sit in a dock along the bottom of the window. Wire a screen by dragging it onto a device; ports and circuits are patched right on the dock, so there is one place to see the whole patch. Alt-drag across port chips and right-click to snake them into one home run, or give a loose port its own length in the card’s cable sheet; a Show Cable Tags switch prints them beside the port labels.' },
             { h: 'A flag for unattached screens',
               d: 'While any screen still has unwired ports or circuits, the dock header shows a red flag with the count. Click it for a row per screen, and click a row to fly the view straight to it.' },
             { h: 'Redundancy, one bar and a pill',

@@ -2633,6 +2633,22 @@ class _ExportIo {
                     this._batchMenuActions.unshare.run();
                 }
                 break;
+            // The data snake entries (2026-09-06), armed at open time on
+            // the lit chips, a snake's tag or a snaked chip - re-checked
+            // here like every hw item.
+            case 'hw-snake-n0':
+            case 'hw-snake-n1':
+            case 'hw-snake-n2':
+            case 'hw-snake-n3': {
+                const i = parseInt(action.slice(-1), 10);
+                const en = this._snakeMenuActions
+                    && this._snakeMenuActions.entries
+                    && this._snakeMenuActions.entries[i];
+                if (en && !en.disabled && typeof en.run === 'function') {
+                    en.run();
+                }
+                break;
+            }
             // Per-run override, same doctrine as the clears above: armed at
             // open time on the run the cursor named, re-checked here.
             case 'ovr-redraw':
