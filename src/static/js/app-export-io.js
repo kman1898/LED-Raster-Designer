@@ -2552,6 +2552,10 @@ class _ExportIo {
             case 'export-psd':
                 this.openExportModal('psd');
                 break;
+            case 'pull-sheet':
+                // The in-app editor over the pull list (app-pull-sheet-editor.js).
+                this.openPullSheetEditor();
+                break;
             case 'export-pull-sheet':
                 this.openExportModal('pull-sheet');
                 break;

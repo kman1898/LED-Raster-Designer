@@ -27,7 +27,7 @@
 // is skipped - a screen with no circuits has no power page. A single
 // screen can be exported alone from the canvas's right-click menu.
 //
-// Every figure is read from buildPullList (app-pull-list.js) and the same
+// Every figure is read from buildPullSheet (app-pull-list.js) and the same
 // authorities the canvas reads; nothing is recomputed here.
 import { LEDRasterApp } from './app-core.js';
 import { sendClientLog } from './helpers.js';
@@ -279,7 +279,10 @@ class _Binder {
     // ---- the book -----------------------------------------------------------
 
     _binderBook(opts, run) {
-        const list = this.buildPullList();
+        // The edited list: the pull pages and the totals page print what
+        // the user's pull-sheet edits say; the per-screen readings
+        // (byScreen, hardware) are the show's own.
+        const list = this.buildPullSheet();
         const settings = list.settings || this.getPullSheetSettings();
         const layers = new Map((this.project.layers || []).map(l => [String(l.id), l]));
         const meta = {
