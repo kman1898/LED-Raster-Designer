@@ -32,7 +32,7 @@ window.WHATS_NEW_CONTENT = {
             { h: 'Every circuit carries its cable',
               d: 'The ≡ beside the chips flips them into a cable sheet - a length and connector per circuit, Tab walking the column, a count at the foot - and a chip wears its cable in its corner. Show Cable Tags, per screen and off by default, prints them beside the labels on the wall and in the export; Show 2fer / 3fer Tags drops the gang text and keeps the bracket.' },
             { h: 'Ports snake',
-              d: 'Hold Alt and sweep the port chips of one card or box, then right-click Snake these N - or tick them in the card’s cable sheet and press Snake. A snake reads as a blue bracket (SNAKE A · 6-way · 100’) under its ports, a loose port carries its own length, and the Data panel’s Show Cable Tags prints them on the wall.' }
+              d: 'Hold Alt and sweep the port chips of one card or box, then right-click Snake these N - or tick them in the card’s cable sheet and press Snake. A snake reads as a blue bracket (SNAKE A · 6-way · 100’) under its ports, a loose port carries its own length, a snaked port can carry an ext length for a shorter extension off the fan-out, and a backup port’s run is typed on the backup card’s or box’s own sheet and counted on the papers. The Data panel’s Show Cable Tags prints them on the wall.' }
         ]
     },
     '0.11': {

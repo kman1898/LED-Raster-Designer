@@ -526,22 +526,33 @@ def sync_next_processor_seq(project):
 # Sockets are the CARD-WIDE port numbers (port['number']) - the same key the
 # assignment, the chips and the port-name stores run on - so a box that
 # delivers the card's 1-8 again stores against 1-8 like the box before it,
-# each in its own record. A port is in at most one snake, and a port in a
-# snake has no own cable: its run is the snake's. ``connector`` null means
-# "follows the port" - the connector the catalog documents for the device
-# the port comes out of (data_port_connector), and NOTHING where the catalog
-# is silent: a reading that guessed copper for an undocumented box would be
-# a hardware assumption, so it prints the length alone instead. A snake's
-# way count is whatever was put in it - no 4/6/12-way shapes are assumed.
+# each in its own record. A port is in at most one snake. A port in a snake
+# rides the snake's home run; its own ``portCables`` entry, where it has
+# one, is the EXTENSION from the snake's fan-out to that panel - "when i
+# use a snake i need to be able to add a secondary cable length incase i
+# need an extension" (2026-09-07) - the same shape as power's per-circuit
+# cable under a multi. ``connector`` null means "follows the port" - the
+# connector the catalog documents for the device the port comes out of
+# (data_port_connector), and NOTHING where the catalog is silent: a
+# reading that guessed copper for an undocumented box would be a hardware
+# assumption, so it prints the length alone instead. A snake's way count
+# is whatever was put in it - no 4/6/12-way shapes are assumed.
+#
+# Fiber is NOT a port's or a snake's connector: "panels dont take fiber.
+# what would take fiber is processor to breakout box" (2026-09-07). The
+# fiber trunk lives on the breakout box (cvt.fiberType / fiberFt), and the
+# list here is copper only. A file saved with a 'fiber' pick on a port or
+# a snake reads as "follows the port" (resolved_cable_store).
 
 DATA_CABLE_CONNECTORS = (
     {'id': 'cat', 'name': 'CAT'},
-    {'id': 'fiber', 'name': 'Fiber'},
 )
 
 # The catalog's connector words, mapped to the cable connector they imply.
-# Only documented kinds map: 'rj45' is copper, 'fiber' is fiber.
-_PORT_KIND_CONNECTOR = {'rj45': 'cat', 'fiber': 'fiber'}
+# Only documented copper maps: 'rj45' is CAT. A fiber-kind card's loose
+# ports follow nothing - the plug on a panel lead off a fiber card is not
+# documented, so no plug is guessed.
+_PORT_KIND_CONNECTOR = {'rj45': 'cat'}
 
 SNAKE_NAME_PREFIX = 'SNAKE '
 
@@ -691,9 +702,11 @@ def apply_cable_store(node, data, port_numbers, next_seq):
     Normalises as it stores: sockets sorted and unique per snake, an empty
     snake dropped, a missing id minted off the processor counter (``snk<N>``
     - one counter, so undo cannot resurrect a collision), a blank name given
-    the first free default letter (typed names win), a port in a snake
-    stripped of any own cable. Either key alone is a valid PUT; the other
-    store is left as it was and re-pruned against the result.
+    the first free default letter (typed names win). A ``portCables`` entry
+    on a snaked socket is KEPT: it is that socket's extension from the
+    snake's fan-out (the module comment above). Either key alone is a
+    valid PUT; the other store is left as it was and re-pruned against the
+    result.
     """
     if 'snakes' in data:
         out = []
@@ -752,8 +765,9 @@ def apply_cable_store(node, data, port_numbers, next_seq):
 
 def prune_cable_store(node, port_numbers):
     """Drop what the device no longer has: sockets past its port range (a
-    card whose mode halved it, a box whose trunk cap shrank it), the empty
-    snakes that leaves, and any own cable on a snaked socket. Keys vanish
+    card whose mode halved it, a box whose trunk cap shrank it) and the
+    empty snakes that leaves. A cable on a snaked socket stays - it is the
+    socket's extension off the snake, not a second home run. Keys vanish
     when nothing is left, so a plain card stays a plain card in the file.
     """
     allowed = set(int(n) for n in port_numbers)
@@ -777,7 +791,7 @@ def prune_cable_store(node, port_numbers):
             n = int(key)
         except (TypeError, ValueError):
             continue
-        if n not in allowed or n in snaked or not rec:
+        if n not in allowed or not rec:
             continue
         cables[str(n)] = rec
     if cables:
@@ -789,21 +803,30 @@ def prune_cable_store(node, port_numbers):
 def resolved_cable_store(node):
     """The two stores as the panel reads them: always present (empty when
     absent) so no reader has to guard the key, ports as ints, keys as
-    strings - the JSON shape either way."""
+    strings - the JSON shape either way. A stored connector the list no
+    longer offers (a 'fiber' pick from before 2026-09-07) reads as None -
+    "follows the port" - so an old file opens without a plug the sheet
+    cannot show."""
+    ids = set(data_cable_connector_ids())
+
+    def _conn(rec):
+        conn = (rec or {}).get('connector') or None
+        return conn if conn in ids else None
+
     snakes = []
     for snake in node.get('snakes') or []:
         snakes.append({
             'id': snake.get('id'),
             'name': snake.get('name') or '',
             'ft': snake.get('ft'),
-            'connector': snake.get('connector') or None,
+            'connector': _conn(snake),
             'ports': [int(p) for p in (snake.get('ports') or [])],
         })
     cables = {}
     for key, rec in (node.get('portCables') or {}).items():
         cables[str(key)] = {
             'ft': (rec or {}).get('ft'),
-            'connector': (rec or {}).get('connector') or None,
+            'connector': _conn(rec),
         }
     return snakes, cables
 

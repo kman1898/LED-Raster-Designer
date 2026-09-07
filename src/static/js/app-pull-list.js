@@ -20,7 +20,15 @@
 //   * data: `Ether-con` + length for a loose CAT port cable, one
 //     `Ether-con Snake` row per snake (qty 1, "6-way" in Notes - snakes of
 //     different way counts are never merged), lengths as the snake's ONE
-//     home run.
+//     home run. A snaked port's EXTENSION (the shorter cable from the
+//     snake's fan-out to the panel, 2026-09-07) is one `Ether-con` +
+//     length row under the port's label with "ext · <snake>" in Notes.
+//   * the BACKUP end of a port (the socket its return comes back on -
+//     backedBy, the card's 1:1 partner or the box's) is walked exactly like
+//     the primary: its snake said once, its cable or extension as a row
+//     under the RETURN label ("SR-1R"), its box's fiber said once. "i have
+//     no way of putting lengths for redundancy cables" (2026-09-07) - the
+//     length is typed on the backup card's or box's own ≡ sheet.
 //   * JUMPERS: side-by-side cabinets link directly; each time a run steps
 //     to another ROW a long jumper is needed - one per row step within a
 //     run, counted per port (data) and per circuit (power). Names and
@@ -154,10 +162,11 @@ class _PullList {
     }
 
     // The sheet's word for a data connector id, or null where the catalog
-    // is silent (no plug is guessed).
+    // is silent (no plug is guessed). Copper only: a port's or a snake's
+    // plug is never fiber - fiber is a breakout box's trunk row
+    // (pullBoxFiberText), processor to box.
     pullDataConnectorWord(connectorId) {
         if (connectorId === 'cat') return 'Ether-con';
-        if (connectorId === 'fiber') return 'Fiber';
         return null;
     }
 
@@ -353,6 +362,19 @@ class _PullList {
         return runs;
     }
 
+    // The socket a card port's return comes back on - { cardId, port, ... }
+    // as processor_catalog link() wrote it onto the resolved port - or null
+    // for a port nothing backs. Read off the resolved tree, never worked
+    // out here: which socket backs which is the server's one answer.
+    _pullBackedBy(cardId, socket) {
+        const found = (typeof this._dockFindCard === 'function') ? this._dockFindCard(cardId) : null;
+        if (!found) return null;
+        const n = parseInt(socket, 10);
+        const port = (found.card.ports || []).find(p => p.number === n);
+        const bb = port && port.backedBy;
+        return bb && bb.cardId && bb.port != null ? bb : null;
+    }
+
     // ---- the list ----------------------------------------------------------
 
     // The one authority. Shape:
@@ -522,63 +544,89 @@ class _PullList {
                 out.jumpers.power, layer.name);
         }
 
-        // ---- data: port cables, snakes, jumpers ----
+        // ---- data: port cables, snakes, extensions, backups, jumpers ----
         side = 'data';
         const asg = ((this._assignment && this._assignment.screens) || [])
             .find(s => String(s.layerId) === String(layer.id));
-        for (const run of this._pullPortRuns(layer)) {
-            out.jumpers.data += this._pullRowSteps(run.panels, run.layers);
-            const cable = (typeof this.dataPortCableForScreen === 'function')
-                ? this.dataPortCableForScreen(layer, run.num) : null;
-            const port = { num: run.num, label: run.label, cable: null, snake: null, box: null };
-            out.ports.push(port);
-            // The breakout box delivering this port, if one does: its fiber
-            // trunk is one row - the fiber's type (or "Fiber"), its length,
-            // the box's title - said once however many ports ride it. A box
-            // without a length has no row; the binder's band says so.
-            const placed = asg && (asg.ports || []).find(p => p.number === run.num);
-            const owner = placed && placed.cardId && typeof this._dataPortOwner === 'function'
-                ? this._dataPortOwner(placed.cardId, placed.port) : null;
-            if (owner && owner.kind === 'cvt') {
+        // One socket's share of the paper - the primary end and the backup
+        // end are walked by the same hand, so nothing the backup carries
+        // is said differently. In order: the breakout box delivering the
+        // socket, if one does - its fiber trunk is one row (the fiber's
+        // type or "Fiber", its length, the box's title) said once however
+        // many ports ride it, and a box without a length has no row (the
+        // binder's band says so); then the socket's run - a snake said
+        // once, a loose cable as one `Ether-con 50'` row under `label`;
+        // then, on a snaked socket, its EXTENSION as one `Ether-con 25'`
+        // row under the same label with "ext · <snake>" in Notes. Every
+        // row is pushed to the processor's hardware rows too. `into` is
+        // the port entry (or its .backup) that records what was read.
+        const walk = (cardId, socket, label, into) => {
+            const owner = cardId != null && socket != null && typeof this._dataPortOwner === 'function'
+                ? this._dataPortOwner(cardId, socket) : null;
+            if (!owner) return;
+            const proc = (this.project.processors || []).find(p => p.id === owner.procId) || null;
+            const procName = proc ? (proc.name || proc.deviceName || proc.id) : '';
+            const push = (r) => { if (proc) hw('processor', proc.id, procName).rows.push({ ...r }); };
+            if (owner.kind === 'cvt') {
                 const box = owner.rec;
-                port.box = this.pullBoxTitle(box);
+                into.box = this.pullBoxTitle(box);
                 const fiberText = this.pullBoxFiberText(box);
                 if (fiberText && !fiberSeen.has(box.id)) {
                     fiberSeen.add(box.id);
-                    const proc = (this.project.processors || []).find(p => p.id === owner.procId) || null;
-                    const r = row((box.fiberType || '').trim() || 'Fiber',
-                                  this.pullLengthText(box.fiberFt), 1, port.box);
-                    if (proc) hw('processor', proc.id, proc.name || proc.deviceName || proc.id).rows.push({ ...r });
+                    push(row((box.fiberType || '').trim() || 'Fiber',
+                             this.pullLengthText(box.fiberFt), 1, into.box));
                 }
             }
-            if (!cable) continue;
-            const proc = cable.owner
-                ? ((this.project.processors || []).find(p => p.id === cable.owner.procId) || null)
-                : null;
-            const procName = proc ? (proc.name || proc.deviceName || proc.id) : '';
+            const cable = this._dataPortCableOn(owner, socket);
+            if (!cable) return;
             if (cable.kind === 'snake') {
                 const s = cable.snake;
-                const connId = this.dataPortConnectorId(cable.owner, s.connector);
+                const connId = this.dataPortConnectorId(owner, s.connector);
                 const word = this.pullDataConnectorWord(connId);
                 const ways = (s.ports || []).length;
-                const snakeKey = `${cable.owner.kind}:${cable.owner.id}:${s.id}`;
-                port.snake = s.name || '';
-                if (snakesSeen.has(snakeKey)) continue;
+                into.snake = s.name || '';
+                if (cable.ext != null) {
+                    into.ext = cable.ext;
+                    const extWord = this.pullDataConnectorWord(
+                        this.dataPortConnectorId(owner, cable.extConnector));
+                    push(row(extWord || 'Data Cable', this.pullLengthText(cable.ext), 1, label,
+                             `ext · ${s.name || 'snake'}`));
+                }
+                const snakeKey = `${owner.kind}:${owner.id}:${s.id}`;
+                if (snakesSeen.has(snakeKey)) return;
                 snakesSeen.add(snakeKey);
                 out.snakes.push({ name: s.name || '', ways, ft: s.ft || null,
-                                  connector: connId || null, owner: cable.owner.kind,
-                                  ownerId: cable.owner.id });
+                                  connector: connId || null, owner: owner.kind,
+                                  ownerId: owner.id });
                 const type = word ? `${word} Snake` : 'Snake';
                 const ft = Number(s.ft);
-                const r = row(type, this.pullLengthText(ft), 1, s.name || '',
-                              [`${ways}-way`, (Number.isFinite(ft) && ft > 0) ? '' : 'no length']
-                                  .filter(Boolean).join('; '));
-                if (proc) hw('processor', proc.id, procName).rows.push({ ...r });
+                push(row(type, this.pullLengthText(ft), 1, s.name || '',
+                         [`${ways}-way`, (Number.isFinite(ft) && ft > 0) ? '' : 'no length']
+                             .filter(Boolean).join('; ')));
             } else {
                 const word = this.pullDataConnectorWord(cable.id);
-                port.cable = cable.text;
-                const r = row(word || 'Data Cable', this.pullLengthText(cable.ft), 1, run.label);
-                if (proc) hw('processor', proc.id, procName).rows.push({ ...r });
+                into.cable = cable.text;
+                push(row(word || 'Data Cable', this.pullLengthText(cable.ft), 1, label));
+            }
+        };
+        for (const run of this._pullPortRuns(layer)) {
+            out.jumpers.data += this._pullRowSteps(run.panels, run.layers);
+            const port = { num: run.num, label: run.label, cable: null, snake: null,
+                           ext: null, box: null, backup: null };
+            out.ports.push(port);
+            const placed = asg && (asg.ports || []).find(p => p.number === run.num);
+            if (!placed || !placed.cardId || placed.port == null) continue;
+            walk(placed.cardId, placed.port, run.label, port);
+            // The backup end: the socket this port's return comes back on
+            // (backedBy on the resolved card port - processor_catalog
+            // link()), read off ITS card or box exactly like the primary,
+            // under the return label.
+            const bb = this._pullBackedBy(placed.cardId, placed.port);
+            if (bb) {
+                const label = (typeof this.getPortLabelText === 'function')
+                    ? this.getPortLabelText(layer, run.num, 'return') : `${run.label}R`;
+                port.backup = { label, cable: null, snake: null, ext: null, box: null };
+                walk(bb.cardId, bb.port, label, port.backup);
             }
         }
         if (out.jumpers.data > 0) {

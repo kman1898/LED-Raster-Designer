@@ -417,6 +417,152 @@ def test_the_per_screen_readings_the_packet_will_print(page):
                          ('Ether-con Snake', "100'", 1, 'SNAKE A', '2-way')]
 
 
+def test_a_snaked_ports_extension_is_an_ether_con_row_with_notes(page):
+    """"when i use a snake i need to be able to add a secondary cable
+    length incase i need an extension" (2026-09-07): 25' on WALL-A's
+    socket (it rides SNAKE A) is one `Ether-con 25'` row in SR Beach under
+    WALL-A's port label with "ext · SNAKE A" in Notes - beside the snake's
+    own row, never folded into it - the same row on the processor's
+    hardware rows, and byScreen's port carries ext: 25."""
+    pg, ids = page
+    out = pg.evaluate("""async (ids) => {
+        const app = window.app;
+        const j = (method, url, body) => fetch(url, {method,
+            headers: {'Content-Type': 'application/json'},
+            body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
+        const url = `/api/processors/${ids.procId}/cards/${ids.cardId}`;
+        const centerSock = String(ids.sockets['CENTER'][0]);
+        const aSock = String(ids.sockets['WALL-A'][0]);
+        const rebuild = async () => {
+            await app.refreshProcessors();
+            await app.refreshPortAssignment();
+            app._circuitTailCache = null;
+            return JSON.parse(JSON.stringify(app.buildPullList()));
+        };
+        await j('PUT', url, {portCables: {[centerSock]: {ft: 50}, [aSock]: {ft: 25}}});
+        const list = await rebuild();
+        await j('PUT', url, {portCables: {[centerSock]: {ft: 50}}});
+        const after = await rebuild();
+        return {
+            aLabel: app.getPortLabelText(app.project.layers.find(l => l.id === ids.a), 1, 'primary'),
+            sr: list.positions[0].rows.filter(r => r.side === 'data' && !/Jump/.test(r.type)),
+            port: list.byScreen[String(ids.a)].ports[0],
+            hw: list.hardware.filter(h => h.kind === 'processor').map(h => h.rows),
+            totals: list.totals.filter(r => r.type === 'Ether-con'),
+            after: after.positions[0].rows.filter(r => r.side === 'data' && !/Jump/.test(r.type)),
+        };
+    }""", ids)
+    assert _rows(out['sr']) == [
+        ('Ether-con', "25'", 1, out['aLabel'], 'ext · SNAKE A'),
+        ('Ether-con Snake', "100'", 1, 'SNAKE A', '2-way')], out['sr']
+    assert (out['port']['snake'], out['port']['ext'], out['port']['cable']) == ('SNAKE A', 25, None), out['port']
+    assert ('Ether-con', "25'", 1, out['aLabel'], 'ext · SNAKE A') in _rows(out['hw'][0]), out['hw']
+    assert [(r['length'], r['qty']) for r in out['totals']] == [("25'", 1), ("50'", 1)], out['totals']
+    assert _rows(out['after']) == [('Ether-con Snake', "100'", 1, 'SNAKE A', '2-way')]
+
+
+def test_a_backup_end_is_walked_like_the_primary_under_the_return_label(page):
+    """"so i have no way of putting lengths for redundancy cables..."
+    (2026-09-07). Card SR backed 1:1 by a second card BK whose own ≡ sheet
+    types a snake SR Backup 150' over the sockets WALL-A's and WALL-B's
+    returns land on, a 60' cable on the socket CENTER's return lands on,
+    and a 10' extension on WALL-A's return socket: SR Beach gets the
+    backup snake said once and the extension under WALL-A's RETURN label
+    (BK-1 - the backup socket's own, as link() derives it off the named
+    card), CENTER gets `Ether-con 60'` under its return label (BK-3), the
+    processor's hardware rows carry all of it, and byScreen's port.backup
+    records what was read. Unlinked, none of it is listed."""
+    pg, ids = page
+    out = pg.evaluate("""async (ids) => {
+        const app = window.app;
+        const j = (method, url, body) => fetch(url, {method,
+            headers: {'Content-Type': 'application/json'},
+            body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
+        const rebuild = async () => {
+            await app.refreshProcessors();
+            await app.refreshPortAssignment();
+            app._circuitTailCache = null;
+            return JSON.parse(JSON.stringify(app.buildPullList()));
+        };
+        let st = await j('PUT', `/api/processors/${ids.procId}/slots/1`, {deviceId: 'novastar-card-h-16xrj45-2xfiber'});
+        const bkId = st.processors[0].slots[1].card.id;
+        await j('PUT', `/api/processors/${ids.procId}/cards/${bkId}`, {name: 'BK'});
+        await j('PUT', `/api/processors/${ids.procId}`, {redundancy: true});
+        await j('PUT', `/api/processors/${ids.procId}/cards/${ids.cardId}`, {backupCardId: bkId});
+        const aSock = ids.sockets['WALL-A'][0], bSock = ids.sockets['WALL-B'][0], cSock = ids.sockets['CENTER'][0];
+        await app.refreshProcessors();
+        // the socket each return lands on, as the server linked it
+        const bb = (sock) => app._pullBackedBy(ids.cardId, sock);
+        const backed = {a: bb(aSock), b: bb(bSock), c: bb(cSock)};
+        await j('PUT', `/api/processors/${ids.procId}/cards/${bkId}`, {
+            snakes: [{ports: [backed.a.port, backed.b.port], ft: 150, name: 'SR Backup'}],
+            portCables: {[String(backed.c.port)]: {ft: 60}, [String(backed.a.port)]: {ft: 10}},
+        });
+        const list = await rebuild();
+        const layer = (id) => app.project.layers.find(l => l.id === id);
+        const labels = {
+            a: app.getPortLabelText(layer(ids.a), 1, 'return'),
+            c: app.getPortLabelText(layer(ids.c), 1, 'return'),
+        };
+        // the workbook: the route lays the list out as it is, so the
+        // backup rows land in their position's block (TOTALS sums the blocks)
+        const resp = await fetch('/api/export/pull-sheet', {method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({pull_list: list, project_name: 'Backup Show', engineer: '', rev: '1.0', date: '', date_iso: ''})});
+        const bytes = new Uint8Array(await resp.arrayBuffer());
+        let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+        const b64 = btoa(bin), status = resp.status;
+        await j('PUT', `/api/processors/${ids.procId}/cards/${ids.cardId}`, {backupCardId: null});
+        await j('PUT', `/api/processors/${ids.procId}`, {redundancy: false});
+        await j('PUT', `/api/processors/${ids.procId}/cards/${bkId}`, {snakes: [], portCables: {}});
+        const after = await rebuild();
+        const data = (l) => l.positions.map(p => [p.name, p.rows.filter(r => r.side === 'data' && !/Jump/.test(r.type))]);
+        return {
+            backed: [backed.a && backed.a.cardId === bkId, backed.b && backed.b.cardId === bkId, backed.c && backed.c.cardId === bkId],
+            labels, sr: data(list)[0][1], center: data(list)[1][1],
+            aPort: list.byScreen[String(ids.a)].ports[0],
+            bPort: list.byScreen[String(ids.b)].ports[0],
+            cPort: list.byScreen[String(ids.c)].ports[0],
+            hw: list.hardware.filter(h => h.kind === 'processor').map(h => h.rows)[0],
+            totals: list.totals.filter(r => /Ether-con/.test(r.type)).map(r => [r.type, r.length, r.qty]),
+            after: data(after), b64, status,
+        };
+    }""", ids)
+    assert out['backed'] == [True, True, True], out['backed']
+    assert out['status'] == 200
+    import base64
+    wb = openpyxl.load_workbook(io.BytesIO(base64.b64decode(out['b64'])))
+    ws = wb['Pull Sheet']
+    col = pull_sheet.BLOCK_COLS[0]
+    block = [tuple(ws.cell(r, col + i).value for i in range(5)) for r in range(7, 30)]
+    assert ('Ether-con Snake', "150'", 1, 'SR Backup', '2-way') in block, block
+    assert ('Ether-con', "10'", 1, out['labels']['a'], 'ext · SR Backup') in block, block
+    col = pull_sheet.BLOCK_COLS[1]
+    block = [tuple(ws.cell(r, col + i).value for i in range(5)) for r in range(7, 30)]
+    assert ('Ether-con', "60'", 1, out['labels']['c'], None) in block, block
+    # the return label is the backup socket's own (BK-1 - link() replaces
+    # a derived "...R" with the mapped port's label when the card is named)
+    la, lc = out['labels']['a'], out['labels']['c']
+    assert (la, lc) == ('BK-1', 'BK-3'), out['labels']
+    assert _rows(out['sr']) == [
+        ('Ether-con', "10'", 1, la, 'ext · SR Backup'),
+        ('Ether-con Snake', "100'", 1, 'SNAKE A', '2-way'),
+        ('Ether-con Snake', "150'", 1, 'SR Backup', '2-way')], out['sr']
+    assert _rows(out['center']) == [
+        ('Ether-con', "50'", 1, ids['centerPortLabel'], ''),
+        ('Ether-con', "60'", 1, lc, '')], out['center']
+    assert out['aPort']['backup'] == {'label': la, 'cable': None, 'snake': 'SR Backup', 'ext': 10, 'box': None}
+    assert out['bPort']['backup']['snake'] == 'SR Backup' and out['bPort']['backup']['ext'] is None
+    assert out['cPort']['backup'] == {'label': lc, 'cable': "60' CAT", 'snake': None, 'ext': None, 'box': None}
+    hw = _rows(out['hw'])
+    for want in (('Ether-con', "10'", 1, la, 'ext · SR Backup'), ('Ether-con', "60'", 1, lc, ''),
+                 ('Ether-con Snake', "150'", 1, 'SR Backup', '2-way')):
+        assert want in hw, (want, hw)
+    assert out['totals'] == [['Ether-con', "10'", 1], ['Ether-con', "50'", 1], ['Ether-con', "60'", 1],
+                             ['Ether-con Snake', "100'", 1], ['Ether-con Snake', "150'", 1]], out['totals']
+    assert out['after'] == [['SR Beach', [{'type': 'Ether-con Snake', 'length': "100'", 'qty': 1, 'label': 'SNAKE A', 'notes': '2-way', 'side': 'data'}]],
+                            ['CENTER', [{'type': 'Ether-con', 'length': "50'", 'qty': 1, 'label': ids['centerPortLabel'], 'notes': '', 'side': 'data'}]]], out['after']
+
+
 def test_row_steps_horizontal_first_is_one_per_row_change_and_vertical_first_every_step(page):
     """One 4 x 3 screen on one circuit and one port: a horizontal-first
     serpentine changes row twice (3 rows) - 2 jumpers; a vertical-first

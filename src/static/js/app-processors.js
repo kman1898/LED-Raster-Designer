@@ -1240,9 +1240,12 @@ class _Processors {
     // resolved stores and sends whole stores back through one PUT per
     // gesture, so every commit is ONE history entry.
 
+    // Copper only: fiber is the breakout box's trunk (cvt.fiberType /
+    // fiberFt behind the box ⚙), never a port's or a snake's plug -
+    // "panels dont take fiber" (2026-09-07).
     getDataCableConnectors() {
         return (this._dataCableConnectors || [
-            { id: 'cat', name: 'CAT' }, { id: 'fiber', name: 'Fiber' },
+            { id: 'cat', name: 'CAT' },
         ]).map(c => ({ id: c.id, name: c.name }));
     }
 
@@ -1308,10 +1311,13 @@ class _Processors {
     }
 
     // What one socket's home run reads as: the snake it rides
-    // ({ kind: 'snake', snake, text: 'SNAKE A' }) or its own cable
-    // ({ kind: 'cable', ft, connector, id, name, text: "50' CAT" }), or
-    // null for a socket with neither. `text` is what the chip corner, the
-    // canvas tag and the paperwork print.
+    // ({ kind: 'snake', snake, owner, ext, extConnector, text: 'SNAKE A'
+    // or "SNAKE A +25'" }) or its own cable ({ kind: 'cable', ft,
+    // connector, id, name, text: "50' CAT" }), or null for a socket with
+    // neither. On a snaked socket `ext` is the EXTENSION from the snake's
+    // fan-out to the panel (rec.portCables on that socket - the same store
+    // a loose socket's home run lives in), null when none; `text` is what
+    // the chip corner, the canvas tag and the paperwork print.
     dataPortCable(cardId, socket) {
         const owner = this._dataPortOwner(cardId, socket);
         if (!owner) return null;
@@ -1320,18 +1326,42 @@ class _Processors {
 
     _dataPortCableOn(owner, socket) {
         const snake = this.dataPortSnake(owner, socket);
-        if (snake) {
-            return { kind: 'snake', snake, owner, text: snake.name || '' };
-        }
         const rec = (owner.rec.portCables || {})[String(socket)];
         const ft = rec ? Number(rec.ft) : NaN;
-        if (!rec || !Number.isFinite(ft) || ft <= 0) return null;
+        const hasFt = !!rec && Number.isFinite(ft) && ft > 0;
+        if (snake) {
+            const ext = hasFt ? ft : null;
+            const name = snake.name || '';
+            return {
+                kind: 'snake', snake, owner, ext,
+                extConnector: (rec && rec.connector) || null,
+                text: ext != null ? `${name} +${this.cableText(ext, '')}` : name,
+            };
+        }
+        if (!hasFt) return null;
         const id = this.dataPortConnectorId(owner, rec.connector);
         const name = this.dataCableConnectorName(id) || '';
         return {
             kind: 'cable', owner, ft, connector: rec.connector || null,
             id, name, text: this.cableText(ft, name),
         };
+    }
+
+    // One run as the papers say it, whole - the binder's home-run cell and
+    // the pull list share this: a snake reads "SR Primary 150'" (its name
+    // and its home run; "SR Primary · no length" without one), plus
+    // " +25'" when the socket carries an extension; a loose cable reads
+    // as its text ("50' CAT"); nothing reads '—'.
+    runText(cable) {
+        if (!cable) return '—';
+        if (cable.kind !== 'snake') return cable.text || '—';
+        const s = cable.snake || {};
+        const ft = Number(s.ft);
+        let text = (s.name || 'snake')
+            + (Number.isFinite(ft) && ft > 0
+                ? ` ${this.cableText(ft, '')}` : ' · no length');
+        if (cable.ext != null) text += ` +${this.cableText(cable.ext, '')}`;
+        return text;
     }
 
     // The same reading for one port of a screen, through the assignment:
@@ -1378,7 +1408,10 @@ class _Processors {
 
     // Snake these sockets: they leave any snake they were in and any own
     // cable they carried, and form one new snake (name defaulted server-
-    // side to the first free SNAKE letter). ONE 'Snake Ports' entry.
+    // side to the first free SNAKE letter). The cables they carried were
+    // HOME RUNS (a loose socket's own), not extensions - the snake is the
+    // home run now, so they are forgotten on purpose; an extension is
+    // typed on the member row afterwards. ONE 'Snake Ports' entry.
     // Resolves to the new snake's id, read off the refreshed tree.
     snakePorts(owner, sockets, ft = null) {
         const nums = [...new Set(sockets.map(n => parseInt(n, 10)))]
@@ -1406,7 +1439,11 @@ class _Processors {
     }
 
     // Loosen sockets out of their snakes (a snake left empty goes).
-    // `sockets` null loosens a whole snake by id. ONE 'Loosen Snake'.
+    // `sockets` null loosens a whole snake by id. A socket that leaves
+    // keeps its portCables entry: what was its extension off the snake
+    // reads as its own home run again - a length somebody typed is not
+    // thrown away, and the sheet shows it where it can be changed. ONE
+    // 'Loosen Snake'.
     loosenPorts(owner, sockets, snakeId = null) {
         const stores = this._dataCableStores(owner);
         const chosen = new Set((sockets || []).map(n => parseInt(n, 10)));
@@ -1440,11 +1477,17 @@ class _Processors {
         return this._dataCablePut(owner, stores, action);
     }
 
-    // One loose socket's own cable: { ft, connector } - blank or zero ft
-    // with no connector forgets it. A socket in a snake is refused here:
-    // its run is the snake's. ONE 'Set Port Cable'.
-    setPortCable(owner, socket, cable, action = 'Set Port Cable') {
-        if (this.dataPortSnake(owner, socket)) return Promise.resolve();
+    // One socket's own cable: { ft, connector } - blank or zero ft with
+    // no connector forgets it. On a loose socket it is the home run (ONE
+    // 'Set Port Cable'); on a socket in a snake it is the EXTENSION from
+    // the snake's fan-out to the panel (ONE 'Set Port Extension') - the
+    // same store, the same PUT, read apart by whether the socket is
+    // snaked (_dataPortCableOn).
+    setPortCable(owner, socket, cable, action = null) {
+        if (!action) {
+            action = this.dataPortSnake(owner, socket)
+                ? 'Set Port Extension' : 'Set Port Cable';
+        }
         const stores = this._dataCableStores(owner);
         const key = String(parseInt(socket, 10));
         const before = JSON.stringify(stores.portCables[key] || null);
@@ -1468,8 +1511,9 @@ class _Processors {
     // Quick fill: every LOOSE socket among `ports` (the sockets the
     // owner's sheet lists - a card's are the ones no box delivers, so the
     // fill never reaches into a box's span) gets the one length (its
-    // connector pick untouched), or forgets its cable; snakes are left
-    // alone - they carry their own run. ONE 'Set Port Cable'.
+    // connector pick untouched), or forgets its cable; snaked sockets are
+    // left alone - their run is the snake's, and an extension is typed
+    // per member, never filled. ONE 'Set Port Cable'.
     fillPortCables(owner, ft, ports) {
         const stores = this._dataCableStores(owner);
         const snaked = new Set();

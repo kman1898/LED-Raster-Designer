@@ -1159,13 +1159,17 @@ class _HardwareDock {
         // A loose socket with its own home run wears its LENGTH small in
         // its corner, in the data cable's blue ("50'" - snake-mock.html's
         // chip corner, 2026-09-06); the connector reads on the sheet and
-        // the map, where there is room. A snaked socket wears nothing
-        // here: the bracket under it says what it rides.
+        // the map, where there is room. A snaked socket wears only its
+        // EXTENSION there ("+25'"), when it has one: the bracket under it
+        // says what it rides.
         const own = owner ? this._dataPortCableOn(owner, port.number) : null;
-        if (own && own.kind === 'cable') {
+        const cornerText = !own ? null
+            : own.kind === 'cable' ? this.cableText(own.ft, '')
+            : own.ext != null ? `+${this.cableText(own.ext, '')}` : null;
+        if (cornerText) {
             const corner = document.createElement('span');
             corner.className = 'hw-dock-chip-cable hw-dock-chip-cable-data';
-            corner.textContent = this.cableText(own.ft, '');
+            corner.textContent = cornerText;
             corner.title = own.text;
             face.appendChild(corner);
         }
@@ -2518,32 +2522,44 @@ class _HardwareDock {
             tr.appendChild(td2);
             const td3 = document.createElement('td');
             const td4 = document.createElement('td');
+            // The same store on both kinds of row: a loose port's entry is
+            // its home run, a member's is its EXTENSION from the snake's
+            // fan-out to the panel ("ext 25 ft" - the shorter cable a
+            // fan-out sometimes needs, 2026-09-07); the member row stays
+            // dim under its snake and still ticks for Loosen.
+            const stored = (owner.rec.portCables || {})[String(n)] || null;
+            const ft = ftInput(`data-cable-ft-${owner.id}-${n}`,
+                               stored && stored.ft,
+                               snake
+                                   ? 'Extension from the snake to this '
+                                     + 'panel, in feet - the shorter cable '
+                                     + 'a snake’s fan-out sometimes needs. '
+                                     + 'Blank = none.'
+                                   : 'This port’s own home run in feet. '
+                                     + 'Blank = no cable.');
+            const sel = connectorSelect(
+                `data-cable-connector-${owner.id}-${n}`,
+                stored && stored.connector,
+                snake
+                    ? 'The plug on the extension. Follows the port unless '
+                      + 'changed.'
+                    : 'The plug on this cable. Follows the port unless '
+                      + 'changed.');
+            const commit = () => this.setPortCable(owner, n, {
+                ft: ft.value.trim(), connector: sel.value,
+            }).then(after);
+            ft.addEventListener('change', commit);
+            sel.addEventListener('change', commit);
+            walk(ft);
             if (snake) {
-                td3.textContent = 'in snake';
-                td3.className = 'hw-dock-cable-dim';
-                td4.textContent = '—';
-                td4.className = 'hw-dock-cable-dim';
-            } else {
-                const stored = (owner.rec.portCables || {})[String(n)] || null;
-                const ft = ftInput(`data-cable-ft-${owner.id}-${n}`,
-                                   stored && stored.ft,
-                                   'This port’s own home run in feet. '
-                                   + 'Blank = no cable.');
-                const sel = connectorSelect(
-                    `data-cable-connector-${owner.id}-${n}`,
-                    stored && stored.connector,
-                    'The plug on this cable. Follows the port unless '
-                    + 'changed.');
-                const commit = () => this.setPortCable(owner, n, {
-                    ft: ft.value.trim(), connector: sel.value,
-                }).then(after);
-                ft.addEventListener('change', commit);
-                sel.addEventListener('change', commit);
-                walk(ft);
-                td3.appendChild(ft);
-                td3.appendChild(document.createTextNode(' ft'));
-                td4.appendChild(sel);
+                const ext = document.createElement('span');
+                ext.className = 'hw-dock-cable-dim';
+                ext.textContent = 'ext ';
+                td3.appendChild(ext);
             }
+            td3.appendChild(ft);
+            td3.appendChild(document.createTextNode(' ft'));
+            td4.appendChild(sel);
             tr.appendChild(td3);
             tr.appendChild(td4);
             table.appendChild(tr);

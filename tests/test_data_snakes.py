@@ -13,9 +13,14 @@ difference: the stores live on the HARDWARE record, not the screen -
 
   - card.snakes / card.portCables on a processor card, the same two on a
     breakout box (cvt) for the ports it delivers; sockets are card-wide port
-    numbers; a port is in at most one snake; a port in a snake has no own
-    cable; connector null follows the port (the catalog's documented kind,
-    else nothing).
+    numbers; a port is in at most one snake; a port in a snake rides the
+    snake's home run, and its own portCables entry is its EXTENSION from
+    the snake's fan-out ("when i use a snake i need to be able to add a
+    secondary cable length incase i need an extension", 2026-09-07);
+    connector null follows the port (the catalog's documented kind, else
+    nothing). The connector list is CAT only: "panels dont take fiber.
+    what would take fiber is processor to breakout box" - fiber is the
+    box's trunk (test_box_fiber), never a port's or a snake's plug.
   - PUT /api/processors/<id>/cards/<cid> and …/cvts/<cvtId> take both,
     validated (range, no port in two snakes, ft a non-negative number,
     connector in the list or null) and refuse with the reason.
@@ -88,7 +93,7 @@ def test_the_store_round_trips_on_a_card_and_a_box(client):
         'snakes': [{'ports': [11, 9, 10], 'ft': '100'},
                    {'ports': [14, 13]}],
         'portCables': {'15': {'ft': 50}, '16': {'ft': 75,
-                                                 'connector': 'fiber'},
+                                                 'connector': 'cat'},
                        '12': {'ft': 0}},
     })
     assert r.status_code == 200, r.get_data(as_text=True)
@@ -98,12 +103,12 @@ def test_the_store_round_trips_on_a_card_and_a_box(client):
     assert card['snakes'][0]['ft'] == 100 and 'ft' not in card['snakes'][1]
     assert all(s['id'].startswith('snk') for s in card['snakes'])
     assert card['portCables'] == {
-        '15': {'ft': 50}, '16': {'ft': 75, 'connector': 'fiber'}}
+        '15': {'ft': 50}, '16': {'ft': 75, 'connector': 'cat'}}
     rcard = _resolved(client, pid)['slots'][0]['card']
     assert rcard['snakes'][0] == {
         'id': card['snakes'][0]['id'], 'name': 'SNAKE A', 'ft': 100,
         'connector': None, 'ports': [9, 10, 11]}
-    assert rcard['portCables']['16'] == {'ft': 75, 'connector': 'fiber'}
+    assert rcard['portCables']['16'] == {'ft': 75, 'connector': 'cat'}
     # the card's sockets follow its documented kind: RJ45 → CAT
     assert rcard['portConnector'] == 'cat'
     # The box: its own record, its own sockets (the CVT10 on OPT 1 of this
@@ -124,12 +129,16 @@ def test_the_store_round_trips_on_a_card_and_a_box(client):
     # the card store never saw the box's PUT
     assert [s['ports'] for s in _raw(client, pid)['slots'][0]['card']
             ['snakes']] == [[9, 10, 11], [13, 14]]
-    # A snaked port's own cable is stripped: its run is the snake's.
+    # A snaked port's own cable is KEPT: it is the socket's extension from
+    # the snake's fan-out (9 rides SNAKE A; 30' is the extension to its
+    # panel), stored in the very same key a loose port's home run uses.
     r = client.put(f'/api/processors/{pid}/cards/{cid}', json={
         'portCables': {'9': {'ft': 30}, '15': {'ft': 50}}})
     assert r.status_code == 200
     assert _raw(client, pid)['slots'][0]['card']['portCables'] == {
-        '15': {'ft': 50}}
+        '9': {'ft': 30}, '15': {'ft': 50}}
+    assert _resolved(client, pid)['slots'][0]['card']['portCables']['9'] \
+        == {'ft': 30, 'connector': None}
     # Emptying both stores leaves no key behind.
     r = client.put(f'/api/processors/{pid}/cards/{cid}',
                    json={'snakes': [], 'portCables': {}})
@@ -147,6 +156,11 @@ def test_the_store_round_trips_on_a_card_and_a_box(client):
     ({'portCables': {'3': {'ft': 'ten'}}}, 'number of feet'),
     ({'snakes': [{'ports': [1], 'connector': 'usb'}]},
      "unknown connector 'usb'"),
+    # fiber is the box's trunk, never a port's or a snake's plug
+    ({'snakes': [{'ports': [1], 'connector': 'fiber'}]},
+     "unknown connector 'fiber'"),
+    ({'portCables': {'3': {'ft': 10, 'connector': 'fiber'}}},
+     "unknown connector 'fiber'"),
     ({'snakes': 'SNAKE A'}, 'snakes must be a list'),
 ])
 def test_the_server_refuses_a_bad_store_with_the_reason(client, body,
@@ -213,23 +227,34 @@ def test_removing_a_card_or_a_box_drops_its_snakes(client):
 
 def test_the_connector_list_is_served_and_follows_the_catalog(client):
     """getDataCableConnectors mirrors DATA_CABLE_CONNECTORS through the
-    state payload; a card's followed connector is the catalog's documented
-    kind (rj45 → cat, fiber → fiber) and NOTHING where it is silent - the
-    no-hardware-assumptions rule, so an undocumented box prints a bare
-    length rather than a guessed plug."""
+    state payload - CAT alone: "panels dont take fiber. what would take
+    fiber is processor to breakout box" (2026-09-07). A card's followed
+    connector is the catalog's documented copper (rj45 → cat) and NOTHING
+    where it is silent or fiber - the no-hardware-assumptions rule, so an
+    undocumented box, and a panel lead off a fiber card, print a bare
+    length rather than a guessed plug. A 'fiber' pick stored by an older
+    file reads as "follows the port" rather than a plug the sheet cannot
+    offer."""
     st = client.get('/api/processors').get_json()
-    assert st['dataCableConnectors'] == [{'id': 'cat', 'name': 'CAT'},
-                                         {'id': 'fiber', 'name': 'Fiber'}]
+    assert st['dataCableConnectors'] == [{'id': 'cat', 'name': 'CAT'}]
     assert catalog.data_port_connector(None, {'connector': 'rj45'}, None) \
         == 'cat'
     assert catalog.data_port_connector(None, {'connector': 'fiber'}, None) \
-        == 'fiber'
+        is None
     assert catalog.data_port_connector({}, {}, {}) is None
     pid, cid, bid = _h9_with_card_and_box(client, 'novastar-card-h-4xfiber')
     rcard = _resolved(client, pid)['slots'][0]['card']
-    assert rcard['portConnector'] == 'fiber'
-    assert rcard['cvts'][0]['portConnector'] == 'fiber', (
-        'the CVT10 documents no connector, so its sockets follow the card')
+    assert rcard['portConnector'] is None
+    assert rcard['cvts'][0]['portConnector'] is None, (
+        'the CVT10 documents no connector and its card is fiber: nothing')
+    snakes, cables = catalog.resolved_cable_store({
+        'snakes': [{'id': 'snk1', 'name': 'OLD', 'ports': [1, 2],
+                    'connector': 'fiber'}],
+        'portCables': {'3': {'ft': 40, 'connector': 'fiber'},
+                       '4': {'ft': 10, 'connector': 'cat'}}})
+    assert snakes[0]['connector'] is None
+    assert cables == {'3': {'ft': 40, 'connector': None},
+                      '4': {'ft': 10, 'connector': 'cat'}}
 
 
 # ── the browser: the sweep, the sheet, the tags ───────────────────────────
@@ -608,6 +633,11 @@ def test_the_card_sheet_types_loose_lengths_that_read_in_the_corner(page):
     assert [r['label'] for r in sheet['rows']] == [
         f'{n} · SR-{n}' for n in range(9, 17)], sheet
     assert all(r['blank'] == 'follows port (CAT)' for r in sheet['rows'])
+    # the select offers CAT and nothing else - fiber is the box's trunk
+    options = pg.evaluate(f"""() => [...document.querySelector(
+        '[data-lrd-field="data-cable-connector-{cid}-9"]').options]
+        .map(o => o.value)""")
+    assert options == ['', 'cat'], options
     assert sheet['buttons'] == [
         f'data-cable-snake-{cid}', f'data-cable-loosen-{cid}',
         f'data-cable-fill-{cid}-100', f'data-cable-fill-{cid}-none'], sheet
@@ -628,16 +658,16 @@ def test_the_card_sheet_types_loose_lengths_that_read_in_the_corner(page):
     assert st['card']['cables'] == {'9': {'ft': 50, 'connector': None},
                                     '10': {'ft': 75, 'connector': None}}, st
     assert st['index'] == index + 2, st
-    # the connector pick on 10: fiber - its own entry
+    # the connector pick on 10: CAT, stored explicitly - its own entry
     pg.locator(f'[data-lrd-field="data-cable-connector-{cid}-10"]'
-               ).select_option('fiber')
+               ).select_option('cat')
     pg.wait_for_timeout(900)
     st = pg.evaluate(STATE_JS, ids)
-    assert st['card']['cables']['10'] == {'ft': 75, 'connector': 'fiber'}, st
+    assert st['card']['cables']['10'] == {'ft': 75, 'connector': 'cat'}, st
     assert st['action'] == 'Set Port Cable' and st['index'] == index + 3, st
     reading = pg.evaluate("""(ids) => [9, 10].map(n =>
         window.app.dataPortCable(ids.cardId, n).text)""", ids)
-    assert reading == ["50' CAT", "75' Fiber"], reading
+    assert reading == ["50' CAT", "75' CAT"], reading
     pg.locator(f'[data-lrd-field="data-cable-sheet-{cid}"]').click()
     pg.wait_for_timeout(400)
     tray = pg.evaluate(TRAY_JS, ['card', cid])
@@ -651,7 +681,10 @@ def test_the_sheet_ticks_and_snakes_and_undo_loosens(page):
     """Option A whole: tick 11, 12, 13 in the card's sheet, press Snake -
     ONE 'Snake Ports' entry, the card's own SNAKE A (its first; the box's
     SNAKE A is another record's), the three rows fold under a snake row
-    reading "in snake", and undo loosens them."""
+    as members that each carry an EXTENSION field (blank - "ext ␣ ft"),
+    Tab walking the ft column through them in order. 25 on member 12 is
+    ONE 'Set Port Extension' and reads "SNAKE A +25'"; undo takes the
+    extension, then the snake."""
     pg, ids = page
     cid = ids['cardId']
     assert _sheet_open(pg, 'card', cid)['sheet']
@@ -670,8 +703,37 @@ def test_the_sheet_ticks_and_snakes_and_undo_loosens(page):
     assert kinds[2] == ('snake', 'SNAKE A · 3-way'), kinds
     assert kinds[3:6] == [('member', '11 · SR-11'), ('member', '12 · SR-12'),
                           ('member', '13 · SR-13')], kinds
-    assert [r['ft'] for r in sheet['rows'][3:6]] == ['in snake'] * 3
+    # a member row carries its extension field, blank, keyed like a loose
+    # port's ft (the same store) and offering the same connectors
+    assert [r['ft'] for r in sheet['rows'][3:6]] == [''] * 3, sheet
+    assert [r['ftKey'] for r in sheet['rows'][3:6]] == [
+        f'data-cable-ft-{cid}-{n}' for n in (11, 12, 13)], sheet
+    assert [r['connector'] for r in sheet['rows'][3:6]] == [''] * 3
     assert sheet['rows'][2]['name'] == 'SNAKE A', sheet
+    # Tab walks from the snake's ft into its members' ext fields in order
+    pg.locator(f'[data-lrd-field="data-snake-ft-{cid}-{st["card"]["ids"][0]}"]').focus()
+    pg.keyboard.press('Tab')
+    assert pg.evaluate(FOCUS_JS) == f'data-cable-ft-{cid}-11'
+    pg.keyboard.press('Tab')
+    assert pg.evaluate(FOCUS_JS) == f'data-cable-ft-{cid}-12'
+    pg.keyboard.type('25')
+    pg.keyboard.press('Tab')
+    pg.wait_for_timeout(900)
+    st = pg.evaluate(STATE_JS, ids)
+    assert st['card']['cables'] == {'9': {'ft': 50, 'connector': None},
+                                    '10': {'ft': 75, 'connector': 'cat'},
+                                    '12': {'ft': 25, 'connector': None}}, st
+    assert st['action'] == 'Set Port Extension' and st['index'] == index + 2, st
+    assert st['card']['snakes'][0]['ports'] == [11, 12, 13], 'still snaked'
+    reading = pg.evaluate("""(ids) => {
+        const c = window.app.dataPortCable(ids.cardId, 12);
+        return [c.kind, c.ext, c.text, window.app.runText(c)];
+    }""", ids)
+    assert reading == ['snake', 25, "SNAKE A +25'", "SNAKE A · no length +25'"], reading
+    pg.evaluate('() => window.app.undo()')
+    pg.wait_for_timeout(1200)
+    st = pg.evaluate(STATE_JS, ids)
+    assert '12' not in st['card']['cables'] and st['index'] == index + 1, st
     pg.evaluate('() => window.app.undo()')
     pg.wait_for_timeout(1200)
     st = pg.evaluate(STATE_JS, ids)
@@ -684,7 +746,7 @@ def test_the_sheet_ticks_and_snakes_and_undo_loosens(page):
 
 def test_rename_home_run_and_connector_commit_one_entry_each(page):
     """The box's sheet: its snake row carries the name, the ft and the
-    connector. FOH is 'Rename Snake', 100 is 'Set Snake Home Run', fiber is
+    connector. FOH is 'Rename Snake', 100 is 'Set Snake Home Run', CAT is
     'Set Snake Home Run' - one entry each - and the bracket's tag follows:
     "FOH · 6-way · 100'"."""
     pg, ids = page
@@ -710,18 +772,26 @@ def test_rename_home_run_and_connector_commit_one_entry_each(page):
     st = pg.evaluate(STATE_JS, ids)
     assert st['box']['snakes'][0]['ft'] == 100, st
     assert st['action'] == 'Set Snake Home Run' and st['index'] == index + 2
-    # Tab from the snake's ft walks on to the first loose row's ft (7)
+    # Tab from the snake's ft walks on down the column: its first member's
+    # ext field (1), the members in order, then the loose rows (7, 8)
+    assert pg.evaluate(FOCUS_JS) == f'data-cable-ft-{bid}-1'
+    pg.keyboard.press('Tab')
+    pg.keyboard.press('Tab')
+    pg.keyboard.press('Tab')
+    pg.keyboard.press('Tab')
+    pg.keyboard.press('Tab')
+    pg.keyboard.press('Tab')
     assert pg.evaluate(FOCUS_JS) == f'data-cable-ft-{bid}-7'
     pg.locator(f'[data-lrd-field="data-snake-connector-{bid}-{snake_id}"]'
-               ).select_option('fiber')
+               ).select_option('cat')
     pg.wait_for_timeout(900)
     st = pg.evaluate(STATE_JS, ids)
-    assert st['box']['snakes'][0]['connector'] == 'fiber', st
+    assert st['box']['snakes'][0]['connector'] == 'cat', st
     assert st['action'] == 'Set Snake Home Run' and st['index'] == index + 3
     served = _served(pg, ids, lambda s: s['boxSnakes']
-                     and s['boxSnakes'][0].get('connector') == 'fiber')
+                     and s['boxSnakes'][0].get('connector') == 'cat')
     assert served['boxSnakes'][0] == {
-        'id': snake_id, 'name': 'FOH', 'ft': 100, 'connector': 'fiber',
+        'id': snake_id, 'name': 'FOH', 'ft': 100, 'connector': 'cat',
         'ports': [1, 2, 3, 4, 5, 6]}, served
     tray = _sheet_open(pg, 'cvt', bid, False)
     assert [b['tag'] for b in tray['brackets']] == ["FOH · 6-way · 100'"], tray
@@ -815,6 +885,80 @@ def test_the_canvas_tag_follows_the_switch_and_the_export(page):
     assert pg.evaluate(STATE_JS, ids)['flag'] is False
 
 
+def test_an_extension_reads_on_the_corner_the_tag_and_survives_loosen(page):
+    """"when i use a snake i need to be able to add a secondary cable
+    length incase i need an extension" (2026-09-07). 25 on box socket 3
+    (it rides FOH) is ONE 'Set Port Extension': the chip wears "+25'" in
+    its blue corner (the others in FOH nothing), the canvas tag beside
+    WALL's port 3 reads "FOH +25'" with Show Cable Tags on, runText says
+    "FOH 100' +25'", and the box's sheet member row holds 25. Loosening 3
+    keeps the entry - it reads as the socket's own home run now ("25'
+    CAT"). Undo twice puts it all back."""
+    pg, ids = page
+    bid = ids['boxId']
+    index = pg.evaluate(STATE_JS, ids)['index']
+    pg.evaluate("""(ids) => {
+        const app = window.app;
+        const owner = app._dataCableOwner('cvt', ids.boxId);
+        return app.setPortCable(owner, 3, {ft: '25', connector: ''});
+    }""", ids)
+    pg.wait_for_timeout(900)
+    st = pg.evaluate(STATE_JS, ids)
+    assert st['box']['cables'] == {'3': {'ft': 25, 'connector': None}}, st
+    assert st['action'] == 'Set Port Extension' and st['index'] == index + 1, st
+    assert st['box']['snakes'][0]['ports'] == [1, 2, 3, 4, 5, 6]
+    tray = pg.evaluate(TRAY_JS, ['cvt', bid])
+    assert tray['corners'] == {'1': None, '2': None, '3': "+25'", '4': None,
+                               '5': None, '6': None, '7': None, '8': None}, tray
+    assert [b['tag'] for b in tray['brackets']] == ["FOH · 6-way · 100'"], (
+        'the bracket tag is the snake\'s alone')
+    reading = pg.evaluate("""(ids) => {
+        const app = window.app;
+        const c = app.dataPortCable(ids.cardId, 3);
+        return [c.kind, c.ext, c.extConnector, c.text, app.runText(c),
+                app.runText(app.dataPortCable(ids.cardId, 2))];
+    }""", ids)
+    assert reading == ['snake', 25, None, "FOH +25'", "FOH 100' +25'", "FOH 100'"], reading
+    # the sheet's member row holds it
+    assert _sheet_open(pg, 'cvt', bid)['sheet']
+    sheet = pg.evaluate(SHEET_JS, ['cvt', bid])
+    members = [(r['kind'], r['ft'], r['ftKey']) for r in sheet['rows'][1:7]]
+    assert members[2] == ('member', '25', f'data-cable-ft-{bid}-3'), members
+    assert [m[1] for m in members] == ['', '', '25', '', '', ''], members
+    _sheet_open(pg, 'cvt', bid, False)
+    # the canvas tag: the snake's name plus the extension
+    frame = pg.evaluate("""(ids) => {
+        const app = window.app;
+        const l = app.project.layers.find(x => x.id === ids.id);
+        l.showDataCableTags = true;
+        try { return (%s)(); } finally { l.showDataCableTags = false; }
+    }""" % FRAME_TEXTS_JS, ids)
+    assert sorted(frame['interactive']) == sorted(['FOH'] * 5 + ["FOH +25'"]), frame
+    assert sorted(frame['exported']) == sorted(frame['interactive']), frame
+    # loosen 3 out of FOH: the entry stays and is its own home run now
+    pg.evaluate("""(ids) => {
+        const app = window.app;
+        return app.loosenPorts(app._dataCableOwner('cvt', ids.boxId), [3]);
+    }""", ids)
+    pg.wait_for_timeout(900)
+    st = pg.evaluate(STATE_JS, ids)
+    assert st['box']['snakes'][0]['ports'] == [1, 2, 4, 5, 6], st
+    assert st['box']['cables'] == {'3': {'ft': 25, 'connector': None}}, st
+    assert st['action'] == 'Loosen Snake' and st['index'] == index + 2, st
+    loose = pg.evaluate("""(ids) => {
+        const c = window.app.dataPortCable(ids.cardId, 3);
+        return [c.kind, c.text];
+    }""", ids)
+    assert loose == ['cable', "25' CAT"], loose
+    assert pg.evaluate(TRAY_JS, ['cvt', bid])['corners']['3'] == "25'"
+    for _ in range(2):
+        pg.evaluate('() => window.app.undo()')
+        pg.wait_for_timeout(1200)
+    st = pg.evaluate(STATE_JS, ids)
+    assert st['box']['cables'] == {} and st['index'] == index, st
+    assert st['box']['snakes'][0]['ports'] == [1, 2, 3, 4, 5, 6], st
+
+
 def test_the_switch_reads_the_selected_screen(page):
     """loadLayerToInputs: the box follows the layer it shows, and an absent
     key reads OFF - opted into, never inherited."""
@@ -901,7 +1045,7 @@ def test_loosen_from_the_bracket_menu_and_from_lit_chips(page):
 def test_quick_fill_is_one_entry_and_leaves_snakes_alone(page):
     """all 100' on the card's sheet writes every LOOSE socket (9, 10, 14,
     15, 16 - 11-13 ride SNAKE A) as ONE 'Set Port Cable', keeping 10's
-    fiber pick; none forgets them all as one; undo restores."""
+    CAT pick; none forgets them all as one; undo restores."""
     pg, ids = page
     cid = ids['cardId']
     assert _sheet_open(pg, 'card', cid)['sheet']
@@ -911,7 +1055,7 @@ def test_quick_fill_is_one_entry_and_leaves_snakes_alone(page):
     st = pg.evaluate(STATE_JS, ids)
     assert st['card']['cables'] == {
         '9': {'ft': 100, 'connector': None},
-        '10': {'ft': 100, 'connector': 'fiber'},
+        '10': {'ft': 100, 'connector': 'cat'},
         '14': {'ft': 100, 'connector': None},
         '15': {'ft': 100, 'connector': None},
         '16': {'ft': 100, 'connector': None}}, st
@@ -929,7 +1073,7 @@ def test_quick_fill_is_one_entry_and_leaves_snakes_alone(page):
     pg.wait_for_timeout(1200)
     st = pg.evaluate(STATE_JS, ids)
     assert st['card']['cables'] == {'9': {'ft': 50, 'connector': None},
-                                    '10': {'ft': 75, 'connector': 'fiber'}}
+                                    '10': {'ft': 75, 'connector': 'cat'}}
     _sheet_open(pg, 'card', cid, False)
 
 
