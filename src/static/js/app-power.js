@@ -85,6 +85,10 @@ class _Power {
         const snake = (typeof this._prepareSnakeMenu === 'function')
             ? this._prepareSnakeMenu(x, y) : null;
         this._snakeMenuActions = snake;
+        // "Export this screen..." (app-binder.js): the screen under the
+        // cursor on the canvas, else the selected screen; never on the dock.
+        this._binderMenuLayer = (!inDock && typeof this._prepareBinderMenu === 'function')
+            ? this._prepareBinderMenu(x, y) : null;
         if (inDock && !clear && !merge && !sharing.share
                 && !sharing.unshare && !outs && !snake) {
             this.hideContextMenu();
@@ -118,6 +122,9 @@ class _Power {
                 && this.getSelectedLayers().some(l => !l.locked);
             menu.querySelectorAll('.movable-view-only').forEach(el => {
                 el.style.display = canCenter ? '' : 'none';
+            });
+            menu.querySelectorAll('.screen-export-only').forEach(el => {
+                el.style.display = this._binderMenuLayer ? '' : 'none';
             });
             // v0.11.0: screen-group actions. Grouping needs 2+ screen
             // layers selected, so with fewer the item is simply not offered

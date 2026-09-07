@@ -4178,6 +4178,8 @@ export class LEDRasterApp {
             }
         }
         if (typeof this.initPullSheetControls === 'function') this.initPullSheetControls();
+        // The binder's own section (scope, palette, maps, pages) - app-binder.js.
+        if (typeof this.initBinderControls === 'function') this.initBinderControls();
         
         document.getElementById('export-cancel').addEventListener('click', () => {
             document.getElementById('export-modal').style.display = 'none';
@@ -4206,6 +4208,25 @@ export class LEDRasterApp {
                     console.error('Pull sheet export error:', error);
                     document.getElementById('status-message').textContent = 'Export failed!';
                     sendClientLog('export_failed', { message: error.message, format: 'pull-sheet' });
+                    if (typeof this._toast === 'function') this._toast(error.message, true, 6000);
+                }
+                return;
+            }
+
+            // Binder: pages laid out on the client from the pull list and the
+            // renderer's own maps, bound into one PDF (app-binder.js). Saved
+            // through the same picker path every export takes.
+            if (format === 'binder') {
+                document.getElementById('export-modal').style.display = 'none';
+                document.getElementById('status-message').textContent = 'Exporting binder...';
+                try {
+                    await this.exportBinder(projectName);
+                    document.getElementById('status-message').textContent = 'Export complete!';
+                    setTimeout(() => { document.getElementById('status-message').textContent = 'Ready'; }, 3000);
+                } catch (error) {
+                    console.error('Binder export error:', error);
+                    document.getElementById('status-message').textContent = 'Export failed!';
+                    sendClientLog('export_failed', { message: error.message, format: 'binder' });
                     if (typeof this._toast === 'function') this._toast(error.message, true, 6000);
                 }
                 return;

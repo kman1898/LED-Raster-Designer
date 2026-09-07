@@ -749,8 +749,16 @@ class _ExportIo {
         // views) and for the pull sheet (a workbook, not a picture).
         const viewSection = document.getElementById('export-views-section');
         if (viewSection) {
-            const geometryOnly = (format === 'resolume-xml' || format === 'pull-sheet');
+            const geometryOnly = (format === 'resolume-xml' || format === 'pull-sheet' || format === 'binder');
             viewSection.style.display = geometryOnly ? 'none' : '';
+        }
+
+        if (format === 'binder') {
+            preview.classList.add('value-accent');
+            preview.style.color = '';
+            preview.textContent = (typeof this.binderFileName === 'function')
+                ? this.binderFileName(projectName) : `${projectName} - binder.pdf`;
+            return;
         }
 
         if (format === 'pull-sheet') {
@@ -988,6 +996,7 @@ class _ExportIo {
             formatSelect.dispatchEvent(new Event('change'));
         }
         if (typeof this.syncPullSheetControls === 'function') this.syncPullSheetControls();
+        if (typeof this.syncBinderControls === 'function') this.syncBinderControls();
         this.updateExportPreview();
     }
 
@@ -2545,6 +2554,14 @@ class _ExportIo {
                 break;
             case 'export-pull-sheet':
                 this.openExportModal('pull-sheet');
+                break;
+            case 'export-binder':
+                this.openExportModal('binder');
+                break;
+            // The canvas's right-click on a screen (app-binder.js): the same
+            // dialog, preset to that screen's pages alone.
+            case 'export-screen-binder':
+                this.openScreenBinderExport(this._binderMenuLayer || this.currentLayer);
                 break;
             case 'preferences':
                 this.openPreferencesModal();

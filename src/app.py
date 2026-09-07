@@ -2084,10 +2084,22 @@ def export_pdf_from_images():
     pdf_bytes = io.BytesIO()
     c = pdf_canvas.Canvas(pdf_bytes, pagesize=(default_width, default_height))
     
+    # The binder (app-binder.js) sends finished pages: it asks for real
+    # letter-landscape pages in points (`page_size`) with the bitmap scaled
+    # to fill them, and no stamped view label (`labels: false`) - its pages
+    # carry their own headers. Every other caller keeps today's behaviour:
+    # one page per image at the image's pixel size, the label on top.
+    labels = data.get('labels', True)
+
     for img_info in images:
         img = decode_base64_image(img_info['data'])
-        page_width = int(img_info.get('width') or img.width or default_width)
-        page_height = int(img_info.get('height') or img.height or default_height)
+        page_size = img_info.get('page_size')
+        if (isinstance(page_size, (list, tuple)) and len(page_size) == 2
+                and all(isinstance(v, (int, float)) and v > 0 for v in page_size)):
+            page_width, page_height = float(page_size[0]), float(page_size[1])
+        else:
+            page_width = int(img_info.get('width') or img.width or default_width)
+            page_height = int(img_info.get('height') or img.height or default_height)
         c.setPageSize((page_width, page_height))
         img_reader = ImageReader(img)
         
@@ -2095,9 +2107,10 @@ def export_pdf_from_images():
         c.drawImage(img_reader, 0, 0, width=page_width, height=page_height)
         
         # Add view name label at top
-        c.setFillColorRGB(1, 1, 1)  # White
-        c.setFont("Helvetica-Bold", 24)
-        c.drawString(20, page_height - 40, f"{project_name} - {img_info['name']}")
+        if labels:
+            c.setFillColorRGB(1, 1, 1)  # White
+            c.setFont("Helvetica-Bold", 24)
+            c.drawString(20, page_height - 40, f"{project_name} - {img_info['name']}")
         
         c.showPage()
     
