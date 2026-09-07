@@ -111,6 +111,20 @@ v0.12.0 - September 6, 2026 (BETA)
   bounds, instead of leaving those figures floating on the group's
   outline between the screens.
 
+- NEW: Export Pull Sheet. File > Export Pull Sheet writes a filled copy
+  of the shop pull-sheet workbook: one block per position (a screen
+  group, or a lone screen), rows in the GEAR LIST's own words - Multi
+  with its home run said once per box, Tru-1 by length, 2fer and 3fer
+  as each, breakouts, Ether-con and snakes, and a jumper for every row
+  step in a run - with any new cable type or length added to the GEAR
+  LIST so the dropdowns accept it. Spares and TOTALS keep working after
+  import. Jumper names and lengths, the rev and the engineer's name sit
+  in the export dialog's Pull Sheet section.
+
+- CHANGE: A 2fer or 3fer tag on the wall wears its own dark pill with a
+  grey rim instead of the power label's colour, so it no longer reads
+  as another circuit label. OVER stays red.
+
 - CHANGE (IMPORTANT): Redundancy is one bar in one place. Behind the
   processor's gear a raised segmented bar - Off, Whole unit, Per card,
   Per port (Off, Backed up, Per port on a standalone unit) - and exactly
