@@ -15,6 +15,22 @@ const POWER_CABLE_TAG_COLORS = { fill: '#1c1c1c', rim: '#c8a04a', ink: '#f0d48a'
 const NFER_TAG_COLORS = { fill: '#2e2e2e', ink: '#ffffff', rim: '#9aa4b2' };
 const DATA_CABLE_TAG_COLORS = { fill: '#10202c', rim: '#8fd0ff', ink: '#cfeaff' };
 
+// The PRINTER palette (binder-mock.html, the "Printer" page): every colour
+// the power and data passes pick goes through it when printerMode is on -
+// cabinets in two greys, every run black and told apart by a dash pattern
+// per circuit / port (eleven, cycled), label discs white with black text
+// and a black rim, tags white with a black rim, brackets black. ONE flag,
+// read where a colour is chosen; there is no second drawer.
+const PRINTER_INK = '#111111';
+const PRINTER_GREYS = ['#d6d6d6', '#e9e9e9'];
+const PRINTER_BORDER = '#999999';
+const PRINTER_TAG_COLORS = { fill: '#ffffff', rim: '#111111', ink: '#111111' };
+// Dash patterns in units of the run's line width; [] is solid.
+const PRINTER_DASHES = [
+    [], [3, 2], [1.2, 1.5], [5, 2, 1, 2], [2, 1], [6, 2],
+    [1, 1], [4, 1, 1, 1], [3, 3], [2, 3], [5, 1],
+];
+
 class CanvasRenderer {
     constructor(canvasId) {
         this.canvas = document.getElementById(canvasId);
@@ -49,6 +65,9 @@ class CanvasRenderer {
         this.showGrid = true;
         this.viewMode = 'pixel-map'; // Default view mode
         this.exportMode = false; // When true, hides grid and raster boundary for clean export
+        // The binder's printer page: greys, black runs with a dash per
+        // circuit, white discs - see PRINTER_* above and _ink / _runDash.
+        this.printerMode = false;
         this.exportTransparentBg = false; // When true, export renders with transparent background
         
         // Label display settings
@@ -239,6 +258,22 @@ class CanvasRenderer {
      * behavior for a back view (the cabinet's left edge becomes its right
      * in the tech's view).
      */
+    // The printer palette's answers. `_ink` is the colour a run, an arrow, a
+    // bracket or a rim takes: black on the printer page, the given colour
+    // otherwise. `_runDash` is the dash pattern the Nth circuit / port
+    // draws with on the printer page (scaled to the line width so a thin
+    // run and a thick one read alike), and [] - solid - everywhere else.
+    _ink(colour) {
+        return this.printerMode ? PRINTER_INK : colour;
+    }
+
+    _runDash(num, lineWidth) {
+        if (!this.printerMode) return [];
+        const n = Math.max(1, parseInt(num, 10) || 1);
+        const unit = Math.max(1, Number(lineWidth) || 1);
+        return PRINTER_DASHES[(n - 1) % PRINTER_DASHES.length].map(v => v * unit);
+    }
+
     _fillText(text, x, y, maxWidth) {
         // v0.9.3: on Data/Power a rotated screen keeps its text upright by
         // counter-rotating each label about its anchor.
@@ -5091,6 +5126,7 @@ class CanvasRenderer {
     }
 
     getLayerBorderColor(layer, mode = this.viewMode) {
+        if (this.printerMode) return PRINTER_BORDER;
         if (!layer) return '#ffffff';
         if (mode === 'cabinet-id') return layer.border_color_cabinet || layer.border_color || '#ffffff';
         if (mode === 'data-flow') return layer.border_color_data || layer.border_color || '#ffffff';
@@ -5168,6 +5204,9 @@ class CanvasRenderer {
     // palette distribution and panelColors has entries, each cabinet samples a
     // color from the palette by its grid position.
     _panelBaseFill(panel, layer) {
+        if (this.printerMode) {
+            return PRINTER_GREYS[((Number(panel.row) || 0) + (Number(panel.col) || 0)) % 2];
+        }
         const mode = layer.panelColorMode || 'checker';
         const pal = Array.isArray(layer.panelColors) ? layer.panelColors : [];
         if (mode !== 'checker' && pal.length >= 1) {
@@ -5419,7 +5458,7 @@ class CanvasRenderer {
     renderDataFlow(panel, layer) {
         // If panel is hidden, render as ghost outline only - scales with zoom
         if (panel.hidden) {
-            this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+            this.ctx.strokeStyle = this.printerMode ? 'rgba(0, 0, 0, 0.3)' : 'rgba(255, 255, 255, 0.3)';
             this.ctx.lineWidth = 1;
             this.ctx.setLineDash([5, 5]);
             this.ctx.strokeRect(panel.x, panel.y, panel.width, panel.height);
@@ -5745,13 +5784,29 @@ class CanvasRenderer {
         const baseLineWidth = layer.arrowLineWidth || 4;
         const lineWidth = this.exportMode ? Math.max(1, Math.round(baseLineWidth)) : baseLineWidth;
         const labelSize = layer.dataFlowLabelSize || 30;
-        const primaryColor = layer.primaryColor || '#00FF00';
-        const primaryTextColor = layer.primaryTextColor || '#000000';
-        const backupColor = layer.backupColor || '#FF0000';
-        const backupTextColor = layer.backupTextColor || '#FFFFFF';
-        const lineColor = layer.dataFlowColor || '#FFFFFF';
-        const arrowColor = layer.arrowColor || '#0042AA';
-        const useRandomColors = layer.randomDataColors || false;
+        // The printer page: white discs, black text, black rims; black
+        // runs and arrows, dashed per port in drawPort.
+        const printer = this.printerMode;
+        const primaryColor = printer ? '#ffffff' : (layer.primaryColor || '#00FF00');
+        const primaryTextColor = printer ? PRINTER_INK : (layer.primaryTextColor || '#000000');
+        const backupColor = printer ? '#ffffff' : (layer.backupColor || '#FF0000');
+        const backupTextColor = printer ? PRINTER_INK : (layer.backupTextColor || '#FFFFFF');
+        const lineColor = this._ink(layer.dataFlowColor || '#FFFFFF');
+        const arrowColor = this._ink(layer.arrowColor || '#0042AA');
+        const useRandomColors = (layer.randomDataColors || false) && !printer;
+        // The disc's rim on the printer page - a white disc on a grey
+        // cabinet has no edge without one.
+        const rimDisc = (x, y, radius) => {
+            if (!printer) return;
+            this.ctx.save();
+            this.ctx.setLineDash([]);
+            this.ctx.lineWidth = Math.max(1, labelSize * 0.1);
+            this.ctx.strokeStyle = PRINTER_INK;
+            this.ctx.beginPath();
+            this.ctx.arc(x, y, radius, 0, Math.PI * 2);
+            this.ctx.stroke();
+            this.ctx.restore();
+        };
         // v0.11.0: per-port load percentage, off by default so no existing
         // export changes. Drawn beside the port marker by drawPortLoadBadge.
         const showPortLoad = !!layer.showDataFlowPortLoad;
@@ -5807,6 +5862,11 @@ class CanvasRenderer {
             const currentLineColor = useRandomColors ? randomColors[(portNum - 1) % randomColors.length] : lineColor;
             this.ctx.strokeStyle = currentLineColor;
             this.ctx.lineWidth = lineWidth;
+            // Printer page: this port's own dash (see _runDash).
+            const dash = this._runDash(portNum, lineWidth);
+            this.ctx.save();
+            this.ctx.setLineDash(dash);
+            if (dash.length) this.ctx.lineCap = 'butt';
             
             for (let i = 0; i < portPanels.length - 1; i++) {
                 const current = portPanels[i];
@@ -5822,6 +5882,7 @@ class CanvasRenderer {
                 this.ctx.lineTo(nx, ny);
                 this.ctx.stroke();
             }
+            this.ctx.restore();
             
             this.ctx.fillStyle = arrowColor;
             for (let i = 0; i < portPanels.length - 1; i++) {
@@ -5903,6 +5964,7 @@ class CanvasRenderer {
                 this.ctx.beginPath();
                 this.ctx.arc(rx, ry, returnFit.radius, 0, Math.PI * 2);
                 this.ctx.fill();
+                rimDisc(rx, ry, returnFit.radius);
                 this.ctx.fillStyle = backupTextColor;
                 this.ctx.font = `bold ${returnFit.size}px ${projectFontFamily()}`;
                 this.ctx.textAlign = 'center';
@@ -5914,6 +5976,7 @@ class CanvasRenderer {
             this.ctx.beginPath();
             this.ctx.arc(px, py, primaryFit.radius, 0, Math.PI * 2);
             this.ctx.fill();
+            rimDisc(px, py, primaryFit.radius);
 
             this.ctx.fillStyle = primaryTextColor;
             this.ctx.font = `bold ${primaryFit.size}px ${projectFontFamily()}`;
@@ -5926,6 +5989,7 @@ class CanvasRenderer {
                 this.ctx.beginPath();
                 this.ctx.arc(rx, ry, returnFit.radius, 0, Math.PI * 2);
                 this.ctx.fill();
+                rimDisc(rx, ry, returnFit.radius);
 
                 this.ctx.fillStyle = backupTextColor;
                 this.ctx.font = `bold ${returnFit.size}px ${projectFontFamily()}`;
@@ -6247,11 +6311,14 @@ class CanvasRenderer {
         const baseLineWidth = layer.powerLineWidth || 8;
         const lineWidth = this.exportMode ? Math.max(1, Math.round(baseLineWidth)) : baseLineWidth;
         const labelSize = layer.powerLabelSize || 14;
-        const powerLabelBgColor = layer.powerLabelBgColor || '#D95000';
-        const powerLabelTextColor = layer.powerLabelTextColor || '#000000';
-        const lineColor = layer.powerLineColor || '#FF0000';
-        const arrowColor = layer.powerArrowColor || '#0042AA';
-        const useRandomColors = layer.powerRandomColors || false;
+        // The printer page: white discs with black text and a black rim,
+        // black runs and arrows (dashed per circuit in drawDaisyLines).
+        const printer = this.printerMode;
+        const powerLabelBgColor = printer ? '#ffffff' : (layer.powerLabelBgColor || '#D95000');
+        const powerLabelTextColor = printer ? PRINTER_INK : (layer.powerLabelTextColor || '#000000');
+        const lineColor = this._ink(layer.powerLineColor || '#FF0000');
+        const arrowColor = this._ink(layer.powerArrowColor || '#0042AA');
+        const useRandomColors = (layer.powerRandomColors || false) && !printer;
         const useColorCodedView = !!layer.powerColorCodedView;
         const isCustom = pattern === 'custom';
         if (isCustom) {
@@ -6315,6 +6382,14 @@ class CanvasRenderer {
             this.ctx.beginPath();
             this.ctx.arc(px, py, layout.radius, 0, Math.PI * 2);
             this.ctx.fill();
+            if (printer) {
+                this.ctx.save();
+                this.ctx.setLineDash([]);
+                this.ctx.lineWidth = Math.max(1, labelSize * 0.1);
+                this.ctx.strokeStyle = PRINTER_INK;
+                this.ctx.stroke();
+                this.ctx.restore();
+            }
 
             this.ctx.fillStyle = powerLabelTextColor;
             this.ctx.textAlign = 'center';
@@ -6395,9 +6470,15 @@ class CanvasRenderer {
 
         // The daisy polyline + direction arrows for ONE run of panels -
         // shared by the whole-circuit path and the per-branch splitter path.
-        const drawDaisyLines = (circuitPanels, currentLineColor) => {
+        const drawDaisyLines = (circuitPanels, currentLineColor, circuitNum) => {
             this.ctx.strokeStyle = currentLineColor;
             this.ctx.lineWidth = lineWidth;
+            // Printer page: this circuit's own dash, butt-capped so a fine
+            // pattern stays a pattern instead of fusing into a solid line.
+            const dash = this._runDash(circuitNum, lineWidth);
+            this.ctx.save();
+            this.ctx.setLineDash(dash);
+            if (dash.length) this.ctx.lineCap = 'butt';
 
             for (let i = 0; i < circuitPanels.length - 1; i++) {
                 const current = circuitPanels[i];
@@ -6411,6 +6492,7 @@ class CanvasRenderer {
                 this.ctx.lineTo(nx, ny);
                 this.ctx.stroke();
             }
+            this.ctx.restore();
 
             this.ctx.fillStyle = arrowColor;
             for (let i = 0; i < circuitPanels.length - 1; i++) {
@@ -6447,7 +6529,7 @@ class CanvasRenderer {
             // dock drag: the circuit under the cursor lights up first
             this._dockRunUnderlay(circuitPanels, layer, circuitNum);
             const currentLineColor = useRandomColors ? randomColors[(circuitNum - 1) % randomColors.length] : lineColor;
-            drawDaisyLines(circuitPanels, currentLineColor);
+            drawDaisyLines(circuitPanels, currentLineColor, circuitNum);
             drawCircuitLabel(circuitPanels[0], circuitPanels[1], circuitNum);
         };
 
@@ -6465,7 +6547,7 @@ class CanvasRenderer {
             // dock drag: every branch of the circuit lights together
             live.forEach(b => this._dockRunUnderlay(b, layer, circuitNum));
             const currentLineColor = useRandomColors ? randomColors[(circuitNum - 1) % randomColors.length] : lineColor;
-            live.forEach(b => drawDaisyLines(b, currentLineColor));
+            live.forEach(b => drawDaisyLines(b, currentLineColor, circuitNum));
             if (live.length === 1) {
                 drawCircuitLabel(live[0][0], live[0][1], circuitNum);
                 return;
@@ -6647,11 +6729,12 @@ class CanvasRenderer {
         }).filter(Boolean);
 
         this.ctx.save();
+        // Printer page: the bracket and its pill in black on white.
+        const orange = this._ink(layer.powerLabelBgColor || '#D95000');
         this.ctx.lineWidth = Math.max(1.5, labelSize * 0.12);
-        this.ctx.strokeStyle = layer.powerLabelBgColor || '#D95000';
-        this.ctx.fillStyle = layer.powerLabelBgColor || '#D95000';
+        this.ctx.strokeStyle = orange;
+        this.ctx.fillStyle = orange;
         this.ctx.font = `bold ${labelSize}px ${projectFontFamily()}`;
-        const orange = layer.powerLabelBgColor || '#D95000';
         for (const { s, r } of placed) {
             const dashed = !!(pend && pend.socaIndex === s.soca);
             const y = top - baseGap - r * rowH;
@@ -6721,11 +6804,16 @@ class CanvasRenderer {
             const pillH = labelSize + 6;
             const pillW = tw + bw + gap + padX * 2;
             const px0 = cx - pillW / 2;
-            this.ctx.fillStyle = dashed ? 'rgba(0, 0, 0, 0.6)' : orange;
+            this.ctx.fillStyle = dashed ? 'rgba(0, 0, 0, 0.6)' : (this.printerMode ? '#ffffff' : orange);
             this.ctx.beginPath();
             if (this.ctx.roundRect) this.ctx.roundRect(px0, y - pillH / 2, pillW, pillH, pillH / 2);
             else this.ctx.rect(px0, y - pillH / 2, pillW, pillH);
             this.ctx.fill();
+            if (this.printerMode && !dashed) {
+                this.ctx.strokeStyle = PRINTER_INK;
+                this.ctx.lineWidth = Math.max(1, labelSize * 0.08);
+                this.ctx.stroke();
+            }
             if (dashed) {
                 // the pending pill: dark, dashed orange rim, orange text
                 this.ctx.strokeStyle = orange;
@@ -6734,12 +6822,14 @@ class CanvasRenderer {
                 this.ctx.stroke();
                 this.ctx.setLineDash([]);
             }
-            const ink = dashed ? orange : (layer.powerLabelTextColor || '#000000');
+            const ink = dashed ? orange
+                : (this.printerMode ? PRINTER_INK : (layer.powerLabelTextColor || '#000000'));
             let cursor = px0 + padX;
             if (badgeText) {
                 const bh = pillH - 6;
                 this.ctx.fillStyle = dashed
-                    ? 'rgba(217, 80, 0, 0.22)' : 'rgba(0, 0, 0, 0.28)';
+                    ? 'rgba(217, 80, 0, 0.22)'
+                    : (this.printerMode ? '#e9e9e9' : 'rgba(0, 0, 0, 0.28)');
                 this.ctx.beginPath();
                 if (this.ctx.roundRect) this.ctx.roundRect(cursor, y - bh / 2, bw, bh, bh / 2);
                 else this.ctx.rect(cursor, y - bh / 2, bw, bh);
@@ -6820,7 +6910,7 @@ class CanvasRenderer {
             // the power label due to it being hard to read" (2026-09-06).
             // The tray's gang tag is the model: a dark pill, white text, a
             // grey rim, and the bracket in that grey; red only when OVER.
-            const color = over ? '#d05a52' : NFER_TAG_COLORS.rim;
+            const color = this._ink(over ? '#d05a52' : NFER_TAG_COLORS.rim);
             // Hugging the gang's own boundary: below the screen for
             // column runs (the clean mock look), ON the row seam for
             // horizontal runs - either way, the line under "these runs
@@ -6852,7 +6942,10 @@ class CanvasRenderer {
             const tw = this.ctx.measureText(label).width;
             const padX = labelSize * 0.4;
             const pillH = labelSize + 6;
-            this.ctx.fillStyle = over ? color : NFER_TAG_COLORS.fill;
+            // Printer page: a white pill with a black rim and black text -
+            // OVER still says OVER, in the text rather than in red.
+            const printer = this.printerMode;
+            this.ctx.fillStyle = printer ? '#ffffff' : (over ? color : NFER_TAG_COLORS.fill);
             this.ctx.beginPath();
             if (this.ctx.roundRect) {
                 this.ctx.roundRect(cx - tw / 2 - padX, y - pillH / 2,
@@ -6863,9 +6956,9 @@ class CanvasRenderer {
             }
             this.ctx.fill();
             this.ctx.lineWidth = Math.max(1, labelSize * 0.08);
-            this.ctx.strokeStyle = over ? '#ffffff' : NFER_TAG_COLORS.rim;
+            this.ctx.strokeStyle = printer ? PRINTER_INK : (over ? '#ffffff' : NFER_TAG_COLORS.rim);
             this.ctx.stroke();
-            this.ctx.fillStyle = NFER_TAG_COLORS.ink;
+            this.ctx.fillStyle = printer ? PRINTER_INK : NFER_TAG_COLORS.ink;
             this.ctx.textAlign = 'center';
             this.ctx.textBaseline = 'middle';
             this._fillText(label, cx, y);
@@ -6898,7 +6991,7 @@ class CanvasRenderer {
     }
 
     drawCableTag(text, x, y, labelSize, colors, opts) {
-        const c = colors || POWER_CABLE_TAG_COLORS;
+        const c = this.printerMode ? PRINTER_TAG_COLORS : (colors || POWER_CABLE_TAG_COLORS);
         const flip = !!(opts && opts.flip);
         const size = Math.max(8, labelSize * 0.7);
         this.ctx.save();
@@ -7146,7 +7239,7 @@ class CanvasRenderer {
     renderPower(panel, layer) {
         // If panel is hidden, render as ghost outline only - scales with zoom
         if (panel.hidden) {
-            this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+            this.ctx.strokeStyle = this.printerMode ? 'rgba(0, 0, 0, 0.3)' : 'rgba(255, 255, 255, 0.3)';
             this.ctx.lineWidth = 1;
             this.ctx.setLineDash([5, 5]);
             this.ctx.strokeRect(panel.x, panel.y, panel.width, panel.height);
@@ -7155,7 +7248,9 @@ class CanvasRenderer {
         }
 
         let fillHex = null;
-        if (layer.powerColorCodedView && !layer._powerError) {
+        // The printer page has no colour to code with: the cabinets stay
+        // grey and the circuits are told apart by their dashes.
+        if (layer.powerColorCodedView && !layer._powerError && !this.printerMode) {
             // v0.11.0: the circuit tinting this cabinet is usually one of this
             // layer's own, but a group peer's circuit can have claimed it - and
             // then the COLOUR is the peer's, because the palette and the circuit

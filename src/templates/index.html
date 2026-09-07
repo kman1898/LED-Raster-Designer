@@ -35,6 +35,7 @@
             <div class="menu-option" data-action="export-png" data-label="Export PNG" data-shortcut-mac="Option+S" data-shortcut-win="Alt+S"></div>
             <div class="menu-option" data-action="export-psd" data-label="Export PSD" data-shortcut-mac="Cmd+Option+S" data-shortcut-win="Ctrl+Alt+S"></div>
             <div class="menu-option" data-action="export-pull-sheet" data-label="Export Pull Sheet"></div>
+            <div class="menu-option" data-action="export-binder" data-label="Export Binder"></div>
             <div class="menu-divider"></div>
             <div class="menu-option" data-action="preferences" data-label="Preferences" data-shortcut-mac="Cmd+," data-shortcut-win="Ctrl+,"></div>
         </div>
@@ -99,6 +100,10 @@
                  somewhere else to move it to. -->
             <div class="menu-divider move-canvas-only"></div>
             <div class="menu-option move-canvas-only" data-action="move-to-canvas" data-label="Move to Canvas…"></div>
+            <!-- The binder, for one screen (app-binder.js). Shown when the
+                 right-click lands on a screen on the canvas. -->
+            <div class="menu-divider screen-export-only"></div>
+            <div class="menu-option screen-export-only" data-action="export-screen-binder" data-label="Export this screen…"></div>
             <div class="menu-divider movable-view-only"></div>
             <div class="menu-option movable-view-only" data-action="center-x" data-label="Center on Canvas X"></div>
             <div class="menu-option movable-view-only" data-action="center-y" data-label="Center on Canvas Y"></div>
@@ -1949,6 +1954,7 @@
                     <option value="pdf">PDF (All views combined)</option>
                     <option value="resolume-xml">Resolume XML (Advanced Output)</option>
                     <option value="pull-sheet">Pull Sheet (Excel workbook - cable list by position)</option>
+                    <option value="binder">Binder (PDF)</option>
                     <!-- NovaStar SCR export is parked, not gone: the .scr file
                          layer lives in src/scr_project.py / scr_encoder.py /
                          scr_decoder.py with a working CLI in
@@ -1987,6 +1993,48 @@
                     </div>
                 </div>
                 <div style="margin-top: 6px; font-size: 11px; color: #777;">Positions are your screen groups; an ungrouped screen is its own position. Fiber trunk home runs are not listed.</div>
+            </div>
+
+            <!-- Binder (format binder only): the show's power and data maps, one
+                 page per screen with the pull tables under each map, bound into
+                 one PDF. Scope (the whole show, or one screen - the canvas's
+                 right-click presets it), the palette (Colour, or Printer: greys
+                 and black runs told apart by dash), which maps, and which extra
+                 pages. Shown/hidden by syncBinderControls in app-binder.js. -->
+            <div id="export-binder-section" style="margin-bottom: 18px; display: none;">
+                <label style="display: block; margin-bottom: 8px; color: #ccc; font-size: 13px;">Binder:</label>
+                <div class="export-views" style="display: flex; flex-direction: column; gap: 8px;">
+                    <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
+                        <span style="flex: none; width: 92px;">Scope</span>
+                        <select id="export-binder-scope" data-tooltip="The whole show, or one screen's pages alone." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
+                            <option value="show">Whole show</option>
+                        </select>
+                    </div>
+                    <div style="display: flex; gap: 14px; align-items: center; font-size: 12px; color: #aaa;">
+                        <span style="flex: none; width: 92px;">Palette</span>
+                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;"><input type="radio" name="export-binder-palette" id="export-binder-colour" value="colour" checked> Colour</label>
+                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;" data-tooltip="Black and white: grey cabinets, black runs told apart by a dash pattern per circuit, white label discs."><input type="radio" name="export-binder-palette" id="export-binder-printer" value="printer"> Printer</label>
+                    </div>
+                    <div style="display: flex; gap: 14px; align-items: center; font-size: 12px; color: #aaa;">
+                        <span style="flex: none; width: 92px;">Maps</span>
+                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;"><input type="radio" name="export-binder-side" id="export-binder-side-power" value="power"> Power</label>
+                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;"><input type="radio" name="export-binder-side" id="export-binder-side-data" value="data"> Data</label>
+                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;"><input type="radio" name="export-binder-side" id="export-binder-side-both" value="both" checked> Both</label>
+                    </div>
+                    <div style="display: flex; gap: 14px; align-items: center; font-size: 12px; color: #aaa;">
+                        <span style="flex: none; width: 92px;">Pages</span>
+                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;"><input type="checkbox" id="export-binder-cover" checked> Cover</label>
+                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;" data-tooltip="A pull page per position with tick boxes, and the show-wide pull list at the back."><input type="checkbox" id="export-binder-pull" checked> Pull pages</label>
+                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;" data-tooltip="One page per distro and per processor at the back."><input type="checkbox" id="export-binder-hardware" checked> Hardware</label>
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
+                        <span style="flex: none; width: 92px;">Engineer</span>
+                        <input type="text" id="export-binder-engineer" placeholder="Name" data-tooltip="Printed on the cover. Remembered as a preference." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
+                        <span style="flex: none;">Rev</span>
+                        <input type="text" id="export-binder-rev" placeholder="1.0" data-tooltip="Printed on the cover and in every footer." style="flex: none; width: 44px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px; text-align: right;">
+                    </div>
+                </div>
+                <div style="margin-top: 6px; font-size: 11px; color: #777;">Maps follow each screen's Show Cable Tags and 2fer / 3fer switches. Positions are your screen groups; a screen with no circuits has no power page.</div>
             </div>
 
             <!-- Export Scale (v0.8.7.7.1), multiplies output resolution. Vector
