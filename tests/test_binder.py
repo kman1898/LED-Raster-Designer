@@ -649,7 +649,8 @@ def test_the_data_page_prints_the_return_end_and_the_processor_once(page):
     ("SR Primary 100' / SR Backup 150' +25'" - the backup's snake and the
     extension on its socket, 2026-09-07: "i have no way of putting lengths
     for redundancy cables"), never cut to "…"; Cables this screen lists the
-    backup's snake and the extension; the processor page lists the
+    backup's snake, the extension and the extension's `Ether-con Barrel`
+    (one per extension, 2026-09-07); the processor page lists the
     extension as an `ext` row under its snake."""
     pg, ids = page
     backup_id = pg.evaluate("""async (ids) => {
@@ -696,6 +697,9 @@ def test_the_data_page_prints_the_return_end_and_the_processor_once(page):
         assert not [t for t in texts if t.startswith('slot ') or t.endswith('…')]
         cables = texts[texts.index('CABLES THIS SCREEN'):texts.index('Screen')]
         assert ['Ether-con', "25'", '1'] == cables[cables.index('Ether-con'):cables.index('Ether-con') + 3], cables
+        k = cables.index('Ether-con Barrel')
+        assert cables[k:k + 3] == ['Ether-con Barrel', 'EA', '1'], cables
+        assert cables.count('Ether-con Barrel') == 1, cables
         assert cables.count('Ether-con Snake') == 2, cables
         assert "150'" in cables and "100'" in cables, cables
         # the Facts say how many ports, never a px-per-port ceiling
@@ -950,12 +954,19 @@ def test_smoke_experts_only(page):
     assert abs((dm['area']['y'] + dm['area']['h']) - (FOOTER_TOP - TABLE_FLOOR - 8)) <= 2, dm
     assert 'PORTS' in dpage['texts']
     data = dpage['texts']
-    assert 'H9 SR · H_16xRJ45+2xfiber · 16 ports' in data
-    assert ['SR-1', 'SR-2', 'SR-3', 'SR-4'] == [t for t in data if re.fullmatch(r'SR-\d', t)]
+    # the box delivering the ports is the band (2026-09-07: a CVT4K-S on
+    # each card, all 16 sockets), the ports its own labels
+    assert 'CVT4K-S A · OPT 1-2 · 16 ports · no fiber length' in data
+    assert ['A-1', 'A-2', 'A-3', 'A-4'] == [t for t in data if re.fullmatch(r'A-\d', t)]
     # the return end, whole: the backup port's label and where it lands
-    assert [t for t in data if t.startswith('SR-') and 'R ·' in t] == [
-        'SR-1R · H9 slot 2 · 1', 'SR-2R · H9 slot 2 · 2', 'SR-3R · H9 slot 2 · 3', 'SR-4R · H9 slot 2 · 4']
+    assert [t for t in data if re.fullmatch(r'B-\d · CVT4K-S B · \d', t)] == [
+        'B-1 · CVT4K-S B · 1', 'B-2 · CVT4K-S B · 2', 'B-3 · CVT4K-S B · 3', 'B-4 · CVT4K-S B · 4']
     assert not [t for t in data if t.startswith('slot ')]
+    # both ends' runs, and one barrel per extension in Cables this screen
+    assert data[data.index('A-1') + 5] == "SNAKE A 150' +10' / SNAKE A · no length", data
+    cables = data[data.index('CABLES THIS SCREEN'):data.index('FACTS')]
+    k = cables.index('Ether-con Barrel')
+    assert cables[k:k + 3] == ['Ether-con Barrel', 'EA', '3'], cables
     # the processor once, the redundancy in the bar's words
     assert data[data.index('Processor') + 1] == 'H9' and 'H9 · H9' not in data
     assert data[data.index('Redundancy') + 1] == 'Per card'

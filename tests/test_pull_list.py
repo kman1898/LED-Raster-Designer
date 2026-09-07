@@ -7,7 +7,11 @@ screen GROUPS (an ungrouped screen is its own position), a box on a distro
 is one `Multi` row plus one `<connector> Breakout`, a circuit's cable is
 its connector's name plus its length, a 2fer / 3fer is `<connector> 2fer`
 EA, a loose CAT port cable is `Ether-con` + length, a snake is one
-`Ether-con Snake` row with its way count in Notes, and JUMPERS are one
+`Ether-con Snake` row with its way count in Notes, an extension off a
+snake is `Ether-con` + length with "ext · <snake>" in Notes plus ONE
+`Ether-con Barrel` EA ("a snake of four with four extensions would be
+four ethercon barrels", 2026-09-07 - a loose home run takes none), and
+JUMPERS are one
 per ROW STEP within a run (per port for data, per circuit for power), named
 and sized per project (project.pullSheet). The server (pull_sheet.py) lays
 the list into a copy of the user's workbook: positions side by side in the
@@ -75,7 +79,8 @@ def test_the_shipped_template_is_the_scrubbed_workbook():
     assert _formula_text(wb['Spares']['F6'].value) == '=IFERROR(INDEX(calc!$A:$A,MATCH(1,calc!$E:$E,0)),"")'
     # the GEAR LIST vocabulary the list writes in
     types = [wb['GEAR LIST'].cell(r, 1).value for r in range(4, 40)]
-    for word in ('Multi', 'Tru-1', 'Tru-1 Breakout', 'Tru-1 2fer', 'Tru-1 3fer', 'Ether-con', 'Ether-con Snake'):
+    for word in ('Multi', 'Tru-1', 'Tru-1 Breakout', 'Tru-1 2fer', 'Tru-1 3fer', 'Ether-con', 'Ether-con Snake',
+                 'Ether-con Barrel'):
         assert word in types, word
     # idempotent
     again = io.BytesIO()
@@ -428,8 +433,11 @@ def test_a_snaked_ports_extension_is_an_ether_con_row_with_notes(page):
     length incase i need an extension" (2026-09-07): 25' on WALL-A's
     socket (it rides SNAKE A) is one `Ether-con 25'` row in SR Beach under
     WALL-A's port label with "ext · SNAKE A" in Notes - beside the snake's
-    own row, never folded into it - the same row on the processor's
-    hardware rows, and byScreen's port carries ext: 25."""
+    own row, never folded into it - with one `Ether-con Barrel` EA under
+    the same label (the coupler that joins the extension to the fan-out,
+    2026-09-07), the same rows on the processor's hardware rows, and
+    byScreen's port carries ext: 25. CENTER's loose 50' home run joins
+    nothing and takes no barrel."""
     pg, ids = page
     out = pg.evaluate("""async (ids) => {
         const app = window.app;
@@ -455,16 +463,91 @@ def test_a_snaked_ports_extension_is_an_ether_con_row_with_notes(page):
             port: list.byScreen[String(ids.a)].ports[0],
             hw: list.hardware.filter(h => h.kind === 'processor').map(h => h.rows),
             totals: list.totals.filter(r => r.type === 'Ether-con'),
+            barrels: list.totals.filter(r => r.type === 'Ether-con Barrel'),
+            center: list.positions[1].rows.filter(r => r.side === 'data' && !/Jump/.test(r.type)),
             after: after.positions[0].rows.filter(r => r.side === 'data' && !/Jump/.test(r.type)),
         };
     }""", ids)
     assert _rows(out['sr']) == [
         ('Ether-con', "25'", 1, out['aLabel'], 'ext · SNAKE A'),
+        ('Ether-con Barrel', 'EA', 1, out['aLabel'], ''),
         ('Ether-con Snake', "100'", 1, 'SNAKE A', '2-way')], out['sr']
     assert (out['port']['snake'], out['port']['ext'], out['port']['cable']) == ('SNAKE A', 25, None), out['port']
     assert ('Ether-con', "25'", 1, out['aLabel'], 'ext · SNAKE A') in _rows(out['hw'][0]), out['hw']
+    assert ('Ether-con Barrel', 'EA', 1, out['aLabel'], '') in _rows(out['hw'][0]), out['hw']
     assert [(r['length'], r['qty']) for r in out['totals']] == [("25'", 1), ("50'", 1)], out['totals']
+    assert _rows(out['barrels']) == [('Ether-con Barrel', 'EA', 1, out['aLabel'], '')], out['barrels']
+    # the loose home run: no barrel
+    assert _rows(out['center']) == [('Ether-con', "50'", 1, ids['centerPortLabel'], '')], out['center']
     assert _rows(out['after']) == [('Ether-con Snake', "100'", 1, 'SNAKE A', '2-way')]
+
+
+def test_a_snake_of_two_with_two_extensions_is_two_barrels(page):
+    """"Every time we add an extension to a snake, we need to count for one
+    barrel so a snake of four with four extensions would be four ethercon
+    barrels" (2026-09-07). SNAKE A carries WALL-A's and WALL-B's sockets;
+    an extension on each (25' and 10') is two `Ether-con` rows and ONE
+    `Ether-con Barrel | EA | 2` row labelled with both ports - in SR Beach,
+    on the processor's hardware rows and in TOTALS. CENTER's loose 50'
+    stays barrel-less; with the extensions gone, so are the barrels."""
+    pg, ids = page
+    out = pg.evaluate("""async (ids) => {
+        const app = window.app;
+        const j = (method, url, body) => fetch(url, {method,
+            headers: {'Content-Type': 'application/json'},
+            body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
+        const url = `/api/processors/${ids.procId}/cards/${ids.cardId}`;
+        const centerSock = String(ids.sockets['CENTER'][0]);
+        const aSock = String(ids.sockets['WALL-A'][0]);
+        const bSock = String(ids.sockets['WALL-B'][0]);
+        const rebuild = async () => {
+            await app.refreshProcessors();
+            await app.refreshPortAssignment();
+            app._circuitTailCache = null;
+            return JSON.parse(JSON.stringify(app.buildPullList()));
+        };
+        await j('PUT', url, {portCables: {[centerSock]: {ft: 50}, [aSock]: {ft: 25}, [bSock]: {ft: 10}}});
+        const list = await rebuild();
+        await j('PUT', url, {portCables: {[centerSock]: {ft: 50}}});
+        const after = await rebuild();
+        const layer = (id) => app.project.layers.find(l => l.id === id);
+        const data = (l) => l.positions.map(p => [p.name, p.rows.filter(r => r.side === 'data' && !/Jump/.test(r.type))]);
+        return {
+            aLabel: app.getPortLabelText(layer(ids.a), 1, 'primary'),
+            bLabel: app.getPortLabelText(layer(ids.b), 1, 'primary'),
+            positions: data(list),
+            hw: list.hardware.filter(h => h.kind === 'processor').map(h => h.rows)[0],
+            totals: list.totals.filter(r => /Ether-con/.test(r.type)),
+            byScreen: [list.byScreen[String(ids.a)].rows, list.byScreen[String(ids.b)].rows],
+            after: data(after),
+            afterTotals: after.totals.filter(r => /Barrel/.test(r.type)),
+        };
+    }""", ids)
+    la, lb = out['aLabel'], out['bLabel']
+    both = f'{la}, {lb}'
+    assert out['positions'] == [
+        ['SR Beach', [
+            {'type': 'Ether-con', 'length': "10'", 'qty': 1, 'label': lb, 'notes': 'ext · SNAKE A', 'side': 'data'},
+            {'type': 'Ether-con', 'length': "25'", 'qty': 1, 'label': la, 'notes': 'ext · SNAKE A', 'side': 'data'},
+            {'type': 'Ether-con Barrel', 'length': 'EA', 'qty': 2, 'label': both, 'notes': '', 'side': 'data'},
+            {'type': 'Ether-con Snake', 'length': "100'", 'qty': 1, 'label': 'SNAKE A', 'notes': '2-way', 'side': 'data'}]],
+        ['CENTER', [
+            {'type': 'Ether-con', 'length': "50'", 'qty': 1, 'label': ids['centerPortLabel'], 'notes': '', 'side': 'data'}]],
+    ], out['positions']
+    assert ('Ether-con Barrel', 'EA', 2, both, '') in _rows(out['hw']), out['hw']
+    assert _rows(out['totals']) == [
+        ('Ether-con', "10'", 1, lb, 'ext · SNAKE A'),
+        ('Ether-con', "25'", 1, la, 'ext · SNAKE A'),
+        ('Ether-con', "50'", 1, ids['centerPortLabel'], ''),
+        ('Ether-con Barrel', 'EA', 2, both, ''),
+        ('Ether-con Snake', "100'", 1, 'SNAKE A', '2-way')], out['totals']
+    # each screen's own share: one barrel each, under its own label
+    assert [r for r in _rows(out['byScreen'][0]) if r[0] == 'Ether-con Barrel'] == [('Ether-con Barrel', 'EA', 1, la, '')]
+    assert [r for r in _rows(out['byScreen'][1]) if r[0] == 'Ether-con Barrel'] == [('Ether-con Barrel', 'EA', 1, lb, '')]
+    assert out['after'] == [
+        ['SR Beach', [{'type': 'Ether-con Snake', 'length': "100'", 'qty': 1, 'label': 'SNAKE A', 'notes': '2-way', 'side': 'data'}]],
+        ['CENTER', [{'type': 'Ether-con', 'length': "50'", 'qty': 1, 'label': ids['centerPortLabel'], 'notes': '', 'side': 'data'}]]], out['after']
+    assert out['afterTotals'] == []
 
 
 def test_a_backup_end_is_walked_like_the_primary_under_the_return_label(page):
@@ -475,9 +558,12 @@ def test_a_backup_end_is_walked_like_the_primary_under_the_return_label(page):
     and a 10' extension on WALL-A's return socket: SR Beach gets the
     backup snake said once and the extension under WALL-A's RETURN label
     (BK-1 - the backup socket's own, as link() derives it off the named
-    card), CENTER gets `Ether-con 60'` under its return label (BK-3), the
-    processor's hardware rows carry all of it, and byScreen's port.backup
-    records what was read. Unlinked, none of it is listed."""
+    card) with its `Ether-con Barrel` EA (the backup end is walked by the
+    same hand, so its extension joins with a barrel too), CENTER gets
+    `Ether-con 60'` under its return label (BK-3) and no barrel (a loose
+    home run), the processor's hardware rows carry all of it, and
+    byScreen's port.backup records what was read. Unlinked, none of it is
+    listed."""
     pg, ids = page
     out = pg.evaluate("""async (ids) => {
         const app = window.app;
@@ -542,6 +628,7 @@ def test_a_backup_end_is_walked_like_the_primary_under_the_return_label(page):
     block = [tuple(ws.cell(r, col + i).value for i in range(5)) for r in range(7, 30)]
     assert ('Ether-con Snake', "150'", 1, 'SR Backup', '2-way') in block, block
     assert ('Ether-con', "10'", 1, out['labels']['a'], 'ext · SR Backup') in block, block
+    assert ('Ether-con Barrel', 'EA', 1, out['labels']['a'], None) in block, block
     col = pull_sheet.BLOCK_COLS[1]
     block = [tuple(ws.cell(r, col + i).value for i in range(5)) for r in range(7, 30)]
     assert ('Ether-con', "60'", 1, out['labels']['c'], None) in block, block
@@ -551,6 +638,7 @@ def test_a_backup_end_is_walked_like_the_primary_under_the_return_label(page):
     assert (la, lc) == ('BK-1', 'BK-3'), out['labels']
     assert _rows(out['sr']) == [
         ('Ether-con', "10'", 1, la, 'ext · SR Backup'),
+        ('Ether-con Barrel', 'EA', 1, la, ''),
         ('Ether-con Snake', "100'", 1, 'SNAKE A', '2-way'),
         ('Ether-con Snake', "150'", 1, 'SR Backup', '2-way')], out['sr']
     assert _rows(out['center']) == [
@@ -561,9 +649,11 @@ def test_a_backup_end_is_walked_like_the_primary_under_the_return_label(page):
     assert out['cPort']['backup'] == {'label': lc, 'cable': "60' CAT", 'snake': None, 'ext': None, 'box': None}
     hw = _rows(out['hw'])
     for want in (('Ether-con', "10'", 1, la, 'ext · SR Backup'), ('Ether-con', "60'", 1, lc, ''),
+                 ('Ether-con Barrel', 'EA', 1, la, ''),
                  ('Ether-con Snake', "150'", 1, 'SR Backup', '2-way')):
         assert want in hw, (want, hw)
     assert out['totals'] == [['Ether-con', "10'", 1], ['Ether-con', "50'", 1], ['Ether-con', "60'", 1],
+                             ['Ether-con Barrel', 'EA', 1],
                              ['Ether-con Snake', "100'", 1], ['Ether-con Snake', "150'", 1]], out['totals']
     assert out['after'] == [['SR Beach', [{'type': 'Ether-con Snake', 'length': "100'", 'qty': 1, 'label': 'SNAKE A', 'notes': '2-way', 'side': 'data'}]],
                             ['CENTER', [{'type': 'Ether-con', 'length': "50'", 'qty': 1, 'label': ids['centerPortLabel'], 'notes': '', 'side': 'data'}]]], out['after']
@@ -847,7 +937,13 @@ def test_smoke_experts_only(page):
     """The real show: SR - MAIN's 22 custom circuits on four boxes SR 1-4
     (125' / 100' / 125' / 100') with typed cables; SR - Return on box 5;
     SL mirroring it with no lengths and no cables. No groups in the file,
-    so every screen is its own position, named after it."""
+    so every screen is its own position, named after it. Data (2026-09-07):
+    Card 1 backed 1:1 by Card 4, a CVT4K-S on each delivering all 16
+    sockets - box A carries SNAKE A 150' over SR - MAIN's four ports (A-1
+    to A-4) with extensions on A-1 (10'), A-3 and A-4 (25' each) - one
+    barrel per extension, three - and a loose 50' on A-5, SR - Return's
+    port; box B carries the returns' SNAKE A with no length typed and no
+    extensions, so no barrel."""
     pg, ids = page
     with open(SCRATCH_FIXTURE) as fh:
         project = json.load(fh)
@@ -881,7 +977,13 @@ def test_smoke_experts_only(page):
     # way", listed once where SR sits - no location, so with SR - MAIN.
     assert by['SR - MAIN'] == [
         ('36 way', 'EA', 1, 'SR', ''),
+        ('CVT4K-S', 'EA', 2, 'A, B', ''),
         ('Data Jump', "6'", 7, 'SR - MAIN', ''),
+        ('Ether-con', "10'", 1, 'A-1', 'ext · SNAKE A'),
+        ('Ether-con', "25'", 2, 'A-3, A-4', 'ext · SNAKE A'),
+        ('Ether-con Barrel', 'EA', 3, 'A-1, A-3, A-4', ''),
+        ('Ether-con Snake', "150'", 1, 'SNAKE A', '4-way'),
+        ('Ether-con Snake', '', 1, 'SNAKE A', '4-way; no length'),
         ('Multi', "100'", 2, 'SR 2, 4', ''),
         ('Multi', "125'", 2, 'SR 1, 3', ''),
         ('Tru-1', "6'", 8, 'SR1-2, SR1-5, SR2-3, SR2-6, SR3-2, SR3-5, SR4-2, SR4-6', ''),
@@ -892,6 +994,7 @@ def test_smoke_experts_only(page):
     # with splitters on (maxWays 3) and gangs circuits 1-5 through 2fers.
     assert by['SR - Return'] == [
         ('Data Jump', "6'", 10, 'SR - Return', ''),
+        ('Ether-con', "50'", 1, 'A-5', ''),
         ('Multi', "125'", 1, 'SR 5', ''),
         ('Tru-1', "6'", 1, 'SR5-3', ''),
         ('Tru-1', "10'", 2, 'SR5-2, SR5-5', ''),
@@ -915,7 +1018,14 @@ def test_smoke_experts_only(page):
     ]
     assert _rows(out['totals']) == [
         ('36 way', 'EA', 2, 'SR, SL', ''),
+        ('CVT4K-S', 'EA', 2, 'A, B', ''),
         ('Data Jump', "6'", 34, 'SR - MAIN, SR - Return, SL - MAIN, SL - Return', ''),
+        ('Ether-con', "10'", 1, 'A-1', 'ext · SNAKE A'),
+        ('Ether-con', "25'", 2, 'A-3, A-4', 'ext · SNAKE A'),
+        ('Ether-con', "50'", 1, 'A-5', ''),
+        ('Ether-con Barrel', 'EA', 3, 'A-1, A-3, A-4', ''),
+        ('Ether-con Snake', "150'", 1, 'SNAKE A', '4-way'),
+        ('Ether-con Snake', '', 1, 'SNAKE A', '4-way; no length'),
         ('Multi', "100'", 2, 'SR 2, 4', ''),
         ('Multi', "125'", 3, 'SR 1, 3, 5', ''),
         ('Multi', '', 5, 'SL 1-5', 'no length'),
@@ -925,8 +1035,11 @@ def test_smoke_experts_only(page):
         ('Tru-1 2fer', 'EA', 10, 'SR5-1 … SL5-5 (10)', ''),
         ('Tru-1 Breakout', 'EA', 10, 'SR 1-5, SL 1-5', ''),
     ]
-    # the file types no data cable, so no Ether-con rows
-    assert not any(r[0].startswith('Ether-con') for rows in by.values() for r in rows)
+    # one barrel per extension, nowhere else: three on SR - MAIN's box A,
+    # none for A-5's loose home run, none on the backup box (no extensions)
+    assert [r for rows in by.values() for r in rows if r[0] == 'Ether-con Barrel'] == [
+        ('Ether-con Barrel', 'EA', 3, 'A-1, A-3, A-4', '')]
+    assert not any(r[0].startswith('Ether-con') for r in by['SL - MAIN'] + by['SL - Return'])
     # the workbook takes it: four positions, the tan block moved to Y
     r = pg.evaluate("""async (list) => {
         const res = await fetch('/api/export/pull-sheet', {method: 'POST',

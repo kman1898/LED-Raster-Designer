@@ -22,7 +22,13 @@
 //     different way counts are never merged), lengths as the snake's ONE
 //     home run. A snaked port's EXTENSION (the shorter cable from the
 //     snake's fan-out to the panel, 2026-09-07) is one `Ether-con` +
-//     length row under the port's label with "ext · <snake>" in Notes.
+//     length row under the port's label with "ext · <snake>" in Notes,
+//     and ONE `Ether-con Barrel` EA row under the same label beside it -
+//     the coupler that joins the extension to the snake's fan-out
+//     ("every time we add an extension to a snake, we need to count for
+//     one barrel so a snake of four with four extensions would be four
+//     ethercon barrels", 2026-09-07). A loose port's own home run joins
+//     nothing, so it takes no barrel.
 //   * the BACKUP end of a port (the socket its return comes back on -
 //     backedBy, the card's 1:1 partner or the box's) is walked exactly like
 //     the primary: its snake said once, its cable or extension as a row
@@ -783,7 +789,8 @@ class _PullList {
         // binder's band says so); then the socket's run - a snake said
         // once, a loose cable as one `Ether-con 50'` row under `label`;
         // then, on a snaked socket, its EXTENSION as one `Ether-con 25'`
-        // row under the same label with "ext · <snake>" in Notes. Every
+        // row under the same label with "ext · <snake>" in Notes and
+        // the `Ether-con Barrel` EA that joins it to the fan-out. Every
         // row is pushed to the processor's hardware rows too. `into` is
         // the port entry (or its .backup) that records what was read.
         // Every row of a socket a BOX delivers is pulled where the box
@@ -825,6 +832,14 @@ class _PullList {
                         this.dataPortConnectorId(owner, cable.extConnector));
                     push(row(extWord || 'Data Cable', this.pullLengthText(cable.ext), 1, label,
                              `ext · ${s.name || 'snake'}`, at));
+                    // One barrel per extension (2026-09-07): the coupler
+                    // between the fan-out and the extension, in the
+                    // extension's connector word ("Ether-con Barrel" - the
+                    // GEAR LIST's own type), EA, no notes. _pullMergeRows
+                    // folds a snake's four into `Ether-con Barrel | EA | 4`.
+                    // The backup end passes through here too, so its
+                    // extension takes one as well.
+                    push(row(extWord ? `${extWord} Barrel` : 'Barrel', 'EA', 1, label, '', at));
                 }
                 const snakeKey = `${owner.kind}:${owner.id}:${s.id}`;
                 if (snakesSeen.has(snakeKey)) return;

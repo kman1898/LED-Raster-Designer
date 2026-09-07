@@ -1638,7 +1638,11 @@ button.hw-dock-typechip:focus-visible { outline: 1px solid var(--ps-accent, #ef3
    screen · ft · connector - with this box's pull list under the rows and
    the quick fills under that. Fields are inset, the totals a flat readout,
    the fills raised keycaps (theme.css dresses the buttons). */
-.hw-dock-cablesheet { padding: 4px 2px 2px; }
+.hw-dock-cablesheet { padding: 4px 2px 2px; overflow-x: auto; }
+/* the table fills a wide box (width: 100%); the sheet's overflow-x: auto
+   above is the last resort - on a box too narrow for the five columns the
+   sheet scrolls sideways rather than cutting a HOME RUN or CONNECTOR cell
+   off its edge, so nothing on it is ever unreachable (2026-09-07) */
 .hw-dock-cablesheet table {
     border-collapse: collapse; width: 100%;
     font: 10.5px ui-monospace, Menlo, monospace; color: #dddddd;
@@ -1650,7 +1654,20 @@ button.hw-dock-typechip:focus-visible { outline: 1px solid var(--ps-accent, #ef3
 .hw-dock-cablesheet td {
     padding: 2px 5px; border-bottom: 1px solid #2c2c2c; white-space: nowrap;
 }
+/* the SCREEN cell never widens the sheet: a long list of screens cuts to
+   an ellipsis at ~24ch (the full text rides the cell's title), so the HOME
+   RUN and CONNECTOR cells - the inputs - stay on the sheet whatever a
+   snake's members read (2026-09-07: a backup box's snake row once pushed
+   them off the right edge; 30ch was still too wide for a 415px box on a
+   1440px window). The cap sits on a block INSIDE the cell: a
+   table column asks for its cells' min-content width, which a max-width on
+   the cell does not reduce (Chrome clips the cell and widens the table
+   anyway), while a block's max-width bounds what it asks for. */
 .hw-dock-cablesheet td.hw-dock-cable-who { color: #aaaaaa; }
+.hw-dock-cablesheet td.hw-dock-cable-who .hw-dock-cable-who-text {
+    display: block; max-width: 24ch; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap;
+}
 .hw-dock-cablesheet tr.hw-dock-cable-free td { color: #6a6a6a; }
 /* the totals row is a reading in the cable's gold, not a control */
 .hw-dock-cablesheet tr.hw-dock-cable-total td {
@@ -1664,8 +1681,10 @@ button.hw-dock-typechip:focus-visible { outline: 1px solid var(--ps-accent, #ef3
 .hw-dock-cable-ft::-webkit-outer-spin-button,
 .hw-dock-cable-ft::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .hw-dock-cable-ft:focus { outline: none; border-color: var(--ps-accent, #ef3340); }
+/* 120px: the list reads "follows port (CAT)" / "CAT" now, and every
+   pixel the select does not need is one the sheet keeps on a narrow box */
 .hw-dock-cable-connector {
-    width: 150px; background: #0d0d0d; color: #eeeeee; border: 1px solid #555;
+    width: 120px; background: #0d0d0d; color: #eeeeee; border: 1px solid #555;
     border-radius: 3px; padding: 1px 4px;
     font: 10.5px ui-monospace, Menlo, monospace;
 }
@@ -1881,3 +1900,18 @@ button.hw-dock-typechip:focus-visible { outline: 1px solid var(--ps-accent, #ef3
    fold, app-dock.js) is the sheet's width, not the header's cap. */
 #hardware-dock-body .hw-dock-proc
     .hw-dock-unit.lrd-sec-collapsed.hw-dock-sheet-up { max-width: none; }
+/* A unit whose cable sheet is open takes the WHOLE tray row (2026-09-07:
+   on a 1440px window box B's sheet came up 415px wide with a 563px table,
+   its CONNECTOR column off the edge). A sheet is a table of inputs and
+   needs the width; the chips next to it wrap fine, a sheet does not. The
+   tray is Chromium/Electron, so :has() is safe. The card unit lives in
+   its processor's wrap (and a backup pair's wrapper), so each level on
+   the way to the tray body opens to 100% too; a unit straight in the
+   body is covered as well. */
+#hardware-dock-body > .hw-dock-unit:has(.hw-dock-cablesheet),
+#hardware-dock-body > .hw-dock-proc:has(.hw-dock-cablesheet),
+#hardware-dock-body > .lrd-red-pair:has(.hw-dock-cablesheet),
+#hardware-dock-body .hw-dock-proc > .lrd-red-pair:has(.hw-dock-cablesheet),
+#hardware-dock-body .hw-dock-proc .hw-dock-unit:has(.hw-dock-cablesheet) {
+    flex: 1 1 100%; max-width: none;
+}
