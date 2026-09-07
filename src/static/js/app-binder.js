@@ -342,11 +342,17 @@ class _Binder {
 
         if (opts.cover) this._bCoverPage(book);
         for (const pos of list.positions) {
+            // layerIds: every screen with rows on this position (a located
+            // distro or box pulls a screen's rows onto its own beach) -
+            // the pull page lists them all. memberIds: the screens whose
+            // OWN position this is - their POWER / DATA pages print here,
+            // once, and a device-only position prints none.
             const members = pos.layerIds.map(id => layers.get(String(id))).filter(Boolean);
+            const own = (pos.memberIds || pos.layerIds).map(id => layers.get(String(id))).filter(Boolean);
             const mine = scopeLayer ? members.filter(l => l.id === scopeLayer.id) : members;
             if (!mine.length) continue;
             if (opts.pull) this._bPullPage(book, pos, members);
-            for (const layer of mine) {
+            for (const layer of (scopeLayer ? own.filter(l => l.id === scopeLayer.id) : own)) {
                 const scr = list.byScreen[layer.id];
                 if (!scr) continue;
                 if (opts.sides.power && this._bHasPower(layer, scr)) {
@@ -1349,11 +1355,20 @@ class _Binder {
         // Positions and their screens.
         const list = book.list;
         const rows = list.positions.map(pos => {
-            const members = pos.layerIds.map(id => book.layers.get(String(id))).filter(Boolean);
-            const scrs = pos.layerIds.map(id => list.byScreen[id]).filter(Boolean);
+            // A position's own screens with their counts; a device-only
+            // position (a beach a distro or box sits on, no screen of its
+            // own) names the screens whose gear was pulled onto it.
+            const ownIds = pos.memberIds || pos.layerIds;
+            const members = ownIds.map(id => book.layers.get(String(id))).filter(Boolean);
+            const pulled = pos.layerIds.filter(id => !ownIds.includes(id))
+                .map(id => book.layers.get(String(id))).filter(Boolean);
+            const scrs = ownIds.map(id => list.byScreen[id]).filter(Boolean);
             const circuits = scrs.reduce((s, x) => s + (x.boxes || []).reduce((a, b) => a + (b.circuits || []).length, 0), 0);
             const ports = scrs.reduce((s, x) => s + (x.ports || []).length, 0);
-            return { cells: [pos.name, members.map(l => l.name).join(', '), String(circuits), String(ports)] };
+            const screens = members.length ? members.map(l => l.name).join(', ')
+                : (pulled.length ? `gear for ${pulled.map(l => l.name).join(', ')}` : 'no screens');
+            return { cells: [pos.name, screens, members.length ? String(circuits) : '—',
+                             members.length ? String(ports) : '—'] };
         });
         const cols = this._bCols([1, 1], 60);
         const lines = this._bTableLines(book, {

@@ -348,7 +348,11 @@ def test_positions_are_the_groups_and_the_rows_read_in_the_sheets_vocabulary(pag
     # WALL-A: circuit 1 spans two rows (one row step), circuit 2 one row;
     # WALL-B the same -> 2 power jumpers. Data: one port over three rows
     # each -> 2 + 2 data jumpers.
+    # The distro itself is on the sheet (2026-09-07): two boxes in use on
+    # SR is a "12 way", pulled where SR sits - no location typed, so with
+    # the first screen it feeds.
     assert sr == [
+        ('12 way', 'EA', 1, 'SR', ''),
         ('Data Jump', "6'", 4, 'WALL-A, WALL-B', ''),
         ('Ether-con Snake', "100'", 1, 'SNAKE A', '2-way'),
         ('Multi', "100'", 1, 'SR 2', ''),
@@ -377,7 +381,8 @@ def test_positions_are_the_groups_and_the_rows_read_in_the_sheets_vocabulary(pag
     assert totals[('Tru-1', "10'")] == 2 and totals[('Tru-1', "6'")] == 1
     assert totals[('Multi', "125'")] == 1 and totals[('Multi', "100'")] == 1
     assert totals[('Tru-1 Breakout', 'EA')] == 2 and totals[('Edison 2fer', 'EA')] == 1
-    assert len(out['totals']) == 10
+    assert totals[('12 way', 'EA')] == 1
+    assert len(out['totals']) == 11
     # EA sorts after every length; types are A-Z
     types = [r['type'] for r in out['totals']]
     assert types == sorted(types, key=str.lower)
@@ -410,6 +415,7 @@ def test_the_per_screen_readings_the_packet_will_print(page):
     # hardware: the distro's boxes, the processor's cable
     kinds = {(h['kind'], h['name']): _rows(h['rows']) for h in out['hardware']}
     assert kinds[('distro', 'SR')] == [
+        ('12 way', 'EA', 1, 'SR', ''),
         ('Multi', "100'", 1, 'SR 2', ''), ('Multi', "125'", 1, 'SR 1', ''),
         ('Tru-1 Breakout', 'EA', 2, 'SR 1-2', '')]
     proc_rows = next(v for (k, n), v in kinds.items() if k == 'processor')
@@ -668,10 +674,14 @@ def test_a_boxs_fiber_is_one_row_and_the_workbook_writes_it(page):
         app.renderLayers(); app.renderHardwareDock();
         return results;
     }""", ids)
-    assert out['typed'] == [['SR Beach', [['12 Tac Fiber', "250'", 1, 'CVT4K-S SR', '']]], ['CENTER', []]], out['typed']
+    # The box itself is on the sheet too (2026-09-07): "CVT4K-S EA" under
+    # its name, at the position of the first screen it delivers (no
+    # location typed).
+    assert out['typed'] == [['SR Beach', [['12 Tac Fiber', "250'", 1, 'CVT4K-S SR', ''],
+                                          ['CVT4K-S', 'EA', 1, 'SR', '']]], ['CENTER', []]], out['typed']
     assert out['unmodelled'] == []
     assert out['boxes'] == [['CVT4K-S SR'], ['CVT4K-S SR'], ['CVT4K-S SR']]
-    assert out['hardware'] == [[['12 Tac Fiber', "250'", 1, 'CVT4K-S SR']]]
+    assert out['hardware'] == [[['12 Tac Fiber', "250'", 1, 'CVT4K-S SR'], ['CVT4K-S', 'EA', 1, 'SR']]]
     assert out['status'] == 200
     import base64
     wb = openpyxl.load_workbook(io.BytesIO(base64.b64decode(out['b64'])))
@@ -679,8 +689,9 @@ def test_a_boxs_fiber_is_one_row_and_the_workbook_writes_it(page):
     col = pull_sheet.BLOCK_COLS[0]
     rows = [tuple(ws.cell(r, col + i).value for i in range(4)) for r in range(7, 30)]
     assert ('12 Tac Fiber', "250'", 1, 'CVT4K-S SR') in rows, rows
-    assert out['untyped'] == [['SR Beach', [['Fiber', "250'", 1, 'CVT4K-S SR', '']]], ['CENTER', []]]
-    assert out['noLength'] == [['SR Beach', []], ['CENTER', []]]
+    assert out['untyped'] == [['SR Beach', [['CVT4K-S', 'EA', 1, 'SR', ''],
+                                            ['Fiber', "250'", 1, 'CVT4K-S SR', '']]], ['CENTER', []]]
+    assert out['noLength'] == [['SR Beach', [['CVT4K-S', 'EA', 1, 'SR', '']]], ['CENTER', []]]
     # the box gone, the card's snake and CENTER's cable read again
     assert out['after'] == [['SR Beach', [['Ether-con Snake', "100'", 1, 'SNAKE A', '2-way']]],
                             ['CENTER', [['Ether-con', "50'", 1, ids['centerPortLabel'], '']]]], out['after']
@@ -817,7 +828,9 @@ def test_export_saves_the_workbook_through_the_picker_path(page):
     ws = wb['Pull Sheet']
     assert ws['B2'].value == 'Test Show' and ws['B3'].value == 'Test Engineer'
     assert [ws.cell(5, c).value for c in pull_sheet.BLOCK_COLS[:3]] == ['SR Beach', 'CENTER', 'POSITION 3']
-    assert [ws.cell(7, c).value for c in range(1, 6)] == ['Absen Long Data Jump', "6'", 4, 'WALL-A, WALL-B', None]
+    # the distro's own row heads the block (2026-09-07), the renamed jumper next
+    assert [ws.cell(7, c).value for c in range(1, 6)] == ['12 way', 'EA', 1, 'SR', None]
+    assert [ws.cell(8, c).value for c in range(1, 6)] == ['Absen Long Data Jump', "6'", 4, 'WALL-A, WALL-B', None]
     assert ws['E2'].value is not None and ws['E3'].value == '1.0'
     gear_types = [wb['GEAR LIST'].cell(r, 1).value for r in range(4, 100) if wb['GEAR LIST'].cell(r, 1).value]
     assert 'Edison 2fer' in gear_types and 'Tru-1 Power Jump' in gear_types
@@ -864,7 +877,10 @@ def test_smoke_experts_only(page):
     # typed cables, one breakout per box. Its 22 hand-drawn circuits each
     # stay on ONE row (verified against the file), so no power jumper row;
     # the auto ports of the 28 x 11 wall step rows 7 times.
+    # Five boxes in use on SR (1-4 here, 5 on the Return) make it a "36
+    # way", listed once where SR sits - no location, so with SR - MAIN.
     assert by['SR - MAIN'] == [
+        ('36 way', 'EA', 1, 'SR', ''),
         ('Data Jump', "6'", 7, 'SR - MAIN', ''),
         ('Multi', "100'", 2, 'SR 2, 4', ''),
         ('Multi', "125'", 2, 'SR 1, 3', ''),
@@ -886,6 +902,7 @@ def test_smoke_experts_only(page):
     assert out['returnLegs'] == [[[1, 'SR5-1'], [2, 'SR5-2'], [3, 'SR5-3'], [4, 'SR5-4'], [5, 'SR5-5'], [6, 'SR5-6']]]
     # SL mirrors SR with no lengths and no cables
     assert by['SL - MAIN'] == [
+        ('36 way', 'EA', 1, 'SL', ''),
         ('Data Jump', "6'", 7, 'SL - MAIN', ''),
         ('Multi', '', 4, 'SL 1-4', 'no length'),
         ('Tru-1 Breakout', 'EA', 4, 'SL 1-4', ''),
@@ -897,6 +914,7 @@ def test_smoke_experts_only(page):
         ('Tru-1 Breakout', 'EA', 1, 'SL 5', ''),
     ]
     assert _rows(out['totals']) == [
+        ('36 way', 'EA', 2, 'SR, SL', ''),
         ('Data Jump', "6'", 34, 'SR - MAIN, SR - Return, SL - MAIN, SL - Return', ''),
         ('Multi', "100'", 2, 'SR 2, 4', ''),
         ('Multi', "125'", 3, 'SR 1, 3, 5', ''),

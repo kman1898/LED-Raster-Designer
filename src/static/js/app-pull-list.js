@@ -50,6 +50,41 @@
 //     produces stays in the store, is flagged stale in the editor, and is
 //     never exported. See app-pull-sheet-editor.js for the modal.
 //
+//   * LOCATIONS (2026-09-07, "We need to be able to put CVT's or
+//     prcessor's at beach locations so they can be accounted for on the
+//     pull sheets"): a distro and a breakout box each carry a free-text
+//     `location` (the Location field on its ⚙). Every row a DEVICE
+//     produces is pulled where the device sits - "a screen, when it's
+//     added to a distro or cvt will put all of it's gear at whatever
+//     position the device is at": a box's Multi / L21-30 home run, its
+//     Breakout, the cables and 2fer / 3fer of the circuits on it and their
+//     power jumpers go to the DISTRO's location; a port's home run / snake
+//     / extension / backup rows and its data jumpers go to the location of
+//     the BOX delivering the socket; a box's fiber trunk goes to the box's
+//     location. A screen's own position (its group, else itself) is only
+//     the fallback for a device with no location, and the home of a socket
+//     straight off a card (processors have no location). A location name
+//     IS a position: matched trimmed and case-blind against the position
+//     names, a device at "SR Beach" and a group "SR Beach" are ONE
+//     position (the group's key); a name no group carries is its own
+//     position, keyed `loc:<name lower-cased>`, listed only while rows
+//     land on it.
+//   * GEAR rows, EA (2026-09-07, "processor doesnt need listing, and
+//     neither do the cards, but CVT and distros yes. and list them per
+//     beach location and if there is 2 cvts at one beach list them once
+//     and add Qty 2"): one row per breakout box - the catalog model as the
+//     type ("CVT4K-S", "Tessera XD"), its name or letter as the label - at
+//     the box's location, else the position of the first screen whose
+//     ports it delivers (a box delivering nothing, with no location, is
+//     not listed); two boxes at one location merge to qty 2, label "A, B".
+//     One row per distro with a box in use - "the distro should not be
+//     named. it should say how many holes it uses. so 2 multi on a distro
+//     is a 12 way, 3-4 is a 24 way, 5-6 is a 36 way and 7-8 is a 48 way":
+//     the type is `<N> way` from the boxes in use, the label the distro's
+//     name, at the distro's location, else the position of the first
+//     screen it feeds. The table ends at 8: past it the type stays "48
+//     way" and Notes say "<n> multis" - nothing larger is assumed.
+//
 // Lengths print as `100'`, each-items as `EA`; quantities are integers;
 // Label is the short names covered ("SR 1-4", "SNAKE A", "SR1-1, SR1-6");
 // Notes are blank unless a rule above says otherwise. Sorting follows the
@@ -146,6 +181,86 @@ class _PullList {
             return `${device} ${name}`;
         }
         return box.displayTitle || name || device;
+    }
+
+    // The box on its own gear row ("CVT4K-S EA"): the type column already
+    // says the model, so the label is what tells two boxes apart - the
+    // name somebody typed ("SR") or the letter the dock gave it ("A").
+    pullBoxLabel(box) {
+        if (!box) return '';
+        const name = String(box.name || '').trim();
+        if (name) return name;
+        const title = String(box.displayTitle || '').trim();
+        const device = String(box.deviceName || '').trim();
+        if (device && title.toLowerCase().startsWith(device.toLowerCase())) {
+            return title.slice(device.length).trim() || title;
+        }
+        return title || device;
+    }
+
+    // The distro on its own gear row, by how many holes it uses: "2 multi
+    // on a distro is a 12 way, 3-4 is a 24 way, 5-6 is a 36 way and 7-8 is
+    // a 48 way" (2026-09-07). The table ends at 8; past it the type stays
+    // "48 way" and the caller puts the count in Notes.
+    pullDistroWayType(boxes) {
+        const n = Number(boxes) || 0;
+        if (n <= 2) return '12 way';
+        if (n <= 4) return '24 way';
+        if (n <= 6) return '36 way';
+        return '48 way';
+    }
+
+    // Every location the project already knows, for the ⚙ Location
+    // fields' datalists: the screen groups' names, every distro's
+    // location, every breakout box's location - one spelling each
+    // (trimmed, case-blind, first seen wins), A-Z.
+    pullKnownLocations() {
+        const seen = new Map();
+        const add = (name) => {
+            const text = String(name == null ? '' : name).trim();
+            if (!text) return;
+            const norm = text.toLowerCase();
+            if (!seen.has(norm)) seen.set(norm, text);
+        };
+        for (const g of ((this.project && this.project.groups) || [])) add(g && g.name);
+        const distros = (typeof this.getDistros === 'function') ? this.getDistros() : [];
+        for (const d of distros) add(d && d.location);
+        for (const { box } of this._pullAllBoxes()) add(box.location);
+        // The raw records too: a page that has not resolved yet still
+        // knows what the file says.
+        for (const proc of ((this.project && this.project.processors) || [])) {
+            for (const slot of (proc && proc.slots) || []) {
+                for (const box of (slot && slot.card && slot.card.cvts) || []) add(box && box.location);
+            }
+        }
+        return [...seen.values()].sort((a, b) => this._pullNaturalCompare(a, b));
+    }
+
+    // A <datalist> of pullKnownLocations() for a Location field (the
+    // distro's and the box's ⚙ share it).
+    pullLocationDatalist(id) {
+        const list = document.createElement('datalist');
+        list.id = id;
+        for (const name of this.pullKnownLocations()) {
+            const opt = document.createElement('option');
+            opt.value = name;
+            list.appendChild(opt);
+        }
+        return list;
+    }
+
+    // Every breakout box on the resolved tree the dock reads: [{ box,
+    // proc, card }].
+    _pullAllBoxes() {
+        const out = [];
+        for (const proc of this._processorsResolved || []) {
+            for (const slot of (proc && proc.slots) || []) {
+                const card = slot && slot.card;
+                if (!card) continue;
+                for (const box of card.cvts || []) if (box) out.push({ box, proc, card });
+            }
+        }
+        return out;
     }
 
     // A box's fiber trunk as a line: "12 Tac Fiber 250'" (the type, or
@@ -300,9 +415,11 @@ class _PullList {
             .filter(l => l && (l.type || 'screen') === 'screen' && l.visible !== false);
     }
 
-    // The positions: one per screen group (its name, its visible members in
-    // group order), one per ungrouped screen, in order of first appearance
-    // down the layer list.
+    // The screens' own positions: one per screen group (its name, its
+    // visible members in group order), one per ungrouped screen, in order
+    // of first appearance down the layer list. Each carries its editor
+    // key and the location name it answers to (its own name). Device
+    // locations that match none of these are added by buildPullList.
     pullPositions() {
         const out = [];
         const seenGroups = new Set();
@@ -314,10 +431,12 @@ class _PullList {
                 seenGroups.add(group.id);
                 const members = (this.getGroupMembers(group) || [])
                     .filter(l => l.visible !== false);
-                out.push({ name: group.name || layer.name || '', groupId: group.id,
+                const name = group.name || layer.name || '';
+                out.push({ name, groupId: group.id, key: String(group.id), location: name,
                            layers: members.length ? members : [layer] });
             } else {
-                out.push({ name: layer.name || `Screen ${layer.id}`, groupId: null,
+                const name = layer.name || `Screen ${layer.id}`;
+                out.push({ name, groupId: null, key: `layer:${layer.id}`, location: name,
                            layers: [layer] });
             }
         }
@@ -378,12 +497,17 @@ class _PullList {
     // ---- the list ----------------------------------------------------------
 
     // The one authority. Shape:
-    //   { positions: [{ name, layerIds, rows }], totals: [rows],
+    //   { positions: [{ name, key, groupId, location, memberIds, layerIds, rows }],
+    //     totals: [rows],
     //     byScreen: { [layerId]: { name, rows, boxes, gangs: {twofer, threefer},
     //                              ports, snakes, jumpers: {data, power} } },
     //     hardware: [{ kind: 'distro'|'processor', id, name, rows }],
     //     settings, unmodelled: [strings] }
-    // where a row is { type, length, qty, label, notes }.
+    // where a row is { type, length, qty, label, notes, side }. A
+    // position's memberIds are the screens whose own position it is;
+    // layerIds are every screen whose rows land on it (the members plus
+    // any screen a located device pulled in). A screen's byScreen rows are
+    // all of its rows wherever they were pulled.
     buildPullList() {
         const settings = this.getPullSheetSettings();
         const distros = (typeof this.getDistros === 'function') ? this.getDistros() : [];
@@ -402,39 +526,118 @@ class _PullList {
         const boxesSeen = new Set();
         const snakesSeen = new Set();
         const fiberSeen = new Set();      // a box's fiber trunk, said once
+        // Where a device's gear row falls back to when the device has no
+        // location: the first screen a distro feeds, the first screen
+        // whose port a box delivers.
+        const distroFirstLayer = new Map();   // String(distroId) -> layerId
+        const boxFirstLayer = new Map();      // boxId -> layerId
         // The tail cache is a per-tick memo keyed by layer object; a build
         // that follows an edit in the same tick must not read stale names.
         this._circuitTailCache = null;
 
-        const positions = this.pullPositions().map(pos => {
-            const rows = [];
-            for (const layer of pos.layers) {
+        // The positions, keyed. The screens' own come first, in layer
+        // order; a device location that matches none of them opens its
+        // own as the first row reaches it.
+        const positions = [];
+        const byKey = new Map();
+        const byName = new Map();             // trimmed, lower-cased name -> key
+        const ownKey = new Map();             // layerId -> the screen's own key
+        const open = (base) => {
+            const pos = { name: base.name, key: base.key, groupId: base.groupId,
+                          location: base.location, memberIds: [], layerIds: [], rows: [] };
+            positions.push(pos);
+            byKey.set(pos.key, pos);
+            const norm = String(pos.name || '').trim().toLowerCase();
+            if (norm && !byName.has(norm)) byName.set(norm, pos.key);
+            return pos;
+        };
+        const bases = this.pullPositions();
+        for (const base of bases) {
+            const pos = open(base);
+            pos.memberIds = base.layers.map(l => l.id);
+            pos.layerIds = pos.memberIds.slice();
+            base.layers.forEach(l => ownKey.set(l.id, pos.key));
+        }
+        // The position a location name stands for: the group (or loose
+        // screen) of that name, else a position of its own.
+        const locationKey = (name) => {
+            const text = String(name == null ? '' : name).trim();
+            if (!text) return null;
+            const norm = text.toLowerCase();
+            if (byName.has(norm)) return byName.get(norm);
+            const key = `loc:${norm}`;
+            if (!byKey.has(key)) open({ name: text, key, groupId: null, location: text });
+            return key;
+        };
+        const land = (key, r, layerId) => {
+            const pos = byKey.get(key);
+            if (!pos) return;
+            pos.rows.push(r);
+            if (layerId != null && !pos.layerIds.includes(layerId)) pos.layerIds.push(layerId);
+        };
+
+        for (const base of bases) {
+            for (const layer of base.layers) {
                 const scr = this._pullScreenList(layer, {
                     settings, distroById, boxesSeen, snakesSeen, fiberSeen, hw,
+                    distroFirstLayer, boxFirstLayer,
                 });
                 byScreen[layer.id] = scr;
-                rows.push(...scr.rows);
+                // Every row goes where the device that produced it sits;
+                // a row no device located stays with the screen.
+                for (const r of scr.rows) {
+                    land((r._at && locationKey(r._at)) || base.key, r, layer.id);
+                }
             }
-            return {
-                name: pos.name,
-                groupId: pos.groupId,
-                layerIds: pos.layers.map(l => l.id),
-                rows: this._pullMergeRows(rows),
-            };
-        });
-        const totals = this._pullMergeRows(positions.flatMap(p => p.rows));
+        }
+
+        // GEAR, EA: the boxes and the distros themselves.
+        const gearAt = (r, location, fallbackLayerId) => {
+            const key = locationKey(location)
+                || (fallbackLayerId != null ? ownKey.get(fallbackLayerId) : null);
+            if (!key) return false;
+            land(key, r, null);
+            return true;
+        };
+        for (const { box, proc } of this._pullAllBoxes()) {
+            const type = String(box.deviceName || '').trim();
+            if (!type) continue;
+            const r = { type, length: 'EA', qty: 1, label: this.pullBoxLabel(box),
+                        notes: '', side: 'data' };
+            if (!gearAt(r, box.location, boxFirstLayer.get(box.id))) continue;
+            hw('processor', proc.id, proc.name || proc.deviceName || proc.id).rows.push({ ...r });
+        }
+        const boxesOn = new Map();            // String(distroId) -> boxes in use
+        for (const key of boxesSeen) {
+            const distroId = key.split('|')[0];
+            boxesOn.set(distroId, (boxesOn.get(distroId) || 0) + 1);
+        }
+        for (const d of distros) {
+            const n = boxesOn.get(String(d.id)) || 0;
+            if (!n) continue;
+            const r = { type: this.pullDistroWayType(n), length: 'EA', qty: 1,
+                        label: d.name || '', notes: n > 8 ? `${n} multis` : '', side: 'power' };
+            if (!gearAt(r, d.location, distroFirstLayer.get(String(d.id)))) continue;
+            hw('distro', d.id, d.name).rows.push({ ...r });
+        }
+
+        // A device location is a position only while rows land on it.
+        const listed = positions.filter(p => p.memberIds.length || p.rows.length);
+        listed.forEach(p => { p.rows = this._pullMergeRows(p.rows); });
+        const totals = this._pullMergeRows(listed.flatMap(p => p.rows));
         const hardware = [...hardwareRows.values()].map(h => ({
             kind: h.kind, id: h.id, name: h.name, rows: this._pullMergeRows(h.rows),
         }));
         // `side` rides along for the binder, which lists a screen's power
-        // cable apart from its data cable; the workbook ignores it.
+        // cable apart from its data cable; the workbook ignores it. `_at`
+        // (where the row was pulled) has done its work.
         const strip = r => ({ type: r.type, length: r.length, qty: r.qty,
                               label: r.label, notes: r.notes, side: r.side || 'power' });
-        positions.forEach(p => { p.rows = p.rows.map(strip); });
+        listed.forEach(p => { p.rows = p.rows.map(strip); });
         hardware.forEach(h => { h.rows = h.rows.map(strip); });
         Object.values(byScreen).forEach(s => { s.rows = this._pullMergeRows(s.rows).map(strip); });
         return {
-            positions,
+            positions: listed,
             totals: totals.map(strip),
             byScreen,
             hardware,
@@ -449,15 +652,22 @@ class _PullList {
     // per-screen readings the packet prints.
     _pullScreenList(layer, ctx) {
         const { settings, distroById, boxesSeen, snakesSeen, fiberSeen, hw } = ctx;
+        const distroFirstLayer = ctx.distroFirstLayer || new Map();
+        const boxFirstLayer = ctx.boxFirstLayer || new Map();
         const rows = [];
         // Rows are power until the data walk below flips the switch: the
         // binder prints a screen's power cable and data cable apart.
         let side = 'power';
-        const row = (type, length, qty, label, notes) => {
-            const r = { type, length, qty, label: label || '', notes: notes || '', side };
+        // `at` is the location of the device that produced the row (the
+        // distro's, the box's) - buildPullList pulls the row there; null
+        // leaves it with the screen.
+        const row = (type, length, qty, label, notes, at) => {
+            const r = { type, length, qty, label: label || '', notes: notes || '', side,
+                        _at: at || null };
             rows.push(r);
             return r;
         };
+        const locationOf = (d) => (d && d.location) || null;
         const out = {
             name: layer.name || '', rows, boxes: [], gangs: { twofer: 0, threefer: 0 },
             ports: [], snakes: [], jumpers: { data: 0, power: 0 },
@@ -468,6 +678,7 @@ class _PullList {
         const screenConn = this.pullPowerConnectorName(breakout.connector);
         const plan = this.getSocaPlan(layer);
         const boxes = new Map();    // "distroId|number" -> box
+        const circuitDistro = new Map();   // circuit number -> its distro, or null
         for (const s of plan) {
             const key = s.distroId ? `${s.distroId}|${s.number}` : `off|${layer.id}|${s.soca}`;
             let box = boxes.get(key);
@@ -491,7 +702,9 @@ class _PullList {
             } else if (!box.homeRun && s.length) {
                 box.homeRun = s.length;
             }
+            const d = box.distroId ? distroById.get(box.distroId) || null : null;
             for (const leg of s.legs) {
+                circuitDistro.set(leg.circuit, d);
                 const cable = this.powerCircuitCable(layer, leg.circuit);
                 box.circuits.push({
                     num: leg.circuit, label: leg.label, tail: leg.leg,
@@ -502,7 +715,7 @@ class _PullList {
                 });
                 if (cable) {
                     row(cable.name ? this.pullPowerConnectorName(cable.name) : 'Power Cable',
-                        this.pullLengthText(cable.ft), 1, leg.label);
+                        this.pullLengthText(cable.ft), 1, leg.label, '', locationOf(d));
                 }
             }
         }
@@ -513,35 +726,48 @@ class _PullList {
             if (boxesSeen.has(seenKey)) { box.shared = true; continue; }
             boxesSeen.add(seenKey);
             const distroName = box.distro || '';
+            const at = locationOf(distroById.get(box.distroId));
+            if (!distroFirstLayer.has(String(box.distroId))) {
+                distroFirstLayer.set(String(box.distroId), layer.id);
+            }
             const boxLabel = `${distroName}${box.number}`;
             const isL2130 = String(box.typeId || '').startsWith('l2130');
             const homeType = isL2130 ? 'L21-30' : 'Multi';
             const r = row(homeType, this.pullLengthText(box.homeRun), 1, boxLabel,
-                          box.homeRun ? '' : 'no length');
+                          box.homeRun ? '' : 'no length', at);
             const breakoutType = isL2130
                 ? `L21-30 ${box.connector} Breakout` : `${box.connector} Breakout`;
-            const b = row(breakoutType, 'EA', 1, boxLabel);
+            const b = row(breakoutType, 'EA', 1, boxLabel, '', at);
             const hrec = hw('distro', box.distroId, distroName);
             hrec.rows.push({ ...r }, { ...b });
         }
-        // Gangs: a circuit made of two runs is a 2fer, three a 3fer.
+        // Gangs: a circuit made of two runs is a 2fer, three a 3fer. Both
+        // the gang and the circuit's jumpers go with the circuit's distro.
+        const powerJumps = new Map();   // location (or '') -> { at, n }
         for (const c of this.screenCircuits(layer)) {
             const ways = Array.isArray(c.runIds) ? c.runIds.length : 1;
             const label = this.getPowerCircuitLabel(layer, c.num);
-            if (ways === 2) { out.gangs.twofer++; row(`${screenConn} 2fer`, 'EA', 1, label); }
-            else if (ways >= 3) { out.gangs.threefer++; row(`${screenConn} 3fer`, 'EA', 1, label); }
+            const at = locationOf(circuitDistro.get(c.num));
+            if (ways === 2) { out.gangs.twofer++; row(`${screenConn} 2fer`, 'EA', 1, label, '', at); }
+            else if (ways >= 3) { out.gangs.threefer++; row(`${screenConn} 3fer`, 'EA', 1, label, '', at); }
             // Jumpers: one per row step within each run of the circuit.
             const runs = Array.isArray(c.branches) && c.branches.length ? c.branches : [c.panels];
             let off = 0;
+            let steps = 0;
             for (const run of runs) {
                 const layers = c.layers ? c.layers.slice(off, off + run.length) : null;
                 off += run.length;
-                out.jumpers.power += this._pullRowSteps(run, layers);
+                steps += this._pullRowSteps(run, layers);
             }
+            out.jumpers.power += steps;
+            const bucket = powerJumps.get(at || '') || { at, n: 0 };
+            bucket.n += steps;
+            powerJumps.set(at || '', bucket);
         }
-        if (out.jumpers.power > 0) {
+        for (const { at, n } of powerJumps.values()) {
+            if (n <= 0) continue;
             row(settings.powerJumpName, this.pullLengthText(settings.powerJumpLength),
-                out.jumpers.power, layer.name);
+                n, layer.name, '', at);
         }
 
         // ---- data: port cables, snakes, extensions, backups, jumpers ----
@@ -560,21 +786,29 @@ class _PullList {
         // row under the same label with "ext · <snake>" in Notes. Every
         // row is pushed to the processor's hardware rows too. `into` is
         // the port entry (or its .backup) that records what was read.
+        // Every row of a socket a BOX delivers is pulled where the box
+        // sits (its location); a socket straight off a card stays with
+        // the screen - a processor has no location.
+        const owned = (cardId, socket) =>
+            (cardId != null && socket != null && typeof this._dataPortOwner === 'function'
+                ? this._dataPortOwner(cardId, socket) : null);
+        const boxAt = (owner) => (owner && owner.kind === 'cvt' ? locationOf(owner.rec) : null);
         const walk = (cardId, socket, label, into) => {
-            const owner = cardId != null && socket != null && typeof this._dataPortOwner === 'function'
-                ? this._dataPortOwner(cardId, socket) : null;
+            const owner = owned(cardId, socket);
             if (!owner) return;
+            const at = boxAt(owner);
             const proc = (this.project.processors || []).find(p => p.id === owner.procId) || null;
             const procName = proc ? (proc.name || proc.deviceName || proc.id) : '';
             const push = (r) => { if (proc) hw('processor', proc.id, procName).rows.push({ ...r }); };
             if (owner.kind === 'cvt') {
                 const box = owner.rec;
                 into.box = this.pullBoxTitle(box);
+                if (!boxFirstLayer.has(box.id)) boxFirstLayer.set(box.id, layer.id);
                 const fiberText = this.pullBoxFiberText(box);
                 if (fiberText && !fiberSeen.has(box.id)) {
                     fiberSeen.add(box.id);
                     push(row((box.fiberType || '').trim() || 'Fiber',
-                             this.pullLengthText(box.fiberFt), 1, into.box));
+                             this.pullLengthText(box.fiberFt), 1, into.box, '', at));
                 }
             }
             const cable = this._dataPortCableOn(owner, socket);
@@ -590,7 +824,7 @@ class _PullList {
                     const extWord = this.pullDataConnectorWord(
                         this.dataPortConnectorId(owner, cable.extConnector));
                     push(row(extWord || 'Data Cable', this.pullLengthText(cable.ext), 1, label,
-                             `ext · ${s.name || 'snake'}`));
+                             `ext · ${s.name || 'snake'}`, at));
                 }
                 const snakeKey = `${owner.kind}:${owner.id}:${s.id}`;
                 if (snakesSeen.has(snakeKey)) return;
@@ -602,19 +836,27 @@ class _PullList {
                 const ft = Number(s.ft);
                 push(row(type, this.pullLengthText(ft), 1, s.name || '',
                          [`${ways}-way`, (Number.isFinite(ft) && ft > 0) ? '' : 'no length']
-                             .filter(Boolean).join('; ')));
+                             .filter(Boolean).join('; '), at));
             } else {
                 const word = this.pullDataConnectorWord(cable.id);
                 into.cable = cable.text;
-                push(row(word || 'Data Cable', this.pullLengthText(cable.ft), 1, label));
+                push(row(word || 'Data Cable', this.pullLengthText(cable.ft), 1, label, '', at));
             }
         };
+        // A run's jumpers go with the box delivering its primary socket.
+        const dataJumps = new Map();    // location (or '') -> { at, n }
         for (const run of this._pullPortRuns(layer)) {
-            out.jumpers.data += this._pullRowSteps(run.panels, run.layers);
+            const steps = this._pullRowSteps(run.panels, run.layers);
+            out.jumpers.data += steps;
             const port = { num: run.num, label: run.label, cable: null, snake: null,
                            ext: null, box: null, backup: null };
             out.ports.push(port);
             const placed = asg && (asg.ports || []).find(p => p.number === run.num);
+            const at = (placed && placed.cardId && placed.port != null)
+                ? boxAt(owned(placed.cardId, placed.port)) : null;
+            const bucket = dataJumps.get(at || '') || { at, n: 0 };
+            bucket.n += steps;
+            dataJumps.set(at || '', bucket);
             if (!placed || !placed.cardId || placed.port == null) continue;
             walk(placed.cardId, placed.port, run.label, port);
             // The backup end: the socket this port's return comes back on
@@ -629,9 +871,10 @@ class _PullList {
                 walk(bb.cardId, bb.port, label, port.backup);
             }
         }
-        if (out.jumpers.data > 0) {
+        for (const { at, n } of dataJumps.values()) {
+            if (n <= 0) continue;
             row(settings.dataJumpName, this.pullLengthText(settings.dataJumpLength),
-                out.jumpers.data, layer.name);
+                n, layer.name, '', at);
         }
         return out;
     }
@@ -643,13 +886,17 @@ class _PullList {
     //     added: [{ type, length, qty, label, notes, side? }] // free rows
     // } } }
     // positionKey is the group id for a grouped position, `layer:<id>` for a
-    // loose screen; key is the engine row's `type|length`, which is stable
-    // across a wall change (the count moves, the override still applies).
+    // loose screen, `loc:<name lower-cased>` for a device location no group
+    // carries (2026-09-07); key is the engine row's `type|length`, which is
+    // stable across a wall change (the count moves, the override still
+    // applies).
 
     pullPositionKey(pos) {
         if (!pos) return '';
+        if (pos.key) return String(pos.key);
         if (pos.groupId != null && pos.groupId !== '') return String(pos.groupId);
-        const id = Array.isArray(pos.layerIds) ? pos.layerIds[0] : pos.layerId;
+        const ids = Array.isArray(pos.memberIds) && pos.memberIds.length ? pos.memberIds : pos.layerIds;
+        const id = Array.isArray(ids) ? ids[0] : pos.layerId;
         return `layer:${id}`;
     }
 

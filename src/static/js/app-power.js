@@ -3537,6 +3537,14 @@ class _Power {
             + 'left world, FOH. Prints on every power label that names it, '
             + 'so a runner can find the other end.';
         loc.addEventListener('change', () => patch({ location: loc.value }));
+        // Every location the project already knows - the groups, the other
+        // distros, the breakout boxes - offered under the field, so one
+        // beach is spelled one way (pullKnownLocations).
+        if (typeof this.pullLocationDatalist === 'function') {
+            const locListId = `hw-locations-distro-${d.id}`;
+            loc.setAttribute('list', locListId);
+            row3.appendChild(this.pullLocationDatalist(locListId));
+        }
         row3.appendChild(loc);
         wrap.appendChild(row3);
 

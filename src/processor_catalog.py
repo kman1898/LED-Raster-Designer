@@ -1194,6 +1194,9 @@ def resolve_card(card, proc):
             # the binder's band says so.
             'fiberType': (cvt.get('fiberType') or '').strip(),
             'fiberFt': _fiber_ft(cvt.get('fiberFt')),
+            # Where the box sits (update_cvt), '' when nobody said: the pull
+            # list files the box's rows under this name.
+            'location': (cvt.get('location') or '').strip(),
             'ports': [],
         }
         # The box's snakes and port cables ride the resolved box, with the

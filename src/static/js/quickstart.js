@@ -171,7 +171,7 @@
         { target: '#left-sidebar-toggle', place: 'right', title: 'Panels',
           body: 'Collapse a side panel with its chevron, or drag its inner edge to resize it &mdash; the hardware tray folds and resizes the same way from its top edge. Each remembers its size.' },
         { target: '#btn-export', place: 'bottom', title: 'Exporting',
-          body: 'Pick which <b>canvases</b> and <b>views</b> to output &mdash; Pixel, Cabinet, Show Look, Data and Power maps &mdash; the <b>format</b> (PNG, PSD, PDF, or Resolume XML), a transparent background, and a resolution scale. Exports save straight to file.' },
+          body: 'Pick which <b>canvases</b> and <b>views</b> to output &mdash; Pixel, Cabinet, Show Look, Data and Power maps &mdash; the <b>format</b> (PNG, PSD, PDF, or Resolume XML), a transparent background, and a resolution scale. Exports save straight to file. The <b>Pull Sheet</b> and binder pull gear where its distro or breakout box sits (<b>Location</b> on the &#9881;), and list the CVTs and distros themselves.' },
         { target: '[data-menu="help"]', place: 'bottom', title: 'Help &amp; shortcuts',
           body: 'Under <b>Help</b> you&rsquo;ll find the full <b>Keyboard Shortcuts</b> list, this guide, the Quick Start, and <b>What&rsquo;s New in 0.12</b>.' },
         { title: 'That&rsquo;s the tour', center: true,

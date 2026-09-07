@@ -1128,8 +1128,28 @@ class _Processors {
         ftInput.min = '0';
         ftInput.step = 'any';
         fiber.appendChild(ftField);
+        // Where the box sits (2026-09-07: "We need to be able to put CVT's
+        // or prcessor's at beach locations so they can be accounted for
+        // on the pull sheets"): free text, the same field a distro has,
+        // offering every location the project already knows (the groups,
+        // the distros, the other boxes). The pull list files the box's
+        // rows - the data cables of the ports it delivers, its fiber, its
+        // own "CVT4K-S EA" line - under this name. One PUT, one 'Set Box
+        // Location' entry; blank clears.
+        const locField = this._buildTextField(
+            'Location', cvt.location, 'beach / location',
+            `processor-cvt-location-${cvt.id}`,
+            (val) => this._processorRequest(url, 'PUT', { location: val },
+                                            'Set Box Location'));
+        const locInput = locField.querySelector('input');
+        const locListId = `hw-locations-${cvt.id}`;
+        locInput.setAttribute('list', locListId);
+        if (typeof this.pullLocationDatalist === 'function') {
+            locField.appendChild(this.pullLocationDatalist(locListId));
+        }
+        fiber.appendChild(locField);
         fiber.querySelectorAll(':scope > div').forEach((cell, i) => {
-            cell.style.flex = i === 0 ? '2 1 120px' : '1 1 70px';
+            cell.style.flex = i === 1 ? '1 1 60px' : '2 1 110px';
         });
         wrap.appendChild(fiber);
 
