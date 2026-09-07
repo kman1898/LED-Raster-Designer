@@ -2422,11 +2422,38 @@ class _HardwareDock {
             box.addEventListener('change', () => onChange(box.checked));
             return box;
         };
+        // The SCREEN cell names the screen and nothing else - a return end
+        // reads "SR - MAIN" exactly as the primary does ("it can look just
+        // like the primary", 2026-09-07: "SR - MAIN p1 return, SR - MAIN p2
+        // return, ..." on a backup box's snake row pushed the HOME RUN and
+        // CONNECTOR cells off the sheet). The "p1 return" detail rides the
+        // row's title instead, read on hover. whoOf feeds the cell, whoDetail
+        // the title; a snake row dedupes both across its members.
         const whoOf = (n) => {
             const occ = this._portOccupants(owner.cardId, n);
             if (!occ.length) return '';
-            return occ.map(o => `${o.name}${o.role === 'return'
-                ? ` p${o.number} return` : ''}`).join(', ');
+            return [...new Set(occ.map(o => o.name))].join(', ');
+        };
+        const whoDetail = (n) => {
+            const occ = this._portOccupants(owner.cardId, n);
+            if (!occ.length) return '';
+            return [...new Set(occ.map(o => `${o.name}${o.role === 'return'
+                ? ` p${o.number} return` : ''}`))].join(', ');
+        };
+        // The cell wears its full text as a title too, and a row whose
+        // detail says more than its cell - a return end - carries it on
+        // the row. The text sits in a block of its own inside the cell:
+        // style.css cuts it to an ellipsis at ~24ch, and a block's
+        // max-width caps what it asks of the column, where a cap on the
+        // cell itself still lets the table grow to the text's full width.
+        const who = (td, tr, text, detail) => {
+            td.className = 'hw-dock-cable-who';
+            const span = document.createElement('span');
+            span.className = 'hw-dock-cable-who-text';
+            span.textContent = text;
+            td.appendChild(span);
+            if (detail) td.title = detail;
+            if (detail && detail !== text) tr.title = detail;
         };
         const seenSnakes = new Set();
         ports.forEach(port => {
@@ -2467,9 +2494,9 @@ class _HardwareDock {
                 td1.appendChild(name);
                 tr.appendChild(td1);
                 const td2 = document.createElement('td');
-                td2.className = 'hw-dock-cable-who';
-                td2.textContent = [...new Set(snake.ports.map(whoOf)
+                const uniq = (f) => [...new Set(snake.ports.map(f)
                     .filter(Boolean))].join(', ');
+                who(td2, tr, uniq(whoOf), uniq(whoDetail));
                 tr.appendChild(td2);
                 const td3 = document.createElement('td');
                 const ft = ftInput(`data-snake-ft-${owner.id}-${snake.id}`,
@@ -2517,8 +2544,7 @@ class _HardwareDock {
                 ? `${spoken} · ${port.label}` : String(spoken);
             tr.appendChild(td1);
             const td2 = document.createElement('td');
-            td2.className = 'hw-dock-cable-who';
-            td2.textContent = whoOf(n) || (occupied ? '' : 'free');
+            who(td2, tr, whoOf(n) || (occupied ? '' : 'free'), whoDetail(n));
             tr.appendChild(td2);
             const td3 = document.createElement('td');
             const td4 = document.createElement('td');

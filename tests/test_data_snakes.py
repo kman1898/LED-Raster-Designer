@@ -36,6 +36,7 @@ ports):
     python -m pytest tests/test_data_snakes.py -v --browser chromium
 """
 
+import json
 import os
 import sys
 
@@ -1167,3 +1168,236 @@ def test_the_sheet_leaves_the_fold_alone(page, which):
     pg.evaluate('() => window.app.undo()')
     pg.wait_for_timeout(1200)
     assert pg.evaluate(STATE_JS, ids)['index'] == index
+
+
+# ── the backup sheet reads like the primary ───────────────────────────────
+#
+# The user's own show (experts-only.json): card "Card 1" backed 1:1 by
+# "Card 4"; box A on Card 1 carries SNAKE A over sockets 1-4 (SR - MAIN's
+# four ports), box B on Card 4 carries a SNAKE A over the sockets their
+# returns land on. Box B's snake row once read "SR - MAIN p1 return, SR -
+# MAIN p2 return, SR - MAIN p3 return, SR - MAIN p4 return" - a 1012px
+# table inside a 491px sheet, the HOME RUN and CONNECTOR cells (the
+# extension inputs) pushed off the right edge. "when redundancy is set and
+# a snake is used there is way too much info and it pushes all the
+# extension area off screen ... it can look just like the primary"
+# (2026-09-07).
+
+SCRATCH_FIXTURE = os.environ.get('LRD_PULL_SMOKE_JSON') or os.path.join(
+    '/private/tmp/claude-501',
+    '-Users-mattknotts-Nextcloud-LED-LED-Wall-Tech-Raster-Software-LED-Raster-Designer',
+    'be6afb3b-7607-4f06-8c12-a10cd58068e9', 'scratchpad', 'experts-only.json')
+
+# One box's sheet as laid out: every row's SCREEN cell and title, and the
+# geometry the bug was - the table against the sheet, and the HOME RUN and
+# CONNECTOR cells against the sheet's right edge.
+BOX_SHEET_JS = """(id) => {
+    const sheet = document.querySelector(
+        `.hw-dock-cablesheet[data-lrd-cable-sheet="cvt:${id}"]`);
+    if (!sheet) return null;
+    const table = sheet.querySelector('table');
+    const s = sheet.getBoundingClientRect(), t = table.getBoundingClientRect();
+    const rows = [...table.querySelectorAll('tr')].filter(tr => tr.querySelector('td'));
+    return {
+        sheetW: s.width, tableW: t.width, tableRight: t.right, sheetRight: s.right,
+        rows: rows.map(tr => {
+            const tds = [...tr.querySelectorAll('td')];
+            const who = tr.querySelector('td.hw-dock-cable-who');
+            const text = who.querySelector('.hw-dock-cable-who-text');
+            const r3 = tds[3].getBoundingClientRect(), r4 = tds[4].getBoundingClientRect();
+            return {
+                kind: tr.classList.contains('hw-dock-cable-snake') ? 'snake'
+                    : tr.classList.contains('hw-dock-cable-member') ? 'member'
+                    : tr.classList.contains('hw-dock-cable-free') ? 'free' : 'port',
+                who: who.textContent, whoTitle: who.title, rowTitle: tr.title,
+                whoClipped: text.scrollWidth > text.clientWidth + 1,
+                homeRunOn: r3.right <= s.right + 0.5 && r3.width > 0,
+                connectorOn: r4.right <= s.right + 0.5 && r4.width > 0,
+            };
+        }),
+    };
+}"""
+
+
+@pytest.mark.skipif(not os.path.exists(SCRATCH_FIXTURE),
+                    reason='experts-only.json smoke fixture not present')
+def test_the_backup_boxs_sheet_reads_like_the_primarys(e2e_server, pw_browser):
+    """On his file, box B's snake row and its four member rows read
+    "SR - MAIN" - exactly what box A's read - with the "p1 return" detail
+    on the row's title; the table is never wider than the sheet, and the
+    HOME RUN and CONNECTOR cells sit on it, on both boxes. Runs in its own
+    page so the module's seed is left alone, and puts the server's project
+    back when it is done."""
+    with open(SCRATCH_FIXTURE) as fh:
+        project = json.load(fh)
+    context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
+    context.add_init_script(
+        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+    pg = context.new_page()
+    errors = []
+    pg.on('pageerror', lambda e: errors.append(str(e)))
+    try:
+        pg.goto(e2e_server, wait_until='domcontentloaded')
+        pg.wait_for_timeout(2000)
+        before = pg.evaluate("async () => (await fetch('/api/project')).json()")
+        try:
+            pg.locator('[data-mode="data-flow"]').click()
+            pg.wait_for_timeout(400)
+            ids = pg.evaluate("""async (project) => {
+                const app = window.app;
+                const j = (method, url, body) => fetch(url, {method,
+                    headers: {'Content-Type': 'application/json'},
+                    body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
+                await j('PUT', '/api/project', project);
+                app.project = await j('GET', '/api/project');
+                app.dedupeProjectLayers('snakes_backup_sheet');
+                app.selectLayer(app.project.layers.find(l => l.name === 'SR - MAIN'));
+                await app.refreshProcessors();
+                await app.refreshPortAssignment();
+                app.renderLayers();
+                app.renderHardwareDock();
+                const card = app._dockFindCard('card2').card;
+                const backup = app._dockFindCard('card3').card;
+                const boxA = card.cvts.find(c => c.name === 'A');
+                const boxB = backup.cvts.find(c => c.name === 'B');
+                return { a: boxA.id, b: boxB.id, snakeA: boxA.snakes[0].ports, snakeB: boxB.snakes[0].ports,
+                         backup: backup.backupFor ? backup.backupFor.title : null };
+            }""", project)
+            pg.wait_for_timeout(800)
+            assert ids['a'] == 'cvt8' and ids['b'] == 'cvt9', ids
+            assert ids['snakeA'] == [1, 2, 3, 4] and ids['snakeB'] == [1, 2, 3, 4], ids
+            assert ids['backup'], f'fixture: Card 4 must back Card 1: {ids}'
+            sheets = {}
+            for which in ('a', 'b'):
+                pg.locator(f'[data-lrd-field="data-cable-sheet-{ids[which]}"]').click()
+                pg.wait_for_timeout(500)
+                sheets[which] = pg.evaluate(BOX_SHEET_JS, ids[which])
+                assert sheets[which], f'box {which} has no sheet open'
+            a, b = sheets['a'], sheets['b']
+            # the primary: the snake row and its four members name the screen
+            assert a['rows'][0]['kind'] == 'snake' and a['rows'][0]['who'] == 'SR - MAIN', a['rows'][0]
+            assert [r['who'] for r in a['rows'][1:5]] == ['SR - MAIN'] * 4, a['rows']
+            assert [r['kind'] for r in a['rows'][1:5]] == ['member'] * 4, a['rows']
+            # the backup reads the same - the "p1 return" detail rides the titles
+            assert b['rows'][0]['kind'] == 'snake' and b['rows'][0]['who'] == 'SR - MAIN', b['rows'][0]
+            assert [r['who'] for r in b['rows'][1:5]] == ['SR - MAIN'] * 4, b['rows']
+            assert 'p1 return' in b['rows'][0]['rowTitle'] and 'p4 return' in b['rows'][0]['rowTitle'], b['rows'][0]
+            assert b['rows'][0]['whoTitle'] == b['rows'][0]['rowTitle'], b['rows'][0]
+            for n, r in enumerate(b['rows'][1:5], start=1):
+                assert r['rowTitle'] == f'SR - MAIN p{n} return', (n, r)
+                assert r['whoTitle'] == f'SR - MAIN p{n} return', (n, r)
+            # a primary row says nothing more than its cell, so no row title
+            assert all(r['rowTitle'] == '' for r in a['rows'][:5]), a['rows']
+            # the geometry: never a table wider than its sheet, every HOME
+            # RUN and CONNECTOR cell on the sheet, nothing cut
+            for which, sh in sheets.items():
+                assert sh['tableW'] <= sh['sheetW'] + 0.5, (which, sh['tableW'], sh['sheetW'])
+                assert sh['tableRight'] <= sh['sheetRight'] + 0.5, (which, sh)
+                assert all(r['homeRunOn'] and r['connectorOn'] for r in sh['rows']), (which, sh['rows'])
+                assert not any(r['whoClipped'] for r in sh['rows']), (which, sh['rows'])
+            assert errors == [], errors
+        finally:
+            pg.evaluate("""async (project) => {
+                await fetch('/api/project', {method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(project)});
+            }""", before)
+    finally:
+        context.close()
+
+
+def test_a_long_list_of_screens_cuts_to_an_ellipsis_never_widening_the_sheet(page):
+    """Belt and braces for the cell itself: a SCREEN cell holding more than
+    ~24ch of names clips with an ellipsis and carries the whole text as its
+    title, so no list of screens can ever push the inputs off the sheet
+    again - checked on the seed's card sheet by planting a long text in a
+    cell's text block and measuring the table against the sheet."""
+    pg, ids = page
+    _sheet_open(pg, 'card', ids['cardId'], True)
+    out = pg.evaluate("""(id) => {
+        const sheet = document.querySelector(`.hw-dock-cablesheet[data-lrd-cable-sheet="card:${id}"]`);
+        const table = sheet.querySelector('table');
+        const td = sheet.querySelector('td.hw-dock-cable-who');
+        const text = td.querySelector('.hw-dock-cable-who-text');
+        const long = Array.from({length: 12}, (_, i) => `SCREEN NUMBER ${i + 1}`).join(', ');
+        const before = table.getBoundingClientRect().width;
+        text.textContent = long;
+        td.title = long;
+        const after = table.getBoundingClientRect().width;
+        const cs = getComputedStyle(text);
+        const r = td.getBoundingClientRect();
+        return { before, after, sheetW: sheet.getBoundingClientRect().width,
+                 clipped: text.scrollWidth > text.clientWidth + 1, cellW: r.width,
+                 overflow: cs.overflow, ellipsis: cs.textOverflow, title: td.title === long };
+    }""", ids['cardId'])
+    _sheet_open(pg, 'card', ids['cardId'], False)
+    assert out['after'] <= out['sheetW'] + 0.5, out
+    assert out['clipped'] and out['overflow'] == 'hidden' and out['ellipsis'] == 'ellipsis', out
+    assert out['title'], out
+
+
+# The sheet against its box, the unit against the tray: widths read once
+# the sheet is up, plus where every unit in the tray sits.
+SHEET_FIT_JS = """([kind, id]) => {
+    const sheet = document.querySelector(
+        `.hw-dock-cablesheet[data-lrd-cable-sheet="${kind}:${id}"]`);
+    if (!sheet) return null;
+    const table = sheet.querySelector('table');
+    const unit = sheet.closest('.hw-dock-unit');
+    const body = document.getElementById('hardware-dock-body');
+    const bs = getComputedStyle(body);
+    const rect = (el) => { const r = el.getBoundingClientRect(); return {x: r.left, y: r.top, w: r.width, right: r.right}; };
+    return {
+        viewport: [window.innerWidth, window.innerHeight],
+        sheet: rect(sheet), table: rect(table), unit: rect(unit),
+        body: rect(body),
+        bodyContentW: body.clientWidth - parseFloat(bs.paddingLeft) - parseFloat(bs.paddingRight),
+        bodyContentLeft: body.getBoundingClientRect().left + body.clientLeft + parseFloat(bs.paddingLeft),
+        units: [...body.querySelectorAll('.hw-dock-unit')].map(u => ({
+            name: (u.querySelector('.hw-dock-unit-name') || {}).textContent || '',
+            hasSheet: u === unit, ...rect(u)})),
+        connectorW: sheet.querySelector('.hw-dock-cable-connector').getBoundingClientRect().width,
+        sheetScrolls: sheet.scrollWidth > sheet.clientWidth + 1,
+    };
+}"""
+
+
+def test_a_sheet_never_runs_past_its_box_and_takes_the_tray_row(page):
+    """On the user's 1440x900 window box B's sheet came up 415px wide with a
+    563px table, its CONNECTOR column off the edge (2026-09-07). A unit
+    whose sheet is open now takes the whole tray row - a sheet is a table
+    of inputs and needs the width; the chips beside it wrap fine, a sheet
+    does not - so with TWO cards in the tray the sheet's table is never
+    wider than the sheet and the unit spans the tray body's width, the
+    other card dropping to a row of its own. The connector select is the
+    120px the "follows port (CAT)" / "CAT" list needs, and the sheet has
+    nothing to scroll sideways for."""
+    pg, ids = page
+    _sheet_open(pg, 'cvt', ids['boxId'], False)
+    _sheet_open(pg, 'card', ids['cardId'], False)
+    try:
+        pg.set_viewport_size({'width': 1440, 'height': 900})
+        pg.wait_for_timeout(400)
+        tray = _sheet_open(pg, 'cvt', ids['boxId'], True)
+        assert tray['sheet'], tray
+        out = pg.evaluate(SHEET_FIT_JS, ['cvt', ids['boxId']])
+        assert out, 'the box has no sheet open'
+        print('\nsheet fit at 1440x900:', json.dumps({k: out[k] for k in ('viewport', 'sheet', 'table', 'unit', 'bodyContentW', 'connectorW', 'sheetScrolls')}))
+        assert out['viewport'] == [1440, 900], out['viewport']
+        # two cards in the tray, the sheet's on one of them
+        assert len(out['units']) >= 2 and sum(1 for u in out['units'] if u['hasSheet']) == 1, out['units']
+        # the table is no wider than the sheet
+        assert out['table']['w'] <= out['sheet']['w'] + 1, (out['table'], out['sheet'])
+        assert out['table']['right'] <= out['sheet']['right'] + 1, (out['table'], out['sheet'])
+        assert not out['sheetScrolls'], out
+        # the unit spans the tray body's width
+        assert abs(out['unit']['w'] - out['bodyContentW']) <= 1, (out['unit'], out['bodyContentW'])
+        assert abs(out['unit']['x'] - out['bodyContentLeft']) <= 1, (out['unit'], out['bodyContentLeft'])
+        # so the other card sits on a row of its own, never beside the sheet
+        others = [u for u in out['units'] if not u['hasSheet']]
+        assert all(u['y'] >= out['unit']['y'] + 1 or u['y'] + 1 <= out['unit']['y'] for u in others), out['units']
+        assert abs(out['connectorW'] - 120) <= 1, out['connectorW']
+    finally:
+        _sheet_open(pg, 'cvt', ids['boxId'], False)
+        pg.set_viewport_size({'width': 1700, 'height': 950})
+        pg.wait_for_timeout(400)

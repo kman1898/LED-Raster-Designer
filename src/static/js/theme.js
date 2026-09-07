@@ -139,27 +139,68 @@
      panels' sizes ever move together.
 
      `axis` is which dimension the drag changes, and each row carries its own
-     clamp because the two axes measure different things. Widths share
-     180-560. The dock's height runs 100 - its own header plus one unit head
-     and one chip row, the smallest tray that still shows a draggable chip -
-     to 420, about 2.4x its 172px default, which at a ~900px window still
-     leaves the canvas well over a third of the column. */
+     clamp because the two axes measure different things. Widths share a
+     constant 180-560. The dock's height runs from 100 - its own header plus
+     one unit head and one chip row, the smallest tray that still shows a
+     draggable chip - up to a ceiling MEASURED when it matters (ceilingOf):
+     the height of the column the tray sits in (#canvas-container - the
+     raster toolbar, the canvas, the tray) minus DOCK_FLOOR. "the hardware
+     screen needs to be able to drag all the way up to give more room to
+     work" (2026-09-07) retired the old constant 420, which at a tall window
+     left most of the column to a canvas nobody was looking at. */
   var PANELS = [
     /* The Signal and Power middle rows retired with their sidebars (the
        dock absorbed the hardware surfaces); the dock's row is the one
-       view-scoped member left. */
+       view-scoped member left, and the one without a constant `max`. */
     { key: 'left',  sidebarId: 'left-sidebar',  toggleId: 'left-sidebar-toggle',  storageKey: 'lrd_left_w',  cssVar: '--lrd-left-w',  dragEdge: 'right', axis: 'x', min: 180, max: 560, fallback: 260 },
     { key: 'right', sidebarId: 'right-sidebar', toggleId: 'right-sidebar-toggle', storageKey: 'lrd_right_w', cssVar: '--lrd-right-w', dragEdge: 'left',  axis: 'x', min: 180, max: 560, fallback: 260 },
-    { key: 'dock',  sidebarId: 'hardware-dock', toggleId: 'hardware-dock-toggle', storageKey: 'lrd_dock_h',  cssVar: '--lrd-dock-h',  dragEdge: 'top',   axis: 'y', min: 100, max: 420, fallback: 172 }
+    { key: 'dock',  sidebarId: 'hardware-dock', toggleId: 'hardware-dock-toggle', storageKey: 'lrd_dock_h',  cssVar: '--lrd-dock-h',  dragEdge: 'top',   axis: 'y', min: 100, fallback: 172 }
   ];
 
-  function clamp(p, v) { return Math.max(p.min, Math.min(p.max, Math.round(v))); }
+  /* What the tray must leave of its column: the raster toolbar
+     (#canvas-controls, ~30px of inputs and padding) stays reachable and a
+     sliver of canvas (~90px) stays visible so the drawing never vanishes
+     behind the tray - 120px covers both. Below 100 + 120 = 220px of column
+     the floor yields to the tray's own minimum. */
+  var DOCK_FLOOR = 120;
+
+  /* A panel's ceiling: the constant for a width; for the dock, its column's
+     height minus the floor, read fresh on every clamp so a drag, the saved
+     value on boot and a window shrink all respect the column as it is now.
+     With nothing to measure (the column not in layout yet) the window's own
+     height stands in, so no early clamp can swallow the column either. */
+  function ceilingOf(p) {
+    if (p.axis !== 'y') return p.max;
+    var s = sb(p), col = s && s.parentElement;
+    var h = col ? col.clientHeight : 0;
+    if (!(h > 0)) h = window.innerHeight || 0;
+    return Math.max(p.min, Math.round(h - DOCK_FLOOR));
+  }
+  function clamp(p, v) { return Math.max(p.min, Math.min(ceilingOf(p), Math.round(v))); }
   function sb(p) { return document.getElementById(p.sidebarId); }
   function setSize(p, v) { document.documentElement.style.setProperty(p.cssVar, clamp(p, v) + 'px'); }
+  function currentSize(p) {
+    return parseInt(getComputedStyle(document.documentElement).getPropertyValue(p.cssVar), 10) || p.fallback;
+  }
   function applySaved() {
     PANELS.forEach(function (p) {
       try { var v = parseInt(localStorage.getItem(p.storageKey), 10); if (v) setSize(p, v); } catch (e) { /* ignore */ }
     });
+  }
+  /* The measured ceiling moves with the window: a 900px tray saved on a
+     tall display must not swallow the column when the window comes back at
+     600px, so every y-panel is re-clamped against its column on resize.
+     The tray's height transitions (no drag, so nothing suppresses it), and
+     the canvas is re-measured by the staged settle - the window's own
+     resize pass has already measured it mid-transition. */
+  function reclamp() {
+    var moved = false;
+    PANELS.forEach(function (p) {
+      if (p.axis !== 'y') return;
+      var cur = currentSize(p), want = clamp(p, cur);
+      if (want !== cur) { setSize(p, want); moved = true; }
+    });
+    if (moved) settle();
   }
 
   /* Changing a panel's width changes the width the canvas has to fill, and the
@@ -228,7 +269,7 @@
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
         if (app) app.classList.remove('lrd-resizing');
-        var cur = parseInt(getComputedStyle(document.documentElement).getPropertyValue(p.cssVar), 10) || p.fallback;
+        var cur = currentSize(p);
         try { localStorage.setItem(p.storageKey, clamp(p, cur)); } catch (e) { /* ignore */ }
         settle();
       }
@@ -260,7 +301,8 @@
       if (b) b.addEventListener('click', function () { setTimeout(reposition, 220); });
     });
     reposition();
-    window.addEventListener('resize', repaint);
+    reclamp();
+    window.addEventListener('resize', function () { reclamp(); repaint(); });
     window.addEventListener('scroll', repaint, true);
     setInterval(reposition, 1200);
   }

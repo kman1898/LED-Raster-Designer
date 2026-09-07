@@ -306,12 +306,14 @@ def test_the_workbook_and_the_binder_take_a_device_location(page):
 def test_a_box_at_its_beach_pulls_its_ports_rows_and_two_boxes_list_once(page):
     """Two CVT10s on card SR (OPT 1 delivers sockets 1-8 again - every
     port here; OPT 2 delivers 9-16, nothing), both at "SL Beach". The
-    sockets' home runs are the box's now (its snake of sockets 1-2, its
-    50' cable on 3), so the snake, CENTER's cable, every data jumper, box
-    A's fiber and ONE "CVT10 EA" row of qty 2 labelled "A, B" land on SL
-    Beach, whose layerIds are the three screens; the power rows stay where
-    they were. Boxes with no location fall back to the first screen they
-    deliver, and a box delivering nothing with no location is not listed."""
+    sockets' home runs are the box's now (its snake of sockets 1-2 with a
+    10' extension on socket 1, its 50' cable on 3), so the snake, the
+    extension and its `Ether-con Barrel` (one per extension, 2026-09-07),
+    CENTER's cable, every data jumper, box A's fiber and ONE "CVT10 EA"
+    row of qty 2 labelled "A, B" land on SL Beach, whose layerIds are the
+    three screens; the power rows stay where they were. Boxes with no
+    location fall back to the first screen they deliver, and a box
+    delivering nothing with no location is not listed."""
     pg, ids = page
     out = pg.evaluate("""async (ids) => {
         const app = window.app;
@@ -326,12 +328,13 @@ def test_a_box_at_its_beach_pulls_its_ports_rows_and_two_boxes_list_once(page):
         const results = { boxA, boxB };
         results.noLocation = await rebuild();
         await j('PUT', `/api/processors/${ids.procId}/cvts/${boxA}`, {location: 'SL Beach', fiberType: '12 Tac Fiber', fiberFt: 250,
-                 snakes: [{ports: [1, 2], ft: 100}], portCables: {'3': {ft: 50}}});
+                 snakes: [{ports: [1, 2], ft: 100}], portCables: {'3': {ft: 50}, '1': {ft: 10}}});
         await j('PUT', `/api/processors/${ids.procId}/cvts/${boxB}`, {location: 'sl beach'});
         results.located = await rebuild();
         results.known = app.pullKnownLocations();
         const c = app.project.layers.find(l => l.id === ids.c);
         results.centerLabel = app.getPortLabelText(c, 1, 'primary');
+        results.aLabel = app.getPortLabelText(app.project.layers.find(l => l.id === ids.a), 1, 'primary');
         results.snakeName = app._dockFindCvt(boxA).cvt.snakes[0].name;
         return results;
     }""" % REBUILD_JS, ids)
@@ -350,7 +353,9 @@ def test_a_box_at_its_beach_pulls_its_ports_rows_and_two_boxes_list_once(page):
         ('12 Tac Fiber', "250'", 1, 'CVT10 A', ''),
         ('CVT10', 'EA', 2, 'A, B', ''),
         ('Data Jump', "6'", 8, 'WALL-A, WALL-B, CENTER', ''),
+        ('Ether-con', "10'", 1, out['aLabel'], f"ext · {out['snakeName']}"),
         ('Ether-con', "50'", 1, out['centerLabel'], ''),
+        ('Ether-con Barrel', 'EA', 1, out['aLabel'], ''),
         ('Ether-con Snake', "100'", 1, out['snakeName'], '2-way'),
     ]
     assert all(r['side'] == 'data' for r in sl['rows'])

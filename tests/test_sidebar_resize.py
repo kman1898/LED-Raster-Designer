@@ -21,7 +21,9 @@ What these tests pin:
 * Every panel carries a drag strip on its inner edge, and dragging it really
   changes the panel's width - not just the CSS variable.
 * The width clamps between 180 and 560 so a panel can neither vanish nor
-  swallow the canvas, and it survives a reload.
+  swallow the canvas, and it survives a reload. The dock's height clamps
+  between 100 and its column minus a 120px floor - measured, so a saved
+  tray taller than the window is clamped on load and on a window shrink.
 * The retired middle panels are GONE, not dormant: no resize/collapse pass
   ever writes their storage keys again, and no data/power drag strip exists
   in any view. A leftover strip would be a live bug - a 7px column of the
@@ -74,11 +76,15 @@ DEFAULT_W = 260
 
 # The dock's own clamp (theme.js dock row), mirrored for the same reason.
 # 100 is its header plus one unit head and one chip row - the smallest tray
-# that still shows a draggable chip; 420 keeps the canvas the star of the
-# column; 172 is the old fixed footprint (21px header + 1px border + the
-# 150px body cap), so an untouched layout looks exactly as it did.
+# that still shows a draggable chip; 172 is the old fixed footprint (21px
+# header + 1px border + the 150px body cap), so an untouched layout looks
+# exactly as it did. The ceiling is not a constant any more: "the hardware
+# screen needs to be able to drag all the way up to give more room to work"
+# (2026-09-07) - it is the height of the tray's column (#canvas-container)
+# minus DOCK_FLOOR, the 120px that keep the raster toolbar and a sliver of
+# canvas visible. dock_ceiling() measures it the way theme.js does.
 DOCK_MIN_H = 100
-DOCK_MAX_H = 420
+DOCK_FLOOR = 120
 DOCK_DEFAULT_H = 172
 
 # Wide enough that the canvas wrapper still has slack after a panel grows to
@@ -1011,6 +1017,14 @@ def dock_height(page):
                .getBoundingClientRect().height)""")
 
 
+def dock_ceiling(page):
+    """The tallest the tray may be right now: its column's height minus the
+    floor - measured, because the column follows the window."""
+    col = page.evaluate(
+        "() => document.getElementById('hardware-dock').parentElement.clientHeight")
+    return max(DOCK_MIN_H, col - DOCK_FLOOR)
+
+
 def drag_dock(page, dy):
     """Drag the dock's strip by dy pixels (negative = up = taller) and answer
     the dock's new height. Stepped moves, like drag() above: the handler
@@ -1062,12 +1076,64 @@ def test_dragging_the_dock_strip_changes_its_height(page):
 
 
 def test_the_dock_clamps_at_min_and_max(page):
+    """The floor is the constant 100; the ceiling is the column minus the
+    120px floor - well past the old 420, and short of the column itself,
+    so the toolbar and a sliver of canvas stay."""
     reset_widths(page, 'power')
     assert drag_dock(page, 600) == DOCK_MIN_H, (
         "the dock can be dragged shorter than the clamp")
-    assert drag_dock(page, -800) == DOCK_MAX_H, (
-        "the dock can be dragged taller than the clamp")
+    ceiling = dock_ceiling(page)
+    assert ceiling > 420, f"the viewport leaves no room above the old cap: {ceiling}"
+    tall = drag_dock(page, -900)
+    assert tall == ceiling, (
+        f"the dock stopped at {tall}, not its column minus the floor ({ceiling})")
+    col = page.evaluate(
+        "() => document.getElementById('hardware-dock').parentElement.clientHeight")
+    assert col - tall == DOCK_FLOOR, (col, tall)
+    toolbar = page.evaluate("""() => {
+        const t = document.getElementById('canvas-controls').getBoundingClientRect();
+        const d = document.getElementById('hardware-dock').getBoundingClientRect();
+        const w = document.getElementById('canvas-wrapper').getBoundingClientRect();
+        return { toolbarBottom: t.bottom, dockTop: d.top, canvasH: w.height };
+    }""")
+    assert toolbar['toolbarBottom'] <= toolbar['dockTop'], (
+        f"the tray swallowed the raster toolbar: {toolbar}")
+    assert toolbar['canvasH'] > 0, f"no canvas left above the tray: {toolbar}"
+    assert page.evaluate(DOCK_STATE_JS)['storedH'] == str(ceiling), (
+        "the saved height is not the clamped one")
     assert_canvas_matches_wrapper(page, "dragging the dock to its clamps")
+
+
+def test_a_saved_tray_taller_than_the_column_is_clamped_on_load(page):
+    """A 900px tray saved on a tall display comes back on this window at
+    the column's ceiling, never swallowing the column; and when the window
+    shrinks under a tall tray, the tray gives way (re-clamped on resize)
+    and grows no taller than the new column allows."""
+    reset_widths(page, 'data-flow')
+    page.evaluate("() => localStorage.setItem('lrd_dock_h', '900')")
+    page.reload(wait_until='domcontentloaded')
+    page.wait_for_timeout(2000)
+    open_view(page, 'data-flow')
+    ceiling = dock_ceiling(page)
+    assert dock_height(page) == ceiling, (
+        f"a saved 900px tray came back at {dock_height(page)}, not the "
+        f"ceiling {ceiling}")
+    assert_canvas_matches_wrapper(page, "loading a saved tray past the ceiling")
+    try:
+        page.set_viewport_size({'width': VIEWPORT['width'], 'height': 600})
+        page.wait_for_timeout(500)
+        small = dock_ceiling(page)
+        assert small < ceiling, (small, ceiling)
+        assert dock_height(page) == small, (
+            f"the tray kept {dock_height(page)} on a 600px window whose "
+            f"column allows {small}")
+        assert_canvas_matches_wrapper(page, "shrinking the window under a tall tray")
+        assert drag_dock(page, -900) == small, "a drag on the small window passed its ceiling"
+    finally:
+        page.set_viewport_size(VIEWPORT)
+        page.wait_for_timeout(500)
+    reset_widths(page, 'data-flow')
+    assert dock_height(page) == DOCK_DEFAULT_H
 
 
 def test_the_dock_height_survives_a_reload(page):
