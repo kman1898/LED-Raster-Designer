@@ -65,6 +65,10 @@ class CanvasRenderer {
         this.showGrid = true;
         this.viewMode = 'pixel-map'; // Default view mode
         this.exportMode = false; // When true, hides grid and raster boundary for clean export
+        // Binder pages (app-binder.js) name the screen in the page header
+        // and want no name plate over the runs: they set this for the one
+        // render and clear it after. The ordinary export leaves it false.
+        this.hideScreenNames = false;
         // The binder's printer page: greys, black runs with a dash per
         // circuit, white discs - see PRINTER_* above and _ink / _runDash.
         this.printerMode = false;
@@ -7819,6 +7823,7 @@ class CanvasRenderer {
             ? (groupTotals ? (groupTotals.name || cfg.name) : layer.name)
             : null;
         if (groupLabelPass && nameMode === 'screens') screenName = null;
+        if (this.hideScreenNames) screenName = null;
 
         // Other center labels (regular style)
         const centerLines = [];

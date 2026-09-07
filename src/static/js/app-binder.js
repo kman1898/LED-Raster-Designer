@@ -6,19 +6,30 @@
 // the screen's map across the top half or more of a landscape letter page
 // ("the photo of the screen to fill it a bit more. maybe 50% or more"),
 // with column and row RULERS around it (numbering "2"), a bracket outside
-// the wall per BOX with its name and home run ("Box", never "Multi"; the
-// home run said once per box), then three columns - Circuits grouped under
-// a band row per box, Cables, Facts ("change it to circles, cables and then
-// facts") - and a Gangs table under Facts ONLY when the screen has 2fers or
-// 3fers ("only include 2 fer and 3 fer info if it actually has it"). Two
-// palettes: Colour, and Printer ("a black and white printer friendly
-// version as well as color") - the renderer's printerMode (canvas.js).
+// the wall per BREAKOUT with its name and home run (the thing a multi's
+// circuits come out of is the breakout - "Breakout", never "Box", never
+// "Multi" (2026-09-07); the home run said once per breakout), then three
+// columns - Circuits grouped under a band row per breakout, Cables, Facts
+// ("change it to circles, cables and then facts") - and a Gangs table under
+// Facts ONLY when the screen has 2fers or 3fers ("only include 2 fer and 3
+// fer info if it actually has it"). Two palettes: Colour, and Printer ("a
+// black and white printer friendly version as well as color") - the
+// renderer's printerMode (canvas.js).
 //
 // The map IS the canvas renderer's own drawing in exportMode - runs,
 // arrowheads, label discs sized to their text, the cable tags where the
 // screen's Show Cable Tags switch is on, the gang brackets where its 2fer
 // switch is on. Those switches are the user's documentation choices and
-// the binder follows them; it forces nothing on.
+// the binder follows them; it forces nothing on. The one thing the page
+// takes off the wall is the screen-name plate (hideScreenNames): the
+// header already names the screen, and on a wall of circuits the plate
+// landed on top of the labels ("the main label is over the circuits").
+//
+// A band (the breakout's row over its circuits, the card's over its
+// ports) never sits at the foot of a column without at least two of its
+// rows under it - an orphaned band read as a page cut off; it moves to
+// the next column with its rows, and a band whose rows run on across a
+// break is repeated there with "(cont.)".
 //
 // Pages, in order: cover; per POSITION (a screen group, else the screen
 // itself - the pull list's positions) a pull page with tick boxes, then
@@ -57,14 +68,18 @@ const FOOTER_TOP = PAGE_H - 58;       // last content y above the footer rule
 const MAP_H = 884;                    // >= 52% of the page height for the map
 const MAP_GUTTER = { left: 200, right: 180, top: 74, bottom: 16 };
 
-// The binder's word for a pull-list type where the GEAR LIST's differs:
-// the workbook says Multi because that is the sheet's vocabulary; on paper
-// the box's cable is a soca, and "Multi" never appears in the binder.
-const BINDER_TYPE_WORDS = { Multi: 'Soca' };
+// Cable types print in the GEAR LIST's own vocabulary - the same words the
+// workbook export writes - so the binder's Cables table and the pull sheet
+// agree row for row. The word the user retired was "Multi" as the name of
+// the THING the circuits come out of (that is a breakout); the multi CABLE
+// keeps its shop name.
+const BINDER_TYPE_WORDS = {};
 
+// The redundancy bar's own words (app-processors.js), so the page reads
+// what the tray reads: "Per card", "Whole unit → H9 BACKUP", "Off".
 const REDUNDANCY_WORDS = {
-    off: 'off', port: 'per port', card: 'per card', unit: 'whole processor',
-    fixed: 'fixed pairing', backup: 'backup unit',
+    off: 'Off', port: 'Per port', card: 'Per card', unit: 'Whole unit',
+    fixed: 'On', backup: 'Backed up',
 };
 
 class _Binder {
@@ -513,7 +528,7 @@ class _Binder {
         } });
         for (const r of spec.rows || []) {
             if (r.band !== undefined) {
-                lines.push({ h: BAND_H, draw: (ctx, x, y, w) => {
+                lines.push({ h: BAND_H, band: true, draw: (ctx, x, y, w, cont) => {
                     if (book.meta.palette === 'printer') {
                         ctx.fillStyle = INK;
                         ctx.fillRect(x, y + 2, w, 3);
@@ -521,7 +536,7 @@ class _Binder {
                         ctx.fillStyle = BAND_BG;
                         ctx.fillRect(x, y, w, BAND_H - 4);
                     }
-                    this._bText(book, r.band, x + padX, y + 31,
+                    this._bText(book, r.band + (cont ? ' (cont.)' : ''), x + padX, y + 31,
                                 { size: SZ.cell, weight: 700, maxWidth: w - padX * 2 });
                     ctx.fillStyle = RULE;
                     ctx.fillRect(x, y + BAND_H - 4, w, 4);
@@ -612,6 +627,12 @@ class _Binder {
     // the next, and the last column of a page continues on a continuation
     // page (`onNewPage` returns its top/bottom/cols), repeating the block's
     // head lines wherever it resumes.
+    //
+    // The band rule (2026-09-07, "the page gets cut off"): a band is laid
+    // only where it and its first two rows (or its one row, when it has
+    // one) fit above the foot; otherwise it moves to the next column with
+    // its rows. Rows that run on past a break get their band again, with
+    // "(cont.)", under the repeated head lines.
     _bFlow(book, blocks, frame, onNewPage) {
         let { top, bottom, cols } = frame;
         let ci = 0;
@@ -626,9 +647,17 @@ class _Binder {
             else if (used) { y += BLOCK_GAP; }
             let i = 0;
             let guard = 0;
+            let band = null;              // the band the rows being laid sit under
             while (i < lines.length) {
                 const l = lines[i];
-                if (y + l.h > bottom && (used || y !== top)) {
+                let need = l.h;
+                if (l.band) {
+                    for (let k = i + 1, n = 0; k < lines.length && n < 2; k++, n++) {
+                        if (lines[k].band || lines[k].head) break;
+                        need += lines[k].h;
+                    }
+                }
+                if (y + need > bottom && (used || y !== top)) {
                     if (ci < cols.length - 1) { ci++; }
                     else {
                         const f = onNewPage();
@@ -637,6 +666,7 @@ class _Binder {
                     y = top; used = false;
                     if (!l.head) {
                         for (const h of heads) { h.draw(ctxOf(), cols[ci].x, y, cols[ci].w, true); y += h.h; }
+                        if (band && !l.band) { band.draw(ctxOf(), cols[ci].x, y, cols[ci].w, true); y += band.h; }
                     }
                     if (++guard > 500) break;
                     continue;
@@ -645,6 +675,7 @@ class _Binder {
                 y += l.h;
                 used = true;
                 i++;
+                if (l.band) band = l;
             }
         }
     }
@@ -663,16 +694,19 @@ class _Binder {
     // ---- the map ------------------------------------------------------------
 
     // The screen's map through the canvas renderer, in exportMode, in the
-    // binder's palette, onto an offscreen canvas that is then laid into the
-    // page's map area. Returns the page geometry - where a processor-coord
-    // rect of this layer lands on the page - so the rulers and the box
-    // brackets can be drawn around it in page space.
+    // binder's palette, with the screen-name plate off (the header names
+    // the screen; the plate sat over the circuit labels), onto an offscreen
+    // canvas that is then laid into the page's map area. Returns the page
+    // geometry - where a processor-coord rect of this layer lands on the
+    // page - so the rulers and the breakout brackets can be drawn around it
+    // in page space.
     _bMap(book, layer, view, area) {
         const r = window.canvasRenderer;
         const canvases = (this.project && Array.isArray(this.project.canvases)) ? this.project.canvases : [];
         const saved = {
             canvas: r.canvas, ctx: r.ctx, exportMode: r.exportMode, transparent: r.exportTransparentBg,
             printer: r.printerMode, viewMode: r.viewMode, zoom: r.zoom, panX: r.panX, panY: r.panY,
+            hideNames: r.hideScreenNames,
             active: this.project ? this.project.active_canvas_id : null,
             canvasVis: canvases.map(c => [c, c.visible]),
             layerVis: (this.project.layers || []).map(l => [l, l.visible]),
@@ -729,6 +763,7 @@ class _Binder {
                 r.ctx = offCtx;
                 r.exportMode = true;
                 r.exportTransparentBg = true;
+                r.hideScreenNames = true;
                 r.printerMode = book.meta.palette === 'printer';
                 r.zoom = zoom;
                 // The wall's local origin lands at (ox - area.x, oy - area.y)
@@ -746,6 +781,7 @@ class _Binder {
             r.ctx = saved.ctx;
             r.exportMode = saved.exportMode;
             r.exportTransparentBg = saved.transparent;
+            r.hideScreenNames = saved.hideNames;
             r.printerMode = saved.printer;
             r.viewMode = saved.viewMode;
             r.zoom = saved.zoom;
@@ -814,8 +850,9 @@ class _Binder {
         ctx.strokeRect(geo.wall.x, geo.wall.y, geo.wall.w, geo.wall.h);
     }
 
-    // The box brackets outside the wall: one per box, spanning the rows its
-    // circuits feed, on the side its circuits live, labelled "SR 1 · 125'".
+    // The breakout brackets outside the wall: one per breakout, spanning
+    // the rows its circuits feed, on the side its circuits live, labelled
+    // "SR 1 · 125'".
     // Brackets that overlap on a side stack outward.
     _bBoxBrackets(book, layer, scr, geo) {
         const ctx = book.ctx;
@@ -890,8 +927,8 @@ class _Binder {
         this._bFlow(book, blocks, frame, this._bContinuation(book, view, title, header, extra));
     }
 
-    // The band over a box's circuits: "SR 1 · Soca 208 · 125' home run · 6
-    // circuits", plus the tails on this box that belong to another screen.
+    // The band over a breakout's circuits: "SR 1 · Soca 208 · 125' home run
+    // · 6 circuits", plus the tails on it that belong to another screen.
     _bBoxBand(book, layer, box) {
         const n = (box.circuits || []).length;
         const parts = [box.name, box.type || 'no distro',
@@ -930,7 +967,7 @@ class _Binder {
 
     _bPowerBlocks(book, layer, scr) {
         const blocks = [];
-        // Circuits, banded per box.
+        // Circuits, banded per breakout.
         const rows = [];
         for (const box of scr.boxes || []) {
             rows.push({ band: this._bBoxBand(book, layer, box) });
@@ -994,6 +1031,43 @@ class _Binder {
         return blocks;
     }
 
+    // The return end of a port, as the tray states it: the backup port's
+    // label ("SR-1R") and where it lands - the breakout box's title where
+    // one delivers it, else the backup card's name (or its slot on its
+    // processor) - and the socket, "SR-1R · H9 BACKUP · 1".
+    _bBackupText(layer, portNum, bb) {
+        const label = (typeof this.getPortLabelText === 'function')
+            ? this.getPortLabelText(layer, portNum, 'return') : '';
+        let where = bb.boxTitle || '';
+        if (!where) {
+            const home = this._bPortHome(bb.cardId, bb.port);
+            where = home ? `${home.procTitle} ${home.cardTitle}` : (bb.cardTitle || this._bCardShort(bb.cardId));
+        }
+        const socket = bb.localPort != null ? bb.localPort : bb.port;
+        return [label, `${where} · ${socket}`].filter(Boolean).join(' · ');
+    }
+
+    // The redundancy bar's reading for a processor: "Per card", "Per port",
+    // "Whole unit → H9 BACKUP" (the partner the unit mirrors onto), "Off".
+    _bRedundancyText(proc) {
+        const level = (typeof this._procRedundancyLevel === 'function') ? this._procRedundancyLevel(proc) : 'off';
+        let text = REDUNDANCY_WORDS[level] || level;
+        if (level === 'unit') {
+            const procs = this._processorsResolved || [];
+            const partner = procs.find(p => p.id === proc.backupProcessorId);
+            if (partner) text += ` → ${partner.name || partner.deviceName}`;
+            else {
+                const one = (proc.slots || []).map(s => s.card).find(Boolean);
+                const found = one && one.backupCardId && typeof this._otherCards === 'function'
+                    ? this._otherCards(one.id).find(x => x.card.id === one.backupCardId) : null;
+                if (found && typeof this._backupUnitTitle === 'function') {
+                    text += ` → ${this._backupUnitTitle(found.proc, found.card)}`;
+                }
+            }
+        }
+        return text;
+    }
+
     // The processor and card a socket sits on, for the data page's bands.
     _bPortHome(cardId, socket) {
         const found = (typeof this._dockFindCard === 'function') ? this._dockFindCard(cardId) : null;
@@ -1050,9 +1124,7 @@ class _Binder {
                 }
                 socket = String(home.port && home.port.localNumber != null ? home.port.localNumber : placed.port);
                 const bb = home.port && home.port.backedBy;
-                if (bb) {
-                    backup = `${bb.boxTitle || this._bCardShort(bb.cardId)} ${bb.localPort != null ? bb.localPort : bb.port}`;
-                }
+                if (bb) backup = this._bBackupText(layer, run.num, bb);
             } else {
                 b = band('none', 'Not placed');
             }
@@ -1063,9 +1135,11 @@ class _Binder {
         for (const b of bands.values()) { rows.push({ band: b.text }); rows.push(...b.rows); }
         blocks.push({ lines: this._bTableLines(book, {
             title: 'Ports',
-            cols: [{ title: 'port', w: 1 }, { title: 'socket', w: 0.8, align: 'right' },
-                   { title: 'panels', w: 0.8, align: 'right' }, { title: 'px', w: 0.9, align: 'right' },
-                   { title: 'home run', w: 1.3 }, { title: 'backup', w: 1.2 }],
+            // The backup column carries the return end whole - "SR-1R · H9
+            // BACKUP · 1" - so it takes the width the home run gave up.
+            cols: [{ title: 'port', w: 0.8 }, { title: 'socket', w: 0.7, align: 'right' },
+                   { title: 'panels', w: 0.7, align: 'right' }, { title: 'px', w: 0.9, align: 'right' },
+                   { title: 'home run', w: 0.85 }, { title: 'backup', w: 2.25 }],
             rows,
         }) });
         const cables = (scr.rows || []).filter(r => r.side === 'data');
@@ -1086,9 +1160,10 @@ class _Binder {
                 .filter(Boolean).join(' · ')],
         ];
         for (const proc of procs.values()) {
-            const level = (typeof this._procRedundancyLevel === 'function') ? this._procRedundancyLevel(proc) : 'off';
-            pairs.push(['Processor', `${proc.name || proc.deviceName} · ${proc.deviceName}`]);
-            pairs.push(['Redundancy', REDUNDANCY_WORDS[level] || level]);
+            const procName = proc.name || proc.deviceName || proc.id;
+            pairs.push(['Processor', procName === proc.deviceName || !proc.deviceName
+                ? procName : `${procName} · ${proc.deviceName}`]);
+            pairs.push(['Redundancy', this._bRedundancyText(proc)]);
         }
         if (!procs.size) pairs.push(['Processor', 'not placed']);
         blocks.push({ lines: this._bKvLines(book, 'Facts', pairs) });
@@ -1200,7 +1275,7 @@ class _Binder {
         const data = cableRows('data');
         blocks.push({ lines: this._bTableLines(book, { title: 'Data cables', cols: cableCols,
             rows: data.length ? data : [{ cells: ['', 'none', '', '', ''] }] }) });
-        // Hardware: the boxes, the distros, the cards these screens hang on.
+        // Hardware: the breakouts, the distros, the cards these screens hang on.
         const hw = [];
         const seenBox = new Set(), seenDistro = new Set(), seenCard = new Set();
         for (const layer of members) {
@@ -1285,8 +1360,8 @@ class _Binder {
         this._bNewPage(book, 'distro', title, header, extra);
         const blocks = [];
         blocks.push({ lines: this._bTableLines(book, {
-            title: 'Boxes',
-            cols: [{ title: 'box', w: 0.8 }, { title: 'type', w: 0.9 }, { title: 'home run', w: 0.8 },
+            title: 'Breakouts',
+            cols: [{ title: 'breakout', w: 0.8 }, { title: 'type', w: 0.9 }, { title: 'home run', w: 0.8 },
                    { title: 'screens', w: 1.6 }, { title: 'circuits', w: 0.7, align: 'right' },
                    { title: 'amps', w: 0.7, align: 'right' }],
             rows: boxes.length ? boxes : [{ cells: ['none', '', '', '', '', ''] }],
@@ -1301,7 +1376,7 @@ class _Binder {
                 pairs.push(['Imbalance', `${this._bNum(load.imbalancePct, 1)}%`]);
             }
         }
-        pairs.push(['Boxes', this._bPlural(boxes.length, 'box').replace('boxs', 'boxes')]);
+        pairs.push(['Breakouts', this._bPlural(boxes.length, 'breakout')]);
         blocks.push({ lines: this._bKvLines(book, 'Service', pairs) });
         const hw = (book.list.hardware || []).find(h => h.kind === 'distro' && h.id === d.id);
         blocks.push({ lines: this._bPullLines(book, 'Pull list', (hw && hw.rows) || []) });
@@ -1352,12 +1427,11 @@ class _Binder {
                    { title: 'ports', w: 0.8, align: 'right' }, { title: 'backup', w: 1 }],
             rows,
         }) });
-        const level = (typeof this._procRedundancyLevel === 'function') ? this._procRedundancyLevel(proc) : 'off';
         blocks.push({ lines: this._bKvLines(book, 'Redundancy', [
             ['Device', proc.deviceName || proc.deviceId || ''],
-            ['Redundancy', REDUNDANCY_WORDS[level] || level],
+            ['Redundancy', this._bRedundancyText(proc)],
         ]) });
-        // Snakes and home runs on every card and box of this processor.
+        // Snakes and home runs on every card and breakout box of this processor.
         const runs = [];
         for (const { card } of cards) {
             const owners = [{ title: card.name || card.deviceName, rec: card }]

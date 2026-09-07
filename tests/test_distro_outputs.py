@@ -948,7 +948,7 @@ def test_an_occupied_box_chip_is_read_only_and_reads_its_members(page):
     chip = pg.evaluate(TYPECHIP_JS, [d, 1])
     assert chip['tag'] == 'SPAN' and chip['ro'], chip
     assert chip['text'] == 'Soca 208' and chip['chips'] == 6, chip
-    assert 'Clear the box' in chip['title'], chip
+    assert 'Clear the breakout' in chip['title'], chip
     assert 'output' not in chip['payload'], chip
     assert not chip['clash'] and chip['stripTyped'] == [], chip
     # one undo forgets the stamp with the assignment

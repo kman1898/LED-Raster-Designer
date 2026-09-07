@@ -2,14 +2,23 @@
 
 Type A of binder-mock.html, as the user picked it (2026-09-06): the
 screen's map across the top half of a landscape letter page, rulers around
-it (numbering "2"), a bracket per BOX outside the wall with its home run
-("Box", never "Multi"; the home run said once per box, in a band row over
+it (numbering "2"), a bracket per BREAKOUT outside the wall with its home
+run ("Breakout", never "Box", never "Multi" - 2026-09-07: "maybe we call
+them breakouts?"; the home run said once per breakout, in a band row over
 its circuits), then Circuits · Cables · Facts, and a Gangs table only when
 the screen has 2fers / 3fers. Colour and Printer palettes - the renderer's
 printerMode (canvas.js) draws greys, black runs told apart by a dash per
 circuit, white discs. Pages: cover, a pull page per position, each screen's
 power and data pages, a page per distro and per processor, the show-wide
 pull list; a single screen exports alone from the canvas's right-click.
+
+The beta.20 notes (2026-09-07): the map carries no screen-name plate (the
+header names the screen, and the plate sat over the circuit labels); a
+band never sits at the foot of a column without two of its rows, and a
+band whose rows run on across a break is repeated with "(cont.)"; the data
+page's BACKUP cell is the return end the tray states ("SR-1R · H9 slot 2 ·
+1"), its Processor line names the unit once, and Redundancy reads the
+bar's own words ("Per card").
 
 The pages are laid out on the client (app-binder.js) from buildPullList
 and the canvas renderer's own drawing, so the assertions here read the
@@ -56,11 +65,12 @@ def test_the_menu_items_the_format_option_and_the_section_are_served(client):
         assert f'id="export-binder-{field}"' in html, field
     main_js = open(os.path.join(HERE, '..', 'src', 'static', 'js', 'main.js')).read()
     assert "import './app-binder.js';" in main_js
-    # the binder's own strings say circuits and box - never tails, never Multi
+    # the binder's own strings say circuits and breakout - never tails, never Multi
     binder_js = open(os.path.join(HERE, '..', 'src', 'static', 'js', 'app-binder.js')).read()
     code = '\n'.join(l for l in binder_js.splitlines() if not l.strip().startswith('//'))
     literals = re.findall(r"'[^'\n]*'|\"[^\"\n]*\"|`[^`]*`", code)
     assert not [l for l in literals if 'tails' in l], [l for l in literals if 'tails' in l]
+    # "Multi" may name a CABLE (the GEAR LIST's word); it never names the breakout
     assert not [l for l in literals if 'Multi' in l], [l for l in literals if 'Multi' in l]
 
 
@@ -253,7 +263,9 @@ def test_the_power_page_says_home_run_once_per_box_and_never_multi(page):
     assert texts[1] == 'WALL-A · SR Beach · page 3 of 12'
     bands = [t for t in texts if 'home run' in t]
     assert bands == ["SR1 · Soca 208 · 125' home run · 2 circuits"], texts
-    assert not any('Multi' in t for t in texts), [t for t in texts if 'Multi' in t]
+    # Multi is a cable row, never a heading and never the breakout's name
+    assert not any(t.strip() == 'MULTI' for t in texts), [t for t in texts if t.strip() == 'MULTI']
+    assert not any('Multi' in b for b in bands), bands
     assert not any('tails' in t.lower() for t in texts)
     # the bracket outside the wall carries the box and its home run once
     assert texts.count("SR1 · 125'") == 1
@@ -261,7 +273,7 @@ def test_the_power_page_says_home_run_once_per_box_and_never_multi(page):
     assert 'SR1-1' in texts and 'SR1-2' in texts
     assert texts.count("10' True1") >= 2
     assert 'CABLES THIS SCREEN' in texts and 'FACTS' in texts
-    assert 'Soca' in texts and "125'" in texts       # the box's cable, in the binder's word
+    assert 'Multi' in texts and "125'" in texts      # the breakout's cable, in the GEAR LIST's word
     assert 'Tru-1 Breakout' in texts
     assert 'GANGS' not in texts
 
@@ -406,6 +418,167 @@ def test_the_pdf_route_receives_one_image_per_page(page):
     assert out['saved'] == {'filename': 'Two Positions - binder.pdf', 'mime': 'application/pdf', 'size': 9}
 
 
+# The whole-show options as JSON, for evaluate() calls that take them as data.
+_SHOW_JSON = ('{"palette": "colour", "sides": {"power": true, "data": true}, "scope": {"kind": "show"},'
+              ' "cover": true, "pull": true, "hardware": true}')
+BOX_WORD = re.compile(r'\b(box|boxes)\b', re.I)
+
+
+def test_the_map_carries_no_screen_name_plate_but_the_export_still_does(page):
+    """"the main label is over the circuits so that is bad": the binder's
+    map draws no screen-name plate - the header names the screen - on the
+    power and the data page alike, and the ordinary export (exportMode
+    without the binder's flag) paints the name exactly as before."""
+    pg, ids = page
+    for title in ('WALL-A - Power', 'WALL-A - Data'):
+        out = _render(pg, SHOW, title)
+        assert 'WALL-A' not in out['mapTexts'], (title, out['mapTexts'])
+        assert 'WALL-A' in out['texts'][1]                 # the header names it
+        assert 'SR1-1' in out['mapTexts'] or 'SR-1' in out['mapTexts']
+    # the same exportMode render with the binder's flag pinned off is the
+    # ordinary export, and it paints the name
+    export = pg.evaluate("""([opts, title]) => {
+        const app = window.app, r = window.canvasRenderer;
+        const idx = app.planBinder(opts).findIndex(p => p.title === title);
+        Object.defineProperty(r, 'hideScreenNames', { get: () => false, set: () => {}, configurable: true });
+        try {
+            return { mapTexts: app.renderBinderPage(opts, idx).mapTexts };
+        } finally {
+            delete r.hideScreenNames;
+            r.hideScreenNames = false;
+        }
+    }""", [json.loads(_SHOW_JSON), 'WALL-A - Power'])
+    assert 'WALL-A' in export['mapTexts'], export['mapTexts'][:40]
+    assert pg.evaluate("() => window.canvasRenderer.hideScreenNames") is False
+
+
+def test_no_page_says_box(page):
+    """The power side's word is breakout ("I dont like calling them boxes");
+    no page text says box, save a data-side breakout box's own name."""
+    pg, ids = page
+    n = pg.evaluate("(o) => window.app.planBinder(o).length", json.loads(_SHOW_JSON))
+    assert n == 12
+    for idx in range(n):
+        texts = pg.evaluate("([o, i]) => window.app.renderBinderPage(o, i).texts", [json.loads(_SHOW_JSON), idx])
+        boxy = [t for t in texts if BOX_WORD.search(t) and 'breakout box' not in t.lower()]
+        assert not boxy, (idx, boxy)
+    distro = _render(pg, SHOW, 'SR - Distro')['texts']
+    i = distro.index('BREAKOUTS')
+    assert distro[i + 1] == 'BREAKOUT' and 'SR 1' in distro and 'SR 2' in distro
+    assert 'Breakouts' in distro and '2 breakouts' in distro
+
+
+# The filler's line heights (app-binder.js): title, heading, band, row.
+H4_H, TH_H, BAND_H, ROW_H = 46, 40, 46, 38
+
+
+def test_a_band_never_ends_a_column_and_a_continued_band_says_cont(page):
+    """"the first example the page gets cut off": the fixture's frame is
+    exactly deep enough that the old filler laid BAND B at the foot of the
+    first column with its rows in the next. Now a band moves with its first
+    two rows, and the rows of BAND B that run past the second column's foot
+    resume under "BAND B (cont.)"."""
+    pg, ids = page
+    bottom = H4_H + TH_H + BAND_H + 5 * ROW_H + BAND_H      # BAND B fits, alone, at the foot
+    out = pg.evaluate("""(bottom) => {
+        const app = window.app;
+        const c = document.createElement('canvas'); c.width = 2200; c.height = 1700;
+        const ctx = c.getContext('2d');
+        const book = { ctx, measureCtx: ctx, meta: { palette: 'colour' }, page: { painting: true },
+                       log: { texts: [], textInfo: [], mapTexts: [], dashes: [] } };
+        const rows = [];
+        const add = (name, n) => { rows.push({ band: name }); for (let i = 1; i <= n; i++) rows.push({ cells: [`${name}-${i}`, 'x'] }); };
+        add('BAND A', 5); add('BAND B', 7); add('BAND C', 3);
+        const lines = app._bTableLines(book, { title: 'T', cols: [{ title: 'a', w: 1 }, { title: 'b', w: 1 }], rows });
+        const seen = [];
+        let pageNo = 0;
+        lines.forEach(l => {
+            const d = l.draw;
+            l.draw = (cx, x, y, w, cont) => {
+                seen.push({ page: pageNo, x, y, h: l.h, band: !!l.band, head: !!l.head, cont: !!cont, text: book.log.texts.length });
+                d(cx, x, y, w, cont);
+            };
+        });
+        const cols = [{ x: 0, w: 600 }, { x: 700, w: 600 }];
+        app._bFlow(book, [{ lines }], { top: 0, bottom, cols }, () => { pageNo++; return { top: 0, bottom, cols }; });
+        return { seen, texts: book.log.texts, pages: pageNo + 1 };
+    }""", bottom)
+    texts = out['texts']
+    for e in out['seen']:
+        e['t'] = texts[e['text']]
+        assert e['y'] + e['h'] <= bottom, e
+    columns = {}
+    for e in out['seen']:
+        columns.setdefault((e['page'], e['x']), []).append(e)
+    for key, col in columns.items():
+        col.sort(key=lambda e: e['y'])
+        assert not col[-1]['band'], (key, [e['t'] for e in col])
+        # a band is followed by two of its rows in its own column (or all it has)
+        for i, e in enumerate(col):
+            if e['band'] and not e['cont']:
+                rest = [x['t'] for x in col[i + 1:i + 3]]
+                assert len(rest) == 2 and all(r.startswith(e['t'] + '-') for r in rest), (key, e['t'], rest)
+    seq = lambda key: [e['t'] for e in columns[key]]
+    assert seq((0, 0)) == ['T', 'A', 'BAND A', 'BAND A-1', 'BAND A-2', 'BAND A-3', 'BAND A-4', 'BAND A-5']
+    assert seq((0, 700)) == ['T (CONT.)', 'A', 'BAND B'] + [f'BAND B-{i}' for i in range(1, 7)]
+    assert seq((1, 0)) == ['T (CONT.)', 'A', 'BAND B (cont.)', 'BAND B-7', 'BAND C', 'BAND C-1', 'BAND C-2', 'BAND C-3']
+    assert out['pages'] == 2
+    assert texts.count('BAND B (cont.)') == 1 and texts.count('T (CONT.)') == 2
+
+
+def test_the_data_page_prints_the_return_end_and_the_processor_once(page):
+    """Card SR backed 1:1 by a second (unnamed) card: the BACKUP cell is the
+    return end the tray states - the backup port's label and where it lands,
+    "SR-1R · H9 slot 2 · 1" - never "slot 2 1"; the Processor line names the
+    unit once ("H9", not "H9 · H9"); Redundancy reads the bar ("Per card")."""
+    pg, ids = page
+    backup_id = pg.evaluate("""async (ids) => {
+        const app = window.app;
+        const j = (method, url, body) => fetch(url, {method,
+            headers: {'Content-Type': 'application/json'},
+            body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
+        let st = await j('PUT', `/api/processors/${ids.procId}/slots/1`, {deviceId: 'novastar-card-h-16xrj45-2xfiber'});
+        const backupId = st.processors[0].slots[1].card.id;
+        await j('PUT', `/api/processors/${ids.procId}`, {redundancy: true});
+        st = await j('PUT', `/api/processors/${ids.procId}/cards/${ids.cardId}`, {backupCardId: backupId});
+        await app.refreshProcessors();
+        await app.refreshPortAssignment();
+        app.renderLayers();
+        return backupId;
+    }""", ids)
+    try:
+        out = _render(pg, SHOW, 'WALL-A - Data')
+        texts = out['texts']
+        i = texts.index('H9 SR · H_16xRJ45+2xfiber · 16 ports')
+        rows = []
+        j = i + 1
+        while j + 5 < len(texts) and re.fullmatch(r'SR-\d+', texts[j]):
+            rows.append(texts[j:j + 6]); j += 6
+        assert rows, texts[i:i + 20]
+        for label, socket, _panels, _px, _home, backup in rows:
+            assert backup == f'{label}R · H9 slot 2 · {socket}', (label, backup)
+            assert f'{label}R' in out['mapTexts'], (label, out['mapTexts'])
+        assert not [t for t in texts if t.startswith('slot ') or t.endswith('…')]
+        assert texts[texts.index('Processor') + 1] == 'H9' and 'H9 · H9' not in texts
+        assert texts[texts.index('Redundancy') + 1] == 'Per card'
+        proc = _render(pg, SHOW, 'H9 - Processor')['texts']
+        assert proc[proc.index('Redundancy') + 1] == 'Per card'
+        assert not [t for t in proc if BOX_WORD.search(t)]
+    finally:
+        pg.evaluate("""async ([ids, backupId]) => {
+            const app = window.app;
+            const j = (method, url, body) => fetch(url, {method,
+                headers: {'Content-Type': 'application/json'},
+                body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
+            await j('PUT', `/api/processors/${ids.procId}/cards/${ids.cardId}`, {backupCardId: null});
+            await j('PUT', `/api/processors/${ids.procId}`, {redundancy: false});
+            await app.refreshProcessors();
+            await app.refreshPortAssignment();
+            app.renderLayers();
+        }""", [ids, backup_id])
+    assert ids['errors'] == []
+
+
 # ── the smoke: the user's own show ───────────────────────────────────────
 
 @pytest.mark.skipif(not os.path.exists(SCRATCH_FIXTURE),
@@ -451,13 +624,21 @@ def test_smoke_experts_only(page):
     ]
     assert len([t for t in texts if re.fullmatch(r'SR[1-4]-\d', t)]) == 22
     assert 'FACTS' in texts and 'GANGS' not in texts
-    assert not any('Multi' in t for t in texts)
+    assert not any(t.strip() == 'MULTI' for t in texts), [t for t in texts if t.strip() == 'MULTI']
     assert '22 at 208 V / 20 A · 14 panels each' in texts
     rulers = [t['text'] for t in main['textInfo'] if t['size'] == 22 and t['weight'] == 700]
     assert rulers[:7] == ['1', '5', '10', '15', '20', '25', '28'] and rulers[7:] == [str(i) for i in range(1, 12)]
     assert ["SR1 · 125'", "SR2 · 100'", "SR3 · 125'", "SR4 · 100'"] == [t for t in texts if re.fullmatch(r"SR\d · \d+'", t)]
-    # the map: every label, and the typed cables as tags (the screen's switch is on)
-    assert 'SR1-1' in main['mapTexts'] and "10' True1" in main['mapTexts'] and 'SR - MAIN' in main['mapTexts']
+    # the map: every label, and the typed cables as tags (the screen's switch is on);
+    # no screen-name plate over them - the header names the screen
+    assert 'SR1-1' in main['mapTexts'] and "10' True1" in main['mapTexts']
+    assert 'SR - MAIN' not in main['mapTexts']
+    # the band rule: SR3's band moved to the second column WITH its rows, so
+    # every band is followed straight by its first circuit, none by a head
+    for band in bands:
+        assert texts[texts.index(band) + 1] == band.split(' ')[0] + '-' + ('2' if band.startswith('SR2') else '1'), \
+            (band, texts[texts.index(band):texts.index(band) + 3])
+    assert not [t for t in texts if t.endswith('(cont.)')]
     # printer: no colour, eleven distinct dashes across 22 circuits
     printer = _render(pg, SHOW.replace("palette: 'colour'", "palette: 'printer'"), 'SR - MAIN - Power')
     assert printer['coloured'] == 0
@@ -468,7 +649,24 @@ def test_smoke_experts_only(page):
     assert ret[i + 4:i + 4 + 15:3] == ['SR5-1', 'SR5-2', 'SR5-3', 'SR5-4', 'SR5-5']
     assert ret.count('2fer') == 5
     assert "SR5 · Soca 208 · 125' home run · 6 circuits" in ret
-    data = _render(pg, SHOW, 'SR - MAIN - Data')['texts']
+    dpage = _render(pg, SHOW, 'SR - MAIN - Data')
+    data = dpage['texts']
+    assert 'SR - MAIN' not in dpage['mapTexts']
     assert 'H9 SR · H_16xRJ45+2xfiber · 16 ports' in data
     assert ['SR-1', 'SR-2', 'SR-3', 'SR-4'] == [t for t in data if re.fullmatch(r'SR-\d', t)]
+    # the return end, whole: the backup port's label and where it lands
+    assert [t for t in data if t.startswith('SR-') and 'R ·' in t] == [
+        'SR-1R · H9 slot 2 · 1', 'SR-2R · H9 slot 2 · 2', 'SR-3R · H9 slot 2 · 3', 'SR-4R · H9 slot 2 · 4']
+    assert not [t for t in data if t.startswith('slot ')]
+    # the processor once, the redundancy in the bar's words
+    assert data[data.index('Processor') + 1] == 'H9' and 'H9 · H9' not in data
+    assert data[data.index('Redundancy') + 1] == 'Per card'
+    # no page says box (the power side's word is breakout)
+    for idx in range(len(plan)):
+        texts_i = pg.evaluate("([o, i]) => window.app.renderBinderPage(o, i).texts", [json.loads(_SHOW_JSON), idx])
+        boxy = [t for t in texts_i if BOX_WORD.search(t) and 'breakout box' not in t.lower()]
+        assert not boxy, (idx, boxy)
+    distro = _render(pg, SHOW, 'SR - Distro')['texts']
+    assert 'BREAKOUTS' in distro and 'BREAKOUT' in distro and 'Breakouts' in distro
+    assert '5 breakouts' in distro
     assert ids['errors'] == []
