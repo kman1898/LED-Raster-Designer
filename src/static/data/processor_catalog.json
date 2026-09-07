@@ -453,6 +453,7 @@
       "family": "novastar-h",
       "connector": "rj45",
       "trunks": 2,
+      "trunkWord": "OPT",
       "portsPerTrunk": 8,
       "trunkRate": "10G",
       "trunkDelivery": "copy",
@@ -467,6 +468,7 @@
       "family": "novastar-h",
       "connector": "fiber",
       "trunks": 4,
+      "trunkWord": "OPT",
       "portsPerTrunk": 8,
       "trunkRate": "10G",
       "ports": {
@@ -486,6 +488,7 @@
       "family": "novastar-h",
       "connector": "fiber",
       "trunks": 4,
+      "trunkWord": "OPT",
       "portsPerTrunk": 10,
       "trunkRate": "10G",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 40}]},

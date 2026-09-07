@@ -25,6 +25,7 @@ Three things here are deliberately awkward, and all three are the hardware:
   (resolve_card's `usable`, the backup mapping), never on socket numbers.
 """
 import json
+import math
 import os
 import re
 
@@ -1007,6 +1008,17 @@ def _label_owner(cvt, card, proc):
 
 # ── Resolution ────────────────────────────────────────────────────────────
 
+def _fiber_ft(value):
+    """A stored fiber length as a positive number of feet, else None."""
+    try:
+        ft = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(ft) or ft <= 0:
+        return None
+    return int(ft) if ft == int(ft) else ft
+
+
 def resolve_card(card, proc):
     """Expand one card into its ports, with the label each port carries."""
     device = get_device(card.get('deviceId')) or {}
@@ -1153,6 +1165,12 @@ def resolve_card(card, proc):
             # "backs up X" about the box somebody may want to delete.
             'backupOf': cvt.get('backupOf') or None,
             'beyondTrunks': over_trunk,
+            # The box's fiber trunk, as typed on it (update_cvt): what the
+            # fiber is and how long its home run is. '' / None when unset -
+            # the pull list lists no fiber for a box without a length, and
+            # the binder's band says so.
+            'fiberType': (cvt.get('fiberType') or '').strip(),
+            'fiberFt': _fiber_ft(cvt.get('fiberFt')),
             'ports': [],
         }
         # The box's snakes and port cables ride the resolved box, with the
@@ -1203,6 +1221,21 @@ def resolve_card(card, proc):
         box['trunkLetter'] = letter
         box['displayTitle'] = (box['name'] or '').strip() \
             or (box['deviceName'] + (f' {letter}' if letter else ''))
+        # THE TRUNK AS THE CARD'S FACE PRINTS IT, for paper that names where
+        # a box hangs: "OPT 1" ("OPT 1-2" for a box eating two) on a card
+        # whose catalog entry documents that word (trunkWord - the NovaStar
+        # H cards' notes say OPT), else the app's own letter, "trunk A".
+        # Nothing where there is nothing to name.
+        box['trunkTitle'] = ''
+        if letter:
+            word = (device.get('trunkWord') or '').strip()
+            if word:
+                first = box['trunkIndex'] + 1
+                last = first + (box['trunksIn'] or 1) - 1
+                box['trunkTitle'] = (f'{word} {first}-{last}' if last > first
+                                     else f'{word} {first}')
+            else:
+                box['trunkTitle'] = f'trunk {letter}'
 
     # A box can only claim past the ceiling by hanging off a trunk that is not
     # there - five CVT10s on a four-trunk card. That stays visible rather than

@@ -381,7 +381,9 @@ def test_positions_are_the_groups_and_the_rows_read_in_the_sheets_vocabulary(pag
     # EA sorts after every length; types are A-Z
     types = [r['type'] for r in out['totals']]
     assert types == sorted(types, key=str.lower)
-    assert out['unmodelled'] and 'Fiber trunk' in out['unmodelled'][0]
+    # nothing the show carries is left off the list (a breakout box's fiber
+    # trunk rides its own fiberType / fiberFt now - test_box_fiber)
+    assert out['unmodelled'] == []
 
 
 def test_the_per_screen_readings_the_packet_will_print(page):
@@ -474,6 +476,68 @@ def test_a_box_without_a_length_says_so_and_a_hidden_screen_is_off_the_list(page
     assert out['noLen'] == [["125'", 1, 'SR 1', ''], ['', 1, 'SR 2', 'no length']]
     assert out['names'] == ['SR Beach', 'CENTER']
     assert out['srLayers'] == [ids['a']] and out['multis'] == 1
+
+
+def test_a_boxs_fiber_is_one_row_and_the_workbook_writes_it(page):
+    """A CVT4K-S on card SR delivers every socket again, so SR Beach's and
+    CENTER's ports ride it; its fiber ("12 Tac Fiber", 250') is ONE row in
+    the first position that meets it, on the processor's hardware list, and
+    in the workbook the route lays out. Untyped, the row's type is "Fiber";
+    with no length there is no row. The box goes at the end and the card's
+    own cables come back."""
+    pg, ids = page
+    out = pg.evaluate("""async (ids) => {
+        const app = window.app;
+        const j = (method, url, body) => fetch(url, {method,
+            headers: {'Content-Type': 'application/json'},
+            body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
+        let st = await j('POST', `/api/processors/${ids.procId}/cards/${ids.cardId}/cvts`,
+                         {deviceId: 'novastar-cvt4k-s', pair: false});
+        const boxId = st.processors[0].slots[0].card.cvts[0].id;
+        const rebuild = async () => {
+            await app.refreshProcessors(); await app.refreshPortAssignment();
+            app._circuitTailCache = null;
+            return JSON.parse(JSON.stringify(app.buildPullList()));
+        };
+        const fiber = (list) => list.positions.map(p => [p.name, p.rows.filter(r => r.side === 'data' && !/Jump/.test(r.type))
+            .map(r => [r.type, r.length, r.qty, r.label, r.notes])]);
+        const results = {};
+        await j('PUT', `/api/processors/${ids.procId}/cvts/${boxId}`, {name: 'SR', fiberType: '12 Tac Fiber', fiberFt: 250});
+        let list = await rebuild();
+        results.typed = fiber(list);
+        results.unmodelled = list.unmodelled;
+        results.boxes = Object.values(list.byScreen).map(s => s.ports.map(p => p.box));
+        results.hardware = list.hardware.filter(h => h.kind === 'processor').map(h => h.rows.map(r => [r.type, r.length, r.qty, r.label]));
+        const resp = await fetch('/api/export/pull-sheet', {method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({pull_list: list, project_name: 'Fiber Show', engineer: '', rev: '1.0', date: '', date_iso: ''})});
+        const bytes = new Uint8Array(await resp.arrayBuffer());
+        let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+        results.b64 = btoa(bin); results.status = resp.status;
+        await j('PUT', `/api/processors/${ids.procId}/cvts/${boxId}`, {fiberType: ''});
+        results.untyped = fiber(await rebuild());
+        await j('PUT', `/api/processors/${ids.procId}/cvts/${boxId}`, {fiberFt: null});
+        results.noLength = fiber(await rebuild());
+        await j('DELETE', `/api/processors/${ids.procId}/cvts/${boxId}`);
+        results.after = fiber(await rebuild());
+        app.renderLayers(); app.renderHardwareDock();
+        return results;
+    }""", ids)
+    assert out['typed'] == [['SR Beach', [['12 Tac Fiber', "250'", 1, 'CVT4K-S SR', '']]], ['CENTER', []]], out['typed']
+    assert out['unmodelled'] == []
+    assert out['boxes'] == [['CVT4K-S SR'], ['CVT4K-S SR'], ['CVT4K-S SR']]
+    assert out['hardware'] == [[['12 Tac Fiber', "250'", 1, 'CVT4K-S SR']]]
+    assert out['status'] == 200
+    import base64
+    wb = openpyxl.load_workbook(io.BytesIO(base64.b64decode(out['b64'])))
+    ws = wb['Pull Sheet']
+    col = pull_sheet.BLOCK_COLS[0]
+    rows = [tuple(ws.cell(r, col + i).value for i in range(4)) for r in range(7, 30)]
+    assert ('12 Tac Fiber', "250'", 1, 'CVT4K-S SR') in rows, rows
+    assert out['untyped'] == [['SR Beach', [['Fiber', "250'", 1, 'CVT4K-S SR', '']]], ['CENTER', []]]
+    assert out['noLength'] == [['SR Beach', []], ['CENTER', []]]
+    # the box gone, the card's snake and CENTER's cable read again
+    assert out['after'] == [['SR Beach', [['Ether-con Snake', "100'", 1, 'SNAKE A', '2-way']]],
+                            ['CENTER', [['Ether-con', "50'", 1, ids['centerPortLabel'], '']]]], out['after']
 
 
 # ── the browser: the settings, the menu, the export ─────────────────────

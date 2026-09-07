@@ -1086,6 +1086,53 @@ class _Processors {
         });
         wrap.appendChild(names);
 
+        // The box's fiber trunk (2026-09-07: "we need to add fiber types
+        // when cvt's or similar are used"): what the fiber is and how long
+        // its home run is. The type offers the GEAR LIST's fiber-ish words
+        // (12 Tac Fiber, 10G Single-Mode SFP …) and takes anything typed;
+        // the feet are a number. One PUT each, one 'Set Box Fiber' entry.
+        const fiber = document.createElement('div');
+        fiber.style.display = 'flex';
+        fiber.style.flexWrap = 'wrap';
+        fiber.style.gap = '6px';
+        fiber.style.marginTop = '4px';
+        const url = `/api/processors/${proc.id}/cvts/${cvt.id}`;
+        const typeField = this._buildTextField(
+            'Fiber', cvt.fiberType, 'fiber type',
+            `processor-cvt-fiber-type-${cvt.id}`,
+            (val) => this._processorRequest(url, 'PUT', { fiberType: val },
+                                            'Set Box Fiber'));
+        const typeInput = typeField.querySelector('input');
+        const listId = `hw-fiber-types-${cvt.id}`;
+        const list = document.createElement('datalist');
+        list.id = listId;
+        typeInput.setAttribute('list', listId);
+        this._fiberTypeSuggestions().then(names => {
+            list.innerHTML = '';
+            names.forEach(n => {
+                const opt = document.createElement('option');
+                opt.value = n;
+                list.appendChild(opt);
+            });
+        });
+        typeField.appendChild(list);
+        fiber.appendChild(typeField);
+        const ftField = this._buildTextField(
+            'Fiber ft', cvt.fiberFt != null ? String(cvt.fiberFt) : '',
+            'feet', `processor-cvt-fiber-ft-${cvt.id}`,
+            (val) => this._processorRequest(
+                url, 'PUT', { fiberFt: val === '' ? null : Number(val) },
+                'Set Box Fiber'));
+        const ftInput = ftField.querySelector('input');
+        ftInput.type = 'number';
+        ftInput.min = '0';
+        ftInput.step = 'any';
+        fiber.appendChild(ftField);
+        fiber.querySelectorAll(':scope > div').forEach((cell, i) => {
+            cell.style.flex = i === 0 ? '2 1 120px' : '1 1 70px';
+        });
+        wrap.appendChild(fiber);
+
         const info = document.createElement('div');
         info.style.fontSize = '11px';
         info.style.fontFamily = 'monospace';
@@ -1149,6 +1196,29 @@ class _Processors {
     }
 
 
+
+    // The fiber types a box's ⚙ offers: the pull sheet's GEAR LIST entries
+    // that name a fiber (Fiber, Tac, SFP, OM3/OM4, SM), read once from
+    // GET /api/pull-sheet/gear-list. Free typing is always allowed; this
+    // is only what the datalist suggests.
+    _fiberTypeSuggestions() {
+        const pick = (types) => (types || []).filter(t =>
+            /fiber|fibre|\btac\b|sfp|\bom\d\b|\bsm\b/i.test(String(t)));
+        if (this._pullSheetVocab) {
+            return Promise.resolve(pick(this._pullSheetVocab.types));
+        }
+        if (typeof this._pullSheetLoadVocab === 'function') {
+            this._pullSheetLoadVocab();
+            if (this._pullSheetVocabLoading) {
+                return this._pullSheetVocabLoading.then(() =>
+                    pick(this._pullSheetVocab && this._pullSheetVocab.types));
+            }
+        }
+        return fetch('/api/pull-sheet/gear-list')
+            .then(r => (r.ok ? r.json() : { types: [] }))
+            .then(v => pick(v.types))
+            .catch(() => []);
+    }
 
     // ── data cables: snakes and port home runs ──────────────────────────
     //

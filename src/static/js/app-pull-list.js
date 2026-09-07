@@ -26,8 +26,10 @@
 //     run, counted per port (data) and per circuit (power). Names and
 //     lengths are per project (project.pullSheet), defaults "Data Jump" 6'
 //     and "Tru-1 Power Jump" 6'.
-//   * fiber trunk home runs are NOT modelled (a breakout box carries no
-//     trunk length) - skipped, and the list says so in `unmodelled`.
+//   * a breakout box's FIBER TRUNK is one row per box, said once however
+//     many ports ride it: its type (the box's fiberType, "Fiber" untyped)
+//     and its length (fiberFt), both typed in the box's ⚙ (2026-09-07);
+//     a box without a length has no row. `unmodelled` is empty.
 //
 //   * EDITS (2026-09-06, "edit in the app and then export a whole file i can
 //     share"): buildPullList() is the engine, recomputed from the show every
@@ -123,6 +125,27 @@ class _PullList {
         const n = Number(ft);
         if (!Number.isFinite(n) || n <= 0) return '';
         return `${Number.isInteger(n) ? n : +n.toFixed(1)}'`;
+    }
+
+    // What paper calls a breakout box (a CVT, a Tessera XD): its model and
+    // the name somebody typed - "CVT4K-S SR" - the way a card is "H9 SR";
+    // unnamed, the resolved title the dock wears ("CVT4K-S A").
+    pullBoxTitle(box) {
+        if (!box) return '';
+        const name = String(box.name || '').trim();
+        const device = String(box.deviceName || '').trim();
+        if (name && device && !name.toLowerCase().startsWith(device.toLowerCase())) {
+            return `${device} ${name}`;
+        }
+        return box.displayTitle || name || device;
+    }
+
+    // A box's fiber trunk as a line: "12 Tac Fiber 250'" (the type, or
+    // "Fiber" when untyped, and the length), or '' with no length.
+    pullBoxFiberText(box) {
+        const ft = Number(box && box.fiberFt);
+        if (!Number.isFinite(ft) || ft <= 0) return '';
+        return `${(box.fiberType || '').trim() || 'Fiber'} ${this.pullLengthText(ft)}`;
     }
 
     pullPowerConnectorName(appName) {
@@ -356,6 +379,7 @@ class _PullList {
         // several screens).
         const boxesSeen = new Set();
         const snakesSeen = new Set();
+        const fiberSeen = new Set();      // a box's fiber trunk, said once
         // The tail cache is a per-tick memo keyed by layer object; a build
         // that follows an edit in the same tick must not read stale names.
         this._circuitTailCache = null;
@@ -364,7 +388,7 @@ class _PullList {
             const rows = [];
             for (const layer of pos.layers) {
                 const scr = this._pullScreenList(layer, {
-                    settings, distroById, boxesSeen, snakesSeen, hw,
+                    settings, distroById, boxesSeen, snakesSeen, fiberSeen, hw,
                 });
                 byScreen[layer.id] = scr;
                 rows.push(...scr.rows);
@@ -393,14 +417,16 @@ class _PullList {
             byScreen,
             hardware,
             settings,
-            unmodelled: ['Fiber trunk home runs (a breakout box carries no trunk length) are not listed.'],
+            // Nothing the show can carry is left off the list now: a
+            // breakout box's fiber trunk rides its own fiberType / fiberFt.
+            unmodelled: [],
         };
     }
 
     // One screen's share: its raw rows (merged later by the caller) and the
     // per-screen readings the packet prints.
     _pullScreenList(layer, ctx) {
-        const { settings, distroById, boxesSeen, snakesSeen, hw } = ctx;
+        const { settings, distroById, boxesSeen, snakesSeen, fiberSeen, hw } = ctx;
         const rows = [];
         // Rows are power until the data walk below flips the switch: the
         // binder prints a screen's power cable and data cable apart.
@@ -498,12 +524,33 @@ class _PullList {
 
         // ---- data: port cables, snakes, jumpers ----
         side = 'data';
+        const asg = ((this._assignment && this._assignment.screens) || [])
+            .find(s => String(s.layerId) === String(layer.id));
         for (const run of this._pullPortRuns(layer)) {
             out.jumpers.data += this._pullRowSteps(run.panels, run.layers);
             const cable = (typeof this.dataPortCableForScreen === 'function')
                 ? this.dataPortCableForScreen(layer, run.num) : null;
-            const port = { num: run.num, label: run.label, cable: null, snake: null };
+            const port = { num: run.num, label: run.label, cable: null, snake: null, box: null };
             out.ports.push(port);
+            // The breakout box delivering this port, if one does: its fiber
+            // trunk is one row - the fiber's type (or "Fiber"), its length,
+            // the box's title - said once however many ports ride it. A box
+            // without a length has no row; the binder's band says so.
+            const placed = asg && (asg.ports || []).find(p => p.number === run.num);
+            const owner = placed && placed.cardId && typeof this._dataPortOwner === 'function'
+                ? this._dataPortOwner(placed.cardId, placed.port) : null;
+            if (owner && owner.kind === 'cvt') {
+                const box = owner.rec;
+                port.box = this.pullBoxTitle(box);
+                const fiberText = this.pullBoxFiberText(box);
+                if (fiberText && !fiberSeen.has(box.id)) {
+                    fiberSeen.add(box.id);
+                    const proc = (this.project.processors || []).find(p => p.id === owner.procId) || null;
+                    const r = row((box.fiberType || '').trim() || 'Fiber',
+                                  this.pullLengthText(box.fiberFt), 1, port.box);
+                    if (proc) hw('processor', proc.id, proc.name || proc.deviceName || proc.id).rows.push({ ...r });
+                }
+            }
             if (!cable) continue;
             const proc = cable.owner
                 ? ((this.project.processors || []).find(p => p.id === cable.owner.procId) || null)

@@ -18,7 +18,13 @@ band never sits at the foot of a column without two of its rows, and a
 band whose rows run on across a break is repeated with "(cont.)"; the data
 page's BACKUP cell is the return end the tray states ("SR-1R · H9 slot 2 ·
 1"), its Processor line names the unit once, and Redundancy reads the
-bar's own words ("Per card").
+bar's own words ("Per card"). The 2026-09-07 rulings: the Ports table
+reads PORT · PRIMARY · BACKUP · PANELS · PX · HOME RUN, PRIMARY the sending
+card the port lands on ("H9 SR · 1") - or, where a breakout box delivers
+it, the BOX instead ("CVT4K-S SR · 3") under a band naming the box, its
+trunk, its sockets and its fiber ("12 Tac Fiber 250'", else "no fiber
+length"); the Facts say the port count alone ("we dont need port max");
+the processor page lists every box with its fiber.
 
 The pages are laid out on the client (app-binder.js) from buildPullList
 and the canvas renderer's own drawing, so the assertions here read the
@@ -550,15 +556,22 @@ def test_the_data_page_prints_the_return_end_and_the_processor_once(page):
         out = _render(pg, SHOW, 'WALL-A - Data')
         texts = out['texts']
         i = texts.index('H9 SR · H_16xRJ45+2xfiber · 16 ports')
+        assert texts[texts.index('PORTS') + 1:texts.index('PORTS') + 7] == \
+            ['PORT', 'PRIMARY', 'BACKUP', 'PANELS', 'PX', 'HOME RUN']
         rows = []
         j = i + 1
         while j + 5 < len(texts) and re.fullmatch(r'SR-\d+', texts[j]):
             rows.append(texts[j:j + 6]); j += 6
         assert rows, texts[i:i + 20]
-        for label, socket, _panels, _px, _home, backup in rows:
+        for label, primary, backup, _panels, _px, _home in rows:
+            # the sending card the primary lands on, and the one the backup does
+            assert re.fullmatch(r'H9 SR · \d+', primary), (label, primary)
+            socket = primary.rsplit(' · ', 1)[-1]
             assert backup == f'{label}R · H9 slot 2 · {socket}', (label, backup)
             assert f'{label}R' in out['mapTexts'], (label, out['mapTexts'])
         assert not [t for t in texts if t.startswith('slot ') or t.endswith('…')]
+        # the Facts say how many ports, never a px-per-port ceiling
+        assert texts[texts.index('Ports') + 1] == '1 port' and not [t for t in texts if 'px/port' in t]
         assert texts[texts.index('Processor') + 1] == 'H9' and 'H9 · H9' not in texts
         assert texts[texts.index('Redundancy') + 1] == 'Per card'
         proc = _render(pg, SHOW, 'H9 - Processor')['texts']
@@ -576,6 +589,118 @@ def test_the_data_page_prints_the_return_end_and_the_processor_once(page):
             await app.refreshPortAssignment();
             app.renderLayers();
         }""", [ids, backup_id])
+    assert ids['errors'] == []
+
+
+def test_a_box_delivering_the_port_is_listed_instead_of_the_card(page):
+    """"if cvt's are used then we will list those instead of sending card":
+    a CVT4K-S on card SR (both OPTs, all 16 sockets again) delivers WALL-A's
+    port, so PRIMARY reads the box and its own socket ("CVT4K-S SR · 1"),
+    the band is the box's - its trunk as the card's face prints it, its
+    sockets, its fiber ("12 Tac Fiber 250'") or "no fiber length" - the
+    Cables table and the processor page carry the fiber, and the box's
+    paper title is model + typed name ("CVT4K-S SR"), the way a card is
+    "H9 SR"."""
+    pg, ids = page
+    box_id = pg.evaluate("""async (ids) => {
+        const app = window.app;
+        const j = (method, url, body) => fetch(url, {method,
+            headers: {'Content-Type': 'application/json'},
+            body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
+        const st = await j('POST', `/api/processors/${ids.procId}/cards/${ids.cardId}/cvts`,
+                           {deviceId: 'novastar-cvt4k-s', pair: false});
+        const boxId = st.processors[0].slots[0].card.cvts[0].id;
+        await j('PUT', `/api/processors/${ids.procId}/cvts/${boxId}`, {fiberType: '12 Tac Fiber', fiberFt: 250});
+        await app.refreshProcessors();
+        await app.refreshPortAssignment();
+        app.renderLayers();
+        return boxId;
+    }""", ids)
+    try:
+        out = _render(pg, SHOW, 'WALL-A - Data')
+        texts = out['texts']
+        band = "CVT4K-S A-B · OPT 1-2 · 16 ports · 12 Tac Fiber 250'"
+        assert band in texts, texts
+        i = texts.index(band)
+        assert texts[i + 1:i + 4] == ['SR-1', 'CVT4K-S A-B · 1', '—'], texts[i:i + 8]
+        assert not [t for t in texts if t.startswith('H9 SR ·')], 'the card is not listed where the box delivers'
+        k = texts.index('CABLES THIS SCREEN')
+        assert texts[k + 4:k + 7] == ['12 Tac Fiber', "250'", '1'], texts[k:k + 12]
+        assert not [t for t in texts if t.endswith('…') or 'px/port' in t]
+        # the box named: model + name, as the card reads model + name
+        pg.evaluate("""async ([ids, boxId]) => {
+            const app = window.app;
+            await fetch(`/api/processors/${ids.procId}/cvts/${boxId}`, {method: 'PUT',
+                headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: 'SR'})});
+            await app.refreshProcessors(); await app.refreshPortAssignment(); app.renderLayers();
+        }""", [ids, box_id])
+        texts = _render(pg, SHOW, 'WALL-A - Data')['texts']
+        assert "CVT4K-S SR · OPT 1-2 · 16 ports · 12 Tac Fiber 250'" in texts, texts
+        assert 'CVT4K-S SR · 1' in texts
+        # the processor page: the box under its card, with its fiber
+        proc = _render(pg, SHOW, 'H9 - Processor')['texts']
+        b = proc.index('BREAKOUT BOXES')
+        assert proc[b + 1:b + 6] == ['BREAKOUT BOX', 'CARD', 'TRUNK', 'PORTS', 'FIBER']
+        assert proc[b + 6:b + 11] == ['CVT4K-S SR', 'SR', 'OPT 1-2', '16', "12 Tac Fiber 250'"], proc[b:b + 12]
+        assert ['12 Tac Fiber', "250'", '1', 'CVT4K-S SR'] == proc[proc.index('PULL LIST') + 5:proc.index('PULL LIST') + 9]
+        # no page says box, save the breakout box's own table
+        for t in texts + proc:
+            assert not (BOX_WORD.search(t) and 'breakout box' not in t.lower()), t
+        # no fiber length: the band says so, the Cables table has no fiber row
+        pg.evaluate("""async ([ids, boxId]) => {
+            const app = window.app;
+            await fetch(`/api/processors/${ids.procId}/cvts/${boxId}`, {method: 'PUT',
+                headers: {'Content-Type': 'application/json'}, body: JSON.stringify({fiberFt: null})});
+            await app.refreshProcessors(); await app.refreshPortAssignment(); app.renderLayers();
+        }""", [ids, box_id])
+        texts = _render(pg, SHOW, 'WALL-A - Data')['texts']
+        assert 'CVT4K-S SR · OPT 1-2 · 16 ports · no fiber length' in texts, texts
+        assert '12 Tac Fiber' not in texts
+        proc = _render(pg, SHOW, 'H9 - Processor')['texts']
+        assert proc[proc.index('BREAKOUT BOXES') + 10] == 'no fiber length'
+        # the backup end lands on a box the same way: the second card's own
+        # CVT4K-S (named BK) carries WALL-A's return, so the return label is
+        # that box's own ("BK-1" - the mapped port's label, the tray's rule)
+        # and BACKUP names the box and its socket
+        backup = pg.evaluate("""async (ids) => {
+            const app = window.app;
+            const j = (method, url, body) => fetch(url, {method,
+                headers: {'Content-Type': 'application/json'},
+                body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
+            let st = await j('PUT', `/api/processors/${ids.procId}/slots/1`, {deviceId: 'novastar-card-h-16xrj45-2xfiber'});
+            const backupId = st.processors[0].slots[1].card.id;
+            st = await j('POST', `/api/processors/${ids.procId}/cards/${backupId}/cvts`, {deviceId: 'novastar-cvt4k-s', pair: false});
+            const backupBox = st.processors[0].slots[1].card.cvts[0].id;
+            await j('PUT', `/api/processors/${ids.procId}/cvts/${backupBox}`, {name: 'BK'});
+            await j('PUT', `/api/processors/${ids.procId}`, {redundancy: true});
+            await j('PUT', `/api/processors/${ids.procId}/cards/${ids.cardId}`, {backupCardId: backupId});
+            await app.refreshProcessors(); await app.refreshPortAssignment(); app.renderLayers();
+            return {backupId, backupBox};
+        }""", ids)
+        try:
+            texts = _render(pg, SHOW, 'WALL-A - Data')['texts']
+            i = texts.index('SR-1')
+            assert texts[i:i + 3] == ['SR-1', 'CVT4K-S SR · 1', 'BK-1 · CVT4K-S BK · 1'], texts[i:i + 6]
+            assert not [t for t in texts if t.endswith('…')]
+        finally:
+            pg.evaluate("""async ([ids, b]) => {
+                const app = window.app;
+                const j = (method, url, body) => fetch(url, {method,
+                    headers: {'Content-Type': 'application/json'},
+                    body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
+                await j('PUT', `/api/processors/${ids.procId}/cards/${ids.cardId}`, {backupCardId: null});
+                await j('PUT', `/api/processors/${ids.procId}`, {redundancy: false});
+                await j('DELETE', `/api/processors/${ids.procId}/cvts/${b.backupBox}`);
+                await app.refreshProcessors(); await app.refreshPortAssignment(); app.renderLayers();
+            }""", [ids, backup])
+    finally:
+        pg.evaluate("""async ([ids, boxId]) => {
+            const app = window.app;
+            await fetch(`/api/processors/${ids.procId}/cvts/${boxId}`, {method: 'DELETE'});
+            await app.refreshProcessors(); await app.refreshPortAssignment(); app.renderLayers();
+        }""", [ids, box_id])
+    after = _render(pg, SHOW, 'WALL-A - Data')['texts']
+    assert 'H9 SR · H_16xRJ45+2xfiber · 16 ports' in after and 'H9 SR · 1' in after
     assert ids['errors'] == []
 
 

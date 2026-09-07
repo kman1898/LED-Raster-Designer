@@ -555,9 +555,12 @@ class _Binder {
                         return;
                     }
                     const ax = L[i].align === 'right' ? x + L[i].x + L[i].w - padX : x + L[i].x + padX;
+                    // A table that carries whole names in its cells (the
+                    // data page's PRIMARY / BACKUP) shrinks a long one a
+                    // little before it is cut, the way a heading does.
                     this._bText(book, cell, ax, y + 27,
                                 { size: SZ.cell, weight: r.bold ? 700 : 400, align: L[i].align,
-                                  maxWidth: L[i].w - padX * 2 });
+                                  maxWidth: L[i].w - padX * 2, shrink: !!spec.shrink });
                 });
                 if (!r.bold) { ctx.fillStyle = FAINT; ctx.fillRect(x, y + ROW_H - 2, w, 2); }
             } });
@@ -1038,13 +1041,32 @@ class _Binder {
     _bBackupText(layer, portNum, bb) {
         const label = (typeof this.getPortLabelText === 'function')
             ? this.getPortLabelText(layer, portNum, 'return') : '';
-        let where = bb.boxTitle || '';
+        const home = this._bPortHome(bb.cardId, bb.port);
+        let where = home && home.box ? this._bBoxTitle(home.box) : (bb.boxTitle || '');
         if (!where) {
-            const home = this._bPortHome(bb.cardId, bb.port);
             where = home ? `${home.procTitle} ${home.cardTitle}` : (bb.cardTitle || this._bCardShort(bb.cardId));
         }
         const socket = bb.localPort != null ? bb.localPort : bb.port;
         return [label, `${where} · ${socket}`].filter(Boolean).join(' · ');
+    }
+
+    // What a page calls a breakout box: "CVT4K-S SR" - the model and the
+    // name typed on it, the way a card reads "H9 SR"; unnamed, the title
+    // the dock wears ("CVT4K-S A"). One implementation, the pull list's.
+    _bBoxTitle(box) {
+        return (typeof this.pullBoxTitle === 'function')
+            ? this.pullBoxTitle(box) : (box.displayTitle || box.name || box.deviceName);
+    }
+
+    // The band over a box's ports: "CVT4K-S SR · OPT 1-2 · 16 ports · 12
+    // Tac Fiber 250'" - the trunk it hangs on as the card's face prints
+    // it, the sockets it delivers, and its fiber trunk (or that it has no
+    // length yet).
+    _bBoxBandText(box) {
+        const fiber = (typeof this.pullBoxFiberText === 'function') ? this.pullBoxFiberText(box) : '';
+        return [this._bBoxTitle(box), box.trunkTitle || '',
+                this._bPlural(box.portCount || (box.ports || []).length, 'port'),
+                fiber || 'no fiber length'].filter(Boolean).join(' · ');
     }
 
     // The redundancy bar's reading for a processor: "Per card", "Per port",
@@ -1110,37 +1132,44 @@ class _Binder {
             const cable = (typeof this.dataPortCableForScreen === 'function')
                 ? this.dataPortCableForScreen(layer, run.num) : null;
             const px = (run.panels || []).reduce((s, p) => s + this.getPanelPixelArea(p), 0);
-            let socket = '—', backup = '—', b;
+            // PRIMARY is where the port lands - the sending card ("H9 SR ·
+            // 1") or, where a breakout box delivers it, the BOX instead
+            // ("CVT4K-S SR · 3", its own silkscreen number); BACKUP is the
+            // return end the same way (2026-09-07: "list the sending card
+            // order on primary and backup … if cvt's are used then we will
+            // list those instead of sending card").
+            let primary = '—', backup = '—', b;
             if (home) {
                 procs.set(home.proc.id, home.proc);
+                const socket = String(home.port && home.port.localNumber != null ? home.port.localNumber : placed.port);
                 if (home.box) {
-                    b = band(`box:${home.box.id}`,
-                             `${home.procTitle} ${home.cardTitle} · ${home.box.displayTitle || home.box.deviceName}`
-                             + ` · ${this._bPlural(home.box.portCount || (home.box.ports || []).length, 'port')}`);
+                    b = band(`box:${home.box.id}`, this._bBoxBandText(home.box));
+                    primary = `${this._bBoxTitle(home.box)} · ${socket}`;
                 } else {
                     b = band(`card:${home.card.id}`,
                              `${home.procTitle} ${home.cardTitle} · ${home.card.deviceName}`
                              + ` · ${this._bPlural(home.card.ceiling || (home.card.ports || []).length, 'port')}`);
+                    primary = `${home.procTitle} ${home.cardTitle} · ${socket}`;
                 }
-                socket = String(home.port && home.port.localNumber != null ? home.port.localNumber : placed.port);
                 const bb = home.port && home.port.backedBy;
                 if (bb) backup = this._bBackupText(layer, run.num, bb);
             } else {
                 b = band('none', 'Not placed');
             }
-            b.rows.push({ cells: [run.label, socket, this._bNum((run.panels || []).length, 0),
-                                  this._bNum(px, 0), cable && cable.text ? cable.text : '—', backup] });
+            b.rows.push({ cells: [run.label, primary, backup, this._bNum((run.panels || []).length, 0),
+                                  this._bNum(px, 0), cable && cable.text ? cable.text : '—'] });
         }
         const rows = [];
         for (const b of bands.values()) { rows.push({ band: b.text }); rows.push(...b.rows); }
         blocks.push({ lines: this._bTableLines(book, {
             title: 'Ports',
-            // The backup column carries the return end whole - "SR-1R · H9
-            // BACKUP · 1" - so it takes the width the home run gave up.
-            cols: [{ title: 'port', w: 0.8 }, { title: 'socket', w: 0.7, align: 'right' },
-                   { title: 'panels', w: 0.7, align: 'right' }, { title: 'px', w: 0.9, align: 'right' },
-                   { title: 'home run', w: 0.85 }, { title: 'backup', w: 2.25 }],
+            // PRIMARY and BACKUP carry whole names - "SR-1R · H9 BACKUP SR ·
+            // 1" - so they take most of the width and shrink before they cut.
+            cols: [{ title: 'port', w: 0.7 }, { title: 'primary', w: 1.7 }, { title: 'backup', w: 2.25 },
+                   { title: 'panels', w: 0.8, align: 'right' }, { title: 'px', w: 1.0, align: 'right' },
+                   { title: 'home run', w: 1.05 }],
             rows,
+            shrink: true,
         }) });
         const cables = (scr.rows || []).filter(r => r.side === 'data');
         blocks.push({ lines: this._bTableLines(book, {
@@ -1150,14 +1179,11 @@ class _Binder {
                 : [{ cells: ['no cables typed', '', ''] }],
         }) });
         const f = this._bScreenFacts(layer);
-        const cap = (typeof this.calculatePortCapacity === 'function')
-            ? this.calculatePortCapacity(layer.bitDepth, layer.frameRate, layer.processorType, !!layer.lowLatency)
-            : 0;
+        // The port count alone - "we dont need port max" (2026-09-07).
         const pairs = [
             ['Screen', f.screenText],
             ['Pixels', `${f.width} × ${f.height} · ${this._bNum(f.pixels, 0)} px`],
-            ['Ports', [this._bPlural(runs.length, 'port'), Number(cap) > 0 ? `${this._bNum(cap, 0)} px/port max` : '']
-                .filter(Boolean).join(' · ')],
+            ['Ports', this._bPlural(runs.length, 'port')],
         ];
         for (const proc of procs.values()) {
             const procName = proc.name || proc.deviceName || proc.id;
@@ -1427,6 +1453,26 @@ class _Binder {
                    { title: 'ports', w: 0.8, align: 'right' }, { title: 'backup', w: 1 }],
             rows,
         }) });
+        // The breakout boxes hanging off the cards, each with the trunk it
+        // takes, the sockets it delivers and its fiber trunk (2026-09-07).
+        const boxRows = [];
+        for (const { card } of cards) {
+            for (const box of (card.cvts || [])) {
+                const fiber = (typeof this.pullBoxFiberText === 'function') ? this.pullBoxFiberText(box) : '';
+                boxRows.push({ cells: [this._bBoxTitle(box), card.name || nameOf(card.id), box.trunkTitle || '—',
+                                       String(box.portCount || (box.ports || []).length),
+                                       fiber || 'no fiber length'] });
+            }
+        }
+        if (boxRows.length) {
+            blocks.push({ lines: this._bTableLines(book, {
+                title: 'Breakout boxes',
+                cols: [{ title: 'breakout box', w: 1.3 }, { title: 'card', w: 0.7 }, { title: 'trunk', w: 0.7 },
+                       { title: 'ports', w: 0.65, align: 'right' }, { title: 'fiber', w: 1.4 }],
+                rows: boxRows,
+                shrink: true,
+            }) });
+        }
         blocks.push({ lines: this._bKvLines(book, 'Redundancy', [
             ['Device', proc.deviceName || proc.deviceId || ''],
             ['Redundancy', this._bRedundancyText(proc)],
@@ -1435,7 +1481,7 @@ class _Binder {
         const runs = [];
         for (const { card } of cards) {
             const owners = [{ title: card.name || card.deviceName, rec: card }]
-                .concat((card.cvts || []).map(c => ({ title: c.displayTitle || c.deviceName, rec: c })));
+                .concat((card.cvts || []).map(c => ({ title: this._bBoxTitle(c), rec: c })));
             for (const o of owners) {
                 for (const s of (o.rec.snakes || [])) {
                     const connId = this.dataPortConnectorId({ rec: o.rec }, s.connector);
