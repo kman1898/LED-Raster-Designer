@@ -13,6 +13,8 @@ copy and saving, for one reason: every response carries the RESOLVED tree back,
 so the port counts and labels a user reads are the ones the server derived, not
 a second implementation in the browser that agrees today.
 """
+import math
+
 from flask import Blueprint, request, jsonify
 
 import app
@@ -664,6 +666,39 @@ def add_cvt(processor_id, card_id):
     return _state(201)
 
 
+def _take_fiber(cvt, data):
+    """Validate and store a breakout box's fiber fields from a PUT body:
+    `fiberType` (a string; blank clears) and `fiberFt` (a finite number of
+    feet, 0 or more; null / blank clears). Returns the refusal, or None."""
+    if 'fiberType' in data:
+        value = data.get('fiberType')
+        if value is not None and not isinstance(value, str):
+            return 'Fiber type must be text'
+        text = (value or '').strip()
+        if text:
+            cvt['fiberType'] = text
+        else:
+            cvt.pop('fiberType', None)
+    if 'fiberFt' in data:
+        value = data.get('fiberFt')
+        if value is None or (isinstance(value, str) and not value.strip()):
+            cvt.pop('fiberFt', None)
+        else:
+            if isinstance(value, bool):
+                return 'Fiber length must be a number of feet, 0 or more'
+            try:
+                ft = float(value)
+            except (TypeError, ValueError):
+                return 'Fiber length must be a number of feet, 0 or more'
+            if not math.isfinite(ft) or ft < 0:
+                return 'Fiber length must be a number of feet, 0 or more'
+            if ft == 0:
+                cvt.pop('fiberFt', None)
+            else:
+                cvt['fiberFt'] = int(ft) if ft == int(ft) else ft
+    return None
+
+
 @processors_bp.route('/api/processors/<processor_id>/cvts/<cvt_id>', methods=['PUT'])
 def update_cvt(processor_id, cvt_id):
     proc = _find_processor(processor_id)
@@ -678,8 +713,20 @@ def update_cvt(processor_id, cvt_id):
     why = _take_cable_store(cvt, data, card.get('id'), cvt_id)
     if why:
         return jsonify({'error': why}), 400
+    # The box's fiber trunk (2026-09-07: "we need to add fiber types when
+    # cvt's or similar are used"): what the fiber is (free text, the GEAR
+    # LIST's words offered) and how long its home run is, in feet. Both are
+    # facts about THIS box, so they live on its record and ride resolve_card
+    # out to the dock, the pull list and the binder. A length must be a
+    # number of feet, 0 or more; blank / null clears either field.
+    why = _take_fiber(cvt, data)
+    if why:
+        return jsonify({'error': why}), 400
     changed = _apply(cvt, data, ('name', 'portLabelTemplate',
                                  'returnLabelTemplate', 'mode'))
+    for key in ('fiberType', 'fiberFt'):
+        if key in data:
+            changed[key] = cvt.get(key)
     for key in ('snakes', 'portCables'):
         if key in data:
             changed[key] = cvt.get(key)

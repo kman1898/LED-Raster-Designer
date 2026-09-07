@@ -1545,7 +1545,8 @@ class _HardwareDock {
                         + `${d ? d.name : 'one distro'} — ${l.name} at `
                         + `No. ${rec.number}, ${collisions.map(c =>
                             `${c.layerName} at No. ${c.number}`).join(', ')}. `
-                        + `Same breakout? Pin both to No. ${minNo}.`,
+                        + `Same ${d ? this.distroBoxType(d, rec.number).type.name : 'one'}? `
+                        + `Pin both to No. ${minNo}.`,
                 });
             }
         }
@@ -1714,8 +1715,8 @@ class _HardwareDock {
             chip.title = `${t.name} from ${name}. Drag onto a screen: the `
                 + `next free multi on ${name} lands on the screen's next `
                 + `unassigned circuits as a ${t.name} - the circuits it `
-                + 'would feed light up under the cursor, and the breakout it '
-                + 'makes wears the type. Refused, with the reason, when '
+                + `would feed light up under the cursor, and the ${t.name} `
+                + 'that lands wears its type chip. Refused, with the reason, when '
                 + `the screen\'s breakout does not take a ${t.name}.`;
             this._dockWireDraggable(chip, {
                 type: 'plug', distroId: d.id, output: t.id,
@@ -1808,7 +1809,7 @@ class _HardwareDock {
         if (overflow) {
             this._dockPowerWarnings.push({
                 text: `${boxName} — more circuits than the `
-                    + `${boxSize === 3 ? 'three' : 'six'} the breakout holds.`,
+                    + `${boxSize === 3 ? 'three' : 'six'} a ${boxType.name} holds.`,
             });
         }
         // A stored type that contradicts what is on the box - the screen's
@@ -1869,10 +1870,10 @@ class _HardwareDock {
             + (feedLegA > 0
                 ? `. L21-30 feed, ${feedLegA} A per leg` : '')
             + (overflow ? `. OVERFLOW - more circuits than the `
-                + `${boxSize === 3 ? 'three' : 'six'} the breakout holds` : '')
+                + `${boxSize === 3 ? 'three' : 'six'} a ${boxType.name} holds` : '')
             + '. Drag onto a circuit to land that circuit\'s multi here - '
             + 'the first circuit takes the whole multi, a later circuit '
-            + 'splits it there and this breakout takes the rest'
+            + `splits it there and this ${boxType.name} takes the rest`
             + (members.length
                 ? '; drag back onto this tray to unassign it.' : '.');
         // A box with nothing on it drags AS ITS PLUG (2026-09-05: "when a
@@ -1948,8 +1949,8 @@ class _HardwareDock {
                 placeholder: (first.s && first.s.name)
                     || `${d.name || d.id} ${n}`,
                 key: `power-soca-name-${first.layer.id}-${first.m.soca}`,
-                title: 'Name this multi by hand - all screens sharing the '
-                    + 'breakout follow. Left blank it follows its distro - '
+                title: 'Name this multi by hand - all screens sharing it '
+                    + 'follow. Left blank it follows its distro - '
                     + 'multis on a distro named SL are SL1, SL2 - so '
                     + 'renaming the distro renames them all.',
                 onCommit: (val) => {
@@ -1964,8 +1965,8 @@ class _HardwareDock {
                     || (first.s && first.s.length) || '',
                 placeholder: '100ft',
                 key: `power-soca-length-${first.layer.id}-${first.m.soca}`,
-                title: 'The breakout\'s home-run length - one run for every '
-                    + 'screen sharing it. It flows into the gear checklist '
+                title: `The home-run length of this ${boxType.name} - one run `
+                    + 'for every screen sharing it. It flows into the gear checklist '
                     + 'and report.',
                 onCommit: (val) => {
                     writeThrough(this.setSocaLength,
@@ -2053,7 +2054,7 @@ class _HardwareDock {
         btn.title = open
             ? 'Cable sheet - click to show the chips again.'
             : 'Cable sheet - a length and connector per circuit, for the '
-                + 'paperwork. Click to flip the breakout into the sheet.';
+                + 'paperwork. Click to flip the chips into the sheet.';
         btn.dataset.lrdField = `power-cable-sheet-${d.id}-${n}`;
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -2070,6 +2071,9 @@ class _HardwareDock {
     // Circuit Cable' entry; the DOM restates a macrotask later so the Tab
     // the change rode lands on a real element (_rebuildAfterGesture).
     _dockBuildCableSheet(d, n, boxSize, byTail) {
+        // The sheet names the unit by its type - "this Soca 208" - the way
+        // the type chip does; no generic noun (2026-09-07).
+        const typeName = this.distroBoxType(d, n).type.name;
         const sheet = document.createElement('div');
         sheet.className = 'hw-dock-cablesheet';
         const table = document.createElement('table');
@@ -2153,7 +2157,7 @@ class _HardwareDock {
                     this.boxTailConnector(d, n, layer)) || '';
                 const blank = document.createElement('option');
                 blank.value = '';
-                blank.textContent = `follows breakout (${follows})`;
+                blank.textContent = `follows ${typeName} (${follows})`;
                 sel.appendChild(blank);
                 connectors.forEach(c => {
                     const o = document.createElement('option');
@@ -2164,8 +2168,8 @@ class _HardwareDock {
                 sel.value = stored && stored.connector
                     && connectors.some(c => c.id === stored.connector)
                     ? stored.connector : '';
-                sel.title = 'The plug on this cable. Follows the breakout unless '
-                    + 'changed - only the odd one needs picking.';
+                sel.title = `The plug on this cable. Follows the ${typeName} `
+                    + 'unless changed - only the odd one needs picking.';
                 td4.appendChild(sel);
                 tr.appendChild(td4);
 
@@ -2200,7 +2204,7 @@ class _HardwareDock {
         tot.className = 'hw-dock-cable-total';
         const tl = document.createElement('td');
         tl.colSpan = 3;
-        tl.textContent = 'this breakout';
+        tl.textContent = `this ${typeName}`;
         tot.appendChild(tl);
         const tv = document.createElement('td');
         tv.colSpan = 2;
@@ -2246,11 +2250,11 @@ class _HardwareDock {
             return b;
         };
         quick.appendChild(fill("all 10'", 10,
-            'Every circuit on this breakout gets a 10 ft cable. One undo step.'));
+            `Every circuit on this ${typeName} gets a 10 ft cable. One undo step.`));
         quick.appendChild(fill("all 6'", 6,
-            'Every circuit on this breakout gets a 6 ft cable. One undo step.'));
+            `Every circuit on this ${typeName} gets a 6 ft cable. One undo step.`));
         quick.appendChild(fill('none', null,
-            'Every circuit on this breakout forgets its cable. One undo step.'));
+            `Every circuit on this ${typeName} forgets its cable. One undo step.`));
         sheet.appendChild(quick);
         return sheet;
     }
@@ -3022,8 +3026,8 @@ class _HardwareDock {
         if (editable) {
             const offered = this.distroOutputs(d);
             const list = offered.length ? offered : this.getDistroOutputTypes();
-            el.title = `${boxName} is a ${t.name} breakout. Click to cycle - `
-                + `${list.map(x => x.name).join(' → ')}. Drag the breakout onto `
+            el.title = `${boxName} is a ${t.name}. Click to cycle - `
+                + `${list.map(x => x.name).join(' → ')}. Drag it onto `
                 + `a circuit and it lands as a ${t.name}; refused, with the `
                 + 'reason, when the screen\'s breakout does not take one.';
             el.addEventListener('click', (e) => {
@@ -3038,8 +3042,8 @@ class _HardwareDock {
                 ? `${boxName} is typed ${t.name} but holds `
                     + `${info.implied.name} circuits - the strip offers the `
                     + 'fix.'
-                : `${boxName} is a ${t.name} breakout - the type follows what `
-                    + 'is on it. Clear the breakout to change it.';
+                : `${boxName} is a ${t.name} - the type follows what `
+                    + 'is on it. Clear its circuits to change it.';
         }
         return el;
     }
@@ -3989,7 +3993,7 @@ class _HardwareDock {
             const c = this.screenCircuits(layer)[ordinal - 1];
             const label = c ? this.getPowerCircuitLabel(layer, c.num) : '';
             return { ok: false, glyph,
-                     message: this._takeRefusalText(payload, plan, label) };
+                     message: this._takeRefusalText(payload, plan, label, layer) };
         }
         const nums = plan.nums;
         const amps = this.getSocaPlan(layer)
@@ -4010,12 +4014,16 @@ class _HardwareDock {
     }
 
     // The take's refusals in one voice, for the pill and the strip alike.
-    _takeRefusalText(payload, r, label) {
+    _takeRefusalText(payload, r, label, layer) {
         if (r.why === 'other-box') {
             // A circuit on another box is somebody's feed: the drop never
-            // pulls it off. Clear it first.
-            return `${label} is already on a breakout - clear it first; `
-                + `${payload.title} never pulls a circuit off another breakout.`;
+            // pulls it off. Clear it first. The holder is named - "SR1" -
+            // not called a box or a breakout.
+            const rec = layer && r.seg && typeof this._powerNaming === 'function'
+                ? this._powerNaming(layer).socas.get(r.seg.index) : null;
+            const where = rec && rec.name ? rec.name : 'another distro';
+            return `${label} is already on ${where} - clear it first; `
+                + `${payload.title} never takes a circuit that is already fed.`;
         }
         // The place-overflow refusal, in circuits: a box with no free
         // circuit takes nothing, and no cut happens for nothing.
@@ -4361,7 +4369,7 @@ class _HardwareDock {
             const r = this.takeSocaOnto(layer, ordinal, payload.distroId,
                                         payload.number, 'Assign Multi Distro');
             if (!r.ok) {
-                this._dockSay(this._takeRefusalText(payload, r, label));
+                this._dockSay(this._takeRefusalText(payload, r, label, layer));
                 return;
             }
             if (r.took < r.tailLen) {
@@ -5177,8 +5185,8 @@ class _HardwareDock {
             const rest = held.rec.circuits.length - 1;
             return {
                 label: `Clear circuit ${label}`,
-                title: 'Take this circuit off the breakout and forget how it '
-                    + 'was programmed - its stored position and its '
+                title: `Take this circuit off ${held.rec.name || 'its multi'} `
+                    + 'and forget how it was programmed - its stored position and its '
                     + 'label override go with the assignment'
                     + (rest
                         ? `; the multi's other ${rest} circuit`
@@ -5201,10 +5209,13 @@ class _HardwareDock {
                         + 'clear.',
                 };
             }
+            const slotDistro = this.getDistros()
+                .find(x => x.id === payload.distroId) || null;
+            const slotType = this.distroBoxType(slotDistro, payload.number).type;
             return {
                 label,
-                title: 'Clear every multi on this slot - the chip is the '
-                    + 'breakout, and clearing the breakout takes all its feeds and '
+                title: `Clear every multi on this slot - the chip is the `
+                    + `${slotType.name}, and clearing it takes all its feeds and `
                     + 'forgets how they were programmed: stored positions, '
                     + 'typed names, home-run lengths and label overrides. '
                     + 'One undoable step.',

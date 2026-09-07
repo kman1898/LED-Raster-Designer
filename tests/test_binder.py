@@ -1,12 +1,22 @@
 """The binder: the show's power and data maps bound into one PDF.
 
 Type A of binder-mock.html, as the user picked it (2026-09-06): the
-screen's map across the top half of a landscape letter page, rulers around
-it (numbering "2"), a bracket per BREAKOUT outside the wall with its home
-run ("Breakout", never "Box", never "Multi" - 2026-09-07: "maybe we call
-them breakouts?"; the home run said once per breakout, in a band row over
-its circuits), then Circuits · Cables · Facts, and a Gangs table only when
-the screen has 2fers / 3fers. Colour and Printer palettes - the renderer's
+screen's map across the top of a landscape letter page, rulers around it
+(numbering "2"), a bracket per soca / L21-30 outside the wall with its home
+run (the unit is named by its TYPE - "Soca 208", "L21-30" - never by a
+generic noun: not "Box", not "Multi", and since 2026-09-07 not "Breakout"
+either - "honestly i dont even think we call it a breakout"; the home run
+said once per unit, in a band row over its circuits), then Circuits ·
+Cables · Facts, and a Gangs table only when the screen has 2fers / 3fers.
+
+The map's size (2026-09-07, "how squished the screen is"): the wall scales
+uniformly to fill the page width between the gutters; the tables take the
+height that leaves, down to a quarter-page floor. A wide-and-tall wall
+whose tables would not fit in the floor anyway (SR - MAIN, 28 x 11) fills
+the width and sends its tables whole to a continuation page; a tall wall
+(SR - Return, 6 x 11) is height-bound and keeps its tables on the page.
+The brackets: one distance per side, a bracket stepping out only when its
+row span truly overlaps another's ("why the socas on the sides are offset"). Colour and Printer palettes - the renderer's
 printerMode (canvas.js) draws greys, black runs told apart by a dash per
 circuit, white discs. Pages: cover, a pull page per position, each screen's
 power and data pages, a page per distro and per processor, the show-wide
@@ -18,7 +28,13 @@ band never sits at the foot of a column without two of its rows, and a
 band whose rows run on across a break is repeated with "(cont.)"; the data
 page's BACKUP cell is the return end the tray states ("SR-1R · H9 slot 2 ·
 1"), its Processor line names the unit once, and Redundancy reads the
-bar's own words ("Per card").
+bar's own words ("Per card"). The 2026-09-07 rulings: the Ports table
+reads PORT · PRIMARY · BACKUP · PANELS · PX · HOME RUN, PRIMARY the sending
+card the port lands on ("H9 SR · 1") - or, where a breakout box delivers
+it, the BOX instead ("CVT4K-S SR · 3") under a band naming the box, its
+trunk, its sockets and its fiber ("12 Tac Fiber 250'", else "no fiber
+length"); the Facts say the port count alone ("we dont need port max");
+the processor page lists every box with its fiber.
 
 The pages are laid out on the client (app-binder.js) from buildPullList
 and the canvas renderer's own drawing, so the assertions here read the
@@ -46,6 +62,22 @@ SCRATCH_FIXTURE = os.environ.get('LRD_PULL_SMOKE_JSON') or os.path.join(
     '-Users-mattknotts-Nextcloud-LED-LED-Wall-Tech-Raster-Software-LED-Raster-Designer',
     'be6afb3b-7607-4f06-8c12-a10cd58068e9', 'scratchpad', 'experts-only.json')
 
+BOX_WORD = re.compile(r'\b(box|boxes)\b', re.I)
+# "breakout" as the generic noun for the power unit is gone (2026-09-07);
+# the pull list's "Tru-1 Breakout" CABLE row and the data side's "breakout
+# box" keep their names.
+BREAKOUT_WORD = re.compile(r'\bbreakouts?\b', re.I)
+
+
+def _generic_breakout(texts):
+    return [t for t in texts if BREAKOUT_WORD.search(t)
+            and 'breakout box' not in t.lower() and 'Tru-1 Breakout' not in t]
+
+
+# The page (app-binder.js): 2200 x 1700, the content between the header
+# rule and the footer rule, the tables' quarter-page floor.
+PAGE_W, PAGE_H, HEADER_BOTTOM, FOOTER_TOP, TABLE_FLOOR = 2200, 1700, 92, 1642, 425
+
 
 @pytest.fixture(scope="module", autouse=True)
 def _guard(server_project_guard):
@@ -65,13 +97,17 @@ def test_the_menu_items_the_format_option_and_the_section_are_served(client):
         assert f'id="export-binder-{field}"' in html, field
     main_js = open(os.path.join(HERE, '..', 'src', 'static', 'js', 'main.js')).read()
     assert "import './app-binder.js';" in main_js
-    # the binder's own strings say circuits and breakout - never tails, never Multi
+    # the binder's own strings say circuits - never tails, never Multi, and
+    # never "breakout" as the generic noun (the data side's "breakout box"
+    # keeps its name)
     binder_js = open(os.path.join(HERE, '..', 'src', 'static', 'js', 'app-binder.js')).read()
     code = '\n'.join(l for l in binder_js.splitlines() if not l.strip().startswith('//'))
     literals = re.findall(r"'[^'\n]*'|\"[^\"\n]*\"|`[^`]*`", code)
     assert not [l for l in literals if 'tails' in l], [l for l in literals if 'tails' in l]
-    # "Multi" may name a CABLE (the GEAR LIST's word); it never names the breakout
+    # "Multi" may name a CABLE (the GEAR LIST's word); it never names the unit
     assert not [l for l in literals if 'Multi' in l], [l for l in literals if 'Multi' in l]
+    generic = [l for l in literals if BREAKOUT_WORD.search(l) and 'breakout box' not in l.lower()]
+    assert not generic, generic
 
 
 def _png(color=(255, 0, 0, 255), size=(20, 10)):
@@ -223,6 +259,7 @@ RENDER_JS = """([opts, title]) => {
         if (Math.abs(R - G) > 10 || Math.abs(G - B) > 10 || Math.abs(R - B) > 10) coloured++;
     }
     return { texts: r.texts, textInfo: r.textInfo, mapTexts: r.mapTexts, dashes: r.dashes,
+             map: r.map, brackets: r.brackets,
              coloured, samples, pages: r.pages, index: idx, width: c.width, height: c.height };
 }"""
 
@@ -421,7 +458,6 @@ def test_the_pdf_route_receives_one_image_per_page(page):
 # The whole-show options as JSON, for evaluate() calls that take them as data.
 _SHOW_JSON = ('{"palette": "colour", "sides": {"power": true, "data": true}, "scope": {"kind": "show"},'
               ' "cover": true, "pull": true, "hardware": true}')
-BOX_WORD = re.compile(r'\b(box|boxes)\b', re.I)
 
 
 def test_the_map_carries_no_screen_name_plate_but_the_export_still_does(page):
@@ -452,9 +488,12 @@ def test_the_map_carries_no_screen_name_plate_but_the_export_still_does(page):
     assert pg.evaluate("() => window.canvasRenderer.hideScreenNames") is False
 
 
-def test_no_page_says_box(page):
-    """The power side's word is breakout ("I dont like calling them boxes");
-    no page text says box, save a data-side breakout box's own name."""
+def test_no_page_says_box_or_breakout(page):
+    """No page text says box ("I dont like calling them boxes") and none
+    says breakout as the generic noun ("no need to call it a breakout") -
+    save a data-side breakout box's own name and the pull list's "Tru-1
+    Breakout" cable row. The distro page names its table by what it lists:
+    "2 Soca 208", the units by type."""
     pg, ids = page
     n = pg.evaluate("(o) => window.app.planBinder(o).length", json.loads(_SHOW_JSON))
     assert n == 12
@@ -462,10 +501,85 @@ def test_no_page_says_box(page):
         texts = pg.evaluate("([o, i]) => window.app.renderBinderPage(o, i).texts", [json.loads(_SHOW_JSON), idx])
         boxy = [t for t in texts if BOX_WORD.search(t) and 'breakout box' not in t.lower()]
         assert not boxy, (idx, boxy)
+        assert not _generic_breakout(texts), (idx, _generic_breakout(texts))
     distro = _render(pg, SHOW, 'SR - Distro')['texts']
-    i = distro.index('BREAKOUTS')
-    assert distro[i + 1] == 'BREAKOUT' and 'SR 1' in distro and 'SR 2' in distro
-    assert 'Breakouts' in distro and '2 breakouts' in distro
+    i = distro.index('2 SOCA 208')
+    assert distro[i + 1] == 'NAME' and distro[i + 2] == 'TYPE' and 'SR 1' in distro and 'SR 2' in distro
+    assert 'BREAKOUTS' not in distro and 'Breakouts' not in distro
+    assert [t for t in distro if re.fullmatch(r'\d+ on 2 Soca 208', t)], distro
+
+
+def _map_of(out):
+    m = out['map']
+    assert m, out.keys()
+    return m
+
+
+def test_the_map_fills_the_width_and_keeps_its_aspect(page):
+    """"how squished the screen is": the wall scales UNIFORMLY - its drawn
+    aspect is cols x cabW : rows x cabH - and takes the page's width when
+    the tables keep their quarter-page floor under it. WALL-A (4 x 3 of
+    200 px) is wide-and-tall for the page: filling the width would eat the
+    floor and its tables fit in the floor, so the floor wins and the map is
+    as tall as that allows. CENTER (3 x 5) is height-bound the same way."""
+    pg, ids = page
+    for title, cols, rows in (('WALL-A - Power', 4, 3), ('WALL-A - Data', 4, 3), ('CENTER - Power', 3, 5)):
+        out = _render(pg, SHOW, title)
+        m = _map_of(out)
+        want = cols / rows
+        assert abs(m['w'] / m['h'] - want) / want < 0.01, (title, m)
+        # the tables keep their floor under the map, on this page
+        assert m['area']['y'] + m['area']['h'] <= FOOTER_TOP - TABLE_FLOOR, (title, m)
+        assert m['x'] >= 42 and m['x'] + m['w'] <= PAGE_W - 42, (title, m)
+        assert 'FACTS' in out['texts'], title
+    a = _map_of(_render(pg, SHOW, 'WALL-A - Power'))
+    # the floor bound it: the map is exactly as tall as the floor leaves
+    assert abs((a['area']['y'] + a['area']['h']) - (FOOTER_TOP - TABLE_FLOOR - 8)) <= 2, a
+    assert a['w'] / PAGE_W > 0.55, a
+
+
+def test_brackets_share_one_distance_unless_their_spans_overlap(page):
+    """One bracket distance per side: brackets whose row spans do not
+    overlap sit at the same x; a bracket steps out only where its span
+    truly crosses another's. WALL-B's two circuits are rows 1-2 and row 3:
+    one unit each, no overlap, one x. On WALL-A one unit is crafted over
+    both circuits (rows 1-3) and a second over circuit 2 alone (row 3) -
+    the spans cross, so the second steps out one level."""
+    pg, ids = page
+    js = """([layerId, boxes]) => {
+        const app = window.app;
+        const layer = app.project.layers.find(l => l.id === layerId);
+        const c = document.createElement('canvas'); c.width = 2200; c.height = 1700;
+        const ctx = c.getContext('2d');
+        const book = { ctx, measureCtx: ctx, meta: { palette: 'colour' }, page: { painting: false },
+                       log: { texts: [], textInfo: [], mapTexts: [], dashes: [] } };
+        const geo = app._bMap(book, layer, 'power', { x: 42, y: 92, w: 2116, h: 1542 });
+        book.page.painting = true;      // the brackets' text is logged as drawn
+        app._bBoxBrackets(book, layer, { boxes }, geo);
+        const rows = app.screenCircuits(layer).map(x => [x.num,
+            Math.min(...x.panels.map(p => p.row)), Math.max(...x.panels.map(p => p.row))]);
+        return { brackets: book.log.brackets || [], rows, wall: geo.wall, texts: book.log.texts };
+    }"""
+    boxes = [{'name': 'K1', 'homeRun': '100', 'circuits': [{'num': 1}]},
+             {'name': 'K2', 'homeRun': '100', 'circuits': [{'num': 2}]}]
+    b = pg.evaluate(js, [ids['b'], boxes])
+    assert b['rows'] == [[1, 0, 1], [2, 2, 2]], f"fixture: WALL-B's circuits are rows 1-2 and row 3: {b['rows']}"
+    k1, k2 = b['brackets']
+    assert (k1['name'], k2['name']) == ('K1', 'K2')
+    assert k1['side'] == k2['side'] and k1['depth'] == 0 and k2['depth'] == 0, b['brackets']
+    assert k1['x'] == k2['x'], b['brackets']
+    assert abs(k1['y2'] - k2['y1']) < 2, b['brackets']          # they share an edge
+    crossing = [{'name': 'K1', 'homeRun': '100', 'circuits': [{'num': 1}, {'num': 2}]},
+                {'name': 'K2', 'homeRun': '100', 'circuits': [{'num': 2}]}]
+    a = pg.evaluate(js, [ids['a'], crossing])
+    assert a['rows'] == [[1, 0, 1], [2, 2, 2]], a['rows']
+    k1, k2 = a['brackets']
+    assert k1['y1'] < k2['y1'] < k1['y2'], a['brackets']            # the spans cross
+    assert k1['side'] == k2['side'] and k1['depth'] == 0 and k2['depth'] == 1, a['brackets']
+    step = k2['x'] - k1['x']
+    assert (step > 0) == (k1['side'] == 'R') and abs(step) == 78, a['brackets']
+    # the labels: name and home run, once each
+    assert a['texts'] == ["K1 · 100'", "K2 · 100'"], a['texts']
 
 
 # The filler's line heights (app-binder.js): title, heading, band, row.
@@ -550,15 +664,22 @@ def test_the_data_page_prints_the_return_end_and_the_processor_once(page):
         out = _render(pg, SHOW, 'WALL-A - Data')
         texts = out['texts']
         i = texts.index('H9 SR · H_16xRJ45+2xfiber · 16 ports')
+        assert texts[texts.index('PORTS') + 1:texts.index('PORTS') + 7] == \
+            ['PORT', 'PRIMARY', 'BACKUP', 'PANELS', 'PX', 'HOME RUN']
         rows = []
         j = i + 1
         while j + 5 < len(texts) and re.fullmatch(r'SR-\d+', texts[j]):
             rows.append(texts[j:j + 6]); j += 6
         assert rows, texts[i:i + 20]
-        for label, socket, _panels, _px, _home, backup in rows:
+        for label, primary, backup, _panels, _px, _home in rows:
+            # the sending card the primary lands on, and the one the backup does
+            assert re.fullmatch(r'H9 SR · \d+', primary), (label, primary)
+            socket = primary.rsplit(' · ', 1)[-1]
             assert backup == f'{label}R · H9 slot 2 · {socket}', (label, backup)
             assert f'{label}R' in out['mapTexts'], (label, out['mapTexts'])
         assert not [t for t in texts if t.startswith('slot ') or t.endswith('…')]
+        # the Facts say how many ports, never a px-per-port ceiling
+        assert texts[texts.index('Ports') + 1] == '1 port' and not [t for t in texts if 'px/port' in t]
         assert texts[texts.index('Processor') + 1] == 'H9' and 'H9 · H9' not in texts
         assert texts[texts.index('Redundancy') + 1] == 'Per card'
         proc = _render(pg, SHOW, 'H9 - Processor')['texts']
@@ -579,13 +700,129 @@ def test_the_data_page_prints_the_return_end_and_the_processor_once(page):
     assert ids['errors'] == []
 
 
+def test_a_box_delivering_the_port_is_listed_instead_of_the_card(page):
+    """"if cvt's are used then we will list those instead of sending card":
+    a CVT4K-S on card SR (both OPTs, all 16 sockets again) delivers WALL-A's
+    port, so PRIMARY reads the box and its own socket ("CVT4K-S SR · 1"),
+    the band is the box's - its trunk as the card's face prints it, its
+    sockets, its fiber ("12 Tac Fiber 250'") or "no fiber length" - the
+    Cables table and the processor page carry the fiber, and the box's
+    paper title is model + typed name ("CVT4K-S SR"), the way a card is
+    "H9 SR"."""
+    pg, ids = page
+    box_id = pg.evaluate("""async (ids) => {
+        const app = window.app;
+        const j = (method, url, body) => fetch(url, {method,
+            headers: {'Content-Type': 'application/json'},
+            body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
+        const st = await j('POST', `/api/processors/${ids.procId}/cards/${ids.cardId}/cvts`,
+                           {deviceId: 'novastar-cvt4k-s', pair: false});
+        const boxId = st.processors[0].slots[0].card.cvts[0].id;
+        await j('PUT', `/api/processors/${ids.procId}/cvts/${boxId}`, {fiberType: '12 Tac Fiber', fiberFt: 250});
+        await app.refreshProcessors();
+        await app.refreshPortAssignment();
+        app.renderLayers();
+        return boxId;
+    }""", ids)
+    try:
+        out = _render(pg, SHOW, 'WALL-A - Data')
+        texts = out['texts']
+        band = "CVT4K-S A-B · OPT 1-2 · 16 ports · 12 Tac Fiber 250'"
+        assert band in texts, texts
+        i = texts.index(band)
+        assert texts[i + 1:i + 4] == ['SR-1', 'CVT4K-S A-B · 1', '—'], texts[i:i + 8]
+        assert not [t for t in texts if t.startswith('H9 SR ·')], 'the card is not listed where the box delivers'
+        k = texts.index('CABLES THIS SCREEN')
+        assert texts[k + 4:k + 7] == ['12 Tac Fiber', "250'", '1'], texts[k:k + 12]
+        assert not [t for t in texts if t.endswith('…') or 'px/port' in t]
+        # the box named: model + name, as the card reads model + name
+        pg.evaluate("""async ([ids, boxId]) => {
+            const app = window.app;
+            await fetch(`/api/processors/${ids.procId}/cvts/${boxId}`, {method: 'PUT',
+                headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: 'SR'})});
+            await app.refreshProcessors(); await app.refreshPortAssignment(); app.renderLayers();
+        }""", [ids, box_id])
+        texts = _render(pg, SHOW, 'WALL-A - Data')['texts']
+        assert "CVT4K-S SR · OPT 1-2 · 16 ports · 12 Tac Fiber 250'" in texts, texts
+        assert 'CVT4K-S SR · 1' in texts
+        # the processor page: the box under its card, with its fiber
+        proc = _render(pg, SHOW, 'H9 - Processor')['texts']
+        b = proc.index('BREAKOUT BOXES')
+        assert proc[b + 1:b + 6] == ['BREAKOUT BOX', 'CARD', 'TRUNK', 'PORTS', 'FIBER']
+        assert proc[b + 6:b + 11] == ['CVT4K-S SR', 'SR', 'OPT 1-2', '16', "12 Tac Fiber 250'"], proc[b:b + 12]
+        assert ['12 Tac Fiber', "250'", '1', 'CVT4K-S SR'] == proc[proc.index('PULL LIST') + 5:proc.index('PULL LIST') + 9]
+        # no page says box, save the breakout box's own table
+        for t in texts + proc:
+            assert not (BOX_WORD.search(t) and 'breakout box' not in t.lower()), t
+        # no fiber length: the band says so, the Cables table has no fiber row
+        pg.evaluate("""async ([ids, boxId]) => {
+            const app = window.app;
+            await fetch(`/api/processors/${ids.procId}/cvts/${boxId}`, {method: 'PUT',
+                headers: {'Content-Type': 'application/json'}, body: JSON.stringify({fiberFt: null})});
+            await app.refreshProcessors(); await app.refreshPortAssignment(); app.renderLayers();
+        }""", [ids, box_id])
+        texts = _render(pg, SHOW, 'WALL-A - Data')['texts']
+        assert 'CVT4K-S SR · OPT 1-2 · 16 ports · no fiber length' in texts, texts
+        assert '12 Tac Fiber' not in texts
+        proc = _render(pg, SHOW, 'H9 - Processor')['texts']
+        assert proc[proc.index('BREAKOUT BOXES') + 10] == 'no fiber length'
+        # the backup end lands on a box the same way: the second card's own
+        # CVT4K-S (named BK) carries WALL-A's return, so the return label is
+        # that box's own ("BK-1" - the mapped port's label, the tray's rule)
+        # and BACKUP names the box and its socket
+        backup = pg.evaluate("""async (ids) => {
+            const app = window.app;
+            const j = (method, url, body) => fetch(url, {method,
+                headers: {'Content-Type': 'application/json'},
+                body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
+            let st = await j('PUT', `/api/processors/${ids.procId}/slots/1`, {deviceId: 'novastar-card-h-16xrj45-2xfiber'});
+            const backupId = st.processors[0].slots[1].card.id;
+            st = await j('POST', `/api/processors/${ids.procId}/cards/${backupId}/cvts`, {deviceId: 'novastar-cvt4k-s', pair: false});
+            const backupBox = st.processors[0].slots[1].card.cvts[0].id;
+            await j('PUT', `/api/processors/${ids.procId}/cvts/${backupBox}`, {name: 'BK'});
+            await j('PUT', `/api/processors/${ids.procId}`, {redundancy: true});
+            await j('PUT', `/api/processors/${ids.procId}/cards/${ids.cardId}`, {backupCardId: backupId});
+            await app.refreshProcessors(); await app.refreshPortAssignment(); app.renderLayers();
+            return {backupId, backupBox};
+        }""", ids)
+        try:
+            texts = _render(pg, SHOW, 'WALL-A - Data')['texts']
+            i = texts.index('SR-1')
+            assert texts[i:i + 3] == ['SR-1', 'CVT4K-S SR · 1', 'BK-1 · CVT4K-S BK · 1'], texts[i:i + 6]
+            assert not [t for t in texts if t.endswith('…')]
+        finally:
+            pg.evaluate("""async ([ids, b]) => {
+                const app = window.app;
+                const j = (method, url, body) => fetch(url, {method,
+                    headers: {'Content-Type': 'application/json'},
+                    body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
+                await j('PUT', `/api/processors/${ids.procId}/cards/${ids.cardId}`, {backupCardId: null});
+                await j('PUT', `/api/processors/${ids.procId}`, {redundancy: false});
+                await j('DELETE', `/api/processors/${ids.procId}/cvts/${b.backupBox}`);
+                await app.refreshProcessors(); await app.refreshPortAssignment(); app.renderLayers();
+            }""", [ids, backup])
+    finally:
+        pg.evaluate("""async ([ids, boxId]) => {
+            const app = window.app;
+            await fetch(`/api/processors/${ids.procId}/cvts/${boxId}`, {method: 'DELETE'});
+            await app.refreshProcessors(); await app.refreshPortAssignment(); app.renderLayers();
+        }""", [ids, box_id])
+    after = _render(pg, SHOW, 'WALL-A - Data')['texts']
+    assert 'H9 SR · H_16xRJ45+2xfiber · 16 ports' in after and 'H9 SR · 1' in after
+    assert ids['errors'] == []
+
+
 # ── the smoke: the user's own show ───────────────────────────────────────
 
 @pytest.mark.skipif(not os.path.exists(SCRATCH_FIXTURE),
                     reason='experts-only.json smoke fixture not present')
 def test_smoke_experts_only(page):
-    """The real show: SR - MAIN's 22 custom circuits on four boxes, SR -
-    Return's six on box 5 with five 2fers, SL mirroring SR. 17 pages."""
+    """The real show: SR - MAIN's 22 custom circuits on four socas, SR -
+    Return's six on soca 5 with five 2fers, SL mirroring SR. 19 pages: the
+    MAINs' power pages (28 x 11, 22 circuits) fill the page's width and send
+    their tables to a continuation page; their data pages (four ports) fit
+    the tables in the floor, so the floor holds and the map is as tall as
+    that leaves; the Returns (6 x 11) keep everything on the page."""
     pg, ids = page
     with open(SCRATCH_FIXTURE) as fh:
         project = json.load(fh)
@@ -605,16 +842,36 @@ def test_smoke_experts_only(page):
     }""" % SHOW, project)
     assert plan == [
         'Cover',
-        'SR - MAIN - Pull', 'SR - MAIN - Power', 'SR - MAIN - Data',
+        'SR - MAIN - Pull', 'SR - MAIN - Power', 'SR - MAIN - Power (cont.)', 'SR - MAIN - Data',
         'SR - Return - Pull', 'SR - Return - Power', 'SR - Return - Data',
-        'SL - MAIN - Pull', 'SL - MAIN - Power', 'SL - MAIN - Data',
+        'SL - MAIN - Pull', 'SL - MAIN - Power', 'SL - MAIN - Power (cont.)', 'SL - MAIN - Data',
         'SL - Return - Pull', 'SL - Return - Power', 'SL - Return - Data',
         'SR - Distro', 'SL - Distro', 'H9 - Processor',
         'Pull list - all positions',
     ]
     main = _render(pg, SHOW, 'SR - MAIN - Power')
     texts = main['texts']
-    assert texts[:2] == ['2026 EXPERTS ONLY · POWER', 'SR - MAIN · page 3 of 17']
+    assert texts[:2] == ['2026 EXPERTS ONLY · POWER', 'SR - MAIN · page 3 of 19']
+    # the map fills the width, uniformly: 28 x 11 of 60 x 120 px
+    m = main['map']
+    assert m['w'] >= 0.78 * PAGE_W, m
+    want_main = (28 * 60) / (11 * 120)
+    assert abs(m['w'] / m['h'] - want_main) / want_main < 0.01, m
+    assert m['x'] >= 42 and m['x'] + m['w'] <= PAGE_W - 42 and m['area']['y'] + m['area']['h'] < FOOTER_TOP, m
+    # the brackets: SR1 and SR2 down the right at ONE distance (rows 1-6 over
+    # rows 7-11 share an edge, they do not overlap); SR3 and SR4 down the left
+    br = {b['name']: b for b in main['brackets']}
+    assert sorted(br) == ['SR1', 'SR2', 'SR3', 'SR4'], main['brackets']
+    assert br['SR1']['side'] == br['SR2']['side'] == 'R' and br['SR3']['side'] == br['SR4']['side'] == 'L'
+    assert all(b['depth'] == 0 for b in br.values()), main['brackets']
+    assert br['SR1']['x'] == br['SR2']['x'] and br['SR3']['x'] == br['SR4']['x'], main['brackets']
+    assert br['SR1']['x'] > m['x'] + m['w'] and br['SR3']['x'] < m['x']
+    # nothing under the map but the page: the tables went whole to the continuation
+    assert 'CIRCUITS' not in texts and 'FACTS' not in texts
+    cont = _render(pg, SHOW, 'SR - MAIN - Power (cont.)')
+    assert cont['texts'][:2] == ['2026 EXPERTS ONLY · POWER', 'SR - MAIN (cont.) · page 4 of 19']
+    assert cont['map'] is None
+    texts = cont['texts']
     bands = [t for t in texts if 'home run' in t]
     assert bands == [
         "SR1 · Soca 208 · 125' home run · 6 circuits",
@@ -628,13 +885,12 @@ def test_smoke_experts_only(page):
     assert '22 at 208 V / 20 A · 14 panels each' in texts
     rulers = [t['text'] for t in main['textInfo'] if t['size'] == 22 and t['weight'] == 700]
     assert rulers[:7] == ['1', '5', '10', '15', '20', '25', '28'] and rulers[7:] == [str(i) for i in range(1, 12)]
-    assert ["SR1 · 125'", "SR2 · 100'", "SR3 · 125'", "SR4 · 100'"] == [t for t in texts if re.fullmatch(r"SR\d · \d+'", t)]
+    assert ["SR1 · 125'", "SR2 · 100'", "SR3 · 125'", "SR4 · 100'"] == [t for t in main['texts'] if re.fullmatch(r"SR\d · \d+'", t)]
     # the map: every label, and the typed cables as tags (the screen's switch is on);
     # no screen-name plate over them - the header names the screen
     assert 'SR1-1' in main['mapTexts'] and "10' True1" in main['mapTexts']
     assert 'SR - MAIN' not in main['mapTexts']
-    # the band rule: SR3's band moved to the second column WITH its rows, so
-    # every band is followed straight by its first circuit, none by a head
+    # the band rule: every band is followed straight by its first circuit
     for band in bands:
         assert texts[texts.index(band) + 1] == band.split(' ')[0] + '-' + ('2' if band.startswith('SR2') else '1'), \
             (band, texts[texts.index(band):texts.index(band) + 3])
@@ -643,15 +899,30 @@ def test_smoke_experts_only(page):
     printer = _render(pg, SHOW.replace("palette: 'colour'", "palette: 'printer'"), 'SR - MAIN - Power')
     assert printer['coloured'] == 0
     assert len({tuple(d) for d in printer['dashes'] if d}) == 10    # ten dashed patterns + the solid one
-    ret = _render(pg, SHOW, 'SR - Return - Power')['texts']
+    # the tall narrow wall (6 x 11): height-bound, the map never past the
+    # page, the wall's aspect kept, and every table on the same page
+    retp = _render(pg, SHOW, 'SR - Return - Power')
+    rm = retp['map']
+    want = (6 * 60) / (11 * 120)
+    assert abs(rm['w'] / rm['h'] - want) / want < 0.01, rm
+    assert rm['area']['y'] + rm['area']['h'] <= FOOTER_TOP - TABLE_FLOOR, rm
+    assert rm['x'] >= 42 and rm['x'] + rm['w'] <= PAGE_W - 42
+    assert len(retp['brackets']) == 1 and retp['brackets'][0]['depth'] == 0
+    ret = retp['texts']
     assert 'GANGS' in ret
     i = ret.index('GANGS')
     assert ret[i + 4:i + 4 + 15:3] == ['SR5-1', 'SR5-2', 'SR5-3', 'SR5-4', 'SR5-5']
     assert ret.count('2fer') == 5
     assert "SR5 · Soca 208 · 125' home run · 6 circuits" in ret
     dpage = _render(pg, SHOW, 'SR - MAIN - Data')
-    data = dpage['texts']
     assert 'SR - MAIN' not in dpage['mapTexts']
+    # four ports fit in the floor, so the floor holds: the same wall, the
+    # same aspect, as tall as the floor leaves, the tables under it
+    dm = dpage['map']
+    assert abs(dm['w'] / dm['h'] - want_main) / want_main < 0.01, dm
+    assert abs((dm['area']['y'] + dm['area']['h']) - (FOOTER_TOP - TABLE_FLOOR - 8)) <= 2, dm
+    assert 'PORTS' in dpage['texts']
+    data = dpage['texts']
     assert 'H9 SR · H_16xRJ45+2xfiber · 16 ports' in data
     assert ['SR-1', 'SR-2', 'SR-3', 'SR-4'] == [t for t in data if re.fullmatch(r'SR-\d', t)]
     # the return end, whole: the backup port's label and where it lands
@@ -661,12 +932,14 @@ def test_smoke_experts_only(page):
     # the processor once, the redundancy in the bar's words
     assert data[data.index('Processor') + 1] == 'H9' and 'H9 · H9' not in data
     assert data[data.index('Redundancy') + 1] == 'Per card'
-    # no page says box (the power side's word is breakout)
+    # no page says box, and none says breakout as the generic noun
     for idx in range(len(plan)):
         texts_i = pg.evaluate("([o, i]) => window.app.renderBinderPage(o, i).texts", [json.loads(_SHOW_JSON), idx])
         boxy = [t for t in texts_i if BOX_WORD.search(t) and 'breakout box' not in t.lower()]
         assert not boxy, (idx, boxy)
+        assert not _generic_breakout(texts_i), (idx, _generic_breakout(texts_i))
     distro = _render(pg, SHOW, 'SR - Distro')['texts']
-    assert 'BREAKOUTS' in distro and 'BREAKOUT' in distro and 'Breakouts' in distro
-    assert '5 breakouts' in distro
+    assert '5 SOCA 208' in distro and 'NAME' in distro
+    assert '28 on 5 Soca 208' in distro, [t for t in distro if 'Soca 208' in t]
+    assert 'BREAKOUTS' not in distro and 'Breakouts' not in distro
     assert ids['errors'] == []

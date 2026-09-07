@@ -2633,9 +2633,9 @@ class _Power {
             const b = this._balanceBlockers(distroId);
             const lines = [];
             if (b.full.length) lines.push(
-                `${b.full.map(f => esc(f.name)).join(', ')} ${b.full.length === 1 ? 'is' : 'are'} full — a full breakout balances itself, there is nothing to choose.`);
+                `${b.full.map(f => esc(f.name)).join(', ')} ${b.full.length === 1 ? 'is' : 'are'} full — with every circuit taken the legs are already as even as they get, there is nothing to choose.`);
             b.clashed.forEach(c => lines.push(
-                `${esc(c.name)} (${esc(c.layers)}) is a shared breakout ${c.overflow
+                `${esc(c.name)} (${esc(c.layers)}) is shared ${c.overflow
                     ? 'with more circuits than the six it holds'
                     : 'with a circuit claimed twice'} — resolve the clash first.`));
             b.phantom.forEach(p => lines.push(
@@ -2823,7 +2823,7 @@ class _Power {
     follows the cyclic order X → Y → Z → X, the way AB → BC → CA does, and
     <em>${byId('paired-ll').pattern}</em> does not. That is the ordering fact,
     not a ranking — neither is a default, and the only way to know which one a
-    breakout uses is to read it.</p>
+    given soca uses is to read it.</p>
 
     <div style="background:#2b2f35; border-left:3px solid #4a6fa5; padding:10px 12px; border-radius:0 4px 4px 0;">
       <div style="color:#e8eef5; margin-bottom:5px;">Why your legs are uneven</div>
