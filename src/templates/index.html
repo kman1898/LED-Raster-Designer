@@ -34,6 +34,7 @@
             <div class="menu-divider"></div>
             <div class="menu-option" data-action="export-png" data-label="Export PNG" data-shortcut-mac="Option+S" data-shortcut-win="Alt+S"></div>
             <div class="menu-option" data-action="export-psd" data-label="Export PSD" data-shortcut-mac="Cmd+Option+S" data-shortcut-win="Ctrl+Alt+S"></div>
+            <div class="menu-option" data-action="pull-sheet" data-label="Pull Sheet…"></div>
             <div class="menu-option" data-action="export-pull-sheet" data-label="Export Pull Sheet"></div>
             <div class="menu-option" data-action="export-binder" data-label="Export Binder"></div>
             <div class="menu-divider"></div>
@@ -1992,6 +1993,10 @@
                         <input type="text" id="export-pull-sheet-rev" placeholder="1.0" data-tooltip="Printed in the sheet's REV cell." style="flex: none; width: 44px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px; text-align: right;">
                     </div>
                 </div>
+                <div style="display: flex; gap: 8px; align-items: center; margin-top: 8px;">
+                    <button type="button" id="export-pull-sheet-edit-rows" class="btn" data-tooltip="Open the pull sheet: change a quantity, label or note, hide a row, or add one. Edits ride into this workbook and the binder's pull pages.">Edit rows…</button>
+                    <span style="font-size: 11px; color: #aaa;">Quantities, labels, notes, hidden and added rows.</span>
+                </div>
                 <div style="margin-top: 6px; font-size: 11px; color: #777;">Positions are your screen groups; an ungrouped screen is its own position. Fiber trunk home runs are not listed.</div>
             </div>
 
@@ -2063,6 +2068,28 @@
             <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
                 <button id="export-cancel" class="btn" style="background: #3a3a3a; padding: 10px 20px;">Cancel</button>
                 <button id="export-confirm" class="btn" style="background: #4A90E2; padding: 10px 20px;">Export</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pull Sheet editor (app-pull-sheet-editor.js): the engine's list as
+         the user's workbook lays it out - positions side by side, a TOTALS
+         block at the right - with qty / label / notes editable, rows hidden
+         or added, all stored as deltas in project.pullSheetEdits and read
+         by both exports through buildPullSheet(). Sits after the export
+         modal in the DOM so it stacks above it. -->
+    <div id="pull-sheet-modal" class="modal" style="display: none;">
+        <div class="modal-content pull-sheet-content">
+            <h2 class="pull-sheet-title">Pull Sheet <span id="pull-sheet-show"></span></h2>
+            <div class="pull-sheet-hint">Rows are what the show says: the type and length stay, the quantity, label and notes edit in place. An edited cell wears a dot; ↺ takes a row back to the show's reading, × hides it. Add a row for anything the show cannot know. Every edit rides into the workbook and the binder's pull pages.</div>
+            <div id="pull-sheet-board" class="pull-sheet-board"></div>
+            <datalist id="pull-sheet-types"></datalist>
+            <datalist id="pull-sheet-lengths"></datalist>
+            <div class="pull-sheet-footer">
+                <button type="button" id="pull-sheet-export-xlsx" class="btn" data-tooltip="Save the pull-sheet workbook (.xlsx) with these edits applied.">Export Pull Sheet</button>
+                <button type="button" id="pull-sheet-export-binder" class="btn" data-tooltip="Save the binder (PDF) with these edits on its pull pages.">Export Binder</button>
+                <span style="flex: 1;"></span>
+                <button type="button" id="pull-sheet-close" class="btn">Close</button>
             </div>
         </div>
     </div>

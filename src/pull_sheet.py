@@ -24,7 +24,9 @@ validations, the merged cells, the freeze panes and the hidden calc tab;
 what it drops is six empty drawing stubs and an empty threaded-comments
 list, neither of which carries anything.
 
-Two entry points:
+Three entry points:
+  gear_list()                the GEAR LIST vocabulary (types, lengths) the
+                             in-app editor's pickers draw from
   scrub_template(src, dst)   build the shipped template from a copy of the
                              user's sheet (data rows, show, engineer, rev
                              and date cleared; positions renamed)
@@ -388,6 +390,26 @@ def build_workbook(pull_list, meta=None, template_path=TEMPLATE_PATH):
     out = io.BytesIO()
     wb.save(out)
     return out.getvalue(), warnings
+
+
+def gear_list(template_path=TEMPLATE_PATH):
+    """The GEAR LIST vocabulary as the template carries it: the cable types
+    (column A) and the lengths (column B) both Pull Sheet dropdowns draw
+    from. The in-app pull-sheet editor feeds its own pickers from this, so
+    the two never drift - the template is the one source."""
+    wb = _openpyxl().load_workbook(template_path, read_only=True)
+    ws = wb[GEAR]
+    types, lengths = [], []
+    for r in range(GEAR_FIRST_ROW, GEAR_TYPE_LAST_ROW + 1):
+        v = ws.cell(r, GEAR_TYPE_COL).value
+        if v is not None and str(v).strip():
+            types.append(str(v).strip())
+        if r <= GEAR_LENGTH_LAST_ROW:
+            v = ws.cell(r, GEAR_LENGTH_COL).value
+            if v is not None and str(v).strip():
+                lengths.append(str(v).strip())
+    wb.close()
+    return {'types': list(dict.fromkeys(types)), 'lengths': list(dict.fromkeys(lengths))}
 
 
 def safe_filename(name):

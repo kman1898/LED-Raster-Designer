@@ -9,6 +9,7 @@ import './app-export-io.js';
 import './app-logs-recent.js';
 import './app-power.js';
 import './app-pull-list.js';
+import './app-pull-sheet-editor.js';
 import './app-binder.js';
 import './app-canvas-ui.js';
 import './app-screen-groups.js';

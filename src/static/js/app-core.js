@@ -4178,6 +4178,9 @@ export class LEDRasterApp {
             }
         }
         if (typeof this.initPullSheetControls === 'function') this.initPullSheetControls();
+        // The pull-sheet editor modal (File > Pull Sheet…, and the dialog's
+        // "Edit rows…") - app-pull-sheet-editor.js.
+        if (typeof this.initPullSheetEditor === 'function') this.initPullSheetEditor();
         // The binder's own section (scope, palette, maps, pages) - app-binder.js.
         if (typeof this.initBinderControls === 'function') this.initBinderControls();
         

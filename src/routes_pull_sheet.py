@@ -8,7 +8,8 @@ into the template (pull_sheet.build_workbook) and streams the xlsx back the
 way /api/export/pdf-from-images streams a PDF, so the client saves it
 through saveBlobWithPicker like every other export. Warnings that do not
 stop the export (a seventh position, a sixty-first row) ride back in the
-X-Pull-Sheet-Warnings header as JSON.
+X-Pull-Sheet-Warnings header as JSON. GET /api/pull-sheet/gear-list serves
+the template's vocabulary to the in-app editor's pickers.
 """
 import io
 import json
@@ -19,6 +20,22 @@ import pull_sheet
 from app import log_event
 
 pull_sheet_bp = Blueprint('pull_sheet', __name__)
+
+
+@pull_sheet_bp.route('/api/pull-sheet/gear-list', methods=['GET'])
+def pull_sheet_gear_list():
+    """The template's GEAR LIST vocabulary - the in-app editor's type and
+    length pickers read it, so what the editor offers is what the workbook's
+    dropdowns accept (a typed value outside it is warned about, never
+    blocked, and the export appends it to the GEAR LIST)."""
+    try:
+        import openpyxl  # noqa: F401
+    except ImportError:
+        return jsonify({'types': [], 'lengths': []})
+    try:
+        return jsonify(pull_sheet.gear_list())
+    except FileNotFoundError:
+        return jsonify({'error': 'The pull-sheet template is missing from this install'}), 500
 
 
 @pull_sheet_bp.route('/api/export/pull-sheet', methods=['POST'])
