@@ -49,6 +49,10 @@ a = Analysis(
         'reportlab.lib.pagesizes',
         'reportlab.pdfgen',
         'reportlab.pdfgen.canvas',
+        'openpyxl',
+        'openpyxl.worksheet.formula',
+        'openpyxl.workbook.defined_name',
+        'et_xmlfile',
     # Bundle the COMPLETE pywebview package (all submodules + data files):
     # its JS bridge lives in submodules PyInstaller doesn't auto-detect, and
     # a frozen Windows build rendered the window fine but window.pywebview

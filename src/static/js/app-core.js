@@ -4171,7 +4171,13 @@ export class LEDRasterApp {
         if (_formatEl) {
             _formatEl.addEventListener('change', _toggleScaleRow);
             _toggleScaleRow();
+            // The pull-sheet format swaps the picture sections for its own
+            // (jumper names, engineer, rev) - app-pull-list.js.
+            if (typeof this.syncPullSheetControls === 'function') {
+                _formatEl.addEventListener('change', () => this.syncPullSheetControls());
+            }
         }
+        if (typeof this.initPullSheetControls === 'function') this.initPullSheetControls();
         
         document.getElementById('export-cancel').addEventListener('click', () => {
             document.getElementById('export-modal').style.display = 'none';
@@ -4186,6 +4192,25 @@ export class LEDRasterApp {
                 format
             });
             
+            // Pull sheet: no rendered views - the list is built from the
+            // project and the workbook comes back from the server. Saved
+            // through the same picker path the PDF uses.
+            if (format === 'pull-sheet') {
+                document.getElementById('export-modal').style.display = 'none';
+                document.getElementById('status-message').textContent = 'Exporting pull sheet...';
+                try {
+                    await this.exportPullSheet(projectName);
+                    document.getElementById('status-message').textContent = 'Export complete!';
+                    setTimeout(() => { document.getElementById('status-message').textContent = 'Ready'; }, 3000);
+                } catch (error) {
+                    console.error('Pull sheet export error:', error);
+                    document.getElementById('status-message').textContent = 'Export failed!';
+                    sendClientLog('export_failed', { message: error.message, format: 'pull-sheet' });
+                    if (typeof this._toast === 'function') this._toast(error.message, true, 6000);
+                }
+                return;
+            }
+
             // Resolume XML export, no views needed, just geometry
             if (format === 'resolume-xml') {
                 document.getElementById('export-modal').style.display = 'none';

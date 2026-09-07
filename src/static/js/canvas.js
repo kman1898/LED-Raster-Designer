@@ -10,6 +10,9 @@ function projectFontFamily() {
 // (.cl .tag of cables-mock.html) and the data side's blue on dark (.snake
 // .tag of snake-mock.html). One drawer, drawCableTag, takes either.
 const POWER_CABLE_TAG_COLORS = { fill: '#1c1c1c', rim: '#c8a04a', ink: '#f0d48a' };
+// The gang (2fer / 3fer) tag on the wall: the tray's gang chip, drawn -
+// dark pill, white text, grey rim - so it never reads as a label disc.
+const NFER_TAG_COLORS = { fill: '#2e2e2e', ink: '#ffffff', rim: '#9aa4b2' };
 const DATA_CABLE_TAG_COLORS = { fill: '#10202c', rim: '#8fd0ff', ink: '#cfeaff' };
 
 class CanvasRenderer {
@@ -6811,8 +6814,13 @@ class CanvasRenderer {
                     || !Number.isFinite(yBot)) continue;
             const amps = byNum.get(c.num) || 0;
             const over = cap > 0 && amps > cap + 1e-9;
-            const color = over ? '#d05a52'
-                : (layer.powerLabelBgColor || '#D95000');
+            // Its own colour, never the label's: a gang tag in the power
+            // label's orange sat on the wall as one more orange disc -
+            // "when two fer is shown it should not be the same color as
+            // the power label due to it being hard to read" (2026-09-06).
+            // The tray's gang tag is the model: a dark pill, white text, a
+            // grey rim, and the bracket in that grey; red only when OVER.
+            const color = over ? '#d05a52' : NFER_TAG_COLORS.rim;
             // Hugging the gang's own boundary: below the screen for
             // column runs (the clean mock look), ON the row seam for
             // horizontal runs - either way, the line under "these runs
@@ -6844,7 +6852,7 @@ class CanvasRenderer {
             const tw = this.ctx.measureText(label).width;
             const padX = labelSize * 0.4;
             const pillH = labelSize + 6;
-            this.ctx.fillStyle = color;
+            this.ctx.fillStyle = over ? color : NFER_TAG_COLORS.fill;
             this.ctx.beginPath();
             if (this.ctx.roundRect) {
                 this.ctx.roundRect(cx - tw / 2 - padX, y - pillH / 2,
@@ -6854,8 +6862,10 @@ class CanvasRenderer {
                               tw + padX * 2, pillH);
             }
             this.ctx.fill();
-            this.ctx.fillStyle = over ? '#ffffff'
-                : (layer.powerLabelTextColor || '#000000');
+            this.ctx.lineWidth = Math.max(1, labelSize * 0.08);
+            this.ctx.strokeStyle = over ? '#ffffff' : NFER_TAG_COLORS.rim;
+            this.ctx.stroke();
+            this.ctx.fillStyle = NFER_TAG_COLORS.ink;
             this.ctx.textAlign = 'center';
             this.ctx.textBaseline = 'middle';
             this._fillText(label, cx, y);
