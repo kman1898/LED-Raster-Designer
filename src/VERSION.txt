@@ -213,6 +213,25 @@ v0.12.0 - September 7, 2026 (BETA)
   narrow for its columns scrolls sideways rather than cutting an input
   off.
 
+- CHANGE: The data cable sheet is four columns - tick, port, screen,
+  home run. The plug column is gone, since CAT is the only data plug the
+  app knows; the power sheet keeps its plug choices. The sheet sizes to
+  its rows with a floor and grows as names grow instead of taking the
+  whole tray row, With ticked and Quick fill sit above the rows on both
+  sheets, and Loosen is now Unsnake.
+
+- FIX: A chip's length reads. The "10'" in a chip's corner sat over the
+  screen's name; it is now part of the line, so the name shortens before
+  the length is ever covered - data and power chips alike.
+
+- NEW: Cable tags wrap. A tag wider than about four label heights splits
+  at its spaces into balanced lines - "Snake 1 SR A" reads Snake 1 over
+  SR A - and a taller tag stays inside the screen edge.
+
+- FIX: The return marker wears its own cable tag: a backup snake, a
+  backup socket's extension or its own cable now shows on the map and in
+  the binder beside the return label, as the primary's always has.
+
 - CHANGE (IMPORTANT): Redundancy is one bar in one place. Behind the
   processor's gear a raised segmented bar - Off, Whole unit, Per card,
   Per port (Off, Backed up, Per port on a standalone unit) - and exactly
