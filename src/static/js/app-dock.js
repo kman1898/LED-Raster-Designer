@@ -1156,22 +1156,33 @@ class _HardwareDock {
             who.textContent = occupants[0].name;
         }
         face.appendChild(who);
-        // A loose socket with its own home run wears its LENGTH small in
-        // its corner, in the data cable's blue ("50'" - snake-mock.html's
-        // chip corner, 2026-09-06); the connector reads on the sheet and
-        // the map, where there is room. A snaked socket wears only its
-        // EXTENSION there ("+25'"), when it has one: the bracket under it
-        // says what it rides.
+        // A loose socket with its own home run wears its LENGTH small at
+        // the END of its occupant line, in the data cable's blue ("SL -
+        // MAIN · 10'" - snake-mock.html's chip corner, 2026-09-06); the
+        // connector reads on the sheet and the map, where there is room. A
+        // snaked socket wears only its EXTENSION there ("+25'"), when it
+        // has one: the bracket under it says what it rides. The length is
+        // IN FLOW (2026-09-07: "adding the extensions on data ... you cant
+        // read them" - an absolute corner sat OVER "SL - MAIN"): the line
+        // turns flex, the occupant's text ellipsizes, the length never
+        // shortens (style.css .lrd-tile-line-cable). A chip with no length
+        // keeps the plain line.
         const own = owner ? this._dataPortCableOn(owner, port.number) : null;
         const cornerText = !own ? null
             : own.kind === 'cable' ? this.cableText(own.ft, '')
             : own.ext != null ? `+${this.cableText(own.ext, '')}` : null;
         if (cornerText) {
+            const text = document.createElement('span');
+            text.className = 'lrd-tile-text';
+            text.textContent = who.textContent;
+            who.textContent = '';
+            who.classList.add('lrd-tile-line-cable');
+            who.appendChild(text);
             const corner = document.createElement('span');
             corner.className = 'hw-dock-chip-cable hw-dock-chip-cable-data';
             corner.textContent = cornerText;
             corner.title = own.text;
-            face.appendChild(corner);
+            who.appendChild(corner);
         }
         tile.appendChild(face);
 
@@ -2068,12 +2079,14 @@ class _HardwareDock {
         return btn;
     }
 
-    // One box's sheet: tail · circuit · screen · ft · connector, a free
-    // tail as a dim row with no fields, totals under the rows (this box's
-    // pull list: count by length and connector) and the quick fills. Each
-    // commit - one length, one connector, one quick fill - is ONE 'Set
-    // Circuit Cable' entry; the DOM restates a macrotask later so the Tab
-    // the change rode lands on a real element (_rebuildAfterGesture).
+    // One box's sheet: the quick fills on top, then tail · circuit ·
+    // screen · ft · connector, a free tail as a dim row with no fields,
+    // totals under the rows (this box's pull list: count by length and
+    // connector). Each commit - one length, one connector, one quick fill
+    // - is ONE 'Set Circuit Cable' entry; the DOM restates a macrotask
+    // later so the Tab the change rode lands on a real element
+    // (_rebuildAfterGesture). The controls sit ABOVE the rows on both
+    // sheets ("move snake and quick fill to the top", 2026-09-07).
     _dockBuildCableSheet(d, n, boxSize, byTail) {
         // The sheet names the unit by its type - "this Soca 208" - the way
         // the type chip does; no generic noun (2026-09-07).
@@ -2221,6 +2234,7 @@ class _HardwareDock {
 
         // Quick fill: every held circuit on THIS box gets the one length
         // (its connector pick untouched), or forgets its cable. ONE entry.
+        // Above the table, the data sheet's order.
         const quick = document.createElement('div');
         quick.className = 'hw-dock-cable-quick';
         const cap = document.createElement('span');
@@ -2259,7 +2273,7 @@ class _HardwareDock {
             `Every circuit on this ${typeName} gets a 6 ft cable. One undo step.`));
         quick.appendChild(fill('none', null,
             `Every circuit on this ${typeName} forgets its cable. One undo step.`));
-        sheet.appendChild(quick);
+        sheet.insertBefore(quick, table);
         return sheet;
     }
 
@@ -2342,28 +2356,29 @@ class _HardwareDock {
             .filter(n => this._cableTicked(owner, n));
     }
 
-    // One record's sheet: tick · port · screen · home run · connector, a
-    // snake as a folded row (tick · "SNAKE A · 6-way" · name · ft ·
-    // connector) with its members dim "in snake" under it, a free socket
-    // dim. Under the rows: "With ticked: Snake / Loosen" and the quick
-    // fills. Each commit is ONE entry ('Set Port Cable' / 'Set Snake Home
-    // Run' / 'Rename Snake' / 'Snake Ports' / 'Loosen Snake'); the DOM
-    // restates after the round-trip, and Tab walks the ft column across it.
+    // One record's sheet: tick · port · screen · home run - FOUR columns
+    // (sheet-fit-mock.html Option A, 2026-09-07: "cat is the only option
+    // we have in the app", so the plug is a fact of the port and not
+    // asked; the stores keep `connector`, the pull list reads it through
+    // dataPortConnectorId, nothing here writes it). A snake is a folded
+    // row (tick · "SNAKE A · 6-way" · name · ft) with its members dim
+    // under it carrying their extensions, a free socket dim. ABOVE the
+    // rows: "With ticked: Snake / Unsnake" and the quick fills. Each
+    // commit is ONE entry ('Set Port Cable' / 'Set Snake Home Run' /
+    // 'Rename Snake' / 'Snake Ports' / 'Unsnake'); the DOM restates after
+    // the round-trip, and Tab walks the ft column across it.
     _dockBuildDataCableSheet(owner, ports) {
         const sheet = document.createElement('div');
         sheet.className = 'hw-dock-cablesheet hw-dock-cablesheet-data';
         sheet.dataset.lrdCableSheet = `${owner.kind}:${owner.id}`;
         const table = document.createElement('table');
         const thead = document.createElement('tr');
-        ['', 'port', 'screen', 'home run', 'connector'].forEach(h => {
+        ['', 'port', 'screen', 'home run'].forEach(h => {
             const th = document.createElement('th');
             th.textContent = h;
             thead.appendChild(th);
         });
         table.appendChild(thead);
-        const connectors = this.getDataCableConnectors();
-        const follows = this.dataCableConnectorName(
-            this.dataPortConnectorId(owner, null));
         const ftInputs = [];
         const walk = (ft) => {
             ft.addEventListener('keydown', (e) => {
@@ -2379,26 +2394,6 @@ class _HardwareDock {
         };
         const after = () => {
             if (window.canvasRenderer) window.canvasRenderer.render();
-        };
-        const connectorSelect = (key, value, title) => {
-            const sel = document.createElement('select');
-            sel.className = 'hw-dock-cable-connector';
-            sel.dataset.lrdField = key;
-            const blank = document.createElement('option');
-            blank.value = '';
-            blank.textContent = follows
-                ? `follows port (${follows})` : 'follows port';
-            sel.appendChild(blank);
-            connectors.forEach(c => {
-                const o = document.createElement('option');
-                o.value = c.id;
-                o.textContent = c.name;
-                sel.appendChild(o);
-            });
-            sel.value = value && connectors.some(c => c.id === value)
-                ? value : '';
-            sel.title = title;
-            return sel;
         };
         const ftInput = (key, value, title) => {
             const ft = document.createElement('input');
@@ -2469,7 +2464,7 @@ class _HardwareDock {
                 const all = snake.ports.every(m => this._cableTicked(owner, m));
                 td0.appendChild(tick(
                     `data-snake-tick-${owner.id}-s-${snake.id}`, all,
-                    'Tick the whole snake - for Loosen below.',
+                    'Tick the whole snake - for Unsnake above.',
                     (on) => snake.ports.forEach(
                         m => this._setCableTick(owner, m, on))));
                 tr.appendChild(td0);
@@ -2483,6 +2478,10 @@ class _HardwareDock {
                 name.className = 'hw-dock-cable-name';
                 name.value = snake.name || '';
                 name.placeholder = 'name';
+                // Sized to its text, the header name fields' rule, so a
+                // longer name grows the sheet (the mock's Option B half:
+                // "if we pass a threshold then grow like option B").
+                name.size = Math.max(6, (snake.name || '').length + 1);
                 name.dataset.lrdField = `data-snake-name-${owner.id}-${snake.id}`;
                 name.title = 'The snake’s name - what the packet and '
                     + 'the tag on the map print. Typed names win over the '
@@ -2503,27 +2502,14 @@ class _HardwareDock {
                                    snake.ft,
                                    'The snake’s home run in feet. '
                                    + 'Blank = no length.');
-                const sel = connectorSelect(
-                    `data-snake-connector-${owner.id}-${snake.id}`,
-                    snake.connector,
-                    'The snake’s connector. Follows the port unless '
-                    + 'changed.');
                 ft.addEventListener('change', () => {
                     this.setSnake(owner, snake.id, { ft: ft.value.trim() },
-                                  'Set Snake Home Run').then(after);
-                });
-                sel.addEventListener('change', () => {
-                    this.setSnake(owner, snake.id,
-                                  { connector: sel.value },
                                   'Set Snake Home Run').then(after);
                 });
                 walk(ft);
                 td3.appendChild(ft);
                 td3.appendChild(document.createTextNode(' ft'));
                 tr.appendChild(td3);
-                const td4 = document.createElement('td');
-                td4.appendChild(sel);
-                tr.appendChild(td4);
                 table.appendChild(tr);
             }
             const tr = document.createElement('tr');
@@ -2534,8 +2520,9 @@ class _HardwareDock {
             td0.appendChild(tick(
                 `data-snake-tick-${owner.id}-${n}`,
                 this._cableTicked(owner, n),
-                snake ? 'Tick to loosen this port out of its snake.'
-                    : 'Tick, then Snake below to form a snake of the ticked '
+                snake ? 'Tick, then Unsnake above to take this port out of '
+                        + 'its snake.'
+                    : 'Tick, then Snake above to form a snake of the ticked '
                         + 'ports.',
                 (on) => this._setCableTick(owner, n, on)));
             tr.appendChild(td0);
@@ -2547,12 +2534,12 @@ class _HardwareDock {
             who(td2, tr, whoOf(n) || (occupied ? '' : 'free'), whoDetail(n));
             tr.appendChild(td2);
             const td3 = document.createElement('td');
-            const td4 = document.createElement('td');
             // The same store on both kinds of row: a loose port's entry is
             // its home run, a member's is its EXTENSION from the snake's
             // fan-out to the panel ("ext 25 ft" - the shorter cable a
             // fan-out sometimes needs, 2026-09-07); the member row stays
-            // dim under its snake and still ticks for Loosen.
+            // dim under its snake and still ticks for Unsnake. The entry's
+            // connector, if one was stored, rides the commit untouched.
             const stored = (owner.rec.portCables || {})[String(n)] || null;
             const ft = ftInput(`data-cable-ft-${owner.id}-${n}`,
                                stored && stored.ft,
@@ -2563,19 +2550,11 @@ class _HardwareDock {
                                      + 'Blank = none.'
                                    : 'This port’s own home run in feet. '
                                      + 'Blank = no cable.');
-            const sel = connectorSelect(
-                `data-cable-connector-${owner.id}-${n}`,
-                stored && stored.connector,
-                snake
-                    ? 'The plug on the extension. Follows the port unless '
-                      + 'changed.'
-                    : 'The plug on this cable. Follows the port unless '
-                      + 'changed.');
             const commit = () => this.setPortCable(owner, n, {
-                ft: ft.value.trim(), connector: sel.value,
+                ft: ft.value.trim(),
+                connector: (stored && stored.connector) || null,
             }).then(after);
             ft.addEventListener('change', commit);
-            sel.addEventListener('change', commit);
             walk(ft);
             if (snake) {
                 const ext = document.createElement('span');
@@ -2585,14 +2564,13 @@ class _HardwareDock {
             }
             td3.appendChild(ft);
             td3.appendChild(document.createTextNode(' ft'));
-            td4.appendChild(sel);
             tr.appendChild(td3);
-            tr.appendChild(td4);
             table.appendChild(tr);
         });
-        sheet.appendChild(table);
 
-        // With ticked: Snake / Loosen. Quick fill: all 100' / none.
+        // With ticked: Snake / Unsnake. Quick fill: all 100' / none. On
+        // TOP of the sheet, before the rows ("move snake and quick fill
+        // to the top instead of the bottom", 2026-09-07).
         const quick = document.createElement('div');
         quick.className = 'hw-dock-cable-quick';
         const button = (label, key, title, run) => {
@@ -2623,14 +2601,14 @@ class _HardwareDock {
                 nums.forEach(n => this._setCableTick(owner, n, false));
                 this.snakePorts(owner, nums).then(after);
             }));
-        quick.appendChild(button('Loosen', `data-cable-loosen-${owner.id}`,
+        quick.appendChild(button('Unsnake', `data-cable-loosen-${owner.id}`,
             'Take the ticked ports out of their snakes. One undo step.',
             () => {
                 const nums = this._cableTickedSockets(owner, ports)
                     .filter(n => this.dataPortSnake(owner, n));
                 if (!nums.length) {
                     this._dockSay('Tick a port that is in a snake, then '
-                        + 'Loosen.');
+                        + 'Unsnake.');
                     return;
                 }
                 nums.forEach(n => this._setCableTick(owner, n, false));
@@ -2651,6 +2629,7 @@ class _HardwareDock {
             + 'One undo step.',
             () => this.fillPortCables(owner, null, ports).then(after)));
         sheet.appendChild(quick);
+        sheet.appendChild(table);
         return sheet;
     }
 
@@ -2723,7 +2702,7 @@ class _HardwareDock {
                             tag.textContent = text;
                             tag.title = snake
                                 ? `${text}. Right-click to rename, set the `
-                                    + 'home run or loosen the snake.'
+                                    + 'home run or unsnake it.'
                                 : 'Right-click the lit chips to snake them '
                                     + '(Alt+Enter).';
                             el.appendChild(tag);
@@ -2955,7 +2934,7 @@ class _HardwareDock {
                     `data-snake-ft-${owner.id}-${snake.id}`),
             });
             entries.push({
-                label: `Loosen ${name}`,
+                label: `Unsnake ${name}`,
                 title: `Take every port out of ${name}; the ports stay `
                     + 'where they are. One undo step.',
                 run: () => {
@@ -3024,7 +3003,7 @@ class _HardwareDock {
             });
             if (inside.some(Boolean)) {
                 entries.push({
-                    label: n === 1 ? 'Loosen' : `Loosen these ${n}`,
+                    label: n === 1 ? 'Unsnake' : `Unsnake these ${n}`,
                     title: 'Take the lit ports out of their snakes; the '
                         + 'ports stay where they are. One undo step.',
                     run: () => {
@@ -3130,18 +3109,25 @@ class _HardwareDock {
             who.textContent = holders[0].who;
         }
         face.appendChild(who);
-        // A chip with a cable wears it small in its corner ("10' True1"),
-        // so the fact reads without opening the sheet (2026-09-06, the
-        // mock's chip corner). Nothing on a chip with none.
+        // A chip with a cable wears it small at the END of its top line
+        // ("1 A-1 · 10' True1"), so the fact reads without opening the
+        // sheet (2026-09-06, the mock's chip corner). In flow, not over
+        // the line (2026-09-07: the corner sat on the label and neither
+        // read): the line turns flex, the label ellipsizes, the length
+        // never shortens (style.css .lrd-tile-line-cable); the bar row
+        // under the chip stays clear. Nothing on a chip with none.
         const cables = holders.map(h => {
             const l = (this.project.layers || []).find(x => x.id === h.layerId);
             return l ? this.powerCircuitCable(l, h.circuit) : null;
         }).filter(Boolean);
         if (cables.length) {
+            top.classList.add('lrd-tile-line-cable');
+            const label = top.lastElementChild;
+            if (label && label !== num) label.classList.add('lrd-tile-text');
             const corner = document.createElement('span');
             corner.className = 'hw-dock-chip-cable';
             corner.textContent = cables.map(c => c.text).join(' / ');
-            face.appendChild(corner);
+            top.appendChild(corner);
         }
         tile.appendChild(face);
 
