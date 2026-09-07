@@ -1,7 +1,7 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
-v0.12.0 - September 6, 2026 (BETA)
+v0.12.0 - September 7, 2026 (BETA)
 ----------------------------
 
 - NEW: A distro says what it offers. Tick the connector types a distro
@@ -124,6 +124,17 @@ v0.12.0 - September 6, 2026 (BETA)
 - CHANGE: A 2fer or 3fer tag on the wall wears its own dark pill with a
   grey rim instead of the power label's colour, so it no longer reads
   as another circuit label. OVER stays red.
+
+- NEW: Export Binder. File > Export Binder saves one PDF: a cover, a
+  pull page per position, then for every screen a power page and a
+  data page - the wall drawn as the canvas draws it, at half the page
+  or more, with rulers to count by and each box bracketed with its home
+  run; under it the circuits grouped by box, the screen's cables, the
+  facts, and the 2fer / 3fer count only where the screen has gangs -
+  then the distros, the processors and the show-wide pull list. Choose
+  Colour or Printer (black and white, a dash per circuit) at the save.
+  Right-click a screen for "Export this screen…" - the same pages for
+  that screen alone.
 
 - CHANGE (IMPORTANT): Redundancy is one bar in one place. Behind the
   processor's gear a raised segmented bar - Off, Whole unit, Per card,
