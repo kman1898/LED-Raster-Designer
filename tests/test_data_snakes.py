@@ -388,17 +388,27 @@ TRAY_JS = """([kind, id]) => {
     };
 }"""
 
-# The sheet's rows as read: snake rows and port rows in order.
+# The sheet's rows as read: snake rows and port rows in order, its
+# headers, how many selects it holds (none - the data plug is CAT and not
+# asked), the buttons by key and by label, and whether the controls row
+# comes BEFORE the table in DOM order (the controls ride on top).
 SHEET_JS = """([kind, id]) => {
     const sheet = document.querySelector(
         `.hw-dock-cablesheet[data-lrd-cable-sheet="${kind}:${id}"]`);
     if (!sheet) return null;
+    const table = sheet.querySelector('table');
+    const quick = sheet.querySelector('.hw-dock-cable-quick');
     return {
+        headers: [...sheet.querySelectorAll('th')].map(th => th.textContent),
+        selects: sheet.querySelectorAll('select').length,
+        cells: [...sheet.querySelectorAll('tr')].filter(tr => tr.querySelector('td'))
+            .map(tr => tr.querySelectorAll('td').length),
+        quickFirst: !!(quick && table && sheet.firstElementChild === quick
+            && (quick.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING)),
         rows: [...sheet.querySelectorAll('tr')].filter(tr => tr.querySelector('td'))
             .map(tr => {
                 const tds = [...tr.querySelectorAll('td')];
                 const ft = tr.querySelector('.hw-dock-cable-ft');
-                const sel = tr.querySelector('.hw-dock-cable-connector');
                 const name = tr.querySelector('.hw-dock-cable-name');
                 return {
                     kind: tr.classList.contains('hw-dock-cable-snake') ? 'snake'
@@ -407,15 +417,18 @@ SHEET_JS = """([kind, id]) => {
                     label: name ? tr.querySelector('.hw-dock-cable-snake-cap').textContent
                         : tds[1].textContent,
                     name: name ? name.value : null,
+                    nameSize: name ? name.size : null,
                     who: tds[2].textContent,
                     ft: ft ? ft.value : tds[3].textContent,
                     ftKey: ft ? ft.dataset.lrdField : null,
-                    connector: sel ? sel.value : tds[4].textContent,
-                    blank: sel ? sel.options[0].textContent : null,
                 };
             }),
         buttons: [...sheet.querySelectorAll('[data-lrd-field]')]
             .filter(el => el.tagName === 'BUTTON').map(el => el.dataset.lrdField),
+        labels: [...sheet.querySelectorAll('.hw-dock-cable-quick button')]
+            .map(el => el.textContent),
+        unsnakeTitle: (sheet.querySelector(`[data-lrd-field="data-cable-loosen-${id}"]`) || {}).title,
+        tickTitles: [...sheet.querySelectorAll('.hw-dock-cable-tick')].map(t => t.title),
     };
 }"""
 
@@ -545,7 +558,7 @@ def _served(page, ids, want, timeout_ms=4000):
 def test_the_sweep_lights_chips_and_a_right_click_snakes_them(page):
     """Alt+drag across the box's chips 1-6: the six light, the grid opens
     its bracket lane and a dashed ghost says "snake · 6-way". Right-click
-    a lit chip: "Snake these 6 (Alt+Enter)" and "Set home run…" - no Loosen,
+    a lit chip: "Snake these 6 (Alt+Enter)" and "Set home run…" - no Unsnake,
     nothing is in a snake yet. Take it: ONE 'Snake Ports' entry, the store
     holds SNAKE A on 1-6, the bracket wears "SNAKE A · 6-way", the server
     has it, and undo loosens the lot; redo brings it back."""
@@ -617,10 +630,14 @@ def test_the_sweep_refuses_a_second_card_and_escape_clears(page):
 
 def test_the_card_sheet_types_loose_lengths_that_read_in_the_corner(page):
     """The card's ≡ (its loose sockets 9-16) flips the grid into the sheet:
-    eight free rows, fields on every one, the connector blank reading
-    "follows port (CAT)" - the card is RJ45. 50 on 9 is ONE 'Set Port
-    Cable'; Tab lands on 10's field, 75 there is another. Flipped back, the
-    chips wear 50' and 75' in their corners in blue, the rest nothing."""
+    FOUR columns (tick · port · screen · home run - no CONNECTOR column and
+    no select anywhere on it: CAT is the only data plug, so it is not
+    asked; sheet-fit-mock.html Option A), the controls row ABOVE the rows
+    reading Snake / Unsnake / all 100' / none, eight free rows with a
+    field on every one. 50 on 9 is ONE 'Set Port Cable'; Tab lands on 10's
+    field, 75 there is another. A plug stored on an entry (the model keeps
+    `connector`) rides a re-typed length untouched. Flipped back, the chips
+    wear 50' and 75' beside their occupant in blue, the rest nothing."""
     pg, ids = page
     cid = ids['cardId']
     tray = pg.evaluate(TRAY_JS, ['card', cid])
@@ -633,15 +650,22 @@ def test_the_card_sheet_types_loose_lengths_that_read_in_the_corner(page):
     assert [r['kind'] for r in sheet['rows']] == ['free'] * 8, sheet
     assert [r['label'] for r in sheet['rows']] == [
         f'{n} · SR-{n}' for n in range(9, 17)], sheet
-    assert all(r['blank'] == 'follows port (CAT)' for r in sheet['rows'])
-    # the select offers CAT and nothing else - fiber is the box's trunk
-    options = pg.evaluate(f"""() => [...document.querySelector(
-        '[data-lrd-field="data-cable-connector-{cid}-9"]').options]
-        .map(o => o.value)""")
-    assert options == ['', 'cat'], options
+    # four columns, no plug column, no select anywhere on the data sheet
+    assert sheet['headers'] == ['', 'port', 'screen', 'home run'], sheet
+    assert sheet['selects'] == 0 and set(sheet['cells']) == {4}, sheet
+    assert pg.evaluate(f"""() => !document.querySelector(
+        '[data-lrd-field="data-cable-connector-{cid}-9"]')"""), (
+        'the data sheet asks no connector')
+    # the controls ride on top, before the rows, and the word is Unsnake
+    assert sheet['quickFirst'], sheet
     assert sheet['buttons'] == [
         f'data-cable-snake-{cid}', f'data-cable-loosen-{cid}',
         f'data-cable-fill-{cid}-100', f'data-cable-fill-{cid}-none'], sheet
+    assert sheet['labels'] == ['Snake', 'Unsnake', "all 100'", 'none'], sheet
+    assert 'Loosen' not in sheet['unsnakeTitle'], sheet['unsnakeTitle']
+    assert all('Loosen' not in t and 'loosen' not in t
+               for t in sheet['tickTitles']), sheet['tickTitles']
+    assert all('above' in t for t in sheet['tickTitles']), sheet['tickTitles']
     index = pg.evaluate(STATE_JS, ids)['index']
     ft9 = pg.locator(f'[data-lrd-field="data-cable-ft-{cid}-9"]')
     ft9.fill('50')
@@ -659,13 +683,23 @@ def test_the_card_sheet_types_loose_lengths_that_read_in_the_corner(page):
     assert st['card']['cables'] == {'9': {'ft': 50, 'connector': None},
                                     '10': {'ft': 75, 'connector': None}}, st
     assert st['index'] == index + 2, st
-    # the connector pick on 10: CAT, stored explicitly - its own entry
-    pg.locator(f'[data-lrd-field="data-cable-connector-{cid}-10"]'
-               ).select_option('cat')
+    # a plug stored on 10 through the model (the store keeps `connector`;
+    # the pull list reads it) - then the sheet re-types 10's length and
+    # the plug rides along untouched: nothing on the sheet writes it
+    pg.evaluate("""(ids) => window.app.setPortCable(
+        window.app._dataCableOwner('card', ids.cardId), 10,
+        {ft: '70', connector: 'cat'})""", ids)
+    pg.wait_for_timeout(900)
+    st = pg.evaluate(STATE_JS, ids)
+    assert st['card']['cables']['10'] == {'ft': 70, 'connector': 'cat'}, st
+    assert st['action'] == 'Set Port Cable' and st['index'] == index + 3, st
+    ft10 = pg.locator(f'[data-lrd-field="data-cable-ft-{cid}-10"]')
+    ft10.fill('75')
+    ft10.press('Tab')
     pg.wait_for_timeout(900)
     st = pg.evaluate(STATE_JS, ids)
     assert st['card']['cables']['10'] == {'ft': 75, 'connector': 'cat'}, st
-    assert st['action'] == 'Set Port Cable' and st['index'] == index + 3, st
+    assert st['action'] == 'Set Port Cable' and st['index'] == index + 4, st
     reading = pg.evaluate("""(ids) => [9, 10].map(n =>
         window.app.dataPortCable(ids.cardId, n).text)""", ids)
     assert reading == ["50' CAT", "75' CAT"], reading
@@ -705,12 +739,14 @@ def test_the_sheet_ticks_and_snakes_and_undo_loosens(page):
     assert kinds[3:6] == [('member', '11 · SR-11'), ('member', '12 · SR-12'),
                           ('member', '13 · SR-13')], kinds
     # a member row carries its extension field, blank, keyed like a loose
-    # port's ft (the same store) and offering the same connectors
+    # port's ft (the same store); no plug column on member rows either
     assert [r['ft'] for r in sheet['rows'][3:6]] == [''] * 3, sheet
     assert [r['ftKey'] for r in sheet['rows'][3:6]] == [
         f'data-cable-ft-{cid}-{n}' for n in (11, 12, 13)], sheet
-    assert [r['connector'] for r in sheet['rows'][3:6]] == [''] * 3
+    assert sheet['selects'] == 0 and set(sheet['cells']) == {4}, sheet
     assert sheet['rows'][2]['name'] == 'SNAKE A', sheet
+    # the snake's name field is sized to its text: max(6, len + 1)
+    assert sheet['rows'][2]['nameSize'] == len('SNAKE A') + 1, sheet['rows'][2]
     # Tab walks from the snake's ft into its members' ext fields in order
     pg.locator(f'[data-lrd-field="data-snake-ft-{cid}-{st["card"]["ids"][0]}"]').focus()
     pg.keyboard.press('Tab')
@@ -745,11 +781,12 @@ def test_the_sheet_ticks_and_snakes_and_undo_loosens(page):
     _sheet_open(pg, 'card', cid, False)
 
 
-def test_rename_home_run_and_connector_commit_one_entry_each(page):
-    """The box's sheet: its snake row carries the name, the ft and the
-    connector. FOH is 'Rename Snake', 100 is 'Set Snake Home Run', CAT is
-    'Set Snake Home Run' - one entry each - and the bracket's tag follows:
-    "FOH · 6-way · 100'"."""
+def test_rename_and_home_run_commit_one_entry_each(page):
+    """The box's sheet: its snake row carries the name and the ft (no
+    plug - the data sheet asks none). FOH is 'Rename Snake', 100 is 'Set
+    Snake Home Run' - one entry each; a plug set on the snake through the
+    model (setSnake, 'Set Snake Home Run') is served and kept - and the
+    bracket's tag follows: "FOH · 6-way · 100'"."""
     pg, ids = page
     bid = ids['boxId']
     snake_id = pg.evaluate(STATE_JS, ids)['box']['ids'][0]
@@ -783,8 +820,12 @@ def test_rename_home_run_and_connector_commit_one_entry_each(page):
     pg.keyboard.press('Tab')
     pg.keyboard.press('Tab')
     assert pg.evaluate(FOCUS_JS) == f'data-cable-ft-{bid}-7'
-    pg.locator(f'[data-lrd-field="data-snake-connector-{bid}-{snake_id}"]'
-               ).select_option('cat')
+    assert pg.evaluate(f"""() => !document.querySelector(
+        '[data-lrd-field="data-snake-connector-{bid}-{snake_id}"]')"""), (
+        'the snake row asks no connector')
+    pg.evaluate("""([ids, sid]) => window.app.setSnake(
+        window.app._dataCableOwner('cvt', ids.boxId), sid,
+        {connector: 'cat'}, 'Set Snake Home Run')""", [ids, snake_id])
     pg.wait_for_timeout(900)
     st = pg.evaluate(STATE_JS, ids)
     assert st['box']['snakes'][0]['connector'] == 'cat', st
@@ -892,7 +933,7 @@ def test_an_extension_reads_on_the_corner_the_tag_and_survives_loosen(page):
     (it rides FOH) is ONE 'Set Port Extension': the chip wears "+25'" in
     its blue corner (the others in FOH nothing), the canvas tag beside
     WALL's port 3 reads "FOH +25'" with Show Cable Tags on, runText says
-    "FOH 100' +25'", and the box's sheet member row holds 25. Loosening 3
+    "FOH 100' +25'", and the box's sheet member row holds 25. Unsnaking 3
     keeps the entry - it reads as the socket's own home run now ("25'
     CAT"). Undo twice puts it all back."""
     pg, ids = page
@@ -936,7 +977,7 @@ def test_an_extension_reads_on_the_corner_the_tag_and_survives_loosen(page):
     }""" % FRAME_TEXTS_JS, ids)
     assert sorted(frame['interactive']) == sorted(['FOH'] * 5 + ["FOH +25'"]), frame
     assert sorted(frame['exported']) == sorted(frame['interactive']), frame
-    # loosen 3 out of FOH: the entry stays and is its own home run now
+    # unsnake 3 out of FOH: the entry stays and is its own home run now
     pg.evaluate("""(ids) => {
         const app = window.app;
         return app.loosenPorts(app._dataCableOwner('cvt', ids.boxId), [3]);
@@ -945,7 +986,7 @@ def test_an_extension_reads_on_the_corner_the_tag_and_survives_loosen(page):
     st = pg.evaluate(STATE_JS, ids)
     assert st['box']['snakes'][0]['ports'] == [1, 2, 4, 5, 6], st
     assert st['box']['cables'] == {'3': {'ft': 25, 'connector': None}}, st
-    assert st['action'] == 'Loosen Snake' and st['index'] == index + 2, st
+    assert st['action'] == 'Unsnake' and st['index'] == index + 2, st
     loose = pg.evaluate("""(ids) => {
         const c = window.app.dataPortCable(ids.cardId, 3);
         return [c.kind, c.text];
@@ -983,11 +1024,13 @@ def test_the_switch_reads_the_selected_screen(page):
     assert out == {'on': True, 'off': False, 'absent': False}, out
 
 
-def test_loosen_from_the_bracket_menu_and_from_lit_chips(page):
-    """Right-click the snake's tag: Rename / Set home run / Loosen FOH.
-    Loosen is ONE 'Loosen Snake' entry that empties the box's snakes; undo
-    brings FOH back whole. Then a sweep inside the snake offers Loosen for
-    just those chips, and takes them out leaving the rest snaked."""
+def test_unsnake_from_the_bracket_menu_and_from_lit_chips(page):
+    """Right-click the snake's tag: Rename / Set home run / Unsnake FOH
+    ("dont call it loosen", 2026-09-07 - Unsnake is the opposite of the
+    Snake button; Unpair is the redundancy bar's word). Unsnake is ONE
+    'Unsnake' entry that empties the box's snakes; undo brings FOH back
+    whole. Then a sweep inside the snake offers Unsnake for just those
+    chips, and takes them out leaving the rest snaked."""
     pg, ids = page
     bid = ids['boxId']
     tag = pg.locator(
@@ -996,30 +1039,31 @@ def test_loosen_from_the_bracket_menu_and_from_lit_chips(page):
     b = tag.bounding_box()
     menu = _right_click(pg, b['x'] + b['width'] / 2, b['y'] + b['height'] / 2)
     assert [i['text'] for i in menu['items']] == [
-        'Rename FOH', 'Set home run of FOH…', 'Loosen FOH'], menu
+        'Rename FOH', 'Set home run of FOH…', 'Unsnake FOH'], menu
     index = pg.evaluate(STATE_JS, ids)['index']
     pg.locator('#context-menu [data-action="hw-snake-n2"]').click()
     pg.wait_for_timeout(900)
     st = pg.evaluate(STATE_JS, ids)
     assert st['box']['snakes'] == [], st
-    assert st['action'] == 'Loosen Snake' and st['index'] == index + 1, st
+    assert st['action'] == 'Unsnake' and st['index'] == index + 1, st
     assert pg.evaluate(TRAY_JS, ['cvt', bid])['brackets'] == []
     pg.evaluate('() => window.app.undo()')
     pg.wait_for_timeout(1200)
     st = pg.evaluate(STATE_JS, ids)
     assert st['box']['snakes'][0]['name'] == 'FOH' and st['index'] == index
     assert st['box']['snakes'][0]['ports'] == [1, 2, 3, 4, 5, 6]
-    # a sweep over 5-6 inside FOH: Loosen these 2
+    # a sweep over 5-6 inside FOH: Unsnake these 2
     _alt_sweep(pg, ids['cardId'], 5, 6)
     x, y = _chip_center(pg, ids['cardId'], 5)
     menu = _right_click(pg, x, y)
     texts = [i['text'] for i in menu['items']]
-    assert 'Snake these 2 (Alt+Enter)' in texts and 'Loosen these 2' in texts
-    pg.locator('#context-menu .menu-option', has_text='Loosen these 2').click()
+    assert 'Snake these 2 (Alt+Enter)' in texts and 'Unsnake these 2' in texts
+    assert not any('Loosen' in t for t in texts), texts
+    pg.locator('#context-menu .menu-option', has_text='Unsnake these 2').click()
     pg.wait_for_timeout(900)
     st = pg.evaluate(STATE_JS, ids)
     assert st['box']['snakes'][0]['ports'] == [1, 2, 3, 4], st
-    assert st['action'] == 'Loosen Snake' and st['index'] == index + 1, st
+    assert st['action'] == 'Unsnake' and st['index'] == index + 1, st
     tray = pg.evaluate(TRAY_JS, ['cvt', bid])
     assert [b['tag'] for b in tray['brackets']] == ["FOH · 4-way · 100'"], tray
     # "Set home run…" on a fresh selection snakes it and lands on its ft
@@ -1189,8 +1233,9 @@ SCRATCH_FIXTURE = os.environ.get('LRD_PULL_SMOKE_JSON') or os.path.join(
     'be6afb3b-7607-4f06-8c12-a10cd58068e9', 'scratchpad', 'experts-only.json')
 
 # One box's sheet as laid out: every row's SCREEN cell and title, and the
-# geometry the bug was - the table against the sheet, and the HOME RUN and
-# CONNECTOR cells against the sheet's right edge.
+# geometry the bug was - the table against the sheet, and the HOME RUN
+# cell (the last column now - no CONNECTOR column on the data sheet)
+# against the sheet's right edge.
 BOX_SHEET_JS = """(id) => {
     const sheet = document.querySelector(
         `.hw-dock-cablesheet[data-lrd-cable-sheet="cvt:${id}"]`);
@@ -1204,7 +1249,7 @@ BOX_SHEET_JS = """(id) => {
             const tds = [...tr.querySelectorAll('td')];
             const who = tr.querySelector('td.hw-dock-cable-who');
             const text = who.querySelector('.hw-dock-cable-who-text');
-            const r3 = tds[3].getBoundingClientRect(), r4 = tds[4].getBoundingClientRect();
+            const r3 = tds[3].getBoundingClientRect();
             return {
                 kind: tr.classList.contains('hw-dock-cable-snake') ? 'snake'
                     : tr.classList.contains('hw-dock-cable-member') ? 'member'
@@ -1212,7 +1257,7 @@ BOX_SHEET_JS = """(id) => {
                 who: who.textContent, whoTitle: who.title, rowTitle: tr.title,
                 whoClipped: text.scrollWidth > text.clientWidth + 1,
                 homeRunOn: r3.right <= s.right + 0.5 && r3.width > 0,
-                connectorOn: r4.right <= s.right + 0.5 && r4.width > 0,
+                cells: tds.length,
             };
         }),
     };
@@ -1225,7 +1270,8 @@ def test_the_backup_boxs_sheet_reads_like_the_primarys(e2e_server, pw_browser):
     """On his file, box B's snake row and its four member rows read
     "SR - MAIN" - exactly what box A's read - with the "p1 return" detail
     on the row's title; the table is never wider than the sheet, and the
-    HOME RUN and CONNECTOR cells sit on it, on both boxes. Runs in its own
+    HOME RUN cell (the last one - four columns) sits on it, on both boxes.
+    Runs in its own
     page so the module's seed is left alone, and puts the server's project
     back when it is done."""
     with open(SCRATCH_FIXTURE) as fh:
@@ -1289,11 +1335,11 @@ def test_the_backup_boxs_sheet_reads_like_the_primarys(e2e_server, pw_browser):
             # a primary row says nothing more than its cell, so no row title
             assert all(r['rowTitle'] == '' for r in a['rows'][:5]), a['rows']
             # the geometry: never a table wider than its sheet, every HOME
-            # RUN and CONNECTOR cell on the sheet, nothing cut
+            # RUN cell on the sheet, four cells a row, nothing cut
             for which, sh in sheets.items():
                 assert sh['tableW'] <= sh['sheetW'] + 0.5, (which, sh['tableW'], sh['sheetW'])
                 assert sh['tableRight'] <= sh['sheetRight'] + 0.5, (which, sh)
-                assert all(r['homeRunOn'] and r['connectorOn'] for r in sh['rows']), (which, sh['rows'])
+                assert all(r['homeRunOn'] and r['cells'] == 4 for r in sh['rows']), (which, sh['rows'])
                 assert not any(r['whoClipped'] for r in sh['rows']), (which, sh['rows'])
             assert errors == [], errors
         finally:
@@ -1356,25 +1402,29 @@ SHEET_FIT_JS = """([kind, id]) => {
         units: [...body.querySelectorAll('.hw-dock-unit')].map(u => ({
             name: (u.querySelector('.hw-dock-unit-name') || {}).textContent || '',
             hasSheet: u === unit, ...rect(u)})),
-        connectorW: sheet.querySelector('.hw-dock-cable-connector').getBoundingClientRect().width,
+        sheetMinW: parseFloat(getComputedStyle(sheet).minWidth),
+        tableCssW: getComputedStyle(table).width,
+        nameW: (() => { const n = sheet.querySelector('.hw-dock-cable-name');
+            return n ? n.getBoundingClientRect().width : null; })(),
         sheetScrolls: sheet.scrollWidth > sheet.clientWidth + 1,
     };
 }"""
 
 
-def test_a_sheet_never_runs_past_its_box_and_takes_the_tray_row(page):
-    """On the user's 1440x900 window box B's sheet came up 415px wide with a
-    563px table, its CONNECTOR column off the edge (2026-09-07). A unit
-    whose sheet is open now takes the whole tray row - a sheet is a table
-    of inputs and needs the width; the chips beside it wrap fine, a sheet
-    does not - so with TWO cards in the tray the sheet's table is never
-    wider than the sheet and the unit spans the tray body's width, the
-    other card dropping to a row of its own. The connector select is the
-    120px the "follows port (CAT)" / "CAT" list needs, and the sheet has
-    nothing to scroll sideways for."""
+def test_a_sheet_sizes_to_its_table_within_the_floor(page):
+    """sheet-fit-mock.html, "i like option A but if we pass a threshold
+    then grow like option B" (2026-09-07). On a 1440x900 window with TWO
+    cards in the tray, a unit whose sheet is open takes what its table
+    needs and no more: the table is never wider than the sheet, the unit
+    is at least the sheet's 480px floor and never wider than the tray
+    body, and the sheet has nothing to scroll sideways for. Then B's
+    growth: the snake renamed to something long - its name field sized to
+    its text - widens the table and the unit with it, still inside the
+    tray; undo puts the name back."""
     pg, ids = page
     _sheet_open(pg, 'cvt', ids['boxId'], False)
     _sheet_open(pg, 'card', ids['cardId'], False)
+    snake_id = pg.evaluate(STATE_JS, ids)['box']['ids'][0]
     try:
         pg.set_viewport_size({'width': 1440, 'height': 900})
         pg.wait_for_timeout(400)
@@ -1382,22 +1432,158 @@ def test_a_sheet_never_runs_past_its_box_and_takes_the_tray_row(page):
         assert tray['sheet'], tray
         out = pg.evaluate(SHEET_FIT_JS, ['cvt', ids['boxId']])
         assert out, 'the box has no sheet open'
-        print('\nsheet fit at 1440x900:', json.dumps({k: out[k] for k in ('viewport', 'sheet', 'table', 'unit', 'bodyContentW', 'connectorW', 'sheetScrolls')}))
+        print('\nsheet fit at 1440x900:', json.dumps({k: out[k] for k in (
+            'viewport', 'sheet', 'table', 'unit', 'bodyContentW', 'sheetMinW',
+            'tableCssW', 'nameW', 'sheetScrolls', 'units')}))
         assert out['viewport'] == [1440, 900], out['viewport']
         # two cards in the tray, the sheet's on one of them
         assert len(out['units']) >= 2 and sum(1 for u in out['units'] if u['hasSheet']) == 1, out['units']
-        # the table is no wider than the sheet
+        # the table is no wider than the sheet, and lays out at content width
         assert out['table']['w'] <= out['sheet']['w'] + 1, (out['table'], out['sheet'])
         assert out['table']['right'] <= out['sheet']['right'] + 1, (out['table'], out['sheet'])
         assert not out['sheetScrolls'], out
-        # the unit spans the tray body's width
-        assert abs(out['unit']['w'] - out['bodyContentW']) <= 1, (out['unit'], out['bodyContentW'])
-        assert abs(out['unit']['x'] - out['bodyContentLeft']) <= 1, (out['unit'], out['bodyContentLeft'])
-        # so the other card sits on a row of its own, never beside the sheet
-        others = [u for u in out['units'] if not u['hasSheet']]
-        assert all(u['y'] >= out['unit']['y'] + 1 or u['y'] + 1 <= out['unit']['y'] for u in others), out['units']
-        assert abs(out['connectorW'] - 120) <= 1, out['connectorW']
+        # the floor: 480px on the sheet; the unit is at least that and
+        # never wider than the tray body - Option A, not the whole row
+        assert out['sheetMinW'] == 480, out['sheetMinW']
+        assert out['sheet']['w'] >= 480 - 0.5, out['sheet']
+        assert 480 <= out['unit']['w'] <= out['bodyContentW'] + 1, (out['unit'], out['bodyContentW'])
+        assert out['unit']['w'] < out['bodyContentW'] - 100, (
+            'the unit must size to its table, not take the tray row', out['unit'], out['bodyContentW'])
+        # B's growth: a long name widens the field, the table and the unit
+        name = pg.locator(f'[data-lrd-field="data-snake-name-{ids["boxId"]}-{snake_id}"]')
+        long_name = 'SR PRIMARY SNAKE TO FOH LEFT'
+        index = pg.evaluate(STATE_JS, ids)['index']
+        name.fill(long_name)
+        name.press('Tab')
+        pg.wait_for_timeout(900)
+        st = pg.evaluate(STATE_JS, ids)
+        assert st['box']['snakes'][0]['name'] == long_name and st['index'] == index + 1, st
+        grown = pg.evaluate(SHEET_FIT_JS, ['cvt', ids['boxId']])
+        print('sheet fit after the long name:', json.dumps({k: grown[k] for k in (
+            'sheet', 'table', 'unit', 'nameW', 'sheetScrolls', 'units')}))
+        size = pg.evaluate(f"""() => document.querySelector(
+            '[data-lrd-field="data-snake-name-{ids["boxId"]}-{snake_id}"]').size""")
+        assert size == len(long_name) + 1, size
+        assert grown['nameW'] > out['nameW'] + 40, (grown['nameW'], out['nameW'])
+        assert grown['table']['w'] > out['table']['w'] + 40, (grown['table'], out['table'])
+        assert grown['unit']['w'] > out['unit']['w'] + 40, (grown['unit'], out['unit'])
+        assert grown['table']['w'] <= grown['sheet']['w'] + 1, (grown['table'], grown['sheet'])
+        assert grown['unit']['w'] <= grown['bodyContentW'] + 1, (grown['unit'], grown['bodyContentW'])
+        assert not grown['sheetScrolls'], grown
+        pg.evaluate('() => window.app.undo()')
+        pg.wait_for_timeout(1200)
+        st = pg.evaluate(STATE_JS, ids)
+        assert st['box']['snakes'][0]['name'] == 'FOH' and st['index'] == index, st
+        back = pg.evaluate(SHEET_FIT_JS, ['cvt', ids['boxId']])
+        assert abs(back['unit']['w'] - out['unit']['w']) <= 1, (back['unit'], out['unit'])
     finally:
         _sheet_open(pg, 'cvt', ids['boxId'], False)
         pg.set_viewport_size({'width': 1700, 'height': 950})
         pg.wait_for_timeout(400)
+
+
+# One port chip's occupant line as laid out: the occupant's text and the
+# length beside it - does each read whole, and do the two ever overlap.
+CHIP_LINE_JS = """([key, plant]) => {
+    const face = document.querySelector(`[data-hwdock="${key}"]`);
+    const tile = face && face.closest('.lrd-tile');
+    if (!tile) return null;
+    const lines = [...tile.querySelectorAll('.lrd-tile-face .lrd-tile-line')];
+    const line = lines[1];
+    const text = line.querySelector('.lrd-tile-text');
+    const len = line.querySelector('.hw-dock-chip-cable-data');
+    if (plant && text) text.textContent = plant;
+    const r = (el) => el.getBoundingClientRect();
+    const lr = r(line), tr = text ? r(text) : null, nr = len ? r(len) : null;
+    return {
+        lineText: line.textContent, flex: getComputedStyle(line).display,
+        wrapped: !!text, who: text ? text.textContent : line.textContent,
+        len: len ? len.textContent : null,
+        whoFits: text ? text.scrollWidth <= text.clientWidth + 1 : null,
+        lenFits: len ? len.scrollWidth <= len.clientWidth + 1 : null,
+        disjoint: (text && len) ? (tr.right <= nr.left + 0.5 || nr.right <= tr.left + 0.5) : null,
+        sameLine: (text && len) ? Math.abs(tr.bottom - nr.bottom) < 6 : null,
+        lenOnLine: len ? (nr.left >= lr.left - 0.5 && nr.right <= lr.right + 0.5) : null,
+        lenColor: len ? getComputedStyle(len).color : null,
+        cableClass: line.classList.contains('lrd-tile-line-cable'),
+        barBelow: (() => { const bar = tile.querySelector('.hw-dock-bar');
+            return bar ? r(bar).top >= lr.bottom - 0.5 : null; })(),
+    };
+}"""
+
+
+def test_a_chip_reads_its_occupant_and_its_length_side_by_side(page):
+    """"adding the extensions on data ... you cant read them" (2026-09-07):
+    the corner length sat OVER the occupant line. Now the length is in
+    flow at the END of the occupant line: box port 5 carrying SL - MAIN
+    (the wall renamed) and a 10' home run reads "SL - MAIN" then "10'" -
+    the length whole, in the data blue, side by side and never
+    overlapping (the occupant may ellipsize on a narrow chip; it is never
+    drawn over), the bar row below them; a long occupant planted in the
+    same chip ellipsizes while the length still reads whole and the two
+    stay disjoint. A chip with no length keeps its plain line."""
+    pg, ids = page
+    cid, bid = ids['cardId'], ids['boxId']
+    _sheet_open(pg, 'cvt', bid, False)
+    index = pg.evaluate(STATE_JS, ids)['index']
+    pg.evaluate("""(ids) => window.app.setPortCable(
+        window.app._dataCableOwner('cvt', ids.boxId), 5, {ft: '10'})""", ids)
+    pg.wait_for_timeout(900)
+    st = pg.evaluate(STATE_JS, ids)
+    assert st['box']['cables'].get('5') == {'ft': 10, 'connector': None}, st
+    assert st['index'] == index + 1, st
+    try:
+        who = pg.evaluate("""async (ids) => {
+            const app = window.app;
+            await fetch(`/api/layer/${ids.id}`, {method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name: 'SL - MAIN'})});
+            app.project = await (await fetch('/api/project')).json();
+            app.dedupeProjectLayers('snakes_chip_line');
+            app.selectLayer(app.project.layers.find(l => l.id === ids.id));
+            await app.refreshPortAssignment();
+            app.renderLayers();
+            app.renderHardwareDock();
+            return app._portOccupants(ids.cardId, 5).map(o => o.name);
+        }""", ids)
+        pg.wait_for_timeout(600)
+        assert who == ['SL - MAIN'], who
+        line = pg.evaluate(CHIP_LINE_JS, [f'port-{cid}-5', None])
+        print('\nchip line:', json.dumps(line))
+        assert line and line['wrapped'] and line['cableClass'] and line['flex'] == 'flex', line
+        assert line['who'] == 'SL - MAIN' and line['len'] == "10'", line
+        # the LENGTH always reads whole; the occupant may ellipsize on a
+        # narrow chip (the brief's rule) - it is never drawn over
+        assert line['lenFits'], line
+        assert line['disjoint'] and line['sameLine'] and line['lenOnLine'], line
+        assert line['lenColor'] == 'rgb(143, 208, 255)', line['lenColor']
+        assert line['barBelow'], line
+        # a long occupant: the text ellipsizes, the length still reads whole
+        long = pg.evaluate(CHIP_LINE_JS, [f'port-{cid}-5', 'SL - MAIN UPSTAGE LEFT WIDE RETURN'])
+        print('chip line, long occupant:', json.dumps(long))
+        assert long['whoFits'] is False, long
+        assert long['lenFits'] and long['disjoint'] and long['lenOnLine'], long
+        assert long['len'] == "10'", long
+        # a chip with no length: the plain line, nothing wrapped
+        plain = pg.evaluate(CHIP_LINE_JS, [f'port-{cid}-6', None])
+        assert plain and not plain['wrapped'] and not plain['cableClass'], plain
+        assert plain['len'] is None and plain['who'] == 'SL - MAIN', plain
+    finally:
+        pg.evaluate("""async (ids) => {
+            const app = window.app;
+            await fetch(`/api/layer/${ids.id}`, {method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name: 'WALL'})});
+            app.project = await (await fetch('/api/project')).json();
+            app.dedupeProjectLayers('snakes_chip_line_back');
+            app.selectLayer(app.project.layers.find(l => l.id === ids.id));
+            await app.refreshPortAssignment();
+            app.renderLayers();
+            app.renderHardwareDock();
+        }""", ids)
+        pg.wait_for_timeout(600)
+        pg.evaluate('() => window.app.undo()')
+        pg.wait_for_timeout(1200)
+    st = pg.evaluate(STATE_JS, ids)
+    assert '5' not in st['box']['cables'] and st['index'] == index, st
+    assert pg.evaluate("(ids) => window.app._portOccupants(ids.cardId, 5).map(o => o.name)", ids) == ['WALL']

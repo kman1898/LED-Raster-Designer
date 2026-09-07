@@ -1639,10 +1639,12 @@ button.hw-dock-typechip:focus-visible { outline: 1px solid var(--ps-accent, #ef3
    the quick fills under that. Fields are inset, the totals a flat readout,
    the fills raised keycaps (theme.css dresses the buttons). */
 .hw-dock-cablesheet { padding: 4px 2px 2px; overflow-x: auto; }
-/* the table fills a wide box (width: 100%); the sheet's overflow-x: auto
-   above is the last resort - on a box too narrow for the five columns the
-   sheet scrolls sideways rather than cutting a HOME RUN or CONNECTOR cell
-   off its edge, so nothing on it is ever unreachable (2026-09-07) */
+/* the power table fills its box (width: 100%); the sheet's overflow-x:
+   auto above is the last resort - on a box too narrow for the five
+   columns the sheet scrolls sideways rather than cutting a HOME RUN or
+   CONNECTOR cell off its edge, so nothing on it is ever unreachable
+   (2026-09-07). The DATA sheet's table lays out at content width instead
+   (the sizing block below). */
 .hw-dock-cablesheet table {
     border-collapse: collapse; width: 100%;
     font: 10.5px ui-monospace, Menlo, monospace; color: #dddddd;
@@ -1681,24 +1683,39 @@ button.hw-dock-typechip:focus-visible { outline: 1px solid var(--ps-accent, #ef3
 .hw-dock-cable-ft::-webkit-outer-spin-button,
 .hw-dock-cable-ft::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .hw-dock-cable-ft:focus { outline: none; border-color: var(--ps-accent, #ef3340); }
-/* 120px: the list reads "follows port (CAT)" / "CAT" now, and every
-   pixel the select does not need is one the sheet keeps on a narrow box */
+/* the power sheet's plug column - True1 / powerCON / Edison are real
+   choices there; the data sheet has none (CAT is the only data plug) */
 .hw-dock-cable-connector {
     width: 120px; background: #0d0d0d; color: #eeeeee; border: 1px solid #555;
     border-radius: 3px; padding: 1px 4px;
     font: 10.5px ui-monospace, Menlo, monospace;
 }
 .hw-dock-cable-connector:focus { outline: none; border-color: var(--ps-accent, #ef3340); }
+/* the controls row - With ticked: Snake / Unsnake · Quick fill - sits on
+   TOP of both sheets, right under the sheet's top edge, before the rows
+   ("move snake and quick fill to the top instead of the bottom",
+   2026-09-07) */
 .hw-dock-cable-quick {
-    display: flex; gap: 6px; align-items: center; padding: 5px 4px 2px;
+    display: flex; gap: 6px; align-items: center; padding: 2px 4px 5px;
     font-size: 11px; color: #bbbbbb;
 }
-/* a chip with a cable wears it small in its corner, in the cable's gold.
-   TOP right: the chip's bottom edge is the meter's bar row, which would
-   cover a bottom-corner reading. */
+/* A chip with a cable wears its length small at the END of one of its
+   lines, in the cable's gold - IN FLOW, never over the text (2026-09-07:
+   "adding the extensions on data, and power in the hardware tab you cant
+   read them" - the absolute corner sat on "SL - MAIN" and neither read).
+   The line it rides turns flex: the text ellipsizes, the length keeps its
+   full width. Power chips: the top line ("1 A-1 · 10' True1"), so the
+   bar row along the chip's bottom stays clear; data chips: the occupant
+   line, in the data blue. A chip with no length keeps the plain line. */
+.lrd-tile-line.lrd-tile-line-cable {
+    display: flex; align-items: baseline; gap: 4px;
+}
+.lrd-tile-line-cable > .lrd-tile-text {
+    flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap;
+}
 .hw-dock-chip-cable {
-    position: absolute; right: 5px; top: 3px; font-size: 8.5px;
-    max-width: 48%; overflow: hidden; text-overflow: ellipsis;
+    flex: 0 0 auto; font-size: 8.5px;
     color: #f0d48a; font-family: ui-monospace, Menlo, monospace;
     pointer-events: none; white-space: nowrap;
 }
@@ -1722,9 +1739,9 @@ button.hw-dock-typechip:focus-visible { outline: 1px solid var(--ps-accent, #ef3
 }
 .hw-dock-snake-ghost { border-style: dashed; opacity: .85; }
 .hw-dock-snake-ghost .hw-dock-snake-tag { border-style: dashed; }
-/* the data chip's top line carries "9 SR-9", so its corner rides the
-   SECOND line (the occupant, "free" / "WALL" - short), above the bar row */
-.hw-dock-chip-cable-data { color: #8fd0ff; top: auto; bottom: 12px; }
+/* the data chip's top line carries "9 SR-9", so its length rides the
+   SECOND line (the occupant - "SL - MAIN · 10'"), in the data blue */
+.hw-dock-chip-cable-data { color: #8fd0ff; }
 /* the sweep's lit chips: the canvas Alt-sweep's look (the mock's .sel) */
 .hw-dock-tile.hw-dock-chip-sel {
     border-color: #ff5555 !important;
@@ -1742,8 +1759,10 @@ button.hw-dock-typechip:focus-visible { outline: 1px solid var(--ps-accent, #ef3
 .hw-dock-cablesheet-data tr.hw-dock-cable-member td { color: #7a8a94; }
 .hw-dock-cablesheet-data .hw-dock-cable-dim { color: #666666; }
 .hw-dock-cable-snake-cap { margin-right: 6px; white-space: nowrap; }
+/* no width: the field's `size` (app-dock.js, max(6, name.length + 1))
+   sizes it to its text, so a longer name grows the sheet */
 .hw-dock-cable-name {
-    width: 90px; background: #0d0d0d; color: #eeeeee; border: 1px solid #555;
+    background: #0d0d0d; color: #eeeeee; border: 1px solid #555;
     border-radius: 3px; padding: 1px 4px;
     font: 10.5px ui-monospace, Menlo, monospace;
 }
@@ -1899,19 +1918,29 @@ button.hw-dock-typechip:focus-visible { outline: 1px solid var(--ps-accent, #ef3
 /* A folded card with its cable sheet up (the sheet rides outside the
    fold, app-dock.js) is the sheet's width, not the header's cap. */
 #hardware-dock-body .hw-dock-proc
-    .hw-dock-unit.lrd-sec-collapsed.hw-dock-sheet-up { max-width: none; }
-/* A unit whose cable sheet is open takes the WHOLE tray row (2026-09-07:
-   on a 1440px window box B's sheet came up 415px wide with a 563px table,
-   its CONNECTOR column off the edge). A sheet is a table of inputs and
-   needs the width; the chips next to it wrap fine, a sheet does not. The
-   tray is Chromium/Electron, so :has() is safe. The card unit lives in
-   its processor's wrap (and a backup pair's wrapper), so each level on
-   the way to the tray body opens to 100% too; a unit straight in the
-   body is covered as well. */
-#hardware-dock-body > .hw-dock-unit:has(.hw-dock-cablesheet),
-#hardware-dock-body > .hw-dock-proc:has(.hw-dock-cablesheet),
-#hardware-dock-body > .lrd-red-pair:has(.hw-dock-cablesheet),
-#hardware-dock-body .hw-dock-proc > .lrd-red-pair:has(.hw-dock-cablesheet),
-#hardware-dock-body .hw-dock-proc .hw-dock-unit:has(.hw-dock-cablesheet) {
-    flex: 1 1 100%; max-width: none;
+    .hw-dock-unit.lrd-sec-collapsed.hw-dock-sheet-up { max-width: 100%; }
+/* ── the data sheet sizes to its content (2026-09-07, sheet-fit-mock.html:
+   "Option A with B's growth") ──────────────────────────────────────────
+   beta.25 gave a unit with an open sheet the WHOLE tray row, and "when
+   there's not a lot of information" four inputs floated in a field of
+   nothing. Now the unit holding an open DATA sheet takes what its table
+   needs and no more (flex: 0 1 auto), so the chips of the card beside it
+   flow next to it again; as the names grow - a longer snake name, its
+   field sized to its text - the table widens and the unit with it
+   (Option B's growth); a FLOOR of 480px on the sheet keeps a near-empty
+   sheet from crowding its inputs; past the tray's width the sheet's
+   overflow-x: auto scrolls it sideways instead of cutting an input off.
+   The SCREEN cell keeps its 24ch ellipsis cap. The tray is Chromium/
+   Electron, so :has() is safe. The card unit lives in its processor's
+   wrap (and a backup pair's wrapper), so each level on the way to the
+   tray body sizes to its content the same way, capped at the tray's
+   width; a unit straight in the body is covered as well. */
+#hardware-dock-body > .hw-dock-unit:has(.hw-dock-cablesheet-data),
+#hardware-dock-body > .hw-dock-proc:has(.hw-dock-cablesheet-data),
+#hardware-dock-body > .lrd-red-pair:has(.hw-dock-cablesheet-data),
+#hardware-dock-body .hw-dock-proc > .lrd-red-pair:has(.hw-dock-cablesheet-data),
+#hardware-dock-body .hw-dock-proc .hw-dock-unit:has(.hw-dock-cablesheet-data) {
+    flex: 0 1 auto; max-width: 100%;
 }
+.hw-dock-cablesheet-data { min-width: 480px; }
+.hw-dock-cablesheet-data table { width: auto; }

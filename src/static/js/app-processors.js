@@ -1384,16 +1384,39 @@ class _Processors {
         return text;
     }
 
-    // The same reading for one port of a screen, through the assignment:
-    // the port's pinned socket, then the socket's owner. Null while the
-    // port is on no card.
-    dataPortCableForScreen(layer, portNum) {
+    // One port of a screen as the assignment pinned it - { cardId, port }
+    // off the resolved assignment - or null while the port is on no card.
+    _screenPortPin(layer, portNum) {
         const scr = ((this._assignment && this._assignment.screens) || [])
             .find(s => String(s.layerId) === String(layer.id));
         const port = scr && (scr.ports || [])
             .find(p => p.number === parseInt(portNum, 10));
-        if (!port || !port.cardId || port.port == null) return null;
-        return this.dataPortCable(port.cardId, port.port);
+        return port && port.cardId && port.port != null ? port : null;
+    }
+
+    // The same reading for one port of a screen, through the assignment:
+    // the port's pinned socket, then the socket's owner. Null while the
+    // port is on no card.
+    dataPortCableForScreen(layer, portNum) {
+        const port = this._screenPortPin(layer, portNum);
+        return port ? this.dataPortCable(port.cardId, port.port) : null;
+    }
+
+    // The same reading for the port's BACKUP end - what the return marker
+    // wears ("also redundancy extensions and snakes arent showing their
+    // cable tags", 2026-09-07). The pinned socket's resolved card port
+    // carries `backedBy` ({ cardId, port } - processor_catalog link()),
+    // read off the tree by _pullBackedBy (app-pull-list.js: the pull list
+    // walks the backup end through the same helper - one implementation),
+    // then that socket's own home run: the backup box's snake, "+25'" when
+    // the backup socket carries an extension, "50' CAT" for a loose backup
+    // cable. Null while the port is on no card, has no backup, or the
+    // backup socket carries nothing.
+    dataPortBackupCableForScreen(layer, portNum) {
+        const port = this._screenPortPin(layer, portNum);
+        if (!port || typeof this._pullBackedBy !== 'function') return null;
+        const bb = this._pullBackedBy(port.cardId, port.port);
+        return bb ? this.dataPortCable(bb.cardId, bb.port) : null;
     }
 
     // The snake's tag as the bracket and the sheet print it:
@@ -1458,12 +1481,14 @@ class _Processors {
         });
     }
 
-    // Loosen sockets out of their snakes (a snake left empty goes).
-    // `sockets` null loosens a whole snake by id. A socket that leaves
+    // Unsnake sockets out of their snakes (a snake left empty goes) -
+    // the sheet's "Unsnake" button, the opposite of "Snake" (2026-09-07:
+    // "dont call it loosen"; "Unpair" is the redundancy bar's word).
+    // `sockets` null unsnakes a whole snake by id. A socket that leaves
     // keeps its portCables entry: what was its extension off the snake
     // reads as its own home run again - a length somebody typed is not
     // thrown away, and the sheet shows it where it can be changed. ONE
-    // 'Loosen Snake'.
+    // 'Unsnake' entry.
     loosenPorts(owner, sockets, snakeId = null) {
         const stores = this._dataCableStores(owner);
         const chosen = new Set((sockets || []).map(n => parseInt(n, 10)));
@@ -1472,7 +1497,7 @@ class _Processors {
             .map(s => Object.assign({}, s,
                 { ports: s.ports.filter(n => !chosen.has(n)) }))
             .filter(s => s.ports.length);
-        return this._dataCablePut(owner, stores, 'Loosen Snake');
+        return this._dataCablePut(owner, stores, 'Unsnake');
     }
 
     // Rename / re-length / re-plug one snake. `patch` carries any of

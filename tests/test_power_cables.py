@@ -32,6 +32,7 @@ ports):
     python -m pytest tests/test_power_cables.py -v --browser chromium
 """
 
+import json
 import os
 import sys
 
@@ -743,3 +744,127 @@ def test_the_sheet_leaves_an_open_box_open(page):
     pg.wait_for_timeout(900)
     st_c = pg.evaluate(STATE_JS, ids['id'])
     assert st_c['cables'] == before['cables'] and st_c['index'] == before['index']
+
+
+# ── the controls on top, the length beside the label (2026-09-07) ────────
+#
+# "move snake and quick fill to the top instead of the bottom" - the data
+# sheet's controls row moved above its rows, and the power sheet's Quick
+# fill row moves the same way so the two sheets read alike. "adding the
+# extensions on data, and power in the hardware tab you cant read them" -
+# the chip's corner length sat OVER the line under it; it is in flow now,
+# at the end of the top line, the label ellipsizing before the length
+# ever shortens.
+
+def test_the_quick_fills_sit_above_the_rows(page):
+    """The power sheet's Quick fill row is the sheet's first child and
+    precedes its table in DOM order - the same order as the data sheet's
+    controls - with the totals row still the table's last."""
+    pg, ids = page
+    if not _sheet(pg, ids)['open']:
+        _flip(pg, ids)
+    out = pg.evaluate("""([distroId, n]) => {
+        const sec = document.querySelector(
+            `[data-lrd-sec="hwdock-multi-${distroId}-${n}"]`).parentElement;
+        const sheet = sec.querySelector('.hw-dock-cablesheet');
+        const quick = sheet.querySelector('.hw-dock-cable-quick');
+        const table = sheet.querySelector('table');
+        return {
+            first: sheet.firstElementChild === quick,
+            before: !!(quick.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING),
+            quickTop: quick.getBoundingClientRect().top,
+            tableTop: table.getBoundingClientRect().top,
+            labels: [...quick.querySelectorAll('button')].map(b => b.textContent),
+            last: table.lastElementChild.className,
+            headers: [...table.querySelectorAll('th')].map(t => t.textContent),
+        };
+    }""", [ids['distroId'], 1])
+    assert out['first'] and out['before'], out
+    assert out['quickTop'] < out['tableTop'], out
+    assert out['labels'] == ["all 10'", "all 6'", 'none'], out
+    assert out['last'] == 'hw-dock-cable-total', out
+    assert out['headers'][-1] == 'connector', (
+        'the power sheet keeps its plug column - True1 / powerCON / Edison '
+        'are real choices', out)
+    _flip(pg, ids)
+    assert not _sheet(pg, ids)['open']
+
+
+CHIP_TOP_JS = """([key, plant]) => {
+    const tile = document.querySelector(`[data-lrd-tile="${key}"]`);
+    if (!tile) return null;
+    const line = [...tile.querySelectorAll('.lrd-tile-face .lrd-tile-line')][0];
+    const spans = [...line.querySelectorAll(':scope > span')];
+    const text = line.querySelector('.lrd-tile-text');
+    const len = line.querySelector('.hw-dock-chip-cable');
+    if (plant && text) text.textContent = plant;
+    const r = (el) => el.getBoundingClientRect();
+    const lr = r(line), tr = text ? r(text) : null, nr = len ? r(len) : null;
+    return {
+        flex: getComputedStyle(line).display,
+        cableClass: line.classList.contains('lrd-tile-line-cable'),
+        num: spans[0] ? spans[0].textContent : null,
+        label: text ? text.textContent : (spans[1] ? spans[1].textContent : null),
+        len: len ? len.textContent : null,
+        labelFits: text ? text.scrollWidth <= text.clientWidth + 1 : null,
+        lenFits: len ? len.scrollWidth <= len.clientWidth + 1 : null,
+        disjoint: (text && len) ? (tr.right <= nr.left + 0.5 || nr.right <= tr.left + 0.5) : null,
+        numDisjoint: (spans[0] && len) ? r(spans[0]).right <= nr.left + 0.5 : null,
+        sameLine: (text && len) ? Math.abs(tr.bottom - nr.bottom) < 6 : null,
+        lenOnLine: len ? (nr.left >= lr.left - 0.5 && nr.right <= lr.right + 0.5) : null,
+        lenColor: len ? getComputedStyle(len).color : null,
+        barBelow: (() => { const bar = tile.querySelector('.hw-dock-bar');
+            return bar ? r(bar).top >= lr.bottom - 0.5 : null; })(),
+    };
+}"""
+
+
+def test_a_chip_reads_its_label_and_its_length_side_by_side(page):
+    """Circuit 3 (bare in the user's own example) given a 10' True1: its
+    chip's top line reads the number, the label and "10' True1" whole, in
+    the cable's gold, side by side and never overlapping, the bar row
+    below; a long label planted in the same chip ellipsizes while the
+    length still reads whole. Circuit 4, with no cable, keeps its plain
+    line."""
+    pg, ids = page
+    d = ids['distroId']
+    if _sheet(pg, ids)['open']:
+        _flip(pg, ids)
+    before = pg.evaluate(STATE_JS, ids['id'])
+    pg.evaluate("""(id) => {
+        const app = window.app;
+        const l = app.project.layers.find(x => x.id === id);
+        app.setCircuitCable(l, 3, {ft: 10, connector: null});
+        app.saveClientSideProperties();
+        app._circuitTailCache = null;
+        app.renderHardwareDock();
+    }""", ids['id'])
+    pg.wait_for_timeout(600)
+    st = pg.evaluate(STATE_JS, ids['id'])
+    assert '3' not in before['cables'], before
+    assert st['cables'].get('3') == {'ft': 10, 'connector': None}, st
+    assert st['index'] == before['index'] + 1, st
+    try:
+        line = pg.evaluate(CHIP_TOP_JS, [f'ptail-{d}-1-3', None])
+        print('\npower chip top line:', json.dumps(line))
+        assert line and line['cableClass'] and line['flex'] == 'flex', line
+        assert line['num'] == '3' and line['label'] == ids['labels'][2], line
+        assert line['len'] == "10' True1", line
+        assert line['labelFits'] and line['lenFits'], line
+        assert line['disjoint'] and line['numDisjoint'] and line['sameLine'] and line['lenOnLine'], line
+        assert line['lenColor'] == 'rgb(240, 212, 138)', line['lenColor']
+        assert line['barBelow'], line
+        long = pg.evaluate(CHIP_TOP_JS, [f'ptail-{d}-1-3',
+            'SR1-3 UPSTAGE LEFT WIDE RUN TO THE FAR DOWNSTAGE CORNER PANEL OF THE WALL'])
+        print('power chip top line, long label:', json.dumps(long))
+        assert long['labelFits'] is False, long
+        assert long['lenFits'] and long['disjoint'] and long['lenOnLine'], long
+        assert long['len'] == "10' True1", long
+        plain = pg.evaluate(CHIP_TOP_JS, [f'ptail-{d}-1-4', None])
+        assert plain and not plain['cableClass'] and plain['len'] is None, plain
+        assert plain['label'] == ids['labels'][3], plain
+    finally:
+        pg.evaluate('() => window.app.undo()')
+        pg.wait_for_timeout(900)
+    st = pg.evaluate(STATE_JS, ids['id'])
+    assert st['cables'] == before['cables'] and st['index'] == before['index'], st

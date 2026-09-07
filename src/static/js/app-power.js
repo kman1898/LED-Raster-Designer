@@ -80,7 +80,7 @@ class _Power {
         this._outputsMenuActions = outs;
         // Data snakes (2026-09-06, "B to form it"): on a lit port chip
         // the sweep gathered, on a snake's tag, or on a chip riding a
-        // snake - "Snake these N", "Set home run…", "Loosen", "Rename"
+        // snake - "Snake these N", "Set home run…", "Unsnake", "Rename"
         // (app-dock.js _prepareSnakeMenu). Tray only; absent elsewhere.
         const snake = (typeof this._prepareSnakeMenu === 'function')
             ? this._prepareSnakeMenu(x, y) : null;

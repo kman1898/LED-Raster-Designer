@@ -366,30 +366,15 @@ class CanvasRenderer {
             }
             return Math.max(minRadius, r + padding);
         };
-        // Greedy width-balanced split into n lines. Optimal-enough for the
-        // handful of tokens a port name has, without enumerating every
-        // partition of a pathological label.
-        const splitInto = (n) => {
-            const target = widthOf(text) / n;
-            const lines = [];
-            let cur = tokens[0];
-            for (let i = 1; i < tokens.length; i++) {
-                const joined = cur + ' ' + tokens[i];
-                if (lines.length < n - 1 && widthOf(joined) > target) {
-                    lines.push(cur);
-                    cur = tokens[i];
-                } else {
-                    cur = joined;
-                }
-            }
-            lines.push(cur);
-            return lines;
-        };
+        // The whole label's width sets the split's target, not the joined
+        // tokens' - the two differ on a label with doubled spaces, and the
+        // no-wrap result must reproduce the old layout exactly.
+        const totalWidth = widthOf(text);
         let best = oneLine;
         // 4 stacked lines is already a tall circle; more never reads well
         // and the radius math would reject it anyway.
         for (let n = 2; n <= Math.min(tokens.length, 4); n++) {
-            const lines = splitInto(n);
+            const lines = this._balancedSplit(tokens, n, widthOf, totalWidth);
             const r = radiusOfLines(lines);
             // Strictly-better only (half-px margin): ties keep fewer lines,
             // and a wrap that doesn't shrink the circle isn't worth reading
@@ -400,19 +385,55 @@ class CanvasRenderer {
     }
 
     /**
+     * Greedy width-balanced split of `tokens` into `n` lines, breaking
+     * only between tokens: each line takes tokens until adding the next
+     * would carry it past an equal share of the whole width, and the last
+     * line takes whatever is left. Optimal-enough for the handful of
+     * tokens a port name or a cable tag has, without enumerating every
+     * partition of a pathological label. ONE implementation for the
+     * port/circuit label (_layoutCircleLabel) and the cable tag
+     * (cableTagLayout), so the two wrap the same way. `widthOf` measures
+     * a string in the caller's font (ctx.font must already be set);
+     * `totalWidth` is the unsplit text's width when the caller has it
+     * (a label with doubled spaces measures wider than its joined tokens).
+     */
+    _balancedSplit(tokens, n, widthOf, totalWidth) {
+        const total = totalWidth !== undefined ? totalWidth
+            : widthOf(tokens.join(' '));
+        const target = total / n;
+        const lines = [];
+        let cur = tokens[0];
+        for (let i = 1; i < tokens.length; i++) {
+            const joined = cur + ' ' + tokens[i];
+            if (lines.length < n - 1 && widthOf(joined) > target) {
+                lines.push(cur);
+                cur = tokens[i];
+            } else {
+                cur = joined;
+            }
+        }
+        lines.push(cur);
+        return lines;
+    }
+
+    /**
      * Draw the lines from _layoutCircleLabel centered on (x, y). One line
      * delegates to _fillText so an unwrapped label renders exactly as it
      * always has. A stack applies the mirror/upright un-transform ONCE for
      * the whole block: per-line _fillText would counter-rotate each line
      * about its own anchor and stagger the stack diagonally on a rotated
      * screen, while the block belongs upright around the circle center.
+     * The leading defaults to the circle label's; the cable tag passes
+     * its own (its lines are left-aligned at x, through ctx.textAlign).
      */
-    _fillWrappedLabel(lines, x, y, fontPx) {
+    _fillWrappedLabel(lines, x, y, fontPx, lineHeight) {
         if (lines.length === 1) {
             this._fillText(lines[0], x, y);
             return;
         }
-        const lineHeight = this._circleLabelLineHeight(fontPx);
+        if (lineHeight === undefined) {
+            lineHeight = this._circleLabelLineHeight(fontPx);
+        }
         const n = lines.length;
         const upright = this._keepTextUpright && this._activeRotationRad;
         if (this._mirror || upright) {
@@ -6008,15 +6029,33 @@ class CanvasRenderer {
             // cable's colours.
             if (layer.showDataCableTags === true && window.app
                     && typeof window.app.dataPortCableForScreen === 'function') {
+                // One tag beside one marker. Inside the screen, as on the
+                // power side: right of the circle when that fits, else
+                // left of it. A wrapped tag is taller than its label
+                // circle, so it carries the screen's top and bottom too
+                // and shifts inside them the way the circle's centre was
+                // shifted.
+                const tagBeside = (text, x, y, radius) => {
+                    const w = this.cableTagWidth(text, labelSize);
+                    const flip = x + radius + w > layerRight
+                        && x - radius - w >= layerLeft;
+                    this.drawCableTag(text, flip ? x - radius : x + radius,
+                                      y, labelSize, DATA_CABLE_TAG_COLORS,
+                                      { flip, top: layerTop, bottom: layerBottom });
+                };
                 const cable = window.app.dataPortCableForScreen(layer, portNum);
                 if (cable && cable.text) {
-                    // Inside the screen, as on the power side.
-                    const w = this.cableTagWidth(cable.text, labelSize);
-                    const flip = px + primaryFit.radius + w > layerRight
-                        && px - primaryFit.radius - w >= layerLeft;
-                    this.drawCableTag(cable.text,
-                                      flip ? px - primaryFit.radius : px + primaryFit.radius,
-                                      py, labelSize, DATA_CABLE_TAG_COLORS, { flip });
+                    tagBeside(cable.text, px, py, primaryFit.radius);
+                }
+                // The return marker wears the BACKUP socket's own tag the
+                // same way - the backup box's snake, its extension, or its
+                // loose cable ("also redundancy extensions and snakes arent
+                // showing their cable tags", 2026-09-07). Nothing where the
+                // port has no backup or the backup socket carries nothing.
+                const backup = typeof window.app.dataPortBackupCableForScreen === 'function'
+                    ? window.app.dataPortBackupCableForScreen(layer, portNum) : null;
+                if (backup && backup.text) {
+                    tagBeside(backup.text, rx, ry, returnFit.radius);
                 }
             }
 
@@ -6413,9 +6452,13 @@ class CanvasRenderer {
                     const w = this.cableTagWidth(cable.text, labelSize);
                     const flip = px + layout.radius + w > layerRight
                         && px - layout.radius - w >= layerLeft;
+                    // A wrapped tag is taller than its label circle, so it
+                    // carries the screen's top and bottom too and shifts
+                    // inside them the way the circle's centre was shifted.
                     this.drawCableTag(cable.text,
                                       flip ? px - layout.radius : px + layout.radius,
-                                      py, labelSize, undefined, { flip });
+                                      py, labelSize, undefined,
+                                      { flip, top: layerTop, bottom: layerBottom });
                 }
             }
         };
@@ -6985,32 +7028,101 @@ class CanvasRenderer {
     // they should be on the inside of the screen" (2026-09-06). The
     // callers measure with cableTagWidth and flip when the right side
     // would leave the screen.
+    //
+    // A long tag wraps at its spaces the way a port label does - "also we
+    // should add wrapping like we did to port labels on cable extensions
+    // such as Snake 1 SR A would be / Snake 1 / SR A" (2026-09-07). The
+    // rule, in cableTagLayout: a tag wider than 4.5 x labelSize on one
+    // line splits at whitespace into the fewest lines (at most 3) whose
+    // widest line fits that cap. 4.5 x labelSize is about the label
+    // marker's own diameter plus one: past that a pill stops reading as a
+    // tag beside its label and starts covering cabinets. A tag that fits,
+    // or has no space to break at, draws exactly as it always has.
     cableTagWidth(text, labelSize) {
-        const size = Math.max(8, labelSize * 0.7);
-        this.ctx.save();
-        this.ctx.font = `bold ${size}px ${projectFontFamily()}`;
-        const tw = this.ctx.measureText(text).width;
-        this.ctx.restore();
-        return labelSize * 0.25 + tw + size * 0.9;   // gap + pill
+        return labelSize * 0.25 + this.cableTagLayout(text, labelSize).width;   // gap + pill
     }
 
+    // The words a cable tag may break between. A bare number or a single
+    // character is a name's suffix, not a word of its own - "Snake 1",
+    // "SR A", "SNAKE A" - so it stays with the word before it and a wrap
+    // never strands it at the head of a line: the user's own split of
+    // "Snake 1 SR A" is "Snake 1" / "SR A", where a purely width-balanced
+    // break would have given "Snake" / "1 SR A". (The port label keeps its
+    // raw tokens: its wrap is about circle size, and "SR" over "A1" is the
+    // shape it was built for.)
+    _cableTagUnits(text) {
+        const tokens = String(text).trim().split(/\s+/).filter(t => t.length > 0);
+        const units = [];
+        for (const t of tokens) {
+            const suffix = units.length > 0 && (t.length === 1 || /^\d+$/.test(t));
+            if (suffix) units[units.length - 1] += ' ' + t;
+            else units.push(t);
+        }
+        return units;
+    }
+
+    /**
+     * Lay a cable tag out: { lines, width, height } plus the register it
+     * was measured in (size, padX, lineHeight). `width` and `height` are
+     * the pill's: the widest line plus the side padding, and
+     * lines x lineHeight + 4. The leading is the tag's own text size, so
+     * one line gives exactly the old size + 4 pill and a stack stays as
+     * tight as one tag should. When even three lines cannot meet the cap
+     * the three-line split stands - it is as narrow as the tag gets.
+     */
+    cableTagLayout(text, labelSize) {
+        const size = Math.max(8, labelSize * 0.7);
+        const padX = size * 0.45;
+        const lineHeight = size;
+        const str = String(text);
+        this.ctx.save();
+        this.ctx.font = `bold ${size}px ${projectFontFamily()}`;
+        const widthOf = (s) => this.ctx.measureText(s).width;
+        const cap = labelSize * 4.5;
+        let lines = [str];
+        let widest = widthOf(str);
+        if (widest > cap) {
+            const units = this._cableTagUnits(str);
+            for (let n = 2; n <= Math.min(units.length, 3); n++) {
+                lines = this._balancedSplit(units, n, widthOf);
+                widest = Math.max(...lines.map(widthOf));
+                if (widest <= cap) break;
+            }
+        }
+        this.ctx.restore();
+        return {
+            lines, size, padX, lineHeight,
+            width: widest + padX * 2,
+            height: lines.length * lineHeight + 4,
+        };
+    }
+
+    // `opts.top` / `opts.bottom` are the screen's edges: a wrapped tag,
+    // taller than the label circle it hangs off, shifts inside them the
+    // way the circle's centre was shifted inside the screen.
     drawCableTag(text, x, y, labelSize, colors, opts) {
         const c = this.printerMode ? PRINTER_TAG_COLORS : (colors || POWER_CABLE_TAG_COLORS);
         const flip = !!(opts && opts.flip);
-        const size = Math.max(8, labelSize * 0.7);
+        const tag = this.cableTagLayout(text, labelSize);
+        const { size, padX, lineHeight } = tag;
         this.ctx.save();
         this.ctx.font = `bold ${size}px ${projectFontFamily()}`;
-        const tw = this.ctx.measureText(text).width;
-        const padX = size * 0.45;
-        const pillH = size + 4;
+        const pillW = tag.width;
+        const pillH = tag.height;
+        // The corner radius of a ONE-line pill: a taller box keeps a
+        // modest rounding rather than turning into a capsule.
+        const corner = (size + 4) / 2;
         const gap = labelSize * 0.25;
-        const left = flip ? x - gap - (tw + padX * 2) : x + gap;
+        const left = flip ? x - gap - pillW : x + gap;
+        if (opts && Number.isFinite(opts.top) && Number.isFinite(opts.bottom)) {
+            if (y + pillH / 2 > opts.bottom) y = opts.bottom - pillH / 2;
+            if (y - pillH / 2 < opts.top) y = opts.top + pillH / 2;
+        }
         this.ctx.beginPath();
         if (this.ctx.roundRect) {
-            this.ctx.roundRect(left, y - pillH / 2, tw + padX * 2, pillH,
-                               pillH / 2);
+            this.ctx.roundRect(left, y - pillH / 2, pillW, pillH, corner);
         } else {
-            this.ctx.rect(left, y - pillH / 2, tw + padX * 2, pillH);
+            this.ctx.rect(left, y - pillH / 2, pillW, pillH);
         }
         this.ctx.fillStyle = c.fill;
         this.ctx.fill();
@@ -7020,7 +7132,9 @@ class CanvasRenderer {
         this.ctx.fillStyle = c.ink;
         this.ctx.textAlign = 'left';
         this.ctx.textBaseline = 'middle';
-        this._fillText(text, left + padX, y);
+        // One line is _fillText, the same call as before the wrap; a
+        // stack is left-aligned at the pill's text edge, centred on y.
+        this._fillWrappedLabel(tag.lines, left + padX, y, size, lineHeight);
         this.ctx.restore();
     }
 
