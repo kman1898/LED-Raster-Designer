@@ -348,7 +348,11 @@ def test_positions_are_the_groups_and_the_rows_read_in_the_sheets_vocabulary(pag
     # WALL-A: circuit 1 spans two rows (one row step), circuit 2 one row;
     # WALL-B the same -> 2 power jumpers. Data: one port over three rows
     # each -> 2 + 2 data jumpers.
+    # The distro itself is on the sheet (2026-09-07): two boxes in use on
+    # SR is a "12 way", pulled where SR sits - no location typed, so with
+    # the first screen it feeds.
     assert sr == [
+        ('12 way', 'EA', 1, 'SR', ''),
         ('Data Jump', "6'", 4, 'WALL-A, WALL-B', ''),
         ('Ether-con Snake', "100'", 1, 'SNAKE A', '2-way'),
         ('Multi', "100'", 1, 'SR 2', ''),
@@ -377,7 +381,8 @@ def test_positions_are_the_groups_and_the_rows_read_in_the_sheets_vocabulary(pag
     assert totals[('Tru-1', "10'")] == 2 and totals[('Tru-1', "6'")] == 1
     assert totals[('Multi', "125'")] == 1 and totals[('Multi', "100'")] == 1
     assert totals[('Tru-1 Breakout', 'EA')] == 2 and totals[('Edison 2fer', 'EA')] == 1
-    assert len(out['totals']) == 10
+    assert totals[('12 way', 'EA')] == 1
+    assert len(out['totals']) == 11
     # EA sorts after every length; types are A-Z
     types = [r['type'] for r in out['totals']]
     assert types == sorted(types, key=str.lower)
@@ -410,11 +415,158 @@ def test_the_per_screen_readings_the_packet_will_print(page):
     # hardware: the distro's boxes, the processor's cable
     kinds = {(h['kind'], h['name']): _rows(h['rows']) for h in out['hardware']}
     assert kinds[('distro', 'SR')] == [
+        ('12 way', 'EA', 1, 'SR', ''),
         ('Multi', "100'", 1, 'SR 2', ''), ('Multi', "125'", 1, 'SR 1', ''),
         ('Tru-1 Breakout', 'EA', 2, 'SR 1-2', '')]
     proc_rows = next(v for (k, n), v in kinds.items() if k == 'processor')
     assert proc_rows == [('Ether-con', "50'", 1, ids['centerPortLabel'], ''),
                          ('Ether-con Snake', "100'", 1, 'SNAKE A', '2-way')]
+
+
+def test_a_snaked_ports_extension_is_an_ether_con_row_with_notes(page):
+    """"when i use a snake i need to be able to add a secondary cable
+    length incase i need an extension" (2026-09-07): 25' on WALL-A's
+    socket (it rides SNAKE A) is one `Ether-con 25'` row in SR Beach under
+    WALL-A's port label with "ext · SNAKE A" in Notes - beside the snake's
+    own row, never folded into it - the same row on the processor's
+    hardware rows, and byScreen's port carries ext: 25."""
+    pg, ids = page
+    out = pg.evaluate("""async (ids) => {
+        const app = window.app;
+        const j = (method, url, body) => fetch(url, {method,
+            headers: {'Content-Type': 'application/json'},
+            body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
+        const url = `/api/processors/${ids.procId}/cards/${ids.cardId}`;
+        const centerSock = String(ids.sockets['CENTER'][0]);
+        const aSock = String(ids.sockets['WALL-A'][0]);
+        const rebuild = async () => {
+            await app.refreshProcessors();
+            await app.refreshPortAssignment();
+            app._circuitTailCache = null;
+            return JSON.parse(JSON.stringify(app.buildPullList()));
+        };
+        await j('PUT', url, {portCables: {[centerSock]: {ft: 50}, [aSock]: {ft: 25}}});
+        const list = await rebuild();
+        await j('PUT', url, {portCables: {[centerSock]: {ft: 50}}});
+        const after = await rebuild();
+        return {
+            aLabel: app.getPortLabelText(app.project.layers.find(l => l.id === ids.a), 1, 'primary'),
+            sr: list.positions[0].rows.filter(r => r.side === 'data' && !/Jump/.test(r.type)),
+            port: list.byScreen[String(ids.a)].ports[0],
+            hw: list.hardware.filter(h => h.kind === 'processor').map(h => h.rows),
+            totals: list.totals.filter(r => r.type === 'Ether-con'),
+            after: after.positions[0].rows.filter(r => r.side === 'data' && !/Jump/.test(r.type)),
+        };
+    }""", ids)
+    assert _rows(out['sr']) == [
+        ('Ether-con', "25'", 1, out['aLabel'], 'ext · SNAKE A'),
+        ('Ether-con Snake', "100'", 1, 'SNAKE A', '2-way')], out['sr']
+    assert (out['port']['snake'], out['port']['ext'], out['port']['cable']) == ('SNAKE A', 25, None), out['port']
+    assert ('Ether-con', "25'", 1, out['aLabel'], 'ext · SNAKE A') in _rows(out['hw'][0]), out['hw']
+    assert [(r['length'], r['qty']) for r in out['totals']] == [("25'", 1), ("50'", 1)], out['totals']
+    assert _rows(out['after']) == [('Ether-con Snake', "100'", 1, 'SNAKE A', '2-way')]
+
+
+def test_a_backup_end_is_walked_like_the_primary_under_the_return_label(page):
+    """"so i have no way of putting lengths for redundancy cables..."
+    (2026-09-07). Card SR backed 1:1 by a second card BK whose own ≡ sheet
+    types a snake SR Backup 150' over the sockets WALL-A's and WALL-B's
+    returns land on, a 60' cable on the socket CENTER's return lands on,
+    and a 10' extension on WALL-A's return socket: SR Beach gets the
+    backup snake said once and the extension under WALL-A's RETURN label
+    (BK-1 - the backup socket's own, as link() derives it off the named
+    card), CENTER gets `Ether-con 60'` under its return label (BK-3), the
+    processor's hardware rows carry all of it, and byScreen's port.backup
+    records what was read. Unlinked, none of it is listed."""
+    pg, ids = page
+    out = pg.evaluate("""async (ids) => {
+        const app = window.app;
+        const j = (method, url, body) => fetch(url, {method,
+            headers: {'Content-Type': 'application/json'},
+            body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
+        const rebuild = async () => {
+            await app.refreshProcessors();
+            await app.refreshPortAssignment();
+            app._circuitTailCache = null;
+            return JSON.parse(JSON.stringify(app.buildPullList()));
+        };
+        let st = await j('PUT', `/api/processors/${ids.procId}/slots/1`, {deviceId: 'novastar-card-h-16xrj45-2xfiber'});
+        const bkId = st.processors[0].slots[1].card.id;
+        await j('PUT', `/api/processors/${ids.procId}/cards/${bkId}`, {name: 'BK'});
+        await j('PUT', `/api/processors/${ids.procId}`, {redundancy: true});
+        await j('PUT', `/api/processors/${ids.procId}/cards/${ids.cardId}`, {backupCardId: bkId});
+        const aSock = ids.sockets['WALL-A'][0], bSock = ids.sockets['WALL-B'][0], cSock = ids.sockets['CENTER'][0];
+        await app.refreshProcessors();
+        // the socket each return lands on, as the server linked it
+        const bb = (sock) => app._pullBackedBy(ids.cardId, sock);
+        const backed = {a: bb(aSock), b: bb(bSock), c: bb(cSock)};
+        await j('PUT', `/api/processors/${ids.procId}/cards/${bkId}`, {
+            snakes: [{ports: [backed.a.port, backed.b.port], ft: 150, name: 'SR Backup'}],
+            portCables: {[String(backed.c.port)]: {ft: 60}, [String(backed.a.port)]: {ft: 10}},
+        });
+        const list = await rebuild();
+        const layer = (id) => app.project.layers.find(l => l.id === id);
+        const labels = {
+            a: app.getPortLabelText(layer(ids.a), 1, 'return'),
+            c: app.getPortLabelText(layer(ids.c), 1, 'return'),
+        };
+        // the workbook: the route lays the list out as it is, so the
+        // backup rows land in their position's block (TOTALS sums the blocks)
+        const resp = await fetch('/api/export/pull-sheet', {method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({pull_list: list, project_name: 'Backup Show', engineer: '', rev: '1.0', date: '', date_iso: ''})});
+        const bytes = new Uint8Array(await resp.arrayBuffer());
+        let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+        const b64 = btoa(bin), status = resp.status;
+        await j('PUT', `/api/processors/${ids.procId}/cards/${ids.cardId}`, {backupCardId: null});
+        await j('PUT', `/api/processors/${ids.procId}`, {redundancy: false});
+        await j('PUT', `/api/processors/${ids.procId}/cards/${bkId}`, {snakes: [], portCables: {}});
+        const after = await rebuild();
+        const data = (l) => l.positions.map(p => [p.name, p.rows.filter(r => r.side === 'data' && !/Jump/.test(r.type))]);
+        return {
+            backed: [backed.a && backed.a.cardId === bkId, backed.b && backed.b.cardId === bkId, backed.c && backed.c.cardId === bkId],
+            labels, sr: data(list)[0][1], center: data(list)[1][1],
+            aPort: list.byScreen[String(ids.a)].ports[0],
+            bPort: list.byScreen[String(ids.b)].ports[0],
+            cPort: list.byScreen[String(ids.c)].ports[0],
+            hw: list.hardware.filter(h => h.kind === 'processor').map(h => h.rows)[0],
+            totals: list.totals.filter(r => /Ether-con/.test(r.type)).map(r => [r.type, r.length, r.qty]),
+            after: data(after), b64, status,
+        };
+    }""", ids)
+    assert out['backed'] == [True, True, True], out['backed']
+    assert out['status'] == 200
+    import base64
+    wb = openpyxl.load_workbook(io.BytesIO(base64.b64decode(out['b64'])))
+    ws = wb['Pull Sheet']
+    col = pull_sheet.BLOCK_COLS[0]
+    block = [tuple(ws.cell(r, col + i).value for i in range(5)) for r in range(7, 30)]
+    assert ('Ether-con Snake', "150'", 1, 'SR Backup', '2-way') in block, block
+    assert ('Ether-con', "10'", 1, out['labels']['a'], 'ext · SR Backup') in block, block
+    col = pull_sheet.BLOCK_COLS[1]
+    block = [tuple(ws.cell(r, col + i).value for i in range(5)) for r in range(7, 30)]
+    assert ('Ether-con', "60'", 1, out['labels']['c'], None) in block, block
+    # the return label is the backup socket's own (BK-1 - link() replaces
+    # a derived "...R" with the mapped port's label when the card is named)
+    la, lc = out['labels']['a'], out['labels']['c']
+    assert (la, lc) == ('BK-1', 'BK-3'), out['labels']
+    assert _rows(out['sr']) == [
+        ('Ether-con', "10'", 1, la, 'ext · SR Backup'),
+        ('Ether-con Snake', "100'", 1, 'SNAKE A', '2-way'),
+        ('Ether-con Snake', "150'", 1, 'SR Backup', '2-way')], out['sr']
+    assert _rows(out['center']) == [
+        ('Ether-con', "50'", 1, ids['centerPortLabel'], ''),
+        ('Ether-con', "60'", 1, lc, '')], out['center']
+    assert out['aPort']['backup'] == {'label': la, 'cable': None, 'snake': 'SR Backup', 'ext': 10, 'box': None}
+    assert out['bPort']['backup']['snake'] == 'SR Backup' and out['bPort']['backup']['ext'] is None
+    assert out['cPort']['backup'] == {'label': lc, 'cable': "60' CAT", 'snake': None, 'ext': None, 'box': None}
+    hw = _rows(out['hw'])
+    for want in (('Ether-con', "10'", 1, la, 'ext · SR Backup'), ('Ether-con', "60'", 1, lc, ''),
+                 ('Ether-con Snake', "150'", 1, 'SR Backup', '2-way')):
+        assert want in hw, (want, hw)
+    assert out['totals'] == [['Ether-con', "10'", 1], ['Ether-con', "50'", 1], ['Ether-con', "60'", 1],
+                             ['Ether-con Snake', "100'", 1], ['Ether-con Snake', "150'", 1]], out['totals']
+    assert out['after'] == [['SR Beach', [{'type': 'Ether-con Snake', 'length': "100'", 'qty': 1, 'label': 'SNAKE A', 'notes': '2-way', 'side': 'data'}]],
+                            ['CENTER', [{'type': 'Ether-con', 'length': "50'", 'qty': 1, 'label': ids['centerPortLabel'], 'notes': '', 'side': 'data'}]]], out['after']
 
 
 def test_row_steps_horizontal_first_is_one_per_row_change_and_vertical_first_every_step(page):
@@ -522,10 +674,14 @@ def test_a_boxs_fiber_is_one_row_and_the_workbook_writes_it(page):
         app.renderLayers(); app.renderHardwareDock();
         return results;
     }""", ids)
-    assert out['typed'] == [['SR Beach', [['12 Tac Fiber', "250'", 1, 'CVT4K-S SR', '']]], ['CENTER', []]], out['typed']
+    # The box itself is on the sheet too (2026-09-07): "CVT4K-S EA" under
+    # its name, at the position of the first screen it delivers (no
+    # location typed).
+    assert out['typed'] == [['SR Beach', [['12 Tac Fiber', "250'", 1, 'CVT4K-S SR', ''],
+                                          ['CVT4K-S', 'EA', 1, 'SR', '']]], ['CENTER', []]], out['typed']
     assert out['unmodelled'] == []
     assert out['boxes'] == [['CVT4K-S SR'], ['CVT4K-S SR'], ['CVT4K-S SR']]
-    assert out['hardware'] == [[['12 Tac Fiber', "250'", 1, 'CVT4K-S SR']]]
+    assert out['hardware'] == [[['12 Tac Fiber', "250'", 1, 'CVT4K-S SR'], ['CVT4K-S', 'EA', 1, 'SR']]]
     assert out['status'] == 200
     import base64
     wb = openpyxl.load_workbook(io.BytesIO(base64.b64decode(out['b64'])))
@@ -533,8 +689,9 @@ def test_a_boxs_fiber_is_one_row_and_the_workbook_writes_it(page):
     col = pull_sheet.BLOCK_COLS[0]
     rows = [tuple(ws.cell(r, col + i).value for i in range(4)) for r in range(7, 30)]
     assert ('12 Tac Fiber', "250'", 1, 'CVT4K-S SR') in rows, rows
-    assert out['untyped'] == [['SR Beach', [['Fiber', "250'", 1, 'CVT4K-S SR', '']]], ['CENTER', []]]
-    assert out['noLength'] == [['SR Beach', []], ['CENTER', []]]
+    assert out['untyped'] == [['SR Beach', [['CVT4K-S', 'EA', 1, 'SR', ''],
+                                            ['Fiber', "250'", 1, 'CVT4K-S SR', '']]], ['CENTER', []]]
+    assert out['noLength'] == [['SR Beach', [['CVT4K-S', 'EA', 1, 'SR', '']]], ['CENTER', []]]
     # the box gone, the card's snake and CENTER's cable read again
     assert out['after'] == [['SR Beach', [['Ether-con Snake', "100'", 1, 'SNAKE A', '2-way']]],
                             ['CENTER', [['Ether-con', "50'", 1, ids['centerPortLabel'], '']]]], out['after']
@@ -671,7 +828,9 @@ def test_export_saves_the_workbook_through_the_picker_path(page):
     ws = wb['Pull Sheet']
     assert ws['B2'].value == 'Test Show' and ws['B3'].value == 'Test Engineer'
     assert [ws.cell(5, c).value for c in pull_sheet.BLOCK_COLS[:3]] == ['SR Beach', 'CENTER', 'POSITION 3']
-    assert [ws.cell(7, c).value for c in range(1, 6)] == ['Absen Long Data Jump', "6'", 4, 'WALL-A, WALL-B', None]
+    # the distro's own row heads the block (2026-09-07), the renamed jumper next
+    assert [ws.cell(7, c).value for c in range(1, 6)] == ['12 way', 'EA', 1, 'SR', None]
+    assert [ws.cell(8, c).value for c in range(1, 6)] == ['Absen Long Data Jump', "6'", 4, 'WALL-A, WALL-B', None]
     assert ws['E2'].value is not None and ws['E3'].value == '1.0'
     gear_types = [wb['GEAR LIST'].cell(r, 1).value for r in range(4, 100) if wb['GEAR LIST'].cell(r, 1).value]
     assert 'Edison 2fer' in gear_types and 'Tru-1 Power Jump' in gear_types
@@ -718,7 +877,10 @@ def test_smoke_experts_only(page):
     # typed cables, one breakout per box. Its 22 hand-drawn circuits each
     # stay on ONE row (verified against the file), so no power jumper row;
     # the auto ports of the 28 x 11 wall step rows 7 times.
+    # Five boxes in use on SR (1-4 here, 5 on the Return) make it a "36
+    # way", listed once where SR sits - no location, so with SR - MAIN.
     assert by['SR - MAIN'] == [
+        ('36 way', 'EA', 1, 'SR', ''),
         ('Data Jump', "6'", 7, 'SR - MAIN', ''),
         ('Multi', "100'", 2, 'SR 2, 4', ''),
         ('Multi', "125'", 2, 'SR 1, 3', ''),
@@ -740,6 +902,7 @@ def test_smoke_experts_only(page):
     assert out['returnLegs'] == [[[1, 'SR5-1'], [2, 'SR5-2'], [3, 'SR5-3'], [4, 'SR5-4'], [5, 'SR5-5'], [6, 'SR5-6']]]
     # SL mirrors SR with no lengths and no cables
     assert by['SL - MAIN'] == [
+        ('36 way', 'EA', 1, 'SL', ''),
         ('Data Jump', "6'", 7, 'SL - MAIN', ''),
         ('Multi', '', 4, 'SL 1-4', 'no length'),
         ('Tru-1 Breakout', 'EA', 4, 'SL 1-4', ''),
@@ -751,6 +914,7 @@ def test_smoke_experts_only(page):
         ('Tru-1 Breakout', 'EA', 1, 'SL 5', ''),
     ]
     assert _rows(out['totals']) == [
+        ('36 way', 'EA', 2, 'SR, SL', ''),
         ('Data Jump', "6'", 34, 'SR - MAIN, SR - Return, SL - MAIN, SL - Return', ''),
         ('Multi', "100'", 2, 'SR 2, 4', ''),
         ('Multi', "125'", 3, 'SR 1, 3, 5', ''),

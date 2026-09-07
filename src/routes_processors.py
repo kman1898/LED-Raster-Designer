@@ -722,9 +722,25 @@ def update_cvt(processor_id, cvt_id):
     why = _take_fiber(cvt, data)
     if why:
         return jsonify({'error': why}), 400
+    # Where the box physically sits (2026-09-07: "We need to be able to put
+    # CVT's or processor's at beach locations so they can be accounted for
+    # on the pull sheets"). Free text, the same field a distro carries;
+    # blank / null clears it and leaves no key behind. The pull list files
+    # every row the box produces - the data cables of the ports it
+    # delivers, its fiber trunk, its own "CVT4K-S EA" line - under this
+    # name, matched case-blind against the screen groups.
+    if 'location' in data:
+        value = data.get('location')
+        if value is not None and not isinstance(value, str):
+            return jsonify({'error': 'Location must be text'}), 400
+        text = (value or '').strip()
+        if text:
+            cvt['location'] = text
+        else:
+            cvt.pop('location', None)
     changed = _apply(cvt, data, ('name', 'portLabelTemplate',
                                  'returnLabelTemplate', 'mode'))
-    for key in ('fiberType', 'fiberFt'):
+    for key in ('fiberType', 'fiberFt', 'location'):
         if key in data:
             changed[key] = cvt.get(key)
     for key in ('snakes', 'portCables'):

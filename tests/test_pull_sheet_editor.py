@@ -243,7 +243,9 @@ def test_the_file_menu_opens_the_editor_laid_out_like_the_workbook(page):
     # TOTALS is a readout block with the engine's totals
     tot = pg.locator('#pull-sheet-totals tr').evaluate_all(
         "els => els.slice(1).map(tr => [...tr.children].map(td => td.textContent))")
-    assert tot[0] == ['Data Jump', "6'", '8', 'WALL-A, WALL-B, CENTER']
+    # the distro's own "12 way" row (2026-09-07) heads the totals, the jumpers next
+    assert tot[0] == ['12 way', 'EA', '1', 'SR']
+    assert tot[1] == ['Data Jump', "6'", '8', 'WALL-A, WALL-B, CENTER']
     assert pg.locator('#pull-sheet-totals input').count() == 0
     assert 'tails' not in pg.locator('#pull-sheet-modal').inner_text().lower()
     # the pickers carry the GEAR LIST plus the show's own words

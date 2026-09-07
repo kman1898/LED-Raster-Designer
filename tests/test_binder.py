@@ -644,7 +644,13 @@ def test_the_data_page_prints_the_return_end_and_the_processor_once(page):
     """Card SR backed 1:1 by a second (unnamed) card: the BACKUP cell is the
     return end the tray states - the backup port's label and where it lands,
     "SR-1R · H9 slot 2 · 1" - never "slot 2 1"; the Processor line names the
-    unit once ("H9", not "H9 · H9"); Redundancy reads the bar ("Per card")."""
+    unit once ("H9", not "H9 · H9"); Redundancy reads the bar ("Per card").
+    HOME RUN says both ends' runs as each card's own ≡ sheet typed them
+    ("SR Primary 100' / SR Backup 150' +25'" - the backup's snake and the
+    extension on its socket, 2026-09-07: "i have no way of putting lengths
+    for redundancy cables"), never cut to "…"; Cables this screen lists the
+    backup's snake and the extension; the processor page lists the
+    extension as an `ext` row under its snake."""
     pg, ids = page
     backup_id = pg.evaluate("""async (ids) => {
         const app = window.app;
@@ -655,6 +661,14 @@ def test_the_data_page_prints_the_return_end_and_the_processor_once(page):
         const backupId = st.processors[0].slots[1].card.id;
         await j('PUT', `/api/processors/${ids.procId}`, {redundancy: true});
         st = await j('PUT', `/api/processors/${ids.procId}/cards/${ids.cardId}`, {backupCardId: backupId});
+        await app.refreshProcessors();
+        // WALL-A's port sits on SR's socket 1 and returns on slot 2's socket 1
+        const sock = app._assignment.screens.find(s => s.layerId === String(ids.a)).ports[0].port;
+        const bb = app._pullBackedBy(ids.cardId, sock);
+        await j('PUT', `/api/processors/${ids.procId}/cards/${ids.cardId}`,
+                {snakes: [{ports: [sock], ft: 100, name: 'SR Primary'}]});
+        await j('PUT', `/api/processors/${ids.procId}/cards/${backupId}`,
+                {snakes: [{ports: [bb.port], ft: 150, name: 'SR Backup'}], portCables: {[String(bb.port)]: {ft: 25}}});
         await app.refreshProcessors();
         await app.refreshPortAssignment();
         app.renderLayers();
@@ -671,13 +685,19 @@ def test_the_data_page_prints_the_return_end_and_the_processor_once(page):
         while j + 5 < len(texts) and re.fullmatch(r'SR-\d+', texts[j]):
             rows.append(texts[j:j + 6]); j += 6
         assert rows, texts[i:i + 20]
-        for label, primary, backup, _panels, _px, _home in rows:
+        for label, primary, backup, _panels, _px, home in rows:
             # the sending card the primary lands on, and the one the backup does
             assert re.fullmatch(r'H9 SR · \d+', primary), (label, primary)
             socket = primary.rsplit(' · ', 1)[-1]
             assert backup == f'{label}R · H9 slot 2 · {socket}', (label, backup)
             assert f'{label}R' in out['mapTexts'], (label, out['mapTexts'])
+            # both ends' runs, whole
+            assert home == "SR Primary 100' / SR Backup 150' +25'", (label, home)
         assert not [t for t in texts if t.startswith('slot ') or t.endswith('…')]
+        cables = texts[texts.index('CABLES THIS SCREEN'):texts.index('Screen')]
+        assert ['Ether-con', "25'", '1'] == cables[cables.index('Ether-con'):cables.index('Ether-con') + 3], cables
+        assert cables.count('Ether-con Snake') == 2, cables
+        assert "150'" in cables and "100'" in cables, cables
         # the Facts say how many ports, never a px-per-port ceiling
         assert texts[texts.index('Ports') + 1] == '1 port' and not [t for t in texts if 'px/port' in t]
         assert texts[texts.index('Processor') + 1] == 'H9' and 'H9 · H9' not in texts
@@ -685,13 +705,20 @@ def test_the_data_page_prints_the_return_end_and_the_processor_once(page):
         proc = _render(pg, SHOW, 'H9 - Processor')['texts']
         assert proc[proc.index('Redundancy') + 1] == 'Per card'
         assert not [t for t in proc if BOX_WORD.search(t)]
+        # the unnamed card's device name is what the run column shrinks and
+        # cuts (an unnamed card has no shorter name to print); the row is
+        # its socket, 'ext', the length and the snake it hangs off
+        k = proc.index('ext')
+        assert proc[k - 1].startswith('H_16xRJ') and proc[k:k + 3] == ['ext', "25'", 'SR Backup'], proc[k - 3:k + 4]
+        assert proc[proc.index('SR Backup') : proc.index('SR Backup') + 3] == ['SR Backup', '1-way', "150'"], proc
     finally:
         pg.evaluate("""async ([ids, backupId]) => {
             const app = window.app;
             const j = (method, url, body) => fetch(url, {method,
                 headers: {'Content-Type': 'application/json'},
                 body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
-            await j('PUT', `/api/processors/${ids.procId}/cards/${ids.cardId}`, {backupCardId: null});
+            await j('PUT', `/api/processors/${ids.procId}/cards/${ids.cardId}`, {backupCardId: null, snakes: [], portCables: {}});
+            await j('PUT', `/api/processors/${ids.procId}/cards/${backupId}`, {snakes: [], portCables: {}});
             await j('PUT', `/api/processors/${ids.procId}`, {redundancy: false});
             await app.refreshProcessors();
             await app.refreshPortAssignment();

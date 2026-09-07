@@ -342,11 +342,17 @@ class _Binder {
 
         if (opts.cover) this._bCoverPage(book);
         for (const pos of list.positions) {
+            // layerIds: every screen with rows on this position (a located
+            // distro or box pulls a screen's rows onto its own beach) -
+            // the pull page lists them all. memberIds: the screens whose
+            // OWN position this is - their POWER / DATA pages print here,
+            // once, and a device-only position prints none.
             const members = pos.layerIds.map(id => layers.get(String(id))).filter(Boolean);
+            const own = (pos.memberIds || pos.layerIds).map(id => layers.get(String(id))).filter(Boolean);
             const mine = scopeLayer ? members.filter(l => l.id === scopeLayer.id) : members;
             if (!mine.length) continue;
             if (opts.pull) this._bPullPage(book, pos, members);
-            for (const layer of mine) {
+            for (const layer of (scopeLayer ? own.filter(l => l.id === scopeLayer.id) : own)) {
                 const scr = list.byScreen[layer.id];
                 if (!scr) continue;
                 if (opts.sides.power && this._bHasPower(layer, scr)) {
@@ -472,6 +478,42 @@ class _Binder {
         ctx.textAlign = opts.align || 'left';
         ctx.textBaseline = opts.baseline || 'alphabetic';
         ctx.fillText(t, x, y);
+        if (book.log && book.page && book.page.painting && opts.log !== false) {
+            book.log.texts.push(t);
+            if (book.log.textInfo) book.log.textInfo.push({ text: t, size, weight: opts.weight || 400 });
+        }
+        return t;
+    }
+
+    // Does `text` fit `maxWidth` at `size`, shrinking as _bText would?
+    _bTextFits(book, text, size, weight, maxWidth) {
+        const ctx = book.ctx;
+        let s = size;
+        ctx.font = this._bFont(s, weight);
+        while (s > 14 && ctx.measureText(text).width > maxWidth) {
+            s -= 1;
+            ctx.font = this._bFont(s, weight);
+        }
+        return ctx.measureText(text).width <= maxWidth;
+    }
+
+    // A cell that says two things - the data page's HOME RUN, "SR Primary
+    // 150' / SR Backup 150'" - is drawn on ONE line where it fits after
+    // shrinking, else as two lines inside the same row (the primary over
+    // the backup), each shrinking on its own, so a run is never cut to
+    // "…". Logged as one text, the whole cell, so a reader of the page's
+    // texts still sees one entry per cell.
+    _bTextTwoLines(book, text, x, y, o) {
+        const opts = o || {};
+        const parts = String(text).split(' / ');
+        if (parts.length !== 2
+                || this._bTextFits(book, text, opts.size || SZ.cell, opts.weight, opts.maxWidth)) {
+            return this._bText(book, text, x, y, opts);
+        }
+        const size = 16;
+        const drawn = parts.map((p, k) => this._bText(book, p, x, y - 12 + k * 17,
+            { ...opts, size, shrink: true, log: false }));
+        const t = drawn.join(' / ');
         if (book.log && book.page && book.page.painting) {
             book.log.texts.push(t);
             if (book.log.textInfo) book.log.textInfo.push({ text: t, size, weight: opts.weight || 400 });
@@ -574,10 +616,13 @@ class _Binder {
                     const ax = L[i].align === 'right' ? x + L[i].x + L[i].w - padX : x + L[i].x + padX;
                     // A table that carries whole names in its cells (the
                     // data page's PRIMARY / BACKUP) shrinks a long one a
-                    // little before it is cut, the way a heading does.
-                    this._bText(book, cell, ax, y + 27,
-                                { size: SZ.cell, weight: r.bold ? 700 : 400, align: L[i].align,
-                                  maxWidth: L[i].w - padX * 2, shrink: !!spec.shrink });
+                    // little before it is cut, the way a heading does; a
+                    // cell saying two things ("A / B" - HOME RUN with a
+                    // backup end) goes to two lines rather than being cut.
+                    const o = { size: SZ.cell, weight: r.bold ? 700 : 400, align: L[i].align,
+                                maxWidth: L[i].w - padX * 2, shrink: !!spec.shrink };
+                    if (spec.shrink) this._bTextTwoLines(book, cell, ax, y + 27, o);
+                    else this._bText(book, cell, ax, y + 27, o);
                 });
                 if (!r.bold) { ctx.fillStyle = FAINT; ctx.fillRect(x, y + ROW_H - 2, w, 2); }
             } });
@@ -1225,7 +1270,7 @@ class _Binder {
             // return end the same way (2026-09-07: "list the sending card
             // order on primary and backup … if cvt's are used then we will
             // list those instead of sending card").
-            let primary = '—', backup = '—', b;
+            let primary = '—', backup = '—', b, bb = null;
             if (home) {
                 procs.set(home.proc.id, home.proc);
                 const socket = String(home.port && home.port.localNumber != null ? home.port.localNumber : placed.port);
@@ -1238,23 +1283,34 @@ class _Binder {
                              + ` · ${this._bPlural(home.card.ceiling || (home.card.ports || []).length, 'port')}`);
                     primary = `${home.procTitle} ${home.cardTitle} · ${socket}`;
                 }
-                const bb = home.port && home.port.backedBy;
+                bb = (home.port && home.port.backedBy) || null;
                 if (bb) backup = this._bBackupText(layer, run.num, bb);
             } else {
                 b = band('none', 'Not placed');
             }
+            // HOME RUN says both ends where there are two: the primary's
+            // run, then the backup's, as the backup card's or box's own ≡
+            // sheet typed it ("SR Primary 150' / SR Backup 150'"; a side
+            // with nothing reads "—"). One end alone reads alone.
+            const backupCable = bb && typeof this.dataPortCable === 'function'
+                ? this.dataPortCable(bb.cardId, bb.port) : null;
+            const homeRun = bb
+                ? `${this.runText(cable)} / ${this.runText(backupCable)}`
+                : this.runText(cable);
             b.rows.push({ cells: [run.label, primary, backup, this._bNum((run.panels || []).length, 0),
-                                  this._bNum(px, 0), cable && cable.text ? cable.text : '—'] });
+                                  this._bNum(px, 0), homeRun] });
         }
         const rows = [];
         for (const b of bands.values()) { rows.push({ band: b.text }); rows.push(...b.rows); }
         blocks.push({ lines: this._bTableLines(book, {
             title: 'Ports',
             // PRIMARY and BACKUP carry whole names - "SR-1R · H9 BACKUP SR ·
-            // 1" - so they take most of the width and shrink before they cut.
-            cols: [{ title: 'port', w: 0.7 }, { title: 'primary', w: 1.7 }, { title: 'backup', w: 2.25 },
-                   { title: 'panels', w: 0.8, align: 'right' }, { title: 'px', w: 1.0, align: 'right' },
-                   { title: 'home run', w: 1.05 }],
+            // 1" - and HOME RUN both ends' runs - "SR Primary 150' / SR
+            // Backup 150'" - so they take most of the width and shrink
+            // before they cut.
+            cols: [{ title: 'port', w: 0.7 }, { title: 'primary', w: 1.6 }, { title: 'backup', w: 2.0 },
+                   { title: 'panels', w: 0.9, align: 'right' }, { title: 'px', w: 0.9, align: 'right' },
+                   { title: 'home run', w: 2.0 }],
             rows,
             shrink: true,
         }) });
@@ -1299,11 +1355,20 @@ class _Binder {
         // Positions and their screens.
         const list = book.list;
         const rows = list.positions.map(pos => {
-            const members = pos.layerIds.map(id => book.layers.get(String(id))).filter(Boolean);
-            const scrs = pos.layerIds.map(id => list.byScreen[id]).filter(Boolean);
+            // A position's own screens with their counts; a device-only
+            // position (a beach a distro or box sits on, no screen of its
+            // own) names the screens whose gear was pulled onto it.
+            const ownIds = pos.memberIds || pos.layerIds;
+            const members = ownIds.map(id => book.layers.get(String(id))).filter(Boolean);
+            const pulled = pos.layerIds.filter(id => !ownIds.includes(id))
+                .map(id => book.layers.get(String(id))).filter(Boolean);
+            const scrs = ownIds.map(id => list.byScreen[id]).filter(Boolean);
             const circuits = scrs.reduce((s, x) => s + (x.boxes || []).reduce((a, b) => a + (b.circuits || []).length, 0), 0);
             const ports = scrs.reduce((s, x) => s + (x.ports || []).length, 0);
-            return { cells: [pos.name, members.map(l => l.name).join(', '), String(circuits), String(ports)] };
+            const screens = members.length ? members.map(l => l.name).join(', ')
+                : (pulled.length ? `gear for ${pulled.map(l => l.name).join(', ')}` : 'no screens');
+            return { cells: [pos.name, screens, members.length ? String(circuits) : '—',
+                             members.length ? String(ports) : '—'] };
         });
         const cols = this._bCols([1, 1], 60);
         const lines = this._bTableLines(book, {
@@ -1586,10 +1651,19 @@ class _Binder {
                                         `${o.title} ${this._fmtTails(s.ports || [])}`
                                         + (connId ? ` · ${this.dataCableConnectorName(connId)}` : '')] });
                 }
+                // A socket's own entry: its home run where it is loose
+                // ('cable'), its EXTENSION off the snake it rides where it
+                // is snaked ('ext', the snake's name in the last column).
                 for (const [socket, c] of Object.entries(o.rec.portCables || {})) {
                     const ft = Number(c && c.ft);
                     if (!Number.isFinite(ft) || ft <= 0) continue;
                     const connId = this.dataPortConnectorId({ rec: o.rec }, c.connector);
+                    const snake = (o.rec.snakes || []).find(s => (s.ports || []).includes(parseInt(socket, 10)));
+                    if (snake) {
+                        runs.push({ cells: [`${o.title} ${socket}`, 'ext', this.pullLengthText(ft),
+                                            snake.name || 'snake'] });
+                        continue;
+                    }
                     runs.push({ cells: [`${o.title} ${socket}`, 'cable', this.pullLengthText(ft),
                                         connId ? this.dataCableConnectorName(connId) : ''] });
                 }

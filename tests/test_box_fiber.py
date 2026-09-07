@@ -365,7 +365,9 @@ def test_the_pull_list_lists_the_boxs_fiber_once_and_nothing_is_unmodelled(page)
     fiber = [r for r in out['rows'] if 'Fiber' in r[0]]
     assert fiber == [['12 Tac Fiber', "250'", 1, 'CVT10 A', '', 'data']], out['rows']
     assert out['unmodelled'] == []
-    assert out['hardware'] == [[['12 Tac Fiber', "250'", 1, 'CVT10 A', '', 'data']]], out['hardware']
+    # the box's own gear row (2026-09-07) rides the processor's list too
+    assert out['hardware'] == [[['12 Tac Fiber', "250'", 1, 'CVT10 A', '', 'data'],
+                                ['CVT10', 'EA', 1, 'A', '', 'data']]], out['hardware']
     assert out['ports'] == [[n, 'CVT10 A'] for n in range(1, 7)], out['ports']
     pg.evaluate("""async (ids) => {
         await fetch(`/api/processors/${ids.procId}/cvts/${ids.boxId}`, {method: 'PUT',
