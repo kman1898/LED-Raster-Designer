@@ -6,10 +6,12 @@
 // the screen's map across the top half or more of a landscape letter page
 // ("the photo of the screen to fill it a bit more. maybe 50% or more"),
 // with column and row RULERS around it (numbering "2"), a bracket outside
-// the wall per BREAKOUT with its name and home run (the thing a multi's
-// circuits come out of is the breakout - "Breakout", never "Box", never
-// "Multi" (2026-09-07); the home run said once per breakout), then three
-// columns - Circuits grouped under a band row per breakout, Cables, Facts
+// the wall per soca / L21-30 with its name and home run (the unit the
+// circuits come out of is named by its TYPE - "Soca 208", "L21-30" - and
+// never by a generic noun: not "Box", not "Multi" (the cable), and since
+// 2026-09-07 not "Breakout" either - "honestly i dont even think we call
+// it a breakout"; the home run said once per unit), then three columns -
+// Circuits grouped under a band row per unit, Cables, Facts
 // ("change it to circles, cables and then facts") - and a Gangs table under
 // Facts ONLY when the screen has 2fers or 3fers ("only include 2 fer and 3
 // fer info if it actually has it"). Two palettes: Colour, and Printer ("a
@@ -25,7 +27,7 @@
 // header already names the screen, and on a wall of circuits the plate
 // landed on top of the labels ("the main label is over the circuits").
 //
-// A band (the breakout's row over its circuits, the card's over its
+// A band (the soca's row over its circuits, the card's over its
 // ports) never sits at the foot of a column without at least two of its
 // rows under it - an orphaned band read as a page cut off; it moves to
 // the next column with its rows, and a band whose rows run on across a
@@ -65,14 +67,28 @@ const H4_H = 46;
 const BLOCK_GAP = 22;
 const HEADER_BOTTOM = 92;             // first content y under the header rule
 const FOOTER_TOP = PAGE_H - 58;       // last content y above the footer rule
-const MAP_H = 884;                    // >= 52% of the page height for the map
+// The map's size (2026-09-07, "how squished the screen is"): the wall
+// scales UNIFORMLY to fill the page's width between the gutters (the
+// rulers' and the brackets' room); the tables take the height that leaves,
+// down to a floor of a quarter page. A wide-and-tall wall whose tables
+// would not fit in the floor anyway fills the width and sends the tables
+// whole onto the continuation page; a wall too tall to fill the width at
+// all is height-bound and gives the tables what they need to stay on the
+// page (_bMapZoom has the three cases). A remainder under the map too
+// short for a head, a band and two rows is not used - the tables start on
+// the continuation page rather than leaving orphan headings.
 const MAP_GUTTER = { left: 200, right: 180, top: 74, bottom: 16 };
+const MAP_GAP = 8;                    // between the map area and the tables
+const MAP_ZOOM_CAP = 3;               // a tiny wall never blows up past 3x
+const TABLE_FLOOR = Math.round(PAGE_H / 4);
+const TABLE_MIN = H4_H + TH_H + BAND_H + ROW_H * 2;
 
 // Cable types print in the GEAR LIST's own vocabulary - the same words the
 // workbook export writes - so the binder's Cables table and the pull sheet
 // agree row for row. The word the user retired was "Multi" as the name of
-// the THING the circuits come out of (that is a breakout); the multi CABLE
-// keeps its shop name.
+// the THING the circuits come out of (that is named by its type); the
+// multi CABLE keeps its shop name, and "Tru-1 Breakout" stays the pull
+// list's CABLE item.
 const BINDER_TYPE_WORDS = {};
 
 // The redundancy bar's own words (app-processors.js), so the page reads
@@ -288,7 +304,8 @@ class _Binder {
         const book = this._binderBook(o, { dry: false, total: plan.pages.length, only: index, log });
         this._binderLastCanvas = book.canvas;
         return { canvas: book.canvas, texts: log.texts, textInfo: log.textInfo, mapTexts: log.mapTexts,
-                 dashes: log.dashes, page: plan.pages[index] || null, pages: plan.pages.length };
+                 dashes: log.dashes, map: log.map || null, brackets: log.brackets || [],
+                 page: plan.pages[index] || null, pages: plan.pages.length };
     }
 
     // ---- the book -----------------------------------------------------------
@@ -636,12 +653,17 @@ class _Binder {
     // one) fit above the foot; otherwise it moves to the next column with
     // its rows. Rows that run on past a break get their band again, with
     // "(cont.)", under the repeated head lines.
-    _bFlow(book, blocks, frame, onNewPage) {
+    //
+    // `paint` false lays nothing down: the same walk, used to ask whether
+    // the blocks fit a frame (_bFlowOverflows) before the map is sized.
+    _bFlow(book, blocks, frame, onNewPage, paint) {
         let { top, bottom, cols } = frame;
         let ci = 0;
         let y = top;
         let used = false;
-        const ctxOf = () => book.ctx;
+        const lay = paint === false ? null : book.ctx;
+        const ctxOf = () => lay;
+        const draw = (l, x, y0, w, cont) => { if (paint !== false) l.draw(ctxOf(), x, y0, w, cont); };
         for (const block of blocks) {
             const lines = block.lines || [];
             if (!lines.length) continue;
@@ -668,19 +690,27 @@ class _Binder {
                     }
                     y = top; used = false;
                     if (!l.head) {
-                        for (const h of heads) { h.draw(ctxOf(), cols[ci].x, y, cols[ci].w, true); y += h.h; }
-                        if (band && !l.band) { band.draw(ctxOf(), cols[ci].x, y, cols[ci].w, true); y += band.h; }
+                        for (const h of heads) { draw(h, cols[ci].x, y, cols[ci].w, true); y += h.h; }
+                        if (band && !l.band) { draw(band, cols[ci].x, y, cols[ci].w, true); y += band.h; }
                     }
                     if (++guard > 500) break;
                     continue;
                 }
-                l.draw(ctxOf(), cols[ci].x, y, cols[ci].w, false);
+                draw(l, cols[ci].x, y, cols[ci].w, false);
                 y += l.h;
                 used = true;
                 i++;
                 if (l.band) band = l;
             }
         }
+    }
+
+    // Would these blocks run past the frame onto another page? The same
+    // walk as _bFlow, laying nothing down.
+    _bFlowOverflows(book, blocks, frame) {
+        let over = false;
+        this._bFlow(book, blocks, frame, () => { over = true; return frame; }, false);
+        return over;
     }
 
     // A continuation page for a flow: same header, "(cont.)" on the subject,
@@ -701,9 +731,11 @@ class _Binder {
     // the screen; the plate sat over the circuit labels), onto an offscreen
     // canvas that is then laid into the page's map area. Returns the page
     // geometry - where a processor-coord rect of this layer lands on the
-    // page - so the rulers and the breakout brackets can be drawn around it
-    // in page space.
-    _bMap(book, layer, view, area) {
+    // page - so the rulers and the brackets can be drawn around it in page
+    // space. `area` is the room the map MAY take (its h the most); `sizer`
+    // (wallW, wallH) -> zoom picks the scale, else the wall fits the area.
+    // The area actually used comes back as geo.area.
+    _bMap(book, layer, view, area, sizer) {
         const r = window.canvasRenderer;
         const canvases = (this.project && Array.isArray(this.project.canvases)) ? this.project.canvases : [];
         const saved = {
@@ -739,13 +771,19 @@ class _Binder {
                 x: mirrored ? crw - (px + dx + pw) : px + dx, y: py + dy, w: pw, h: ph,
             });
             const wall = local(b.x, b.y, b.width, b.height);
-            const zoom = Math.min(inner.w / Math.max(1, wall.w), inner.h / Math.max(1, wall.h), 3);
+            const ww = Math.max(1, wall.w), wh = Math.max(1, wall.h);
+            // One zoom for both axes - the wall is never scaled non-uniformly;
+            // whatever the sizer asks, the area's walls are the bound.
+            const fit = Math.min(inner.w / ww, inner.h / wh, MAP_ZOOM_CAP);
+            const zoom = Math.min(sizer ? sizer(ww, wh) : fit, inner.w / ww, inner.h / wh);
             const drawW = wall.w * zoom, drawH = wall.h * zoom;
+            const used = { x: area.x, y: area.y, w: area.w,
+                           h: Math.round(drawH + MAP_GUTTER.top + MAP_GUTTER.bottom) };
             const ox = inner.x + (inner.w - drawW) / 2;      // wall's page origin
-            const oy = inner.y + (inner.h - drawH) / 2;
+            const oy = inner.y;
             const toPage = (lx, ly) => ({ x: ox + (lx - wall.x) * zoom, y: oy + (ly - wall.y) * zoom });
             geo = {
-                zoom, wall: { x: ox, y: oy, w: drawW, h: drawH }, mirrored,
+                zoom, wall: { x: ox, y: oy, w: drawW, h: drawH }, mirrored, area: used,
                 rect: (px, py, pw, ph) => {
                     const l = local(px, py, pw, ph);
                     const p = toPage(l.x, l.y);
@@ -753,9 +791,10 @@ class _Binder {
                 },
             };
             if (book.page && book.page.painting) {
+                if (book.log) book.log.map = { ...geo.wall, zoom, area: { ...used } };
                 const off = this._binderMapCanvas || (this._binderMapCanvas = document.createElement('canvas'));
-                off.width = Math.max(1, Math.round(area.w));
-                off.height = Math.max(1, Math.round(area.h));
+                off.width = Math.max(1, Math.round(used.w));
+                off.height = Math.max(1, Math.round(used.h));
                 const offCtx = off.getContext('2d', { alpha: true });
                 if (book.log) {
                     const oT = offCtx.fillText.bind(offCtx), oD = offCtx.setLineDash.bind(offCtx);
@@ -853,10 +892,17 @@ class _Binder {
         ctx.strokeRect(geo.wall.x, geo.wall.y, geo.wall.w, geo.wall.h);
     }
 
-    // The breakout brackets outside the wall: one per breakout, spanning
-    // the rows its circuits feed, on the side its circuits live, labelled
-    // "SR 1 · 125'".
-    // Brackets that overlap on a side stack outward.
+    // The brackets outside the wall: one per soca / L21-30 on the screen,
+    // spanning the rows its circuits feed, on the side its circuits live,
+    // labelled "SR1 · 125'" (the name and the home run - the band over the
+    // circuits says the type).
+    //
+    // One bracket distance per side (2026-09-07, "why the socas on the
+    // sides are offset"): a bracket steps out only when its row span truly
+    // overlaps another's on the same side - two brackets that share an
+    // edge (rows 1-6 over rows 7-11) sit at the same distance. A stepped
+    // bracket takes the nearest free level. The text stays vertical,
+    // centred on the span.
     _bBoxBrackets(book, layer, scr, geo) {
         const ctx = book.ctx;
         const circuits = (typeof this.screenCircuits === 'function') ? this.screenCircuits(layer) : [];
@@ -880,13 +926,21 @@ class _Binder {
             if (!Number.isFinite(x1) || !Number.isFinite(y1)) continue;
             const side = (x1 + x2) / 2 >= wallCx ? 'R' : 'L';
             const stack = placed[side];
-            const depth = stack.filter(([a, b]) => !(y2 + 4 < a || y1 - 4 > b)).length;
-            stack.push([y1, y2]);
+            // A real overlap is more than a shared edge: the spans must
+            // cross by more than a hairline.
+            const crosses = (a, b) => Math.min(y2, b) - Math.max(y1, a) > 4;
+            let depth = 0;
+            while (stack.some(s => s.depth === depth && crosses(s.y1, s.y2))) depth++;
+            stack.push({ y1, y2, depth });
             const dir = side === 'R' ? 1 : -1;
             const x = side === 'R'
                 ? geo.wall.x + geo.wall.w + 44 + depth * 78
                 : geo.wall.x - 74 - depth * 78;
             const ya = y1 + 3, yb = y2 - 3;
+            if (book.log) {
+                (book.log.brackets || (book.log.brackets = []))
+                    .push({ name: box.name, side, depth, x, y1, y2 });
+            }
             ctx.strokeStyle = INK;
             ctx.lineWidth = 3;
             ctx.setLineDash([]);
@@ -917,20 +971,53 @@ class _Binder {
         const title = `${layer.name} - ${view === 'power' ? 'Power' : 'Data'}`;
         const extra = { layerId: layer.id, subject: layer.name, footer: `${word[0]}${word.slice(1).toLowerCase()} · ${layer.name}` };
         this._bNewPage(book, view, title, header, extra);
-        const area = { x: PAD, y: HEADER_BOTTOM, w: PAGE_W - PAD * 2, h: MAP_H };
-        const geo = this._bMap(book, layer, view === 'power' ? 'power' : 'data-flow', area);
+        const blocks = view === 'power'
+            ? this._bPowerBlocks(book, layer, scr)
+            : this._bDataBlocks(book, layer, scr);
+        const cols = this._bCols([1.15, 1, 0.9]);
+        const area = { x: PAD, y: HEADER_BOTTOM, w: PAGE_W - PAD * 2, h: FOOTER_TOP - HEADER_BOTTOM - MAP_GAP };
+        const geo = this._bMap(book, layer, view === 'power' ? 'power' : 'data-flow', area,
+                               (ww, wh) => this._bMapZoom(book, blocks, cols, ww, wh));
         if (geo && book.page.painting) {
             this._bRulers(book, layer, geo);
             if (view === 'power') this._bBoxBrackets(book, layer, scr, geo);
         }
-        const blocks = view === 'power'
-            ? this._bPowerBlocks(book, layer, scr)
-            : this._bDataBlocks(book, layer, scr);
-        const frame = { top: area.y + area.h + 8, bottom: FOOTER_TOP, cols: this._bCols([1.15, 1, 0.9]) };
-        this._bFlow(book, blocks, frame, this._bContinuation(book, view, title, header, extra));
+        const onNewPage = this._bContinuation(book, view, title, header, extra);
+        let frame = { top: (geo ? geo.area.y + geo.area.h : area.y) + MAP_GAP, bottom: FOOTER_TOP, cols };
+        // Too little under the map for a head, a band and two rows: the
+        // tables start whole on the continuation page.
+        if (frame.bottom - frame.top < TABLE_MIN) frame = onNewPage();
+        this._bFlow(book, blocks, frame, onNewPage);
     }
 
-    // The band over a breakout's circuits: "SR 1 · Soca 208 · 125' home run
+    // The map's scale (the rule at MAP_GUTTER). Three walls:
+    //   wide      - filling the width leaves the tables their floor: fill it.
+    //   wide-and-tall - filling the width fits the page but eats the floor:
+    //               fill it anyway when the tables would not fit in the
+    //               floor (they flow whole to the continuation page); honour
+    //               the floor when they would.
+    //   tall      - filling the width would not fit the page at all, so the
+    //               height governs: the tables get what they need to stay on
+    //               the page, from the floor up to half the content, and the
+    //               map the rest; tables that fit nowhere get the floor.
+    _bMapZoom(book, blocks, cols, wallW, wallH) {
+        const availW = PAGE_W - PAD * 2 - MAP_GUTTER.left - MAP_GUTTER.right;
+        const gutters = MAP_GUTTER.top + MAP_GUTTER.bottom;
+        const contentH = FOOTER_TOP - HEADER_BOTTOM - MAP_GAP;
+        const zoomW = Math.min(availW / wallW, MAP_ZOOM_CAP);
+        const zoomFloor = (contentH - TABLE_FLOOR - gutters) / wallH;
+        const zoomMax = (contentH - gutters) / wallH;
+        const fitsIn = (h) => !this._bFlowOverflows(book, blocks, { top: 0, bottom: h, cols });
+        if (zoomW <= zoomFloor) return zoomW;
+        if (zoomW <= zoomMax) return fitsIn(TABLE_FLOOR) ? zoomFloor : zoomW;
+        const most = Math.round(contentH / 2);
+        for (let h = TABLE_FLOOR; h <= most; h += ROW_H) {
+            if (fitsIn(h)) return (contentH - h - gutters) / wallH;
+        }
+        return zoomFloor;
+    }
+
+    // The band over a soca's circuits: "SR 1 · Soca 208 · 125' home run
     // · 6 circuits", plus the tails on it that belong to another screen.
     _bBoxBand(book, layer, box) {
         const n = (box.circuits || []).length;
@@ -970,7 +1057,7 @@ class _Binder {
 
     _bPowerBlocks(book, layer, scr) {
         const blocks = [];
-        // Circuits, banded per breakout.
+        // Circuits, banded per soca / L21-30.
         const rows = [];
         for (const box of scr.boxes || []) {
             rows.push({ band: this._bBoxBand(book, layer, box) });
@@ -1301,7 +1388,7 @@ class _Binder {
         const data = cableRows('data');
         blocks.push({ lines: this._bTableLines(book, { title: 'Data cables', cols: cableCols,
             rows: data.length ? data : [{ cells: ['', 'none', '', '', ''] }] }) });
-        // Hardware: the breakouts, the distros, the cards these screens hang on.
+        // Hardware: the socas, the distros, the cards these screens hang on.
         const hw = [];
         const seenBox = new Set(), seenDistro = new Set(), seenCard = new Set();
         for (const layer of members) {
@@ -1363,9 +1450,12 @@ class _Binder {
             ? this.getDistroLoads().find(x => x.id === d.id) : null;
         const numbers = (typeof this._distroMultiNumbers === 'function') ? this._distroMultiNumbers(d.id) : new Map();
         const boxes = [];
+        const byType = new Map();       // type name -> how many on this distro
+        let allCircuits = 0;
         for (const number of [...numbers.keys()].sort((a, b) => a - b)) {
             const members = numbers.get(number) || [];
             const typed = this.distroBoxType(d, number, members).type;
+            if (typed) byType.set(typed.name, (byType.get(typed.name) || 0) + 1);
             let homeRun = null, circuits = 0, amps = 0;
             const names = [];
             for (const m of members) {
@@ -1378,16 +1468,22 @@ class _Binder {
                 circuits += (s.legs || []).length;
                 amps += (s.legs || []).reduce((a, l) => a + (Number(l.amps) || 0), 0);
             }
+            allCircuits += circuits;
             boxes.push({ cells: [`${d.name} ${number}`, typed ? typed.name : '—',
                                  homeRun ? this.pullLengthText(homeRun) : 'no length',
                                  names.join(' + '), String(circuits), this._bNum(amps, 1)] });
         }
+        // The table is named by what it lists - "4 Soca 208 · 1 L21-30" -
+        // the units by their types, no generic noun (2026-09-07, "no need
+        // to call it a breakout").
+        const counts = [...byType.entries()].map(([name, n]) => `${n} ${name}`).join(' · ')
+            || 'nothing on this distro';
         if (!boxes.length && !load) return;
         this._bNewPage(book, 'distro', title, header, extra);
         const blocks = [];
         blocks.push({ lines: this._bTableLines(book, {
-            title: 'Breakouts',
-            cols: [{ title: 'breakout', w: 0.8 }, { title: 'type', w: 0.9 }, { title: 'home run', w: 0.8 },
+            title: counts,
+            cols: [{ title: 'name', w: 0.8 }, { title: 'type', w: 0.9 }, { title: 'home run', w: 0.8 },
                    { title: 'screens', w: 1.6 }, { title: 'circuits', w: 0.7, align: 'right' },
                    { title: 'amps', w: 0.7, align: 'right' }],
             rows: boxes.length ? boxes : [{ cells: ['none', '', '', '', '', ''] }],
@@ -1402,7 +1498,7 @@ class _Binder {
                 pairs.push(['Imbalance', `${this._bNum(load.imbalancePct, 1)}%`]);
             }
         }
-        pairs.push(['Breakouts', this._bPlural(boxes.length, 'breakout')]);
+        pairs.push(['Circuits', boxes.length ? `${allCircuits} on ${counts}` : 'none']);
         blocks.push({ lines: this._bKvLines(book, 'Service', pairs) });
         const hw = (book.list.hardware || []).find(h => h.kind === 'distro' && h.id === d.id);
         blocks.push({ lines: this._bPullLines(book, 'Pull list', (hw && hw.rows) || []) });

@@ -1263,7 +1263,7 @@ def test_same_name_on_two_numbers_warns_amber_and_the_join_clears_it(page):
     row = warns[0]
     assert row['mild'], f'a label problem warns amber, never red: {row}'
     for piece in ('K1 names two multis on SR', 'WallA at No. 1',
-                  'WallB at No. 2', 'Same breakout? Pin both to No. 1.'):
+                  'WallB at No. 2', 'Same Soca 120? Pin both to No. 1.'):
         assert piece in row['text'], f'{piece!r} missing: {row["text"]}'
     assert out['fields'] == [True, True], \
         'two numbers are two boxes - a field on each header'
