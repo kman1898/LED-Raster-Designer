@@ -143,9 +143,10 @@ v0.12.0 - September 7, 2026 (BETA)
   added. Every edit rides into the workbook export and the binder's
   pull pages; one undo per edit.
 
-- CHANGE: Breakout, not box. On the power side the thing a multi's six
-  circuits come out of is called a breakout everywhere - tray, tours,
-  binder. Data-side breakout boxes keep their name.
+- CHANGE: No generic word for a multi's unit. The tray, tours and
+  binder name it by its type - "this Soca 208", "the L21-30" - or say
+  what it holds; "Tru-1 Breakout" stays the pull sheet's cable item, one
+  per multi. Data-side breakout boxes keep their name.
 
 - FIX: Binder pages no longer draw the screen's name plate over the
   wall (the header names it); a breakout's table band never sits alone
@@ -153,6 +154,18 @@ v0.12.0 - September 7, 2026 (BETA)
   "(cont.)"; the data page prints each backup port's return end where it
   lands, names the processor once, and states redundancy in the bar's
   words.
+
+- CHANGE: Binder screen pages fill the page with the wall. The map
+  scales to the page width (uniformly), the tables take what is left or
+  move whole to the page after; the breakout brackets sit at one
+  distance per side and step out only when two spans overlap.
+
+- NEW: The data page lists the sending card each port lands on, primary
+  and backup, by processor, card and socket - and the breakout box
+  instead where a CVT or similar delivers the port. A breakout box now
+  carries a fiber type and length for its trunk (behind its gear), shown
+  in the page's band and counted on the pull sheet. The pixels-per-port
+  figure is gone.
 
 - CHANGE (IMPORTANT): Redundancy is one bar in one place. Behind the
   processor's gear a raised segmented bar - Off, Whole unit, Per card,
