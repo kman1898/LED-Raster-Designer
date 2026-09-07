@@ -745,11 +745,19 @@ class _ExportIo {
 
         const preview = document.getElementById('export-preview');
 
-        // Hide view checkboxes for Resolume XML (geometry only, no rendered views)
+        // Hide view checkboxes for Resolume XML (geometry only, no rendered
+        // views) and for the pull sheet (a workbook, not a picture).
         const viewSection = document.getElementById('export-views-section');
         if (viewSection) {
-            const geometryOnly = (format === 'resolume-xml');
+            const geometryOnly = (format === 'resolume-xml' || format === 'pull-sheet');
             viewSection.style.display = geometryOnly ? 'none' : '';
+        }
+
+        if (format === 'pull-sheet') {
+            preview.classList.add('value-accent');
+            preview.style.color = '';
+            preview.textContent = `${projectName}-pull-sheet.xlsx`;
+            return;
         }
 
         if (format === 'resolume-xml') {
@@ -979,6 +987,7 @@ class _ExportIo {
         if (formatSelect) {
             formatSelect.dispatchEvent(new Event('change'));
         }
+        if (typeof this.syncPullSheetControls === 'function') this.syncPullSheetControls();
         this.updateExportPreview();
     }
 
@@ -1920,7 +1929,11 @@ class _ExportIo {
             // canvas (screen names, cabinet IDs, info bars, port/circuit
             // labels, etc.). The picker is populated from the fonts installed
             // on the machine running the app.
-            font: 'Arial'
+            font: 'Arial',
+            // The engineer whose name the pull sheet prints. A preference,
+            // not a project field: the same person show after show, and a
+            // file handed to another engineer prints theirs (app-pull-list).
+            engineerName: ''
         };
     }
 
@@ -2233,6 +2246,10 @@ class _ExportIo {
             powerWatts: readNum('pref-power-watts', defaults.powerWatts),
             canvasGap: readNum('pref-canvas-gap', defaults.canvasGap),
             font: readStr('pref-font', defaults.font),
+            // Not on the Preferences modal (edited in the export dialog's
+            // Pull Sheet section); carried through so a Save here does not
+            // wipe it.
+            engineerName: this.getPreferences().engineerName || defaults.engineerName,
         };
     }
 
@@ -2525,6 +2542,9 @@ class _ExportIo {
                 break;
             case 'export-psd':
                 this.openExportModal('psd');
+                break;
+            case 'export-pull-sheet':
+                this.openExportModal('pull-sheet');
                 break;
             case 'preferences':
                 this.openPreferencesModal();

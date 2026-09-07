@@ -8,6 +8,7 @@ import './app-screen-info.js';
 import './app-export-io.js';
 import './app-logs-recent.js';
 import './app-power.js';
+import './app-pull-list.js';
 import './app-canvas-ui.js';
 import './app-screen-groups.js';
 import './app-processors.js';

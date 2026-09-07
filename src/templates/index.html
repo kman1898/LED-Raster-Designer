@@ -34,6 +34,7 @@
             <div class="menu-divider"></div>
             <div class="menu-option" data-action="export-png" data-label="Export PNG" data-shortcut-mac="Option+S" data-shortcut-win="Alt+S"></div>
             <div class="menu-option" data-action="export-psd" data-label="Export PSD" data-shortcut-mac="Cmd+Option+S" data-shortcut-win="Ctrl+Alt+S"></div>
+            <div class="menu-option" data-action="export-pull-sheet" data-label="Export Pull Sheet"></div>
             <div class="menu-divider"></div>
             <div class="menu-option" data-action="preferences" data-label="Preferences" data-shortcut-mac="Cmd+," data-shortcut-win="Ctrl+,"></div>
         </div>
@@ -1947,6 +1948,7 @@
                     <option value="psd">PSD (Layered standard editors - screens as layers)</option>
                     <option value="pdf">PDF (All views combined)</option>
                     <option value="resolume-xml">Resolume XML (Advanced Output)</option>
+                    <option value="pull-sheet">Pull Sheet (Excel workbook - cable list by position)</option>
                     <!-- NovaStar SCR export is parked, not gone: the .scr file
                          layer lives in src/scr_project.py / scr_encoder.py /
                          scr_decoder.py with a working CLI in
@@ -1955,6 +1957,36 @@
                          export-confirm handler, and a route that calls
                          scr_project.build_sections. -->
                 </select>
+            </div>
+
+            <!-- Pull Sheet (format pull-sheet only): the project's jumper names
+                 and lengths (project.pullSheet, one undo entry per edit), the
+                 revision, and the engineer (a server preference - the same
+                 person show after show). Shown/hidden by syncPullSheetControls
+                 in app-pull-list.js. -->
+            <div id="export-pull-sheet-section" style="margin-bottom: 18px; display: none;">
+                <label style="display: block; margin-bottom: 8px; color: #ccc; font-size: 13px;">Pull Sheet:</label>
+                <div class="export-views" style="display: flex; flex-direction: column; gap: 8px;">
+                    <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
+                        <span style="flex: none; width: 92px;">Data jumper</span>
+                        <input type="text" id="export-pull-sheet-data-jump-name" placeholder="Data Jump" data-tooltip="The data jumper's name on the pull sheet - one per row step within a port run." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
+                        <input type="text" id="export-pull-sheet-data-jump-length" placeholder="6" inputmode="decimal" data-tooltip="The data jumper's length in feet." style="flex: none; width: 44px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px; text-align: right;">
+                        <span style="flex: none;">ft</span>
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
+                        <span style="flex: none; width: 92px;">Power jumper</span>
+                        <input type="text" id="export-pull-sheet-power-jump-name" placeholder="Tru-1 Power Jump" data-tooltip="The power jumper's name on the pull sheet - one per row step within a circuit run." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
+                        <input type="text" id="export-pull-sheet-power-jump-length" placeholder="6" inputmode="decimal" data-tooltip="The power jumper's length in feet." style="flex: none; width: 44px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px; text-align: right;">
+                        <span style="flex: none;">ft</span>
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
+                        <span style="flex: none; width: 92px;">Engineer</span>
+                        <input type="text" id="export-pull-sheet-engineer" placeholder="Name" data-tooltip="Printed in the sheet's ENGINEER cell. Remembered as a preference." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
+                        <span style="flex: none;">Rev</span>
+                        <input type="text" id="export-pull-sheet-rev" placeholder="1.0" data-tooltip="Printed in the sheet's REV cell." style="flex: none; width: 44px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px; text-align: right;">
+                    </div>
+                </div>
+                <div style="margin-top: 6px; font-size: 11px; color: #777;">Positions are your screen groups; an ungrouped screen is its own position. Fiber trunk home runs are not listed.</div>
             </div>
 
             <!-- Export Scale (v0.8.7.7.1), multiplies output resolution. Vector

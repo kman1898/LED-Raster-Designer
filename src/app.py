@@ -3144,6 +3144,7 @@ from routes_canvas import canvas_bp  # noqa: E402
 from routes_layers import layers_bp  # noqa: E402
 from routes_processors import processors_bp  # noqa: E402
 from routes_port_assignment import port_assignment_bp  # noqa: E402
+from routes_pull_sheet import pull_sheet_bp  # noqa: E402
 app.register_blueprint(system_bp)
 app.register_blueprint(dialog_bp)
 app.register_blueprint(presets_bp)
@@ -3156,6 +3157,7 @@ app.register_blueprint(canvas_bp)
 app.register_blueprint(layers_bp)
 app.register_blueprint(processors_bp)
 app.register_blueprint(port_assignment_bp)
+app.register_blueprint(pull_sheet_bp)
 
 
 # The address the server was told to listen on, recorded so the native
