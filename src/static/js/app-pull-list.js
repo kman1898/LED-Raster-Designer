@@ -865,8 +865,11 @@ class _PullList {
             // under the return label.
             const bb = this._pullBackedBy(placed.cardId, placed.port);
             if (bb) {
+                // The return label as the tray states it; the derivation
+                // lives in deriveReturnLabel (one rule, never re-spelled).
                 const label = (typeof this.getPortLabelText === 'function')
-                    ? this.getPortLabelText(layer, run.num, 'return') : `${run.label}R`;
+                    ? this.getPortLabelText(layer, run.num, 'return')
+                    : this.deriveReturnLabel(run.label);
                 port.backup = { label, cable: null, snake: null, ext: null, box: null };
                 walk(bb.cardId, bb.port, label, port.backup);
             }
