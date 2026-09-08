@@ -77,6 +77,9 @@ def save_project():
     # it stored then survived until the next undo, and the export read it in
     # the meantime. Idempotent, so a well-formed save is untouched.
     app._enforce_group_integrity(app.current_project)
+    # Beaches ride this route too (the distro tray's fire-and-forget POST
+    # carries `distros`): repair the list and migrate a typed location.
+    app._normalize_beaches(app.current_project)
     # Same funnel duty for the processor tree: a payload can carry a
     # pre-stocking SX40 through this route too, and a boxless one is a
     # legacy shape, never a choice. Idempotent like the pass above it.
@@ -165,6 +168,10 @@ def restore_project():
     # one place that can guarantee the two sides agree. Idempotent by design:
     # restoring the same project twice must not change it.
     app._enforce_group_integrity(app.current_project)
+    # Beaches (2026-09-08): the list is repaired and a distro's or box's
+    # typed `location` becomes a beach of that name on load - see
+    # _normalize_beaches. Idempotent like the pass above it.
+    app._normalize_beaches(app.current_project)
     # A requires-distribution device saved before new_processor stocked its
     # default boxes arrives with an empty cvts list - a pre-stocking save,
     # not an arrangement. This funnel (file load, undo/redo) is where it is
@@ -202,3 +209,107 @@ def restore_project():
     if did_migrate:
         response['_migration_notice'] = True
     return jsonify(response)
+
+
+# ── Beaches ──────────────────────────────────────────────────────────────
+#
+# "you can either create a beach or you can pick one from the drop-down of
+# one that you created earlier in the project" (2026-09-08). The list lives
+# on the project (app._normalize_beaches documents the shape); these routes
+# are the only writers besides the load funnel, and every one answers with
+# the whole project the way the canvas routes do, so the client adopts one
+# truth rather than patching its copy.
+
+def _beach_response(beach=None, created=False, status=200):
+    app.current_project['is_pristine'] = False
+    body = {'project': app.current_project}
+    if beach is not None:
+        body['beach'] = {'id': beach['id'], 'name': beach['name']}
+        body['created'] = bool(created)
+    socketio.emit('project_updated', app.current_project)
+    return jsonify(body), status
+
+
+def _beach_name_from(data):
+    value = (data or {}).get('name')
+    if value is not None and not isinstance(value, str):
+        return None, 'Beach name must be text'
+    text = (value or '').strip()
+    if not text:
+        return None, 'Beach name must not be blank'
+    return text, None
+
+
+@project_bp.route('/api/beaches', methods=['GET'])
+def list_beaches():
+    app._normalize_beaches(app.current_project)
+    return jsonify({'beaches': app.current_project.get('beaches') or []})
+
+
+@project_bp.route('/api/beaches', methods=['POST'])
+def add_beach():
+    """name -> {id, name}. A name the project already has (case-blind)
+    answers with THAT beach, never a second one."""
+    app._normalize_beaches(app.current_project)
+    name, why = _beach_name_from(request.json)
+    if why:
+        return jsonify({'error': why}), 400
+    beach, created = app._create_beach(app.current_project, name)
+    log_event('beach_add', {'id': beach['id'], 'name': beach['name'],
+                            'created': created})
+    return _beach_response(beach, created, 201 if created else 200)
+
+
+@project_bp.route('/api/beaches/order', methods=['PUT'])
+def reorder_beaches():
+    """{ids}: a permutation of the beach ids - the pull-sheet and binder
+    order."""
+    app._normalize_beaches(app.current_project)
+    data = request.json or {}
+    ids = data.get('ids')
+    beaches = app.current_project.get('beaches') or []
+    by_id = {b['id']: b for b in beaches}
+    if (not isinstance(ids, list)
+            or len(ids) != len(beaches)
+            or any(not app._is_hashable(i) for i in ids)
+            or set(ids) != set(by_id.keys())):
+        return jsonify({'error': 'ids must be a permutation of the beach ids'}), 400
+    app.current_project['beaches'] = [by_id[i] for i in ids]
+    log_event('beach_reorder', {'order': ids})
+    return _beach_response()
+
+
+@project_bp.route('/api/beaches/<beach_id>', methods=['PUT'])
+def rename_beach(beach_id):
+    app._normalize_beaches(app.current_project)
+    beach = app._find_beach(app.current_project, beach_id)
+    if not beach:
+        return jsonify({'error': 'Beach not found'}), 404
+    name, why = _beach_name_from(request.json)
+    if why:
+        return jsonify({'error': why}), 400
+    other = app._find_beach_by_name(app.current_project, name)
+    if other and other['id'] != beach['id']:
+        return jsonify({'error': f'There is already a beach called {other["name"]}'}), 400
+    beach['name'] = name
+    log_event('beach_rename', {'id': beach['id'], 'name': name})
+    return _beach_response(beach)
+
+
+@project_bp.route('/api/beaches/<beach_id>', methods=['DELETE'])
+def delete_beach(beach_id):
+    """Removes the beach and clears every beachId that pointed at it - the
+    screens, distros and boxes fall back to their own positions."""
+    app._normalize_beaches(app.current_project)
+    beach = app._find_beach(app.current_project, beach_id)
+    if not beach:
+        return jsonify({'error': 'Beach not found'}), 404
+    app.current_project['beaches'] = [
+        b for b in app.current_project.get('beaches') or [] if b is not beach]
+    cleared = 0
+    for rec in app._beach_records(app.current_project):
+        if rec.get('beachId') == beach_id:
+            rec['beachId'] = None
+            cleared += 1
+    log_event('beach_delete', {'id': beach_id, 'cleared': cleared})
+    return _beach_response()

@@ -111,8 +111,14 @@ RENDER_JS = """([title]) => {
     const plan = app.planBinder(opts);
     const idx = plan.findIndex(p => p.title === title);
     if (idx < 0) return { missing: title, plan: plan.map(p => p.title) };
-    return { texts: app.renderBinderPage(opts, idx).texts };
+    return { texts: app.renderBinderPage(opts, idx).texts, names: plan[idx].names || null };
 }"""
+
+# The binder packs the positions side by side on ONE pull sheet (3.1), a
+# column each under its name, the sheet named by what it carries.
+PULL = 'Pull - SR Beach, CENTER'
+# The processor sheet (4.2) with the show's pull list in a column beside it.
+PROC = 'Processor - H9 · Pull list'
 
 
 @pytest.fixture(scope="module")
@@ -209,6 +215,35 @@ def _render(pg, title):
     out = pg.evaluate("(t) => (%s)([t])" % RENDER_JS, title)
     assert 'missing' not in out, out
     return out['texts']
+
+
+def _columns(pg, title, first='POWER CABLES'):
+    """A packed sheet's texts, split by column: {name: texts under its
+    head}. The heads are the plan's `names` in order, drawn upper-cased
+    over the column, each followed by the column's first table title -
+    `first`, one title for every column (a pull sheet's columns all open
+    with POWER CABLES) or {name: title} for the columns it names - so a
+    name that also appears as a label lower down (CENTER's power jumpers
+    are labelled CENTER) is not mistaken for a head. Also returns the
+    whole sheet under ''."""
+    out = pg.evaluate("(t) => (%s)([t])" % RENDER_JS, title)
+    assert 'missing' not in out, out
+    texts, names = out['texts'], out['names']
+    assert names, out
+    starts = []
+    at = 0
+    for name in names:
+        head = name.upper()
+        want = first.get(name) if isinstance(first, dict) else first
+        i = next(i for i in range(at, len(texts) - 1)
+                 if texts[i] == head and (want is None or texts[i + 1] == want))
+        starts.append(i)
+        at = i + 1
+    cols = {'': texts}
+    for k, (name, i) in enumerate(zip(names, starts)):
+        end = starts[k + 1] if k + 1 < len(starts) else len(texts)
+        cols[name] = texts[i:end]
+    return cols
 
 
 def _triples(texts):
@@ -310,11 +345,16 @@ def test_a_qty_override_rides_into_the_wrapper_the_workbook_and_the_binder(page)
     assert ws.cell(5, 1).value == 'SR Beach'
     assert ('Tru-1', "10'", 7, 'SR1-1, SR1-2', None) in _block(ws, 0)
     assert pg.locator('#pull-sheet-modal').is_visible(), 'the editor stays up after an export'
-    # the binder's pull page and its totals page draw the same figure
-    texts = _render(pg, 'SR Beach - Pull')
-    assert ('Tru-1', "10'", '7') in _triples(texts) and ('Tru-1', "10'", '2') not in _triples(texts)
-    totals = _render(pg, 'Pull list - all positions')
-    assert ('Tru-1', "10'", '7') in _triples(totals)
+    # the binder's pull sheet (SR Beach's column of it) and its totals page
+    # draw the same figure
+    cols = _columns(pg, PULL)
+    assert list(cols) == ['', 'SR Beach', 'CENTER'], list(cols)
+    assert ('Tru-1', "10'", '7') in _triples(cols['SR Beach']) and ('Tru-1', "10'", '2') not in _triples(cols[''])
+    assert ('Tru-1', "10'", '7') not in _triples(cols['CENTER'])
+    # the show's pull list rides beside the processor (4.2) as its own
+    # column, ALL POSITIONS over a PULL LIST table
+    totals = _columns(pg, PROC, first={'All positions': 'PULL LIST'})['All positions']
+    assert ('Tru-1', "10'", '7') in _triples(totals) and ('Tru-1', "10'", '2') not in _triples(totals)
     _close(pg)
 
 
@@ -375,8 +415,9 @@ def test_a_hidden_row_leaves_every_paper_and_comes_back_from_the_fold(page):
     sheet = pg.evaluate(SHEET_JS)
     assert not any(t == 'Tru-1 Breakout' for t, *_ in _rows_of(sheet, 'SR Beach'))
     assert ('Tru-1 Breakout', 'EA') not in _totals(sheet), 'no other position has one'
-    texts = _render(pg, 'SR Beach - Pull')
-    assert 'Tru-1 Breakout' not in texts
+    # the packed pull sheet: the row is off SR Beach's column and the sheet
+    cols = _columns(pg, PULL)
+    assert 'Tru-1 Breakout' not in cols['SR Beach'] and 'Tru-1 Breakout' not in cols['']
     # restore
     fold.locator('summary').click()
     fold.locator('.pull-restore').click()
@@ -434,9 +475,13 @@ def test_an_added_row_with_a_new_type_lands_in_the_export_and_the_gear_list(page
     assert 'Widget Cable' in gear
     lengths = [wb['GEAR LIST'].cell(r, 2).value for r in range(4, 61) if wb['GEAR LIST'].cell(r, 2).value]
     assert "12'" in lengths
-    # the binder's pull page has it on the power side
-    texts = _render(pg, 'CENTER - Pull')
-    assert ('Widget Cable', "12'", '3') in _triples(texts)
+    # the binder's pull sheet has it under CENTER's column, on the power
+    # side (before that column's DATA CABLES title), and nowhere else
+    cols = _columns(pg, PULL)
+    center = cols['CENTER']
+    assert ('Widget Cable', "12'", '3') in _triples(center)
+    assert center.index('Widget Cable') < center.index('DATA CABLES'), center
+    assert ('Widget Cable', "12'", '3') not in _triples(cols['SR Beach'])
     # a data word goes to the data side
     idx = pg.evaluate("(k) => window.app.addPullSheetRow(k, {type: 'Ether-con Barrel', length: 'EA', qty: 2})", ids['center'])
     assert idx == 1
@@ -626,7 +671,7 @@ SCREENSHOT = os.path.join(os.path.dirname(SCRATCH_FIXTURE), 'pull-sheet-editor-e
 
 
 @pytest.mark.skipif(not os.path.exists(SCRATCH_FIXTURE),
-                    reason='experts-only.json smoke fixture not present')
+                    reason='experts-only-fixture.json smoke fixture not present')
 def test_smoke_experts_only(page):
     """The real show: SR - MAIN's Tru-1 10' row (6 as the show says) edited
     to 7 in the editor; the workbook's cell reads 7."""

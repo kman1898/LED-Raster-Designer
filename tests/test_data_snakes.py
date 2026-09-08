@@ -1216,10 +1216,13 @@ def test_the_sheet_leaves_the_fold_alone(page, which):
 
 # ── the backup sheet reads like the primary ───────────────────────────────
 #
-# The user's own show (experts-only.json): card "Card 1" backed 1:1 by
-# "Card 4"; box A on Card 1 carries SNAKE A over sockets 1-4 (SR - MAIN's
-# four ports), box B on Card 4 carries a SNAKE A over the sockets their
-# returns land on. Box B's snake row once read "SR - MAIN p1 return, SR -
+# The user's own show, FROZEN as experts-only-fixture.json (his save of
+# 2026-09-07 23:43 - the file's mtime; the experts-only.json beside it
+# drifts with every save, the fixture never moves): card "Card 1" backed
+# 1:1 by "Card 3"; box "SR A" on Card 1 carries snake SR A over sockets
+# 1-4 (SR - MAIN's four ports), box "SR B" on Card 3 carries snake SR B
+# over the sockets their returns land on. Box B's snake row once read
+# "SR - MAIN p1 return, SR -
 # MAIN p2 return, SR - MAIN p3 return, SR - MAIN p4 return" - a 1012px
 # table inside a 491px sheet, the HOME RUN and CONNECTOR cells (the
 # extension inputs) pushed off the right edge. "when redundancy is set and
@@ -1230,7 +1233,7 @@ def test_the_sheet_leaves_the_fold_alone(page, which):
 SCRATCH_FIXTURE = os.environ.get('LRD_PULL_SMOKE_JSON') or os.path.join(
     '/private/tmp/claude-501',
     '-Users-mattknotts-Nextcloud-LED-LED-Wall-Tech-Raster-Software-LED-Raster-Designer',
-    'be6afb3b-7607-4f06-8c12-a10cd58068e9', 'scratchpad', 'experts-only.json')
+    'be6afb3b-7607-4f06-8c12-a10cd58068e9', 'scratchpad', 'experts-only-fixture.json')
 
 # One box's sheet as laid out: every row's SCREEN cell and title, and the
 # geometry the bug was - the table against the sheet, and the HOME RUN
@@ -1265,13 +1268,13 @@ BOX_SHEET_JS = """(id) => {
 
 
 @pytest.mark.skipif(not os.path.exists(SCRATCH_FIXTURE),
-                    reason='experts-only.json smoke fixture not present')
+                    reason='experts-only-fixture.json smoke fixture not present')
 def test_the_backup_boxs_sheet_reads_like_the_primarys(e2e_server, pw_browser):
-    """On his file, box B's snake row and its four member rows read
-    "SR - MAIN" - exactly what box A's read - with the "p1 return" detail
-    on the row's title; the table is never wider than the sheet, and the
-    HOME RUN cell (the last one - four columns) sits on it, on both boxes.
-    Runs in its own
+    """On the frozen file, box SR B's snake row and its four member rows
+    read "SR - MAIN" - exactly what box SR A's read - with the "p1 return"
+    detail on the row's title; the table is never wider than the sheet,
+    and the HOME RUN cell (the last one - four columns) sits on it, on
+    both boxes. Runs in its own
     page so the module's seed is left alone, and puts the server's project
     back when it is done."""
     with open(SCRATCH_FIXTURE) as fh:
@@ -1304,15 +1307,15 @@ def test_the_backup_boxs_sheet_reads_like_the_primarys(e2e_server, pw_browser):
                 app.renderHardwareDock();
                 const card = app._dockFindCard('card2').card;
                 const backup = app._dockFindCard('card3').card;
-                const boxA = card.cvts.find(c => c.name === 'A');
-                const boxB = backup.cvts.find(c => c.name === 'B');
+                const boxA = card.cvts.find(c => c.name === 'SR A');
+                const boxB = backup.cvts.find(c => c.name === 'SR B');
                 return { a: boxA.id, b: boxB.id, snakeA: boxA.snakes[0].ports, snakeB: boxB.snakes[0].ports,
                          backup: backup.backupFor ? backup.backupFor.title : null };
             }""", project)
             pg.wait_for_timeout(800)
             assert ids['a'] == 'cvt8' and ids['b'] == 'cvt9', ids
             assert ids['snakeA'] == [1, 2, 3, 4] and ids['snakeB'] == [1, 2, 3, 4], ids
-            assert ids['backup'], f'fixture: Card 4 must back Card 1: {ids}'
+            assert ids['backup'] == 'Card 1', f'fixture: Card 3 must back Card 1: {ids}'
             sheets = {}
             for which in ('a', 'b'):
                 pg.locator(f'[data-lrd-field="data-cable-sheet-{ids[which]}"]').click()

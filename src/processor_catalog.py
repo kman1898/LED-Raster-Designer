@@ -1197,6 +1197,11 @@ def resolve_card(card, proc):
             # Where the box sits (update_cvt), '' when nobody said: the pull
             # list files the box's rows under this name.
             'location': (cvt.get('location') or '').strip(),
+            # The beach the box sits on (update_cvt), None when nobody
+            # picked one: the pull list files the box's rows under that
+            # beach's name; `location` above is only a record nobody
+            # migrated yet.
+            'beachId': cvt.get('beachId') or None,
             'ports': [],
         }
         # The box's snakes and port cables ride the resolved box, with the

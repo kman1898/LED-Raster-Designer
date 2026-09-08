@@ -2562,6 +2562,8 @@ class _ScreenInfo {
         if (transparentFillEl) transparentFillEl.checked = !!this.currentLayer.transparentFill;
         const screenRotationEl = document.getElementById('screen-rotation');
         if (screenRotationEl) screenRotationEl.value = String((((Number(this.currentLayer.rotation) || 0) % 360) + 360) % 360);
+        // The beach the selection sits on (mixed shows a dash).
+        if (typeof this.loadBeachPicker === 'function') this.loadBeachPicker(this.getSelectedLayers());
         // On Windows the visible element is a separate ".../-swatch" div (the
         // native input is hidden), and its background is otherwise only set
         // while editing. Refresh it here so selecting a layer always shows

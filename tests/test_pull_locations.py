@@ -6,8 +6,15 @@ need to be able to be listed in the pullsheets as well" (user, 2026-09-07).
 
   - A breakout box carries `location` (free text, blank clears) the way it
     carries fiberType: PUT /api/processors/<id>/cvts/<cvtId>, resolved onto
-    the box, typed in the box's gear popover ('Set Box Location'). A distro
-    already had one (the distro gear's Location field).
+    the box. A distro already had one. BEACHES (2026-09-08): the project
+    keeps its beaches as a list (project.beaches, POST /api/beaches), and a
+    box, a distro and a screen each PICK one by `beachId` - the Beach
+    picker in the box's and the distro's gear popovers ('Set Box Beach',
+    'Set Distro Beach') replaced the typed Location fields; a typed
+    location left on a record migrates into a beach of that name on load.
+    The beaches lead the positions in their order (key `beach:<id>`), a
+    group called like a beach folds into it, and pullKnownLocations() is
+    the beach names.
   - Every row a DEVICE produces is pulled where the device sits: a distro's
     Multi / Breakout / circuit cables / gangs / power jumpers at the
     distro's location; a box's data rows, fiber and jumpers at the box's
@@ -294,11 +301,14 @@ def test_the_workbook_and_the_binder_take_a_device_location(page):
     rows = [tuple(ws.cell(r, col + i).value for i in range(4)) for r in range(7, 20)]
     assert ('12 way', 'EA', 1, 'SR') in rows, rows
     assert ('Multi', "125'", 1, 'SR 1') in rows, rows
-    assert 'Dimmer Beach - Pull' in out['plan'], out['plan']
+    # the positions side by side on one pull sheet, in position order, the
+    # device location last
+    pulls = [t for t in out['plan'] if t.startswith('Pull - ')]
+    assert pulls == ['Pull - SR Beach, CENTER, Dimmer Beach'], out['plan']
     assert out['plan'].count('WALL-A - Power') == 1 and out['plan'].count('WALL-B - Power') == 1
-    # the set runs by series: every power sheet (2.x) before the pull
-    # sheets (4.x), the pull sheets in position order
-    assert out['plan'].index('WALL-A - Power') < out['plan'].index('SR Beach - Pull') < out['plan'].index('Dimmer Beach - Pull')
+    # the set runs by series: every screen sheet (2.x, power then data) before
+    # the pull sheet (3.x)
+    assert out['plan'].index('WALL-A - Power') + 1 == out['plan'].index('WALL-A - Data') < out['plan'].index(pulls[0])
     i = out['cover'].index('Dimmer Beach')
     assert out['cover'][i + 1] == 'gear for WALL-A, WALL-B', out['cover'][i:i + 4]
     _set_distro_location(pg, ids, '')
@@ -307,32 +317,64 @@ def test_the_workbook_and_the_binder_take_a_device_location(page):
 
 def test_a_box_at_its_beach_pulls_its_ports_rows_and_two_boxes_list_once(page):
     """Two CVT10s on card SR (OPT 1 delivers sockets 1-8 again - every
-    port here; OPT 2 delivers 9-16, nothing), both at "SL Beach". The
-    sockets' home runs are the box's now (its snake of sockets 1-2 with a
-    10' extension on socket 1, its 50' cable on 3), so the snake, the
-    extension and its `Ether-con Barrel` (one per extension, 2026-09-07),
-    CENTER's cable, every data jumper, box A's fiber and ONE "CVT10 EA"
-    row of qty 2 labelled "A, B" land on SL Beach, whose layerIds are the
-    three screens; the power rows stay where they were. Boxes with no
-    location fall back to the first screen they deliver, and a box
-    delivering nothing with no location is not listed."""
+    port here; OPT 2 delivers 9-16, nothing), both on the beach "SL Beach"
+    - a beach the project keeps (project.beaches, made the way the picker
+    makes one) that each box PICKS by id. The sockets' home runs are the
+    box's now (its snake of sockets 1-2 with a 10' extension on socket 1,
+    its 50' cable on 3), so the snake, the extension and its `Ether-con
+    Barrel` (one per extension, 2026-09-07), CENTER's cable, every data
+    jumper, box A's fiber and ONE "CVT10 EA" row of qty 2 labelled "A, B"
+    land on SL Beach, whose layerIds are the three screens; the power rows
+    stay where they were. The beaches lead the positions in THEIR order,
+    a beach called like the group SR Beach folds the group into it, and
+    the loose screen comes last. Boxes on no beach fall back to the first
+    screen they deliver, and a box delivering nothing on no beach is not
+    listed. A second spelling of a beach's name is the same beach; a
+    beachId the project does not know is refused."""
     pg, ids = page
     out = pg.evaluate("""async (ids) => {
         const app = window.app;
         const j = (method, url, body) => fetch(url, {method,
             headers: {'Content-Type': 'application/json'},
             body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
+        // The typed locations the tests above put on the distro migrated
+        // into beaches on the server's project funnel (_normalize_beaches
+        // runs on every project PUT) and stayed there with nothing on
+        // them; the beaches from here are this test's own.
+        const results = {};
+        results.leftovers = ((await j('GET', '/api/beaches')).beaches || []).map(b => b.name);
+        for (const b of (await j('GET', '/api/beaches')).beaches || []) await fetch(`/api/beaches/${b.id}`, {method: 'DELETE'});
+        app.project = await j('GET', '/api/project');
+        app.dedupeProjectLayers('pull_locations_boxes');
         let st = await j('POST', `/api/processors/${ids.procId}/cards/${ids.cardId}/cvts`, {deviceId: 'novastar-cvt10', pair: false});
         const boxA = st.processors[0].slots[0].card.cvts[0].id;
         st = await j('POST', `/api/processors/${ids.procId}/cards/${ids.cardId}/cvts`, {deviceId: 'novastar-cvt10', pair: false});
         const boxB = st.processors[0].slots[0].card.cvts[1].id;
         const rebuild = %s;
-        const results = { boxA, boxB };
+        results.boxA = boxA; results.boxB = boxB;
         results.noLocation = await rebuild();
-        await j('PUT', `/api/processors/${ids.procId}/cvts/${boxA}`, {location: 'SL Beach', fiberType: '12 Tac Fiber', fiberFt: 250,
+        results.knownBefore = app.pullKnownLocations();
+        // the beaches, the way the picker makes them: SL Beach first, then
+        // one called like the group
+        const sl = await app.createBeach('SL Beach');
+        const sr = await app.createBeach('SR Beach');
+        results.beaches = app.getBeaches().map(b => [b.id, b.name]);
+        results.sl = sl && sl.id; results.sr = sr && sr.id;
+        // the same name in another spelling answers with THAT beach
+        const again = await fetch('/api/beaches', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                                   body: JSON.stringify({name: '  sl beach '})});
+        const body = await again.json();
+        results.again = [again.status, body.created, body.beach, (body.project.beaches || []).length];
+        // a beach the project does not have is refused, and nothing changes
+        const bad = await fetch(`/api/processors/${ids.procId}/cvts/${boxB}`, {method: 'PUT',
+            headers: {'Content-Type': 'application/json'}, body: JSON.stringify({beachId: 'b999'})});
+        results.bad = [bad.status, (await bad.json()).error];
+        await j('PUT', `/api/processors/${ids.procId}/cvts/${boxA}`, {beachId: sl.id, fiberType: '12 Tac Fiber', fiberFt: 250,
                  snakes: [{ports: [1, 2], ft: 100}], portCables: {'3': {ft: 50}, '1': {ft: 10}}});
-        await j('PUT', `/api/processors/${ids.procId}/cvts/${boxB}`, {location: 'sl beach'});
+        await j('PUT', `/api/processors/${ids.procId}/cvts/${boxB}`, {beachId: sl.id});
         results.located = await rebuild();
+        results.boxBeaches = [app._dockFindCvt(boxA).cvt.beachId, app._dockFindCvt(boxB).cvt.beachId];
+        results.where = [app.pullLocationOf(app._dockFindCvt(boxA).cvt), app.pullLocationOf(app._dockFindCvt(boxB).cvt)];
         results.known = app.pullKnownLocations();
         const c = app.project.layers.find(l => l.id === ids.c);
         results.centerLabel = app.getPortLabelText(c, 1, 'primary');
@@ -340,17 +382,28 @@ def test_a_box_at_its_beach_pulls_its_ports_rows_and_two_boxes_list_once(page):
         results.snakeName = app._dockFindCvt(boxA).cvt.snakes[0].name;
         return results;
     }""" % REBUILD_JS, ids)
-    # no location: box A's gear row and fiber sit with the first screen it
+    # no beach: box A's gear row and fiber sit with the first screen it
     # delivers (WALL-A -> SR Beach); box B delivers nothing and is not listed
     no = _by_name(out['noLocation']['positions'])
     assert [p['name'] for p in out['noLocation']['positions']] == ['SR Beach', 'CENTER']
     assert [r for r in _rows(no['SR Beach']['rows']) if r[0] == 'CVT10'] == [('CVT10', 'EA', 1, 'A', '')]
     assert not [r for r in _rows(no['CENTER']['rows']) if r[0] == 'CVT10']
-    # located
+    assert out['knownBefore'] == [], 'a project with no beaches knows no location'
+    # the beaches: two, in the order they were made, one spelling each
+    sl_id, sr_id = out['sl'], out['sr']
+    assert out['beaches'] == [[sl_id, 'SL Beach'], [sr_id, 'SR Beach']] and sl_id != sr_id, out['beaches']
+    assert out['again'] == [200, False, {'id': sl_id, 'name': 'SL Beach'}, 2], out['again']
+    assert out['bad'] == [400, 'Unknown beach'], out['bad']
+    assert out['boxBeaches'] == [sl_id, sl_id] and out['where'] == ['SL Beach', 'SL Beach'], out
+    # located: the beaches lead in their order, the loose screen last
     pos = _by_name(out['located']['positions'])
-    assert [p['name'] for p in out['located']['positions']] == ['SR Beach', 'CENTER', 'SL Beach']
+    assert [p['name'] for p in out['located']['positions']] == ['SL Beach', 'SR Beach', 'CENTER']
+    assert [p['key'] for p in out['located']['positions']] == [f'beach:{sl_id}', f'beach:{sr_id}', f"layer:{ids['c']}"]
     sl = pos['SL Beach']
-    assert sl['key'] == 'loc:sl beach' and sl['memberIds'] == [] and sl['layerIds'] == [ids['a'], ids['b'], ids['c']]
+    assert sl['memberIds'] == [] and sl['layerIds'] == [ids['a'], ids['b'], ids['c']]
+    # the group SR Beach folds into the beach of its name: its members are
+    # the beach's own
+    assert pos['SR Beach']['memberIds'] == [ids['a'], ids['b']] and pos['SR Beach']['location'] == 'SR Beach'
     assert _rows(sl['rows']) == [
         ('12 Tac Fiber', "250'", 1, 'CVT10 A', ''),
         ('CVT10', 'EA', 2, 'A, B', ''),
@@ -377,104 +430,183 @@ def test_a_box_at_its_beach_pulls_its_ports_rows_and_two_boxes_list_once(page):
     # the processor's hardware list carries both boxes' gear rows
     hw = {(h['kind'],): _rows(h['rows']) for h in out['located']['hardware'] if h['kind'] == 'processor'}
     assert ('CVT10', 'EA', 2, 'A, B', '') in hw[('processor',)]
-    # every location the project knows, one spelling each
+    # every location the project knows: the beach names, in beach order
     assert out['known'] == ['SL Beach', 'SR Beach']
     assert ids['errors'] == []
 
 
-def test_the_box_gear_has_a_location_field_with_the_known_locations(page):
-    """The box gear popover carries a Location text field keyed
-    processor-cvt-location-<id>, a datalist of pullKnownLocations(), and
-    one 'Set Box Location' history entry per commit; the distro gear's
-    Location field offers the same list."""
+def _open_gear(pg, pop_id):
+    """Open the tray gear `pop_id` (box-<id>, distro-<id>) if its popover
+    is not already showing; True when it is up."""
+    return pg.evaluate("""(popId) => {
+        const app = window.app;
+        const up = () => {
+            const pop = document.getElementById('hw-gear-popover');
+            return !!(pop && pop.style.display !== 'none');
+        };
+        if (up() && app._hwPopover && app._hwPopover.id === popId) return true;
+        const gear = document.querySelector(`[data-hwpop="${popId}"]`);
+        if (!gear) return false;
+        gear.click();
+        return up();
+    }""", pop_id)
+
+
+def _beach_picker(pg, key):
+    """The Beach picker keyed `key` in the open gear popover: its value,
+    its [value, text] options, and where it sits."""
+    return pg.evaluate("""(key) => {
+        const sel = document.querySelector(`[data-lrd-field="${key}"]`);
+        return { found: !!sel, tag: sel && sel.tagName,
+                 inPop: !!(sel && sel.closest('#hw-gear-popover')), value: sel && sel.value,
+                 options: sel ? [...sel.options].map(o => [o.value, o.textContent]) : null,
+                 labels: [...document.querySelectorAll('#hw-gear-popover label')].map(l => l.textContent),
+                 typed: [...document.querySelectorAll('#hw-gear-popover [data-lrd-field]')]
+                     .map(el => el.dataset.lrdField).filter(k => /-location-/.test(k)),
+                 index: window.app.historyIndex };
+    }""", key)
+
+
+def _box_beach(pg, box_id):
+    return pg.evaluate("(bid) => { const f = window.app._dockFindCvt(bid); return f ? (f.cvt.beachId || null) : 'gone'; }", box_id)
+
+
+def _wait_box_beach(pg, box_id, beach_id):
+    """The resolved tree follows a project round-trip; wait for it."""
+    waited, got = 0, None
+    while waited < 4000:
+        got = _box_beach(pg, box_id)
+        if got == beach_id:
+            break
+        pg.wait_for_timeout(200)
+        waited += 200
+    return got
+
+
+def test_the_box_gear_has_a_beach_picker_with_the_projects_beaches(page):
+    """The box gear popover carries the Beach picker keyed
+    processor-cvt-beach-<id> (no typed Location field): a <select> of the
+    project's beaches in THEIR order between a blank entry and "+ New
+    beach…". Picking a beach PUTs beachId and takes one 'Set Box Beach'
+    entry; "+ New beach…" prompts for a name, makes the beach and picks it
+    as ONE entry, so one undo takes back both the pick and the beach. The
+    distro gear's picker (distro-beach-<id>) offers the same list."""
     pg, ids = page
     pg.locator('[data-mode="data-flow"]').click()
     pg.wait_for_timeout(400)
     # The boxes above were made by raw fetches (no history entry): take the
     # project as served as the floor of the history, so undo below takes
-    # back the location and not the boxes.
+    # back a pick and not the boxes or the beaches.
     pg.evaluate("""async () => {
         const app = window.app;
         app.project = await (await fetch('/api/project')).json();
         app.dedupeProjectLayers('pull_locations_gear');
         await app.refreshProcessors(); await app.refreshPortAssignment();
         app.renderLayers(); app.renderHardwareDock();
-        app.resetHistory('Locations Seed');
+        app.resetHistory('Beaches Seed');
     }""")
     pg.wait_for_timeout(300)
+    beaches = pg.evaluate("() => window.app.getBeaches().map(b => [b.id, b.name])")
+    assert [n for _, n in beaches] == ['SL Beach', 'SR Beach'], beaches
+    sl_id, sr_id = beaches[0][0], beaches[1][0]
     box_b = pg.evaluate("() => window.app._processorsResolved[0].slots[0].card.cvts[1].id")
-    assert pg.evaluate("""(popId) => {
-        const gear = document.querySelector(`[data-hwpop="${popId}"]`);
-        if (!gear) return false;
-        gear.click();
-        const pop = document.getElementById('hw-gear-popover');
-        return !!(pop && pop.style.display !== 'none');
-    }""", f'box-{box_b}'), 'the box gear did not open'
+    assert _box_beach(pg, box_b) == sl_id
+    assert _open_gear(pg, f'box-{box_b}'), 'the box gear did not open'
     pg.wait_for_timeout(300)
-    out = pg.evaluate("""(bid) => {
-        const loc = document.querySelector(`[data-lrd-field="processor-cvt-location-${bid}"]`);
-        return { inPop: !!(loc && loc.closest('#hw-gear-popover')), value: loc && loc.value,
-                 list: loc && loc.getAttribute('list'),
-                 options: [...document.querySelectorAll(`#hw-locations-${bid} option`)].map(o => o.value),
-                 labels: [...document.querySelectorAll('#hw-gear-popover label')].map(l => l.textContent),
-                 index: window.app.historyIndex };
-    }""", box_b)
-    assert out['inPop'] and out['value'] == 'sl beach', out
-    assert out['list'] == f'hw-locations-{box_b}' and out['options'] == ['SL Beach', 'SR Beach'], out
-    assert 'Location' in out['labels'], out['labels']
-    field = pg.locator(f'[data-lrd-field="processor-cvt-location-{box_b}"]')
-    field.fill('Dimmer Beach')
-    field.press('Tab')
+    key = f'processor-cvt-beach-{box_b}'
+    out = _beach_picker(pg, key)
+    assert out['found'] and out['inPop'] and out['tag'] == 'SELECT', out
+    assert out['value'] == sl_id, out
+    assert out['options'] == [['', '— no beach —'], [sl_id, 'SL Beach'], [sr_id, 'SR Beach'],
+                              ['__new_beach__', '+ New beach…']], out['options']
+    assert 'Beach' in out['labels'] and out['typed'] == [], out
+    # pick SR Beach: one 'Set Box Beach' entry, the box's beachId follows
+    pg.locator(f'[data-lrd-field="{key}"]').select_option(sr_id)
     pg.wait_for_timeout(900)
-    st = pg.evaluate("""(bid) => {
+    assert _wait_box_beach(pg, box_b, sr_id) == sr_id
+    st = pg.evaluate("""() => {
         const app = window.app;
-        return { location: app._dockFindCvt(bid).cvt.location,
-                 action: app.history[app.historyIndex].action, index: app.historyIndex,
-                 known: app.pullKnownLocations() };
-    }""", box_b)
-    assert st['location'] == 'Dimmer Beach' and st['action'] == 'Set Box Location'
-    assert st['index'] == out['index'] + 1
-    assert st['known'] == ['Dimmer Beach', 'SL Beach', 'SR Beach']
+        return { action: app.history[app.historyIndex].action, index: app.historyIndex,
+                 known: app.pullKnownLocations(), beaches: app.getBeaches().map(b => b.name) };
+    }""")
+    assert st['action'] == 'Set Box Beach' and st['index'] == out['index'] + 1, st
+    assert st['known'] == ['SL Beach', 'SR Beach'] and st['beaches'] == ['SL Beach', 'SR Beach'], st
+    # "+ New beach…": the prompt names it, the beach is made at the end of
+    # the list and picked - ONE entry for the gesture
+    assert _open_gear(pg, f'box-{box_b}'), 'the box gear did not open again'
+    pg.wait_for_timeout(300)
+    assert _beach_picker(pg, key)['value'] == sr_id
+    pg.once('dialog', lambda d: d.accept('Dimmer Beach'))
+    pg.locator(f'[data-lrd-field="{key}"]').select_option('__new_beach__')
+    pg.wait_for_timeout(1200)
+    st = pg.evaluate("""() => {
+        const app = window.app;
+        return { action: app.history[app.historyIndex].action, index: app.historyIndex,
+                 known: app.pullKnownLocations(), beaches: app.getBeaches().map(b => [b.id, b.name]) };
+    }""")
+    assert [n for _, n in st['beaches']] == ['SL Beach', 'SR Beach', 'Dimmer Beach'], st
+    dimmer_id = st['beaches'][2][0]
+    assert dimmer_id not in (sl_id, sr_id)
+    assert _wait_box_beach(pg, box_b, dimmer_id) == dimmer_id
+    assert st['action'] == 'Set Box Beach' and st['index'] == out['index'] + 2, st
+    assert st['known'] == ['SL Beach', 'SR Beach', 'Dimmer Beach'], st
+    # the picker on screen shows the new beach selected, listed last
+    if _open_gear(pg, f'box-{box_b}'):
+        pg.wait_for_timeout(300)
+        now = _beach_picker(pg, key)
+        assert now['value'] == dimmer_id and now['options'][1:-1] == [
+            [sl_id, 'SL Beach'], [sr_id, 'SR Beach'], [dimmer_id, 'Dimmer Beach']], now
+    # one undo takes back the pick AND the beach it made
     pg.evaluate('() => window.app.undo()')
-    # undo restores the project; the resolved tree follows a round-trip later
-    waited, loc = 0, None
-    while waited < 4000:
-        loc = pg.evaluate("(bid) => { const f = window.app._dockFindCvt(bid); return f ? f.cvt.location : null; }", box_b)
-        if loc == 'sl beach':
-            break
-        pg.wait_for_timeout(200)
-        waited += 200
-    assert loc == 'sl beach', loc
-    # the distro gear's Location field carries the same datalist
+    assert _wait_box_beach(pg, box_b, sr_id) == sr_id
+    st = pg.evaluate("""() => {
+        const app = window.app;
+        return { index: app.historyIndex, beaches: app.getBeaches().map(b => b.name), known: app.pullKnownLocations() };
+    }""")
+    assert st['index'] == out['index'] + 1 and st['beaches'] == ['SL Beach', 'SR Beach'], st
+    assert st['known'] == ['SL Beach', 'SR Beach'], st
+    # the distro gear's picker carries the same list (SR sits on no beach)
+    pg.keyboard.press('Escape')
     pg.locator('[data-mode="power"]').click()
     pg.wait_for_timeout(400)
     pg.evaluate("() => { window.app.renderHardwareDock(); }")
     pg.wait_for_timeout(300)
-    assert pg.evaluate("""(popId) => {
-        const gear = document.querySelector(`[data-hwpop="${popId}"]`);
-        if (!gear) return false;
-        gear.click();
-        const pop = document.getElementById('hw-gear-popover');
-        return !!(pop && pop.style.display !== 'none');
-    }""", f"distro-{ids['distroId']}"), 'the distro gear did not open'
+    assert _open_gear(pg, f"distro-{ids['distroId']}"), 'the distro gear did not open'
     pg.wait_for_timeout(300)
-    d = pg.evaluate("""(id) => {
-        const loc = document.querySelector(`[data-lrd-field="distro-location-${id}"]`);
-        return { list: loc && loc.getAttribute('list'),
-                 options: [...document.querySelectorAll(`#hw-locations-distro-${id} option`)].map(o => o.value) };
-    }""", ids['distroId'])
-    assert d['list'] == f"hw-locations-distro-{ids['distroId']}" and d['options'] == ['SL Beach', 'SR Beach'], d
+    d = _beach_picker(pg, f"distro-beach-{ids['distroId']}")
+    assert d['found'] and d['inPop'] and d['tag'] == 'SELECT' and d['value'] == '', d
+    assert d['options'] == [['', '— no beach —'], [sl_id, 'SL Beach'], [sr_id, 'SR Beach'],
+                            ['__new_beach__', '+ New beach…']], d['options']
+    assert 'Beach' in d['labels'] and d['typed'] == [], d
     pg.keyboard.press('Escape')
-    # the boxes go; the card's own cables come back
-    pg.evaluate("""async (ids) => {
-        for (const box of [...window.app._processorsResolved[0].slots[0].card.cvts].map(c => c.id)) {
-            await fetch(`/api/processors/${ids.procId}/cvts/${box}`, {method: 'DELETE'});
-        }
-        await window.app.refreshProcessors(); await window.app.refreshPortAssignment();
-    }""", ids)
-    names = pg.evaluate("() => { window.app._circuitTailCache = null; return window.app.buildPullList().positions.map(p => p.name); }")
-    assert names == ['SR Beach', 'CENTER']
+    # the boxes and the beaches go; the card's own cables come back and the
+    # group SR Beach is a position of its own again
+    left = _clear_boxes_and_beaches(pg, ids)
+    assert left['names'] == ['SR Beach', 'CENTER'] and left['keys'] == ['g1', f"layer:{ids['c']}"], left
+    assert left['beaches'] == [] and left['boxes'] == 0, left
     assert ids['errors'] == []
+
+
+def _clear_boxes_and_beaches(pg, ids):
+    """Every breakout box off card SR and every beach off the project, the
+    app re-read from the server: the show of the fixture again (the group
+    SR Beach and the loose CENTER). Returns the positions it leaves."""
+    return pg.evaluate("""async (ids) => {
+        const app = window.app;
+        const j = (url) => fetch(url).then(r => r.json());
+        const boxes = ((await j('/api/processors')).processors.find(p => p.id === ids.procId) || {slots: []})
+            .slots.flatMap(s => (s && s.card && s.card.cvts) || []).map(c => c.id);
+        for (const box of boxes) await fetch(`/api/processors/${ids.procId}/cvts/${box}`, {method: 'DELETE'});
+        for (const b of (await j('/api/beaches')).beaches || []) await fetch(`/api/beaches/${b.id}`, {method: 'DELETE'});
+        app.project = await j('/api/project');
+        app.dedupeProjectLayers('pull_locations_clear');
+        await app.refreshProcessors(); await app.refreshPortAssignment();
+        app.renderLayers(); app.renderHardwareDock();
+        app._circuitTailCache = null;
+        const list = app.buildPullList();
+        return { names: list.positions.map(p => p.name), keys: list.positions.map(p => p.key),
+                 beaches: app.getBeaches(), boxes: app._processorsResolved[0].slots[0].card.cvts.length };
+    }""", ids)
 
 
 def test_a_distro_is_named_by_its_holes_one_to_nine_boxes(page):
@@ -485,6 +617,9 @@ def test_a_distro_is_named_by_its_holes_one_to_nine_boxes(page):
     socas to put on a fresh distro (DIM - a name ending in a digit would
     fold in the label) one at a time."""
     pg, ids = page
+    # the fixture's show, whatever the test before left (its boxes, its beaches)
+    slate = _clear_boxes_and_beaches(pg, ids)
+    assert slate['names'] == ['SR Beach', 'CENTER'], slate
     assert pg.evaluate("() => [1,2,3,4,5,6,7,8,9].map(n => window.app.pullDistroWayType(n))") == [
         '12 way', '12 way', '24 way', '24 way', '36 way', '36 way', '48 way', '48 way', '48 way']
     out = pg.evaluate("""async () => {

@@ -15,8 +15,8 @@ connector, stored like the label overrides:
 
   - layer.powerCircuitCables = { [circuitNum]: { ft, connector } } where a
     null connector FOLLOWS THE BOX - the connector the circuit's box type
-    breaks out to (True1 on a Soca 208 feeding a True1 screen, Edison on a
-    Soca 120, the L21-30 breakout's own tail connector).
+    breaks out to (True1 on a Multi 208 feeding a True1 screen, Edison on a
+    Multi 120, the L21-30 breakout's own tail connector).
   - Option B: a raised ≡ on the box header flips the chips into a sheet -
     tail · circuit · screen · ft · connector - Tab walking the ft column,
     quick fills under it, the flip remembered per box in localStorage. Each
@@ -282,7 +282,7 @@ def test_the_store_round_trips_through_the_project(page):
 def test_the_box_header_flips_into_the_sheet(page):
     """The raised ≡ on the box header flips the chips into the sheet: six
     rows, tail · circuit · screen · ft · connector, WALL on every tail,
-    the connector blank reading "follows Soca 208 (True1)" - a Soca 208
+    the connector blank reading "follows Multi 208 (True1)" - a Multi 208
     feeding a True1 screen. The flip is per box in localStorage, and the
     chip grid is gone while the sheet is up."""
     pg, ids = page
@@ -300,7 +300,7 @@ def test_the_box_header_flips_into_the_sheet(page):
     assert s['heads'] == ['no.', 'circuit', 'screen', 'cable', 'connector'], s['heads']
     assert all(r['who'] == 'WALL' and not r['free'] for r in s['rows']), s
     assert all(r['ft'] == '' and r['connector'] == '' for r in s['rows']), s
-    assert all(r['blank'] == 'follows Soca 208 (True1)' for r in s['rows']), s
+    assert all(r['blank'] == 'follows Multi 208 (True1)' for r in s['rows']), s
     assert s['rows'][0]['options'] == ['', 'true1', 'powercon', 'edison', 'l620'], s
     assert s['total'] == 'no cables', s
     assert s['fills'] == [
@@ -623,7 +623,7 @@ def test_the_switch_reads_the_selected_screen(page):
 def test_a_box_typed_l2130_defaults_its_tails_to_that_breakout(page):
     """A spare box typed L21-30 breaks out to True1 (the breakout table's
     first L21-30 entry) for a tail nobody holds; a holder whose breakout is
-    l2130-powercon reads powerCON; a Soca 120 box is Edison. Off any distro
+    l2130-powercon reads powerCON; a Multi 120 box is Edison. Off any distro
     the screen's own breakout answers."""
     pg, ids = page
     out = pg.evaluate("""(ids) => {

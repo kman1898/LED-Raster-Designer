@@ -527,6 +527,12 @@ def _build_initial_project():
         # sync_next_group_seq: a freed id is never reused, so an undo that
         # resurrects a deleted group cannot collide with a newer one.
         'next_group_seq': 1,
+        # Beaches (2026-09-08): the positions a show is pulled to, kept as a
+        # LIST on the project in pull-sheet / binder order, picked from
+        # everywhere (a screen's Beach, a distro's, a breakout box's). Same
+        # shape and same counter discipline as groups - see _normalize_beaches.
+        'beaches': [],
+        'next_beach_seq': 1,
         # Port attachment state, born with the project so the funnel can
         # tell a new project from a file saved before auto-numbering was
         # retired (2026-09-03): a project WITHOUT this key is a pre-ruling
@@ -1142,6 +1148,199 @@ def _create_group(project, layer_ids, name=None):
     for lid in members:
         by_id[lid]['group_id'] = group['id']
     return group
+
+
+# ---------------------------------------------------------------------------
+# Beaches (2026-09-08).
+#
+# "beach locations need to be addable for data" / "you can either create a
+# beach or you can pick one from the drop-down of one that you created earlier
+# in the project". A beach is a POSITION on the pull sheet and the order the
+# binder runs the screens in. The project keeps them as a list:
+#
+#     project['beaches']      -> [{id: 'b1', name: 'SR'}, ...]   in ORDER
+#     layer['beachId']        -> 'b1' | None   (where the screen's gear is pulled)
+#     distro['beachId']       -> 'b1' | None   (where the distro sits)
+#     cvt['beachId']          -> 'b1' | None   (where the breakout box sits)
+#
+# Names are trimmed, non-empty and unique case-blind; ids come off a project
+# counter (next_beach_seq) that never goes backwards, for the reason
+# sync_next_group_seq gives. The typed free-text `location` the distro and
+# box gears used to carry is MIGRATED on load: a record with a location and
+# no beachId gets a beach of that name (matched case-blind, created if
+# absent), and the location key is dropped.
+# ---------------------------------------------------------------------------
+
+def _highest_beach_seq(project):
+    """Highest ``N`` across the project's existing ``b<N>`` ids, or 0."""
+    beaches = (project or {}).get('beaches') or []
+    max_n = 0
+    if not isinstance(beaches, list):
+        return max_n
+    for b in beaches:
+        bid = (b or {}).get('id', '') if isinstance(b, dict) else ''
+        if isinstance(bid, str) and bid.startswith('b'):
+            try:
+                n = int(bid[1:])
+                if n > max_n:
+                    max_n = n
+            except ValueError:
+                pass
+    return max_n
+
+
+def sync_next_beach_seq(project):
+    """Rebase ``project['next_beach_seq']`` so no beach id is ever reused.
+
+    Same contract as sync_next_group_seq: seeds a project that predates the
+    counter above its highest existing id, never lowers a counter already
+    ahead, and so is safe on the restore funnel."""
+    if not isinstance(project, dict):
+        return 1
+    floor_seq = _highest_beach_seq(project) + 1
+    try:
+        stored = int(project.get('next_beach_seq'))
+    except (TypeError, ValueError):
+        stored = 0
+    project['next_beach_seq'] = max(stored, floor_seq)
+    return project['next_beach_seq']
+
+
+def _next_beach_id(project):
+    seq = sync_next_beach_seq(project)
+    if isinstance(project, dict):
+        project['next_beach_seq'] = seq + 1
+    return f'b{seq}'
+
+
+def _beach_norm(name):
+    """The case-blind key a beach name is matched under."""
+    return str(name if name is not None else '').strip().lower()
+
+
+def _find_beach(project, beach_id):
+    if not _is_hashable(beach_id) or beach_id is None:
+        return None
+    for b in (project or {}).get('beaches') or []:
+        if isinstance(b, dict) and b.get('id') == beach_id:
+            return b
+    return None
+
+
+def _find_beach_by_name(project, name):
+    norm = _beach_norm(name)
+    if not norm:
+        return None
+    for b in (project or {}).get('beaches') or []:
+        if isinstance(b, dict) and _beach_norm(b.get('name')) == norm:
+            return b
+    return None
+
+
+def _create_beach(project, name):
+    """The beach called ``name``: the existing one (case-blind) or a new one
+    appended to the list. Returns (beach, created); (None, False) for a
+    blank name."""
+    text = str(name if name is not None else '').strip()
+    if not text or not isinstance(project, dict):
+        return None, False
+    found = _find_beach_by_name(project, text)
+    if found:
+        return found, False
+    if not isinstance(project.get('beaches'), list):
+        project['beaches'] = []
+    beach = {'id': _next_beach_id(project), 'name': text}
+    project['beaches'].append(beach)
+    return beach, True
+
+
+def _beach_records(project):
+    """Every record that carries a beachId: the layers, the distros, the
+    breakout boxes (processors -> slots -> card -> cvts)."""
+    if not isinstance(project, dict):
+        return []
+    out = [l for l in (project.get('layers') or []) if isinstance(l, dict)]
+    out += [d for d in (project.get('distros') or []) if isinstance(d, dict)]
+    for proc in project.get('processors') or []:
+        if not isinstance(proc, dict):
+            continue
+        for slot in proc.get('slots') or []:
+            card = slot.get('card') if isinstance(slot, dict) else None
+            if not isinstance(card, dict):
+                continue
+            out += [c for c in (card.get('cvts') or []) if isinstance(c, dict)]
+    return out
+
+
+def _normalize_beaches(project):
+    """Repair the beach model in place, idempotently, and migrate typed
+    locations into beaches.
+
+    Runs on the same funnel _enforce_group_integrity does (file load, undo,
+    redo, every project POST), so restoring twice must change nothing.
+
+      1. ``beaches`` is a list of {id, name}; anything else is dropped. A
+         blank name is dropped; a second beach with the same name (case-blind)
+         folds into the first, and every beachId that pointed at it is moved
+         over. A missing or duplicate id is re-issued from the counter.
+      2. a beachId that names no beach is cleared.
+      3. MIGRATION: a distro or box with a typed ``location`` and no beachId
+         gets the beach of that name (created if absent) and its id; the
+         ``location`` key is then dropped. A beachId already set wins over a
+         leftover location, which is dropped too.
+
+    A record that never had a beachId key and has no location is left
+    untouched, so a file saved before beaches round-trips byte for byte.
+    """
+    if not isinstance(project, dict):
+        return project
+    raw = project.get('beaches')
+    if not isinstance(raw, list):
+        raw = []
+    project['beaches'] = raw
+    sync_next_beach_seq(project)   # before pruning: a dropped id stays spent
+    kept = []
+    seen_ids = set()
+    by_norm = {}
+    remap = {}
+    for b in raw:
+        if not isinstance(b, dict):
+            continue
+        name = str(b.get('name') if b.get('name') is not None else '').strip()
+        if not name:
+            continue
+        bid = b.get('id')
+        if not isinstance(bid, str) or not bid:
+            bid = None
+        norm = name.lower()
+        if norm in by_norm:
+            if bid is not None:
+                remap[bid] = by_norm[norm]
+            continue
+        if bid is None or bid in seen_ids:
+            bid = _next_beach_id(project)
+        kept.append({'id': bid, 'name': name})
+        seen_ids.add(bid)
+        by_norm[norm] = bid
+    project['beaches'] = kept
+
+    for rec in _beach_records(project):
+        had_key = 'beachId' in rec
+        bid = rec.get('beachId')
+        if _is_hashable(bid) and bid in remap:
+            bid = remap[bid]
+        if bid is not None and not _find_beach(project, bid):
+            bid = None
+        location = rec.get('location')
+        if bid is None and isinstance(location, str) and location.strip():
+            beach, _created = _create_beach(project, location)
+            if beach:
+                bid = beach['id']
+        if bid is not None:
+            rec.pop('location', None)
+        if had_key or bid is not None:
+            rec['beachId'] = bid
+    return project
 
 
 def _is_hashable(value):
