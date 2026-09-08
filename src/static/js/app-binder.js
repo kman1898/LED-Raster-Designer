@@ -27,11 +27,18 @@
 // header already names the screen, and on a wall of circuits the plate
 // landed on top of the labels ("the main label is over the circuits").
 //
-// A band (the soca's row over its circuits, the card's over its
-// ports) never sits at the foot of a column without at least two of its
-// rows under it - an orphaned band read as a page cut off; it moves to
-// the next column with its rows, and a band whose rows run on across a
-// break is repeated there with "(cont.)".
+// A page is as tall as its content (2026-09-07, after the user read his
+// exported binder: "the circuit info doesnt fit on the same page as the
+// screen... the PDF can be any size, typically i print these on bigger
+// than 8.5 x 11"; asked how the size should work: "Auto only - no picker.
+// Every screen page is as tall as it needs to be at letter width; the
+// printer scales it to whatever paper is loaded"). Letter width, a floor
+// of letter height so a short page keeps the shape, no ceiling: the map
+// fills the width, the tables sit whole under it, and nothing continues
+// onto another page - a band is always over its rows. Every page is
+// painted at 2x ("some of the text is low resolution") and the PDF page
+// is sized in points to the same physical width, so a taller page prints
+// as a taller sheet, or scales onto whatever paper is loaded.
 //
 // Pages, in order: cover; per POSITION (a screen group, else the screen
 // itself - the pull list's positions) a pull page with tick boxes, then
@@ -45,11 +52,19 @@
 import { LEDRasterApp } from './app-core.js';
 import { sendClientLog } from './helpers.js';
 
-// Landscape letter at 200 dpi. The PDF route sizes the page in points
-// (`page_size`) and scales the bitmap to fill it.
+// Letter width at 200 px/in: the drawing code works in a 2200-wide page
+// space. The page's HEIGHT is per page - the height its content needs
+// (`book.page.h`), with the letter-landscape height as a floor and no
+// ceiling - so nothing below reads a page height off a constant. The
+// bitmap is painted at PAGE_SCALE (the canvas is 4400 x 2h with the
+// context scaled, so every coordinate here stays 2200-wide), and the PDF
+// route sizes the page in points (`page_size`: 792 wide, 612 x h / 1700
+// tall) and scales the bitmap to fill it.
 const PAGE_W = 2200;
-const PAGE_H = 1700;
-const PAGE_PT = [792, 612];
+const PAGE_MIN_H = 1700;              // the floor: letter landscape
+const PAGE_PT_W = 792;
+const PAGE_PT_H = 612;                // the floor's height in points
+const PAGE_SCALE = 2;                 // print density: 400 px/in
 const PAD = 42;                       // 1.9cqw of the mock
 const FONT = '-apple-system, "Segoe UI", Helvetica, Arial, sans-serif';
 const INK = '#111111';
@@ -66,22 +81,16 @@ const TH_H = 40;
 const H4_H = 46;
 const BLOCK_GAP = 22;
 const HEADER_BOTTOM = 92;             // first content y under the header rule
-const FOOTER_TOP = PAGE_H - 58;       // last content y above the footer rule
+const FOOT_ROOM = 58;                 // the footer's room under the last content y
 // The map's size (2026-09-07, "how squished the screen is"): the wall
 // scales UNIFORMLY to fill the page's width between the gutters (the
-// rulers' and the brackets' room); the tables take the height that leaves,
-// down to a floor of a quarter page. A wide-and-tall wall whose tables
-// would not fit in the floor anyway fills the width and sends the tables
-// whole onto the continuation page; a wall too tall to fill the width at
-// all is height-bound and gives the tables what they need to stay on the
-// page (_bMapZoom has the three cases). A remainder under the map too
-// short for a head, a band and two rows is not used - the tables start on
-// the continuation page rather than leaving orphan headings.
+// rulers' and the brackets' room), always - the page grows under it for
+// the tables ("on wider page it should scale": no side-by-side layout,
+// the content scales to the paper). A tiny wall never blows up past the
+// cap.
 const MAP_GUTTER = { left: 200, right: 180, top: 74, bottom: 16 };
 const MAP_GAP = 8;                    // between the map area and the tables
 const MAP_ZOOM_CAP = 3;               // a tiny wall never blows up past 3x
-const TABLE_FLOOR = Math.round(PAGE_H / 4);
-const TABLE_MIN = H4_H + TH_H + BAND_H + ROW_H * 2;
 
 // Cable types print in the GEAR LIST's own vocabulary - the same words the
 // workbook export writes - so the binder's Cables table and the pull sheet
@@ -263,11 +272,14 @@ class _Binder {
             body: JSON.stringify({
                 project_name: name,
                 labels: false,
+                // Each page at its own height: the bitmap's real pixel
+                // size and the page's size in points (letter width, as
+                // tall as the page grew).
                 images: images.map(i => ({
                     name: i.name, data: i.dataUrl,
-                    width: PAGE_W, height: PAGE_H, page_size: PAGE_PT,
+                    width: i.width, height: i.height, page_size: i.page_size,
                 })),
-                width: PAGE_W, height: PAGE_H,
+                width: PAGE_W * PAGE_SCALE, height: PAGE_MIN_H * PAGE_SCALE,
             }),
         });
         if (!response.ok) {
@@ -280,11 +292,13 @@ class _Binder {
         return { pages: images.length };
     }
 
-    // The page list, without drawing anything: [{ kind, title, layerId }].
+    // The page list, without drawing anything: [{ kind, title, layerId,
+    // subject, h }] - h the height the page's content measured, in page
+    // pixels (1700 for a page at the floor).
     planBinder(opts) {
         const book = this._binderBook(opts || this.readBinderOptions(), { dry: true });
         return book.pages.map(p => ({ kind: p.kind, title: p.title, layerId: p.layerId || null,
-                                      subject: p.subject || null }));
+                                      subject: p.subject || null, h: p.h }));
     }
 
     // Every page as a PNG data URL, in order.
@@ -324,8 +338,9 @@ class _Binder {
             engineer: this.getEngineerName(),
             palette: opts.palette === 'printer' ? 'printer' : 'colour',
         };
+        // The book canvas is sized per page, when the page's height is
+        // known (_bPage).
         const canvas = run.dry ? null : (this._binderCanvas || (this._binderCanvas = document.createElement('canvas')));
-        if (canvas) { canvas.width = PAGE_W; canvas.height = PAGE_H; }
         const realCtx = canvas ? canvas.getContext('2d') : null;
         // Measuring needs a real context even on the dry pass.
         const measureCtx = realCtx || (this._binderMeasureCtx
@@ -387,29 +402,67 @@ class _Binder {
         return (scr.ports || []).length > 0;
     }
 
-    // ---- pages: open, header, footer, close ---------------------------------
+    // ---- pages: measure, paint, header, footer, close -----------------------
 
-    // A new page. `header` is { left, right } for the band under the top
-    // rule; the cover passes none. Drawing goes through book.ctx, which is
-    // the real context only on a painting pass and only for the page being
-    // painted - otherwise a proxy that measures text and draws nothing.
-    _bNewPage(book, kind, title, header, extra) {
+    // A page. `header` is { left, right } for the band under the top rule;
+    // the cover passes none. `body(page)` draws the page's content through
+    // book.ctx and is run TWICE:
+    //   MEASURE - on the dry context (measures text, draws nothing) against
+    //             an unbounded foot; whatever the body lays down reports
+    //             how far it reached (_bReach), and the page's height is
+    //             that reach plus the footer's room, never under the floor.
+    //   PAINT   - on a painting pass, for the page being painted: the book
+    //             canvas sized to this page at PAGE_SCALE, the header and
+    //             footer drawn at the page's own height, then the body
+    //             again at the same coordinates.
+    // The plan (dry) and the pages not being painted stop after MEASURE,
+    // so every page knows its height either way.
+    _bPage(book, kind, title, header, extra, body) {
         this._bClosePage(book);
         const index = book.pages.length;
-        const page = { index, kind, title, header, ...(extra || {}) };
+        const page = { index, kind, title, header, h: PAGE_MIN_H, reach: 0, painting: false,
+                       ...(extra || {}) };
         book.pages.push(page);
         book.page = page;
+        book.ctx = this._bDryCtx(book.measureCtx);
+        body(page);
+        page.h = Math.max(PAGE_MIN_H, Math.ceil(page.reach + FOOT_ROOM));
         const painting = !book.dry && book.realCtx
             && (book.only == null || book.only === index);
-        page.painting = painting;
-        book.ctx = painting ? book.realCtx : this._bDryCtx(book.measureCtx);
+        if (painting) {
+            page.painting = true;
+            page.reach = 0;
+            book.canvas.width = PAGE_W * PAGE_SCALE;
+            book.canvas.height = page.h * PAGE_SCALE;
+            book.ctx = book.realCtx;
+            this._bPageFrame(book, page);
+            body(page);
+        }
+        this._bClosePage(book);
+        return page;
+    }
+
+    // The last content y a page allows: its foot, above the footer rule.
+    _bFootTop(book) {
+        return book.page.h - FOOT_ROOM;
+    }
+
+    // The body reports the lowest y it drew to; the page grows to it.
+    _bReach(book, y) {
+        if (book.page && Number.isFinite(y) && y > book.page.reach) book.page.reach = y;
+    }
+
+    // The page's white, its header band and its footer, at the page's
+    // measured height.
+    _bPageFrame(book, page) {
         const ctx = book.ctx;
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        const h = page.h;
+        ctx.setTransform(PAGE_SCALE, 0, 0, PAGE_SCALE, 0, 0);
         ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, PAGE_W, PAGE_H);
-        if (header) {
-            this._bText(book, header.left, PAD, 60, { size: SZ.show, weight: 800, upper: true });
-            const right = `${header.right} · page ${index + 1} of ${book.total || '?'}`;
+        ctx.fillRect(0, 0, PAGE_W, h);
+        if (page.header) {
+            this._bText(book, page.header.left, PAD, 60, { size: SZ.show, weight: 800, upper: true });
+            const right = `${page.header.right} · page ${page.index + 1} of ${book.total || '?'}`;
             this._bText(book, right, PAGE_W - PAD, 60, { size: SZ.page, align: 'right' });
             ctx.fillStyle = INK;
             ctx.fillRect(PAD, 70, PAGE_W - PAD * 2, 6);
@@ -417,20 +470,24 @@ class _Binder {
         // Footer: the app, the show, the revision; the page's subject and
         // the date.
         ctx.fillStyle = '#bbbbbb';
-        ctx.fillRect(PAD, FOOTER_TOP + 8, PAGE_W - PAD * 2, 2);
+        ctx.fillRect(PAD, h - FOOT_ROOM + 8, PAGE_W - PAD * 2, 2);
         this._bText(book, `LED Raster Designer · ${book.meta.show} · rev ${book.meta.rev}`,
-                    PAD, PAGE_H - 22, { size: SZ.foot, color: MUTED });
-        const foot = [page.footer || title, book.meta.date].filter(Boolean).join(' · ');
-        this._bText(book, foot, PAGE_W - PAD, PAGE_H - 22, { size: SZ.foot, color: MUTED, align: 'right' });
-        return page;
+                    PAD, h - 22, { size: SZ.foot, color: MUTED });
+        const foot = [page.footer || page.title, book.meta.date].filter(Boolean).join(' · ');
+        this._bText(book, foot, PAGE_W - PAD, h - 22, { size: SZ.foot, color: MUTED, align: 'right' });
     }
 
+    // The painted page as its image record: the bitmap's real pixel size
+    // and the PDF page in points - letter wide, as tall as the page grew.
     _bClosePage(book) {
         const page = book.page;
         if (!page) return;
         if (page.painting && book.canvas && book.only == null) {
-            book.images.push({ name: page.title, dataUrl: book.canvas.toDataURL('image/png'),
-                               width: PAGE_W, height: PAGE_H });
+            book.images.push({
+                name: page.title, dataUrl: book.canvas.toDataURL('image/png'),
+                width: PAGE_W * PAGE_SCALE, height: page.h * PAGE_SCALE,
+                page_size: [PAGE_PT_W, PAGE_PT_H * page.h / PAGE_MIN_H],
+            });
         }
         book.page = null;
         book.ctx = null;
@@ -547,8 +604,7 @@ class _Binder {
 
     // A table as a list of LINES - a title, a heading, then bands and rows -
     // each knowing its height and how to draw itself at (x, y, w). The
-    // filler below lays lines into columns and repeats the head lines when a
-    // table continues in the next column or on the next page.
+    // filler below lays a block's lines into a column, whole.
     //   spec = { title, cols: [{ title, w, align, tick }], rows: [
     //             { band: 'text' } | { cells: [...], bold? } ] }
     _bTableLines(book, spec) {
@@ -566,8 +622,8 @@ class _Binder {
         const padX = 12;
         const lines = [];
         if (spec.title) {
-            lines.push({ h: H4_H, head: true, draw: (ctx, x, y, w, cont) => {
-                this._bText(book, spec.title + (cont ? ' (cont.)' : ''), x, y + 30,
+            lines.push({ h: H4_H, head: true, draw: (ctx, x, y, w) => {
+                this._bText(book, spec.title, x, y + 30,
                             { size: SZ.h4, weight: 700, upper: true, maxWidth: w });
                 ctx.fillStyle = RULE;
                 ctx.fillRect(x, y + H4_H - 6, w, 2);
@@ -587,7 +643,7 @@ class _Binder {
         } });
         for (const r of spec.rows || []) {
             if (r.band !== undefined) {
-                lines.push({ h: BAND_H, band: true, draw: (ctx, x, y, w, cont) => {
+                lines.push({ h: BAND_H, band: true, draw: (ctx, x, y, w) => {
                     if (book.meta.palette === 'printer') {
                         ctx.fillStyle = INK;
                         ctx.fillRect(x, y + 2, w, 3);
@@ -595,7 +651,7 @@ class _Binder {
                         ctx.fillStyle = BAND_BG;
                         ctx.fillRect(x, y, w, BAND_H - 4);
                     }
-                    this._bText(book, r.band + (cont ? ' (cont.)' : ''), x + padX, y + 31,
+                    this._bText(book, r.band, x + padX, y + 31,
                                 { size: SZ.cell, weight: 700, maxWidth: w - padX * 2 });
                     ctx.fillStyle = RULE;
                     ctx.fillRect(x, y + BAND_H - 4, w, 4);
@@ -633,8 +689,8 @@ class _Binder {
     // A key/value block (the Facts) as lines.
     _bKvLines(book, title, pairs) {
         const lines = [];
-        lines.push({ h: H4_H, head: true, draw: (ctx, x, y, w, cont) => {
-            this._bText(book, title + (cont ? ' (cont.)' : ''), x, y + 30,
+        lines.push({ h: H4_H, head: true, draw: (ctx, x, y, w) => {
+            this._bText(book, title, x, y + 30,
                         { size: SZ.h4, weight: 700, upper: true, maxWidth: w });
             ctx.fillStyle = RULE;
             ctx.fillRect(x, y + H4_H - 6, w, 2);
@@ -685,88 +741,34 @@ class _Binder {
         });
     }
 
-    // THE FILLER. Blocks in order; a block starts a fresh column when one is
-    // free and stacks under the previous block when none is (so Circuits |
-    // Cables | Facts+Gangs on a short screen, Circuits | Circuits |
-    // Cables+Facts+Gangs on a long one); a column that fills continues in
-    // the next, and the last column of a page continues on a continuation
-    // page (`onNewPage` returns its top/bottom/cols), repeating the block's
-    // head lines wherever it resumes.
-    //
-    // The band rule (2026-09-07, "the page gets cut off"): a band is laid
-    // only where it and its first two rows (or its one row, when it has
-    // one) fit above the foot; otherwise it moves to the next column with
-    // its rows. Rows that run on past a break get their band again, with
-    // "(cont.)", under the repeated head lines.
-    //
-    // `paint` false lays nothing down: the same walk, used to ask whether
-    // the blocks fit a frame (_bFlowOverflows) before the map is sized.
-    _bFlow(book, blocks, frame, onNewPage, paint) {
-        let { top, bottom, cols } = frame;
+    // THE FILLER. The column rule, on a page that grows to its content:
+    // blocks in order, one per column while a column is free - block 1 in
+    // column 1, block 2 in column 2, block 3 in column 3 - and the rest
+    // stacking under the last (Circuits | Cables | Facts + Gangs). A block
+    // is laid WHOLE, never broken within: the page's foot is unbounded, so
+    // the page is as tall as its tallest column, a band always sits over
+    // its rows, and no table continues into another column or onto another
+    // page. Returns the lowest y reached, and reports it to the page.
+    _bFlow(book, blocks, frame) {
+        const { top, cols } = frame;
         let ci = 0;
         let y = top;
         let used = false;
-        const lay = paint === false ? null : book.ctx;
-        const ctxOf = () => lay;
-        const draw = (l, x, y0, w, cont) => { if (paint !== false) l.draw(ctxOf(), x, y0, w, cont); };
+        let reach = top;
         for (const block of blocks) {
             const lines = block.lines || [];
             if (!lines.length) continue;
-            const heads = lines.filter(l => l.head);
             if (used && ci < cols.length - 1) { ci++; y = top; used = false; }
             else if (used) { y += BLOCK_GAP; }
-            let i = 0;
-            let guard = 0;
-            let band = null;              // the band the rows being laid sit under
-            while (i < lines.length) {
-                const l = lines[i];
-                let need = l.h;
-                if (l.band) {
-                    for (let k = i + 1, n = 0; k < lines.length && n < 2; k++, n++) {
-                        if (lines[k].band || lines[k].head) break;
-                        need += lines[k].h;
-                    }
-                }
-                if (y + need > bottom && (used || y !== top)) {
-                    if (ci < cols.length - 1) { ci++; }
-                    else {
-                        const f = onNewPage();
-                        top = f.top; bottom = f.bottom; cols = f.cols; ci = 0;
-                    }
-                    y = top; used = false;
-                    if (!l.head) {
-                        for (const h of heads) { draw(h, cols[ci].x, y, cols[ci].w, true); y += h.h; }
-                        if (band && !l.band) { draw(band, cols[ci].x, y, cols[ci].w, true); y += band.h; }
-                    }
-                    if (++guard > 500) break;
-                    continue;
-                }
-                draw(l, cols[ci].x, y, cols[ci].w, false);
+            for (const l of lines) {
+                l.draw(book.ctx, cols[ci].x, y, cols[ci].w);
                 y += l.h;
-                used = true;
-                i++;
-                if (l.band) band = l;
             }
+            used = true;
+            reach = Math.max(reach, y);
         }
-    }
-
-    // Would these blocks run past the frame onto another page? The same
-    // walk as _bFlow, laying nothing down.
-    _bFlowOverflows(book, blocks, frame) {
-        let over = false;
-        this._bFlow(book, blocks, frame, () => { over = true; return frame; }, false);
-        return over;
-    }
-
-    // A continuation page for a flow: same header, "(cont.)" on the subject,
-    // three full-height columns.
-    _bContinuation(book, kind, title, header, extra) {
-        return () => {
-            this._bNewPage(book, kind, `${title} (cont.)`,
-                           { left: header.left, right: `${header.right} (cont.)` }, extra);
-            return { top: HEADER_BOTTOM + 8, bottom: FOOTER_TOP,
-                     cols: this._bCols([1.15, 1, 0.9]) };
-        };
+        this._bReach(book, reach);
+        return reach;
     }
 
     // ---- the map ------------------------------------------------------------
@@ -777,10 +779,16 @@ class _Binder {
     // canvas that is then laid into the page's map area. Returns the page
     // geometry - where a processor-coord rect of this layer lands on the
     // page - so the rulers and the brackets can be drawn around it in page
-    // space. `area` is the room the map MAY take (its h the most); `sizer`
-    // (wallW, wallH) -> zoom picks the scale, else the wall fits the area.
-    // The area actually used comes back as geo.area.
-    _bMap(book, layer, view, area, sizer) {
+    // space. `area` is { x, y, w }: the map fills its width between the
+    // gutters (capped at MAP_ZOOM_CAP) and takes the height that gives;
+    // the area actually used comes back as geo.area, and the page grows
+    // to it.
+    //
+    // Print density: the offscreen canvas is PAGE_SCALE times the map's
+    // page size and the renderer draws at PAGE_SCALE times the zoom, so
+    // the wall's text and lines come out sharp when the bitmap is laid
+    // onto the scaled page - not upscaled from a 1x render.
+    _bMap(book, layer, view, area) {
         const r = window.canvasRenderer;
         const canvases = (this.project && Array.isArray(this.project.canvases)) ? this.project.canvases : [];
         const saved = {
@@ -794,7 +802,6 @@ class _Binder {
         const inner = {
             x: area.x + MAP_GUTTER.left, y: area.y + MAP_GUTTER.top,
             w: area.w - MAP_GUTTER.left - MAP_GUTTER.right,
-            h: area.h - MAP_GUTTER.top - MAP_GUTTER.bottom,
         };
         let geo = null;
         try {
@@ -816,14 +823,22 @@ class _Binder {
                 x: mirrored ? crw - (px + dx + pw) : px + dx, y: py + dy, w: pw, h: ph,
             });
             const wall = local(b.x, b.y, b.width, b.height);
-            const ww = Math.max(1, wall.w), wh = Math.max(1, wall.h);
-            // One zoom for both axes - the wall is never scaled non-uniformly;
-            // whatever the sizer asks, the area's walls are the bound.
-            const fit = Math.min(inner.w / ww, inner.h / wh, MAP_ZOOM_CAP);
-            const zoom = Math.min(sizer ? sizer(ww, wh) : fit, inner.w / ww, inner.h / wh);
+            const ww = Math.max(1, wall.w);
+            // One zoom for both axes - the wall is never scaled non-uniformly:
+            // it fills the width, and the page takes the height. A tall
+            // narrow wall (a 6 x 11 Return) would fill the width at the 3x
+            // cap and make a page 2.8 letters tall, which prints the tables
+            // at a third of their size on any paper: its height is capped at
+            // what a letter page's content holds, so the page grows for the
+            // TABLES, not for a wall drawn larger than it needs to be.
+            const tallest = PAGE_MIN_H - HEADER_BOTTOM - FOOT_ROOM
+                - MAP_GUTTER.top - MAP_GUTTER.bottom - MAP_GAP;
+            const zoom = Math.min(inner.w / ww, MAP_ZOOM_CAP,
+                                  tallest / Math.max(1, wall.h));
             const drawW = wall.w * zoom, drawH = wall.h * zoom;
             const used = { x: area.x, y: area.y, w: area.w,
                            h: Math.round(drawH + MAP_GUTTER.top + MAP_GUTTER.bottom) };
+            this._bReach(book, used.y + used.h);
             const ox = inner.x + (inner.w - drawW) / 2;      // wall's page origin
             const oy = inner.y;
             const toPage = (lx, ly) => ({ x: ox + (lx - wall.x) * zoom, y: oy + (ly - wall.y) * zoom });
@@ -838,8 +853,8 @@ class _Binder {
             if (book.page && book.page.painting) {
                 if (book.log) book.log.map = { ...geo.wall, zoom, area: { ...used } };
                 const off = this._binderMapCanvas || (this._binderMapCanvas = document.createElement('canvas'));
-                off.width = Math.max(1, Math.round(used.w));
-                off.height = Math.max(1, Math.round(used.h));
+                off.width = Math.max(1, Math.round(used.w * PAGE_SCALE));
+                off.height = Math.max(1, Math.round(used.h * PAGE_SCALE));
                 const offCtx = off.getContext('2d', { alpha: true });
                 if (book.log) {
                     const oT = offCtx.fillText.bind(offCtx), oD = offCtx.setLineDash.bind(offCtx);
@@ -852,13 +867,17 @@ class _Binder {
                 r.exportTransparentBg = true;
                 r.hideScreenNames = true;
                 r.printerMode = book.meta.palette === 'printer';
-                r.zoom = zoom;
-                // The wall's local origin lands at (ox - area.x, oy - area.y)
-                // on the offscreen canvas.
-                r.panX = (ox - area.x) - (ws.wx + wall.x) * zoom;
-                r.panY = (oy - area.y) - (ws.wy + wall.y) * zoom;
+                // The renderer draws at PAGE_SCALE times the page zoom (its
+                // world transform is zoom and pan alone, so a scaled
+                // context would not survive it); the wall's local origin
+                // lands at (ox - area.x, oy - area.y) in page units.
+                r.zoom = zoom * PAGE_SCALE;
+                r.panX = ((ox - area.x) - (ws.wx + wall.x) * zoom) * PAGE_SCALE;
+                r.panY = ((oy - area.y) - (ws.wy + wall.y) * zoom) * PAGE_SCALE;
                 r.render();
-                book.ctx.drawImage(off, area.x, area.y);
+                // Laid at the map's page size: on the scaled page that is
+                // one offscreen pixel per page pixel.
+                book.ctx.drawImage(off, area.x, area.y, used.w, used.h);
             }
         } finally {
             saved.canvasVis.forEach(([c, v]) => { c.visible = v; });
@@ -982,7 +1001,7 @@ class _Binder {
                 ? geo.wall.x + geo.wall.w + 44 + depth * 78
                 : geo.wall.x - 74 - depth * 78;
             const ya = y1 + 3, yb = y2 - 3;
-            if (book.log) {
+            if (book.log && book.page && book.page.painting) {
                 (book.log.brackets || (book.log.brackets = []))
                     .push({ name: box.name, side, depth, x, y1, y2 });
             }
@@ -1015,51 +1034,22 @@ class _Binder {
                          right: pos.name === layer.name ? layer.name : `${layer.name} · ${pos.name}` };
         const title = `${layer.name} - ${view === 'power' ? 'Power' : 'Data'}`;
         const extra = { layerId: layer.id, subject: layer.name, footer: `${word[0]}${word.slice(1).toLowerCase()} · ${layer.name}` };
-        this._bNewPage(book, view, title, header, extra);
-        const blocks = view === 'power'
-            ? this._bPowerBlocks(book, layer, scr)
-            : this._bDataBlocks(book, layer, scr);
-        const cols = this._bCols([1.15, 1, 0.9]);
-        const area = { x: PAD, y: HEADER_BOTTOM, w: PAGE_W - PAD * 2, h: FOOTER_TOP - HEADER_BOTTOM - MAP_GAP };
-        const geo = this._bMap(book, layer, view === 'power' ? 'power' : 'data-flow', area,
-                               (ww, wh) => this._bMapZoom(book, blocks, cols, ww, wh));
-        if (geo && book.page.painting) {
-            this._bRulers(book, layer, geo);
-            if (view === 'power') this._bBoxBrackets(book, layer, scr, geo);
-        }
-        const onNewPage = this._bContinuation(book, view, title, header, extra);
-        let frame = { top: (geo ? geo.area.y + geo.area.h : area.y) + MAP_GAP, bottom: FOOTER_TOP, cols };
-        // Too little under the map for a head, a band and two rows: the
-        // tables start whole on the continuation page.
-        if (frame.bottom - frame.top < TABLE_MIN) frame = onNewPage();
-        this._bFlow(book, blocks, frame, onNewPage);
-    }
-
-    // The map's scale (the rule at MAP_GUTTER). Three walls:
-    //   wide      - filling the width leaves the tables their floor: fill it.
-    //   wide-and-tall - filling the width fits the page but eats the floor:
-    //               fill it anyway when the tables would not fit in the
-    //               floor (they flow whole to the continuation page); honour
-    //               the floor when they would.
-    //   tall      - filling the width would not fit the page at all, so the
-    //               height governs: the tables get what they need to stay on
-    //               the page, from the floor up to half the content, and the
-    //               map the rest; tables that fit nowhere get the floor.
-    _bMapZoom(book, blocks, cols, wallW, wallH) {
-        const availW = PAGE_W - PAD * 2 - MAP_GUTTER.left - MAP_GUTTER.right;
-        const gutters = MAP_GUTTER.top + MAP_GUTTER.bottom;
-        const contentH = FOOTER_TOP - HEADER_BOTTOM - MAP_GAP;
-        const zoomW = Math.min(availW / wallW, MAP_ZOOM_CAP);
-        const zoomFloor = (contentH - TABLE_FLOOR - gutters) / wallH;
-        const zoomMax = (contentH - gutters) / wallH;
-        const fitsIn = (h) => !this._bFlowOverflows(book, blocks, { top: 0, bottom: h, cols });
-        if (zoomW <= zoomFloor) return zoomW;
-        if (zoomW <= zoomMax) return fitsIn(TABLE_FLOOR) ? zoomFloor : zoomW;
-        const most = Math.round(contentH / 2);
-        for (let h = TABLE_FLOOR; h <= most; h += ROW_H) {
-            if (fitsIn(h)) return (contentH - h - gutters) / wallH;
-        }
-        return zoomFloor;
+        // The map across the top at the page's width, the tables under it
+        // in three columns; the page is as tall as that comes to.
+        this._bPage(book, view, title, header, extra, () => {
+            const blocks = view === 'power'
+                ? this._bPowerBlocks(book, layer, scr)
+                : this._bDataBlocks(book, layer, scr);
+            const cols = this._bCols([1.15, 1, 0.9]);
+            const area = { x: PAD, y: HEADER_BOTTOM, w: PAGE_W - PAD * 2 };
+            const geo = this._bMap(book, layer, view === 'power' ? 'power' : 'data-flow', area);
+            if (geo && book.page.painting) {
+                this._bRulers(book, layer, geo);
+                if (view === 'power') this._bBoxBrackets(book, layer, scr, geo);
+            }
+            const frame = { top: (geo ? geo.area.y + geo.area.h : area.y) + MAP_GAP, cols };
+            this._bFlow(book, blocks, frame);
+        });
     }
 
     // The band over a soca's circuits: "SR 1 · Soca 208 · 125' home run
@@ -1302,13 +1292,24 @@ class _Binder {
         }
         const rows = [];
         for (const b of bands.values()) { rows.push({ band: b.text }); rows.push(...b.rows); }
+        // PORT takes the width its longest label needs, whole - "SR A-1"
+        // was cut to "SR A…" at a fixed share (2026-09-07) - measured in
+        // the first column, where the Ports block lands, and never under
+        // its old share; the other columns divide the rest.
+        const otherW = 1.6 + 2.0 + 0.9 + 0.9 + 2.0;
+        const colW = this._bCols([1.15, 1, 0.9])[0].w;
+        const ctxM = book.measureCtx;
+        ctxM.font = this._bFont(SZ.cell, 400);
+        const labelW = runs.reduce((m, run) => Math.max(m, ctxM.measureText(String(run.label || '')).width), 0);
+        const needW = Math.ceil(labelW) + 12 * 2 + 4;
+        const portW = Math.max(0.7, needW < colW ? needW * otherW / (colW - needW) : 0.7);
         blocks.push({ lines: this._bTableLines(book, {
             title: 'Ports',
             // PRIMARY and BACKUP carry whole names - "SR-1R · H9 BACKUP SR ·
             // 1" - and HOME RUN both ends' runs - "SR Primary 150' / SR
             // Backup 150'" - so they take most of the width and shrink
             // before they cut.
-            cols: [{ title: 'port', w: 0.7 }, { title: 'primary', w: 1.6 }, { title: 'backup', w: 2.0 },
+            cols: [{ title: 'port', w: portW }, { title: 'primary', w: 1.6 }, { title: 'backup', w: 2.0 },
                    { title: 'panels', w: 0.9, align: 'right' }, { title: 'px', w: 0.9, align: 'right' },
                    { title: 'home run', w: 2.0 }],
             rows,
@@ -1342,7 +1343,11 @@ class _Binder {
     // ---- the cover ----------------------------------------------------------
 
     _bCoverPage(book) {
-        const page = this._bNewPage(book, 'cover', 'Cover', null, { subject: book.meta.show, footer: 'Cover' });
+        this._bPage(book, 'cover', 'Cover', null, { subject: book.meta.show, footer: 'Cover' },
+                    (page) => this._bCoverBody(book, page));
+    }
+
+    _bCoverBody(book, page) {
         const ctx = book.ctx;
         this._bText(book, book.meta.show, PAD, 300, { size: SZ.title, weight: 800, maxWidth: PAGE_W - PAD * 2 });
         this._bText(book, 'POWER · DATA BINDER', PAD, 360, { size: SZ.sub, weight: 600, color: RULE });
@@ -1377,16 +1382,18 @@ class _Binder {
                    { title: 'circuits', w: 0.6, align: 'right' }, { title: 'ports', w: 0.5, align: 'right' }],
             rows,
         });
-        this._bFlow(book, [{ lines }], { top: 640, bottom: FOOTER_TOP, cols: [cols[0]] },
-                    this._bContinuation(book, 'cover', 'Positions',
-                                        { left: book.meta.show, right: 'Positions' }, { footer: 'Positions' }));
-        // The whole raster, small, on the right.
-        const thumb = { x: cols[1].x, y: 450, w: cols[1].w, h: FOOTER_TOP - 470 };
+        // The positions table down the left grows the page past the floor
+        // where a show has that many; the raster on the right takes the
+        // room the floor page gives it.
+        this._bFlow(book, [{ lines }], { top: 640, cols: [cols[0]] });
+        const thumb = { x: cols[1].x, y: 450, w: cols[1].w, h: PAGE_MIN_H - FOOT_ROOM - 470 };
+        this._bReach(book, thumb.y + thumb.h);
         if (page.painting) this._bThumbnail(book, thumb);
     }
 
     // The show at a glance: every visible canvas's pixel map, fitted into
-    // the box, through the renderer in exportMode.
+    // the box, through the renderer in exportMode - at PAGE_SCALE, like
+    // the maps, so it prints sharp.
     _bThumbnail(book, box) {
         const r = window.canvasRenderer;
         const canvases = (this.project && Array.isArray(this.project.canvases)) ? this.project.canvases : [];
@@ -1407,25 +1414,26 @@ class _Binder {
             }
             const w = Math.max(1, x2 - x1), h = Math.max(1, y2 - y1);
             const zoom = Math.min(box.w / w, box.h / h);
+            const drawW = Math.max(1, Math.round(w * zoom)), drawH = Math.max(1, Math.round(h * zoom));
             const off = this._binderMapCanvas || (this._binderMapCanvas = document.createElement('canvas'));
-            off.width = Math.max(1, Math.round(w * zoom));
-            off.height = Math.max(1, Math.round(h * zoom));
+            off.width = drawW * PAGE_SCALE;
+            off.height = drawH * PAGE_SCALE;
             r.canvas = off;
             r.ctx = off.getContext('2d', { alpha: true });
             r.exportMode = true;
             r.exportTransparentBg = true;
             r.printerMode = book.meta.palette === 'printer';
-            r.zoom = zoom;
-            r.panX = -x1 * zoom;
-            r.panY = -y1 * zoom;
+            r.zoom = zoom * PAGE_SCALE;
+            r.panX = -x1 * zoom * PAGE_SCALE;
+            r.panY = -y1 * zoom * PAGE_SCALE;
             r.render();
-            const dx = box.x + (box.w - off.width) / 2, dy = box.y + (box.h - off.height) / 2;
+            const dx = box.x + (box.w - drawW) / 2, dy = box.y + (box.h - drawH) / 2;
             book.ctx.fillStyle = '#f4f4f4';
-            book.ctx.fillRect(dx, dy, off.width, off.height);
-            book.ctx.drawImage(off, dx, dy);
+            book.ctx.fillRect(dx, dy, drawW, drawH);
+            book.ctx.drawImage(off, dx, dy, drawW, drawH);
             book.ctx.strokeStyle = RULE;
             book.ctx.lineWidth = 2;
-            book.ctx.strokeRect(dx, dy, off.width, off.height);
+            book.ctx.strokeRect(dx, dy, drawW, drawH);
         } finally {
             r.canvas = saved.canvas; r.ctx = saved.ctx; r.exportMode = saved.exportMode;
             r.exportTransparentBg = saved.transparent; r.printerMode = saved.printer;
@@ -1439,7 +1447,10 @@ class _Binder {
         const header = { left: `${book.meta.show} · PULL`, right: pos.name };
         const title = `${pos.name} - Pull`;
         const extra = { subject: pos.name, footer: `Pull · ${pos.name}` };
-        this._bNewPage(book, 'pull', title, header, extra);
+        this._bPage(book, 'pull', title, header, extra, () => this._bPullBody(book, pos, members));
+    }
+
+    _bPullBody(book, pos, members) {
         const list = book.list;
         const tick = { title: '', w: 0.28, tick: true };
         const cableCols = [tick, { title: 'cable', w: 1.5 }, { title: 'len', w: 0.6 },
@@ -1501,8 +1512,7 @@ class _Binder {
                    { title: 'ports', w: 0.5, align: 'right' }, { title: 'gangs', w: 0.9 }],
             rows: screens,
         }) });
-        const frame = { top: HEADER_BOTTOM + 8, bottom: FOOTER_TOP, cols: this._bCols([1.15, 1, 0.9]) };
-        this._bFlow(book, blocks, frame, this._bContinuation(book, 'pull', title, header, extra));
+        this._bFlow(book, blocks, { top: HEADER_BOTTOM + 8, cols: this._bCols([1.15, 1, 0.9]) });
     }
 
     // ---- hardware pages -----------------------------------------------------
@@ -1544,7 +1554,12 @@ class _Binder {
         const counts = [...byType.entries()].map(([name, n]) => `${n} ${name}`).join(' · ')
             || 'nothing on this distro';
         if (!boxes.length && !load) return;
-        this._bNewPage(book, 'distro', title, header, extra);
+        this._bPage(book, 'distro', title, header, extra, () => {
+            this._bDistroBody(book, d, load, boxes, counts, allCircuits);
+        });
+    }
+
+    _bDistroBody(book, d, load, boxes, counts, allCircuits) {
         const blocks = [];
         blocks.push({ lines: this._bTableLines(book, {
             title: counts,
@@ -1567,8 +1582,7 @@ class _Binder {
         blocks.push({ lines: this._bKvLines(book, 'Service', pairs) });
         const hw = (book.list.hardware || []).find(h => h.kind === 'distro' && h.id === d.id);
         blocks.push({ lines: this._bPullLines(book, 'Pull list', (hw && hw.rows) || []) });
-        const frame = { top: HEADER_BOTTOM + 8, bottom: FOOTER_TOP, cols: this._bCols([1.15, 1, 0.9]) };
-        this._bFlow(book, blocks, frame, this._bContinuation(book, 'distro', title, header, extra));
+        this._bFlow(book, blocks, { top: HEADER_BOTTOM + 8, cols: this._bCols([1.15, 1, 0.9]) });
     }
 
     _bPullLines(book, title, rows) {
@@ -1589,7 +1603,10 @@ class _Binder {
         const extra = { subject: procTitle, footer: `Processor · ${procTitle}` };
         const cards = (proc.slots || []).filter(s => s && s.card).map(s => ({ slot: s.index, card: s.card }));
         if (!cards.length) return;
-        this._bNewPage(book, 'processor', title, header, extra);
+        this._bPage(book, 'processor', title, header, extra, () => this._bProcessorBody(book, proc, cards));
+    }
+
+    _bProcessorBody(book, proc, cards) {
         const screens = (this._assignment && this._assignment.screens) || [];
         const used = (cardId) => {
             const set = new Set();
@@ -1676,8 +1693,7 @@ class _Binder {
         }) });
         const hw = (book.list.hardware || []).find(h => h.kind === 'processor' && h.id === proc.id);
         blocks.push({ lines: this._bPullLines(book, 'Pull list', (hw && hw.rows) || []) });
-        const frame = { top: HEADER_BOTTOM + 8, bottom: FOOTER_TOP, cols: this._bCols([1.15, 1, 0.9]) };
-        this._bFlow(book, blocks, frame, this._bContinuation(book, 'processor', title, header, extra));
+        this._bFlow(book, blocks, { top: HEADER_BOTTOM + 8, cols: this._bCols([1.15, 1, 0.9]) });
     }
 
     // ---- the totals page ----------------------------------------------------
@@ -1686,14 +1702,14 @@ class _Binder {
         const header = { left: `${book.meta.show} · PULL`, right: 'All positions' };
         const title = 'Pull list - all positions';
         const extra = { subject: 'All positions', footer: 'Pull · all positions' };
-        this._bNewPage(book, 'totals', title, header, extra);
-        const blocks = [{ lines: this._bPullLines(book, 'Pull list', book.list.totals || []) }];
-        const notes = (book.list.unmodelled || []).map(t => ({ cells: [t] }));
-        if (notes.length) {
-            blocks.push({ lines: this._bTableLines(book, { title: 'Notes', cols: [{ title: '', w: 1 }], rows: notes }) });
-        }
-        const frame = { top: HEADER_BOTTOM + 8, bottom: FOOTER_TOP, cols: this._bCols([1, 1, 1]) };
-        this._bFlow(book, blocks, frame, this._bContinuation(book, 'totals', title, header, extra));
+        this._bPage(book, 'totals', title, header, extra, () => {
+            const blocks = [{ lines: this._bPullLines(book, 'Pull list', book.list.totals || []) }];
+            const notes = (book.list.unmodelled || []).map(t => ({ cells: [t] }));
+            if (notes.length) {
+                blocks.push({ lines: this._bTableLines(book, { title: 'Notes', cols: [{ title: '', w: 1 }], rows: notes }) });
+            }
+            this._bFlow(book, blocks, { top: HEADER_BOTTOM + 8, cols: this._bCols([1, 1, 1]) });
+        });
     }
 }
 
