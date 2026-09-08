@@ -299,7 +299,7 @@ input[type="radio"] { accent-color:var(--ps-accent) !important; }
 #preferences-modal input:not([type="checkbox"]):not([type="radio"]),
 #preferences-modal select,
 #export-modal input:not([type="checkbox"]):not([type="radio"]),
-#export-modal select {
+#export-modal select, #export-modal textarea {
   background:var(--ps-inset) !important; color:var(--ps-text) !important; }
 
 /* a derived value shown as a placeholder (a multi name that follows its

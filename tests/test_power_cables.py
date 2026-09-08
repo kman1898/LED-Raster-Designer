@@ -159,10 +159,11 @@ SHEET_JS = """([distroId, n]) => {
                 options: sel ? Array.from(sel.options).map(o => o.value) : null,
             };
         }) : null;
+    const heads = sheet ? Array.from(sheet.querySelectorAll('th')).map(th => th.textContent) : null;
     const tot = sheet && sheet.querySelector('.hw-dock-cable-total');
     return {
         btn: !!btn, on: !!(btn && btn.classList.contains('hw-dock-cablebtn-on')),
-        open: !!sheet, rows,
+        open: !!sheet, rows, heads,
         total: tot ? tot.lastElementChild.textContent : null,
         fills: sheet ? Array.from(sheet.querySelectorAll(
             '[data-lrd-field^="power-cable-fill-"]')).map(b => b.dataset.lrdField)
@@ -294,6 +295,9 @@ def test_the_box_header_flips_into_the_sheet(page):
     assert s['stored'] == '1', f'the flip must ride localStorage: {s}'
     assert [r['tail'] for r in s['rows']] == ['1', '2', '3', '4', '5', '6'], s
     assert [r['label'] for r in s['rows']] == ids['labels'], s
+    # the sheet's header says no. - the circuit's number on this unit -
+    # never tail ("circuits, not tails")
+    assert s['heads'] == ['no.', 'circuit', 'screen', 'cable', 'connector'], s['heads']
     assert all(r['who'] == 'WALL' and not r['free'] for r in s['rows']), s
     assert all(r['ft'] == '' and r['connector'] == '' for r in s['rows']), s
     assert all(r['blank'] == 'follows Soca 208 (True1)' for r in s['rows']), s
@@ -536,9 +540,29 @@ TAG_SIDES_JS = """([pattern, labelSize]) => {
     const prev = r.viewMode;
     try { r.viewMode = 'power'; r.render(); } finally { ctx.fillText = oT; r.viewMode = prev; }
     const tags = texts.filter(t => /^\\d+(\\.\\d+)?' /.test(t[0]));
-    const labels = texts.filter(t => /^S[A-Z]*\\d+-\\d+$/.test(t[0]));
+    // A label may stack at its seams ("S" over "1-1" at a big label size,
+    // 2026-09-07): pieces drawn at one x, one under the other, are one
+    // label centred between them.
+    const pieces = texts.filter(t => !/^\\d+(\\.\\d+)?' /.test(t[0]));
+    const labels = [];
+    const used = new Set();
+    pieces.forEach((p, i) => {
+        if (used.has(i)) return;
+        const group = [p]; used.add(i);
+        for (let j = i + 1; j < pieces.length; j++) {
+            const q = pieces[j];
+            if (used.has(j)) continue;
+            if (Math.abs(q[1] - p[1]) < 0.5 && Math.abs(q[2] - group[group.length - 1][2]) <= labelSize * 1.6) {
+                group.push(q); used.add(j);
+            }
+        }
+        const text = group.map(g => g[0]).join('');
+        if (/^S[A-Z]*\\d+-\\d+$/.test(text)) {
+            labels.push([text, p[1], group.reduce((a, g) => a + g[2], 0) / group.length]);
+        }
+    });
     return tags.map(t => {
-        const lab = labels.find(x => Math.abs(x[2] - t[2]) < 1);
+        const lab = labels.find(x => Math.abs(x[2] - t[2]) < 2);
         return { tag: t[0], side: lab ? (t[1] > lab[1] ? 'right' : 'left') : 'none',
                  lx: lab ? Math.round(lab[1]) : null, tx: Math.round(t[1]) };
     });

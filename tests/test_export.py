@@ -340,6 +340,25 @@ def test_pdf_from_pages_sizes_every_page_on_its_own(client):
     assert [p.extract_text().strip() for p in pages] == ['Cover', 'SR - MAIN', 'Pull']
 
 
+def test_pdf_from_pages_takes_a_sheet_of_any_size(client):
+    """The binder's sheets: a Tabloid page (3400 x 2200 px at 200 px/in) is
+    1224 x 792 pt, a Letter one 792 x 612, an ARCH D 2592 x 1728 - inches
+    x 72 - and a text at the sheet's far corner lands there, in points."""
+    sheets = [(3400, 2200, [1224, 792]), (2200, 1700, [792, 612]), (7200, 4800, [2592, 1728])]
+    resp = client.post('/api/export/pdf-from-pages', json={
+        'project_name': 'Set',
+        'pages': [_page([_text('2.1', x=w - 100, y=h - 60, size=56, weight=800)], width=w, height=h, page_size=pt)
+                  for w, h, pt in sheets],
+    })
+    assert resp.status_code == 200
+    pages = _pdf_pages(resp.data)
+    assert [[float(v) for v in p.mediabox] for p in pages] == [[0, 0, *pt] for _w, _h, pt in sheets]
+    for p in pages:
+        assert '2.1' in p.extract_text()
+        # the number is set in Helvetica-Bold at 56 px x 72 / 200 = 20.16 pt
+        assert b'20.16' in p.get_contents().get_data() or b'20.2' in p.get_contents().get_data()
+
+
 def test_pdf_from_pages_rotated_text_does_not_crash_and_is_still_text(client):
     """The brackets' labels turn a quarter either way; both come through as
     text, and nothing else on the page moves."""
